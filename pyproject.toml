@@ -1,0 +1,25 @@
+[project]
+name = "activitysim-visualizer"
+version = "0.1.0"
+description = "Panel-based ActivitySim comparison visualizer"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "pandas",
+    "panel",
+    "plotly",
+    "polars",
+    "pyarrow",
+    "openmatrix",
+    "pyyaml",
+]
+
+[project.scripts]
+activitysim-viz = "run:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = false
