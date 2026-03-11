@@ -1,0 +1,160 @@
+# ActivitySim Visualizer Configuration
+# Adapt this file for each model deployment.
+# Only the sections you need are required — see comments for which are optional.
+
+name: "Default Settings"
+dashboard_title: "ActivitySim Comparison Visualizer"
+
+
+# ---------------------------------------------------------------------------
+# Runs to compare
+# Each entry specifies a run directory, a display label, and optional overrides.
+#
+# Weight columns (all optional — leave as null or omit to use default rules):
+#   hh_weight_col:     explicit household weight column in final_households
+#   person_weight_col: explicit person weight column in final_persons
+#   trip_weight_col:   explicit trip weight column in final_trips
+#                      (tour weight = average of its trips' weights when set)
+#
+# If none of the above are set and sample_rate is not in columns, all weights = 1.
+# ---------------------------------------------------------------------------
+runs:
+  - dir:              C:\Users\wesley.darling\Downloads\OneDrive_1_3-10-2026\translink_20pct_pnr_logsum_v2
+    label:            Base
+    skim_file:        null
+    hh_weight_col:    null
+    person_weight_col: null
+    trip_weight_col:  null
+  - dir:              C:\Users\wesley.darling\Downloads\OneDrive_1_3-10-2026\translink_20pct_no_pnr_logsum_v2
+    label:            Build
+    skim_file:        null
+    hh_weight_col:    null
+    person_weight_col: null
+    trip_weight_col:  null
+
+# ---------------------------------------------------------------------------
+# Skim file (global default — can be overridden per run below)
+# ---------------------------------------------------------------------------
+skim:
+  file: C:\Users\wesley.darling\Downloads\OneDrive_1_3-10-2026\translink_20pct_no_pnr_logsum_v2\skims.omx      # path relative to run directory, or absolute
+  matrix: DIST    # matrix name inside the OMX file
+
+
+# ---------------------------------------------------------------------------
+# Zone system
+# Set use_maz: false for TAZ-only models (zone IDs in outputs are already TAZs).
+# For 2-zone (MAZ+TAZ) models, specify which columns in final_land_use
+# hold the MAZ and TAZ IDs.
+# ---------------------------------------------------------------------------
+zones:
+  use_maz:  false          # false = TAZ-only model, no MAZ→TAZ conversion needed
+  maz_col:  zone_id       # column in final_land_use containing MAZ IDs
+  taz_col:  TAZ           # column in final_land_use containing TAZ IDs
+
+
+# ---------------------------------------------------------------------------
+# ActivitySim output file names
+# Use stems (no extension) for automatic format detection: the reader will try
+# .parquet first, then .csv.  You may also specify an explicit extension to
+# force a particular format (e.g. final_households.csv or final_tours.parquet).
+# ---------------------------------------------------------------------------
+files:
+  households:              final_households
+  persons:                 final_persons
+  tours:                   final_tours
+  trips:                   final_trips
+  joint_tour_participants: final_joint_tour_participants
+  land_use:                final_land_use
+
+# ---------------------------------------------------------------------------
+# Column names in the ActivitySim output files
+# Change only if your outputs use non-standard column names.
+# ---------------------------------------------------------------------------
+columns:
+  ptype:          ptype           # person type column in persons file
+  hhsize:         hhsize          # HH size column in households file
+  auto_ownership: auto_ownership  # vehicle count column in households file
+  num_workers:    num_workers     # workers per HH in households file
+  num_adults:     num_adults      # adults per HH in households file
+  # sample_rate: sample_rate     # OPTIONAL override; if omitted, code auto-detects
+                                 # a households column literally named 'sample_rate'.
+                                 # finalweight = 1/sample_rate (unless explicit run weight columns are provided)
+
+# OPTIONAL person type display labels used in dropdowns/charts
+# Keys should match raw ptype values in outputs
+person_types:
+  1: Full-time worker
+  2: Part-time worker
+  3: University student
+  4: Non-worker adult
+  5: Retired
+  6: Driving-age student
+  7: Non-driving-age student
+  8: Preschool
+
+# ---------------------------------------------------------------------------
+# Geography grouping (OPTIONAL)
+# Enables district/county/zone-group level breakdowns.
+# Remove this section (or set enabled: false) to disable geographic summaries.
+# ---------------------------------------------------------------------------
+geography:
+  enabled: false
+  landuse_col:   COUNTY         # column in final_land_use to use as group label
+  # mapping: optional — maps raw column values to display names.
+  # If omitted, the raw values from the column are used as-is.
+  mapping:
+    1: County_name1
+    2: County_name2
+    3: County_name3
+  
+# ---------------------------------------------------------------------------
+# Mode display (OPTIONAL)
+# order: controls the display order for mode charts.
+# groups: rolls up individual modes into aggregate categories for summary charts.
+# If omitted, modes appear in the order found in the data with no grouping.
+# ---------------------------------------------------------------------------
+# modes:
+#   order:
+#     - DRIVEALONE
+#     - SHARED2
+#     - SHARED3
+#     - WALK
+#     - BIKE
+#     - WALK_LOC
+#     - WALK_MIX
+#     - WALK_PRM
+#     - PNR_LOC
+#     - PNR_MIX
+#     - PNR_PRM
+#     - KNR_LOC
+#     - KNR_MIX
+#     - KNR_PRM
+#     - SCHOOLBUS
+#     - TAXI
+#     - TNC_SINGLE
+#     - TNC_SHARED
+#   groups:
+#     Auto:           [DRIVEALONE, SHARED2, SHARED3]
+#     Transit:        [WALK_LOC, WALK_MIX, WALK_PRM, PNR_LOC, PNR_MIX, PNR_PRM, KNR_LOC, KNR_MIX, KNR_PRM]
+#     Non-Motorized:  [WALK, BIKE]
+#     Other:          [SCHOOLBUS, TAXI, TNC_SINGLE, TNC_SHARED]
+
+
+# ---------------------------------------------------------------------------
+# Dashboard appearance
+# ---------------------------------------------------------------------------
+run_colors:
+  - "#298c8c" # Teal
+  - "#a00000" # Red
+  - "#b8b8b8"  # Light gray
+  - "#384860"  # Dark blue-gray
+  - "#ff7f0e"  # Orange
+  # - "#1f77b4"
+  # - "#ff7f0e"
+  # - "#2ca02c"
+  # - "#d62728"
+  # - "#9467bd"
+  # - "#8c564b"
+  # - "#e377c2"
+  # - "#7f7f7f"
+

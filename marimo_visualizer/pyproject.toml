@@ -1,0 +1,21 @@
+[project]
+name = "activitysim-visualizer-marimo-alt"
+version = "0.1.0"
+description = "Marimo-based ActivitySim comparison visualizer"
+requires-python = ">=3.10"
+dependencies = [
+    "marimo",
+    "numpy",
+    "openmatrix",
+    "plotly",
+    "polars",
+    "pyarrow",
+    "pyyaml",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = false
