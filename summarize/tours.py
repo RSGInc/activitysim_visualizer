@@ -107,7 +107,12 @@ def nm_tour_rates(rd: RunData, config: Config) -> pl.DataFrame:
     Purposes are the raw primary_purpose strings from NM tours.
     """
     ptype_col = config.col_ptype
-    if "tour_category" not in rd.tours.columns or "primary_purpose" not in rd.tours.columns:
+    if (
+        "tour_category" not in rd.tours.columns
+        or "primary_purpose" not in rd.tours.columns
+        or ptype_col not in rd.tours.columns
+        or ptype_col not in rd.per.columns
+    ):
         return pl.DataFrame({"ptype": [], "tour_purp": [], "tour_rate": []})
 
     nm_tours = rd.tours.filter(pl.col("tour_category") == "non-mandatory")

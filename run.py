@@ -100,6 +100,7 @@ def main() -> None:
     # ------------------------------------------------------------------ #
     from summarize.reader import Config, read_run, prepare_data
     from summarize import writer as csv_writer
+    from quarto_visualizer.panel_reference import build_reference_summaries
 
     print(f"[main] Loading config: {args.config}")
     config = Config.from_yaml(args.config)
@@ -157,40 +158,11 @@ def main() -> None:
     # ------------------------------------------------------------------ #
     if args.write_csvs:
         print("[main] Generating summary outputs")
-        from summarize import demographics, mandatory, tours, tour_mode, tour_tod, trips, stops, totals
 
         for label, rd in runs:
             print(f"Writing CSVs for run: {label}")
             out_dir = Path(rd.run_dir) / "summary_outputs"
-
-            summaries = {
-                "autoOwnership":        demographics.auto_ownership(rd),
-                "pertypeDistbn":        demographics.person_type(rd, config),
-                "hhSizeDist":           demographics.hh_size(rd),
-                "workTLFD":             mandatory.tlfd(rd, config)["work"],
-                "univTLFD":             mandatory.tlfd(rd, config)["univ"],
-                "schlTLFD":             mandatory.tlfd(rd, config)["schl"],
-                "mandTourLengths":      mandatory.mand_tour_lengths(rd, config),
-                "wfh_summary":          mandatory.wfh(rd, config),
-                "telecommuteFrequency": mandatory.telecommute(rd),
-                "geoFlows":             mandatory.geo_flows(rd, config),
-                "dapSummary_vis":       tours.dap_summary(rd, config),
-                "mtfSummary_vis":       tours.mandatory_tour_freq(rd, config),
-                "inmSummary_vis":       tours.indiv_nm_summary(rd, config),
-                "nm_tour_rates":        tours.nm_tour_rates(rd, config),
-                "jtf":                  tours.joint_tour_freq(rd),
-                "jointComp":            tours.joint_composition(rd),
-                "jointPartySize":       tours.joint_party_size(rd),
-                "jointToursHHSize":     tours.joint_tours_hhsize(rd),
-                "tmodeProfile_vis":     tour_mode.tour_mode_profile(rd, config),
-                "todProfile_vis":       tour_tod.tod_profiles(rd),
-                "tripModeProfile_vis":  trips.trip_mode_profile(rd, config),
-                "stopFreq":             stops.stop_freq(rd),
-                "stopPurpose":          stops.stop_purpose_by_tour_purpose(rd),
-                "stopLocation":         stops.stop_location(rd),
-                "stopTiming":           stops.stop_timing(rd),
-                "totals":               totals.system_totals(rd, config),
-            }
+            summaries = build_reference_summaries(rd, config)
             csv_writer.write_all(summaries, out_dir)
             print(f"[main] Wrote summaries: {out_dir}")
 

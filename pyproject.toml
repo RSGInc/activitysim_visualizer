@@ -16,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 activitysim-viz = "run:main"
+activitysim-viz-freeze-panel = "quarto_visualizer.freeze_panel:main"
 
 [build-system]
 requires = ["hatchling"]
