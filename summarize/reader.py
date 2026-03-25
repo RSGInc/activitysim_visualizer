@@ -221,7 +221,7 @@ def _resolve_skim(run_skim: Optional[str], global_skim: Optional[str], run_dir: 
     candidate = run_skim or global_skim
     if not candidate:
         return None
-    p = Path(candidate)
+    p = Path(candidate).expanduser()
     if not p.is_absolute():
         p = run_dir / p
     return str(p)
@@ -236,6 +236,7 @@ def _find_and_read(run_dir: Path, configured: str) -> pl.DataFrame:
     - If no extension (or unrecognised extension) → try .parquet first, then .csv.
     """
     p = Path(configured)
+    run_dir = run_dir.expanduser()
     suffix = p.suffix.lower()
     stem = p.stem if suffix in (".csv", ".parquet") else p.name
 

@@ -116,7 +116,7 @@ def stop_timing(rd: RunData) -> pl.DataFrame:
                 "freq_stop_dep": float(ns[0]) if len(ns) > 0 else 0.0,
                 "freq_trip_dep": float(nt[0]) if len(nt) > 0 else 0.0,
             })
-    return pl.DataFrame(rows)
+    return pl.DataFrame(rows,infer_schema_length=None)
 
 
 

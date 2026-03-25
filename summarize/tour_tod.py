@@ -73,7 +73,7 @@ def tod_profiles(rd: RunData) -> pl.DataFrame:
     if not all_rows:
         return pl.DataFrame()
 
-    df_long = pl.DataFrame(all_rows)
+    df_long = pl.DataFrame(all_rows,infer_schema_length=None)
     total = (df_long.group_by("timebin")
              .agg([pl.col("freq_dep").sum(), pl.col("freq_arr").sum(), pl.col("freq_dur").sum()])
              .with_columns(pl.lit("Total").alias("purpose"))
