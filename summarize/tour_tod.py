@@ -22,18 +22,26 @@ def tod_profiles(rd: RunData) -> pl.DataFrame:
     joint = (rd.tours.filter(pl.col("tour_category") == "joint")
              .with_columns((pl.col("finalweight") * pl.col("NUMBER_HH")).alias("wgt")))
 
-    # Build (label, df, filter) pairs from primary_purpose string values
+    # Find a valid non-numeric purpose column if available
+    purpose_col = None
+    for cand in ("primary_purpose", "tour_type", "purpose"):
+        if cand in rd.tours.columns and not rd.tours[cand].dtype.is_numeric():
+            purpose_col = cand
+            break
+
+    # Build (label, df, filter) pairs from purpose column values
     purpose_groups = []
-    if "primary_purpose" in rd.tours.columns:
-        purps = indiv["primary_purpose"].drop_nulls().unique().sort().to_list()
+    if purpose_col:
+        purps = indiv[purpose_col].drop_nulls().unique().sort().to_list()
         for p in purps:
-            purpose_groups.append((p, indiv, pl.col("primary_purpose") == p))
+            purpose_groups.append((p, indiv, pl.col(purpose_col) == p))
         if len(joint) > 0:
-            j_purps = joint["primary_purpose"].drop_nulls().unique().sort().to_list()
+            j_purps = joint[purpose_col].drop_nulls().unique().sort().to_list()
             for p in j_purps:
-                purpose_groups.append((f"joint_{p}", joint, pl.col("primary_purpose") == p))
+                purpose_groups.append((f"joint_{p}", joint, pl.col(purpose_col) == p))
     else:
         purpose_groups.append(("all", rd.tours, pl.lit(True)))
+
 
     # Support both 24 one-hour bins and 48 half-hour bins.
     max_period = 48

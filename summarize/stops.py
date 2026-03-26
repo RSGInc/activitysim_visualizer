@@ -11,7 +11,14 @@ def stop_freq(rd: RunData) -> pl.DataFrame:
 
     Columns: primary_purpose, ob_stops (0-3+), ib_stops (0-3+), tot_stops (0-6+), freq.
     """
-    if "primary_purpose" not in rd.tours.columns:
+    # Find a valid non-numeric purpose column if available
+    purpose_col = None
+    for cand in ("primary_purpose", "tour_type", "purpose"):
+        if cand in rd.tours.columns and not rd.tours[cand].dtype.is_numeric():
+            purpose_col = cand
+            break
+
+    if purpose_col is None:
         return pl.DataFrame()
 
     all_tours = rd.tours.filter(pl.col("tour_category").is_not_null())
@@ -21,7 +28,7 @@ def stop_freq(rd: RunData) -> pl.DataFrame:
               pl.col("num_ib_stops").clip(0, 3).alias("ib_stops"),
               pl.col("num_tot_stops").clip(0, 6).alias("tot_stops"),
           ])
-          .group_by(["primary_purpose", "ob_stops", "ib_stops", "tot_stops"])
+          .group_by([purpose_col, "ob_stops", "ib_stops", "tot_stops"])
           .agg(pl.col("finalweight").sum().alias("freq")))
     return ob
 
@@ -101,11 +108,18 @@ def stop_timing(rd: RunData) -> pl.DataFrame:
             max_period = 48
     bins = list(range(1, 25 if max_period <= 24 else 49))
 
-    if "primary_purpose" not in rd.trips.columns:
+    # Find a valid non-numeric purpose column if available
+    purpose_col = None
+    for cand in ("primary_purpose", "tour_type", "purpose"):
+        if cand in rd.trips.columns and not rd.trips[cand].dtype.is_numeric():
+            purpose_col = cand
+            break
+
+    if purpose_col is None:
         purposes = {"Total": pl.lit(True)}
     else:
-        purpose_list = rd.trips["primary_purpose"].drop_nulls().unique().sort().to_list()
-        purposes = {p: pl.col("primary_purpose") == p for p in purpose_list}
+        purpose_list = rd.trips[purpose_col].drop_nulls().unique().sort().to_list()
+        purposes = {p: pl.col(purpose_col) == p for p in purpose_list}
         purposes["Total"] = pl.lit(True)
 
     rows = []

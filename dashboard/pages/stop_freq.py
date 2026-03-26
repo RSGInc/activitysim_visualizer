@@ -14,10 +14,18 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
     stop_list  = [(l, stops.stop_freq(rd)) for l, rd in runs]
     purp_by_tp = [(l, stops.stop_purpose_by_tour_purpose(rd)) for l, rd in runs]
 
-    # Collect purposes from first non-empty run
-    first_sf = next((df for _, df in stop_list if len(df) > 0), pl.DataFrame())
-    if len(first_sf) > 0 and "primary_purpose" in first_sf.columns:
-        purp_opts = ["Total"] + sorted(first_sf["primary_purpose"].drop_nulls().unique().to_list())
+    # Collect all valid non-numeric purpose columns from all runs
+    purposes_set = set()
+    purpose_col = None
+    for _, df in stop_list:
+        for cand in ("primary_purpose", "tour_type", "purpose"):
+            if cand in df.columns and not df[cand].dtype.is_numeric():
+                purpose_col = cand
+                purposes_set.update(df[cand].drop_nulls().unique().to_list())
+                break
+
+    if purposes_set:
+        purp_opts = ["Total"] + sorted(purposes_set)
     else:
         purp_opts = ["Total"]
 
@@ -25,7 +33,8 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
 
     @pn.depends(purp_sel)
     def freq_charts(purp):
-        if purp == "Total":
+        if purpose_col is None or purp == "Total":
+            # fallback to original logic if no valid purpose_col found
             ob_data = [(l, df.group_by("ob_stops").agg(pl.col("freq").sum())
                        .sort("ob_stops")
                        .with_columns(pl.col("ob_stops").cast(pl.Utf8).alias("stops")))
@@ -39,17 +48,17 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
                         .with_columns(pl.col("tot_stops").cast(pl.Utf8).alias("stops")))
                         for l, df in stop_list]
         else:
-            ob_data = [(l, df.filter(pl.col("primary_purpose") == purp)
+            ob_data = [(l, df.filter(pl.col(purpose_col) == purp)
                     .group_by("ob_stops").agg(pl.col("freq").sum())
                     .sort("ob_stops")
                     .with_columns(pl.col("ob_stops").cast(pl.Utf8).alias("stops")))
                     for l, df in stop_list]
-            ib_data = [(l, df.filter(pl.col("primary_purpose") == purp)
+            ib_data = [(l, df.filter(pl.col(purpose_col) == purp)
                     .group_by("ib_stops").agg(pl.col("freq").sum())
                     .sort("ib_stops")
                     .with_columns(pl.col("ib_stops").cast(pl.Utf8).alias("stops")))
                     for l, df in stop_list]
-            tot_data = [(l, df.filter(pl.col("primary_purpose") == purp)
+            tot_data = [(l, df.filter(pl.col(purpose_col) == purp)
                      .group_by("tot_stops").agg(pl.col("freq").sum())
                      .sort("tot_stops")
                      .with_columns(pl.col("tot_stops").cast(pl.Utf8).alias("stops")))
@@ -63,10 +72,10 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
 
     @pn.depends(purp_sel)
     def purp_by_tp_chart(purp):
-        if purp == "Total":
+        if purpose_col is None or purp == "Total":
             data = [(l, df.group_by("purpose").agg(pl.col("freq").sum())) for l, df in purp_by_tp]
         else:
-            data = [(l, df.filter(pl.col("primary_purpose") == purp)) for l, df in purp_by_tp]
+            data = [(l, df.filter(pl.col(purpose_col) == purp)) for l, df in purp_by_tp]
         return bar_chart(data, "purpose", "freq", f"Stop Purpose — tour={purp}", "Stop Purpose")
 
     return pn.Column(
