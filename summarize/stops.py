@@ -102,15 +102,24 @@ def stop_timing(rd: RunData) -> pl.DataFrame:
 
     Columns: timebin, primary_purpose, freq_stop_dep, freq_trip_dep.
     """
-    if "stops" not in rd.trips.columns or "depart_hour" not in rd.trips.columns:
+    # Prefer "depart", fallback to "depart_hour"
+    dep_col = None
+    if "depart" in rd.trips.columns:
+        dep_col = "depart"
+    elif "depart_hour" in rd.trips.columns:
+        dep_col = "depart_hour"
+    else:
+        return pl.DataFrame()
+
+    if "stops" not in rd.trips.columns:
         return pl.DataFrame()
 
     stops = rd.trips.filter(pl.col("stops") == 1)
     all_trips = rd.trips
     max_period = 48
-    if "depart_hour" in rd.trips.columns:
+    if dep_col in rd.trips.columns:
         try:
-            max_period = int(rd.trips["depart_hour"].max())
+            max_period = int(rd.trips[dep_col].max())
         except Exception:
             max_period = 48
     bins = list(range(1, 25 if max_period <= 24 else 49))
@@ -131,13 +140,13 @@ def stop_timing(rd: RunData) -> pl.DataFrame:
 
     rows = []
     for purp_name, filt in purposes.items():
-        stop_sub = stops.filter(filt & pl.col("depart_hour").is_between(1, bins[-1]))
-        trip_sub = all_trips.filter(filt & pl.col("depart_hour").is_between(1, bins[-1]))
-        stop_counts = stop_sub.group_by("depart_hour").agg(pl.col("finalweight").sum().alias("n_stop"))
-        trip_counts = trip_sub.group_by("depart_hour").agg(pl.col("finalweight").sum().alias("n_trip"))
+        stop_sub = stops.filter(filt & pl.col(dep_col).is_between(1, bins[-1]))
+        trip_sub = all_trips.filter(filt & pl.col(dep_col).is_between(1, bins[-1]))
+        stop_counts = stop_sub.group_by(dep_col).agg(pl.col("finalweight").sum().alias("n_stop"))
+        trip_counts = trip_sub.group_by(dep_col).agg(pl.col("finalweight").sum().alias("n_trip"))
         for tb in bins:
-            ns = stop_counts.filter(pl.col("depart_hour") == tb)["n_stop"]
-            nt = trip_counts.filter(pl.col("depart_hour") == tb)["n_trip"]
+            ns = stop_counts.filter(pl.col(dep_col) == tb)["n_stop"]
+            nt = trip_counts.filter(pl.col(dep_col) == tb)["n_trip"]
             rows.append({
                 "timebin": tb,
                 "primary_purpose": purp_name,

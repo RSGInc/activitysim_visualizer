@@ -20,10 +20,19 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
 
     timing_list = [(l, stops.stop_timing(rd)) for l, rd in runs]
 
-    # Discover purpose options from data
-    first_df = next((df for _, df in timing_list if len(df) > 0), pl.DataFrame())
-    if len(first_df) > 0 and "primary_purpose" in first_df.columns:
-        purp_opts = sorted(first_df["primary_purpose"].drop_nulls().unique().to_list())
+    # Discover valid non-numeric purpose column for each df and collect all purpose options
+    run_to_purpose_col = {}
+    purposes_set = set()
+    for l, df in timing_list:
+        for cand in ("primary_purpose", "tour_type", "purpose"):
+            if cand in df.columns and not df[cand].dtype.is_numeric():
+                run_to_purpose_col[l] = cand
+                purposes_set.update(df[cand].drop_nulls().unique().to_list())
+                break
+        else:
+            run_to_purpose_col[l] = None
+    if purposes_set:
+        purp_opts = sorted(purposes_set)
     else:
         purp_opts = ["work"]
 
@@ -37,8 +46,11 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
                 maxbin = int(df["timebin"].max())
                 break
 
-        def _prep(df: pl.DataFrame, val_col: str) -> pl.DataFrame:
-            return (df.filter(pl.col("primary_purpose") == purp)
+        def _prep(df: pl.DataFrame, val_col: str, l: str) -> pl.DataFrame:
+            purpose_col = run_to_purpose_col.get(l)
+            if purpose_col is None or purpose_col not in df.columns:
+                return pl.DataFrame({"timebin": [], "freq": [], "clock_time": []})
+            return (df.filter(pl.col(purpose_col) == purp)
                     .select(["timebin", val_col])
                     .rename({val_col: "freq"})
                     .with_columns(
@@ -47,8 +59,8 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
                         ).alias("clock_time")
                     ))
 
-        stop_dep = [(l, _prep(df, "freq_stop_dep")) for l, df in timing_list]
-        trip_dep = [(l, _prep(df, "freq_trip_dep")) for l, df in timing_list]
+        stop_dep = [(l, _prep(df, "freq_stop_dep", l)) for l, df in timing_list]
+        trip_dep = [(l, _prep(df, "freq_trip_dep", l)) for l, df in timing_list]
         x_label = "Clock time (start at 03:00)"
         return pn.Column(
             density_chart(trip_dep, "clock_time", "freq", f"Trip Departure — {purp}", x_label),
