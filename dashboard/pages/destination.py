@@ -6,7 +6,7 @@ from dashboard.components import density_chart, data_table, _to_pandas
 from summarize.reader import RunData, Config
 
 
-def _nm_dist_by_purpose(rd: RunData, purpose: str | None) -> pl.DataFrame:
+def _nm_dist_by_purpose(rd: RunData, purpose: str | None, col_name: str) -> pl.DataFrame:
     """Return (distbin 0-40, freq) for NM tours filtered by primary_purpose string."""
     tours = rd.tours
     if "tour_category" not in tours.columns:
@@ -29,9 +29,9 @@ def _nm_dist_by_purpose(rd: RunData, purpose: str | None) -> pl.DataFrame:
         if "primary_purpose" not in tours.columns:
             return pl.DataFrame({"distbin": list(range(41)), "freq": [0.0] * 41})
         combined = pl.concat([
-            indiv.filter(pl.col("primary_purpose") == purpose).select(["SKIMDIST", "finalweight"])
+            indiv.filter(pl.col(col_name) == purpose).select(["SKIMDIST", "finalweight"])
             if "SKIMDIST" in indiv.columns else pl.DataFrame(),
-            joint.filter(pl.col("primary_purpose") == purpose).select(["SKIMDIST", "finalweight"])
+            joint.filter(pl.col(col_name) == purpose).select(["SKIMDIST", "finalweight"])
             if "SKIMDIST" in joint.columns else pl.DataFrame(),
         ])
 
@@ -48,22 +48,35 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
     if not runs:
         return pn.pane.Markdown("No runs loaded.")
 
-    # Collect NM purpose options from first run
-    first_rd = runs[0][1]
-    if "tour_category" in first_rd.tours.columns and "primary_purpose" in first_rd.tours.columns:
-        nm_tours = first_rd.tours.filter(
-            pl.col("tour_category").is_in(["non-mandatory", "atwork", "joint"])
-        )
-        purposes = sorted(nm_tours["primary_purpose"].drop_nulls().unique().to_list())
-    else:
-        purposes = []
+    # Collect NM purpose options from all runs and map run label to purpose column
+    purposes_set = set()
+    run_to_purpose_col = {}
+    for run_label, rd in runs:
+        if "tour_category" in rd.tours.columns:
+            for cand in ("primary_purpose", "tour_type", "purpose"):
+                if cand in rd.tours.columns and not rd.tours[cand].dtype.is_numeric():
+                    run_to_purpose_col[run_label] = cand
+                    break
+            else:
+                run_to_purpose_col[run_label] = None
+            purpose_col = run_to_purpose_col[run_label]
+            if purpose_col:
+                nm_tours = rd.tours.filter(
+                    pl.col("tour_category").is_in(["non-mandatory", "atwork", "joint"])
+                )
+                purposes_set.update(nm_tours[purpose_col].drop_nulls().unique().to_list())
+        else:
+            run_to_purpose_col[run_label] = None
+
+    purposes = sorted(purposes_set) if purposes_set else []
+
 
     purp_opts = ["All NM"] + purposes
     purp_sel = pn.widgets.Select(name="Purpose", options=purp_opts, value="All NM")
 
     @pn.depends(purp_sel)
     def dist_chart(purp):
-        data = [(l, _nm_dist_by_purpose(rd, purp)) for l, rd in runs]
+        data = [(l, _nm_dist_by_purpose(rd, purp, run_to_purpose_col[l])) for l, rd in runs]
         return density_chart(data, "distbin", "freq",
                              f"NM Tour Distance Distribution — {purp}", "Distance (miles)", normalize=True)
 
@@ -73,9 +86,13 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
         for purp in purposes:
             row = {"Purpose": purp}
             for run_label, rd in runs:
-                df = _nm_dist_by_purpose(rd, purp)
-                if "SKIMDIST" in rd.tours.columns and "primary_purpose" in rd.tours.columns:
-                    sub = rd.tours.filter(pl.col("primary_purpose") == purp)
+                purpose_col = run_to_purpose_col.get(run_label)
+                if not purpose_col:
+                    row[run_label] = None
+                    continue
+                df = _nm_dist_by_purpose(rd, purp, purpose_col)
+                if "SKIMDIST" in rd.tours.columns and purpose_col in rd.tours.columns:
+                    sub = rd.tours.filter(pl.col(purpose_col) == purp)
                     if len(sub) > 0:
                         wgt = sub["finalweight"].to_numpy()
                         dist = sub["SKIMDIST"].to_numpy()
@@ -85,7 +102,7 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
                             continue
                 row[run_label] = None
             rows.append(row)
-        return pl.DataFrame(rows) if rows else pl.DataFrame()
+        return pl.DataFrame(rows,infer_schema_length=None) if rows else pl.DataFrame()
 
     avg_df = avg_dist_table()
 

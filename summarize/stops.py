@@ -57,21 +57,28 @@ def stop_location(rd: RunData) -> pl.DataFrame:
               .with_columns(pl.col("out_dir_dist").clip(0, 999).alias("ood"))
               .with_columns(pl.col("ood").cast(pl.Int32).clip(0, 40).alias("distbin")))
 
+    for cand in ("primary_purpose", "tour_type", "purpose"):
+        if cand in rd.trips.columns and not rd.trips[cand].dtype.is_numeric():
+            purpose_col = cand
+            break
+    else:
+        purpose_col = None
+
     bins = list(range(0, 41))
-    if "primary_purpose" not in stops2.columns:
+    if purpose_col is None:
         counts = (stops2.group_by("distbin").agg(pl.col("finalweight").sum().alias("n")))
         base = pl.DataFrame({"distbin": bins})
         result = base.join(counts, on="distbin", how="left").fill_null(0)
         return result.with_columns(pl.lit("Total").alias("primary_purpose"))
 
-    purposes = stops2["primary_purpose"].drop_nulls().unique().to_list()
+    purposes = stops2[purpose_col].drop_nulls().unique().to_list()
     rows = []
     for purp in purposes:
-        sub = stops2.filter(pl.col("primary_purpose") == purp)
+        sub = stops2.filter(pl.col(purpose_col) == purp)
         counts = sub.group_by("distbin").agg(pl.col("finalweight").sum().alias("n"))
         for db in bins:
             n_row = counts.filter(pl.col("distbin") == db)["n"]
-            rows.append({"distbin": db, "primary_purpose": purp,
+            rows.append({"distbin": db, purpose_col: purp,
                          "freq": float(n_row[0]) if len(n_row) > 0 else 0.0})
     return pl.DataFrame(rows)
 

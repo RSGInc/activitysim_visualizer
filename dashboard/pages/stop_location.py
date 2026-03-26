@@ -13,12 +13,21 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
 
     loc_list = [(l, stops.stop_location(rd)) for l, rd in runs]
 
-    # Discover purpose options from data
-    first_df = next((df for _, df in loc_list if len(df) > 0), pl.DataFrame())
-    if len(first_df) > 0 and "primary_purpose" in first_df.columns:
-        purp_opts = sorted(first_df["primary_purpose"].drop_nulls().unique().to_list())
-    else:
-        purp_opts = []
+    # Collect purpose options from all runs and map run label to purpose column
+    purposes_set = set()
+    run_to_purpose_col = {}
+    for run_label, df in loc_list:
+        for cand in ("primary_purpose", "tour_type", "purpose"):
+            if cand in df.columns and not df[cand].dtype.is_numeric():
+                run_to_purpose_col[run_label] = cand
+                break
+        else:
+            run_to_purpose_col[run_label] = None
+        purpose_col = run_to_purpose_col[run_label]
+        if purpose_col:
+            purposes_set.update(df[purpose_col].drop_nulls().unique().to_list())
+
+    purp_opts = sorted(purposes_set) if purposes_set else []
 
     charts = []
     all_data = [(l, df.group_by("distbin").agg(pl.col("freq").sum()).sort("distbin"))
@@ -26,7 +35,7 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
     charts.append(density_chart(all_data, "distbin", "freq",
                                 "Stop Out-of-Direction Distance — All Purposes", "Miles", normalize=True))
     for purp in purp_opts:
-        data = [(l, df.filter(pl.col("primary_purpose") == purp).select(["distbin", "freq"]))
+        data = [(l, df.filter(pl.col(run_to_purpose_col[l]) == purp).select(["distbin", "freq"]))
                 for l, df in loc_list]
         charts.append(density_chart(data, "distbin", "freq",
                                     f"Stop Out-of-Direction Distance — {purp}", "Miles", normalize=True))

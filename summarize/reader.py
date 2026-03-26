@@ -245,7 +245,7 @@ def _find_and_read(run_dir: Path, configured: str) -> pl.DataFrame:
         return pl.read_parquet(run_dir / p)
     elif suffix == ".csv":
         print(f"[read_run] Reading csv: {run_dir / p}")
-        return pl.read_csv(run_dir / p, infer_schema_length=10000)
+        return pl.read_csv(run_dir / p, infer_schema_length=None)
     else:
         # Auto-detect: parquet first, then csv
         parquet_path = run_dir / f"{stem}.parquet"
@@ -255,7 +255,7 @@ def _find_and_read(run_dir: Path, configured: str) -> pl.DataFrame:
             return pl.read_parquet(parquet_path)
         elif csv_path.exists():
             # print(f"[read_run] Reading csv (auto): {csv_path}")
-            return pl.read_csv(csv_path, infer_schema_length=10000)
+            return pl.read_csv(csv_path, infer_schema_length=None)
         raise FileNotFoundError(
             f"Cannot find '{stem}.parquet' or '{stem}.csv' in {run_dir}"
         )
@@ -624,6 +624,9 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
 
     tours = _to_taz(tours, "origin", "OTAZ")
     tours = _to_taz(tours, "destination", "DTAZ")
+
+    # if "primary_purpose" in tours.columns and tours["primary_purpose"].is_numeric():
+        
 
     if skim is not None and "OTAZ" in tours.columns and "DTAZ" in tours.columns:
         print(f"[prepare_data] Computing tour skim distances for '{rd.label}'")
