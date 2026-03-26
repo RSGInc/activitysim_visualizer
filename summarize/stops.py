@@ -38,17 +38,24 @@ def stop_purpose_by_tour_purpose(rd: RunData) -> pl.DataFrame:
 
     Columns: primary_purpose (tour), purpose (stop/trip), freq.
     """
+    # Find a valid non-numeric purpose column if available
+    purpose_col = None
+    for cand in ("primary_purpose", "tour_type"):
+        if cand in rd.trips.columns and not rd.trips[cand].dtype.is_numeric():
+            purpose_col = cand
+            break
+
     if "stops" not in rd.trips.columns or "purpose" not in rd.trips.columns:
         return pl.DataFrame()
-    if "primary_purpose" not in rd.trips.columns:
+    if purpose_col is None:
         return pl.DataFrame()
 
     stops = rd.trips.filter(pl.col("stops") == 1)
     return (stops
-            .filter(pl.col("primary_purpose").is_not_null() & pl.col("purpose").is_not_null())
-            .group_by(["primary_purpose", "purpose"])
+            .filter(pl.col(purpose_col).is_not_null() & pl.col("purpose").is_not_null())
+            .group_by([purpose_col, "purpose"])
             .agg(pl.col("finalweight").sum().alias("freq"))
-            .sort(["primary_purpose", "purpose"]))
+            .sort([purpose_col, "purpose"]))
 
 
 def stop_location(rd: RunData) -> pl.DataFrame:
