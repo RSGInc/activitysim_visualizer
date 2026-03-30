@@ -568,6 +568,10 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     # ------------------------------------------------------------------
     # Persons  (finalweight already set by compute_weights)
     # ------------------------------------------------------------------
+    if "home_zone_id" not in per.columns:
+        print(f"Warning: 'home_zone_id' column not found in persons for run '{rd.label}'. Merging from household_id.")
+        per = per.join(hh.select(["household_id", "home_zone_id"]), on="household_id", how="left")
+
     per = _to_taz(per, "home_zone_id", "home_taz")
     per = _to_taz(per, "workplace_zone_id", "work_taz")
     per = _to_taz(per, "school_zone_id", "school_taz")
