@@ -5,6 +5,7 @@ description = "Panel-based ActivitySim comparison visualizer"
 requires-python = ">=3.10"
 dependencies = [
     "numpy",
+    "jupyter",
     "pandas",
     "panel",
     "plotly",
@@ -12,11 +13,14 @@ dependencies = [
     "pyarrow",
     "openmatrix",
     "pyyaml",
+    "shiny",
+    "shinywidgets",
 ]
 
 [project.scripts]
 activitysim-viz = "run:main"
 activitysim-viz-freeze-panel = "quarto_visualizer.freeze_panel:main"
+activitysim-viz-validate-parity = "quarto_visualizer.validate_parity:main"
 
 [build-system]
 requires = ["hatchling"]

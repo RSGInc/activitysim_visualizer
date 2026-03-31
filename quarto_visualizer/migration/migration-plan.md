@@ -94,6 +94,12 @@ For each page, verify:
 
 Use the parity checklist in [`parity-checklist.md`](/c:/Users/wesley.darling/projects/activitysim_visualizer/quarto_visualizer/migration/parity-checklist.md) to decide what is intentional behavior versus a bug worth fixing after parity.
 
+Current validation command:
+
+- `activitysim-viz-validate-parity --report-markdown quarto_visualizer/migration/phase-6-validation.md`
+- The current Phase 6 pass validates the frozen Panel reference bundle, the current `SummaryBundle` projection, selector/default behavior, and the Quarto page/control structure.
+- The latest report is tracked in [`phase-6-validation.md`](/c:/Users/wesley.darling/projects/activitysim_visualizer/quarto_visualizer/migration/phase-6-validation.md).
+
 ## Phase 7: Post-parity cleanup
 
 After the Quarto app matches the Panel app closely:

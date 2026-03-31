@@ -13,6 +13,10 @@ _DEFAULT_RUN_COLORS = [
 RUN_COLORS = list(_DEFAULT_RUN_COLORS)
 _DISPLAY_PERCENT_MODE = False
 
+
+def _percent_mode(as_percent: bool | None) -> bool:
+    return _DISPLAY_PERCENT_MODE if as_percent is None else bool(as_percent)
+
 def run_color(idx: int) -> str:
     return RUN_COLORS[idx % len(RUN_COLORS)]
 
@@ -54,6 +58,7 @@ def bar_chart(
     barmode: str = "group",
     pct_col: str | None = None,
     height: int = 400,
+    as_percent: bool | None = None,
 ) -> pn.pane.Plotly:
     """
     Create a grouped bar chart comparing multiple runs.
@@ -70,15 +75,16 @@ def bar_chart(
         height: chart height in pixels
     """
     fig = go.Figure()
+    percent_mode = _percent_mode(as_percent)
     for i, (label, df) in enumerate(data_list):
         if df is None or len(df) == 0:
             continue
         x = df[x_col].to_list()
         y = np.array(df[y_col].to_list(), dtype=float)
-        if _DISPLAY_PERCENT_MODE and y.sum() > 0:
+        if percent_mode and y.sum() > 0:
             y = y / y.sum() * 100.0
         y_list = y.tolist()
-        yy_title = "Percent (%)" if _DISPLAY_PERCENT_MODE else yaxis_title
+        yy_title = "Percent (%)" if percent_mode else yaxis_title
         hover = [f"{label}<br>{xaxis_title or x_col}: {xi}<br>{yy_title}: {yi:,.1f}" 
                  for xi, yi in zip(x, y_list)]
         if pct_col and pct_col in df.columns:
@@ -89,7 +95,7 @@ def bar_chart(
             hovertemplate="%{customdata}<extra></extra>",
             customdata=hover,
         ))
-    _layout(fig, title, xaxis_title, "Percent (%)" if _DISPLAY_PERCENT_MODE else yaxis_title, height, barmode=barmode)
+    _layout(fig, title, xaxis_title, "Percent (%)" if percent_mode else yaxis_title, height, barmode=barmode)
     return pn.pane.Plotly(fig, sizing_mode="stretch_width")
 
 
@@ -101,20 +107,22 @@ def line_chart(
     xaxis_title: str = "",
     yaxis_title: str = "",
     height: int = 350,
+    as_percent: bool | None = None,
 ) -> pn.pane.Plotly:
     """Create an overlaid line chart for density/profile comparisons."""
     fig = go.Figure()
+    percent_mode = _percent_mode(as_percent)
     for i, (label, df) in enumerate(data_list):
         if df is None or len(df) == 0:
             continue
         y = np.array(df[y_col].to_list(), dtype=float)
-        if _DISPLAY_PERCENT_MODE and y.sum() > 0:
+        if percent_mode and y.sum() > 0:
             y = y / y.sum() * 100.0
         fig.add_trace(go.Scatter(
             name=label, x=df[x_col].to_list(), y=y.tolist(),
             mode="lines", line=dict(color=run_color(i), width=2),
         ))
-    _layout(fig, title, xaxis_title, "Percent (%)" if _DISPLAY_PERCENT_MODE else yaxis_title, height)
+    _layout(fig, title, xaxis_title, "Percent (%)" if percent_mode else yaxis_title, height)
     return pn.pane.Plotly(fig, sizing_mode="stretch_width")
 
 
@@ -125,27 +133,29 @@ def density_chart(
     title: str = "",
     xaxis_title: str = "",
     yaxis_title: str = "Frequency",
-    normalize: bool = True,
+    normalize: bool = False,
     height: int = 350,
+    as_percent: bool | None = None,
 ) -> pn.pane.Plotly:
     """
     Create an overlaid density/histogram line chart.
     If normalize=True, convert to proportions (sum=100%).
     """
     fig = go.Figure()
+    percent_mode = _percent_mode(as_percent)
     for i, (label, df) in enumerate(data_list):
         if df is None or len(df) == 0:
             continue
         x = df[x_col].to_list()
         y = np.array(df[y_col].to_list(), dtype=float)
-        if (_DISPLAY_PERCENT_MODE or normalize) and y.sum() > 0:
+        if (percent_mode or normalize) and y.sum() > 0:
             y = y / y.sum() * 100
         fig.add_trace(go.Scatter(
             name=label, x=x, y=y.tolist(),
             mode="lines", line=dict(color=run_color(i), width=2),
             fill="tozeroy", fillcolor=run_color(i).replace(")", ",0.1)").replace("rgb", "rgba") if "rgb" in run_color(i) else None,
         ))
-    _layout(fig, title, xaxis_title, "Percent (%)" if (_DISPLAY_PERCENT_MODE or normalize) else yaxis_title, height)
+    _layout(fig, title, xaxis_title, "Percent (%)" if (percent_mode or normalize) else yaxis_title, height)
     return pn.pane.Plotly(fig, sizing_mode="stretch_width")
 
 

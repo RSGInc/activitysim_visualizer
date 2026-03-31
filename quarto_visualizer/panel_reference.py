@@ -14,6 +14,7 @@ from pathlib import Path
 import polars as pl
 
 from summarize import demographics, mandatory, stops, totals, tour_mode, tour_tod, tours, trips
+from quarto_visualizer.summary_bundle import strip_weights
 from summarize.reader import Config, RunData
 from summarize.writer import write_all
 
@@ -49,33 +50,6 @@ def build_reference_summaries(rd: RunData, config: Config) -> dict[str, pl.DataF
         "stopTiming": stops.stop_timing(rd),
         "totals": totals.system_totals(rd, config),
     }
-
-
-def strip_weights(rd: RunData) -> RunData:
-    """Return a copy of ``RunData`` with all ``finalweight`` values reset to 1.0."""
-
-    def _reset(df: pl.DataFrame) -> pl.DataFrame:
-        if "finalweight" in df.columns:
-            return df.with_columns(pl.lit(1.0).alias("finalweight"))
-        return df
-
-    return RunData(
-        label=rd.label,
-        run_dir=rd.run_dir,
-        skim_file=rd.skim_file,
-        hh=_reset(rd.hh),
-        per=_reset(rd.per),
-        tours=_reset(rd.tours),
-        trips=_reset(rd.trips),
-        joint_participants=rd.joint_participants,
-        land_use=rd.land_use,
-        skim_matrix=rd.skim_matrix,
-        skim_zone_map=rd.skim_zone_map,
-        hh_weight_col=None,
-        person_weight_col=None,
-        trip_weight_col=None,
-    )
-
 
 def write_panel_reference_bundle(
     runs: list[tuple[str, RunData]],

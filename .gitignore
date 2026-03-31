@@ -208,3 +208,6 @@ __marimo__/
 
 .tmp
 artifacts/panel_reference/
+quarto/app.py
+quarto/dashboard.html
+quarto/dashboard_files/

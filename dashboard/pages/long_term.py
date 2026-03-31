@@ -52,9 +52,9 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
             schl_data = [(l, tlfs["schl"].select(["distbin", col]).rename({col: "freq"}))
                          for l, tlfs in tlfd_list if col in tlfs["schl"].columns]
             return pn.Column(pn.Row(
-                density_chart(work_data, "distbin", "freq", "Work TLFD", "Distance (miles)", normalize=True),
-                density_chart(univ_data, "distbin", "freq", "University TLFD", "Distance (miles)", normalize=True),
-                density_chart(schl_data, "distbin", "freq", "School TLFD", "Distance (miles)", normalize=True),
+                density_chart(work_data, "distbin", "freq", "Work TLFD", "Distance (miles)", normalize=False),
+                density_chart(univ_data, "distbin", "freq", "University TLFD", "Distance (miles)", normalize=False),
+                density_chart(schl_data, "distbin", "freq", "School TLFD", "Distance (miles)", normalize=False),
             ))
 
         flow_list = [(l, mandatory.geo_flows(rd, config)) for l, rd in runs]
@@ -77,9 +77,9 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
             schl_data = [(l, tlfs["schl"].select(["distbin", "Total"]).rename({"Total": "freq"}))
                          for l, tlfs in tlfd_list]
             return pn.Row(
-                density_chart(work_data, "distbin", "freq", "Work TLFD", "Distance (miles)", normalize=True),
-                density_chart(univ_data, "distbin", "freq", "University TLFD", "Distance (miles)", normalize=True),
-                density_chart(schl_data, "distbin", "freq", "School TLFD", "Distance (miles)", normalize=True),
+                density_chart(work_data, "distbin", "freq", "Work TLFD", "Distance (miles)", normalize=False),
+                density_chart(univ_data, "distbin", "freq", "University TLFD", "Distance (miles)", normalize=False),
+                density_chart(schl_data, "distbin", "freq", "School TLFD", "Distance (miles)", normalize=False),
             )
 
         tlfd_section = pn.Column(

@@ -107,6 +107,29 @@ python run.py --write-csvs --no-dashboard
 python run.py --export-html output.html
 ```
 
+### Run the Quarto dashboard
+
+Quarto needs to start the notebook kernel with the project virtual environment. On Windows, `uv run quarto ...` can still fall back to a different `python3`, especially from Git Bash, which leads to import errors like `No module named 'polars'`.
+
+From Git Bash, use the repo wrapper instead:
+
+```bash
+bash scripts/quarto.sh preview quarto/dashboard.qmd
+```
+
+From PowerShell, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\quarto.ps1 preview quarto\dashboard.qmd
+```
+
+If you prefer to run Quarto directly from Bash, set `QUARTO_PYTHON` first:
+
+```bash
+export QUARTO_PYTHON="$(pwd -W)/.venv/Scripts/python.exe"
+uv run quarto preview quarto/dashboard.qmd
+```
+
 ### Additional options
 
 | Flag | Default | Description |

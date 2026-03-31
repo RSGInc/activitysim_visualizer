@@ -5,8 +5,9 @@ import argparse
 import sys
 from pathlib import Path
 
+from quarto_visualizer.app_state import load_prepared_runs, resolve_run_entries
 from quarto_visualizer.panel_reference import write_panel_reference_bundle
-from summarize.reader import Config, RunData, prepare_data, read_run
+from summarize.reader import Config
 
 
 def parse_args() -> argparse.Namespace:
@@ -51,39 +52,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     config = Config.from_yaml(args.config)
-
-    if args.cli_runs:
-        run_entries = []
-        cli_skims = args.cli_run_skims or []
-        for i, (run_dir, label) in enumerate(args.cli_runs):
-            skim = cli_skims[i] if i < len(cli_skims) else None
-            if skim in ("", "null", "None"):
-                skim = None
-            run_entries.append({"dir": run_dir, "label": label, "skim_file": skim})
-    elif config.runs:
-        run_entries = config.runs
-    else:
+    run_entries = resolve_run_entries(config, cli_runs=args.cli_runs, cli_run_skims=args.cli_run_skims)
+    if not run_entries:
         print("Error: no runs specified. Add runs to config.yaml or use --run DIR LABEL.", file=sys.stderr)
         sys.exit(1)
 
-    runs: list[tuple[str, RunData]] = []
-    for entry in run_entries:
-        run_dir = entry.get("dir", "")
-        label = entry.get("label", Path(run_dir).name)
-        skim = entry.get("skim_file") or None
-
-        print(f"[freeze-panel] Reading run: {label!r} from {run_dir}")
-        rd = read_run(
-            run_dir,
-            config,
-            label=label,
-            skim_file=skim,
-            hh_weight_col=entry.get("hh_weight_col") or None,
-            person_weight_col=entry.get("person_weight_col") or None,
-            trip_weight_col=entry.get("trip_weight_col") or None,
-        )
-        rd = prepare_data(rd, config)
-        runs.append((label, rd))
+    runs = load_prepared_runs(config, run_entries)
 
     out_path = write_panel_reference_bundle(
         runs,

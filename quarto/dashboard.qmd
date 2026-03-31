@@ -1,0 +1,791 @@
+---
+title: "ActivitySim Comparison Visualizer"
+format: dashboard
+server: shiny
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{python}
+#| context: setup
+import sys
+import re
+from pathlib import Path
+
+from shiny import reactive, render
+from shiny import ui
+from shinywidgets import render_plotly
+
+HERE = Path.cwd().resolve()
+PROJECT_ROOT = HERE if (HERE / "quarto_visualizer").exists() else HERE.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from quarto_visualizer.app_state import find_config_path, load_app_state
+from quarto_visualizer.plots import make_bar_figure, make_density_figure
+from quarto_visualizer.quarto_shell import (
+    destination_average_table,
+    destination_frames,
+    destination_purpose_choices,
+    joint_tour_composition_frames,
+    joint_tour_frequency_frames,
+    joint_tour_party_size_frames,
+    joint_tours_hhsize_frames,
+    long_term_auto_frames,
+    long_term_geo_flow_frames,
+    long_term_geo_choices,
+    long_term_mandatory_length_frames,
+    long_term_telecommute_frames,
+    long_term_tlfd_frames,
+    long_term_wfh_frames,
+    overview_hh_size_frames,
+    overview_kpi_cards,
+    overview_percent_diff_table,
+    overview_person_type_frames,
+    run_frame_tabs,
+    stop_frequency_frames,
+    stop_frequency_purpose_choices,
+    stop_location_all_frames,
+    stop_location_purpose_choices,
+    stop_location_purpose_frames,
+    stop_purpose_frames,
+    stop_timing_frames,
+    stop_timing_purpose_choices,
+    tour_mode_detail_frames,
+    tour_mode_grouped_frames,
+    tour_mode_purpose_choices,
+    tour_summary_dap_frames,
+    tour_summary_indiv_nm_frames,
+    tour_summary_mtf_frames,
+    tour_summary_ptype_values,
+    tour_tod_frames,
+    tour_tod_purpose_choices,
+    trip_mode_frames,
+    trip_mode_purpose_choices,
+    trip_mode_tour_mode_choices,
+)
+
+CONFIG_PATH = find_config_path()
+APP_STATE = load_app_state(CONFIG_PATH)
+WEIGHTED_BUNDLE = APP_STATE.bundles.weighted
+RUN_COLORS = APP_STATE.config.run_colors
+TOUR_SUMMARY_PTYPE_VALUES = tour_summary_ptype_values(WEIGHTED_BUNDLE)
+TOUR_SUMMARY_PTYPE_LABEL_MAP = {
+    p: ("Total" if str(p) == "Total" else APP_STATE.config.ptype_label(p))
+    for p in TOUR_SUMMARY_PTYPE_VALUES
+}
+TOUR_SUMMARY_LABEL_TO_PTYPE = {label: p for p, label in TOUR_SUMMARY_PTYPE_LABEL_MAP.items()}
+TOUR_SUMMARY_PTYPE_DISPLAY_CHOICES = [TOUR_SUMMARY_PTYPE_LABEL_MAP[p] for p in TOUR_SUMMARY_PTYPE_VALUES]
+TOUR_SUMMARY_PTYPE_DEFAULT = (
+    "Total" if "Total" in TOUR_SUMMARY_PTYPE_DISPLAY_CHOICES else TOUR_SUMMARY_PTYPE_DISPLAY_CHOICES[0]
+)
+STOP_LOCATION_PURPOSES = stop_location_purpose_choices(WEIGHTED_BUNDLE)
+
+
+def _safe_output_id(prefix: str, value: str) -> str:
+    slug = re.sub(r"[^0-9A-Za-z_]+", "_", str(value)).strip("_").lower()
+    return f"{prefix}_{slug}" if slug else prefix
+```
+
+# {.sidebar}
+
+## Runs Loaded
+
+```{python}
+for idx, run in enumerate(WEIGHTED_BUNDLE.runs):
+    color = APP_STATE.config.run_color(idx)
+    ui.div(
+        ui.HTML(
+            f"<div style='padding:8px 10px;border-left:4px solid {color};"
+            f"margin:6px 0;border-radius:6px;background:rgba(127,127,127,0.06)'>"
+            f"<b style='color:{color}'>{run.label}</b><br>"
+            f"<span style='font-size:12px;color:#666'>{run.run_dir}</span></div>"
+        )
+    )
+```
+
+## Display Options
+
+```{python}
+ui.input_radio_buttons("weight_mode", "Weighting", choices=["Weighted", "Unweighted"], selected="Weighted")
+ui.input_radio_buttons("value_mode", "Values", choices=["Percent", "Count"], selected="Percent")
+```
+
+```{python}
+@reactive.calc
+def current_bundle():
+    return APP_STATE.bundles.weighted if input.weight_mode() == "Weighted" else APP_STATE.bundles.unweighted
+
+
+@reactive.calc
+def current_long_term_geo():
+    if APP_STATE.config.geography_enabled:
+        return input.long_term_geo()
+    return "Total"
+
+
+@reactive.calc
+def current_tour_summary_ptype():
+    return TOUR_SUMMARY_LABEL_TO_PTYPE.get(input.tour_summary_ptype(), input.tour_summary_ptype())
+```
+
+# Overview
+
+```{python}
+ui.markdown("### Key Performance Indicators")
+```
+
+```{python}
+@render.ui
+def overview_kpi_grid():
+    return overview_kpi_cards(current_bundle(), run_colors=RUN_COLORS)
+```
+
+```{python}
+ui.markdown("### Percent Difference vs Base Run")
+```
+
+```{python}
+@render.data_frame
+def overview_percent_diff_grid():
+    return render.DataGrid(overview_percent_diff_table(current_bundle()), width="100%", height="260px")
+```
+
+```{python}
+ui.markdown("### Demographic Distributions")
+```
+
+```{python}
+@render_plotly
+def overview_person_type_plot():
+    return make_bar_figure(
+        overview_person_type_frames(current_bundle()),
+        x_col="ptype_name",
+        y_col="freq",
+        title="Person Type Distribution",
+        xaxis_title="Person Type",
+        yaxis_title="Persons",
+        pct_col="pct",
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+
+
+@render_plotly
+def overview_hh_size_plot():
+    return make_bar_figure(
+        overview_hh_size_frames(current_bundle()),
+        x_col="HHSIZE",
+        y_col="freq",
+        title="Household Size Distribution",
+        xaxis_title="HH Size",
+        yaxis_title="Households",
+        pct_col="pct",
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+```
+
+# Long-Term
+
+```{python}
+@render_plotly
+def long_term_auto_plot():
+    return make_bar_figure(
+        long_term_auto_frames(current_bundle()),
+        x_col="HHVEH",
+        y_col="freq",
+        title="Auto Ownership",
+        xaxis_title="Vehicles",
+        yaxis_title="Households",
+        pct_col="pct",
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+```
+
+```{python}
+if APP_STATE.config.geography_enabled:
+    ui.markdown("### TLFD by geography:")
+    ui.input_select(
+        "long_term_geo",
+        "Geography",
+        choices=list(long_term_geo_choices(WEIGHTED_BUNDLE)),
+        selected=long_term_geo_choices(WEIGHTED_BUNDLE)[0],
+    )
+else:
+    ui.markdown("### Trip Length Frequency Distributions")
+```
+
+```{python}
+@render_plotly
+def long_term_work_tlfd_plot():
+    return make_density_figure(
+        long_term_tlfd_frames(current_bundle(), current_long_term_geo(), "work"),
+        x_col="distbin",
+        y_col="freq",
+        title="Work TLFD",
+        xaxis_title="Distance (miles)",
+        normalize=True,
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+
+
+@render_plotly
+def long_term_univ_tlfd_plot():
+    return make_density_figure(
+        long_term_tlfd_frames(current_bundle(), current_long_term_geo(), "univ"),
+        x_col="distbin",
+        y_col="freq",
+        title="University TLFD",
+        xaxis_title="Distance (miles)",
+        normalize=True,
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+
+
+@render_plotly
+def long_term_school_tlfd_plot():
+    return make_density_figure(
+        long_term_tlfd_frames(current_bundle(), current_long_term_geo(), "schl"),
+        x_col="distbin",
+        y_col="freq",
+        title="School TLFD",
+        xaxis_title="Distance (miles)",
+        normalize=True,
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+```
+
+```{python}
+@render_plotly
+def long_term_telecommute_plot():
+    return make_bar_figure(
+        long_term_telecommute_frames(current_bundle()),
+        x_col="telecommute_frequency",
+        y_col="freq",
+        title="Telecommute Frequency",
+        xaxis_title="Frequency",
+        yaxis_title="Workers",
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+
+
+@render_plotly
+def long_term_wfh_plot():
+    return make_bar_figure(
+        long_term_wfh_frames(current_bundle()),
+        x_col="Geography",
+        y_col="WFH",
+        title="Work From Home by Geography",
+        xaxis_title="Geography",
+        yaxis_title="Workers",
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+```
+
+```{python}
+if APP_STATE.config.geography_enabled:
+    @render.ui
+    def long_term_geo_flow_tables():
+        return run_frame_tabs(
+            long_term_geo_flow_frames(current_bundle()),
+            title="Home-Work Geography Flows",
+            float_decimals=0,
+        )
+else:
+    ui.markdown("*(Geography not enabled - no flow table)*")
+```
+
+```{python}
+@render.ui
+def long_term_mandatory_length_tables():
+    return run_frame_tabs(
+        long_term_mandatory_length_frames(current_bundle()),
+        title="Average Mandatory Tour Lengths (miles)",
+        float_decimals=2,
+    )
+```
+
+# Tour Summary
+
+```{python}
+ui.input_select(
+    "tour_summary_ptype",
+    "Person Type",
+    choices=TOUR_SUMMARY_PTYPE_DISPLAY_CHOICES,
+    selected=TOUR_SUMMARY_PTYPE_DEFAULT,
+)
+```
+
+```{python}
+@render_plotly
+def tour_summary_dap_plot():
+    return make_bar_figure(
+        tour_summary_dap_frames(current_bundle(), current_tour_summary_ptype()),
+        x_col="DAP",
+        y_col="freq",
+        title=f"Daily Activity Pattern - {input.tour_summary_ptype()}",
+        xaxis_title="Pattern",
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+
+
+@render_plotly
+def tour_summary_mtf_plot():
+    return make_bar_figure(
+        tour_summary_mtf_frames(current_bundle(), current_tour_summary_ptype()),
+        x_col="MTF_label",
+        y_col="freq",
+        title=f"Mandatory Tour Frequency - {input.tour_summary_ptype()}",
+        xaxis_title="Alternative",
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+```
+
+```{python}
+@render_plotly
+def tour_summary_indiv_nm_plot():
+    return make_bar_figure(
+        tour_summary_indiv_nm_frames(current_bundle(), current_tour_summary_ptype()),
+        x_col="nmtours",
+        y_col="freq",
+        title=f"Individual NM Tours - {input.tour_summary_ptype()}",
+        xaxis_title="# Tours",
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+```
+
+# Joint Tours
+
+```{python}
+@render_plotly
+def joint_tour_frequency_plot():
+    return make_bar_figure(
+        joint_tour_frequency_frames(current_bundle()),
+        x_col="alt_name",
+        y_col="freq",
+        title="Joint Tour Frequency (21 alternatives)",
+        xaxis_title="Alternative",
+        yaxis_title="Households",
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+        height=450,
+    )
+```
+
+```{python}
+@render_plotly
+def joint_tour_composition_plot():
+    return make_bar_figure(
+        joint_tour_composition_frames(current_bundle()),
+        x_col="tour_composition",
+        y_col="freq",
+        title="Joint Tour Composition",
+        xaxis_title="Composition",
+        yaxis_title="Tours",
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+
+
+@render_plotly
+def joint_tour_party_size_plot():
+    return make_bar_figure(
+        joint_tour_party_size_frames(current_bundle()),
+        x_col="NUMBER_HH",
+        y_col="freq",
+        title="Joint Tour Party Size",
+        xaxis_title="Party Size",
+        yaxis_title="Tours",
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+```
+
+```{python}
+ui.input_select("joint_tours_hhsize", "HH Size", choices=["Total", "2", "3", "4", "5"], selected="Total")
+```
+
+```{python}
+@render_plotly
+def joint_tour_hhsize_plot():
+    return make_bar_figure(
+        joint_tours_hhsize_frames(current_bundle(), input.joint_tours_hhsize()),
+        x_col="jointTours",
+        y_col="freq",
+        title=f"Joint Tour Presence by HH Size ({input.joint_tours_hhsize()})",
+        xaxis_title="Joint Tours",
+        yaxis_title="% HH",
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+```
+
+# Destination
+
+```{python}
+ui.input_select(
+    "destination_purpose",
+    "Purpose",
+    choices=list(destination_purpose_choices(WEIGHTED_BUNDLE)),
+    selected=destination_purpose_choices(WEIGHTED_BUNDLE)[0],
+)
+```
+
+```{python}
+@render_plotly
+def destination_plot():
+    return make_density_figure(
+        destination_frames(current_bundle(), input.destination_purpose()),
+        x_col="distbin",
+        y_col="freq",
+        title=f"NM Tour Distance Distribution - {input.destination_purpose()}",
+        xaxis_title="Distance (miles)",
+        normalize=True,
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+```
+
+```{python}
+ui.markdown("### Average Tour Distances (miles)")
+```
+
+```{python}
+@render.data_frame
+def destination_average_grid():
+    return render.DataGrid(destination_average_table(current_bundle()), width="100%")
+```
+
+# Tour TOD
+
+```{python}
+ui.input_select(
+    "tour_tod_purpose",
+    "Purpose",
+    choices=list(tour_tod_purpose_choices(WEIGHTED_BUNDLE)),
+    selected=tour_tod_purpose_choices(WEIGHTED_BUNDLE)[0],
+)
+```
+
+```{python}
+@render_plotly
+def tour_tod_departure_plot():
+    return make_density_figure(
+        tour_tod_frames(current_bundle(), input.tour_tod_purpose(), "departure"),
+        x_col="clock_time",
+        y_col="freq",
+        title=f"Departure - {input.tour_tod_purpose()}",
+        xaxis_title="Clock time (start at 03:00)",
+        normalize=True,
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+```
+
+```{python}
+@render_plotly
+def tour_tod_arrival_plot():
+    return make_density_figure(
+        tour_tod_frames(current_bundle(), input.tour_tod_purpose(), "arrival"),
+        x_col="clock_time",
+        y_col="freq",
+        title=f"Arrival - {input.tour_tod_purpose()}",
+        xaxis_title="Clock time (start at 03:00)",
+        normalize=True,
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+```
+
+```{python}
+@render_plotly
+def tour_tod_duration_plot():
+    fig = make_density_figure(
+        tour_tod_frames(current_bundle(), input.tour_tod_purpose(), "duration"),
+        x_col="duration_hours",
+        y_col="freq",
+        title=f"Duration - {input.tour_tod_purpose()}",
+        xaxis_title="Duration (hours)",
+        normalize=True,
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+    fig.update_xaxes(dtick=1, tick0=0, showgrid=True)
+    return fig
+```
+
+# Tour Mode
+
+```{python}
+ui.input_select(
+    "tour_mode_purpose",
+    "Purpose",
+    choices=list(tour_mode_purpose_choices(WEIGHTED_BUNDLE)),
+    selected=tour_mode_purpose_choices(WEIGHTED_BUNDLE)[0],
+)
+```
+
+```{python}
+@render_plotly
+def tour_mode_all_plot():
+    return make_bar_figure(
+        tour_mode_detail_frames(current_bundle(), input.tour_mode_purpose(), "freq_all"),
+        x_col="tour_mode",
+        y_col="freq",
+        title="All Households",
+        xaxis_title="Mode",
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+        height=420,
+    )
+
+
+@render_plotly
+def tour_mode_as0_plot():
+    return make_bar_figure(
+        tour_mode_detail_frames(current_bundle(), input.tour_mode_purpose(), "freq_as0"),
+        x_col="tour_mode",
+        y_col="freq",
+        title="Zero Autos",
+        xaxis_title="Mode",
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+        height=420,
+    )
+```
+
+```{python}
+@render_plotly
+def tour_mode_as1_plot():
+    return make_bar_figure(
+        tour_mode_detail_frames(current_bundle(), input.tour_mode_purpose(), "freq_as1"),
+        x_col="tour_mode",
+        y_col="freq",
+        title="Autos < Workers",
+        xaxis_title="Mode",
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+        height=420,
+    )
+
+
+@render_plotly
+def tour_mode_as2_plot():
+    return make_bar_figure(
+        tour_mode_detail_frames(current_bundle(), input.tour_mode_purpose(), "freq_as2"),
+        x_col="tour_mode",
+        y_col="freq",
+        title="Autos >= Workers",
+        xaxis_title="Mode",
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+        height=420,
+    )
+```
+
+```{python}
+if APP_STATE.config.mode_groups:
+    ui.markdown("### Grouped Mode Summary")
+
+    @render_plotly
+    def tour_mode_grouped_plot():
+        return make_bar_figure(
+            tour_mode_grouped_frames(current_bundle(), "freq_all"),
+            x_col="mode_group",
+            y_col="freq",
+            title="Tour Mode (Grouped)",
+            xaxis_title="Mode Group",
+            value_mode=input.value_mode(),
+            run_colors=RUN_COLORS,
+            height=420,
+        )
+```
+
+# Stop Frequency
+
+```{python}
+ui.input_select(
+    "stop_freq_purpose",
+    "Tour Purpose",
+    choices=list(stop_frequency_purpose_choices(WEIGHTED_BUNDLE)),
+    selected=stop_frequency_purpose_choices(WEIGHTED_BUNDLE)[0],
+)
+```
+
+```{python}
+@render_plotly
+def stop_outbound_plot():
+    return make_bar_figure(
+        stop_frequency_frames(current_bundle(), input.stop_freq_purpose(), "outbound"),
+        x_col="stops",
+        y_col="freq",
+        title=f"Outbound Stops - {input.stop_freq_purpose()}",
+        xaxis_title="Stops",
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+
+
+@render_plotly
+def stop_inbound_plot():
+    return make_bar_figure(
+        stop_frequency_frames(current_bundle(), input.stop_freq_purpose(), "inbound"),
+        x_col="stops",
+        y_col="freq",
+        title=f"Inbound Stops - {input.stop_freq_purpose()}",
+        xaxis_title="Stops",
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+
+
+@render_plotly
+def stop_total_plot():
+    return make_bar_figure(
+        stop_frequency_frames(current_bundle(), input.stop_freq_purpose(), "total"),
+        x_col="stops",
+        y_col="freq",
+        title=f"Total Stops - {input.stop_freq_purpose()}",
+        xaxis_title="Stops",
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+
+```
+
+```{python}
+@render_plotly
+def stop_purpose_plot():
+    return make_bar_figure(
+        stop_purpose_frames(current_bundle(), input.stop_freq_purpose()),
+        x_col="purpose",
+        y_col="freq",
+        title=f"Stop Purpose - tour={input.stop_freq_purpose()}",
+        xaxis_title="Stop Purpose",
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+```
+
+# Stop Location
+
+```{python}
+@render_plotly
+def stop_location_plot():
+    return make_density_figure(
+        stop_location_all_frames(current_bundle()),
+        x_col="distbin",
+        y_col="freq",
+        title="Stop Out-of-Direction Distance - All Purposes",
+        xaxis_title="Miles",
+        normalize=True,
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+```
+
+```{python}
+for purpose in STOP_LOCATION_PURPOSES:
+    output_id = _safe_output_id("stop_location", purpose)
+    ui.markdown(f"### {purpose}")
+
+    def _plot_stop_location(purpose=purpose):
+        return make_density_figure(
+            stop_location_purpose_frames(current_bundle(), purpose),
+            x_col="distbin",
+            y_col="freq",
+            title=f"Stop Out-of-Direction Distance - {purpose}",
+            xaxis_title="Miles",
+            normalize=True,
+            value_mode=input.value_mode(),
+            run_colors=RUN_COLORS,
+        )
+
+    _plot_stop_location.__name__ = output_id
+    render_plotly(_plot_stop_location)
+```
+
+# Stop Timing
+
+```{python}
+ui.input_select(
+    "stop_timing_purpose",
+    "Purpose",
+    choices=list(stop_timing_purpose_choices(WEIGHTED_BUNDLE)),
+    selected=stop_timing_purpose_choices(WEIGHTED_BUNDLE)[0],
+)
+```
+
+```{python}
+@render_plotly
+def stop_timing_trip_plot():
+    return make_density_figure(
+        stop_timing_frames(current_bundle(), input.stop_timing_purpose(), "trip"),
+        x_col="clock_time",
+        y_col="freq",
+        title=f"Trip Departure - {input.stop_timing_purpose()}",
+        xaxis_title="Clock time (start at 03:00)",
+        normalize=True,
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+```
+
+```{python}
+@render_plotly
+def stop_timing_stop_plot():
+    return make_density_figure(
+        stop_timing_frames(current_bundle(), input.stop_timing_purpose(), "stop"),
+        x_col="clock_time",
+        y_col="freq",
+        title=f"Stop Departure - {input.stop_timing_purpose()}",
+        xaxis_title="Clock time (start at 03:00)",
+        normalize=True,
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+    )
+```
+
+# Trip Mode
+
+```{python}
+ui.input_select(
+    "trip_mode_purpose",
+    "Tour Purpose",
+    choices=list(trip_mode_purpose_choices(WEIGHTED_BUNDLE)),
+    selected=trip_mode_purpose_choices(WEIGHTED_BUNDLE)[0],
+)
+ui.input_select(
+    "trip_mode_tour_mode",
+    "Tour Mode",
+    choices=list(trip_mode_tour_mode_choices(WEIGHTED_BUNDLE)),
+    selected=trip_mode_tour_mode_choices(WEIGHTED_BUNDLE)[0],
+)
+```
+
+```{python}
+@render_plotly
+def trip_mode_plot():
+    return make_bar_figure(
+        trip_mode_frames(current_bundle(), input.trip_mode_purpose(), input.trip_mode_tour_mode()),
+        x_col="trip_mode",
+        y_col="freq",
+        title=f"Trip Mode - {input.trip_mode_purpose()} / Tour Mode: {input.trip_mode_tour_mode()}",
+        xaxis_title="Trip Mode",
+        value_mode=input.value_mode(),
+        run_colors=RUN_COLORS,
+        height=420,
+    )
+```
