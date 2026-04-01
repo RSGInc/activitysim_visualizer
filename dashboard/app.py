@@ -1,11 +1,19 @@
 """ActivitySim Panel dashboard - main app assembly."""
 from __future__ import annotations
 
+import json
+from collections.abc import Iterable
+
 import panel as pn
 
 from dashboard import DashboardState
 from dashboard.components import run_color, set_percent_mode, set_run_colors
-from dashboard.live_pages import build_live_pages
+from dashboard.live_pages import (
+    DestinationPage,
+    TourSummaryPage,
+    TripModePage,
+    build_live_pages,
+)
 from dashboard.pages import (
     destination,
     joint_tours,
@@ -47,6 +55,13 @@ _TAB_BUILDERS = [
     ("Trip Mode", trip_mode.build),
 ]
 
+_EXPORT_WIDGET_STATE_SPEC = {
+    ("Tour Summary", "Person Type"): ["Total", "Full-time worker", "University student"],
+    ("Destination", "Purpose"): ["All NM", "eatout", "social"],
+    ("Trip Mode", "Tour Purpose"): ["Total", "shopping"],
+    ("Trip Mode", "Tour Mode"): ["All", "DRIVEALONE"],
+}
+
 
 def _build_tabs(
     runs: list[tuple[str, RunData]],
@@ -54,8 +69,24 @@ def _build_tabs(
     dynamic: bool = True,
 ) -> pn.Tabs:
     """Build a simple tabs view from the configured page builders."""
+    return _tabs_from_views(_build_tab_views(runs, config), dynamic=dynamic)
+
+
+def _build_tab_views(
+    runs: list[tuple[str, RunData]],
+    config: Config,
+) -> list[tuple[str, pn.viewable.Viewable]]:
+    """Build the configured page views paired with their tab titles."""
+    return [(title, builder(runs, config)) for title, builder in _TAB_BUILDERS]
+
+
+def _tabs_from_views(
+    tab_views: Iterable[tuple[str, pn.viewable.Viewable]],
+    dynamic: bool = True,
+) -> pn.Tabs:
+    """Build tabs from preconstructed `(title, view)` pairs."""
     return pn.Tabs(
-        *[(title, builder(runs, config)) for title, builder in _TAB_BUILDERS],
+        *list(tab_views),
         dynamic=dynamic,
     )
 
@@ -172,17 +203,203 @@ def build_dashboard(
     return template
 
 
-def build_export_view(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewable:
-    """Build a non-template view for static HTML export with embedded widget states."""
+def build_export_view(
+    runs: list[tuple[str, RunData]],
+    config: Config,
+) -> tuple[pn.viewable.Viewable, dict[pn.widgets.Widget, list[object]]]:
+    """Build a static HTML export view with frontend-only saved widget states."""
     set_run_colors(config.run_colors)
     set_percent_mode(True)
-    tabs = _build_tabs(runs, config, dynamic=False)
-    return pn.Column(
+    state = DashboardState(runs)
+    pages = build_live_pages(state, config)
+    tab_views: list[tuple[str, pn.viewable.Viewable]] = []
+    for page in pages:
+        if page.name == "Tour Summary":
+            tab_views.append((page.name, _build_export_tour_summary(runs, config)))
+        elif page.name == "Destination":
+            tab_views.append((page.name, _build_export_destination(runs, config)))
+        elif page.name == "Trip Mode":
+            tab_views.append((page.name, _build_export_trip_mode(runs, config)))
+        else:
+            page.refresh(force=True)
+            if page.view is not None:
+                _disable_export_controls(page.view)
+                tab_views.append((page.name, page.view))
+    tabs = _tabs_from_views(tab_views, dynamic=False)
+    export_view = pn.Column(
         pn.pane.Markdown(f"# {config.dashboard_title}"),
-        pn.pane.Markdown("**Static export mode** (defaults: Weighted + Percent)."),
+        pn.pane.Markdown(
+            "**Static export saved-state demo**\n\n"
+            "This HTML keeps **Weighted** and **Percent** fixed. Only these existing selectors "
+            "remain interactive offline: **Tour Summary > Person Type**, "
+            "**Destination > Purpose**, and **Trip Mode > Tour Purpose / Tour Mode**. "
+            "All other page selectors are shown but disabled, and no new plots or selectors were added."
+        ),
         tabs,
         sizing_mode="stretch_width",
     )
+    return export_view, {}
+
+
+def _disable_export_controls(view: pn.viewable.Viewable) -> None:
+    """Disable controls in static export views that are not JS-backed demos."""
+    for widget_type in (pn.widgets.Select, pn.widgets.RadioButtonGroup):
+        for widget in view.select(widget_type):
+            widget.disabled = True
+
+def _build_export_tour_summary(
+    runs: list[tuple[str, RunData]],
+    config: Config,
+) -> pn.viewable.Viewable:
+    options = _EXPORT_WIDGET_STATE_SPEC[("Tour Summary", "Person Type")]
+    selector = pn.widgets.Select(
+        name="Person Type",
+        options=options,
+        value=options[0],
+    )
+    bodies = {
+        label: _build_tour_summary_body(runs, config, label, visible=(label == selector.value))
+        for label in options
+    }
+    _attach_single_selector_visibility(selector, bodies)
+    return pn.Column(
+        pn.pane.Markdown("## Tour Summary"),
+        pn.Row(pn.pane.Markdown("**Person Type:**"), selector),
+        *bodies.values(),
+        sizing_mode="stretch_width",
+    )
+
+
+def _build_export_destination(
+    runs: list[tuple[str, RunData]],
+    config: Config,
+) -> pn.viewable.Viewable:
+    options = _EXPORT_WIDGET_STATE_SPEC[("Destination", "Purpose")]
+    selector = pn.widgets.Select(
+        name="Purpose",
+        options=options,
+        value=options[0],
+    )
+    bodies = {
+        label: _build_destination_body(runs, config, label, visible=(label == selector.value))
+        for label in options
+    }
+    _attach_single_selector_visibility(selector, bodies)
+    return pn.Column(
+        pn.pane.Markdown("## Destination Choice (NM Tour Distances)"),
+        pn.Row(pn.pane.Markdown("**Purpose:**"), selector),
+        *bodies.values(),
+        sizing_mode="stretch_width",
+    )
+
+
+def _build_export_trip_mode(
+    runs: list[tuple[str, RunData]],
+    config: Config,
+) -> pn.viewable.Viewable:
+    purpose_options = _EXPORT_WIDGET_STATE_SPEC[("Trip Mode", "Tour Purpose")]
+    mode_options = _EXPORT_WIDGET_STATE_SPEC[("Trip Mode", "Tour Mode")]
+    purpose_selector = pn.widgets.Select(
+        name="Tour Purpose",
+        options=purpose_options,
+        value=purpose_options[0],
+    )
+    mode_selector = pn.widgets.Select(
+        name="Tour Mode",
+        options=mode_options,
+        value=mode_options[0],
+    )
+    bodies = {
+        (purpose, mode): _build_trip_mode_body(
+            runs,
+            config,
+            purpose,
+            mode,
+            visible=(purpose == purpose_selector.value and mode == mode_selector.value),
+        )
+        for purpose in purpose_options
+        for mode in mode_options
+    }
+    _attach_dual_selector_visibility(purpose_selector, mode_selector, bodies)
+    return pn.Column(
+        pn.pane.Markdown("## Trip Mode Choice"),
+        pn.Row(purpose_selector, mode_selector),
+        *bodies.values(),
+        sizing_mode="stretch_width",
+    )
+
+
+def _build_tour_summary_body(
+    runs: list[tuple[str, RunData]],
+    config: Config,
+    person_type: str,
+    visible: bool,
+) -> pn.Column:
+    page = TourSummaryPage(DashboardState(runs), config)
+    page.ptype_sel.value = person_type
+    page.refresh(force=True)
+    return pn.Column(*list(page._body.objects), sizing_mode="stretch_width", visible=visible)
+
+
+def _build_destination_body(
+    runs: list[tuple[str, RunData]],
+    config: Config,
+    purpose: str,
+    visible: bool,
+) -> pn.Column:
+    page = DestinationPage(DashboardState(runs), config)
+    page.purp_sel.value = purpose
+    page.refresh(force=True)
+    return pn.Column(*list(page._body.objects), sizing_mode="stretch_width", visible=visible)
+
+
+def _build_trip_mode_body(
+    runs: list[tuple[str, RunData]],
+    config: Config,
+    purpose: str,
+    mode: str,
+    visible: bool,
+) -> pn.Column:
+    page = TripModePage(DashboardState(runs), config)
+    page.purp_sel.value = purpose
+    page.tmode_sel.value = mode
+    page.refresh(force=True)
+    return pn.Column(*list(page._body.objects), sizing_mode="stretch_width", visible=visible)
+
+
+def _attach_single_selector_visibility(
+    selector: pn.widgets.Select,
+    bodies: dict[str, pn.Column],
+) -> None:
+    args = {f"body_{i}": body for i, body in enumerate(bodies.values())}
+    code = "\n".join(
+        f"body_{i}.visible = source.value === {json.dumps(label)};"
+        for i, label in enumerate(bodies)
+    )
+    selector.jscallback(args=args, value=code)
+
+
+def _attach_dual_selector_visibility(
+    purpose_selector: pn.widgets.Select,
+    mode_selector: pn.widgets.Select,
+    bodies: dict[tuple[str, str], pn.Column],
+) -> None:
+    args = {
+        "purpose_selector": purpose_selector,
+        "mode_selector": mode_selector,
+        **{f"body_{i}": body for i, body in enumerate(bodies.values())},
+    }
+    code_lines = [
+        "const purpose = purpose_selector.value;",
+        "const mode = mode_selector.value;",
+    ]
+    for i, (purpose, mode) in enumerate(bodies):
+        code_lines.append(
+            f"body_{i}.visible = purpose === {json.dumps(purpose)} && mode === {json.dumps(mode)};"
+        )
+    code = "\n".join(code_lines)
+    purpose_selector.jscallback(args=args, value=code)
+    mode_selector.jscallback(args=args, value=code)
 
 
 def _color(idx: int) -> str:

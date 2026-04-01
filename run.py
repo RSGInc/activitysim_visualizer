@@ -180,7 +180,7 @@ def main() -> None:
     if args.export_html:
         print("[main] Building dashboard")
         print(f"Exporting dashboard to {args.export_html} ...")
-        export_view = build_export_view(runs, config)
+        export_view, _ = build_export_view(runs, config)
         export_view.save(args.export_html)
         print("Done.")
         print(f"[main] Dashboard created in {(time.perf_counter()-t0)/60:.2f} minutes.")
