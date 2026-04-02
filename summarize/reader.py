@@ -11,6 +11,7 @@ Key design principles:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
 from pathlib import Path
 from typing import Optional
 
@@ -27,9 +28,13 @@ import yaml
 class Config:
     """All configuration for the visualizer, loaded from config.yaml."""
 
+    config_path: str
+    config_digest: str
     name: str
     dashboard_title: str
     run_colors: list[str]
+    summary_root: str
+    weighting_modes: list[str]
 
     # File name overrides (stems or full names with .csv/.parquet)
     files: dict[str, str]
@@ -67,8 +72,9 @@ class Config:
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "Config":
-        with open(path, "r") as f:
-            raw = yaml.safe_load(f)
+        config_path = Path(path).resolve()
+        config_bytes = config_path.read_bytes()
+        raw = yaml.safe_load(config_bytes.decode("utf-8"))
 
         files = raw.get("files", {})
         # Defaults use stems (no extension) so auto-detection picks parquet-first.
@@ -96,14 +102,43 @@ class Config:
 
         skim_cfg = raw.get("skim", {})
         modes_cfg = raw.get("modes", {})
+        outputs_cfg = raw.get("outputs", {})
+
+        summary_root = Path(outputs_cfg.get("summary_root", "artifacts/summary_cache"))
+        if not summary_root.is_absolute():
+            summary_root = (config_path.parent / summary_root).resolve()
+
+        raw_weighting_modes = [
+            str(mode).strip().lower()
+            for mode in outputs_cfg.get("weighting_modes", ["weighted", "unweighted"])
+        ]
+        supported_weighting_modes = {"weighted", "unweighted"}
+        invalid_weighting_modes = [
+            mode for mode in raw_weighting_modes if mode and mode not in supported_weighting_modes
+        ]
+        if invalid_weighting_modes:
+            raise ValueError(
+                "Unsupported outputs.weighting_modes values: "
+                + ", ".join(repr(mode) for mode in invalid_weighting_modes)
+            )
+        weighting_modes: list[str] = []
+        for mode in raw_weighting_modes:
+            if mode and mode not in weighting_modes:
+                weighting_modes.append(mode)
+        if not weighting_modes:
+            weighting_modes = ["weighted", "unweighted"]
 
         return cls(
+            config_path=str(config_path),
+            config_digest=hashlib.sha256(config_bytes).hexdigest(),
             name=raw.get("name", ""),
             dashboard_title=raw.get("dashboard_title", "ActivitySim Visualizer"),
             run_colors=raw.get("run_colors", [
                 "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728",
                 "#9467bd", "#8c564b", "#e377c2", "#7f7f7f",
             ]),
+            summary_root=str(summary_root),
+            weighting_modes=weighting_modes,
             files=files,
             col_ptype=cols.get("ptype", "ptype"),
             col_hhsize=cols.get("hhsize", "hhsize"),
@@ -225,6 +260,15 @@ def _resolve_skim(run_skim: Optional[str], global_skim: Optional[str], run_dir: 
     if not p.is_absolute():
         p = run_dir / p
     return str(p)
+
+
+def resolve_skim_path(
+    run_skim: Optional[str],
+    global_skim: Optional[str],
+    run_dir: str | Path,
+) -> Optional[str]:
+    """Public wrapper used by the cache layer to fingerprint run inputs."""
+    return _resolve_skim(run_skim, global_skim, Path(run_dir))
 
 
 def _find_and_read(run_dir: Path, configured: str) -> pl.DataFrame:

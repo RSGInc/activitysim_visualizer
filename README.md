@@ -40,6 +40,7 @@ Copy `config.yaml` and edit it for your model deployment. Key sections:
 | `zones` | Yes | Set `use_maz: false` for TAZ-only models; configure MAZ/TAZ columns otherwise |
 | `runs` | Yes | List of run directories with labels and optional per-run skim/weight overrides |
 | `skim` | No | Global OMX skim file path and matrix name for distance/time summaries |
+| `outputs` | No | Summary cache root directory and enabled weighting modes |
 | `person_types` | No | Display labels for `ptype` values |
 | `geography` | No | Enable district/county-level breakdowns using a land-use column |
 | `modes` | No | Control display order and grouping of travel modes in charts |
@@ -94,11 +95,21 @@ python run.py \
 ### Write calibration CSVs
 
 ```bash
-# Launch dashboard and write CSVs
+# Launch dashboard and refresh the configured summary cache
 python run.py --write-csvs
 
-# Write CSVs only (no dashboard)
+# Write cache files only (no dashboard)
 python run.py --write-csvs --no-dashboard
+```
+
+Summary caches are written under `outputs.summary_root` using this layout:
+
+```text
+<summary_root>/
+  <run_key>/
+    manifest.json
+    weighted/
+    unweighted/
 ```
 
 ### Export to static HTML

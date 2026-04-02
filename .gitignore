@@ -208,6 +208,10 @@ __marimo__/
 
 .tmp
 artifacts/panel_reference/
+artifacts/summary_cache/
 quarto/app.py
 quarto/dashboard.html
 quarto/dashboard_files/
+
+.pytest_tmp
+.uv_cache

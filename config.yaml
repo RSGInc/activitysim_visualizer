@@ -5,6 +5,12 @@
 name: "Default Settings"
 dashboard_title: "ActivitySim Comparison Visualizer"
 
+outputs:
+  summary_root: artifacts/summary_cache
+  weighting_modes:
+    - weighted
+    - unweighted
+
 
 # ---------------------------------------------------------------------------
 # Runs to compare

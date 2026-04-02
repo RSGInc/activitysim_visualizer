@@ -51,6 +51,9 @@ class DashboardPage:
 
     def get_summary(self, summary_name: str, factory):
         """Return a cached raw summary for the current weighting mode."""
+        precomputed = self.state.get_precomputed_summary(summary_name, self.weighting_key)
+        if precomputed is not None:
+            return precomputed
         return self.state.get_or_create_cached(
             "page_summary",
             self.name,
