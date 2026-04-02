@@ -4,6 +4,7 @@ This module intentionally reuses the existing summarize layer and writes its
 outputs in a UI-neutral form. The Quarto migration can compare against these
 artifacts before replacing the Panel UI.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -13,13 +14,21 @@ from pathlib import Path
 
 import polars as pl
 
-from summarize import demographics, mandatory, stops, totals, tour_mode, tour_tod, tours, trips
-from quarto_visualizer.summary_bundle import strip_weights
+from summarize import (
+    demographics,
+    mandatory,
+    stops,
+    totals,
+    tour_mode,
+    tour_tod,
+    tours,
+    trips,
+)
 from summarize.reader import Config, RunData
 from summarize.writer import write_all
 
 
-def build_reference_summaries(rd: RunData, config: Config) -> dict[str, pl.DataFrame]:
+def build_summaries(rd: RunData, config: Config) -> dict[str, pl.DataFrame]:
     """Build the same summary set currently written by ``run.py --write-csvs``."""
     tlfd = mandatory.tlfd(rd, config)
     return {
@@ -51,7 +60,8 @@ def build_reference_summaries(rd: RunData, config: Config) -> dict[str, pl.DataF
         "totals": totals.system_totals(rd, config),
     }
 
-def write_panel_reference_bundle(
+
+def write_summary_bundle(
     runs: list[tuple[str, RunData]],
     config: Config,
     output_dir: str | Path,
@@ -74,7 +84,7 @@ def write_panel_reference_bundle(
             mode_items.append(("unweighted", strip_weights(rd)))
 
         for mode_name, mode_rd in mode_items:
-            summaries = build_reference_summaries(mode_rd, config)
+            summaries = build_summaries(mode_rd, config)
             write_all(summaries, root / run_dir_name / mode_name)
             if summary_names is None:
                 summary_names = list(summaries.keys())
@@ -104,10 +114,38 @@ def write_panel_reference_bundle(
         },
         "runs": run_entries,
     }
-    (root / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    (root / "manifest.json").write_text(
+        json.dumps(manifest, indent=2), encoding="utf-8"
+    )
     return root
 
 
 def _slug(value: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip()).strip("-_.")
     return slug or "run"
+
+
+def strip_weights(rd: RunData) -> RunData:
+    """Return a copy of ``RunData`` with all ``finalweight`` values reset to 1.0."""
+
+    def _reset(df: pl.DataFrame) -> pl.DataFrame:
+        if "finalweight" in df.columns:
+            return df.with_columns(pl.lit(1.0).alias("finalweight"))
+        return df
+
+    return RunData(
+        label=rd.label,
+        run_dir=rd.run_dir,
+        skim_file=rd.skim_file,
+        hh=_reset(rd.hh),
+        per=_reset(rd.per),
+        tours=_reset(rd.tours),
+        trips=_reset(rd.trips),
+        joint_participants=rd.joint_participants,
+        land_use=rd.land_use,
+        skim_matrix=rd.skim_matrix,
+        skim_zone_map=rd.skim_zone_map,
+        hh_weight_col=None,
+        person_weight_col=None,
+        trip_weight_col=None,
+    )

@@ -19,6 +19,7 @@ Usage examples:
   # Export self-contained HTML
   python run.py --export-html output.html
 """
+
 from __future__ import annotations
 import argparse
 import sys
@@ -32,7 +33,8 @@ def parse_args() -> argparse.Namespace:
         description="Panel-based ActivitySim comparison visualizer",
     )
     parser.add_argument(
-        "--config", "-c",
+        "--config",
+        "-c",
         default=str(Path(__file__).parent / "config.yaml"),
         help="Path to config.yaml (default: config.yaml next to run.py)",
     )
@@ -100,7 +102,7 @@ def main() -> None:
     # ------------------------------------------------------------------ #
     from summarize.reader import Config, read_run, prepare_data
     from summarize import writer as csv_writer
-    from quarto_visualizer.panel_reference import build_reference_summaries
+    from summarize.summary_bundle import build_summaries
 
     print(f"[main] Loading config: {args.config}")
     config = Config.from_yaml(args.config)
@@ -122,8 +124,10 @@ def main() -> None:
         print("[main] Using runs from config")
         run_entries = config.runs
     else:
-        print("Error: no runs specified. Add runs to config.yaml or use --run DIR LABEL.",
-              file=sys.stderr)
+        print(
+            "Error: no runs specified. Add runs to config.yaml or use --run DIR LABEL.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     if args.from_csvs:
@@ -135,12 +139,15 @@ def main() -> None:
     runs: list[tuple[str, object]] = []
     for entry in run_entries:
         run_dir = entry.get("dir", "")
-        label   = entry.get("label", Path(run_dir).name)
-        skim    = entry.get("skim_file") or None
+        label = entry.get("label", Path(run_dir).name)
+        skim = entry.get("skim_file") or None
 
         print(f"Reading run: {label!r} from {run_dir}")
         rd = read_run(
-            run_dir, config, label=label, skim_file=skim,
+            run_dir,
+            config,
+            label=label,
+            skim_file=skim,
             hh_weight_col=entry.get("hh_weight_col") or None,
             person_weight_col=entry.get("person_weight_col") or None,
             trip_weight_col=entry.get("trip_weight_col") or None,
@@ -162,13 +169,13 @@ def main() -> None:
         for label, rd in runs:
             print(f"Writing CSVs for run: {label}")
             out_dir = Path(rd.run_dir) / "summary_outputs"
-            summaries = build_reference_summaries(rd, config)
+            summaries = build_summaries(rd, config)
             csv_writer.write_all(summaries, out_dir)
             print(f"[main] Wrote summaries: {out_dir}")
 
     if args.no_dashboard:
         print("Done writing CSVs. Exiting.")
-        print(f"[main] Run completed in {(time.perf_counter()-t0)/60:.2f} minutes.")
+        print(f"[main] Run completed in {(time.perf_counter() - t0) / 60:.2f} minutes.")
         return
 
     # ------------------------------------------------------------------ #
@@ -183,12 +190,14 @@ def main() -> None:
         export_view, _ = build_export_view(runs, config)
         export_view.save(args.export_html)
         print("Done.")
-        print(f"[main] Dashboard created in {(time.perf_counter()-t0)/60:.2f} minutes.")
+        print(
+            f"[main] Dashboard created in {(time.perf_counter() - t0) / 60:.2f} minutes."
+        )
         return
 
     print("[main] Building dashboard")
     dashboard = build_dashboard(runs, config, static_export=False)
-    print(f"[main] Dashboard created in {(time.perf_counter()-t0)/60:.2f} minutes.")
+    print(f"[main] Dashboard created in {(time.perf_counter() - t0) / 60:.2f} minutes.")
     pn.serve(
         dashboard,
         port=args.port,
@@ -199,6 +208,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
-
