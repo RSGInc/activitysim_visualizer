@@ -2,6 +2,7 @@
 
 Uses tour_mode and trip_mode strings directly from ActivitySim outputs.
 """
+
 import polars as pl
 from .reader import RunData, Config
 
@@ -19,9 +20,11 @@ def trip_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
     if "primary_purpose" in rd.trips.columns:
         cols = ["primary_purpose"] + cols
 
-    return (rd.trips
-            .filter(pl.col("tour_mode").is_not_null() & pl.col("trip_mode").is_not_null())
-            .group_by(cols)
-            .agg(pl.col("finalweight").sum().alias("freq"))
-            .sort(cols))
-
+    return (
+        rd.trips.filter(
+            pl.col("tour_mode").is_not_null() & pl.col("trip_mode").is_not_null()
+        )
+        .group_by(cols)
+        .agg(pl.col("finalweight").sum().alias("freq"))
+        .sort(cols)
+    )

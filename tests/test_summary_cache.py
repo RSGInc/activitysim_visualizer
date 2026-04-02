@@ -107,7 +107,11 @@ def test_summary_cache_round_trip_creates_configured_layout(tmp_path: Path) -> N
         cache_dir,
         config,
         expected_modes=config.weighting_modes,
-        expected_summary_ids=["destination_distance", "destination_average_distance", "geo_flows"],
+        expected_summary_ids=[
+            "destination_distance",
+            "destination_average_distance",
+            "geo_flows",
+        ],
         expected_config_digest=config.config_digest,
         expected_run_fingerprint=fingerprint,
         expected_label="Base",

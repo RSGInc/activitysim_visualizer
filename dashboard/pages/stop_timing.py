@@ -1,10 +1,12 @@
 """Stop timing page: stop and trip departure profiles."""
+
 from __future__ import annotations
 import panel as pn
 import polars as pl
 from dashboard.components import density_chart
 from summarize.reader import RunData, Config
 from summarize import stops
+
 
 def _time_label(timebin: int, maxbin: int) -> str:
     step = 30 if maxbin == 48 else 60
@@ -38,21 +40,29 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
                 break
 
         def _prep(df: pl.DataFrame, val_col: str) -> pl.DataFrame:
-            return (df.filter(pl.col("primary_purpose") == purp)
-                    .select(["timebin", val_col])
-                    .rename({val_col: "freq"})
-                    .with_columns(
-                        pl.col("timebin").map_elements(
-                            lambda tb: _time_label(int(tb), maxbin), return_dtype=pl.Utf8
-                        ).alias("clock_time")
-                    ))
+            return (
+                df.filter(pl.col("primary_purpose") == purp)
+                .select(["timebin", val_col])
+                .rename({val_col: "freq"})
+                .with_columns(
+                    pl.col("timebin")
+                    .map_elements(
+                        lambda tb: _time_label(int(tb), maxbin), return_dtype=pl.Utf8
+                    )
+                    .alias("clock_time")
+                )
+            )
 
         stop_dep = [(l, _prep(df, "freq_stop_dep")) for l, df in timing_list]
         trip_dep = [(l, _prep(df, "freq_trip_dep")) for l, df in timing_list]
         x_label = "Clock time (start at 03:00)"
         return pn.Column(
-            density_chart(trip_dep, "clock_time", "freq", f"Trip Departure — {purp}", x_label),
-            density_chart(stop_dep, "clock_time", "freq", f"Stop Departure — {purp}", x_label),
+            density_chart(
+                trip_dep, "clock_time", "freq", f"Trip Departure — {purp}", x_label
+            ),
+            density_chart(
+                stop_dep, "clock_time", "freq", f"Stop Departure — {purp}", x_label
+            ),
         )
 
     return pn.Column(

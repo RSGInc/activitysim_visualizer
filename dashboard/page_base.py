@@ -1,4 +1,5 @@
 """Base classes for persistent Panel dashboard pages."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -26,8 +27,11 @@ class DashboardPage:
 
     def refresh(self, force: bool = False) -> None:
         """Refresh the page content."""
-        if (not force and
-                self._page_state.get("last_rendered_state") == self.state.global_state_key()):
+        if (
+            not force
+            and self._page_state.get("last_rendered_state")
+            == self.state.global_state_key()
+        ):
             return
         self._refresh()
         self._page_state["last_rendered_state"] = self.state.global_state_key()
@@ -51,7 +55,9 @@ class DashboardPage:
 
     def get_summary(self, summary_name: str, factory):
         """Return a cached raw summary for the current weighting mode."""
-        precomputed = self.state.get_precomputed_summary(summary_name, self.weighting_key)
+        precomputed = self.state.get_precomputed_summary(
+            summary_name, self.weighting_key
+        )
         if precomputed is not None:
             return precomputed
         return self.state.get_or_create_cached(

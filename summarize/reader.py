@@ -8,6 +8,7 @@ Key design principles:
 - File format auto-detection: if no extension given, tries .parquet first, then .csv.
 - Weighting: computed once by compute_weights() and stored as "finalweight" on each table.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -19,10 +20,10 @@ import numpy as np
 import polars as pl
 import yaml
 
-
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class Config:
@@ -56,7 +57,9 @@ class Config:
     # Geography (optional)
     geography_enabled: bool
     geography_landuse_col: Optional[str]
-    geography_mapping: Optional[dict]  # raw_value -> display_name (str keys after yaml load)
+    geography_mapping: Optional[
+        dict
+    ]  # raw_value -> display_name (str keys after yaml load)
 
     # Skim (global default)
     skim_file: Optional[str]
@@ -80,12 +83,12 @@ class Config:
         # Defaults use stems (no extension) so auto-detection picks parquet-first.
         # Configs that explicitly set ".csv" or ".parquet" are respected as-is.
         _file_defaults = {
-            "households":              "final_households",
-            "persons":                 "final_persons",
-            "tours":                   "final_tours",
-            "trips":                   "final_trips",
+            "households": "final_households",
+            "persons": "final_persons",
+            "tours": "final_tours",
+            "trips": "final_trips",
             "joint_tour_participants": "final_joint_tour_participants",
-            "land_use":                "final_land_use",
+            "land_use": "final_land_use",
         }
         for k, v in _file_defaults.items():
             files.setdefault(k, v)
@@ -114,7 +117,9 @@ class Config:
         ]
         supported_weighting_modes = {"weighted", "unweighted"}
         invalid_weighting_modes = [
-            mode for mode in raw_weighting_modes if mode and mode not in supported_weighting_modes
+            mode
+            for mode in raw_weighting_modes
+            if mode and mode not in supported_weighting_modes
         ]
         if invalid_weighting_modes:
             raise ValueError(
@@ -133,10 +138,19 @@ class Config:
             config_digest=hashlib.sha256(config_bytes).hexdigest(),
             name=raw.get("name", ""),
             dashboard_title=raw.get("dashboard_title", "ActivitySim Visualizer"),
-            run_colors=raw.get("run_colors", [
-                "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728",
-                "#9467bd", "#8c564b", "#e377c2", "#7f7f7f",
-            ]),
+            run_colors=raw.get(
+                "run_colors",
+                [
+                    "#1f77b4",
+                    "#ff7f0e",
+                    "#2ca02c",
+                    "#d62728",
+                    "#9467bd",
+                    "#8c564b",
+                    "#e377c2",
+                    "#7f7f7f",
+                ],
+            ),
             summary_root=str(summary_root),
             weighting_modes=weighting_modes,
             files=files,
@@ -146,7 +160,10 @@ class Config:
             col_num_workers=cols.get("num_workers", "num_workers"),
             col_num_adults=cols.get("num_adults", "num_adults"),
             col_sample_rate=cols.get("sample_rate") or None,
-            person_type_labels={str(k): str(v) for k, v in raw.get("person_types", {}).items()} or None,
+            person_type_labels={
+                str(k): str(v) for k, v in raw.get("person_types", {}).items()
+            }
+            or None,
             use_maz=bool(zones.get("use_maz", True)),
             maz_col=zones.get("maz_col", "zone_id"),
             taz_col=zones.get("taz_col", "TAZ"),
@@ -192,12 +209,14 @@ class Config:
 # RunData
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class RunData:
     """Holds all data for one ActivitySim run, enriched by prepare_data()."""
+
     label: str
     run_dir: str
-    skim_file: Optional[str]    # actual skim file path used for this run (may be None)
+    skim_file: Optional[str]  # actual skim file path used for this run (may be None)
     hh: pl.DataFrame
     per: pl.DataFrame
     tours: pl.DataFrame
@@ -212,10 +231,10 @@ class RunData:
     trip_weight_col: Optional[str] = None
 
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _skim_lookup(
     skim: np.ndarray,
@@ -227,8 +246,12 @@ def _skim_lookup(
     o_arr = np.asarray(otaz, dtype=int)
     d_arr = np.asarray(dtaz, dtype=int)
     if zone_map:
-        o_idx = np.fromiter((zone_map.get(int(z), -1) for z in o_arr), dtype=int, count=len(o_arr))
-        d_idx = np.fromiter((zone_map.get(int(z), -1) for z in d_arr), dtype=int, count=len(d_arr))
+        o_idx = np.fromiter(
+            (zone_map.get(int(z), -1) for z in o_arr), dtype=int, count=len(o_arr)
+        )
+        d_idx = np.fromiter(
+            (zone_map.get(int(z), -1) for z in d_arr), dtype=int, count=len(d_arr)
+        )
     else:
         # Fallback for OMX files without explicit mapping:
         # - If zones appear 0-indexed, use values directly
@@ -237,21 +260,27 @@ def _skim_lookup(
         d_min = int(np.min(d_arr)) if len(d_arr) else 0
         o_max = int(np.max(o_arr)) if len(o_arr) else 0
         d_max = int(np.max(d_arr)) if len(d_arr) else 0
-        if ((o_min >= 0 and d_min >= 0) and
-            (o_max < skim.shape[0] and d_max < skim.shape[1]) and
-            ((o_arr == 0).any() or (d_arr == 0).any())):
+        if (
+            (o_min >= 0 and d_min >= 0)
+            and (o_max < skim.shape[0] and d_max < skim.shape[1])
+            and ((o_arr == 0).any() or (d_arr == 0).any())
+        ):
             o_idx = o_arr
             d_idx = d_arr
         else:
             o_idx = o_arr - 1
             d_idx = d_arr - 1
-    valid = (o_idx >= 0) & (d_idx >= 0) & (o_idx < skim.shape[0]) & (d_idx < skim.shape[1])
+    valid = (
+        (o_idx >= 0) & (d_idx >= 0) & (o_idx < skim.shape[0]) & (d_idx < skim.shape[1])
+    )
     dist = np.zeros(len(o_idx), dtype=float)
     dist[valid] = skim[o_idx[valid], d_idx[valid]]
     return dist
 
 
-def _resolve_skim(run_skim: Optional[str], global_skim: Optional[str], run_dir: Path) -> Optional[str]:
+def _resolve_skim(
+    run_skim: Optional[str], global_skim: Optional[str], run_dir: Path
+) -> Optional[str]:
     """Pick the skim file for a run: per-run > global > None."""
     candidate = run_skim or global_skim
     if not candidate:
@@ -308,6 +337,7 @@ def _find_and_read(run_dir: Path, configured: str) -> pl.DataFrame:
 # compute_weights
 # ---------------------------------------------------------------------------
 
+
 def compute_weights(
     hh: pl.DataFrame,
     per: pl.DataFrame,
@@ -328,22 +358,40 @@ def compute_weights(
               else inherit person weight (via person_id or household_id)
     """
     explicit_weight_supplied = any([hh_weight_col, person_weight_col, trip_weight_col])
-    sample_rate_col = config.col_sample_rate or ("sample_rate" if "sample_rate" in hh.columns else None)
+    sample_rate_col = config.col_sample_rate or (
+        "sample_rate" if "sample_rate" in hh.columns else None
+    )
     if sample_rate_col == "sample_rate" and config.col_sample_rate is None:
         print("[compute_weights] Auto-detected sample_rate column in households.")
 
     # --- HH finalweight ---
     if hh_weight_col and hh_weight_col in hh.columns:
         print(f"[compute_weights] Using household weight column: {hh_weight_col}")
-        hh = hh.with_columns(pl.col(hh_weight_col).cast(pl.Float64).alias("finalweight"))
-    elif (not explicit_weight_supplied) and sample_rate_col and sample_rate_col in hh.columns:
-        print(f"[compute_weights] Using sample-rate expansion from column: {sample_rate_col}")
         hh = hh.with_columns(
-            (pl.lit(1.0) / pl.col(sample_rate_col).cast(pl.Float64)).alias("finalweight")
+            pl.col(hh_weight_col).cast(pl.Float64).alias("finalweight")
+        )
+    elif (
+        (not explicit_weight_supplied)
+        and sample_rate_col
+        and sample_rate_col in hh.columns
+    ):
+        print(
+            f"[compute_weights] Using sample-rate expansion from column: {sample_rate_col}"
+        )
+        hh = hh.with_columns(
+            (pl.lit(1.0) / pl.col(sample_rate_col).cast(pl.Float64)).alias(
+                "finalweight"
+            )
         )
     else:
-        if explicit_weight_supplied and sample_rate_col and sample_rate_col in hh.columns:
-            print("[compute_weights] Explicit run weight columns supplied; skipping sample_rate expansion.")
+        if (
+            explicit_weight_supplied
+            and sample_rate_col
+            and sample_rate_col in hh.columns
+        ):
+            print(
+                "[compute_weights] Explicit run weight columns supplied; skipping sample_rate expansion."
+            )
         else:
             print("[compute_weights] No weight column found; defaulting finalweight=1.")
         hh = hh.with_columns(pl.lit(1.0).alias("finalweight"))
@@ -351,55 +399,85 @@ def compute_weights(
     # --- Person finalweight ---
     if person_weight_col and person_weight_col in per.columns:
         print(f"[compute_weights] Using person weight column: {person_weight_col}")
-        per = per.with_columns(pl.col(person_weight_col).cast(pl.Float64).alias("finalweight"))
+        per = per.with_columns(
+            pl.col(person_weight_col).cast(pl.Float64).alias("finalweight")
+        )
     else:
-        per = (per
-               .join(hh.select(["household_id", pl.col("finalweight").alias("_hw")]),
-                     on="household_id", how="left")
-               .with_columns(pl.col("_hw").fill_null(1.0).alias("finalweight"))
-               .drop("_hw"))
+        per = (
+            per.join(
+                hh.select(["household_id", pl.col("finalweight").alias("_hw")]),
+                on="household_id",
+                how="left",
+            )
+            .with_columns(pl.col("_hw").fill_null(1.0).alias("finalweight"))
+            .drop("_hw")
+        )
 
     # --- Trip finalweight ---
     if trip_weight_col and trip_weight_col in trips.columns:
         print(f"[compute_weights] Using trip weight column: {trip_weight_col}")
-        trips = trips.with_columns(pl.col(trip_weight_col).cast(pl.Float64).alias("finalweight"))
+        trips = trips.with_columns(
+            pl.col(trip_weight_col).cast(pl.Float64).alias("finalweight")
+        )
     else:
         if "person_id" in trips.columns:
-            trips = (trips
-                     .join(per.select(["person_id", pl.col("finalweight").alias("_pw")]),
-                           on="person_id", how="left")
-                     .with_columns(pl.col("_pw").fill_null(1.0).alias("finalweight"))
-                     .drop("_pw"))
+            trips = (
+                trips.join(
+                    per.select(["person_id", pl.col("finalweight").alias("_pw")]),
+                    on="person_id",
+                    how="left",
+                )
+                .with_columns(pl.col("_pw").fill_null(1.0).alias("finalweight"))
+                .drop("_pw")
+            )
         else:
-            trips = (trips
-                     .join(hh.select(["household_id", pl.col("finalweight").alias("_hw")]),
-                           on="household_id", how="left")
-                     .with_columns(pl.col("_hw").fill_null(1.0).alias("finalweight"))
-                     .drop("_hw"))
+            trips = (
+                trips.join(
+                    hh.select(["household_id", pl.col("finalweight").alias("_hw")]),
+                    on="household_id",
+                    how="left",
+                )
+                .with_columns(pl.col("_hw").fill_null(1.0).alias("finalweight"))
+                .drop("_hw")
+            )
 
     # --- Tour finalweight ---
-    if trip_weight_col and trip_weight_col in trips.columns and "tour_id" in trips.columns:
+    if (
+        trip_weight_col
+        and trip_weight_col in trips.columns
+        and "tour_id" in trips.columns
+    ):
         # Average of trip weights across all trips in each tour
-        tour_avg = (trips.group_by("tour_id")
-                    .agg(pl.col("finalweight").mean().alias("_tw")))
-        tours = (tours
-                 .join(tour_avg, on="tour_id", how="left")
-                 .with_columns(pl.col("_tw").fill_null(1.0).alias("finalweight"))
-                 .drop("_tw"))
+        tour_avg = trips.group_by("tour_id").agg(
+            pl.col("finalweight").mean().alias("_tw")
+        )
+        tours = (
+            tours.join(tour_avg, on="tour_id", how="left")
+            .with_columns(pl.col("_tw").fill_null(1.0).alias("finalweight"))
+            .drop("_tw")
+        )
     elif "person_id" in tours.columns:
         # Inherit person weight (tour lead person for joint tours)
-        tours = (tours
-                 .join(per.select(["person_id", pl.col("finalweight").alias("_pw")]),
-                       on="person_id", how="left")
-                 .with_columns(pl.col("_pw").fill_null(1.0).alias("finalweight"))
-                 .drop("_pw"))
+        tours = (
+            tours.join(
+                per.select(["person_id", pl.col("finalweight").alias("_pw")]),
+                on="person_id",
+                how="left",
+            )
+            .with_columns(pl.col("_pw").fill_null(1.0).alias("finalweight"))
+            .drop("_pw")
+        )
     else:
         # Fall back to HH weight
-        tours = (tours
-                 .join(hh.select(["household_id", pl.col("finalweight").alias("_hw")]),
-                       on="household_id", how="left")
-                 .with_columns(pl.col("_hw").fill_null(1.0).alias("finalweight"))
-                 .drop("_hw"))
+        tours = (
+            tours.join(
+                hh.select(["household_id", pl.col("finalweight").alias("_hw")]),
+                on="household_id",
+                how="left",
+            )
+            .with_columns(pl.col("_hw").fill_null(1.0).alias("finalweight"))
+            .drop("_hw")
+        )
 
     return hh, per, tours, trips
 
@@ -407,6 +485,7 @@ def compute_weights(
 # ---------------------------------------------------------------------------
 # read_run
 # ---------------------------------------------------------------------------
+
 
 def read_run(
     run_dir: str | Path,
@@ -440,12 +519,12 @@ def read_run(
     def _read(key: str) -> pl.DataFrame:
         return _find_and_read(run_dir, config.files[key])
 
-    hh          = _read("households")
-    per         = _read("persons")
-    tours       = _read("tours")
-    trips       = _read("trips")
+    hh = _read("households")
+    per = _read("persons")
+    tours = _read("tours")
+    trips = _read("trips")
     joint_parts = _read("joint_tour_participants")
-    land_use    = _read("land_use")
+    land_use = _read("land_use")
 
     # Resolve and load skim
     resolved_skim = _resolve_skim(skim_file, config.skim_file, run_dir)
@@ -454,6 +533,7 @@ def read_run(
     if resolved_skim:
         try:
             import openmatrix as omx
+
             f = omx.open_file(resolved_skim)
             skim_matrix = np.array(f[config.skim_matrix])
             mappings = f.list_mappings()
@@ -468,9 +548,13 @@ def read_run(
                     except Exception:
                         continue
                 skim_zone_map = norm_map if norm_map else None
-                print(f"[read_run] Loaded skim mapping '{mapping_name}' with {len(norm_map)} zones.")
+                print(
+                    f"[read_run] Loaded skim mapping '{mapping_name}' with {len(norm_map)} zones."
+                )
             f.close()
-            print(f"[read_run] Loaded skim matrix '{config.skim_matrix}' from {resolved_skim}")
+            print(
+                f"[read_run] Loaded skim matrix '{config.skim_matrix}' from {resolved_skim}"
+            )
         except Exception as e:
             print(f"Warning: could not read skim '{resolved_skim}': {e}")
     else:
@@ -498,6 +582,7 @@ def read_run(
 # prepare_data
 # ---------------------------------------------------------------------------
 
+
 def prepare_data(rd: RunData, config: Config) -> RunData:
     """Enrich RunData with derived columns needed by summary functions.
 
@@ -518,7 +603,7 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     - No numeric code mappings for purpose/mode/category — raw strings used as-is
     - No zone crosswalk file — geography comes directly from the land_use column
     """
-    skim     = rd.skim_matrix
+    skim = rd.skim_matrix
     skim_map = rd.skim_zone_map
     land_use = rd.land_use
     print(f"[prepare_data] Starting: {rd.label}")
@@ -527,7 +612,11 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     # Step 0: Compute all finalweights before enrichment
     # ------------------------------------------------------------------
     hh, per, tours, trips = compute_weights(
-        rd.hh, rd.per, rd.tours, rd.trips, config,
+        rd.hh,
+        rd.per,
+        rd.tours,
+        rd.trips,
+        config,
         hh_weight_col=rd.hh_weight_col,
         person_weight_col=rd.person_weight_col,
         trip_weight_col=rd.trip_weight_col,
@@ -539,10 +628,11 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     # ------------------------------------------------------------------
     if config.use_maz:
         print(f"[prepare_data] Building MAZ->TAZ lookup for '{rd.label}'")
-        maz_taz = (land_use
-                   .select([config.maz_col, config.taz_col])
-                   .rename({config.maz_col: "_maz", config.taz_col: "_taz"})
-                   .unique("_maz"))
+        maz_taz = (
+            land_use.select([config.maz_col, config.taz_col])
+            .rename({config.maz_col: "_maz", config.taz_col: "_taz"})
+            .unique("_maz")
+        )
     else:
         maz_taz = None  # zone IDs in outputs are already TAZs
 
@@ -551,13 +641,16 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     # ------------------------------------------------------------------
     zone_geo: Optional[pl.DataFrame] = None
     if config.geography_enabled and config.geography_landuse_col:
-        print(f"[prepare_data] Applying geography labels from '{config.geography_landuse_col}'")
-        geo_col  = config.geography_landuse_col
+        print(
+            f"[prepare_data] Applying geography labels from '{config.geography_landuse_col}'"
+        )
+        geo_col = config.geography_landuse_col
         zone_col = config.taz_col if config.use_maz else config.maz_col
-        geo_lu   = (land_use
-                    .select([zone_col, geo_col])
-                    .rename({zone_col: "_taz"})
-                    .unique("_taz"))
+        geo_lu = (
+            land_use.select([zone_col, geo_col])
+            .rename({zone_col: "_taz"})
+            .unique("_taz")
+        )
         if config.geography_mapping:
             geo_lu = geo_lu.with_columns(
                 config.apply_geo_mapping(pl.col(geo_col)).alias(geo_col)
@@ -572,22 +665,18 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
             return df
         if maz_taz is None or zone_col not in df.columns:
             return df
-        return (df.join(
-            maz_taz.rename({"_maz": zone_col, "_taz": out_col}),
-            on=zone_col, how="left"
-        ).with_columns(
-            pl.coalesce([pl.col(out_col), pl.col(zone_col)]).alias(out_col)
-        ))
+        return df.join(
+            maz_taz.rename({"_maz": zone_col, "_taz": out_col}), on=zone_col, how="left"
+        ).with_columns(pl.coalesce([pl.col(out_col), pl.col(zone_col)]).alias(out_col))
 
     def _add_geo(df: pl.DataFrame, taz_col: str, out_col: str) -> pl.DataFrame:
         """Add a geography label column by joining on TAZ."""
         if zone_geo is None or taz_col not in df.columns:
             return df
         geo_col = config.geography_landuse_col
-        return (df.join(
-            zone_geo.rename({"_taz": taz_col, geo_col: out_col}),
-            on=taz_col, how="left"
-        ))
+        return df.join(
+            zone_geo.rename({"_taz": taz_col, geo_col: out_col}), on=taz_col, how="left"
+        )
 
     # ------------------------------------------------------------------
     # Households  (finalweight already set by compute_weights)
@@ -622,19 +711,28 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
         if "home_taz" in per.columns and "work_taz" in per.columns:
             o = per["home_taz"].fill_null(0).to_numpy()
             d = per["work_taz"].fill_null(0).to_numpy()
-            per = per.with_columns(pl.Series("distance_to_work", _skim_lookup(skim, o, d, skim_map)))
+            per = per.with_columns(
+                pl.Series("distance_to_work", _skim_lookup(skim, o, d, skim_map))
+            )
         if "home_taz" in per.columns and "school_taz" in per.columns:
             o = per["home_taz"].fill_null(0).to_numpy()
             d = per["school_taz"].fill_null(0).to_numpy()
-            per = per.with_columns(pl.Series("distance_to_school", _skim_lookup(skim, o, d, skim_map)))
+            per = per.with_columns(
+                pl.Series("distance_to_school", _skim_lookup(skim, o, d, skim_map))
+            )
 
     if "mandatory_tour_frequency" in per.columns and "imf_choice" not in per.columns:
         per = per.with_columns(
-            pl.when(pl.col("mandatory_tour_frequency") == "work1").then(1)
-            .when(pl.col("mandatory_tour_frequency") == "work2").then(2)
-            .when(pl.col("mandatory_tour_frequency") == "school1").then(3)
-            .when(pl.col("mandatory_tour_frequency") == "school2").then(4)
-            .when(pl.col("mandatory_tour_frequency") == "work_and_school").then(5)
+            pl.when(pl.col("mandatory_tour_frequency") == "work1")
+            .then(1)
+            .when(pl.col("mandatory_tour_frequency") == "work2")
+            .then(2)
+            .when(pl.col("mandatory_tour_frequency") == "school1")
+            .then(3)
+            .when(pl.col("mandatory_tour_frequency") == "school2")
+            .then(4)
+            .when(pl.col("mandatory_tour_frequency") == "work_and_school")
+            .then(5)
             .otherwise(0)
             .alias("imf_choice")
         )
@@ -643,25 +741,41 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     # Tours  (finalweight already set by compute_weights)
     # Join HH cols for AUTOSUFF computation — NOT finalweight
     # ------------------------------------------------------------------
-    hh_for_tours = [c for c in ["household_id", "HHVEH", "WORKERS", "ADULTS"] if c in hh.columns]
+    hh_for_tours = [
+        c for c in ["household_id", "HHVEH", "WORKERS", "ADULTS"] if c in hh.columns
+    ]
     tours = tours.join(hh.select(hh_for_tours), on="household_id", how="left")
 
     if "HHVEH" in tours.columns and "WORKERS" in tours.columns:
         tours = tours.with_columns(
-            pl.when(pl.col("HHVEH") == 0).then(0)
-            .when((pl.col("HHVEH") > 0) & (pl.col("HHVEH") < pl.col("WORKERS"))).then(1)
-            .when((pl.col("HHVEH") > 0) & (pl.col("HHVEH") >= pl.col("WORKERS"))).then(2)
+            pl.when(pl.col("HHVEH") == 0)
+            .then(0)
+            .when((pl.col("HHVEH") > 0) & (pl.col("HHVEH") < pl.col("WORKERS")))
+            .then(1)
+            .when((pl.col("HHVEH") > 0) & (pl.col("HHVEH") >= pl.col("WORKERS")))
+            .then(2)
             .otherwise(0)
             .alias("AUTOSUFF")
         )
 
     if "stop_frequency" in tours.columns:
-        tours = tours.with_columns([
-            pl.col("stop_frequency").cast(pl.Utf8).str.split("out_").list.first()
-              .cast(pl.Int32).alias("num_ob_stops"),
-            pl.col("stop_frequency").cast(pl.Utf8).str.split("out_").list.last()
-              .str.replace("in", "", literal=True).cast(pl.Int32).alias("num_ib_stops"),
-        ]).with_columns(
+        tours = tours.with_columns(
+            [
+                pl.col("stop_frequency")
+                .cast(pl.Utf8)
+                .str.split("out_")
+                .list.first()
+                .cast(pl.Int32)
+                .alias("num_ob_stops"),
+                pl.col("stop_frequency")
+                .cast(pl.Utf8)
+                .str.split("out_")
+                .list.last()
+                .str.replace("in", "", literal=True)
+                .cast(pl.Int32)
+                .alias("num_ib_stops"),
+            ]
+        ).with_columns(
             (pl.col("num_ob_stops") + pl.col("num_ib_stops")).alias("num_tot_stops")
         )
 
@@ -672,14 +786,16 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
         print(f"[prepare_data] Computing tour skim distances for '{rd.label}'")
         o = tours["OTAZ"].fill_null(0).to_numpy()
         d = tours["DTAZ"].fill_null(0).to_numpy()
-        tours = tours.with_columns(pl.Series("SKIMDIST", _skim_lookup(skim, o, d, skim_map)))
+        tours = tours.with_columns(
+            pl.Series("SKIMDIST", _skim_lookup(skim, o, d, skim_map))
+        )
     elif "SKIMDIST" not in tours.columns:
         tours = tours.with_columns(pl.lit(0.0).alias("SKIMDIST"))
 
     if "tour_id" in tours.columns and "person_id" in rd.joint_participants.columns:
-        party_size = (rd.joint_participants
-                      .group_by("tour_id")
-                      .agg(pl.len().alias("NUMBER_HH")))
+        party_size = rd.joint_participants.group_by("tour_id").agg(
+            pl.len().alias("NUMBER_HH")
+        )
         tours = tours.join(party_size, on="tour_id", how="left")
     if "NUMBER_HH" not in tours.columns:
         tours = tours.with_columns(pl.lit(1).alias("NUMBER_HH"))
@@ -691,8 +807,11 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
         tours = tours.with_columns(pl.col("end").alias("end_hour"))
     if "duration" in tours.columns and "tourdur" not in tours.columns:
         tours = tours.with_columns(pl.col("duration").alias("tourdur"))
-    elif ("start_hour" in tours.columns and "end_hour" in tours.columns
-          and "tourdur" not in tours.columns):
+    elif (
+        "start_hour" in tours.columns
+        and "end_hour" in tours.columns
+        and "tourdur" not in tours.columns
+    ):
         tours = tours.with_columns(
             (pl.col("end_hour") - pl.col("start_hour")).alias("tourdur")
         )
@@ -701,13 +820,23 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     # Trips  (finalweight already set by compute_weights)
     # Join tour cols for purpose/mode context — NOT finalweight
     # ------------------------------------------------------------------
-    tour_join_cols = [c for c in [
-        "tour_id", "AUTOSUFF", "NUMBER_HH",
-        "primary_purpose", "tour_mode", "tour_category"
-    ] if c in tours.columns]
+    tour_join_cols = [
+        c
+        for c in [
+            "tour_id",
+            "AUTOSUFF",
+            "NUMBER_HH",
+            "primary_purpose",
+            "tour_mode",
+            "tour_category",
+        ]
+        if c in tours.columns
+    ]
     trips = trips.join(
         tours.select(tour_join_cols).rename({"NUMBER_HH": "num_participants"}),
-        on="tour_id", how="left", suffix="_tour"
+        on="tour_id",
+        how="left",
+        suffix="_tour",
     )
     for col in ["primary_purpose", "tour_mode", "tour_category"]:
         tour_col = f"{col}_tour"
@@ -717,13 +846,23 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
             trips = trips.rename({tour_col: col})
 
     if "HHVEH" not in trips.columns:
-        trips = trips.join(hh.select(["household_id", "HHVEH", "WORKERS"]),
-                           on="household_id", how="left")
-    if "AUTOSUFF" not in trips.columns and "HHVEH" in trips.columns and "WORKERS" in trips.columns:
+        trips = trips.join(
+            hh.select(["household_id", "HHVEH", "WORKERS"]),
+            on="household_id",
+            how="left",
+        )
+    if (
+        "AUTOSUFF" not in trips.columns
+        and "HHVEH" in trips.columns
+        and "WORKERS" in trips.columns
+    ):
         trips = trips.with_columns(
-            pl.when(pl.col("HHVEH") == 0).then(0)
-            .when((pl.col("HHVEH") > 0) & (pl.col("HHVEH") < pl.col("WORKERS"))).then(1)
-            .when((pl.col("HHVEH") > 0) & (pl.col("HHVEH") >= pl.col("WORKERS"))).then(2)
+            pl.when(pl.col("HHVEH") == 0)
+            .then(0)
+            .when((pl.col("HHVEH") > 0) & (pl.col("HHVEH") < pl.col("WORKERS")))
+            .then(1)
+            .when((pl.col("HHVEH") > 0) & (pl.col("HHVEH") >= pl.col("WORKERS")))
+            .then(2)
             .otherwise(0)
             .alias("AUTOSUFF")
         )
@@ -734,7 +873,9 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
         print(f"[prepare_data] Computing trip skim distances for '{rd.label}'")
         o = trips["OTAZ"].fill_null(0).to_numpy()
         d = trips["DTAZ"].fill_null(0).to_numpy()
-        trips = trips.with_columns(pl.Series("od_dist", _skim_lookup(skim, o, d, skim_map)))
+        trips = trips.with_columns(
+            pl.Series("od_dist", _skim_lookup(skim, o, d, skim_map))
+        )
     elif "od_dist" not in trips.columns:
         trips = trips.with_columns(pl.lit(0.0).alias("od_dist"))
 
@@ -745,24 +886,38 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
 
     if "outbound" in trips.columns and "inbound" not in trips.columns:
         trips = trips.with_columns(
-            pl.when(pl.col("outbound").cast(pl.Utf8).str.to_lowercase().is_in(["false", "0"]))
-            .then(1).otherwise(0).alias("inbound")
+            pl.when(
+                pl.col("outbound")
+                .cast(pl.Utf8)
+                .str.to_lowercase()
+                .is_in(["false", "0"])
+            )
+            .then(1)
+            .otherwise(0)
+            .alias("inbound")
         )
 
     if "trip_num" in trips.columns and "outbound" in trips.columns:
-        max_trip = (trips
-                    .group_by(["tour_id", "outbound"])
-                    .agg(pl.col("trip_num").max().alias("max_trip_num")))
+        max_trip = trips.group_by(["tour_id", "outbound"]).agg(
+            pl.col("trip_num").max().alias("max_trip_num")
+        )
         trips = trips.join(max_trip, on=["tour_id", "outbound"], how="left")
         trips = trips.with_columns(
-            pl.when(pl.col("trip_num") < pl.col("max_trip_num")).then(1).otherwise(0).alias("stops")
+            pl.when(pl.col("trip_num") < pl.col("max_trip_num"))
+            .then(1)
+            .otherwise(0)
+            .alias("stops")
         )
     elif "stops" not in trips.columns:
         trips = trips.with_columns(pl.lit(0).alias("stops"))
 
     if "out_dir_dist" not in trips.columns:
-        if (skim is not None and "OTAZ" in trips.columns and "DTAZ" in trips.columns
-                and "inbound" in trips.columns):
+        if (
+            skim is not None
+            and "OTAZ" in trips.columns
+            and "DTAZ" in trips.columns
+            and "inbound" in trips.columns
+        ):
             tour_od = tours.select(["tour_id", "OTAZ", "DTAZ"]).rename(
                 {"OTAZ": "tour_OTAZ", "DTAZ": "tour_DTAZ"}
             )
@@ -772,11 +927,11 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
                 trips["tour_DTAZ"].fill_null(0).to_numpy(),
                 trips["tour_OTAZ"].fill_null(0).to_numpy(),
             )
-            o   = trips["OTAZ"].fill_null(0).to_numpy()
-            d   = trips["DTAZ"].fill_null(0).to_numpy()
-            od  = _skim_lookup(skim, o, d, skim_map)
+            o = trips["OTAZ"].fill_null(0).to_numpy()
+            d = trips["DTAZ"].fill_null(0).to_numpy()
+            od = _skim_lookup(skim, o, d, skim_map)
             os_ = _skim_lookup(skim, o, finaldest, skim_map)
-            sd  = _skim_lookup(skim, d, finaldest, skim_map)
+            sd = _skim_lookup(skim, d, finaldest, skim_map)
             trips = trips.with_columns(
                 pl.Series("out_dir_dist", (os_ + sd - od).clip(0))
             )
@@ -800,4 +955,3 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
         person_weight_col=rd.person_weight_col,
         trip_weight_col=rd.trip_weight_col,
     )
-

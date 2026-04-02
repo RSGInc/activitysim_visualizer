@@ -1,4 +1,5 @@
 """Shared live-session state for the Panel dashboard."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -25,7 +26,9 @@ class SummarySeries:
 class DashboardState(param.Parameterized):
     """Single source of truth for live Panel dashboard state."""
 
-    weight_mode = param.ObjectSelector(default="Weighted", objects=["Weighted", "Unweighted"])
+    weight_mode = param.ObjectSelector(
+        default="Weighted", objects=["Weighted", "Unweighted"]
+    )
     value_mode = param.ObjectSelector(default="Percent", objects=["Percent", "Count"])
     active_tab = param.Integer(default=0, bounds=(0, None))
 
@@ -47,7 +50,9 @@ class DashboardState(param.Parameterized):
         self._page_state: dict[str, dict[str, Any]] = {}
         self._caches: dict[str, dict[tuple[Any, ...], Any]] = {}
         self._cache_stats: dict[str, dict[str, int]] = {}
-        self._summary_runs: list[SummarySeries] = self._build_summary_series(summary_runs)
+        self._summary_runs: list[SummarySeries] = self._build_summary_series(
+            summary_runs
+        )
 
     def _build_summary_series(
         self,

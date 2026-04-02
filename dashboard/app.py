@@ -1,4 +1,5 @@
 """ActivitySim Panel dashboard - main app assembly."""
+
 from __future__ import annotations
 
 import json
@@ -31,16 +32,14 @@ from summarize.cache import SummaryRun
 from summarize.reader import Config, RunData
 
 pn.extension("plotly", "tabulator", sizing_mode="stretch_width")
-pn.config.raw_css.append(
-    """
+pn.config.raw_css.append("""
 .bk-root { font-family: Inter, 'Segoe UI', Arial, sans-serif; }
 .bk-tab { font-weight: 600; }
 .bk-tabs-header { margin-bottom: 12px; }
 .pn-loading.arc:before { border-width: 3px; }
 .bk-btn-group .bk-btn { border-width: 1.5px; font-weight: 600; }
 .bk-btn-group .bk-btn.bk-active { box-shadow: inset 0 0 0 2px rgba(0,0,0,.15); }
-"""
-)
+""")
 
 _TAB_BUILDERS = [
     ("Overview", overview.build),
@@ -57,7 +56,11 @@ _TAB_BUILDERS = [
 ]
 
 _EXPORT_WIDGET_STATE_SPEC = {
-    ("Tour Summary", "Person Type"): ["Total", "Full-time worker", "University student"],
+    ("Tour Summary", "Person Type"): [
+        "Total",
+        "Full-time worker",
+        "University student",
+    ],
     ("Destination", "Purpose"): ["All NM", "eatout", "social"],
     ("Trip Mode", "Tour Purpose"): ["Total", "shopping"],
     ("Trip Mode", "Tour Mode"): ["All", "DRIVEALONE"],
@@ -226,13 +229,30 @@ def build_export_view(
     )
     pages = build_live_pages(state, config)
     tab_views: list[tuple[str, pn.viewable.Viewable]] = []
+
+    # example of embedded widget states
     for page in pages:
         if page.name == "Tour Summary":
-            tab_views.append((page.name, _build_export_tour_summary(runs, config, summary_runs=summary_runs)))
+            tab_views.append(
+                (
+                    page.name,
+                    _build_export_tour_summary(runs, config, summary_runs=summary_runs),
+                )
+            )
         elif page.name == "Destination":
-            tab_views.append((page.name, _build_export_destination(runs, config, summary_runs=summary_runs)))
+            tab_views.append(
+                (
+                    page.name,
+                    _build_export_destination(runs, config, summary_runs=summary_runs),
+                )
+            )
         elif page.name == "Trip Mode":
-            tab_views.append((page.name, _build_export_trip_mode(runs, config, summary_runs=summary_runs)))
+            tab_views.append(
+                (
+                    page.name,
+                    _build_export_trip_mode(runs, config, summary_runs=summary_runs),
+                )
+            )
         else:
             page.refresh(force=True)
             if page.view is not None:
@@ -259,6 +279,7 @@ def _disable_export_controls(view: pn.viewable.Viewable) -> None:
     for widget_type in (pn.widgets.Select, pn.widgets.RadioButtonGroup):
         for widget in view.select(widget_type):
             widget.disabled = True
+
 
 def _build_export_tour_summary(
     runs: list[tuple[str, RunData]],
@@ -366,12 +387,16 @@ def _build_tour_summary_body(
     summary_runs: list[SummaryRun] | None = None,
 ) -> pn.Column:
     page = TourSummaryPage(
-        DashboardState(runs, summary_runs=summary_runs, weighting_modes=config.weighting_modes),
+        DashboardState(
+            runs, summary_runs=summary_runs, weighting_modes=config.weighting_modes
+        ),
         config,
     )
     page.ptype_sel.value = person_type
     page.refresh(force=True)
-    return pn.Column(*list(page._body.objects), sizing_mode="stretch_width", visible=visible)
+    return pn.Column(
+        *list(page._body.objects), sizing_mode="stretch_width", visible=visible
+    )
 
 
 def _build_destination_body(
@@ -382,12 +407,16 @@ def _build_destination_body(
     summary_runs: list[SummaryRun] | None = None,
 ) -> pn.Column:
     page = DestinationPage(
-        DashboardState(runs, summary_runs=summary_runs, weighting_modes=config.weighting_modes),
+        DashboardState(
+            runs, summary_runs=summary_runs, weighting_modes=config.weighting_modes
+        ),
         config,
     )
     page.purp_sel.value = purpose
     page.refresh(force=True)
-    return pn.Column(*list(page._body.objects), sizing_mode="stretch_width", visible=visible)
+    return pn.Column(
+        *list(page._body.objects), sizing_mode="stretch_width", visible=visible
+    )
 
 
 def _build_trip_mode_body(
@@ -399,13 +428,17 @@ def _build_trip_mode_body(
     summary_runs: list[SummaryRun] | None = None,
 ) -> pn.Column:
     page = TripModePage(
-        DashboardState(runs, summary_runs=summary_runs, weighting_modes=config.weighting_modes),
+        DashboardState(
+            runs, summary_runs=summary_runs, weighting_modes=config.weighting_modes
+        ),
         config,
     )
     page.purp_sel.value = purpose
     page.tmode_sel.value = mode
     page.refresh(force=True)
-    return pn.Column(*list(page._body.objects), sizing_mode="stretch_width", visible=visible)
+    return pn.Column(
+        *list(page._body.objects), sizing_mode="stretch_width", visible=visible
+    )
 
 
 def _attach_single_selector_visibility(

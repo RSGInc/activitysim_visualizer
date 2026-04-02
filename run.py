@@ -83,7 +83,9 @@ def main() -> None:
         print("Error: --no-dashboard requires --write-csvs.", file=sys.stderr)
         sys.exit(1)
     if args.from_csvs is not None and args.write_csvs:
-        print("Error: --from-csvs cannot be combined with --write-csvs.", file=sys.stderr)
+        print(
+            "Error: --from-csvs cannot be combined with --write-csvs.", file=sys.stderr
+        )
         sys.exit(1)
 
     from summarize.cache import (
@@ -155,7 +157,10 @@ def main() -> None:
                 run_entries_by_key = {}
 
         if not cache_dirs:
-            print("Error: no summary cache directories were found to load.", file=sys.stderr)
+            print(
+                "Error: no summary cache directories were found to load.",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
         print("[main] Loading pre-computed summary caches")

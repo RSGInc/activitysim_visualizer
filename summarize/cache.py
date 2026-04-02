@@ -64,7 +64,11 @@ def _build_tlfd_schl(rd: RunData, config: Config) -> pl.DataFrame:
 
 
 SUMMARY_SPECS: tuple[SummarySpec, ...] = (
-    SummarySpec("auto_ownership", "autoOwnership", lambda rd, config: demographics.auto_ownership(rd)),
+    SummarySpec(
+        "auto_ownership",
+        "autoOwnership",
+        lambda rd, config: demographics.auto_ownership(rd),
+    ),
     SummarySpec("person_type", "pertypeDistbn", demographics.person_type),
     SummarySpec("hh_size", "hhSizeDist", lambda rd, config: demographics.hh_size(rd)),
     SummarySpec("tlfd_work", "workTLFD", _build_tlfd_work),
@@ -72,27 +76,65 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
     SummarySpec("tlfd_schl", "schlTLFD", _build_tlfd_schl),
     SummarySpec("mand_tour_lengths", "mandTourLengths", mandatory.mand_tour_lengths),
     SummarySpec("wfh", "wfh_summary", mandatory.wfh),
-    SummarySpec("telecommute", "telecommuteFrequency", lambda rd, config: mandatory.telecommute(rd)),
+    SummarySpec(
+        "telecommute",
+        "telecommuteFrequency",
+        lambda rd, config: mandatory.telecommute(rd),
+    ),
     SummarySpec("geo_flows", "geoFlows", mandatory.geo_flows),
     SummarySpec("dap_summary", "dapSummary_vis", tours.dap_summary),
     SummarySpec("mandatory_tour_freq", "mtfSummary_vis", tours.mandatory_tour_freq),
     SummarySpec("indiv_nm_summary", "inmSummary_vis", tours.indiv_nm_summary),
     SummarySpec("nm_tour_rates", "nm_tour_rates", tours.nm_tour_rates),
     SummarySpec("joint_tour_freq", "jtf", lambda rd, config: tours.joint_tour_freq(rd)),
-    SummarySpec("joint_composition", "jointComp", lambda rd, config: tours.joint_composition(rd)),
-    SummarySpec("joint_party_size", "jointPartySize", lambda rd, config: tours.joint_party_size(rd)),
-    SummarySpec("joint_tours_hhsize", "jointToursHHSize", lambda rd, config: tours.joint_tours_hhsize(rd)),
+    SummarySpec(
+        "joint_composition", "jointComp", lambda rd, config: tours.joint_composition(rd)
+    ),
+    SummarySpec(
+        "joint_party_size",
+        "jointPartySize",
+        lambda rd, config: tours.joint_party_size(rd),
+    ),
+    SummarySpec(
+        "joint_tours_hhsize",
+        "jointToursHHSize",
+        lambda rd, config: tours.joint_tours_hhsize(rd),
+    ),
     SummarySpec("tour_mode_profile", "tmodeProfile_vis", tour_mode.tour_mode_profile),
-    SummarySpec("grouped_tour_mode_profile", "groupedTmodeProfile_vis", tour_mode.grouped_tour_mode_profile),
-    SummarySpec("tour_tod_profiles", "todProfile_vis", lambda rd, config: tour_tod.tod_profiles(rd)),
+    SummarySpec(
+        "grouped_tour_mode_profile",
+        "groupedTmodeProfile_vis",
+        tour_mode.grouped_tour_mode_profile,
+    ),
+    SummarySpec(
+        "tour_tod_profiles",
+        "todProfile_vis",
+        lambda rd, config: tour_tod.tod_profiles(rd),
+    ),
     SummarySpec("trip_mode_profile", "tripModeProfile_vis", trips.trip_mode_profile),
     SummarySpec("stop_freq", "stopFreq", lambda rd, config: stops.stop_freq(rd)),
-    SummarySpec("stop_purpose_by_tour_purpose", "stopPurpose", lambda rd, config: stops.stop_purpose_by_tour_purpose(rd)),
-    SummarySpec("stop_location", "stopLocation", lambda rd, config: stops.stop_location(rd)),
+    SummarySpec(
+        "stop_purpose_by_tour_purpose",
+        "stopPurpose",
+        lambda rd, config: stops.stop_purpose_by_tour_purpose(rd),
+    ),
+    SummarySpec(
+        "stop_location", "stopLocation", lambda rd, config: stops.stop_location(rd)
+    ),
     SummarySpec("stop_timing", "stopTiming", lambda rd, config: stops.stop_timing(rd)),
-    SummarySpec("totals", "totals", lambda rd, config: totals.system_totals(rd, config)),
-    SummarySpec("destination_distance", "destinationDistByPurpose", lambda rd, config: destination.distance_distribution(rd)),
-    SummarySpec("destination_average_distance", "destinationAvgDistance", lambda rd, config: destination.average_distance(rd)),
+    SummarySpec(
+        "totals", "totals", lambda rd, config: totals.system_totals(rd, config)
+    ),
+    SummarySpec(
+        "destination_distance",
+        "destinationDistByPurpose",
+        lambda rd, config: destination.distance_distribution(rd),
+    ),
+    SummarySpec(
+        "destination_average_distance",
+        "destinationAvgDistance",
+        lambda rd, config: destination.average_distance(rd),
+    ),
 )
 
 SUMMARY_SPEC_BY_ID = {spec.summary_id: spec for spec in SUMMARY_SPECS}
@@ -168,7 +210,9 @@ def build_mode_summaries(
     summary_ids: list[str] | None = None,
 ) -> dict[str, dict[str, pl.DataFrame]]:
     """Build all requested summary tables for each weighting mode."""
-    weighting_modes = normalize_weighting_modes(weighting_modes or config.weighting_modes)
+    weighting_modes = normalize_weighting_modes(
+        weighting_modes or config.weighting_modes
+    )
     mode_runs: dict[str, RunData] = {"weighted": rd}
     if "unweighted" in weighting_modes:
         mode_runs["unweighted"] = strip_weights(rd)
@@ -176,7 +220,9 @@ def build_mode_summaries(
     summaries_by_mode: dict[str, dict[str, pl.DataFrame]] = {}
     for mode in weighting_modes:
         mode_rd = mode_runs["weighted"] if mode == "weighted" else mode_runs[mode]
-        summaries_by_mode[mode] = build_summaries(mode_rd, config, summary_ids=summary_ids)
+        summaries_by_mode[mode] = build_summaries(
+            mode_rd, config, summary_ids=summary_ids
+        )
     return summaries_by_mode
 
 
@@ -206,7 +252,9 @@ def build_run_keys(labels: list[str]) -> list[str]:
 def summary_file_map(summary_ids: list[str]) -> dict[str, str]:
     mapping: dict[str, str] = {}
     for summary_id in summary_ids:
-        mapping[summary_id] = SUMMARY_FILENAME_BY_ID.get(summary_id, f"{summary_id}.csv")
+        mapping[summary_id] = SUMMARY_FILENAME_BY_ID.get(
+            summary_id, f"{summary_id}.csv"
+        )
     return mapping
 
 
@@ -307,7 +355,9 @@ def _read_manifest(cache_dir: Path) -> dict[str, object]:
     try:
         return json.loads(manifest_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        raise SummaryCacheError(f"Invalid manifest JSON in {manifest_path}: {exc}") from exc
+        raise SummaryCacheError(
+            f"Invalid manifest JSON in {manifest_path}: {exc}"
+        ) from exc
 
 
 def load_summary_run_cache(
@@ -337,11 +387,17 @@ def load_summary_run_cache(
         raise SummaryCacheError(
             f"Cache run key mismatch in {cache_dir}: expected {expected_run_key!r}, found {manifest.get('run_key')!r}"
         )
-    if expected_config_digest is not None and manifest.get("config_digest") != expected_config_digest:
+    if (
+        expected_config_digest is not None
+        and manifest.get("config_digest") != expected_config_digest
+    ):
         raise SummaryCacheError(
             f"Cache config digest mismatch in {cache_dir}; summaries were built from a different config."
         )
-    if expected_run_fingerprint is not None and manifest.get("run_fingerprint") != expected_run_fingerprint:
+    if (
+        expected_run_fingerprint is not None
+        and manifest.get("run_fingerprint") != expected_run_fingerprint
+    ):
         raise SummaryCacheError(
             f"Cache run fingerprint mismatch in {cache_dir}; summaries were built from different run inputs."
         )
@@ -359,7 +415,9 @@ def load_summary_run_cache(
     manifest_summary_ids = [str(item) for item in manifest.get("summary_ids", [])]
     expected_summary_ids = expected_summary_ids or manifest_summary_ids
     missing_summary_ids = [
-        summary_id for summary_id in expected_summary_ids if summary_id not in manifest_summary_ids
+        summary_id
+        for summary_id in expected_summary_ids
+        if summary_id not in manifest_summary_ids
     ]
     if missing_summary_ids:
         raise SummaryCacheError(
@@ -386,7 +444,9 @@ def load_summary_run_cache(
             if not path.exists():
                 raise SummaryCacheError(f"Missing summary CSV: {path}")
             table = pl.read_csv(path, infer_schema_length=10000)
-            if summary_id in empty_summaries.get(mode, []) and table.columns == ["__empty__"]:
+            if summary_id in empty_summaries.get(mode, []) and table.columns == [
+                "__empty__"
+            ]:
                 table = pl.DataFrame()
             mode_tables[summary_id] = table
         summaries_by_mode[mode] = mode_tables

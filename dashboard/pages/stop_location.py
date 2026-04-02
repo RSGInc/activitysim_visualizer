@@ -1,4 +1,5 @@
 """Stop location page: out-of-direction distance."""
+
 from __future__ import annotations
 
 import panel as pn
@@ -21,7 +22,10 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
         purp_opts = []
 
     charts = []
-    all_data = [(label, df.group_by("distbin").agg(pl.col("freq").sum()).sort("distbin")) for label, df in loc_list]
+    all_data = [
+        (label, df.group_by("distbin").agg(pl.col("freq").sum()).sort("distbin"))
+        for label, df in loc_list
+    ]
     charts.append(
         density_chart(
             all_data,
@@ -34,7 +38,12 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
     )
     for purp in purp_opts:
         data = [
-            (label, df.filter(pl.col("primary_purpose") == purp).select(["distbin", "freq"]))
+            (
+                label,
+                df.filter(pl.col("primary_purpose") == purp).select(
+                    ["distbin", "freq"]
+                ),
+            )
             for label, df in loc_list
         ]
         charts.append(
