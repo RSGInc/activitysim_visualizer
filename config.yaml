@@ -5,12 +5,6 @@
 name: "Default Settings"
 dashboard_title: "ActivitySim Comparison Visualizer"
 
-outputs:
-  summary_root: artifacts/summary_cache
-  weighting_modes:
-    - weighted
-    - unweighted
-
 
 # ---------------------------------------------------------------------------
 # Runs to compare
@@ -25,13 +19,13 @@ outputs:
 # If none of the above are set and sample_rate is not in columns, all weights = 1.
 # ---------------------------------------------------------------------------
 runs:
-  - dir:              C:\Users\wesley.darling\Downloads\OneDrive_1_3-10-2026\translink_20pct_pnr_logsum_v2
+  - dir:              path\to\activitysim\output\run1
     label:            Base
     skim_file:        null
     hh_weight_col:    null
     person_weight_col: null
     trip_weight_col:  null
-  - dir:              C:\Users\wesley.darling\Downloads\OneDrive_1_3-10-2026\translink_20pct_no_pnr_logsum_v2
+  - dir:              path\to\activitysim\output\run2
     label:            Build
     skim_file:        null
     hh_weight_col:    null
@@ -42,7 +36,7 @@ runs:
 # Skim file (global default — can be overridden per run below)
 # ---------------------------------------------------------------------------
 skim:
-  file: C:\Users\wesley.darling\Downloads\OneDrive_1_3-10-2026\translink_20pct_no_pnr_logsum_v2\skims.omx         # path relative to run directory, or absolute
+  file: path\to\skims.omx       # path relative to run directory, or absolute
   matrix: SOV_TIMEVOT2__MD    # matrix name inside the OMX file
 
 
@@ -163,4 +157,3 @@ run_colors:
   # - "#8c564b"
   # - "#e377c2"
   # - "#7f7f7f"
-

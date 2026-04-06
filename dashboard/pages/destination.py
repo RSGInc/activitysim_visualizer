@@ -47,16 +47,20 @@ def _nm_dist_by_purpose(
             return pl.DataFrame({"distbin": list(range(41)), "freq": [0.0] * 41})
         combined = pl.concat(
             [
-                indiv.filter(pl.col(col_name) == purpose).select(
-                    ["SKIMDIST", "finalweight"]
-                )
-                if "SKIMDIST" in indiv.columns
-                else pl.DataFrame(),
-                joint.filter(pl.col(col_name) == purpose).select(
-                    ["SKIMDIST", "finalweight"]
-                )
-                if "SKIMDIST" in joint.columns
-                else pl.DataFrame(),
+                (
+                    indiv.filter(pl.col(col_name) == purpose).select(
+                        ["SKIMDIST", "finalweight"]
+                    )
+                    if "SKIMDIST" in indiv.columns
+                    else pl.DataFrame()
+                ),
+                (
+                    joint.filter(pl.col(col_name) == purpose).select(
+                        ["SKIMDIST", "finalweight"]
+                    )
+                    if "SKIMDIST" in joint.columns
+                    else pl.DataFrame()
+                ),
             ]
         )
 
