@@ -38,7 +38,7 @@ def tour_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
     purpose_groups = []
     purpose_col = None
     for cand in ("primary_purpose", "tour_type", "purpose"):
-        if cand in rd.tours.columns:
+        if cand in rd.tours.columns and not rd.tours[cand].dtype.is_numeric():
             purpose_col = cand
             break
     if purpose_col:

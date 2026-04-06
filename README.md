@@ -8,7 +8,7 @@ An interactive, browser-based dashboard for exploring and comparing [ActivitySim
 
 ### Install with uv (recommended)
 
-Insure [uv](https://docs.astral.sh/uv/) is installed on your machine and then type
+Ensure [uv](https://docs.astral.sh/uv/) is installed on your machine and then type
 
 ```bash
 uv sync --locked

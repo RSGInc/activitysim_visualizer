@@ -285,7 +285,7 @@ def _resolve_skim(
     candidate = run_skim or global_skim
     if not candidate:
         return None
-    p = Path(candidate)
+    p = Path(candidate).expanduser()
     if not p.is_absolute():
         p = run_dir / p
     return str(p)
@@ -309,6 +309,7 @@ def _find_and_read(run_dir: Path, configured: str) -> pl.DataFrame:
     - If no extension (or unrecognised extension) → try .parquet first, then .csv.
     """
     p = Path(configured)
+    run_dir = run_dir.expanduser()
     suffix = p.suffix.lower()
     stem = p.stem if suffix in (".csv", ".parquet") else p.name
 
@@ -317,7 +318,7 @@ def _find_and_read(run_dir: Path, configured: str) -> pl.DataFrame:
         return pl.read_parquet(run_dir / p)
     elif suffix == ".csv":
         print(f"[read_run] Reading csv: {run_dir / p}")
-        return pl.read_csv(run_dir / p, infer_schema_length=10000)
+        return pl.read_csv(run_dir / p, infer_schema_length=None)
     else:
         # Auto-detect: parquet first, then csv
         parquet_path = run_dir / f"{stem}.parquet"
@@ -327,7 +328,7 @@ def _find_and_read(run_dir: Path, configured: str) -> pl.DataFrame:
             return pl.read_parquet(parquet_path)
         elif csv_path.exists():
             # print(f"[read_run] Reading csv (auto): {csv_path}")
-            return pl.read_csv(csv_path, infer_schema_length=10000)
+            return pl.read_csv(csv_path, infer_schema_length=None)
         raise FileNotFoundError(
             f"Cannot find '{stem}.parquet' or '{stem}.csv' in {run_dir}"
         )
@@ -700,6 +701,10 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     # ------------------------------------------------------------------
     # Persons  (finalweight already set by compute_weights)
     # ------------------------------------------------------------------
+    if "home_zone_id" not in per.columns:
+        print(f"Warning: 'home_zone_id' column not found in persons for run '{rd.label}'. Merging from household_id.")
+        per = per.join(hh.select(["household_id", "home_zone_id"]), on="household_id", how="left")
+
     per = _to_taz(per, "home_zone_id", "home_taz")
     per = _to_taz(per, "workplace_zone_id", "work_taz")
     per = _to_taz(per, "school_zone_id", "school_taz")
@@ -781,6 +786,9 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
 
     tours = _to_taz(tours, "origin", "OTAZ")
     tours = _to_taz(tours, "destination", "DTAZ")
+
+    # if "primary_purpose" in tours.columns and tours["primary_purpose"].is_numeric():
+        
 
     if skim is not None and "OTAZ" in tours.columns and "DTAZ" in tours.columns:
         print(f"[prepare_data] Computing tour skim distances for '{rd.label}'")

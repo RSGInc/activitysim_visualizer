@@ -16,9 +16,16 @@ def trip_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
     if not needed.issubset(rd.trips.columns):
         return pl.DataFrame()
 
+    # Find a valid non-numeric purpose column if available
+    purpose_col = None
+    for cand in ("primary_purpose", "tour_type", "purpose"):
+        if cand in rd.trips.columns and not rd.trips[cand].dtype.is_numeric():
+            purpose_col = cand
+            break
+
     cols = ["tour_mode", "trip_mode"]
-    if "primary_purpose" in rd.trips.columns:
-        cols = ["primary_purpose"] + cols
+    if purpose_col:
+        cols = [purpose_col] + cols
 
     return (
         rd.trips.filter(

@@ -14,12 +14,23 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
     if not runs:
         return pn.pane.Markdown("No runs loaded.")
 
-    loc_list = [(label, stops.stop_location(rd)) for label, rd in runs]
-    first_df = next((df for _, df in loc_list if len(df) > 0), pl.DataFrame())
-    if len(first_df) > 0 and "primary_purpose" in first_df.columns:
-        purp_opts = sorted(first_df["primary_purpose"].drop_nulls().unique().to_list())
-    else:
-        purp_opts = []
+    loc_list = [(l, stops.stop_location(rd)) for l, rd in runs]
+
+    # Collect purpose options from all runs and map run label to purpose column
+    purposes_set = set()
+    run_to_purpose_col = {}
+    for run_label, df in loc_list:
+        for cand in ("primary_purpose", "tour_type", "purpose"):
+            if cand in df.columns and not df[cand].dtype.is_numeric():
+                run_to_purpose_col[run_label] = cand
+                break
+        else:
+            run_to_purpose_col[run_label] = None
+        purpose_col = run_to_purpose_col[run_label]
+        if purpose_col:
+            purposes_set.update(df[purpose_col].drop_nulls().unique().to_list())
+
+    purp_opts = sorted(purposes_set) if purposes_set else []
 
     charts = []
     all_data = [
@@ -39,21 +50,21 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
     for purp in purp_opts:
         data = [
             (
-                label,
-                df.filter(pl.col("primary_purpose") == purp).select(
+                l,
+                df.filter(pl.col(run_to_purpose_col[l]) == purp).select(
                     ["distbin", "freq"]
                 ),
             )
-            for label, df in loc_list
+            for l, df in loc_list
         ]
         charts.append(
             density_chart(
                 data,
                 "distbin",
                 "freq",
-                f"Stop Out-of-Direction Distance - {purp}",
+                f"Stop Out-of-Direction Distance — {purp}",
                 "Miles",
-                normalize=False,
+                normalize=True,
             )
         )
 

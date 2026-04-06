@@ -17,12 +17,11 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
     inm_list = [(l, tour_sums.indiv_nm_summary(rd, config)) for l, rd in runs]
 
     # Collect ptype values from first run
-    first_dap = dap_list[0][1] if dap_list else pl.DataFrame()
-    ptype_opts = (
-        sorted(first_dap["ptype"].unique().to_list())
-        if len(first_dap) > 0
-        else ["Total"]
-    )
+    ptype_set = set()
+    for _, df in dap_list:
+        if "ptype" in df.columns:
+            ptype_set.update(df["ptype"].unique().to_list())
+    ptype_opts = sorted(ptype_set) if ptype_set else ["Total"]
     ptype_label_map = {
         p: ("Total" if str(p) == "Total" else config.ptype_label(p)) for p in ptype_opts
     }
