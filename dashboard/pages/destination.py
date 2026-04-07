@@ -10,9 +10,9 @@ from summarize.reader import Config, RunData
 
 
 def _nm_dist_by_purpose(
-    rd: RunData, purpose: str | None, col_name: str
+    rd: RunData, purpose: str | None, col_name: str | None
 ) -> pl.DataFrame:
-    """Return (distbin 0-40, freq) for NM tours filtered by primary_purpose string."""
+    """Return (distbin 0-40, freq) for NM tours filtered by purpose."""
     tours = rd.tours
     if "tour_category" not in tours.columns:
         return pl.DataFrame({"distbin": list(range(41)), "freq": [0.0] * 41})
@@ -43,7 +43,7 @@ def _nm_dist_by_purpose(
             ]
         )
     else:
-        if "primary_purpose" not in tours.columns:
+        if col_name is None or col_name not in tours.columns:
             return pl.DataFrame({"distbin": list(range(41)), "freq": [0.0] * 41})
         combined = pl.concat(
             [
@@ -79,79 +79,96 @@ def _nm_dist_by_purpose(
     )
 
 
+def discover_purpose_columns(
+    runs: list[tuple[str, RunData]],
+) -> tuple[list[str], dict[str, str | None]]:
+    """Collect destination purpose options and per-run source columns."""
+    purposes_set = set()
+    run_to_purpose_col: dict[str, str | None] = {}
+    for run_label, rd in runs:
+        if "tour_category" not in rd.tours.columns:
+            run_to_purpose_col[run_label] = None
+            continue
+        for cand in ("primary_purpose", "tour_type", "purpose"):
+            if cand in rd.tours.columns and not rd.tours[cand].dtype.is_numeric():
+                run_to_purpose_col[run_label] = cand
+                break
+        else:
+            run_to_purpose_col[run_label] = None
+        purpose_col = run_to_purpose_col[run_label]
+        if purpose_col:
+            nm_tours = rd.tours.filter(
+                pl.col("tour_category").is_in(["non-mandatory", "atwork", "joint"])
+            )
+            purposes_set.update(nm_tours[purpose_col].drop_nulls().unique().to_list())
+
+    purposes = sorted(purposes_set) if purposes_set else []
+    return ["All NM"] + purposes, run_to_purpose_col
+
+
+def distance_chart_data(
+    runs: list[tuple[str, RunData]],
+    purpose: str,
+    run_to_purpose_col: dict[str, str | None],
+) -> list[tuple[str, pl.DataFrame]]:
+    """Build destination distance chart data for each run."""
+    return [
+        (run_label, _nm_dist_by_purpose(rd, purpose, run_to_purpose_col.get(run_label)))
+        for run_label, rd in runs
+    ]
+
+
+def average_distance_table(
+    runs: list[tuple[str, RunData]],
+    purposes: list[str],
+    run_to_purpose_col: dict[str, str | None],
+) -> pl.DataFrame:
+    """Build the average destination distance comparison table."""
+    rows = []
+    for purp in purposes:
+        row = {"Purpose": purp}
+        for run_label, rd in runs:
+            purpose_col = run_to_purpose_col.get(run_label)
+            if purpose_col is None:
+                row[run_label] = None
+                continue
+            if "SKIMDIST" in rd.tours.columns and purpose_col in rd.tours.columns:
+                sub = rd.tours.filter(pl.col(purpose_col) == purp)
+                if len(sub) > 0:
+                    wgt = sub["finalweight"].to_numpy()
+                    dist = sub["SKIMDIST"].to_numpy()
+                    mask = dist == dist
+                    if mask.sum() > 0 and wgt[mask].sum() > 0:
+                        row[run_label] = round(
+                            float((dist[mask] * wgt[mask]).sum() / wgt[mask].sum()),
+                            2,
+                        )
+                        continue
+            row[run_label] = None
+        rows.append(row)
+    return pl.DataFrame(rows, infer_schema_length=None) if rows else pl.DataFrame()
+
+
 def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewable:
     if not runs:
         return pn.pane.Markdown("No runs loaded.")
 
-    # Collect NM purpose options from all runs and map run label to purpose column
-    purposes_set = set()
-    run_to_purpose_col = {}
-    for run_label, rd in runs:
-        if "tour_category" in rd.tours.columns:
-            for cand in ("primary_purpose", "tour_type", "purpose"):
-                if cand in rd.tours.columns and not rd.tours[cand].dtype.is_numeric():
-                    run_to_purpose_col[run_label] = cand
-                    break
-            else:
-                run_to_purpose_col[run_label] = None
-            purpose_col = run_to_purpose_col[run_label]
-            if purpose_col:
-                nm_tours = rd.tours.filter(
-                    pl.col("tour_category").is_in(["non-mandatory", "atwork", "joint"])
-                )
-                purposes_set.update(
-                    nm_tours[purpose_col].drop_nulls().unique().to_list()
-                )
-        else:
-            run_to_purpose_col[run_label] = None
-
-    purposes = sorted(purposes_set) if purposes_set else []
-
-    purp_opts = ["All NM"] + purposes
+    purp_opts, run_to_purpose_col = discover_purpose_columns(runs)
+    purposes = purp_opts[1:]
     purp_sel = pn.widgets.Select(name="Purpose", options=purp_opts, value="All NM")
 
     @pn.depends(purp_sel)
     def dist_chart(purp):
-        data = [
-            (l, _nm_dist_by_purpose(rd, purp, run_to_purpose_col[l])) for l, rd in runs
-        ]
         return density_chart(
-            data,
+            distance_chart_data(runs, purp, run_to_purpose_col),
             "distbin",
             "freq",
-            f"NM Tour Distance Distribution — {purp}",
+            f"NM Tour Distance Distribution - {purp}",
             "Distance (miles)",
             normalize=True,
         )
 
-    # Average distance table by purpose
-    def avg_dist_table():
-        rows = []
-        for purp in purposes:
-            row = {"Purpose": purp}
-            for run_label, rd in runs:
-                purpose_col = run_to_purpose_col.get(run_label)
-                if not purpose_col:
-                    row[run_label] = None
-                    continue
-                df = _nm_dist_by_purpose(rd, purp, purpose_col)
-                if "SKIMDIST" in rd.tours.columns and purpose_col in rd.tours.columns:
-                    sub = rd.tours.filter(pl.col(purpose_col) == purp)
-                    if len(sub) > 0:
-                        wgt = sub["finalweight"].to_numpy()
-                        dist = sub["SKIMDIST"].to_numpy()
-                        mask = dist == dist
-                        if mask.sum() > 0 and wgt[mask].sum() > 0:
-                            row[run_label] = round(
-                                float((dist[mask] * wgt[mask]).sum() / wgt[mask].sum()),
-                                2,
-                            )
-                            continue
-                row[run_label] = None
-            rows.append(row)
-        return pl.DataFrame(rows, infer_schema_length=None) if rows else pl.DataFrame()
-
-    avg_df = avg_dist_table()
+    avg_df = average_distance_table(runs, purposes, run_to_purpose_col)
 
     return pn.Column(
         pn.pane.Markdown("## Destination Choice (NM Tour Distances)"),

@@ -10,15 +10,12 @@ from summarize import stops
 from summarize.reader import Config, RunData
 
 
-def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewable:
-    if not runs:
-        return pn.pane.Markdown("No runs loaded.")
-
-    loc_list = [(l, stops.stop_location(rd)) for l, rd in runs]
-
-    # Collect purpose options from all runs and map run label to purpose column
+def discover_purpose_columns(
+    loc_list: list[tuple[str, pl.DataFrame]],
+) -> tuple[list[str], dict[str, str | None]]:
+    """Collect non-numeric purpose options and source columns from location summaries."""
     purposes_set = set()
-    run_to_purpose_col = {}
+    run_to_purpose_col: dict[str, str | None] = {}
     for run_label, df in loc_list:
         for cand in ("primary_purpose", "tour_type", "purpose"):
             if cand in df.columns and not df[cand].dtype.is_numeric():
@@ -29,40 +26,64 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
         purpose_col = run_to_purpose_col[run_label]
         if purpose_col:
             purposes_set.update(df[purpose_col].drop_nulls().unique().to_list())
+    return sorted(purposes_set) if purposes_set else [], run_to_purpose_col
 
-    purp_opts = sorted(purposes_set) if purposes_set else []
 
-    charts = []
-    all_data = [
+def all_purpose_chart_data(
+    loc_list: list[tuple[str, pl.DataFrame]],
+) -> list[tuple[str, pl.DataFrame]]:
+    """Build the all-purpose stop-location comparison data."""
+    return [
         (label, df.group_by("distbin").agg(pl.col("freq").sum()).sort("distbin"))
         for label, df in loc_list
     ]
-    charts.append(
+
+
+def purpose_chart_data(
+    loc_list: list[tuple[str, pl.DataFrame]],
+    purpose: str,
+    run_to_purpose_col: dict[str, str | None],
+) -> list[tuple[str, pl.DataFrame]]:
+    """Build stop-location comparison data for one purpose."""
+    return [
+        (
+            label,
+            (
+                df.filter(pl.col(run_to_purpose_col[label]) == purpose).select(
+                    ["distbin", "freq"]
+                )
+                if run_to_purpose_col.get(label) is not None
+                else pl.DataFrame({"distbin": [], "freq": []})
+            ),
+        )
+        for label, df in loc_list
+    ]
+
+
+def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewable:
+    if not runs:
+        return pn.pane.Markdown("No runs loaded.")
+
+    loc_list = [(label, stops.stop_location(rd)) for label, rd in runs]
+    purp_opts, run_to_purpose_col = discover_purpose_columns(loc_list)
+
+    charts = [
         density_chart(
-            all_data,
+            all_purpose_chart_data(loc_list),
             "distbin",
             "freq",
             "Stop Out-of-Direction Distance - All Purposes",
             "Miles",
             normalize=False,
         )
-    )
+    ]
     for purp in purp_opts:
-        data = [
-            (
-                l,
-                df.filter(pl.col(run_to_purpose_col[l]) == purp).select(
-                    ["distbin", "freq"]
-                ),
-            )
-            for l, df in loc_list
-        ]
         charts.append(
             density_chart(
-                data,
+                purpose_chart_data(loc_list, purp, run_to_purpose_col),
                 "distbin",
                 "freq",
-                f"Stop Out-of-Direction Distance — {purp}",
+                f"Stop Out-of-Direction Distance - {purp}",
                 "Miles",
                 normalize=True,
             )

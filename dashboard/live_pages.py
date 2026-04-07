@@ -15,8 +15,16 @@ from dashboard.components import (
 )
 from dashboard.page_base import DashboardPage
 from dashboard.pages import (
+    destination as destination_page,
+    long_term as long_term_page,
+    overview as overview_page,
+    stop_freq as stop_freq_page,
+    stop_location as stop_location_page,
     stop_timing,
-    tour_tod,
+    tour_summary as tour_summary_page,
+    tour_mode as tour_mode_page,
+    tour_tod as tour_tod_page,
+    trip_mode as trip_mode_page,
 )
 from summarize import (
     demographics,
@@ -61,70 +69,25 @@ class OverviewPage(DashboardPage):
             lambda: [(label, demographics.hh_size(rd)) for label, rd in runs],
         )
 
-        kpi_metrics = [
-            "population",
-            "households",
-            "employment",
-            "tours",
-            "trips",
-            "stops",
-            "pmt",
-            "vmt",
-            "vehicle_trips",
-        ]
-        kpi_labels = [
-            "Population",
-            "Households",
-            "Employment",
-            "Tours",
-            "Trips",
-            "Stops",
-            "PMT",
-            "VMT",
-            "Vehicle Trips",
-        ]
-
         def _card(metric: str, label: str):
             return kpi_box(
                 label=label,
                 values=[
                     (
                         run_label,
-                        (
-                            float(tot_df[metric][0])
-                            if metric in tot_df.columns and len(tot_df) > 0
-                            else 0.0
-                        ),
+                        overview_page.metric_value(tot_df, metric),
                     )
                     for run_label, tot_df in totals_list
                 ],
             )
 
-        pct_rows = []
-        base_label, base_df = totals_list[0]
-        for met, lbl in zip(kpi_metrics, kpi_labels):
-            base_val = (
-                float(base_df[met][0])
-                if met in base_df.columns and len(base_df) > 0
-                else 0.0
-            )
-            row = {"Metric": lbl, base_label: "0.00%"}
-            for run_label, tot_df in totals_list[1:]:
-                val = (
-                    float(tot_df[met][0])
-                    if met in tot_df.columns and len(tot_df) > 0
-                    else 0.0
-                )
-                pct = ((val - base_val) / base_val * 100.0) if base_val != 0 else 0.0
-                row[run_label] = f"{pct:.2f}%"
-            pct_rows.append(row)
-        pct_df = pl.DataFrame(pct_rows) if pct_rows else pl.DataFrame()
+        pct_df = self.get_filtered_view(
+            "overview_pct",
+            factory=lambda: overview_page.percent_difference_table(totals_list),
+        )
 
         ptype_chart = bar_chart(
-            [
-                (label, df.with_columns(pl.col("ptype_name").cast(pl.Utf8)))
-                for label, df in pertype_list
-            ],
+            overview_page.person_type_chart_data(pertype_list),
             x_col="ptype_name",
             y_col="freq",
             title="Person Type Distribution",
@@ -134,10 +97,7 @@ class OverviewPage(DashboardPage):
             as_percent=self.as_percent,
         )
         hhsize_chart = bar_chart(
-            [
-                (label, df.with_columns(pl.col("HHSIZE").cast(pl.Utf8)))
-                for label, df in hhsize_list
-            ],
+            overview_page.hh_size_chart_data(hhsize_list),
             x_col="HHSIZE",
             y_col="freq",
             title="Household Size Distribution",
@@ -191,22 +151,16 @@ class StopLocationPage(DashboardPage):
             "stop_location",
             lambda: [(label, stops.stop_location(rd)) for label, rd in runs],
         )
-        first_df = next((df for _, df in loc_list if len(df) > 0), pl.DataFrame())
-        if len(first_df) > 0 and "primary_purpose" in first_df.columns:
-            purp_opts = sorted(
-                first_df["primary_purpose"].drop_nulls().unique().to_list()
-            )
-        else:
-            purp_opts = []
+        purp_opts, run_to_purpose_col = stop_location_page.discover_purpose_columns(
+            loc_list
+        )
 
-        charts = []
-        all_data = [
-            (label, df.group_by("distbin").agg(pl.col("freq").sum()).sort("distbin"))
-            for label, df in loc_list
-        ]
-        charts.append(
+        charts = [
             density_chart(
-                all_data,
+                self.get_filtered_view(
+                    "stop_location_all",
+                    factory=lambda: stop_location_page.all_purpose_chart_data(loc_list),
+                ),
                 "distbin",
                 "freq",
                 "Stop Out-of-Direction Distance - All Purposes",
@@ -214,20 +168,17 @@ class StopLocationPage(DashboardPage):
                 normalize=False,
                 as_percent=self.as_percent,
             )
-        )
+        ]
         for purp in purp_opts:
-            data = [
-                (
-                    label,
-                    df.filter(pl.col("primary_purpose") == purp).select(
-                        ["distbin", "freq"]
-                    ),
-                )
-                for label, df in loc_list
-            ]
             charts.append(
                 density_chart(
-                    data,
+                    self.get_filtered_view(
+                        "stop_location",
+                        purp,
+                        factory=lambda purp=purp: stop_location_page.purpose_chart_data(
+                            loc_list, purp, run_to_purpose_col
+                        ),
+                    ),
                     "distbin",
                     "freq",
                     f"Stop Out-of-Direction Distance - {purp}",
@@ -275,19 +226,13 @@ class TourSummaryPage(DashboardPage):
             ]
         if not dap_list:
             return ["Total"]
-        first_dap = next((df for _, df in dap_list if len(df) > 0), pl.DataFrame())
-        if len(first_dap) == 0 or "ptype" not in first_dap.columns:
-            return ["Total"]
-        return sorted(first_dap["ptype"].unique().to_list())
+        return tour_summary_page.ptype_options(dap_list)
 
     def _refresh(self) -> None:
         runs = self.state.get_runs()
         if not self.state.run_labels:
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
-
-        ptype_label = self.ptype_sel.value
-        ptype = self._label_to_ptype.get(ptype_label, ptype_label)
 
         dap_list = self.get_summary(
             "dap_summary",
@@ -309,69 +254,24 @@ class TourSummaryPage(DashboardPage):
                 for label, rd in runs
             ],
         )
-
-        def _ordered_dap(df: pl.DataFrame) -> pl.DataFrame:
-            d = df.filter(pl.col("ptype") == ptype)
-            base = pl.DataFrame({"DAP": ["M", "N", "H"]})
-            return (
-                base.join(
-                    d.select([pl.col("DAP").cast(pl.Utf8).alias("DAP"), "freq"]),
-                    on="DAP",
-                    how="left",
-                )
-                .with_columns(pl.col("freq").fill_null(0.0))
-                .with_columns(
-                    pl.when(pl.col("DAP") == "M")
-                    .then(0)
-                    .when(pl.col("DAP") == "N")
-                    .then(1)
-                    .otherwise(2)
-                    .alias("_ord")
-                )
-                .sort("_ord")
-                .drop("_ord")
+        ptype_opts = tour_summary_page.ptype_options(dap_list)
+        ptype_label_map, self._label_to_ptype = tour_summary_page.ptype_maps(
+            ptype_opts, self.config
+        )
+        display_opts = [ptype_label_map[p] for p in ptype_opts] or ["Total"]
+        self.ptype_sel.options = display_opts
+        if self.ptype_sel.value not in display_opts:
+            self.ptype_sel.value = (
+                "Total" if "Total" in display_opts else display_opts[0]
             )
-
-        def _ordered_mtf(df: pl.DataFrame) -> pl.DataFrame:
-            d = df.filter(pl.col("ptype") == ptype).with_columns(
-                pl.col("MTF").cast(pl.Int64).alias("MTF")
-            )
-            base = pl.DataFrame({"MTF": [1, 2, 3, 4, 5]})
-            labels = pl.DataFrame(
-                {
-                    "MTF": [1, 2, 3, 4, 5],
-                    "MTF_label": [
-                        "work1",
-                        "work2",
-                        "school1",
-                        "school2",
-                        "work and school",
-                    ],
-                }
-            )
-            return (
-                base.join(d.select(["MTF", "freq"]), on="MTF", how="left")
-                .with_columns(pl.col("freq").fill_null(0.0))
-                .join(labels, on="MTF", how="left")
-                .select(["MTF_label", "freq"])
-            )
-
-        def _ordered_inm(df: pl.DataFrame) -> pl.DataFrame:
-            d = df.filter(pl.col("ptype") == ptype).with_columns(
-                pl.col("nmtours").cast(pl.Utf8).alias("nmtours")
-            )
-            base = pl.DataFrame({"nmtours": ["0", "1", "2", "3pl"]})
-            return base.join(
-                d.select(["nmtours", "freq"]), on="nmtours", how="left"
-            ).with_columns(pl.col("freq").fill_null(0.0))
+        ptype_label = self.ptype_sel.value
+        ptype = self._label_to_ptype.get(ptype_label, ptype_label)
 
         dap_data, mtf_data, inm_data = self.get_filtered_view(
             "tour_summary",
             ptype,
-            factory=lambda: (
-                [(label, _ordered_dap(df)) for label, df in dap_list],
-                [(label, _ordered_mtf(df)) for label, df in mtf_list],
-                [(label, _ordered_inm(df)) for label, df in inm_list],
+            factory=lambda: tour_summary_page.chart_data(
+                dap_list, mtf_list, inm_list, ptype
             ),
         )
 
@@ -426,12 +326,7 @@ class LongTermPage(DashboardPage):
             tlfd_list = [
                 (label, mandatory.tlfd(rd, self.config)["work"]) for label, rd in runs
             ]
-        first_tlfd = tlfd_list[0][1] if tlfd_list else None
-        if first_tlfd is None:
-            return ["Total"]
-        return ["Total"] + [
-            c for c in first_tlfd.columns if c not in ("distbin", "Total")
-        ]
+        return long_term_page.geo_options(tlfd_list)
 
     def _refresh(self) -> None:
         runs = self.state.get_runs()
@@ -486,7 +381,7 @@ class LongTermPage(DashboardPage):
         )
 
         auto_chart = bar_chart(
-            auto_own_list,
+            long_term_page.auto_ownership_chart_data(auto_own_list),
             x_col="HHVEH",
             y_col="freq",
             title="Auto Ownership",
@@ -505,11 +400,7 @@ class LongTermPage(DashboardPage):
             as_percent=self.as_percent,
         )
         wfh_chart = bar_chart(
-            [
-                (label, df.select(["Geography", "WFH"]))
-                for label, df in wfh_list
-                if len(df) > 0
-            ],
+            long_term_page.wfh_chart_data(wfh_list),
             x_col="Geography",
             y_col="WFH",
             title="Work From Home by Geography",
@@ -519,27 +410,16 @@ class LongTermPage(DashboardPage):
         )
 
         if self.config.geography_enabled and self.geo_sel is not None:
+            geo_options = long_term_page.geo_options(work_tlfd_list)
+            self.geo_sel.options = geo_options
+            if self.geo_sel.value not in geo_options:
+                self.geo_sel.value = geo_options[0]
             geo = self.geo_sel.value
-            col = geo if geo != "Total" else "Total"
             work_data, univ_data, schl_data = self.get_filtered_view(
                 "long_term_tlfd",
                 geo,
-                factory=lambda: (
-                    [
-                        (label, df.select(["distbin", col]).rename({col: "freq"}))
-                        for label, df in work_tlfd_list
-                        if col in df.columns
-                    ],
-                    [
-                        (label, df.select(["distbin", col]).rename({col: "freq"}))
-                        for label, df in univ_tlfd_list
-                        if col in df.columns
-                    ],
-                    [
-                        (label, df.select(["distbin", col]).rename({col: "freq"}))
-                        for label, df in schl_tlfd_list
-                        if col in df.columns
-                    ],
+                factory=lambda: long_term_page.tlfd_chart_data(
+                    work_tlfd_list, univ_tlfd_list, schl_tlfd_list, geo
                 ),
             )
             tlfd_section = pn.Column(
@@ -589,18 +469,13 @@ class LongTermPage(DashboardPage):
                 "Home-Work Geography Flows",
             )
         else:
-            work_data = [
-                (label, df.select(["distbin", "Total"]).rename({"Total": "freq"}))
-                for label, df in work_tlfd_list
-            ]
-            univ_data = [
-                (label, df.select(["distbin", "Total"]).rename({"Total": "freq"}))
-                for label, df in univ_tlfd_list
-            ]
-            schl_data = [
-                (label, df.select(["distbin", "Total"]).rename({"Total": "freq"}))
-                for label, df in schl_tlfd_list
-            ]
+            work_data, univ_data, schl_data = self.get_filtered_view(
+                "long_term_tlfd",
+                "Total",
+                factory=lambda: long_term_page.tlfd_chart_data(
+                    work_tlfd_list, univ_tlfd_list, schl_tlfd_list, "Total"
+                ),
+            )
             tlfd_section = pn.Column(
                 pn.pane.Markdown("### Trip Length Frequency Distributions"),
                 pn.Row(
@@ -814,6 +689,9 @@ class DestinationPage(DashboardPage):
         )
 
     def _purpose_options(self, runs: list[tuple[str, RunData]]) -> list[str]:
+        if runs:
+            purp_opts, _ = destination_page.discover_purpose_columns(runs)
+            return purp_opts
         dist_list = self.state.get_precomputed_summary(
             "destination_distance", "weighted"
         )
@@ -834,22 +712,7 @@ class DestinationPage(DashboardPage):
                 else []
             )
             return ["All NM"] + purposes
-        if not runs:
-            return ["All NM"]
-        first_rd = runs[0][1]
-        if (
-            "tour_category" in first_rd.tours.columns
-            and "primary_purpose" in first_rd.tours.columns
-        ):
-            nm_tours = first_rd.tours.filter(
-                pl.col("tour_category").is_in(["non-mandatory", "atwork", "joint"])
-            )
-            purposes = sorted(
-                nm_tours["primary_purpose"].drop_nulls().unique().to_list()
-            )
-        else:
-            purposes = []
-        return ["All NM"] + purposes
+        return ["All NM"]
 
     def _refresh(self) -> None:
         runs = self.state.get_runs()
@@ -857,43 +720,70 @@ class DestinationPage(DashboardPage):
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
+        purp_opts = self._purpose_options(runs)
+        self.purp_sel.options = purp_opts
+        if self.purp_sel.value not in purp_opts:
+            self.purp_sel.value = purp_opts[0]
         purpose = self.purp_sel.value
-        dist_list = self.get_summary(
-            "destination_distance",
-            lambda: [
-                (label, destination_sums.distance_distribution(rd))
-                for label, rd in runs
-            ],
-        )
-        data = self.get_filtered_view(
-            "destination_dist",
-            purpose,
-            factory=lambda: [
-                (
-                    label,
-                    df.filter(pl.col("purpose") == purpose).select(["distbin", "freq"]),
-                )
-                for label, df in dist_list
-            ],
-        )
-        avg_list = self.get_summary(
-            "destination_average_distance",
-            lambda: [
-                (label, destination_sums.average_distance(rd)) for label, rd in runs
-            ],
-        )
-        rows = []
-        for purp in self.purp_sel.options[1:]:
-            row = {"Purpose": purp}
-            for run_label, df in avg_list:
-                value = None
-                if len(df) > 0 and {"purpose", "avg_distance"}.issubset(df.columns):
-                    match = df.filter(pl.col("purpose") == purp)
-                    if len(match) > 0:
-                        value = match["avg_distance"][0]
-                row[run_label] = round(float(value), 2) if value is not None else None
-            rows.append(row)
-        avg_df = pl.DataFrame(rows) if rows else pl.DataFrame()
+        if runs:
+            _, run_to_purpose_col = destination_page.discover_purpose_columns(runs)
+            data = self.get_filtered_view(
+                "destination_dist",
+                purpose,
+                factory=lambda: destination_page.distance_chart_data(
+                    runs, purpose, run_to_purpose_col
+                ),
+            )
+            avg_df = self.get_filtered_view(
+                "destination_avg",
+                tuple(self.purp_sel.options[1:]),
+                factory=lambda: destination_page.average_distance_table(
+                    runs, list(self.purp_sel.options[1:]), run_to_purpose_col
+                ),
+            )
+        else:
+            dist_list = self.get_summary(
+                "destination_distance",
+                lambda: [
+                    (label, destination_sums.distance_distribution(rd))
+                    for label, rd in runs
+                ],
+            )
+            data = self.get_filtered_view(
+                "destination_dist",
+                purpose,
+                factory=lambda: [
+                    (
+                        label,
+                        df.with_columns(pl.col("purpose").cast(pl.Utf8))
+                        .filter(pl.col("purpose") == purpose)
+                        .select(["distbin", "freq"]),
+                    )
+                    for label, df in dist_list
+                ],
+            )
+            avg_list = self.get_summary(
+                "destination_average_distance",
+                lambda: [
+                    (label, destination_sums.average_distance(rd)) for label, rd in runs
+                ],
+            )
+            rows = []
+            for purp in self.purp_sel.options[1:]:
+                row = {"Purpose": purp}
+                for run_label, df in avg_list:
+                    value = None
+                    if len(df) > 0 and {"purpose", "avg_distance"}.issubset(df.columns):
+                        match = df.with_columns(pl.col("purpose").cast(pl.Utf8)).filter(
+                            pl.col("purpose") == purp
+                        )
+                        if len(match) > 0:
+                            value = match["avg_distance"][0]
+                    row[run_label] = (
+                        round(float(value), 2) if value is not None else None
+                    )
+                rows.append(row)
+            avg_df = pl.DataFrame(rows) if rows else pl.DataFrame()
 
         self._body.objects = [
             density_chart(
@@ -936,11 +826,7 @@ class TourTODPage(DashboardPage):
             if not runs:
                 return ["work"]
             tod_list = [(label, tod_sums.tod_profiles(rd)) for label, rd in runs]
-        first_df = next((df for _, df in tod_list if len(df) > 0), pl.DataFrame())
-        if len(first_df) > 0 and "purpose" in first_df.columns:
-            purposes = sorted(first_df["purpose"].drop_nulls().unique().to_list())
-            return ["Total"] + [p for p in purposes if p != "Total"]
-        return ["work"]
+        return tour_tod_page.purpose_options(tod_list)
 
     def _refresh(self) -> None:
         runs = self.state.get_runs()
@@ -948,53 +834,20 @@ class TourTODPage(DashboardPage):
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        purp = self.purp_sel.value
         tod_list = self.get_summary(
             "tour_tod_profiles",
             lambda: [(label, tod_sums.tod_profiles(rd)) for label, rd in runs],
         )
-        maxbin = 48
-        for _, df in tod_list:
-            if len(df) > 0 and "timebin" in df.columns:
-                maxbin = int(df["timebin"].max())
-                break
-
-        def _prep(df: pl.DataFrame, val_col: str) -> pl.DataFrame:
-            return (
-                df.filter(pl.col("purpose") == purp)
-                .select(["timebin", val_col])
-                .rename({val_col: "freq"})
-                .with_columns(
-                    pl.col("timebin")
-                    .map_elements(
-                        lambda tb: tour_tod._time_label(int(tb), maxbin),
-                        return_dtype=pl.Utf8,
-                    )
-                    .alias("clock_time")
-                )
-            )
+        purp_opts = tour_tod_page.purpose_options(tod_list)
+        self.purp_sel.options = purp_opts
+        if self.purp_sel.value not in purp_opts:
+            self.purp_sel.value = purp_opts[0]
+        purp = self.purp_sel.value
 
         dep_data, arr_data, dur_data = self.get_filtered_view(
             "tour_tod",
             purp,
-            factory=lambda: (
-                [(label, _prep(df, "freq_dep")) for label, df in tod_list],
-                [(label, _prep(df, "freq_arr")) for label, df in tod_list],
-                [
-                    (
-                        label,
-                        _prep(df, "freq_dur").with_columns(
-                            pl.col("timebin")
-                            .map_elements(
-                                lambda tb: tour_tod._duration_hours(int(tb), maxbin),
-                                return_dtype=pl.Float64,
-                            )
-                            .alias("duration_hours")
-                        ),
-                    )
-                    for label, df in tod_list
-                ],
-            ),
+            factory=lambda: tour_tod_page.chart_data(tod_list, purp),
         )
         x_label = "Clock time (start at 03:00)"
         dur_plot = density_chart(
@@ -1050,16 +903,7 @@ class TourModePage(DashboardPage):
             mode_list = [
                 (label, tm.tour_mode_profile(rd, self.config)) for label, rd in runs
             ]
-        purpose_set = set()
-        for _, df in mode_list:
-            if len(df) > 0 and "purpose" in df.columns:
-                purpose_set.update(df["purpose"].drop_nulls().to_list())
-        purposes = sorted(list(purpose_set))
-        return (
-            (["Total"] + [p for p in purposes if p != "Total"])
-            if purposes
-            else ["Total"]
-        )
+        return tour_mode_page.purpose_options(mode_list)
 
     def _refresh(self) -> None:
         runs = self.state.get_runs()
@@ -1067,28 +911,22 @@ class TourModePage(DashboardPage):
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        purp = self.purp_sel.value
         mode_list = self.get_summary(
             "tour_mode_profile",
             lambda: [
                 (label, tm.tour_mode_profile(rd, self.config)) for label, rd in runs
             ],
         )
+        purp_opts = tour_mode_page.purpose_options(mode_list)
+        self.purp_sel.options = purp_opts
+        if self.purp_sel.value not in purp_opts:
+            self.purp_sel.value = purp_opts[0]
+        purp = self.purp_sel.value
 
         charts_by_col = self.get_filtered_view(
             "tour_mode",
             purp,
-            factory=lambda: {
-                col: [
-                    (
-                        label,
-                        df.filter(pl.col("purpose") == purp).select(["tour_mode", col]),
-                    )
-                    for label, df in mode_list
-                    if col in df.columns
-                ]
-                for col in ["freq_all", "freq_as0", "freq_as1", "freq_as2"]
-            },
+            factory=lambda: tour_mode_page.charts_by_column(mode_list, purp),
         )
 
         def make_chart(col: str, title: str):
@@ -1158,12 +996,8 @@ class StopFreqPage(DashboardPage):
         stop_list = self.state.get_precomputed_summary("stop_freq", "weighted")
         if stop_list is None:
             stop_list = [(label, stops.stop_freq(rd)) for label, rd in runs]
-        first_sf = next((df for _, df in stop_list if len(df) > 0), pl.DataFrame())
-        if len(first_sf) > 0 and "primary_purpose" in first_sf.columns:
-            return ["Total"] + sorted(
-                first_sf["primary_purpose"].drop_nulls().unique().to_list()
-            )
-        return ["Total"]
+        purp_opts, _ = stop_freq_page.discover_purpose_columns(stop_list)
+        return purp_opts
 
     def _refresh(self) -> None:
         runs = self.state.get_runs()
@@ -1182,67 +1016,18 @@ class StopFreqPage(DashboardPage):
                 (label, stops.stop_purpose_by_tour_purpose(rd)) for label, rd in runs
             ],
         )
+        purp_opts, purpose_col = stop_freq_page.discover_purpose_columns(stop_list)
+        self.purp_sel.options = purp_opts
+        if self.purp_sel.value not in purp_opts:
+            self.purp_sel.value = purp_opts[0]
+            purp = self.purp_sel.value
 
         ob_data, ib_data, tot_data, purp_chart_data = self.get_filtered_view(
             "stop_freq",
             purp,
             factory=lambda: (
-                [
-                    (
-                        label,
-                        (
-                            df
-                            if purp == "Total"
-                            else df.filter(pl.col("primary_purpose") == purp)
-                        )
-                        .group_by("ob_stops")
-                        .agg(pl.col("freq").sum())
-                        .sort("ob_stops")
-                        .with_columns(pl.col("ob_stops").cast(pl.Utf8).alias("stops")),
-                    )
-                    for label, df in stop_list
-                ],
-                [
-                    (
-                        label,
-                        (
-                            df
-                            if purp == "Total"
-                            else df.filter(pl.col("primary_purpose") == purp)
-                        )
-                        .group_by("ib_stops")
-                        .agg(pl.col("freq").sum())
-                        .sort("ib_stops")
-                        .with_columns(pl.col("ib_stops").cast(pl.Utf8).alias("stops")),
-                    )
-                    for label, df in stop_list
-                ],
-                [
-                    (
-                        label,
-                        (
-                            df
-                            if purp == "Total"
-                            else df.filter(pl.col("primary_purpose") == purp)
-                        )
-                        .group_by("tot_stops")
-                        .agg(pl.col("freq").sum())
-                        .sort("tot_stops")
-                        .with_columns(pl.col("tot_stops").cast(pl.Utf8).alias("stops")),
-                    )
-                    for label, df in stop_list
-                ],
-                [
-                    (
-                        label,
-                        (
-                            df.group_by("purpose").agg(pl.col("freq").sum())
-                            if purp == "Total"
-                            else df.filter(pl.col("primary_purpose") == purp)
-                        ),
-                    )
-                    for label, df in purp_by_tp
-                ],
+                *stop_freq_page.frequency_chart_data(stop_list, purp, purpose_col),
+                stop_freq_page.purpose_chart_data(purp_by_tp, purp, purpose_col),
             ),
         )
 
@@ -1304,10 +1089,8 @@ class StopTimingPage(DashboardPage):
         timing_list = self.state.get_precomputed_summary("stop_timing", "weighted")
         if timing_list is None:
             timing_list = [(label, stops.stop_timing(rd)) for label, rd in runs]
-        first_df = next((df for _, df in timing_list if len(df) > 0), pl.DataFrame())
-        if len(first_df) > 0 and "primary_purpose" in first_df.columns:
-            return sorted(first_df["primary_purpose"].drop_nulls().unique().to_list())
-        return ["work"]
+        purp_opts, _ = stop_timing.discover_purpose_columns(timing_list)
+        return purp_opts
 
     def _refresh(self) -> None:
         runs = self.state.get_runs()
@@ -1320,33 +1103,19 @@ class StopTimingPage(DashboardPage):
             "stop_timing",
             lambda: [(label, stops.stop_timing(rd)) for label, rd in runs],
         )
-        maxbin = 48
-        for _, df in timing_list:
-            if len(df) > 0 and "timebin" in df.columns:
-                maxbin = int(df["timebin"].max())
-                break
-
-        def _prep(df: pl.DataFrame, val_col: str) -> pl.DataFrame:
-            return (
-                df.filter(pl.col("primary_purpose") == purp)
-                .select(["timebin", val_col])
-                .rename({val_col: "freq"})
-                .with_columns(
-                    pl.col("timebin")
-                    .map_elements(
-                        lambda tb: stop_timing._time_label(int(tb), maxbin),
-                        return_dtype=pl.Utf8,
-                    )
-                    .alias("clock_time")
-                )
-            )
+        purp_opts, run_to_purpose_col = stop_timing.discover_purpose_columns(
+            timing_list
+        )
+        self.purp_sel.options = purp_opts
+        if self.purp_sel.value not in purp_opts:
+            self.purp_sel.value = purp_opts[0]
+            purp = self.purp_sel.value
 
         stop_dep, trip_dep = self.get_filtered_view(
             "stop_timing",
             purp,
-            factory=lambda: (
-                [(label, _prep(df, "freq_stop_dep")) for label, df in timing_list],
-                [(label, _prep(df, "freq_trip_dep")) for label, df in timing_list],
+            factory=lambda: stop_timing.chart_data(
+                timing_list, purp, run_to_purpose_col
             ),
         )
         x_label = "Clock time (start at 03:00)"
@@ -1397,22 +1166,8 @@ class TripModePage(DashboardPage):
             trip_list = [
                 (label, trips.trip_mode_profile(rd, self.config)) for label, rd in runs
             ]
-        first_df = next((df for _, df in trip_list if len(df) > 0), pl.DataFrame())
-        if len(first_df) > 0:
-            purp_opts = (
-                sorted(first_df["primary_purpose"].drop_nulls().unique().to_list())
-                if "primary_purpose" in first_df.columns
-                else ["work"]
-            )
-            tmode_opts = (
-                sorted(first_df["tour_mode"].drop_nulls().unique().to_list())
-                if "tour_mode" in first_df.columns
-                else []
-            )
-        else:
-            purp_opts = ["work"]
-            tmode_opts = []
-        return ["Total"] + [p for p in purp_opts if p != "Total"], tmode_opts
+        purp_opts, tmode_opts, _ = trip_mode_page.discover_options(trip_list)
+        return purp_opts, tmode_opts
 
     def _refresh(self) -> None:
         runs = self.state.get_runs()
@@ -1428,19 +1183,25 @@ class TripModePage(DashboardPage):
                 (label, trips.trip_mode_profile(rd, self.config)) for label, rd in runs
             ],
         )
-
-        def apply_filter(df: pl.DataFrame) -> pl.DataFrame:
-            if purp != "Total" and "primary_purpose" in df.columns:
-                df = df.filter(pl.col("primary_purpose") == purp)
-            if tmode != "All" and "tour_mode" in df.columns:
-                df = df.filter(pl.col("tour_mode") == tmode)
-            return df.group_by("trip_mode").agg(pl.col("freq").sum()).sort("trip_mode")
+        purp_opts, tmode_opts, run_to_purpose_col = trip_mode_page.discover_options(
+            trip_list
+        )
+        self.purp_sel.options = purp_opts
+        if self.purp_sel.value not in purp_opts:
+            self.purp_sel.value = purp_opts[0]
+            purp = self.purp_sel.value
+        self.tmode_sel.options = ["All"] + tmode_opts
+        if self.tmode_sel.value not in self.tmode_sel.options:
+            self.tmode_sel.value = "All"
+            tmode = self.tmode_sel.value
 
         filtered_trip_mode = self.get_filtered_view(
             "trip_mode",
             purp,
             tmode,
-            factory=lambda: [(label, apply_filter(df)) for label, df in trip_list],
+            factory=lambda: trip_mode_page.chart_data(
+                trip_list, purp, tmode, run_to_purpose_col
+            ),
         )
 
         self._body.objects = [
