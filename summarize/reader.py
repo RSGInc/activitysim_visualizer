@@ -20,6 +20,150 @@ import numpy as np
 import polars as pl
 import yaml
 
+@dataclass(frozen=True)
+class ExportSelectorRequest:
+    """Requested export state selection for one page-level selector."""
+
+    mode: str = "default"
+    values: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ExportDashboardSettings:
+    """Resolved dashboard-level export controls."""
+
+    weighting: list[str] = field(default_factory=lambda: ["weighted"])
+    values: list[str] = field(default_factory=lambda: ["percent"])
+
+    def panel_weighting_values(self) -> list[str]:
+        return [mode.title() for mode in self.weighting]
+
+    def panel_value_values(self) -> list[str]:
+        labels = {"percent": "Percent", "count": "Count"}
+        return [labels[value] for value in self.values]
+
+
+@dataclass(frozen=True)
+class ExportHTMLSettings:
+    """Resolved export HTML settings for dashboard and page-level controls."""
+
+    dashboard: ExportDashboardSettings = field(default_factory=ExportDashboardSettings)
+    pages: dict[str, dict[str, ExportSelectorRequest]] = field(default_factory=dict)
+
+    @property
+    def weighting(self) -> list[str]:
+        return self.dashboard.weighting
+
+    @property
+    def values(self) -> list[str]:
+        return self.dashboard.values
+
+    def panel_weighting_values(self) -> list[str]:
+        return self.dashboard.panel_weighting_values()
+
+    def panel_value_values(self) -> list[str]:
+        return self.dashboard.panel_value_values()
+
+    def selector_request(
+        self,
+        page_id: str,
+        selector_id: str,
+    ) -> ExportSelectorRequest:
+        return self.pages.get(page_id, {}).get(selector_id, ExportSelectorRequest())
+
+
+def _normalize_export_html_selection(
+    raw_value,
+    *,
+    field_name: str,
+    default: list[str],
+    allowed: list[str],
+) -> list[str]:
+    """Resolve an export HTML config selection to validated lowercase values."""
+    if raw_value is None:
+        raw_value = "default"
+
+    if isinstance(raw_value, str):
+        token = raw_value.strip().lower()
+        if token == "default":
+            result = list(default)
+        elif token == "all":
+            result = list(allowed)
+        else:
+            result = [token]
+    elif isinstance(raw_value, list):
+        result = []
+        for item in raw_value:
+            if not isinstance(item, str):
+                raise ValueError(
+                    f"outputs.export_html.{field_name} entries must be strings."
+                )
+            token = item.strip().lower()
+            if not token:
+                continue
+            result.append(token)
+    else:
+        raise ValueError(
+            f"outputs.export_html.{field_name} must be 'default', 'all', or a list of strings."
+        )
+
+    deduped: list[str] = []
+    invalid: list[str] = []
+    for token in result:
+        if token not in allowed:
+            invalid.append(token)
+            continue
+        if token not in deduped:
+            deduped.append(token)
+
+    if invalid:
+        raise ValueError(
+            f"Unsupported outputs.export_html.{field_name} values: "
+            + ", ".join(repr(token) for token in invalid)
+        )
+    if not deduped:
+        raise ValueError(
+            f"outputs.export_html.{field_name} resolved to no values."
+        )
+    return deduped
+
+
+def _normalize_export_selector_request(
+    raw_value,
+    *,
+    field_name: str,
+) -> ExportSelectorRequest:
+    """Normalize a page-level selector request."""
+    if raw_value is None:
+        return ExportSelectorRequest()
+
+    if isinstance(raw_value, str):
+        token = raw_value.strip().lower()
+        if not token or token == "default":
+            return ExportSelectorRequest(mode="default")
+        if token == "all":
+            return ExportSelectorRequest(mode="all")
+        return ExportSelectorRequest(mode="explicit", values=(token,))
+
+    if not isinstance(raw_value, list):
+        raise ValueError(
+            f"{field_name} must be 'default', 'all', or a list of strings."
+        )
+
+    normalized: list[str] = []
+    for item in raw_value:
+        if not isinstance(item, str):
+            raise ValueError(f"{field_name} entries must be strings.")
+        token = item.strip().lower()
+        if not token:
+            continue
+        if token not in normalized:
+            normalized.append(token)
+    if not normalized:
+        raise ValueError(f"{field_name} resolved to no values.")
+    return ExportSelectorRequest(mode="explicit", values=tuple(normalized))
+
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -36,6 +180,7 @@ class Config:
     run_colors: list[str]
     summary_root: str
     weighting_modes: list[str]
+    export_html: ExportHTMLSettings
 
     # File name overrides (stems or full names with .csv/.parquet)
     files: dict[str, str]
@@ -106,6 +251,10 @@ class Config:
         skim_cfg = raw.get("skim", {})
         modes_cfg = raw.get("modes", {})
         outputs_cfg = raw.get("outputs", {})
+        if outputs_cfg is None:
+            outputs_cfg = {}
+        if not isinstance(outputs_cfg, dict):
+            raise ValueError("outputs must be a mapping when provided.")
 
         summary_root = Path(outputs_cfg.get("summary_root", "artifacts/summary_cache"))
         if not summary_root.is_absolute():
@@ -133,6 +282,68 @@ class Config:
         if not weighting_modes:
             weighting_modes = ["weighted", "unweighted"]
 
+        export_html_cfg = outputs_cfg.get("export_html") or {}
+        if not isinstance(export_html_cfg, dict):
+            raise ValueError("outputs.export_html must be a mapping when provided.")
+
+        dashboard_cfg = export_html_cfg.get("dashboard")
+        if dashboard_cfg is None:
+            dashboard_cfg = {}
+        elif not isinstance(dashboard_cfg, dict):
+            raise ValueError("outputs.export_html.dashboard must be a mapping.")
+
+        # Legacy fallback: accept flat weighting/values keys during migration.
+        legacy_dashboard_cfg = {}
+        for key in ("weighting", "values"):
+            if key in export_html_cfg:
+                legacy_dashboard_cfg[key] = export_html_cfg.get(key)
+        dashboard_cfg = {**legacy_dashboard_cfg, **dashboard_cfg}
+
+        pages_cfg = export_html_cfg.get("pages")
+        if pages_cfg is None:
+            pages_cfg = {}
+        elif not isinstance(pages_cfg, dict):
+            raise ValueError("outputs.export_html.pages must be a mapping.")
+        normalized_pages: dict[str, dict[str, ExportSelectorRequest]] = {}
+        for raw_page_id, raw_page_cfg in pages_cfg.items():
+            page_id = str(raw_page_id).strip().lower()
+            if not page_id:
+                raise ValueError("outputs.export_html.pages contains an empty page id.")
+            if not isinstance(raw_page_cfg, dict):
+                raise ValueError(
+                    f"outputs.export_html.pages.{page_id} must be a mapping."
+                )
+            normalized_selector_cfg: dict[str, ExportSelectorRequest] = {}
+            for raw_selector_id, raw_selector_cfg in raw_page_cfg.items():
+                selector_id = str(raw_selector_id).strip().lower()
+                if not selector_id:
+                    raise ValueError(
+                        f"outputs.export_html.pages.{page_id} contains an empty selector id."
+                    )
+                normalized_selector_cfg[selector_id] = _normalize_export_selector_request(
+                    raw_selector_cfg,
+                    field_name=f"outputs.export_html.pages.{page_id}.{selector_id}",
+                )
+            normalized_pages[page_id] = normalized_selector_cfg
+
+        export_html = ExportHTMLSettings(
+            dashboard=ExportDashboardSettings(
+                weighting=_normalize_export_html_selection(
+                    dashboard_cfg.get("weighting"),
+                    field_name="dashboard.weighting",
+                    default=[weighting_modes[0]],
+                    allowed=weighting_modes,
+                ),
+                values=_normalize_export_html_selection(
+                    dashboard_cfg.get("values"),
+                    field_name="dashboard.values",
+                    default=["percent"],
+                    allowed=["percent", "count"],
+                ),
+            ),
+            pages=normalized_pages,
+        )
+
         return cls(
             config_path=str(config_path),
             config_digest=hashlib.sha256(config_bytes).hexdigest(),
@@ -153,6 +364,7 @@ class Config:
             ),
             summary_root=str(summary_root),
             weighting_modes=weighting_modes,
+            export_html=export_html,
             files=files,
             col_ptype=cols.get("ptype", "ptype"),
             col_hhsize=cols.get("hhsize", "hhsize"),

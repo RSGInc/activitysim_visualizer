@@ -281,14 +281,19 @@ def main() -> None:
         print(f"[main] Run completed in {(time.perf_counter() - t0) / 60:.2f} minutes.")
         return
 
-    from dashboard.app import build_dashboard, build_export_view
+    from dashboard.app import build_dashboard
+    from dashboard.export_html import write_export_html_document
     import panel as pn
 
     if args.export_html:
         print("[main] Building dashboard")
         print(f"Exporting dashboard to {args.export_html} ...")
-        export_view, _ = build_export_view(raw_runs, config, summary_runs=summary_runs)
-        export_view.save(args.export_html)
+        write_export_html_document(
+            args.export_html,
+            raw_runs,
+            config,
+            summary_runs=summary_runs,
+        )
         print("Done.")
         print(
             f"[main] Dashboard created in {(time.perf_counter() - t0) / 60:.2f} minutes."

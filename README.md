@@ -294,6 +294,19 @@ return pn.Tabs(
 
 The tab label (first element of the tuple) is the text shown on the tab in the browser.
 
+**c. If you want the page to work in `--export-html`, add the export hooks too**
+
+The single-file HTML export is built from the persistent page objects in [dashboard/live_pages.py](/c:/Users/wesley.darling/projects/activitysim_visualizer/dashboard/live_pages.py), not just the simple `dashboard/pages/*.py` `build()` functions. For a new page to participate correctly in the export:
+
+- Add a corresponding `DashboardPage` implementation in [dashboard/live_pages.py](/c:/Users/wesley.darling/projects/activitysim_visualizer/dashboard/live_pages.py) and register it in `build_live_pages(...)`.
+- Keep the page body export-serializable by sticking to the existing supported Panel view types used elsewhere in the project, such as `pn.Column`, `pn.Row`, `pn.Card`, `pn.Tabs`, `pn.pane.Markdown`, `pn.pane.HTML`, `pn.widgets.Select`, `pn.widgets.RadioButtonGroup`, `pn.widgets.Tabulator`, and `pn.pane.Plotly`.
+- If the page has page-level selectors that should work offline, register them in [dashboard/export_registry.py](/c:/Users/wesley.darling/projects/activitysim_visualizer/dashboard/export_registry.py) with a stable `page_id`, `selector_id`, widget attribute name, and any `enabled_when` guard.
+- Enable a selector for offline export by adding its `(page_id, selector_id)` pair to `_ENABLED_PAGE_EXPORT_SELECTORS` in [dashboard/export_html.py](/c:/Users/wesley.darling/projects/activitysim_visualizer/dashboard/export_html.py).
+- If the selector should be configurable from YAML, add and document its config key under `outputs.export_html.pages.<page_id>.<selector_id>`.
+- Add or extend tests in [tests/test_export_html.py](/c:/Users/wesley.darling/projects/activitysim_visualizer/tests/test_export_html.py). At minimum, add a payload test that the page is serialized, and if selectors are involved, test `default`/`all` behavior plus the exported variants.
+
+If you skip the `live_pages.py` and export-registry steps, the page may still work in the live dashboard, but it will not participate correctly in the HTML export.
+
 ---
 
 ### Tips

@@ -2,19 +2,13 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable
 
 import panel as pn
 
 from dashboard import DashboardState
 from dashboard.components import run_color, set_percent_mode, set_run_colors
-from dashboard.live_pages import (
-    DestinationPage,
-    TourSummaryPage,
-    TripModePage,
-    build_live_pages,
-)
+from dashboard.live_pages import build_live_pages
 from dashboard.pages import (
     destination,
     joint_tours,
@@ -54,17 +48,6 @@ _TAB_BUILDERS = [
     ("Stop Timing", stop_timing.build),
     ("Trip Mode", trip_mode.build),
 ]
-
-_EXPORT_WIDGET_STATE_SPEC = {
-    ("Tour Summary", "Person Type"): [
-        "Total",
-        "Full-time worker",
-        "University student",
-    ],
-    ("Destination", "Purpose"): ["All NM", "eatout", "social"],
-    ("Trip Mode", "Tour Purpose"): ["Total", "shopping"],
-    ("Trip Mode", "Tour Mode"): ["All", "DRIVEALONE"],
-}
 
 
 def _build_tabs(
@@ -219,261 +202,90 @@ def build_export_view(
     config: Config,
     summary_runs: list[SummaryRun] | None = None,
 ) -> tuple[pn.viewable.Viewable, dict[pn.widgets.Widget, list[object]]]:
-    """Build a static HTML export view with frontend-only saved widget states."""
+    """Build a single-file HTML export view with embedded global widget states."""
     set_run_colors(config.run_colors)
-    set_percent_mode(True)
     state = DashboardState(
         runs,
         summary_runs=summary_runs,
         weighting_modes=config.weighting_modes,
     )
-    pages = build_live_pages(state, config)
-    tab_views: list[tuple[str, pn.viewable.Viewable]] = []
+    export_weight_values = config.export_html.panel_weighting_values()
+    export_value_values = config.export_html.panel_value_values()
+    state.weight_mode = export_weight_values[0]
+    state.value_mode = export_value_values[0]
+    set_percent_mode(state.value_mode == "Percent")
 
-    # example of embedded widget states
+    weight_mode = pn.widgets.RadioButtonGroup(
+        name="Weighting",
+        options=export_weight_values,
+        value=state.weight_mode,
+        button_type="primary",
+        width=250,
+        disabled=len(export_weight_values) <= 1,
+    )
+    value_mode = pn.widgets.RadioButtonGroup(
+        name="Values",
+        options=export_value_values,
+        value=state.value_mode,
+        button_type="primary",
+        width=220,
+        disabled=len(export_value_values) <= 1,
+    )
+
+    pages = build_live_pages(state, config)
+
+    def _refresh_all_pages() -> None:
+        set_percent_mode(state.value_mode == "Percent")
+        for page in pages:
+            page.mark_stale()
+            page.refresh_if_needed()
+
+    def _on_weight_widget_change(event) -> None:
+        state.weight_mode = event.new
+
+    def _on_value_widget_change(event) -> None:
+        state.value_mode = event.new
+
+    _refresh_all_pages()
     for page in pages:
-        if page.name == "Tour Summary":
-            tab_views.append(
-                (
-                    page.name,
-                    _build_export_tour_summary(runs, config, summary_runs=summary_runs),
-                )
-            )
-        elif page.name == "Destination":
-            tab_views.append(
-                (
-                    page.name,
-                    _build_export_destination(runs, config, summary_runs=summary_runs),
-                )
-            )
-        elif page.name == "Trip Mode":
-            tab_views.append(
-                (
-                    page.name,
-                    _build_export_trip_mode(runs, config, summary_runs=summary_runs),
-                )
-            )
-        else:
-            page.refresh(force=True)
-            if page.view is not None:
-                _disable_export_controls(page.view)
-                tab_views.append((page.name, page.view))
-    tabs = _tabs_from_views(tab_views, dynamic=False)
+        if page.view is not None:
+            _disable_export_controls(page.view)
+
+    watchers = [
+        weight_mode.param.watch(_on_weight_widget_change, "value"),
+        value_mode.param.watch(_on_value_widget_change, "value"),
+        state.param.watch(lambda event: _refresh_all_pages(), "weight_mode"),
+        state.param.watch(lambda event: _refresh_all_pages(), "value_mode"),
+    ]
+
+    tabs = pn.Tabs(
+        *[(page.name, page.view) for page in pages if page.view is not None],
+        dynamic=False,
+    )
     export_view = pn.Column(
         pn.pane.Markdown(f"# {config.dashboard_title}"),
         pn.pane.Markdown(
-            "**Static export saved-state demo**\n\n"
-            "This HTML keeps **Weighted** and **Percent** fixed. Only these existing selectors "
-            "remain interactive offline: **Tour Summary > Person Type**, "
-            "**Destination > Purpose**, and **Trip Mode > Tour Purpose / Tour Mode**. "
-            "All other page selectors are shown but disabled, and no new plots or selectors were added."
+            "**Offline export**\n\n"
+            "This HTML embeds only the configured global **Weighting** and **Values** states. "
+            "Page-level selectors are shown for context but disabled offline."
         ),
+        pn.Row(weight_mode, value_mode),
         tabs,
         sizing_mode="stretch_width",
     )
-    return export_view, {}
+    export_view._export_watchers = watchers
+    export_view._export_state = state
+    export_view._export_pages = pages
+    return export_view, {
+        weight_mode: list(export_weight_values),
+        value_mode: list(export_value_values),
+    }
 
 
 def _disable_export_controls(view: pn.viewable.Viewable) -> None:
-    """Disable controls in static export views that are not JS-backed demos."""
-    for widget_type in (pn.widgets.Select, pn.widgets.RadioButtonGroup):
-        for widget in view.select(widget_type):
-            widget.disabled = True
-
-
-def _build_export_tour_summary(
-    runs: list[tuple[str, RunData]],
-    config: Config,
-    summary_runs: list[SummaryRun] | None = None,
-) -> pn.viewable.Viewable:
-    options = _EXPORT_WIDGET_STATE_SPEC[("Tour Summary", "Person Type")]
-    selector = pn.widgets.Select(
-        name="Person Type",
-        options=options,
-        value=options[0],
-    )
-    bodies = {
-        label: _build_tour_summary_body(
-            runs,
-            config,
-            label,
-            visible=(label == selector.value),
-            summary_runs=summary_runs,
-        )
-        for label in options
-    }
-    _attach_single_selector_visibility(selector, bodies)
-    return pn.Column(
-        pn.pane.Markdown("## Tour Summary"),
-        pn.Row(pn.pane.Markdown("**Person Type:**"), selector),
-        *bodies.values(),
-        sizing_mode="stretch_width",
-    )
-
-
-def _build_export_destination(
-    runs: list[tuple[str, RunData]],
-    config: Config,
-    summary_runs: list[SummaryRun] | None = None,
-) -> pn.viewable.Viewable:
-    options = _EXPORT_WIDGET_STATE_SPEC[("Destination", "Purpose")]
-    selector = pn.widgets.Select(
-        name="Purpose",
-        options=options,
-        value=options[0],
-    )
-    bodies = {
-        label: _build_destination_body(
-            runs,
-            config,
-            label,
-            visible=(label == selector.value),
-            summary_runs=summary_runs,
-        )
-        for label in options
-    }
-    _attach_single_selector_visibility(selector, bodies)
-    return pn.Column(
-        pn.pane.Markdown("## Destination Choice (NM Tour Distances)"),
-        pn.Row(pn.pane.Markdown("**Purpose:**"), selector),
-        *bodies.values(),
-        sizing_mode="stretch_width",
-    )
-
-
-def _build_export_trip_mode(
-    runs: list[tuple[str, RunData]],
-    config: Config,
-    summary_runs: list[SummaryRun] | None = None,
-) -> pn.viewable.Viewable:
-    purpose_options = _EXPORT_WIDGET_STATE_SPEC[("Trip Mode", "Tour Purpose")]
-    mode_options = _EXPORT_WIDGET_STATE_SPEC[("Trip Mode", "Tour Mode")]
-    purpose_selector = pn.widgets.Select(
-        name="Tour Purpose",
-        options=purpose_options,
-        value=purpose_options[0],
-    )
-    mode_selector = pn.widgets.Select(
-        name="Tour Mode",
-        options=mode_options,
-        value=mode_options[0],
-    )
-    bodies = {
-        (purpose, mode): _build_trip_mode_body(
-            runs,
-            config,
-            purpose,
-            mode,
-            visible=(purpose == purpose_selector.value and mode == mode_selector.value),
-            summary_runs=summary_runs,
-        )
-        for purpose in purpose_options
-        for mode in mode_options
-    }
-    _attach_dual_selector_visibility(purpose_selector, mode_selector, bodies)
-    return pn.Column(
-        pn.pane.Markdown("## Trip Mode Choice"),
-        pn.Row(purpose_selector, mode_selector),
-        *bodies.values(),
-        sizing_mode="stretch_width",
-    )
-
-
-def _build_tour_summary_body(
-    runs: list[tuple[str, RunData]],
-    config: Config,
-    person_type: str,
-    visible: bool,
-    summary_runs: list[SummaryRun] | None = None,
-) -> pn.Column:
-    page = TourSummaryPage(
-        DashboardState(
-            runs, summary_runs=summary_runs, weighting_modes=config.weighting_modes
-        ),
-        config,
-    )
-    page.ptype_sel.value = person_type
-    page.refresh(force=True)
-    return pn.Column(
-        *list(page._body.objects), sizing_mode="stretch_width", visible=visible
-    )
-
-
-def _build_destination_body(
-    runs: list[tuple[str, RunData]],
-    config: Config,
-    purpose: str,
-    visible: bool,
-    summary_runs: list[SummaryRun] | None = None,
-) -> pn.Column:
-    page = DestinationPage(
-        DashboardState(
-            runs, summary_runs=summary_runs, weighting_modes=config.weighting_modes
-        ),
-        config,
-    )
-    page.purp_sel.value = purpose
-    page.refresh(force=True)
-    return pn.Column(
-        *list(page._body.objects), sizing_mode="stretch_width", visible=visible
-    )
-
-
-def _build_trip_mode_body(
-    runs: list[tuple[str, RunData]],
-    config: Config,
-    purpose: str,
-    mode: str,
-    visible: bool,
-    summary_runs: list[SummaryRun] | None = None,
-) -> pn.Column:
-    page = TripModePage(
-        DashboardState(
-            runs, summary_runs=summary_runs, weighting_modes=config.weighting_modes
-        ),
-        config,
-    )
-    page.purp_sel.value = purpose
-    page.tmode_sel.value = mode
-    page.refresh(force=True)
-    return pn.Column(
-        *list(page._body.objects), sizing_mode="stretch_width", visible=visible
-    )
-
-
-def _attach_single_selector_visibility(
-    selector: pn.widgets.Select,
-    bodies: dict[str, pn.Column],
-) -> None:
-    args = {f"body_{i}": body for i, body in enumerate(bodies.values())}
-    code = "\n".join(
-        f"body_{i}.visible = source.value === {json.dumps(label)};"
-        for i, label in enumerate(bodies)
-    )
-    selector.jscallback(args=args, value=code)
-
-
-def _attach_dual_selector_visibility(
-    purpose_selector: pn.widgets.Select,
-    mode_selector: pn.widgets.Select,
-    bodies: dict[tuple[str, str], pn.Column],
-) -> None:
-    args = {
-        "purpose_selector": purpose_selector,
-        "mode_selector": mode_selector,
-        **{f"body_{i}": body for i, body in enumerate(bodies.values())},
-    }
-    code_lines = [
-        "const purpose = purpose_selector.value;",
-        "const mode = mode_selector.value;",
-    ]
-    for i, (purpose, mode) in enumerate(bodies):
-        code_lines.append(
-            f"body_{i}.visible = purpose === {json.dumps(purpose)} && mode === {json.dumps(mode)};"
-        )
-    code = "\n".join(code_lines)
-    purpose_selector.jscallback(args=args, value=code)
-    mode_selector.jscallback(args=args, value=code)
+    """Disable page-local controls in static export views."""
+    for widget in view.select(pn.widgets.Widget):
+        widget.disabled = True
 
 
 def _color(idx: int) -> str:
