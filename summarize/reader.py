@@ -177,6 +177,7 @@ class Config:
     config_digest: str
     name: str
     dashboard_title: str
+    dashboard_pages: list[str] | None
     run_colors: list[str]
     summary_root: str
     weighting_modes: list[str]
@@ -250,6 +251,24 @@ class Config:
 
         skim_cfg = raw.get("skim", {})
         modes_cfg = raw.get("modes", {})
+        dashboard_pages_cfg = raw.get("dashboard_pages")
+        if dashboard_pages_cfg is None:
+            dashboard_pages = None
+        else:
+            if not isinstance(dashboard_pages_cfg, list):
+                raise ValueError("dashboard_pages must be a list of page ids when provided.")
+            dashboard_pages = []
+            for raw_page_id in dashboard_pages_cfg:
+                if not isinstance(raw_page_id, str):
+                    raise ValueError("dashboard_pages entries must be strings.")
+                page_id = raw_page_id.strip().lower()
+                if not page_id:
+                    raise ValueError("dashboard_pages contains an empty page id.")
+                if page_id in dashboard_pages:
+                    raise ValueError(
+                        f"dashboard_pages contains duplicate page id {page_id!r}."
+                    )
+                dashboard_pages.append(page_id)
         outputs_cfg = raw.get("outputs", {})
         if outputs_cfg is None:
             outputs_cfg = {}
@@ -349,6 +368,7 @@ class Config:
             config_digest=hashlib.sha256(config_bytes).hexdigest(),
             name=raw.get("name", ""),
             dashboard_title=raw.get("dashboard_title", "ActivitySim Visualizer"),
+            dashboard_pages=dashboard_pages,
             run_colors=raw.get(
                 "run_colors",
                 [

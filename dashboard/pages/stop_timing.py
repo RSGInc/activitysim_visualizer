@@ -6,6 +6,8 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import density_chart
+from dashboard.page_base import DashboardPage
+from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
 from summarize import stops
 from summarize.reader import Config, RunData
 
@@ -95,30 +97,83 @@ def chart_data(
     return stop_dep, trip_dep
 
 
-def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewable:
-    if not runs:
-        return pn.pane.Markdown("No runs loaded.")
-
-    timing_list = [(label, stops.stop_timing(rd)) for label, rd in runs]
-    purp_opts, run_to_purpose_col = discover_purpose_columns(timing_list)
-    purp_sel = pn.widgets.Select(name="Purpose", options=purp_opts, value=purp_opts[0])
-
-    @pn.depends(purp_sel)
-    def timing_charts(purp):
-        stop_dep, trip_dep = chart_data(timing_list, purp, run_to_purpose_col)
-        x_label = "Clock time (start at 03:00)"
-        return pn.Column(
-            density_chart(
-                trip_dep, "clock_time", "freq", f"Trip Departure - {purp}", x_label
-            ),
-            density_chart(
-                stop_dep, "clock_time", "freq", f"Stop Departure - {purp}", x_label
-            ),
+class StopTimingPage(DashboardPage):
+    def __init__(self, state, config: Config) -> None:
+        super().__init__("Stop Timing", state, config)
+        purp_opts = self._purpose_options(state.weighted_runs)
+        self.purp_sel = pn.widgets.Select(
+            name="Purpose", options=purp_opts, value=purp_opts[0]
+        )
+        self._watch_widget(self.purp_sel)
+        self._body = pn.Column(sizing_mode="stretch_width")
+        self.view = pn.Column(
+            pn.pane.Markdown("## Stop Timing"),
+            pn.Row(pn.pane.Markdown("**Purpose:**"), self.purp_sel),
+            self._body,
+            sizing_mode="stretch_width",
         )
 
-    return pn.Column(
-        pn.pane.Markdown("## Stop Timing"),
-        pn.Row(pn.pane.Markdown("**Purpose:**"), purp_sel),
-        timing_charts,
-        sizing_mode="stretch_width",
-    )
+    def _purpose_options(self, runs: list[tuple[str, RunData]]) -> list[str]:
+        timing_list = self.state.get_precomputed_summary("stop_timing", "weighted")
+        if timing_list is None:
+            timing_list = [(label, stops.stop_timing(rd)) for label, rd in runs]
+        purp_opts, _ = discover_purpose_columns(timing_list)
+        return purp_opts
+
+    def _refresh(self) -> None:
+        runs = self.state.get_runs()
+        if not self.state.run_labels:
+            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
+            return
+
+        purp = self.purp_sel.value
+        timing_list = self.get_summary(
+            "stop_timing",
+            lambda: [(label, stops.stop_timing(rd)) for label, rd in runs],
+        )
+        purp_opts, run_to_purpose_col = discover_purpose_columns(timing_list)
+        self.purp_sel.options = purp_opts
+        if self.purp_sel.value not in purp_opts:
+            self.purp_sel.value = purp_opts[0]
+            purp = self.purp_sel.value
+
+        stop_dep, trip_dep = self.get_filtered_view(
+            "stop_timing",
+            purp,
+            factory=lambda: chart_data(timing_list, purp, run_to_purpose_col),
+        )
+        x_label = "Clock time (start at 03:00)"
+
+        self._body.objects = [
+            density_chart(
+                trip_dep,
+                "clock_time",
+                "freq",
+                f"Trip Departure - {purp}",
+                x_label,
+                as_percent=self.as_percent,
+            ),
+            density_chart(
+                stop_dep,
+                "clock_time",
+                "freq",
+                f"Stop Departure - {purp}",
+                x_label,
+                as_percent=self.as_percent,
+            ),
+        ]
+
+
+PAGE = DashboardPageDefinition(
+    page_id="stop_timing",
+    title="Stop Timing",
+    order=100,
+    controller_cls=StopTimingPage,
+    selectors=(
+        PageSelectorDefinition(
+            selector_id="purpose",
+            widget_attr="purp_sel",
+            label="Purpose",
+        ),
+    ),
+)

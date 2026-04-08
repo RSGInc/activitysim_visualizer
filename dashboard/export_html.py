@@ -6,7 +6,6 @@ import html
 from itertools import product
 import json
 from pathlib import Path
-import re
 from typing import Any
 
 import markdown
@@ -17,30 +16,10 @@ from plotly.offline import get_plotlyjs
 
 from dashboard import DashboardState
 from dashboard.components import set_percent_mode, set_run_colors
-from dashboard.export_registry import (
-    ExportPageDefinition,
-    ExportSelectorDefinition,
-    EXPORT_PAGE_REGISTRY,
-    export_page_definition_by_name,
-)
-from dashboard.live_pages import build_live_pages
+from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
+from dashboard.page_registry import all_page_definitions, build_registered_live_pages
 from summarize.cache import SummaryRun
 from summarize.reader import Config, ExportSelectorRequest, RunData
-
-_ENABLED_PAGE_EXPORT_SELECTORS: frozenset[tuple[str, str]] = frozenset(
-    {
-        ("long_term", "geography"),
-        ("tour_summary", "person_type"),
-        ("joint_tours", "hh_size"),
-        ("destination", "purpose"),
-        ("tour_tod", "purpose"),
-        ("tour_mode", "purpose"),
-        ("stop_frequency", "tour_purpose"),
-        ("stop_timing", "purpose"),
-        ("trip_mode", "tour_purpose"),
-        ("trip_mode", "tour_mode"),
-    }
-)
 
 
 def build_export_html_document(
@@ -135,13 +114,7 @@ def _build_export_payload(
         },
         "page_export_support": {
             "client_side_runtime": "dashboard-and-page-selectors",
-            "enabled_page_selectors": sorted(
-                [
-                    {"page_id": page_id, "selector_id": selector_id}
-                    for page_id, selector_id in _ENABLED_PAGE_EXPORT_SELECTORS
-                ],
-                key=lambda item: (item["page_id"], item["selector_id"]),
-            ),
+            "enabled_page_selectors": _enabled_page_selectors_payload(),
         },
         "client_runtime": "figure-swap-v1",
         "client_export_note": (
@@ -173,7 +146,7 @@ def _serialize_dashboard_state(
     state.weight_mode = weight_mode
     state.value_mode = value_mode
     set_percent_mode(value_mode == "Percent")
-    pages = build_live_pages(state, config)
+    pages = build_registered_live_pages(state, config)
 
     page_defs: list[dict[str, str]] = []
     content_by_page: dict[str, Any] = {}
@@ -181,7 +154,7 @@ def _serialize_dashboard_state(
         page.refresh(force=True)
         if page.view is None:
             continue
-        page_def = _page_definition_for_name(page.name)
+        page_def = _page_definition_for_page(page)
         widget_metadata = _build_widget_metadata(
             page_def,
             page,
@@ -191,7 +164,7 @@ def _serialize_dashboard_state(
         page_defs.append(
             {
                 "id": page_def.page_id,
-                "title": page_def.page_name,
+                "title": page_def.title,
                 "selectors": [
                     selector_meta
                     for _, selector_meta in widget_metadata.values()
@@ -211,7 +184,7 @@ def _serialize_dashboard_state(
 def _serialize_page_content(
     page: Any,
     *,
-    page_def: ExportPageDefinition,
+    page_def: DashboardPageDefinition,
     config: Config,
     widget_metadata: dict[int, tuple[str | None, dict[str, Any] | None]],
 ) -> dict[str, Any]:
@@ -403,16 +376,17 @@ def _iter_tabs(tabs: pn.Tabs) -> list[tuple[str, Any]]:
     return result
 
 
-def _page_definition_for_name(page_name: str) -> ExportPageDefinition:
-    page_def = export_page_definition_by_name(page_name)
-    if page_def is not None:
+def _page_definition_for_page(page: Any) -> DashboardPageDefinition:
+    page_def = getattr(page, "definition", None)
+    if isinstance(page_def, DashboardPageDefinition):
         return page_def
-    fallback_id = re.sub(r"[^a-z0-9]+", "_", page_name.strip().lower()).strip("_")
-    return ExportPageDefinition(page_id=fallback_id, page_name=page_name)
+    raise ValueError(
+        f"Dashboard page {type(page).__name__} is missing its registered PAGE definition."
+    )
 
 
 def _build_widget_metadata(
-    page_def: ExportPageDefinition,
+    page_def: DashboardPageDefinition,
     page: Any,
     config: Config,
     warned_unavailable_selectors: set[tuple[str, str]],
@@ -433,8 +407,8 @@ def _build_widget_metadata(
 
 
 def _resolve_selector_metadata(
-    page_def: ExportPageDefinition,
-    selector_def: ExportSelectorDefinition,
+    page_def: DashboardPageDefinition,
+    selector_def: PageSelectorDefinition,
     page: Any,
     config: Config,
     warned_unavailable_selectors: set[tuple[str, str]],
@@ -445,7 +419,7 @@ def _resolve_selector_metadata(
     configured = selector_id in config.export_html.pages.get(page_id, {})
     widget = selector_def.widget_for(page)
     available = selector_def.available_for(page, config)
-    export_enabled = _page_selector_enabled(page_id, selector_id)
+    export_enabled = bool(selector_def.exportable)
 
     if not available or widget is None:
         if configured:
@@ -524,13 +498,8 @@ def _resolve_selector_values(
         raise ValueError(f"{field_name} resolved to no values.")
     return resolved
 
-
-def _page_selector_enabled(page_id: str, selector_id: str) -> bool:
-    return (page_id, selector_id) in _ENABLED_PAGE_EXPORT_SELECTORS
-
-
 def _validate_page_export_config(config: Config) -> None:
-    known_pages = {page.page_id: page for page in EXPORT_PAGE_REGISTRY}
+    known_pages = {page.page_id: page for page in all_page_definitions()}
     unknown_pages = sorted(
         page_id for page_id in config.export_html.pages if page_id not in known_pages
     )
@@ -554,6 +523,18 @@ def _validate_page_export_config(config: Config) -> None:
                 f"Unsupported outputs.export_html.pages.{page_id} entries: "
                 + ", ".join(repr(selector_id) for selector_id in unknown_selectors)
             )
+
+
+def _enabled_page_selectors_payload() -> list[dict[str, str]]:
+    return sorted(
+        [
+            {"page_id": page.page_id, "selector_id": selector.selector_id}
+            for page in all_page_definitions()
+            for selector in page.selectors
+            if selector.exportable
+        ],
+        key=lambda item: (item["page_id"], item["selector_id"]),
+    )
 
 
 def _state_key(weight_mode: str, value_mode: str) -> str:

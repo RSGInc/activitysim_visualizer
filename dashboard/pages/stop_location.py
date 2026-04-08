@@ -6,6 +6,8 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import density_chart
+from dashboard.page_base import DashboardPage
+from dashboard.page_definitions import DashboardPageDefinition
 from summarize import stops
 from summarize.reader import Config, RunData
 
@@ -60,37 +62,63 @@ def purpose_chart_data(
     ]
 
 
-def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewable:
-    if not runs:
-        return pn.pane.Markdown("No runs loaded.")
+class StopLocationPage(DashboardPage):
+    def __init__(self, state, config: Config) -> None:
+        super().__init__("Stop Location", state, config)
+        self._body = pn.Column(sizing_mode="stretch_width")
+        self.view = self._body
 
-    loc_list = [(label, stops.stop_location(rd)) for label, rd in runs]
-    purp_opts, run_to_purpose_col = discover_purpose_columns(loc_list)
+    def _refresh(self) -> None:
+        runs = self.state.get_runs()
+        if not self.state.run_labels:
+            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
+            return
 
-    charts = [
-        density_chart(
-            all_purpose_chart_data(loc_list),
-            "distbin",
-            "freq",
-            "Stop Out-of-Direction Distance - All Purposes",
-            "Miles",
-            normalize=False,
+        loc_list = self.get_summary(
+            "stop_location",
+            lambda: [(label, stops.stop_location(rd)) for label, rd in runs],
         )
-    ]
-    for purp in purp_opts:
-        charts.append(
+        purp_opts, run_to_purpose_col = discover_purpose_columns(loc_list)
+
+        charts = [
             density_chart(
-                purpose_chart_data(loc_list, purp, run_to_purpose_col),
+                self.get_filtered_view(
+                    "stop_location_all",
+                    factory=lambda: all_purpose_chart_data(loc_list),
+                ),
                 "distbin",
                 "freq",
-                f"Stop Out-of-Direction Distance - {purp}",
+                "Stop Out-of-Direction Distance - All Purposes",
                 "Miles",
-                normalize=True,
+                normalize=False,
+                as_percent=self.as_percent,
             )
-        )
+        ]
+        for purp in purp_opts:
+            charts.append(
+                density_chart(
+                    self.get_filtered_view(
+                        "stop_location",
+                        purp,
+                        factory=lambda purp=purp: purpose_chart_data(
+                            loc_list, purp, run_to_purpose_col
+                        ),
+                    ),
+                    "distbin",
+                    "freq",
+                    f"Stop Out-of-Direction Distance - {purp}",
+                    "Miles",
+                    normalize=False,
+                    as_percent=self.as_percent,
+                )
+            )
 
-    return pn.Column(
-        pn.pane.Markdown("## Stop Location"),
-        *charts,
-        sizing_mode="stretch_width",
-    )
+        self._body.objects = [pn.pane.Markdown("## Stop Location"), *charts]
+
+
+PAGE = DashboardPageDefinition(
+    page_id="stop_location",
+    title="Stop Location",
+    order=90,
+    controller_cls=StopLocationPage,
+)

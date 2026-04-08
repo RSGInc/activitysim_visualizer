@@ -3,15 +3,21 @@
 from __future__ import annotations
 
 from typing import Any
+from typing import TYPE_CHECKING
 
 import panel as pn
 
 from dashboard import DashboardState
 from summarize.reader import Config
 
+if TYPE_CHECKING:
+    from dashboard.page_definitions import DashboardPageDefinition
+
 
 class DashboardPage:
     """Persistent page object for the live Panel dashboard."""
+
+    definition: DashboardPageDefinition | None = None
 
     def __init__(self, name: str, state: DashboardState, config: Config) -> None:
         self.name = name
@@ -53,6 +59,16 @@ class DashboardPage:
         """Return the current weighting key used for raw summary caches."""
         return self.state.weighting_key()
 
+    @classmethod
+    def page_id(cls) -> str | None:
+        """Return the registered page id when one has been assigned."""
+        return cls.definition.page_id if cls.definition is not None else None
+
+    @classmethod
+    def page_title(cls) -> str | None:
+        """Return the registered page title when one has been assigned."""
+        return cls.definition.title if cls.definition is not None else None
+
     def get_summary(self, summary_name: str, factory):
         """Return a cached raw summary for the current weighting mode."""
         precomputed = self.state.get_precomputed_summary(
@@ -81,22 +97,3 @@ class DashboardPage:
 
     def _refresh(self) -> None:
         raise NotImplementedError
-
-
-class SimpleBuildPage(DashboardPage):
-    """Persistent wrapper around an existing build(runs, config) function."""
-
-    def __init__(
-        self,
-        name: str,
-        state: DashboardState,
-        config: Config,
-        builder,
-    ) -> None:
-        self._builder = builder
-        self._content = pn.Column(sizing_mode="stretch_width")
-        super().__init__(name, state, config)
-        self.view = self._content
-
-    def _refresh(self) -> None:
-        self._content.objects = [self._builder(self.state.get_runs(), self.config)]

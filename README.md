@@ -35,6 +35,7 @@ Copy `config.yaml` and edit it for your model deployment. Key sections:
 | Section | Required | Description |
 |---|---|---|
 | `name` / `dashboard_title` | Yes | Display names for the run and dashboard header |
+| `dashboard_pages` | No | Ordered list of page IDs to include in live and export modes |
 | `files` | Yes | Stems (or full filenames) of ActivitySim output files |
 | `columns` | Yes | Column name overrides if your outputs use non-standard names |
 | `zones` | Yes | Set `use_maz: false` for TAZ-only models; configure MAZ/TAZ columns otherwise |
@@ -64,6 +65,25 @@ runs:
 ```
 
 If no weight columns are specified and no `sample_rate` column is found, all weights default to 1.
+
+### Selecting dashboard pages
+
+Use top-level `dashboard_pages` to control which pages appear and in what order:
+
+```yaml
+dashboard_pages:
+  - overview
+  - long_term
+  - tour_summary
+  - destination
+  - trip_mode
+```
+
+Rules:
+- The list controls page order in both the live dashboard and `--export-html`.
+- Each entry must be a stable page ID, not the visible tab title.
+- Unknown or duplicate page IDs fail during config load.
+- If `dashboard_pages` is omitted, the app prints a warning and falls back to all registered pages in default order so older configs still work.
 
 ---
 
@@ -229,12 +249,7 @@ Key conventions:
 
 ### 2. Add a new dashboard page
 
-Each tab in the dashboard is a module in `dashboard/pages/`. A page module must expose a single `build` function with this signature:
-
-```python
-def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewable:
-    ...
-```
+Each tab in the dashboard is a module in `dashboard/pages/`. The supported extension point is now the page module itself: one module owns the page helpers, the persistent `DashboardPage` controller, and the exported `PAGE` definition used by both live mode and HTML export.
 
 **Step-by-step:**
 
@@ -243,24 +258,53 @@ def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewab
 ```python
 """My new page."""
 from __future__ import annotations
+
 import panel as pn
 import polars as pl
+
 from dashboard.components import bar_chart
-from summarize.reader import RunData, Config
+from dashboard.page_base import DashboardPage
+from dashboard.page_definitions import DashboardPageDefinition
 from summarize import trips as trip_sums
+from summarize.reader import Config, RunData
 
 
-def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewable:
-    if not runs:
-        return pn.pane.Markdown("No runs loaded.")
+class MyPage(DashboardPage):
+    def __init__(self, state, config: Config) -> None:
+        super().__init__("My New Page", state, config)
+        self._body = pn.Column(sizing_mode="stretch_width")
+        self.view = pn.Column(
+            pn.pane.Markdown("## My New Page"),
+            self._body,
+            sizing_mode="stretch_width",
+        )
 
-    # Compute summaries for each run
-    data = [(label, trip_sums.trip_distance_by_mode(rd, config)) for label, rd in runs]
+    def _refresh(self) -> None:
+        runs = self.state.get_runs()
+        if not self.state.run_labels:
+            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
+            return
 
-    # Build a chart using a shared helper from dashboard/components.py
-    chart = bar_chart(data, x_col="distance_bin", y_col="freq", title="Trip Distance by Mode")
+        data = [
+            (label, trip_sums.trip_distance_by_mode(rd, self.config))
+            for label, rd in runs
+        ]
+        self._body.objects = [
+            bar_chart(
+                data,
+                x_col="distance_bin",
+                y_col="freq",
+                title="Trip Distance by Mode",
+            )
+        ]
 
-    return pn.Column(chart)
+
+PAGE = DashboardPageDefinition(
+    page_id="my_page",
+    title="My New Page",
+    order=120,
+    controller_cls=MyPage,
+)
 ```
 
 Available chart helpers in `dashboard/components.py`:
@@ -268,50 +312,58 @@ Available chart helpers in `dashboard/components.py`:
 - `line_chart(data_list, x_col, y_col, title, ...)` — multi-run line chart
 - `kpi_box(label, values, colors)` — styled metric card
 
-**b. Register the page in `dashboard/app.py`**
+**b. Add the page to config**
 
-Add the import near the top of the file alongside the other page imports:
+Include the page ID in top-level `dashboard_pages` wherever you want it to appear:
+
+```yaml
+dashboard_pages:
+  - overview
+  - my_page
+  - trip_mode
+```
+
+That is the only page-registration step needed.
+
+**c. Add selector metadata if the page has page-local export controls**
+
+If a page-level widget should work offline in `--export-html`, declare it in the page module's `PAGE.selectors`:
 
 ```python
-from dashboard.pages import (
-    overview, long_term, tour_summary, joint_tours, destination,
-    tour_tod, tour_mode, stop_freq, stop_location, stop_timing, trip_mode,
-    my_page,  # <-- add this
+from dashboard.page_definitions import PageSelectorDefinition
+
+PAGE = DashboardPageDefinition(
+    page_id="tour_summary",
+    title="Tour Summary",
+    order=30,
+    controller_cls=TourSummaryPage,
+    selectors=(
+        PageSelectorDefinition(
+            selector_id="person_type",
+            widget_attr="ptype_sel",
+            label="Person Type",
+        ),
+    ),
 )
 ```
 
-Then add a tab entry inside the `make_tabs` function in `build_dashboard`:
+If the selector should be configurable from YAML, document its key under `outputs.export_html.pages.<page_id>.<selector_id>`.
 
-```python
-return pn.Tabs(
-    ("Overview",         overview.build(cur_runs, config)),
-    # ... existing tabs ...
-    ("Trip Mode",        trip_mode.build(cur_runs, config)),
-    ("My New Page",      my_page.build(cur_runs, config)),  # <-- add this
-    dynamic=dynamic,
-)
-```
+**d. Add tests**
 
-The tab label (first element of the tuple) is the text shown on the tab in the browser.
+- Add or extend live-dashboard tests if the page has important state or caching behavior.
+- Add or extend [tests/test_export_html.py](/c:/Users/wesley.darling/projects/activitysim_visualizer/tests/test_export_html.py) if the page participates in export, especially when selectors are involved.
 
-**c. If you want the page to work in `--export-html`, add the export hooks too**
+### Compatibility note
 
-The single-file HTML export is built from the persistent page objects in [dashboard/live_pages.py](/c:/Users/wesley.darling/projects/activitysim_visualizer/dashboard/live_pages.py), not just the simple `dashboard/pages/*.py` `build()` functions. For a new page to participate correctly in the export:
-
-- Add a corresponding `DashboardPage` implementation in [dashboard/live_pages.py](/c:/Users/wesley.darling/projects/activitysim_visualizer/dashboard/live_pages.py) and register it in `build_live_pages(...)`.
-- Keep the page body export-serializable by sticking to the existing supported Panel view types used elsewhere in the project, such as `pn.Column`, `pn.Row`, `pn.Card`, `pn.Tabs`, `pn.pane.Markdown`, `pn.pane.HTML`, `pn.widgets.Select`, `pn.widgets.RadioButtonGroup`, `pn.widgets.Tabulator`, and `pn.pane.Plotly`.
-- If the page has page-level selectors that should work offline, register them in [dashboard/export_registry.py](/c:/Users/wesley.darling/projects/activitysim_visualizer/dashboard/export_registry.py) with a stable `page_id`, `selector_id`, widget attribute name, and any `enabled_when` guard.
-- Enable a selector for offline export by adding its `(page_id, selector_id)` pair to `_ENABLED_PAGE_EXPORT_SELECTORS` in [dashboard/export_html.py](/c:/Users/wesley.darling/projects/activitysim_visualizer/dashboard/export_html.py).
-- If the selector should be configurable from YAML, add and document its config key under `outputs.export_html.pages.<page_id>.<selector_id>`.
-- Add or extend tests in [tests/test_export_html.py](/c:/Users/wesley.darling/projects/activitysim_visualizer/tests/test_export_html.py). At minimum, add a payload test that the page is serialized, and if selectors are involved, test `default`/`all` behavior plus the exported variants.
-
-If you skip the `live_pages.py` and export-registry steps, the page may still work in the live dashboard, but it will not participate correctly in the HTML export.
+The page-module API is now the only supported dashboard extension API. Each page module should define its persistent `DashboardPage` controller and export a `PAGE = DashboardPageDefinition(...)`; there is no separate module-level `build(runs, config)` path to maintain.
 
 ---
 
 ### Tips
 
-- **Reactive widgets**: If your page needs dropdowns or filters, use `pn.widgets` and `@pn.depends` (or `pn.bind`) to wire them to chart functions, following the pattern in `dashboard/pages/tour_summary.py`.
-- **Weighted vs. unweighted**: The dashboard automatically passes either the weighted or unweighted `RunData` to `build()` depending on the toggle — you do not need to handle this yourself.
+- **Reactive widgets**: For persistent pages, create `pn.widgets` on the controller instance and call `_watch_widget(...)` so the page refreshes without losing widget state.
+- **Weighted vs. unweighted**: Inside a `DashboardPage`, use `self.state.get_runs()` to get the currently active weighted or unweighted run set.
 - **Percent vs. count**: Call `from dashboard.components import set_percent_mode` and check `_DISPLAY_PERCENT_MODE` if your chart needs to respond to the Percent/Count toggle, or pass `pct_col` to `bar_chart` for automatic normalization.
+- **Export-safe layouts**: Stick to the Panel view types already supported by the HTML export path, such as `pn.Column`, `pn.Row`, `pn.Card`, `pn.Tabs`, `pn.pane.Markdown`, `pn.pane.HTML`, `pn.widgets.Select`, `pn.widgets.RadioButtonGroup`, `pn.widgets.Tabulator`, and `pn.pane.Plotly`.
 - **Column safety**: Always check that expected columns exist before using them, returning an empty DataFrame with the right schema if they are absent.

@@ -6,8 +6,10 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import _to_pandas, bar_chart, kpi_box
+from dashboard.page_base import DashboardPage
+from dashboard.page_definitions import DashboardPageDefinition
 from summarize import demographics, totals
-from summarize.reader import Config, RunData
+from summarize.reader import Config
 
 KPI_METRICS = [
     "population",
@@ -90,69 +92,104 @@ def hh_size_chart_data(
     ]
 
 
-def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewable:
-    """Build Overview page."""
-    if not runs:
-        return pn.pane.Markdown("No runs loaded.")
+class OverviewPage(DashboardPage):
+    def __init__(self, state, config: Config) -> None:
+        super().__init__("Overview", state, config)
+        self._body = pn.Column(sizing_mode="stretch_width")
+        self.view = self._body
 
-    totals_list = [(label, totals.system_totals(rd, config)) for label, rd in runs]
-    pertype_list = [(label, demographics.person_type(rd, config)) for label, rd in runs]
-    hhsize_list = [(label, demographics.hh_size(rd)) for label, rd in runs]
+    def _refresh(self) -> None:
+        runs = self.state.get_runs()
+        if not self.state.run_labels:
+            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
+            return
 
-    def _card(metric: str, label: str):
-        return kpi_box(
-            label=label,
-            values=[
-                (run_label, metric_value(tot_df, metric))
-                for run_label, tot_df in totals_list
+        totals_list = self.get_summary(
+            "totals",
+            lambda: [
+                (label, totals.system_totals(rd, self.config)) for label, rd in runs
             ],
-            icon=KPI_ICONS.get(metric, ""),
+        )
+        pertype_list = self.get_summary(
+            "person_type",
+            lambda: [
+                (label, demographics.person_type(rd, self.config)) for label, rd in runs
+            ],
+        )
+        hhsize_list = self.get_summary(
+            "hh_size",
+            lambda: [(label, demographics.hh_size(rd)) for label, rd in runs],
         )
 
-    ptype_chart = bar_chart(
-        person_type_chart_data(pertype_list),
-        x_col="ptype_name",
-        y_col="freq",
-        title="Person Type Distribution",
-        xaxis_title="Person Type",
-        yaxis_title="Persons",
-        pct_col="pct",
-    )
-    hhsize_chart = bar_chart(
-        hh_size_chart_data(hhsize_list),
-        x_col="HHSIZE",
-        y_col="freq",
-        title="Household Size Distribution",
-        xaxis_title="HH Size",
-        yaxis_title="Households",
-        pct_col="pct",
-    )
-    pct_df = percent_difference_table(totals_list)
-
-    return pn.Column(
-        pn.pane.Markdown("## Overview"),
-        pn.pane.Markdown("### Key Performance Indicators"),
-        pn.Row(
-            _card("population", "Population"),
-            _card("households", "Households"),
-            _card("vmt", "VMT"),
-            sizing_mode="stretch_width",
-        ),
-        pn.Row(
-            _card("tours", "Tours"),
-            _card("trips", "Trips"),
-            _card("stops", "Stops"),
-            sizing_mode="stretch_width",
-        ),
-        pn.pane.Markdown("### Percent Difference vs Base Run"),
-        (
-            pn.widgets.Tabulator(
-                _to_pandas(pct_df), sizing_mode="stretch_width", height=260
+        def _card(metric: str, label: str):
+            return kpi_box(
+                label=label,
+                values=[
+                    (
+                        run_label,
+                        metric_value(tot_df, metric),
+                    )
+                    for run_label, tot_df in totals_list
+                ],
             )
-            if len(pct_df) > 0
-            else pn.pane.Markdown("")
-        ),
-        pn.pane.Markdown("### Demographic Distributions"),
-        pn.Row(ptype_chart, hhsize_chart),
-        sizing_mode="stretch_width",
-    )
+
+        pct_df = self.get_filtered_view(
+            "overview_pct",
+            factory=lambda: percent_difference_table(totals_list),
+        )
+
+        ptype_chart = bar_chart(
+            person_type_chart_data(pertype_list),
+            x_col="ptype_name",
+            y_col="freq",
+            title="Person Type Distribution",
+            xaxis_title="Person Type",
+            yaxis_title="Persons",
+            pct_col="pct",
+            as_percent=self.as_percent,
+        )
+        hhsize_chart = bar_chart(
+            hh_size_chart_data(hhsize_list),
+            x_col="HHSIZE",
+            y_col="freq",
+            title="Household Size Distribution",
+            xaxis_title="HH Size",
+            yaxis_title="Households",
+            pct_col="pct",
+            as_percent=self.as_percent,
+        )
+
+        self._body.objects = [
+            pn.pane.Markdown("## Overview"),
+            pn.pane.Markdown("### Key Performance Indicators"),
+            pn.Row(
+                _card("population", "Population"),
+                _card("households", "Households"),
+                _card("vmt", "VMT"),
+                sizing_mode="stretch_width",
+            ),
+            pn.Row(
+                _card("tours", "Tours"),
+                _card("trips", "Trips"),
+                _card("stops", "Stops"),
+                sizing_mode="stretch_width",
+            ),
+            pn.pane.Markdown("### Percent Difference vs Base Run"),
+            (
+                pn.widgets.Tabulator(
+                    _to_pandas(pct_df), sizing_mode="stretch_width", height=260
+                )
+                if len(pct_df) > 0
+                else pn.pane.Markdown("")
+            ),
+            pn.pane.Markdown("### Demographic Distributions"),
+            pn.Row(ptype_chart, hhsize_chart),
+        ]
+
+
+PAGE = DashboardPageDefinition(
+    page_id="overview",
+    title="Overview",
+    order=10,
+    controller_cls=OverviewPage,
+)

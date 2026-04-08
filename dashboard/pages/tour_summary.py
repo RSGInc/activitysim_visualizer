@@ -6,6 +6,8 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart
+from dashboard.page_base import DashboardPage
+from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
 from summarize import tours as tour_sums
 from summarize.reader import Config, RunData
 
@@ -107,62 +109,124 @@ def chart_data(
     )
 
 
-def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewable:
-    if not runs:
-        return pn.pane.Markdown("No runs loaded.")
+class TourSummaryPage(DashboardPage):
+    def __init__(self, state, config: Config) -> None:
+        super().__init__("Tour Summary", state, config)
+        ptype_opts = self._ptype_options(state.weighted_runs)
+        ptype_label_map = {
+            p: ("Total" if str(p) == "Total" else config.ptype_label(p))
+            for p in ptype_opts
+        }
+        self._label_to_ptype = {lbl: p for p, lbl in ptype_label_map.items()}
+        display_opts = [ptype_label_map[p] for p in ptype_opts] or ["Total"]
+        default_value = "Total" if "Total" in display_opts else display_opts[0]
+        self.ptype_sel = pn.widgets.Select(
+            name="Person Type",
+            options=display_opts,
+            value=default_value,
+        )
+        self._watch_widget(self.ptype_sel)
+        self._body = pn.Column(sizing_mode="stretch_width")
+        self.view = pn.Column(
+            pn.pane.Markdown("## Tour Summary"),
+            pn.Row(pn.pane.Markdown("**Person Type:**"), self.ptype_sel),
+            self._body,
+            sizing_mode="stretch_width",
+        )
 
-    dap_list = [(label, tour_sums.dap_summary(rd, config)) for label, rd in runs]
-    mtf_list = [
-        (label, tour_sums.mandatory_tour_freq(rd, config)) for label, rd in runs
-    ]
-    inm_list = [(label, tour_sums.indiv_nm_summary(rd, config)) for label, rd in runs]
+    def _ptype_options(self, runs: list[tuple[str, RunData]]) -> list[str]:
+        dap_list = self.state.get_precomputed_summary("dap_summary", "weighted")
+        if dap_list is None:
+            if not runs:
+                return ["Total"]
+            dap_list = [
+                (label, tour_sums.dap_summary(rd, self.config)) for label, rd in runs
+            ]
+        if not dap_list:
+            return ["Total"]
+        return ptype_options(dap_list)
 
-    ptype_opts = ptype_options(dap_list)
-    ptype_label_map, label_to_ptype = ptype_maps(ptype_opts, config)
-    ptype_display_opts = [ptype_label_map[p] for p in ptype_opts]
-    ptype_sel = pn.widgets.Select(
-        name="Person Type",
-        options=ptype_display_opts,
-        value=("Total" if "Total" in ptype_display_opts else ptype_display_opts[0]),
-    )
+    def _refresh(self) -> None:
+        runs = self.state.get_runs()
+        if not self.state.run_labels:
+            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
+            return
 
-    @pn.depends(ptype_sel)
-    def dap_chart(ptype_label):
-        ptype = label_to_ptype.get(ptype_label, ptype_label)
-        return bar_chart(
-            [(label, ordered_dap(df, ptype)) for label, df in dap_list],
+        dap_list = self.get_summary(
+            "dap_summary",
+            lambda: [
+                (label, tour_sums.dap_summary(rd, self.config)) for label, rd in runs
+            ],
+        )
+        mtf_list = self.get_summary(
+            "mandatory_tour_freq",
+            lambda: [
+                (label, tour_sums.mandatory_tour_freq(rd, self.config))
+                for label, rd in runs
+            ],
+        )
+        inm_list = self.get_summary(
+            "indiv_nm_summary",
+            lambda: [
+                (label, tour_sums.indiv_nm_summary(rd, self.config))
+                for label, rd in runs
+            ],
+        )
+        ptype_opts = ptype_options(dap_list)
+        ptype_label_map, self._label_to_ptype = ptype_maps(ptype_opts, self.config)
+        display_opts = [ptype_label_map[p] for p in ptype_opts] or ["Total"]
+        self.ptype_sel.options = display_opts
+        if self.ptype_sel.value not in display_opts:
+            self.ptype_sel.value = (
+                "Total" if "Total" in display_opts else display_opts[0]
+            )
+        ptype_label = self.ptype_sel.value
+        ptype = self._label_to_ptype.get(ptype_label, ptype_label)
+
+        dap_data, mtf_data, inm_data = self.get_filtered_view(
+            "tour_summary",
+            ptype,
+            factory=lambda: chart_data(dap_list, mtf_list, inm_list, ptype),
+        )
+
+        dap_chart = bar_chart(
+            dap_data,
             "DAP",
             "freq",
             f"Daily Activity Pattern - {ptype_label}",
             "Pattern",
+            as_percent=self.as_percent,
         )
-
-    @pn.depends(ptype_sel)
-    def mtf_chart(ptype_label):
-        ptype = label_to_ptype.get(ptype_label, ptype_label)
-        return bar_chart(
-            [(label, ordered_mtf(df, ptype)) for label, df in mtf_list],
+        mtf_chart = bar_chart(
+            mtf_data,
             "MTF_label",
             "freq",
             f"Mandatory Tour Frequency - {ptype_label}",
             "Alternative",
+            as_percent=self.as_percent,
         )
-
-    @pn.depends(ptype_sel)
-    def inm_chart(ptype_label):
-        ptype = label_to_ptype.get(ptype_label, ptype_label)
-        return bar_chart(
-            [(label, ordered_inm(df, ptype)) for label, df in inm_list],
+        inm_chart = bar_chart(
+            inm_data,
             "nmtours",
             "freq",
             f"Individual NM Tours - {ptype_label}",
             "# Tours",
+            as_percent=self.as_percent,
         )
 
-    return pn.Column(
-        pn.pane.Markdown("## Tour Summary"),
-        pn.Row(pn.pane.Markdown("**Person Type:**"), ptype_sel),
-        pn.Row(dap_chart, mtf_chart),
-        inm_chart,
-        sizing_mode="stretch_width",
-    )
+        self._body.objects = [pn.Row(dap_chart, mtf_chart), inm_chart]
+
+
+PAGE = DashboardPageDefinition(
+    page_id="tour_summary",
+    title="Tour Summary",
+    order=30,
+    controller_cls=TourSummaryPage,
+    selectors=(
+        PageSelectorDefinition(
+            selector_id="person_type",
+            widget_attr="ptype_sel",
+            label="Person Type",
+        ),
+    ),
+)

@@ -304,7 +304,7 @@ def main() -> None:
     dashboard = build_dashboard(
         raw_runs,
         config,
-        static_export=False,
+        # static_export=False,
         summary_runs=summary_runs,
     )
     print(f"[main] Dashboard created in {(time.perf_counter() - t0) / 60:.2f} minutes.")

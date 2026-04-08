@@ -6,6 +6,8 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart
+from dashboard.page_base import DashboardPage
+from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
 from summarize import stops
 from summarize.reader import Config, RunData
 
@@ -123,41 +125,109 @@ def purpose_chart_data(
     ]
 
 
-def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewable:
-    if not runs:
-        return pn.pane.Markdown("No runs loaded.")
-
-    stop_list = [(label, stops.stop_freq(rd)) for label, rd in runs]
-    purp_by_tp = [(label, stops.stop_purpose_by_tour_purpose(rd)) for label, rd in runs]
-    purp_opts, purpose_col = discover_purpose_columns(stop_list)
-
-    purp_sel = pn.widgets.Select(
-        name="Tour Purpose", options=purp_opts, value=purp_opts[0]
-    )
-
-    @pn.depends(purp_sel)
-    def freq_charts(purp):
-        ob_data, ib_data, tot_data = frequency_chart_data(stop_list, purp, purpose_col)
-        return pn.Row(
-            bar_chart(ob_data, "stops", "freq", f"Outbound Stops - {purp}", "Stops"),
-            bar_chart(ib_data, "stops", "freq", f"Inbound Stops - {purp}", "Stops"),
-            bar_chart(tot_data, "stops", "freq", f"Total Stops - {purp}", "Stops"),
+class StopFreqPage(DashboardPage):
+    def __init__(self, state, config: Config) -> None:
+        super().__init__("Stop Frequency", state, config)
+        purp_opts = self._purpose_options(state.weighted_runs)
+        self.purp_sel = pn.widgets.Select(
+            name="Tour Purpose", options=purp_opts, value=purp_opts[0]
+        )
+        self._watch_widget(self.purp_sel)
+        self._body = pn.Column(sizing_mode="stretch_width")
+        self.view = pn.Column(
+            pn.pane.Markdown("## Stop Frequency"),
+            pn.Row(pn.pane.Markdown("**Tour Purpose:**"), self.purp_sel),
+            self._body,
+            sizing_mode="stretch_width",
         )
 
-    @pn.depends(purp_sel)
-    def purp_by_tp_chart(purp):
-        return bar_chart(
-            purpose_chart_data(purp_by_tp, purp, purpose_col),
-            "purpose",
-            "freq",
-            f"Stop Purpose - tour={purp}",
-            "Stop Purpose",
+    def _purpose_options(self, runs: list[tuple[str, RunData]]) -> list[str]:
+        stop_list = self.state.get_precomputed_summary("stop_freq", "weighted")
+        if stop_list is None:
+            stop_list = [(label, stops.stop_freq(rd)) for label, rd in runs]
+        purp_opts, _ = discover_purpose_columns(stop_list)
+        return purp_opts
+
+    def _refresh(self) -> None:
+        runs = self.state.get_runs()
+        if not self.state.run_labels:
+            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
+            return
+
+        purp = self.purp_sel.value
+        stop_list = self.get_summary(
+            "stop_freq",
+            lambda: [(label, stops.stop_freq(rd)) for label, rd in runs],
+        )
+        purp_by_tp = self.get_summary(
+            "stop_purpose_by_tour_purpose",
+            lambda: [
+                (label, stops.stop_purpose_by_tour_purpose(rd)) for label, rd in runs
+            ],
+        )
+        purp_opts, purpose_col = discover_purpose_columns(stop_list)
+        self.purp_sel.options = purp_opts
+        if self.purp_sel.value not in purp_opts:
+            self.purp_sel.value = purp_opts[0]
+            purp = self.purp_sel.value
+
+        ob_data, ib_data, tot_data, purp_chart_data = self.get_filtered_view(
+            "stop_freq",
+            purp,
+            factory=lambda: (
+                *frequency_chart_data(stop_list, purp, purpose_col),
+                purpose_chart_data(purp_by_tp, purp, purpose_col),
+            ),
         )
 
-    return pn.Column(
-        pn.pane.Markdown("## Stop Frequency"),
-        pn.Row(pn.pane.Markdown("**Tour Purpose:**"), purp_sel),
-        freq_charts,
-        purp_by_tp_chart,
-        sizing_mode="stretch_width",
-    )
+        self._body.objects = [
+            pn.Row(
+                bar_chart(
+                    ob_data,
+                    "stops",
+                    "freq",
+                    f"Outbound Stops - {purp}",
+                    "Stops",
+                    as_percent=self.as_percent,
+                ),
+                bar_chart(
+                    ib_data,
+                    "stops",
+                    "freq",
+                    f"Inbound Stops - {purp}",
+                    "Stops",
+                    as_percent=self.as_percent,
+                ),
+                bar_chart(
+                    tot_data,
+                    "stops",
+                    "freq",
+                    f"Total Stops - {purp}",
+                    "Stops",
+                    as_percent=self.as_percent,
+                ),
+            ),
+            bar_chart(
+                purp_chart_data,
+                "purpose",
+                "freq",
+                f"Stop Purpose - tour={purp}",
+                "Stop Purpose",
+                as_percent=self.as_percent,
+            ),
+        ]
+
+
+PAGE = DashboardPageDefinition(
+    page_id="stop_frequency",
+    title="Stop Frequency",
+    order=80,
+    controller_cls=StopFreqPage,
+    selectors=(
+        PageSelectorDefinition(
+            selector_id="tour_purpose",
+            widget_attr="purp_sel",
+            label="Tour Purpose",
+        ),
+    ),
+)

@@ -6,6 +6,8 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import density_chart
+from dashboard.page_base import DashboardPage
+from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
 from summarize import tour_tod
 from summarize.reader import Config, RunData
 
@@ -89,33 +91,93 @@ def chart_data(
     return dep_data, arr_data, dur_data
 
 
-def build(runs: list[tuple[str, RunData]], config: Config) -> pn.viewable.Viewable:
-    if not runs:
-        return pn.pane.Markdown("No runs loaded.")
+class TourTODPage(DashboardPage):
+    def __init__(self, state, config: Config) -> None:
+        super().__init__("Tour TOD", state, config)
+        purp_opts = self._purpose_options(state.weighted_runs)
+        self.purp_sel = pn.widgets.Select(
+            name="Purpose", options=purp_opts, value=purp_opts[0]
+        )
+        self._watch_widget(self.purp_sel)
+        self._body = pn.Column(sizing_mode="stretch_width")
+        self.view = pn.Column(
+            pn.pane.Markdown("## Tour Time of Day"),
+            pn.Row(pn.pane.Markdown("**Purpose:**"), self.purp_sel),
+            self._body,
+            sizing_mode="stretch_width",
+        )
 
-    tod_list = [(label, tour_tod.tod_profiles(rd)) for label, rd in runs]
-    purp_opts = purpose_options(tod_list)
-    purp_sel = pn.widgets.Select(name="Purpose", options=purp_opts, value=purp_opts[0])
+    def _purpose_options(self, runs: list[tuple[str, RunData]]) -> list[str]:
+        tod_list = self.state.get_precomputed_summary("tour_tod_profiles", "weighted")
+        if tod_list is None:
+            if not runs:
+                return ["work"]
+            tod_list = [(label, tour_tod.tod_profiles(rd)) for label, rd in runs]
+        return purpose_options(tod_list)
 
-    @pn.depends(purp_sel)
-    def tod_charts(purp):
-        dep_data, arr_data, dur_data = chart_data(tod_list, purp)
+    def _refresh(self) -> None:
+        runs = self.state.get_runs()
+        if not self.state.run_labels:
+            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
+            return
+
+        tod_list = self.get_summary(
+            "tour_tod_profiles",
+            lambda: [(label, tour_tod.tod_profiles(rd)) for label, rd in runs],
+        )
+        purp_opts = purpose_options(tod_list)
+        self.purp_sel.options = purp_opts
+        if self.purp_sel.value not in purp_opts:
+            self.purp_sel.value = purp_opts[0]
+        purp = self.purp_sel.value
+
+        dep_data, arr_data, dur_data = self.get_filtered_view(
+            "tour_tod",
+            purp,
+            factory=lambda: chart_data(tod_list, purp),
+        )
         x_label = "Clock time (start at 03:00)"
         dur_plot = density_chart(
-            dur_data, "duration_hours", "freq", f"Duration - {purp}", "Duration (hours)"
+            dur_data,
+            "duration_hours",
+            "freq",
+            f"Duration - {purp}",
+            "Duration (hours)",
+            as_percent=self.as_percent,
         )
         dur_plot.object.update_xaxes(dtick=1, tick0=0, showgrid=True)
-        return pn.Column(
-            density_chart(
-                dep_data, "clock_time", "freq", f"Departure - {purp}", x_label
-            ),
-            density_chart(arr_data, "clock_time", "freq", f"Arrival - {purp}", x_label),
-            dur_plot,
-        )
 
-    return pn.Column(
-        pn.pane.Markdown("## Tour Time of Day"),
-        pn.Row(pn.pane.Markdown("**Purpose:**"), purp_sel),
-        tod_charts,
-        sizing_mode="stretch_width",
-    )
+        self._body.objects = [
+            density_chart(
+                dep_data,
+                "clock_time",
+                "freq",
+                f"Departure - {purp}",
+                x_label,
+                as_percent=self.as_percent,
+            ),
+            density_chart(
+                arr_data,
+                "clock_time",
+                "freq",
+                f"Arrival - {purp}",
+                x_label,
+                as_percent=self.as_percent,
+            ),
+            dur_plot,
+        ]
+
+
+PAGE = DashboardPageDefinition(
+    page_id="tour_tod",
+    title="Tour TOD",
+    order=60,
+    controller_cls=TourTODPage,
+    selectors=(
+        PageSelectorDefinition(
+            selector_id="purpose",
+            widget_attr="purp_sel",
+            label="Purpose",
+        ),
+    ),
+)
