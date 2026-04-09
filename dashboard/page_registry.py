@@ -12,10 +12,12 @@ from dashboard import DashboardState
 from dashboard.data_access import DashboardRawRunProvider
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition, RawDataMode
+from summarize.cache import SUMMARY_SPEC_BY_ID
 from summarize.reader import Config, RunData
 
 _WARNED_LEGACY_CONFIG_PATHS: set[str] = set()
 LOGGER = get_logger("dashboard.page_registry")
+VALID_RAW_DATA_MODES: tuple[RawDataMode, ...] = ("none", "optional", "required")
 
 
 def _load_page_modules():
@@ -44,6 +46,7 @@ def all_page_definitions() -> tuple[DashboardPageDefinition, ...]:
             raise ValueError(
                 f"Dashboard page {page_definition.page_id!r} does not declare a controller."
             )
+        _validate_page_definition(page_definition)
         controller_cls.definition = page_definition
         page_definitions.append(page_definition)
 
@@ -70,6 +73,31 @@ def all_page_definitions() -> tuple[DashboardPageDefinition, ...]:
             ),
         )
     )
+
+
+def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
+    if page_definition.raw_data_mode not in VALID_RAW_DATA_MODES:
+        raise ValueError(
+            f"Dashboard page {page_definition.page_id!r} declares invalid raw_data_mode "
+            f"{page_definition.raw_data_mode!r}."
+        )
+
+    required_summary_ids = page_definition.required_summary_ids
+    if len(set(required_summary_ids)) != len(required_summary_ids):
+        raise ValueError(
+            f"Dashboard page {page_definition.page_id!r} declares duplicate required_summary_ids."
+        )
+
+    unknown_summary_ids = [
+        summary_id
+        for summary_id in required_summary_ids
+        if summary_id not in SUMMARY_SPEC_BY_ID
+    ]
+    if unknown_summary_ids:
+        raise ValueError(
+            f"Dashboard page {page_definition.page_id!r} declares unknown summary ids: "
+            + ", ".join(repr(summary_id) for summary_id in unknown_summary_ids)
+        )
 
 
 def page_definition_by_id(page_id: str) -> DashboardPageDefinition | None:
@@ -117,6 +145,16 @@ def resolve_page_definitions(config: Config) -> list[DashboardPageDefinition]:
         raise ValueError(
             "Unsupported dashboard_pages entries: "
             + ", ".join(repr(page_id) for page_id in unknown_page_ids)
+        )
+    duplicate_page_ids = [
+        page_id
+        for page_id in dict.fromkeys(config.dashboard_pages)
+        if config.dashboard_pages.count(page_id) > 1
+    ]
+    if duplicate_page_ids:
+        raise ValueError(
+            "Duplicate dashboard_pages entries are not allowed: "
+            + ", ".join(repr(page_id) for page_id in duplicate_page_ids)
         )
     return [available_by_id[page_id] for page_id in config.dashboard_pages]
 

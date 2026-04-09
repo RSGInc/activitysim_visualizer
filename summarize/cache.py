@@ -47,7 +47,6 @@ class SummaryRun:
     run_key: str
     summaries_by_mode: dict[str, dict[str, pl.DataFrame]]
     source_run_dir: str | None = None
-    raw_run: RunData | None = None
     manifest: dict[str, object] | None = None
 
 
@@ -283,7 +282,6 @@ def create_summary_run(
     run_key: str,
     summaries_by_mode: dict[str, dict[str, pl.DataFrame]],
     source_run_dir: str | None = None,
-    raw_run: RunData | None = None,
     manifest: dict[str, object] | None = None,
 ) -> SummaryRun:
     return SummaryRun(
@@ -291,7 +289,6 @@ def create_summary_run(
         run_key=run_key,
         summaries_by_mode=summaries_by_mode,
         source_run_dir=source_run_dir,
-        raw_run=raw_run,
         manifest=manifest,
     )
 

@@ -60,16 +60,6 @@ class DashboardState(param.Parameterized):
         ]
 
     @property
-    def weighted_runs(self) -> list[tuple[str, RunData]]:
-        """Compatibility wrapper for callers that still expect ambient raw runs."""
-        return self.get_raw_runs_if_loaded(weighted=True) or []
-
-    @property
-    def unweighted_runs(self) -> list[tuple[str, RunData]]:
-        """Compatibility wrapper for callers that still expect ambient raw runs."""
-        return self.get_raw_runs_if_loaded(weighted=False) or []
-
-    @property
     def enabled_weighting_modes(self) -> list[str]:
         return list(self._weighting_modes)
 
@@ -117,10 +107,6 @@ class DashboardState(param.Parameterized):
             weighted = self.weight_mode == "Weighted"
         return self._raw_run_provider.get_runs_if_loaded(weighted=weighted)
 
-    def get_runs(self, weighted: bool | None = None) -> list[tuple[str, RunData]]:
-        """Compatibility wrapper for callers that still expect ambient raw runs."""
-        return self.get_raw_runs_if_loaded(weighted=weighted) or []
-
     def get_summary_table_set(
         self,
         summary_name: str,
@@ -144,18 +130,6 @@ class DashboardState(param.Parameterized):
         weighting_key: str | None = None,
     ) -> bool:
         return self.get_summary_table_set(summary_name, weighting_key) is not None
-
-    def get_precomputed_summary(
-        self,
-        summary_name: str,
-        weighting_key: str | None = None,
-    ) -> list[tuple[str, pl.DataFrame]] | None:
-        """Compatibility wrapper for the summary-first dashboard data API."""
-        return self.get_summary_table_set(summary_name, weighting_key)
-
-    def summary_raw_runs(self) -> list[tuple[str, RunData]]:
-        """Compatibility wrapper for older callers expecting summary-linked raw runs."""
-        return self.get_raw_runs_if_loaded(weighted=True) or []
 
     def get_page_state(self, page_name: str) -> dict[str, Any]:
         """Return mutable page-local state for a page, creating it if needed."""

@@ -208,7 +208,6 @@ def run_summary_workflow(
             run_key=run_key,
             summaries_by_mode=summary_cache.build_mode_summaries(raw_run, config),
             source_run_dir=str(raw_run.run_dir),
-            raw_run=raw_run,
         )
         summary_runs.append(summary_run)
 

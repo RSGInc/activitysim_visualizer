@@ -50,7 +50,6 @@ def write_summary_bundle(
                 weighting_modes=weighting_modes,
             ),
             source_run_dir=str(rd.run_dir),
-            raw_run=rd,
         )
         write_summary_run_cache(summary_run, config, output_root=root)
         run_entries.append(

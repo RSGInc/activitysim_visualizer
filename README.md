@@ -83,7 +83,7 @@ Rules:
 - The list controls page order in both the live dashboard and `--export-html`.
 - Each entry must be a stable page ID, not the visible tab title.
 - Unknown or duplicate page IDs fail during config load.
-- If `dashboard_pages` is omitted, the app prints a warning and falls back to all registered pages in default order so older configs still work.
+- Omit raw-data demo pages from this list unless you intentionally want the dashboard to request raw runs.
 
 ---
 
@@ -200,7 +200,7 @@ Weights are computed automatically from the `sample_rate` column in the househol
 
 ```
 activitysim_visualizer/
-├── run.py              # CLI entry point and argument parsing
+├── run.py              # CLI entry point that delegates to runtime workflows
 ├── config.yaml         # Example configuration file
 ├── pyproject.toml      # Package metadata and dependencies
 ├── summarize/          # Data reading and summarization logic
@@ -388,6 +388,8 @@ The page-module API is now the only supported dashboard extension API. Each page
 - **Reactive widgets**: For persistent pages, create `pn.widgets` on the controller instance and call `_watch_widget(...)` so the page refreshes without losing widget state.
 - **Summary-backed pages**: Prefer `require_summary(...)` and `require_summaries(...)` so pages degrade cleanly instead of rebuilding data inside the dashboard.
 - **Raw-data pages**: Only use `require_raw_runs(...)` on pages whose `PAGE.raw_data_mode` is `"optional"` or `"required"`.
+- **Required summaries**: Declare every summary dependency in `PAGE.required_summary_ids` so registry validation, live mode, and export mode all share the same contract.
+- **Unavailable states**: Use `self.data_not_available_card(...)` when required summaries or raw runs are missing so the UI and logs stay aligned.
 - **Percent vs. count**: Call `from dashboard.components import set_percent_mode` and check `_DISPLAY_PERCENT_MODE` if your chart needs to respond to the Percent/Count toggle, or pass `pct_col` to `bar_chart` for automatic normalization.
 - **Export-safe layouts**: Stick to the Panel view types already supported by the HTML export path, such as `pn.Column`, `pn.Row`, `pn.Card`, `pn.Tabs`, `pn.pane.Markdown`, `pn.pane.HTML`, `pn.widgets.Select`, `pn.widgets.RadioButtonGroup`, `pn.widgets.Tabulator`, and `pn.pane.Plotly`.
 - **Column safety**: Always check that expected columns exist before using them, returning an empty DataFrame with the right schema if they are absent.
