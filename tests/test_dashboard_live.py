@@ -12,7 +12,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _dashboard_expectations import EXPECTED_DEFAULT_PAGE_TITLES
+from _dashboard_expectations import EXPECTED_DEFAULT_PAGE_IDS, EXPECTED_DEFAULT_PAGE_TITLES
 from test_export_html import _full_summary_run, _write_config
 from dashboard.app import build_dashboard
 from dashboard.data_access import DashboardRawRunProvider
@@ -21,6 +21,8 @@ from dashboard.page_definitions import DashboardPageDefinition
 import dashboard.pages as dashboard_pages_package
 from dashboard.page_registry import (
     all_page_definitions,
+    default_page_definitions,
+    enabled_raw_data_mode,
     page_definition_by_id,
     resolve_page_definitions,
 )
@@ -28,22 +30,33 @@ from dashboard.state import DashboardState
 from summarize.reader import RunData
 
 
-def test_page_registry_exposes_expected_default_definitions() -> None:
-    definitions = all_page_definitions()
+def _raw_trip_run() -> RunData:
+    return RunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1], "finalweight": [2.0]}),
+        per=pl.DataFrame({"person_id": [1], "household_id": [1], "finalweight": [3.0]}),
+        tours=pl.DataFrame({"tour_id": [10], "finalweight": [4.0]}),
+        trips=pl.DataFrame(
+            {
+                "trip_id": [100, 101, 102],
+                "tour_id": [10, 10, 10],
+                "trip_mode": ["DRIVEALONE", "WALK", "WALK"],
+                "finalweight": [5.0, 2.0, 1.0],
+            }
+        ),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
 
-    assert [definition.page_id for definition in definitions] == [
-        "overview",
-        "long_term",
-        "tour_summary",
-        "joint_tours",
-        "destination",
-        "tour_tod",
-        "tour_mode",
-        "stop_frequency",
-        "stop_location",
-        "stop_timing",
-        "trip_mode",
-    ]
+
+def test_page_registry_exposes_expected_default_definitions() -> None:
+    definitions = default_page_definitions()
+
+    assert [definition.page_id for definition in definitions] == EXPECTED_DEFAULT_PAGE_IDS
     assert [definition.title for definition in definitions] == EXPECTED_DEFAULT_PAGE_TITLES
     assert page_definition_by_id("tour_summary") is not None
     assert page_definition_by_id("tour_summary").title == "Tour Summary"
@@ -51,6 +64,9 @@ def test_page_registry_exposes_expected_default_definitions() -> None:
         "tour_purpose",
         "tour_mode",
     ]
+    assert page_definition_by_id("raw_trip_demo") is not None
+    assert page_definition_by_id("raw_trip_demo").default_enabled is False
+    assert page_definition_by_id("raw_trip_demo").raw_data_mode == "required"
 
 
 def test_discovered_page_modules_export_page_definitions_without_legacy_build_api() -> None:
@@ -74,7 +90,10 @@ def test_page_registry_smoke_checks_ids_titles_and_selector_uniqueness() -> None
     assert all(definition.page_id for definition in definitions)
     assert all(definition.title for definition in definitions)
     assert len({definition.page_id for definition in definitions}) == len(definitions)
-    assert all(definition.required_summary_ids for definition in definitions)
+    assert all(
+        definition.required_summary_ids or definition.raw_data_mode != "none"
+        for definition in definitions
+    )
 
     for definition in definitions:
         selector_ids = [selector.selector_id for selector in definition.selectors]
@@ -93,7 +112,7 @@ def test_resolve_page_definitions_warns_and_defaults_to_all_pages_for_legacy_con
     assert [page.title for page in resolved_pages] == EXPECTED_DEFAULT_PAGE_TITLES
     assert (
         "Warning: config does not define 'dashboard_pages'. "
-        "Using legacy behavior and including all registered dashboard pages."
+        "Using legacy behavior and including the default dashboard pages."
         in captured.out
     )
 
@@ -115,6 +134,19 @@ def test_resolve_page_definitions_respects_configured_page_order_and_subset(
     ]
 
 
+def test_enabled_raw_data_mode_only_flips_on_for_pages_that_request_it(
+    tmp_path: Path,
+) -> None:
+    summary_only_config = _write_config(tmp_path / "summary_only")
+    raw_demo_config = _write_config(
+        tmp_path / "raw_demo",
+        dashboard_pages=["overview", "raw_trip_demo"],
+    )
+
+    assert enabled_raw_data_mode(summary_only_config) == "none"
+    assert enabled_raw_data_mode(raw_demo_config) == "required"
+
+
 def test_resolve_page_definitions_rejects_unknown_configured_page_ids(
     tmp_path: Path,
 ) -> None:
@@ -129,19 +161,7 @@ def test_build_dashboard_uses_expected_default_page_order(tmp_path: Path) -> Non
     template = build_dashboard([], config, summary_runs=[_full_summary_run()])
 
     assert [page.name for page in template._dashboard_pages] == EXPECTED_DEFAULT_PAGE_TITLES
-    assert [page.page_id() for page in template._dashboard_pages] == [
-        "overview",
-        "long_term",
-        "tour_summary",
-        "joint_tours",
-        "destination",
-        "tour_tod",
-        "tour_mode",
-        "stop_frequency",
-        "stop_location",
-        "stop_timing",
-        "trip_mode",
-    ]
+    assert [page.page_id() for page in template._dashboard_pages] == EXPECTED_DEFAULT_PAGE_IDS
 
 
 def test_build_dashboard_can_refresh_every_default_page_from_precomputed_summaries_only(
@@ -171,9 +191,50 @@ def test_build_dashboard_can_refresh_every_default_page_from_precomputed_summari
     assert template._dashboard_pages[10].tmode_sel.options == ["All", "DRIVE", "WALK"]
 
 
+def test_build_dashboard_keeps_raw_runs_out_of_summary_only_default_state(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    template = build_dashboard(
+        [("Base", _raw_trip_run())],
+        config,
+        summary_runs=[_full_summary_run()],
+    )
+
+    assert template._dashboard_state.raw_run_availability == "not_requested"
+    assert template._dashboard_state.get_raw_runs_if_loaded(weighted=True) is None
+
+
+def test_build_dashboard_loads_raw_runs_when_demo_page_is_enabled(tmp_path: Path) -> None:
+    config = _write_config(tmp_path, dashboard_pages=["raw_trip_demo"])
+    template = build_dashboard([("Base", _raw_trip_run())], config)
+    page = template._dashboard_pages[0]
+
+    assert [page.page_id() for page in template._dashboard_pages] == ["raw_trip_demo"]
+    assert template._dashboard_state.raw_run_availability == "loaded"
+    assert any(isinstance(obj, pn.pane.Plotly) for obj in page.view.objects)
+
+
+def test_build_dashboard_shows_unavailable_card_when_demo_page_has_no_raw_runs(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config = _write_config(tmp_path, dashboard_pages=["raw_trip_demo"])
+    template = build_dashboard([], config, summary_runs=[_full_summary_run()])
+    captured = capsys.readouterr()
+    page = template._dashboard_pages[0]
+
+    assert template._dashboard_state.raw_run_availability == "unavailable"
+    assert "requires raw run data" in captured.out
+    assert any(getattr(obj, "title", "") == "Data Not Available" for obj in page.view.objects)
+
+
 def test_dashboard_state_exposes_summary_first_accessors(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
-    state = DashboardState([], summary_runs=[_full_summary_run()], weighting_modes=config.weighting_modes)
+    state = DashboardState(
+        summary_runs=[_full_summary_run()],
+        weighting_modes=config.weighting_modes,
+    )
 
     totals = state.get_summary_table_set("totals", "weighted")
 
@@ -204,12 +265,10 @@ def test_dashboard_state_raw_run_provider_supports_loaded_and_unavailable_modes(
         skim_zone_map=None,
     )
     loaded_state = DashboardState(
-        [],
         weighting_modes=config.weighting_modes,
         raw_run_provider=DashboardRawRunProvider.loaded([("Base", raw_run)]),
     )
     unavailable_state = DashboardState(
-        [],
         weighting_modes=config.weighting_modes,
         raw_run_provider=DashboardRawRunProvider.unavailable(),
     )
@@ -312,7 +371,6 @@ def test_dashboard_page_cache_helpers_reuse_summary_and_filtered_view_results(
         manifest=summary_run.manifest,
     )
     state = DashboardState(
-        [],
         summary_runs=[probe_summary_run],
         weighting_modes=config.weighting_modes,
     )

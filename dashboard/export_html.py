@@ -17,7 +17,11 @@ from plotly.offline import get_plotlyjs
 from dashboard import DashboardState
 from dashboard.components import set_percent_mode, set_run_colors
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
-from dashboard.page_registry import all_page_definitions, build_registered_live_pages
+from dashboard.page_registry import (
+    all_page_definitions,
+    build_dashboard_raw_run_provider,
+    build_registered_live_pages,
+)
 from summarize.cache import SummaryRun
 from summarize.reader import Config, ExportSelectorRequest, RunData
 
@@ -138,10 +142,11 @@ def _serialize_dashboard_state(
     value_mode: str,
     warned_unavailable_selectors: set[tuple[str, str]],
 ) -> dict[str, Any]:
+    raw_run_provider = build_dashboard_raw_run_provider(runs, config)
     state = DashboardState(
-        runs,
         summary_runs=summary_runs,
         weighting_modes=config.weighting_modes,
+        raw_run_provider=raw_run_provider,
     )
     state.weight_mode = weight_mode
     state.value_mode = value_mode
@@ -243,6 +248,19 @@ def _serialize_viewable(
     widget_metadata: dict[int, tuple[str | None, dict[str, Any] | None]] | None = None,
 ) -> dict[str, Any]:
     widget_metadata = widget_metadata or {}
+    if isinstance(obj, pn.Card):
+        return {
+            "kind": "card",
+            "title": obj.title or "",
+            "children": [
+                _serialize_viewable(
+                    child,
+                    disable_widgets=disable_widgets,
+                    widget_metadata=widget_metadata,
+                )
+                for child in obj.objects
+            ],
+        }
     if isinstance(obj, pn.Column):
         return {
             "kind": "container",
@@ -260,19 +278,6 @@ def _serialize_viewable(
         return {
             "kind": "container",
             "layout": "row",
-            "children": [
-                _serialize_viewable(
-                    child,
-                    disable_widgets=disable_widgets,
-                    widget_metadata=widget_metadata,
-                )
-                for child in obj.objects
-            ],
-        }
-    if isinstance(obj, pn.Card):
-        return {
-            "kind": "card",
-            "title": obj.title or "",
             "children": [
                 _serialize_viewable(
                     child,

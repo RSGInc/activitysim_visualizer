@@ -76,6 +76,12 @@ class DashboardPage:
             return ()
         return self.definition.required_summary_ids
 
+    @property
+    def raw_data_mode(self) -> str:
+        if self.definition is None:
+            return "none"
+        return self.definition.raw_data_mode
+
     def _warn_once(self, key: str, message: str) -> None:
         warnings = self._page_state.setdefault("warnings_emitted", set())
         if key in warnings:
@@ -132,6 +138,30 @@ class DashboardPage:
         return {
             summary_name: self.get_summary(summary_name) for summary_name in summary_names
         }
+
+    def get_raw_runs(self, *, weighted: bool | None = None):
+        """Return raw runs when this dashboard session has loaded them explicitly."""
+        return self.state.get_raw_runs_if_loaded(weighted=weighted)
+
+    def require_raw_runs(self, *, weighted: bool | None = None):
+        raw_runs = self.get_raw_runs(weighted=weighted)
+        if raw_runs is not None:
+            return raw_runs
+
+        availability = self.state.raw_run_availability
+        reason = (
+            "raw run data was not requested for this dashboard session"
+            if availability == "not_requested"
+            else "raw run data is unavailable"
+        )
+        self._warn_once(
+            f"missing-raw-runs:{availability}",
+            (
+                f"Warning: dashboard page '{self.name}' requires raw run data, "
+                f"but {reason}."
+            ),
+        )
+        return None
 
     def get_filtered_view(self, view_name: str, *filters: Any, factory):
         """Return a cached chart-ready filtered view for the current page state."""

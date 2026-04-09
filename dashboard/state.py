@@ -26,22 +26,16 @@ class DashboardState(param.Parameterized):
 
     def __init__(
         self,
-        runs: list[tuple[str, RunData]] | None,
-        *,
         summary_runs: list[SummaryRun] | None = None,
         weighting_modes: list[str] | None = None,
         raw_run_provider: DashboardRawRunProvider | None = None,
         **params: Any,
     ) -> None:
         super().__init__(**params)
-        if raw_run_provider is not None and runs:
-            raise ValueError(
-                "Pass raw runs either through 'runs' or 'raw_run_provider', not both."
-            )
         self._raw_run_provider = (
             raw_run_provider
             if raw_run_provider is not None
-            else DashboardRawRunProvider.from_runs(runs)
+            else DashboardRawRunProvider.not_requested()
         )
         self._weighting_modes = normalize_weighting_modes(weighting_modes)
         weight_options = [mode.title() for mode in self._weighting_modes]

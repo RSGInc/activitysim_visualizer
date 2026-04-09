@@ -8,9 +8,10 @@ import pkgutil
 
 import dashboard.pages as dashboard_pages_package
 from dashboard import DashboardState
+from dashboard.data_access import DashboardRawRunProvider
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
-from summarize.reader import Config
+from dashboard.page_definitions import DashboardPageDefinition, RawDataMode
+from summarize.reader import Config, RunData
 
 _WARNED_LEGACY_CONFIG_PATHS: set[str] = set()
 
@@ -74,13 +75,22 @@ def page_definition_by_id(page_id: str) -> DashboardPageDefinition | None:
     return None
 
 
+def default_page_definitions() -> tuple[DashboardPageDefinition, ...]:
+    """Return the default dashboard page set used when config omits `dashboard_pages`."""
+    return tuple(
+        page_definition
+        for page_definition in all_page_definitions()
+        if page_definition.default_enabled
+    )
+
+
 def _warn_missing_dashboard_pages(config: Config) -> None:
     config_path = str(config.config_path)
     if config_path in _WARNED_LEGACY_CONFIG_PATHS:
         return
     print(
         "Warning: config does not define 'dashboard_pages'. "
-        "Using legacy behavior and including all registered dashboard pages."
+        "Using legacy behavior and including the default dashboard pages."
     )
     _WARNED_LEGACY_CONFIG_PATHS.add(config_path)
 
@@ -90,7 +100,7 @@ def resolve_page_definitions(config: Config) -> list[DashboardPageDefinition]:
     available_pages = list(all_page_definitions())
     if config.dashboard_pages is None:
         _warn_missing_dashboard_pages(config)
-        return available_pages
+        return list(default_page_definitions())
 
     available_by_id = {
         page_definition.page_id: page_definition for page_definition in available_pages
@@ -104,6 +114,30 @@ def resolve_page_definitions(config: Config) -> list[DashboardPageDefinition]:
             + ", ".join(repr(page_id) for page_id in unknown_page_ids)
         )
     return [available_by_id[page_id] for page_id in config.dashboard_pages]
+
+
+def enabled_raw_data_mode(config: Config) -> RawDataMode:
+    """Return the strongest raw-data requirement across the enabled dashboard pages."""
+    mode: RawDataMode = "none"
+    for page_definition in resolve_page_definitions(config):
+        if page_definition.raw_data_mode == "required":
+            return "required"
+        if page_definition.raw_data_mode == "optional":
+            mode = "optional"
+    return mode
+
+
+def build_dashboard_raw_run_provider(
+    runs: list[tuple[str, RunData]] | None,
+    config: Config,
+) -> DashboardRawRunProvider:
+    """Return the raw-run provider needed for the enabled dashboard pages."""
+    raw_mode = enabled_raw_data_mode(config)
+    if raw_mode == "none":
+        return DashboardRawRunProvider.not_requested()
+    if runs:
+        return DashboardRawRunProvider.loaded(runs)
+    return DashboardRawRunProvider.unavailable()
 
 
 def build_registered_live_pages(

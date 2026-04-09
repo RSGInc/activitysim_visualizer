@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _dashboard_expectations import EXPECTED_DEFAULT_PAGES
 from dashboard.export_html import build_export_html_document, write_export_html_document
 from summarize.cache import create_summary_run
-from summarize.reader import Config
+from summarize.reader import Config, RunData
 
 
 def _write_config(
@@ -297,6 +297,29 @@ def _full_summary_run():
             "unweighted": unweighted,
         },
         source_run_dir=str(Path("C:/runs/base")),
+    )
+
+
+def _raw_trip_run() -> RunData:
+    return RunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1], "finalweight": [2.0]}),
+        per=pl.DataFrame({"person_id": [1], "household_id": [1], "finalweight": [3.0]}),
+        tours=pl.DataFrame({"tour_id": [10], "finalweight": [4.0]}),
+        trips=pl.DataFrame(
+            {
+                "trip_id": [100, 101, 102],
+                "tour_id": [10, 10, 10],
+                "trip_mode": ["DRIVEALONE", "WALK", "WALK"],
+                "finalweight": [5.0, 2.0, 1.0],
+            }
+        ),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
     )
 
 
@@ -615,6 +638,59 @@ def test_build_export_html_document_respects_configured_dashboard_page_subset_an
         "overview",
         "destination",
     ]
+
+
+def test_build_export_html_document_renders_raw_demo_page_when_raw_runs_are_loaded(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=["raw_trip_demo"],
+        export_html_lines=[
+            "dashboard:",
+            "  weighting: all",
+            "  values: all",
+        ],
+    )
+
+    html = build_export_html_document([("Base", _raw_trip_run())], config)
+    payload = _extract_payload(html)
+    raw_demo = payload["states"]["Weighted||Percent"]["raw_trip_demo"]
+
+    assert [(page["id"], page["title"]) for page in payload["pages"]] == [
+        ("raw_trip_demo", "Raw Trip Demo")
+    ]
+    assert raw_demo["kind"] == "static_page"
+    variant_nodes = _walk_nodes(raw_demo)
+    assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 1
+
+
+def test_build_export_html_document_shows_placeholder_for_raw_demo_without_raw_runs(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=["raw_trip_demo"],
+        export_html_lines=[
+            "dashboard:",
+            "  weighting: weighted",
+            "  values: percent",
+        ],
+    )
+
+    html = build_export_html_document([], config, summary_runs=[_full_summary_run()])
+    captured = capsys.readouterr()
+    payload = _extract_payload(html)
+    raw_demo = payload["states"]["Weighted||Percent"]["raw_trip_demo"]
+    variant_nodes = _walk_nodes(raw_demo)
+
+    assert "requires raw run data" in captured.out
+    assert raw_demo["kind"] == "static_page"
+    assert any(
+        node.get("kind") == "card" and node.get("title") == "Data Not Available"
+        for node in variant_nodes
+    )
 
 
 def test_build_export_html_document_validates_page_selector_requests_against_registry(

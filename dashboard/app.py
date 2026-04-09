@@ -6,7 +6,10 @@ import panel as pn
 
 from dashboard import DashboardState
 from dashboard.components import run_color, set_percent_mode, set_run_colors
-from dashboard.page_registry import build_registered_live_pages
+from dashboard.page_registry import (
+    build_dashboard_raw_run_provider,
+    build_registered_live_pages,
+)
 from summarize.cache import SummaryRun
 from summarize.reader import Config, RunData
 
@@ -33,10 +36,11 @@ def build_dashboard(
 ) -> pn.template.FastListTemplate:
     """Assemble the full Panel dashboard from a list of (label, RunData) tuples."""
     set_run_colors(config.run_colors)
+    raw_run_provider = build_dashboard_raw_run_provider(runs, config)
     state = DashboardState(
-        runs,
         summary_runs=summary_runs,
         weighting_modes=config.weighting_modes,
+        raw_run_provider=raw_run_provider,
     )
     run_labels = state.run_labels
 
@@ -159,9 +163,9 @@ def build_dashboard(
 #     """
 #     set_run_colors(config.run_colors)
 #     state = DashboardState(
-#         runs,
 #         summary_runs=summary_runs,
 #         weighting_modes=config.weighting_modes,
+#         raw_run_provider=build_dashboard_raw_run_provider(runs, config),
 #     )
 #     export_weight_values = config.export_html.panel_weighting_values()
 #     export_value_values = config.export_html.panel_value_values()

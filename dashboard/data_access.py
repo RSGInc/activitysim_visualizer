@@ -76,15 +76,6 @@ class DashboardRawRunProvider:
     def not_requested(cls) -> "DashboardRawRunProvider":
         return cls("not_requested")
 
-    @classmethod
-    def from_runs(
-        cls,
-        runs: list[tuple[str, RunData]] | None,
-    ) -> "DashboardRawRunProvider":
-        if runs:
-            return cls.loaded(runs)
-        return cls.not_requested()
-
     @property
     def is_loaded(self) -> bool:
         return self.availability == "loaded"

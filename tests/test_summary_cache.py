@@ -18,6 +18,7 @@ from dashboard.pages.tour_mode import TourModePage
 from dashboard.pages.tour_summary import TourSummaryPage
 from dashboard.pages.tour_tod import TourTODPage
 from dashboard.pages.trip_mode import TripModePage
+from dashboard.data_access import DashboardRawRunProvider
 from dashboard.state import DashboardState
 from summarize.cache import (
     build_run_keys,
@@ -186,7 +187,6 @@ def test_destination_page_can_render_from_cached_summaries_only(tmp_path: Path) 
     config = _write_config(tmp_path)
     summary_run = _sample_summary_run()
     state = DashboardState(
-        runs=[],
         summary_runs=[summary_run],
         weighting_modes=config.weighting_modes,
     )
@@ -221,7 +221,6 @@ def test_destination_page_avoids_string_vs_int_purpose_mismatch_from_cached_summ
         },
     )
     state = DashboardState(
-        runs=[],
         summary_runs=[summary_run],
         weighting_modes=config.weighting_modes,
     )
@@ -238,8 +237,8 @@ def test_destination_page_shows_data_unavailable_when_only_raw_runs_are_loaded(
 ) -> None:
     config = _write_config(tmp_path)
     state = DashboardState(
-        runs=[("Base", _destination_raw_run())],
         weighting_modes=config.weighting_modes,
+        raw_run_provider=DashboardRawRunProvider.loaded([("Base", _destination_raw_run())]),
     )
 
     page = DestinationPage(state, config)
@@ -274,9 +273,9 @@ def test_destination_page_ignores_raw_runs_and_uses_summary_purpose_discovery(
         },
     )
     state = DashboardState(
-        runs=[("Base", _destination_raw_run())],
         summary_runs=[summary_run],
         weighting_modes=config.weighting_modes,
+        raw_run_provider=DashboardRawRunProvider.loaded([("Base", _destination_raw_run())]),
     )
 
     page = DestinationPage(state, config)
@@ -312,7 +311,6 @@ def test_stop_frequency_live_page_uses_shared_summary_helpers(tmp_path: Path) ->
         },
     )
     state = DashboardState(
-        runs=[],
         summary_runs=[stop_summary_run],
         weighting_modes=config.weighting_modes,
     )
@@ -343,7 +341,6 @@ def test_trip_mode_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None
         },
     )
     state = DashboardState(
-        runs=[],
         summary_runs=[trip_summary_run],
         weighting_modes=config.weighting_modes,
     )
@@ -376,7 +373,6 @@ def test_stop_timing_live_page_uses_shared_summary_helpers(tmp_path: Path) -> No
         },
     )
     state = DashboardState(
-        runs=[],
         summary_runs=[timing_summary_run],
         weighting_modes=config.weighting_modes,
     )
@@ -406,7 +402,6 @@ def test_stop_location_live_page_uses_shared_summary_helpers(tmp_path: Path) -> 
         },
     )
     state = DashboardState(
-        runs=[],
         summary_runs=[location_summary_run],
         weighting_modes=config.weighting_modes,
     )
@@ -446,7 +441,6 @@ def test_tour_summary_live_page_uses_shared_summary_helpers(tmp_path: Path) -> N
         },
     )
     state = DashboardState(
-        runs=[],
         summary_runs=[tour_summary_run],
         weighting_modes=config.weighting_modes,
     )
@@ -495,7 +489,6 @@ def test_overview_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
         },
     )
     state = DashboardState(
-        runs=[],
         summary_runs=[overview_summary_run],
         weighting_modes=config.weighting_modes,
     )
@@ -524,7 +517,6 @@ def test_tour_mode_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None
         },
     )
     state = DashboardState(
-        runs=[],
         summary_runs=[mode_summary_run],
         weighting_modes=config.weighting_modes,
     )
@@ -555,7 +547,6 @@ def test_tour_tod_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
         },
     )
     state = DashboardState(
-        runs=[],
         summary_runs=[tod_summary_run],
         weighting_modes=config.weighting_modes,
     )
@@ -588,7 +579,6 @@ def test_long_term_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None
         },
     )
     state = DashboardState(
-        runs=[],
         summary_runs=[long_term_summary_run],
         weighting_modes=config.weighting_modes,
     )
