@@ -16,9 +16,13 @@ import hashlib
 from pathlib import Path
 from typing import Optional
 
+from activitysim_viz_logging import get_logger
 import numpy as np
 import polars as pl
 import yaml
+
+LOGGER = get_logger("summarize.reader")
+
 
 @dataclass(frozen=True)
 class ExportSelectorRequest:
@@ -122,9 +126,7 @@ def _normalize_export_html_selection(
             + ", ".join(repr(token) for token in invalid)
         )
     if not deduped:
-        raise ValueError(
-            f"outputs.export_html.{field_name} resolved to no values."
-        )
+        raise ValueError(f"outputs.export_html.{field_name} resolved to no values.")
     return deduped
 
 
@@ -256,7 +258,9 @@ class Config:
             dashboard_pages = None
         else:
             if not isinstance(dashboard_pages_cfg, list):
-                raise ValueError("dashboard_pages must be a list of page ids when provided.")
+                raise ValueError(
+                    "dashboard_pages must be a list of page ids when provided."
+                )
             dashboard_pages = []
             for raw_page_id in dashboard_pages_cfg:
                 if not isinstance(raw_page_id, str):
@@ -339,9 +343,11 @@ class Config:
                     raise ValueError(
                         f"outputs.export_html.pages.{page_id} contains an empty selector id."
                     )
-                normalized_selector_cfg[selector_id] = _normalize_export_selector_request(
-                    raw_selector_cfg,
-                    field_name=f"outputs.export_html.pages.{page_id}.{selector_id}",
+                normalized_selector_cfg[selector_id] = (
+                    _normalize_export_selector_request(
+                        raw_selector_cfg,
+                        field_name=f"outputs.export_html.pages.{page_id}.{selector_id}",
+                    )
                 )
             normalized_pages[page_id] = normalized_selector_cfg
 
@@ -546,10 +552,10 @@ def _find_and_read(run_dir: Path, configured: str) -> pl.DataFrame:
     stem = p.stem if suffix in (".csv", ".parquet") else p.name
 
     if suffix == ".parquet":
-        print(f"[read_run] Reading parquet: {run_dir / p}")
+        LOGGER.info("[read_run] Reading parquet: %s", run_dir / p)
         return pl.read_parquet(run_dir / p)
     elif suffix == ".csv":
-        print(f"[read_run] Reading csv: {run_dir / p}")
+        LOGGER.info("[read_run] Reading csv: %s", run_dir / p)
         return pl.read_csv(run_dir / p, infer_schema_length=None)
     else:
         # Auto-detect: parquet first, then csv
@@ -595,11 +601,13 @@ def compute_weights(
         "sample_rate" if "sample_rate" in hh.columns else None
     )
     if sample_rate_col == "sample_rate" and config.col_sample_rate is None:
-        print("[compute_weights] Auto-detected sample_rate column in households.")
+        LOGGER.info("[compute_weights] Auto-detected sample_rate column in households.")
 
     # --- HH finalweight ---
     if hh_weight_col and hh_weight_col in hh.columns:
-        print(f"[compute_weights] Using household weight column: {hh_weight_col}")
+        LOGGER.info(
+            "[compute_weights] Using household weight column: %s", hh_weight_col
+        )
         hh = hh.with_columns(
             pl.col(hh_weight_col).cast(pl.Float64).alias("finalweight")
         )
@@ -608,7 +616,7 @@ def compute_weights(
         and sample_rate_col
         and sample_rate_col in hh.columns
     ):
-        print(
+        LOGGER.info(
             f"[compute_weights] Using sample-rate expansion from column: {sample_rate_col}"
         )
         hh = hh.with_columns(
@@ -622,16 +630,20 @@ def compute_weights(
             and sample_rate_col
             and sample_rate_col in hh.columns
         ):
-            print(
+            LOGGER.info(
                 "[compute_weights] Explicit run weight columns supplied; skipping sample_rate expansion."
             )
         else:
-            print("[compute_weights] No weight column found; defaulting finalweight=1.")
+            LOGGER.info(
+                "[compute_weights] No weight column found; defaulting finalweight=1."
+            )
         hh = hh.with_columns(pl.lit(1.0).alias("finalweight"))
 
     # --- Person finalweight ---
     if person_weight_col and person_weight_col in per.columns:
-        print(f"[compute_weights] Using person weight column: {person_weight_col}")
+        LOGGER.info(
+            "[compute_weights] Using person weight column: %s", person_weight_col
+        )
         per = per.with_columns(
             pl.col(person_weight_col).cast(pl.Float64).alias("finalweight")
         )
@@ -648,7 +660,7 @@ def compute_weights(
 
     # --- Trip finalweight ---
     if trip_weight_col and trip_weight_col in trips.columns:
-        print(f"[compute_weights] Using trip weight column: {trip_weight_col}")
+        LOGGER.info("[compute_weights] Using trip weight column: %s", trip_weight_col)
         trips = trips.with_columns(
             pl.col(trip_weight_col).cast(pl.Float64).alias("finalweight")
         )
@@ -781,17 +793,17 @@ def read_run(
                     except Exception:
                         continue
                 skim_zone_map = norm_map if norm_map else None
-                print(
+                LOGGER.info(
                     f"[read_run] Loaded skim mapping '{mapping_name}' with {len(norm_map)} zones."
                 )
             f.close()
-            print(
+            LOGGER.info(
                 f"[read_run] Loaded skim matrix '{config.skim_matrix}' from {resolved_skim}"
             )
         except Exception as e:
-            print(f"Warning: could not read skim '{resolved_skim}': {e}")
+            LOGGER.warning("Warning: could not read skim '%s': %s", resolved_skim, e)
     else:
-        print(f"[read_run] No skim configured for run '{label}'.")
+        LOGGER.info("[read_run] No skim configured for run '%s'.", label)
 
     return RunData(
         label=label,
@@ -839,7 +851,7 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     skim = rd.skim_matrix
     skim_map = rd.skim_zone_map
     land_use = rd.land_use
-    print(f"[prepare_data] Starting: {rd.label}")
+    LOGGER.info("[prepare_data] Starting: %s", rd.label)
 
     # ------------------------------------------------------------------
     # Step 0: Compute all finalweights before enrichment
@@ -854,13 +866,13 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
         person_weight_col=rd.person_weight_col,
         trip_weight_col=rd.trip_weight_col,
     )
-    print(f"[prepare_data] Weights ready for '{rd.label}'")
+    LOGGER.info("[prepare_data] Weights ready for '%s'", rd.label)
 
     # ------------------------------------------------------------------
     # Build MAZ→TAZ lookup from land_use (if use_maz)
     # ------------------------------------------------------------------
     if config.use_maz:
-        print(f"[prepare_data] Building MAZ->TAZ lookup for '{rd.label}'")
+        LOGGER.info("[prepare_data] Building MAZ->TAZ lookup for '%s'", rd.label)
         maz_taz = (
             land_use.select([config.maz_col, config.taz_col])
             .rename({config.maz_col: "_maz", config.taz_col: "_taz"})
@@ -874,7 +886,7 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     # ------------------------------------------------------------------
     zone_geo: Optional[pl.DataFrame] = None
     if config.geography_enabled and config.geography_landuse_col:
-        print(
+        LOGGER.info(
             f"[prepare_data] Applying geography labels from '{config.geography_landuse_col}'"
         )
         geo_col = config.geography_landuse_col
@@ -934,7 +946,7 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     # Persons  (finalweight already set by compute_weights)
     # ------------------------------------------------------------------
     if "home_zone_id" not in per.columns:
-        print(
+        LOGGER.warning(
             f"Warning: 'home_zone_id' column not found in persons for run '{rd.label}'. Merging from household_id."
         )
         per = per.join(
@@ -948,7 +960,7 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     per = _add_geo(per, "work_taz", "WGEO")
 
     if skim is not None:
-        print(f"[prepare_data] Computing person skim distances for '{rd.label}'")
+        LOGGER.info("[prepare_data] Computing person skim distances for '%s'", rd.label)
         if "home_taz" in per.columns and "work_taz" in per.columns:
             o = per["home_taz"].fill_null(0).to_numpy()
             d = per["work_taz"].fill_null(0).to_numpy()
@@ -1026,7 +1038,7 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     # if "primary_purpose" in tours.columns and tours["primary_purpose"].is_numeric():
 
     if skim is not None and "OTAZ" in tours.columns and "DTAZ" in tours.columns:
-        print(f"[prepare_data] Computing tour skim distances for '{rd.label}'")
+        LOGGER.info("[prepare_data] Computing tour skim distances for '%s'", rd.label)
         o = tours["OTAZ"].fill_null(0).to_numpy()
         d = tours["DTAZ"].fill_null(0).to_numpy()
         tours = tours.with_columns(
@@ -1113,7 +1125,7 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     trips = _to_taz(trips, "origin", "OTAZ")
     trips = _to_taz(trips, "destination", "DTAZ")
     if skim is not None and "OTAZ" in trips.columns and "DTAZ" in trips.columns:
-        print(f"[prepare_data] Computing trip skim distances for '{rd.label}'")
+        LOGGER.info("[prepare_data] Computing trip skim distances for '%s'", rd.label)
         o = trips["OTAZ"].fill_null(0).to_numpy()
         d = trips["DTAZ"].fill_null(0).to_numpy()
         trips = trips.with_columns(
@@ -1181,7 +1193,7 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
         else:
             trips = trips.with_columns(pl.lit(0.0).alias("out_dir_dist"))
 
-    print(f"[prepare_data] Complete: {rd.label}")
+    LOGGER.info("[prepare_data] Complete: %s", rd.label)
     return RunData(
         label=rd.label,
         run_dir=rd.run_dir,

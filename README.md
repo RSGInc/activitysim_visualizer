@@ -155,6 +155,7 @@ Notes:
 - The summary workflow reads raw ActivitySim outputs and writes summary caches.
 - The dashboard and export workflows consume precomputed `summary_runs` and do not generate missing summaries.
 - Raw run data is only passed into the dashboard when an enabled page explicitly requires it.
+- Runtime logs are written to both the console and `<summary_root>/../logs/activitysim_visualizer.log`.
 
 ### Additional options
 

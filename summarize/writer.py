@@ -1,7 +1,11 @@
 """Optional CSV writer for calibration compatibility."""
 
 from pathlib import Path
+
+from activitysim_viz_logging import get_logger
 import polars as pl
+
+LOGGER = get_logger("summarize.writer")
 
 
 def write_all(summaries: dict[str, pl.DataFrame], output_dir: str | Path) -> None:
@@ -18,4 +22,4 @@ def write_all(summaries: dict[str, pl.DataFrame], output_dir: str | Path) -> Non
     for name, df in summaries.items():
         path = output_dir / f"{name}.csv"
         df.write_csv(path)
-        print(f"  Written: {path}")
+        LOGGER.info("Written: %s", path)

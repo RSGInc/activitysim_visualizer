@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import pkgutil
 from pathlib import Path
 import sys
@@ -102,18 +103,18 @@ def test_page_registry_smoke_checks_ids_titles_and_selector_uniqueness() -> None
 
 def test_resolve_page_definitions_warns_and_defaults_to_all_pages_for_legacy_configs(
     tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     config = _write_config(tmp_path, dashboard_pages=None)
+    caplog.set_level(logging.WARNING, logger="activitysim_viz")
 
     resolved_pages = resolve_page_definitions(config)
-    captured = capsys.readouterr()
 
     assert [page.title for page in resolved_pages] == EXPECTED_DEFAULT_PAGE_TITLES
     assert (
         "Warning: config does not define 'dashboard_pages'. "
         "Using legacy behavior and including the default dashboard pages."
-        in captured.out
+        in caplog.text
     )
 
 
@@ -217,15 +218,15 @@ def test_build_dashboard_loads_raw_runs_when_demo_page_is_enabled(tmp_path: Path
 
 def test_build_dashboard_shows_unavailable_card_when_demo_page_has_no_raw_runs(
     tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     config = _write_config(tmp_path, dashboard_pages=["raw_trip_demo"])
+    caplog.set_level(logging.WARNING, logger="activitysim_viz")
     template = build_dashboard([], config, summary_runs=[_full_summary_run()])
-    captured = capsys.readouterr()
     page = template._dashboard_pages[0]
 
     assert template._dashboard_state.raw_run_availability == "unavailable"
-    assert "requires raw run data" in captured.out
+    assert "requires raw run data" in caplog.text
     assert any(getattr(obj, "title", "") == "Data Not Available" for obj in page.view.objects)
 
 

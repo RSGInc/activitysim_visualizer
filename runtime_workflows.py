@@ -6,9 +6,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from activitysim_viz_logging import get_logger
 from summarize import cache as summary_cache
 from summarize import reader as summary_reader
 from summarize.reader import Config, RunData
+
+LOGGER = get_logger("main")
 
 
 @dataclass(frozen=True)
@@ -22,7 +25,9 @@ class SummaryWorkflowResult:
 def load_runtime_config(config_path: str | Path) -> Config:
     """Load config and normalize the shared runtime settings."""
     config = Config.from_yaml(config_path)
-    config.weighting_modes = summary_cache.normalize_weighting_modes(config.weighting_modes)
+    config.weighting_modes = summary_cache.normalize_weighting_modes(
+        config.weighting_modes
+    )
     return config
 
 
@@ -35,7 +40,7 @@ def resolve_run_entries(
 ) -> list[dict]:
     """Resolve raw run inputs from CLI overrides or config."""
     if cli_runs:
-        print("[main] Using runs provided on CLI")
+        LOGGER.info("Using runs provided on CLI")
         run_entries: list[dict] = []
         resolved_cli_skims = cli_run_skims or []
         for idx, (run_dir, label) in enumerate(cli_runs):
@@ -46,7 +51,7 @@ def resolve_run_entries(
         return run_entries
 
     if config.runs:
-        print("[main] Using runs from config")
+        LOGGER.info("Using runs from config")
         return list(config.runs)
 
     if require_runs:
@@ -95,7 +100,7 @@ def load_summary_runs_from_cache(
         raise ValueError("no summary cache directories were found to load.")
 
     summary_runs: list[Any] = []
-    print("[main] Loading pre-computed summary caches")
+    LOGGER.info("Loading pre-computed summary caches")
     for cache_dir in cache_dirs:
         expected_label = None
         expected_run_key = None
@@ -153,7 +158,9 @@ def run_summary_workflow(
         run_dir = entry.get("dir", "")
         label = entry.get("label", Path(run_dir).name)
         skim = entry.get("skim_file") or None
-        resolved_skim = summary_reader.resolve_skim_path(skim, config.skim_file, run_dir)
+        resolved_skim = summary_reader.resolve_skim_path(
+            skim, config.skim_file, run_dir
+        )
         run_fingerprint = summary_cache.build_run_fingerprint(
             label=label,
             run_dir=run_dir,
@@ -176,13 +183,13 @@ def run_summary_workflow(
                     expected_label=label,
                     expected_run_key=run_key,
                 )
-                print(f"[main] Loaded summary cache for run: {label!r}")
+                LOGGER.info("Loaded summary cache for run: %r", label)
                 summary_runs.append(cached_run)
                 continue
             except summary_cache.SummaryCacheError as exc:
-                print(f"[main] Cache miss for {label!r}: {exc}")
+                LOGGER.info("Cache miss for %r: %s", label, exc)
 
-        print(f"Reading run: {label!r} from {run_dir}")
+        LOGGER.info("Reading run %r from %s", label, run_dir)
         raw_run = summary_reader.read_run(
             run_dir,
             config,
@@ -193,7 +200,7 @@ def run_summary_workflow(
             trip_weight_col=entry.get("trip_weight_col") or None,
         )
         raw_run = summary_reader.prepare_data(raw_run, config)
-        print(f"[main] Prepared run: {label!r}")
+        LOGGER.info("Prepared run: %r", label)
         raw_runs.append((label, raw_run))
 
         summary_run = summary_cache.create_summary_run(
@@ -206,15 +213,15 @@ def run_summary_workflow(
         summary_runs.append(summary_run)
 
         if write_cache:
-            print(f"[main] Writing summary cache for run: {label!r}")
+            LOGGER.info("Writing summary cache for run: %r", label)
             cache_path = summary_cache.write_summary_run_cache(
                 summary_run,
                 config,
                 run_fingerprint=run_fingerprint,
             )
-            print(f"[main] Wrote summaries: {cache_path}")
+            LOGGER.info("Wrote summaries: %s", cache_path)
         else:
-            print(f"[main] Skipped cache write for run: {label!r}")
+            LOGGER.info("Skipped cache write for run: %r", label)
 
     if not summary_runs:
         raise ValueError("no runs were loaded.")
@@ -239,21 +246,21 @@ def run_dashboard_workflow(
     if export_html_path:
         from dashboard.export_html import write_export_html_document
 
-        print("[main] Building dashboard")
-        print(f"Exporting dashboard to {export_html_path} ...")
+        LOGGER.info("Building dashboard")
+        LOGGER.info("Exporting dashboard to %s ...", export_html_path)
         write_export_html_document(
             export_html_path,
             raw_runs,
             config,
             summary_runs=summary_runs,
         )
-        print("Done.")
+        LOGGER.info("Done.")
         return
 
     from dashboard.app import build_dashboard
     import panel as pn
 
-    print("[main] Building dashboard")
+    LOGGER.info("Building dashboard")
     dashboard = build_dashboard(
         raw_runs,
         config,

@@ -7,12 +7,15 @@ from typing import TYPE_CHECKING
 
 import panel as pn
 
+from activitysim_viz_logging import get_logger
 from dashboard import DashboardState
 from dashboard.components import data_unavailable_card
 from summarize.reader import Config
 
 if TYPE_CHECKING:
     from dashboard.page_definitions import DashboardPageDefinition
+
+LOGGER = get_logger("dashboard.page")
 
 
 class DashboardPage:
@@ -86,7 +89,7 @@ class DashboardPage:
         warnings = self._page_state.setdefault("warnings_emitted", set())
         if key in warnings:
             return
-        print(message)
+        LOGGER.warning(message)
         warnings.add(key)
 
     def data_not_available_card(
@@ -136,7 +139,8 @@ class DashboardPage:
                 )
             return None
         return {
-            summary_name: self.get_summary(summary_name) for summary_name in summary_names
+            summary_name: self.get_summary(summary_name)
+            for summary_name in summary_names
         }
 
     def get_raw_runs(self, *, weighted: bool | None = None):

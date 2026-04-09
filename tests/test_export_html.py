@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 import sys
 
@@ -667,7 +668,7 @@ def test_build_export_html_document_renders_raw_demo_page_when_raw_runs_are_load
 
 def test_build_export_html_document_shows_placeholder_for_raw_demo_without_raw_runs(
     tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     config = _write_config(
         tmp_path,
@@ -678,14 +679,14 @@ def test_build_export_html_document_shows_placeholder_for_raw_demo_without_raw_r
             "  values: percent",
         ],
     )
+    caplog.set_level(logging.WARNING, logger="activitysim_viz")
 
     html = build_export_html_document([], config, summary_runs=[_full_summary_run()])
-    captured = capsys.readouterr()
     payload = _extract_payload(html)
     raw_demo = payload["states"]["Weighted||Percent"]["raw_trip_demo"]
     variant_nodes = _walk_nodes(raw_demo)
 
-    assert "requires raw run data" in captured.out
+    assert "requires raw run data" in caplog.text
     assert raw_demo["kind"] == "static_page"
     assert any(
         node.get("kind") == "card" and node.get("title") == "Data Not Available"
@@ -937,7 +938,7 @@ def test_build_export_html_document_serializes_long_term_geography_variants(
 
 def test_build_export_html_document_warns_and_falls_back_when_long_term_geography_is_unavailable(
     tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     config = _write_config(
         tmp_path,
@@ -947,9 +948,9 @@ def test_build_export_html_document_warns_and_falls_back_when_long_term_geograph
             "    geography: all",
         ],
     )
+    caplog.set_level(logging.WARNING, logger="activitysim_viz")
 
     html = build_export_html_document([], config, summary_runs=[_full_summary_run()])
-    captured = capsys.readouterr()
     payload = _extract_payload(html)
     page_defs = {page["id"]: page for page in payload["pages"]}
 
@@ -957,7 +958,7 @@ def test_build_export_html_document_warns_and_falls_back_when_long_term_geograph
         "Warning: outputs.export_html.pages.long_term.geography is configured, "
         "but the selector is unavailable for this export. "
         "Ignoring the configuration and exporting the page with its fallback layout."
-        in captured.out
+        in caplog.text
     )
     assert page_defs["long_term"]["selectors"] == []
     assert payload["states"]["Weighted||Percent"]["long_term"]["kind"] == "static_page"

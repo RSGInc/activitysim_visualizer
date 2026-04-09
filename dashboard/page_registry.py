@@ -6,6 +6,7 @@ from functools import lru_cache
 import importlib
 import pkgutil
 
+from activitysim_viz_logging import get_logger
 import dashboard.pages as dashboard_pages_package
 from dashboard import DashboardState
 from dashboard.data_access import DashboardRawRunProvider
@@ -14,6 +15,7 @@ from dashboard.page_definitions import DashboardPageDefinition, RawDataMode
 from summarize.reader import Config, RunData
 
 _WARNED_LEGACY_CONFIG_PATHS: set[str] = set()
+LOGGER = get_logger("dashboard.page_registry")
 
 
 def _load_page_modules():
@@ -62,7 +64,10 @@ def all_page_definitions() -> tuple[DashboardPageDefinition, ...]:
     return tuple(
         sorted(
             page_definitions,
-            key=lambda page_definition: (page_definition.order, page_definition.page_id),
+            key=lambda page_definition: (
+                page_definition.order,
+                page_definition.page_id,
+            ),
         )
     )
 
@@ -88,7 +93,7 @@ def _warn_missing_dashboard_pages(config: Config) -> None:
     config_path = str(config.config_path)
     if config_path in _WARNED_LEGACY_CONFIG_PATHS:
         return
-    print(
+    LOGGER.warning(
         "Warning: config does not define 'dashboard_pages'. "
         "Using legacy behavior and including the default dashboard pages."
     )

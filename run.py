@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 import time
 from pathlib import Path
 
+from activitysim_viz_logging import configure_logging, get_logger, shutdown_logging
 from runtime_workflows import (
     load_runtime_config,
     load_summary_runs_from_cache,
@@ -15,6 +17,8 @@ from runtime_workflows import (
     run_summary_workflow,
     summary_cache_root,
 )
+
+LOGGER = get_logger("main")
 
 
 def parse_args() -> argparse.Namespace:
@@ -86,7 +90,6 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     t0 = time.perf_counter()
     args = parse_args()
-    print("[main] Starting ActivitySim Visualizer")
 
     if args.no_dashboard and not args.write_csvs:
         print("Error: --no-dashboard requires --write-csvs.", file=sys.stderr)
@@ -97,8 +100,11 @@ def main() -> None:
         )
         sys.exit(1)
 
-    print(f"[main] Loading config: {args.config}")
     config = load_runtime_config(args.config)
+    log_path = configure_logging(config, level=logging.INFO)
+    LOGGER.info("Starting ActivitySim Visualizer")
+    LOGGER.info("Loading config: %s", args.config)
+    LOGGER.info("Logging to %s", log_path)
     cache_root = summary_cache_root(config, create=args.from_csvs is None)
 
     try:
@@ -134,8 +140,12 @@ def main() -> None:
             raw_runs = summary_result.raw_runs
 
         if args.no_dashboard:
-            print("Done writing CSVs. Exiting.")
-            print(f"[main] Run completed in {(time.perf_counter() - t0) / 60:.2f} minutes.")
+            LOGGER.info("Done writing CSVs. Exiting.")
+            LOGGER.info(
+                "Run completed in %.2f minutes.",
+                (time.perf_counter() - t0) / 60,
+            )
+            shutdown_logging()
             return
 
         run_dashboard_workflow(
@@ -147,14 +157,14 @@ def main() -> None:
             show=not args.no_show,
         )
     except ValueError as exc:
+        LOGGER.error("Fatal runtime error: %s", exc)
         print(f"Error: {exc}", file=sys.stderr)
+        shutdown_logging()
         sys.exit(1)
 
     elapsed = (time.perf_counter() - t0) / 60
-    if args.export_html:
-        print(f"[main] Dashboard created in {elapsed:.2f} minutes.")
-        return
-    print(f"[main] Dashboard created in {elapsed:.2f} minutes.")
+    LOGGER.info("Dashboard created in %.2f minutes.", elapsed)
+    shutdown_logging()
 
 
 if __name__ == "__main__":

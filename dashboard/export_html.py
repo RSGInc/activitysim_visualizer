@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from activitysim_viz_logging import get_logger
 import markdown
 import numpy as np
 import pandas as pd
@@ -24,6 +25,8 @@ from dashboard.page_registry import (
 )
 from summarize.cache import SummaryRun
 from summarize.reader import Config, ExportSelectorRequest, RunData
+
+LOGGER = get_logger("dashboard.export")
 
 
 def build_export_html_document(
@@ -209,13 +212,17 @@ def _serialize_page_content(
         }
 
     selector_order = [selector_meta["id"] for selector_meta in enabled_selectors]
-    selector_values = [selector_meta["resolved_values"] for selector_meta in enabled_selectors]
+    selector_values = [
+        selector_meta["resolved_values"] for selector_meta in enabled_selectors
+    ]
     selector_widgets = {
         selector_def.selector_id: selector_def.widget_for(page)
         for selector_def in page_def.selectors
     }
     variants: dict[str, Any] = {}
-    default_values = [selector_meta["default_value"] for selector_meta in enabled_selectors]
+    default_values = [
+        selector_meta["default_value"] for selector_meta in enabled_selectors
+    ]
     for combination in product(*selector_values):
         for selector_id, selected_value in zip(selector_order, combination):
             widget = selector_widgets.get(selector_id)
@@ -355,7 +362,9 @@ def _serialize_viewable(
             "export_enabled": bool(selector_meta and selector_meta["export_enabled"]),
         }
     if isinstance(obj, pn.pane.Markdown):
-        source = obj.object if isinstance(obj.object, str) else obj.object._repr_markdown_()
+        source = (
+            obj.object if isinstance(obj.object, str) else obj.object._repr_markdown_()
+        )
         return {"kind": "html", "html": markdown.markdown(source, extensions=["nl2br"])}
     if isinstance(obj, pn.pane.HTML):
         return {"kind": "html", "html": obj.object or ""}
@@ -430,7 +439,7 @@ def _resolve_selector_metadata(
         if configured:
             warning_key = (page_id, selector_id)
             if warning_key not in warned_unavailable_selectors:
-                print(
+                LOGGER.warning(
                     "Warning: "
                     f"outputs.export_html.pages.{page_id}.{selector_id} is configured, "
                     "but the selector is unavailable for this export. "
@@ -502,6 +511,7 @@ def _resolve_selector_values(
     if not resolved:
         raise ValueError(f"{field_name} resolved to no values.")
     return resolved
+
 
 def _validate_page_export_config(config: Config) -> None:
     known_pages = {page.page_id: page for page in all_page_definitions()}
