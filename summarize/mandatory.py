@@ -201,55 +201,6 @@ def mand_tour_lengths(rd: RunData, config: Config) -> pl.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# WFH
-# ---------------------------------------------------------------------------
-
-
-def wfh(rd: RunData, config: Config) -> pl.DataFrame:
-    """Work-from-home summary by geography group + Total.
-
-    Columns: Geography, Workers, WFH.
-    If geography disabled, returns a single Total row.
-    """
-    if "is_worker" not in rd.per.columns:
-        return pl.DataFrame({"Geography": ["Total"], "Workers": [0.0], "WFH": [0.0]})
-
-    workers = rd.per.filter(
-        pl.col("is_worker").cast(pl.Utf8).str.to_lowercase().is_in(["true", "1"])
-    )
-    wfh_col = "work_from_home"
-
-    rows = []
-    if config.geography_enabled and "HGEO" in workers.columns:
-        groups = sorted(workers["HGEO"].drop_nulls().unique().to_list())
-        for grp in groups:
-            sub = workers.filter(pl.col("HGEO") == grp)
-            n_workers = sub["finalweight"].sum()
-            n_wfh = (
-                sub.filter(
-                    pl.col(wfh_col)
-                    .cast(pl.Utf8)
-                    .str.to_lowercase()
-                    .is_in(["true", "1"])
-                )["finalweight"].sum()
-                if wfh_col in sub.columns
-                else 0.0
-            )
-            rows.append({"Geography": str(grp), "Workers": n_workers, "WFH": n_wfh})
-
-    n_workers_tot = workers["finalweight"].sum()
-    n_wfh_tot = (
-        workers.filter(
-            pl.col(wfh_col).cast(pl.Utf8).str.to_lowercase().is_in(["true", "1"])
-        )["finalweight"].sum()
-        if wfh_col in workers.columns
-        else 0.0
-    )
-    rows.append({"Geography": "Total", "Workers": n_workers_tot, "WFH": n_wfh_tot})
-    return pl.DataFrame(rows)
-
-
-# ---------------------------------------------------------------------------
 # Telecommute
 # ---------------------------------------------------------------------------
 

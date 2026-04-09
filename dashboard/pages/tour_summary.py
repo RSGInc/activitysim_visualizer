@@ -22,7 +22,8 @@ def ptype_options(dap_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
 def ptype_maps(ptype_opts: list[str], config: Config) -> tuple[dict, dict[str, object]]:
     """Return display and reverse mappings for person-type selectors."""
     ptype_label_map = {
-        p: ("Total" if str(p) == "Total" else config.ptype_label(p)) for p in ptype_opts
+        p: ("Total" if str(p) == "Total" else config.person_type_label(p))
+        for p in ptype_opts
     }
     label_to_ptype = {lbl: p for p, lbl in ptype_label_map.items()}
     return ptype_label_map, label_to_ptype

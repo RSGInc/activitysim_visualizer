@@ -198,7 +198,7 @@ class Config:
             return_dtype=pl.Utf8,
         )
 
-    def ptype_label(self, value) -> str:
+    def person_type_label(self, value) -> str:
         v = str(value)
         if self.person_type_labels and v in self.person_type_labels:
             return self.person_type_labels[v]

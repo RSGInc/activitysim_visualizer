@@ -196,7 +196,7 @@ class TourSummaryPage(DashboardPage):
         super().__init__("Tour Summary", state, config)
         ptype_opts = self._ptype_options(state.weighted_runs)
         ptype_label_map = {
-            p: ("Total" if str(p) == "Total" else config.ptype_label(p))
+            p: ("Total" if str(p) == "Total" else config.person_type_label(p))
             for p in ptype_opts
         }
         self._label_to_ptype = {lbl: p for p, lbl in ptype_label_map.items()}

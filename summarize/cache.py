@@ -15,6 +15,7 @@ import polars as pl
 from summarize import (
     demographics,
     destination,
+    long_term,
     mandatory,
     stops,
     totals,
@@ -64,25 +65,67 @@ def _build_tlfd_schl(rd: RunData, config: Config) -> pl.DataFrame:
 
 
 SUMMARY_SPECS: tuple[SummarySpec, ...] = (
+    ### DEMOGRAPHIC SUMMARIES
     SummarySpec(
-        "auto_ownership",
-        "autoOwnership",
-        lambda rd, config: demographics.auto_ownership(rd),
+        "household_size_distribution",
+        "household_size_distribution",
+        demographics.hh_size,
     ),
-    SummarySpec("person_type", "pertypeDistbn", demographics.person_type),
-    SummarySpec("hh_size", "hhSizeDist", lambda rd, config: demographics.hh_size(rd)),
-    SummarySpec("tlfd_work", "workTLFD", _build_tlfd_work),
-    SummarySpec("tlfd_univ", "univTLFD", _build_tlfd_univ),
-    SummarySpec("tlfd_schl", "schlTLFD", _build_tlfd_schl),
-    SummarySpec("mand_tour_lengths", "mandTourLengths", mandatory.mand_tour_lengths),
-    SummarySpec("wfh", "wfh_summary", mandatory.wfh),
     SummarySpec(
-        "telecommute",
-        "telecommuteFrequency",
-        lambda rd, config: mandatory.telecommute(rd),
+        "person_type_distribution", "person_type_distribution", demographics.person_type
     ),
-    SummarySpec("geo_flows", "geoFlows", mandatory.geo_flows),
+    SummarySpec(
+        "population_totals", "population_totals", demographics.population_totals
+    ),
+    ### LONG TERM SUMMARIES
+    # license holding
+    # bicycle comfort
+    # AV Ownership
+    SummarySpec(
+        "auto_ownership_distribution",
+        "auto_ownership_distribution",
+        long_term.auto_ownership,
+    ),
+    SummarySpec(
+        "work_from_home_rate_by_geography",
+        "work_from_home_rate_by_geography",
+        long_term.wfh,
+    ),
+    # Internal vs external workers.
+    # External worker workplace location
+    # Workplace location vs land use employment
+    # commuting flows
+    # school location vs land use
+    SummarySpec(
+        "work_location_distance_distribution_by_geography",
+        "work_location_distance_distribution_by_geography",
+        _build_tlfd_work,
+    ),
+    SummarySpec(
+        "university_location_distance_distribution_by_geography",
+        "university_location_distance_distribution_by_geography",
+        _build_tlfd_univ,
+    ),
+    SummarySpec(
+        "school_location_distance_distribution_by_geography",
+        "school_location_distance_distribution_by_geography",
+        _build_tlfd_schl,
+    ),
+    # vehicle age
+    # vehicle fuel type
+    # vehicle body type
+    # transit pass ownership
+    # transit subsidy
+    # free parking
+    SummarySpec(
+        "telecommute_frequency_distribution",
+        "telecommute_frequency_distribution",
+        long_term.telecommute,
+    ),
+    ### DAILY TRAVEL SUMMARIES
     SummarySpec("dap_summary", "dapSummary_vis", tours.dap_summary),
+    SummarySpec("mand_tour_lengths", "mandTourLengths", mandatory.mand_tour_lengths),
+    SummarySpec("geo_flows", "geoFlows", mandatory.geo_flows),
     SummarySpec("mandatory_tour_freq", "mtfSummary_vis", tours.mandatory_tour_freq),
     SummarySpec("indiv_nm_summary", "inmSummary_vis", tours.indiv_nm_summary),
     SummarySpec("nm_tour_rates", "nm_tour_rates", tours.nm_tour_rates),
@@ -122,9 +165,6 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         "stop_location", "stopLocation", lambda rd, config: stops.stop_location(rd)
     ),
     SummarySpec("stop_timing", "stopTiming", lambda rd, config: stops.stop_timing(rd)),
-    SummarySpec(
-        "totals", "totals", lambda rd, config: totals.system_totals(rd, config)
-    ),
     SummarySpec(
         "destination_distance",
         "destinationDistByPurpose",
