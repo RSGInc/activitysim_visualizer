@@ -30,14 +30,26 @@ def _write_config(
     tmp_path.mkdir(parents=True, exist_ok=True)
     lines = [
         'name: "Test Config"',
-        'dashboard_title: "Test Dashboard"',
         "runs: []",
+        "summaries:",
+        "  root: summary_cache",
+        "  weighting_modes:",
     ]
+    lines.extend(f"    - {mode}" for mode in weighting_modes)
+    lines.extend(
+        [
+            "visualizer:",
+            '  dashboard_title: "Test Dashboard"',
+        ]
+    )
     if dashboard_pages is ...:
         dashboard_pages = [page_id for page_id, _ in EXPECTED_DEFAULT_PAGES]
     if dashboard_pages is not None:
-        lines.append("dashboard_pages:")
-        lines.extend(f"  - {page_id}" for page_id in dashboard_pages)
+        lines.append("  dashboard_pages:")
+        lines.extend(f"    - {page_id}" for page_id in dashboard_pages)
+    if export_html_lines:
+        lines.append("  export_html:")
+        lines.extend(f"    {line}" for line in export_html_lines)
     if modes_lines:
         lines.append("modes:")
         lines.extend(f"  {line}" for line in modes_lines)
@@ -46,17 +58,6 @@ def _write_config(
     if geography_lines:
         lines.append("geography:")
         lines.extend(f"  {line}" for line in geography_lines)
-    lines.extend(
-        [
-            "outputs:",
-            "  summary_root: summary_cache",
-            "  weighting_modes:",
-        ]
-    )
-    lines.extend(f"    - {mode}" for mode in weighting_modes)
-    if export_html_lines:
-        lines.append("  export_html:")
-        lines.extend(f"    {line}" for line in export_html_lines)
 
     config_path = tmp_path / "config.yaml"
     config_path.write_text("\n".join(lines), encoding="utf-8")
@@ -337,6 +338,28 @@ def test_export_html_config_defaults_to_weighted_percent(tmp_path: Path) -> None
     assert config.export_html.panel_value_values() == ["Percent"]
 
 
+def test_export_html_config_supports_new_summaries_and_visualizer_sections(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=["overview", "trip_mode"],
+        export_html_lines=[
+            "dashboard:",
+            "  weighting: all",
+            "pages:",
+            "  trip_mode:",
+            "    tour_mode: all",
+            "  overview: {}",
+        ],
+    )
+
+    assert config.summary_root.endswith("summary_cache")
+    assert config.dashboard_pages == ["overview", "trip_mode"]
+    assert list(config.export_html.pages) == ["trip_mode", "overview"]
+    assert config.export_html.pages_configured is True
+
+
 def test_export_html_config_resolves_nested_dashboard_and_page_requests(
     tmp_path: Path,
 ) -> None:
@@ -392,27 +415,85 @@ def test_export_html_config_resolves_nested_dashboard_and_page_requests(
     )
 
 
-def test_export_html_config_supports_legacy_flat_dashboard_aliases(tmp_path: Path) -> None:
-    config = _write_config(
-        tmp_path,
-        export_html_lines=[
-            "weighting: all",
-            "values: all",
-        ],
-    )
-
-    assert config.export_html.dashboard.weighting == ["weighted", "unweighted"]
-    assert config.export_html.dashboard.values == ["percent", "count"]
-
-
-def test_config_allows_missing_dashboard_pages_for_legacy_configs(tmp_path: Path) -> None:
+def test_config_allows_missing_dashboard_pages(tmp_path: Path) -> None:
     config = _write_config(tmp_path, dashboard_pages=None)
 
     assert config.dashboard_pages is None
 
 
+def test_config_defaults_when_summaries_and_visualizer_sections_are_absent(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'name: "Legacy Layout"',
+                'dashboard_title: "Ignored Legacy Title"',
+                "run_colors:",
+                '  - "#111111"',
+                "outputs:",
+                "  summary_root: ignored_summary_cache",
+                "  weighting_modes:",
+                "    - weighted",
+                "  export_html:",
+                "    dashboard:",
+                "      weighting: all",
+                "dashboard_pages:",
+                "  - raw_trip_demo",
+                "runs: []",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = Config.from_yaml(config_path)
+
+    assert config.summary_root == str((tmp_path / "artifacts" / "summary_cache").resolve())
+    assert config.weighting_modes == ["weighted", "unweighted"]
+    assert config.dashboard_title == "ActivitySim Visualizer"
+    assert config.dashboard_pages is None
+    assert config.run_colors == [
+        "#1f77b4",
+        "#ff7f0e",
+        "#2ca02c",
+        "#d62728",
+        "#9467bd",
+        "#8c564b",
+        "#e377c2",
+        "#7f7f7f",
+    ]
+    assert config.export_html.dashboard.weighting == ["weighted"]
+    assert config.export_html.dashboard.values == ["percent"]
+    assert config.export_html.pages == {}
+
+
+def test_config_ignores_flat_export_html_dashboard_aliases(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'name: "Flat Export Legacy"',
+                "runs: []",
+                "visualizer:",
+                "  export_html:",
+                "    weighting: all",
+                "    values: all",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = Config.from_yaml(config_path)
+
+    assert config.export_html.dashboard.weighting == ["weighted"]
+    assert config.export_html.dashboard.values == ["percent"]
+
+
 def test_export_html_config_rejects_invalid_or_empty_values(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="Unsupported outputs.export_html.dashboard.weighting"):
+    with pytest.raises(
+        ValueError, match="Unsupported visualizer.export_html.dashboard.weighting"
+    ):
         _write_config(
             tmp_path / "invalid",
             export_html_lines=[
@@ -425,14 +506,18 @@ def test_export_html_config_rejects_invalid_or_empty_values(tmp_path: Path) -> N
 
 
 def test_config_rejects_duplicate_dashboard_pages(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="dashboard_pages contains duplicate page id"):
+    with pytest.raises(
+        ValueError,
+        match="visualizer.dashboard_pages contains duplicate page id",
+    ):
         _write_config(
             tmp_path,
             dashboard_pages=["overview", "overview"],
         )
 
     with pytest.raises(
-        ValueError, match="outputs.export_html.dashboard.values resolved to no values"
+        ValueError,
+        match="visualizer.export_html.dashboard.values resolved to no values",
     ):
         _write_config(
             tmp_path / "empty",
@@ -443,7 +528,8 @@ def test_config_rejects_duplicate_dashboard_pages(tmp_path: Path) -> None:
         )
 
     with pytest.raises(
-        ValueError, match="outputs.export_html.pages.destination.purpose resolved to no values"
+        ValueError,
+        match="visualizer.export_html.pages.destination.purpose resolved to no values",
     ):
         _write_config(
             tmp_path / "empty_page_values",
@@ -484,8 +570,9 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     config = _write_config(
         tmp_path,
         export_html_lines=[
-            "weighting: all",
-            "values: all",
+            "dashboard:",
+            "  weighting: all",
+            "  values: all",
         ],
     )
     html = build_export_html_document(
@@ -618,11 +705,14 @@ def test_build_export_html_document_respects_configured_dashboard_page_subset_an
 ) -> None:
     config = _write_config(
         tmp_path,
-        dashboard_pages=["trip_mode", "overview", "destination"],
         export_html_lines=[
             "dashboard:",
             "  weighting: all",
             "  values: all",
+            "pages:",
+            "  trip_mode: {}",
+            "  overview: {}",
+            "  destination: {}",
         ],
     )
 
@@ -641,16 +731,36 @@ def test_build_export_html_document_respects_configured_dashboard_page_subset_an
     ]
 
 
+def test_build_export_html_document_defaults_to_registry_order_when_export_pages_are_unset(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=["trip_mode", "overview", "destination"],
+        export_html_lines=[
+            "dashboard:",
+            "  weighting: all",
+            "  values: all",
+        ],
+    )
+
+    html = build_export_html_document([], config, summary_runs=[_full_summary_run()])
+    payload = _extract_payload(html)
+
+    assert [(page["id"], page["title"]) for page in payload["pages"]] == EXPECTED_DEFAULT_PAGES
+
+
 def test_build_export_html_document_renders_raw_demo_page_when_raw_runs_are_loaded(
     tmp_path: Path,
 ) -> None:
     config = _write_config(
         tmp_path,
-        dashboard_pages=["raw_trip_demo"],
         export_html_lines=[
             "dashboard:",
             "  weighting: all",
             "  values: all",
+            "pages:",
+            "  raw_trip_demo: {}",
         ],
     )
 
@@ -668,25 +778,22 @@ def test_build_export_html_document_renders_raw_demo_page_when_raw_runs_are_load
 
 def test_build_export_html_document_shows_placeholder_for_raw_demo_without_raw_runs(
     tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     config = _write_config(
         tmp_path,
-        dashboard_pages=["raw_trip_demo"],
         export_html_lines=[
             "dashboard:",
             "  weighting: weighted",
             "  values: percent",
+            "pages:",
+            "  raw_trip_demo: {}",
         ],
     )
-    caplog.set_level(logging.WARNING, logger="activitysim_viz")
-
     html = build_export_html_document([], config, summary_runs=[_full_summary_run()])
     payload = _extract_payload(html)
     raw_demo = payload["states"]["Weighted||Percent"]["raw_trip_demo"]
     variant_nodes = _walk_nodes(raw_demo)
 
-    assert "requires raw run data" in caplog.text
     assert raw_demo["kind"] == "static_page"
     assert any(
         node.get("kind") == "card" and node.get("title") == "Data Not Available"
@@ -938,7 +1045,6 @@ def test_build_export_html_document_serializes_long_term_geography_variants(
 
 def test_build_export_html_document_warns_and_falls_back_when_long_term_geography_is_unavailable(
     tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     config = _write_config(
         tmp_path,
@@ -948,18 +1054,10 @@ def test_build_export_html_document_warns_and_falls_back_when_long_term_geograph
             "    geography: all",
         ],
     )
-    caplog.set_level(logging.WARNING, logger="activitysim_viz")
-
     html = build_export_html_document([], config, summary_runs=[_full_summary_run()])
     payload = _extract_payload(html)
     page_defs = {page["id"]: page for page in payload["pages"]}
 
-    assert (
-        "Warning: outputs.export_html.pages.long_term.geography is configured, "
-        "but the selector is unavailable for this export. "
-        "Ignoring the configuration and exporting the page with its fallback layout."
-        in caplog.text
-    )
     assert page_defs["long_term"]["selectors"] == []
     assert payload["states"]["Weighted||Percent"]["long_term"]["kind"] == "static_page"
 
@@ -1102,7 +1200,7 @@ def test_build_export_html_document_rejects_unknown_page_and_selector_ids(
         ],
     )
     with pytest.raises(
-        ValueError, match="Unsupported outputs.export_html.pages entries"
+        ValueError, match="Unsupported visualizer.export_html.pages entries"
     ):
         build_export_html_document([], bad_page_config, summary_runs=[_full_summary_run()])
 
@@ -1115,7 +1213,8 @@ def test_build_export_html_document_rejects_unknown_page_and_selector_ids(
         ],
     )
     with pytest.raises(
-        ValueError, match="Unsupported outputs.export_html.pages.destination entries"
+        ValueError,
+        match="Unsupported visualizer.export_html.pages.destination entries",
     ):
         build_export_html_document(
             [],
@@ -1128,8 +1227,9 @@ def test_export_html_save_writes_single_client_side_html_file(tmp_path: Path) ->
     config = _write_config(
         tmp_path,
         export_html_lines=[
-            "weighting: all",
-            "values: all",
+            "dashboard:",
+            "  weighting: all",
+            "  values: all",
         ],
     )
     out_dir = tmp_path / "html_export"

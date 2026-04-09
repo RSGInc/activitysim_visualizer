@@ -28,6 +28,7 @@ from dashboard.page_registry import (
     resolve_page_definitions,
 )
 from dashboard.state import DashboardState
+from summarize.cache import SUMMARY_SPEC_BY_ID
 from summarize.reader import RunData
 
 
@@ -99,23 +100,24 @@ def test_page_registry_smoke_checks_ids_titles_and_selector_uniqueness() -> None
     for definition in definitions:
         selector_ids = [selector.selector_id for selector in definition.selectors]
         assert len(selector_ids) == len(set(selector_ids))
+        assert definition.raw_data_mode in {"none", "optional", "required"}
+        assert len(set(definition.required_summary_ids)) == len(
+            definition.required_summary_ids
+        )
+        assert all(
+            summary_id in SUMMARY_SPEC_BY_ID
+            for summary_id in definition.required_summary_ids
+        )
 
 
-def test_resolve_page_definitions_warns_and_defaults_to_all_pages_for_legacy_configs(
+def test_resolve_page_definitions_defaults_to_default_pages_when_unconfigured(
     tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     config = _write_config(tmp_path, dashboard_pages=None)
-    caplog.set_level(logging.WARNING, logger="activitysim_viz")
 
     resolved_pages = resolve_page_definitions(config)
 
     assert [page.title for page in resolved_pages] == EXPECTED_DEFAULT_PAGE_TITLES
-    assert (
-        "Warning: config does not define 'dashboard_pages'. "
-        "Using legacy behavior and including the default dashboard pages."
-        in caplog.text
-    )
 
 
 def test_resolve_page_definitions_respects_configured_page_order_and_subset(
@@ -153,8 +155,20 @@ def test_resolve_page_definitions_rejects_unknown_configured_page_ids(
 ) -> None:
     config = _write_config(tmp_path, dashboard_pages=["overview", "unknown_page"])
 
-    with pytest.raises(ValueError, match="Unsupported dashboard_pages entries"):
+    with pytest.raises(
+        ValueError, match="Unsupported visualizer.dashboard_pages entries"
+    ):
         resolve_page_definitions(config)
+
+
+def test_resolve_page_definitions_rejects_duplicate_configured_page_ids(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="visualizer.dashboard_pages contains duplicate page id 'overview'",
+    ):
+        _write_config(tmp_path, dashboard_pages=["overview", "overview"])
 
 
 def test_build_dashboard_uses_expected_default_page_order(tmp_path: Path) -> None:
@@ -218,15 +232,12 @@ def test_build_dashboard_loads_raw_runs_when_demo_page_is_enabled(tmp_path: Path
 
 def test_build_dashboard_shows_unavailable_card_when_demo_page_has_no_raw_runs(
     tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     config = _write_config(tmp_path, dashboard_pages=["raw_trip_demo"])
-    caplog.set_level(logging.WARNING, logger="activitysim_viz")
     template = build_dashboard([], config, summary_runs=[_full_summary_run()])
     page = template._dashboard_pages[0]
 
     assert template._dashboard_state.raw_run_availability == "unavailable"
-    assert "requires raw run data" in caplog.text
     assert any(getattr(obj, "title", "") == "Data Not Available" for obj in page.view.objects)
 
 
@@ -285,7 +296,6 @@ def test_dashboard_state_raw_run_provider_supports_loaded_and_unavailable_modes(
     assert unweighted_runs[0][1].hh["finalweight"][0] == 1.0
     assert unavailable_state.raw_run_availability == "unavailable"
     assert unavailable_state.get_raw_runs_if_loaded(weighted=True) is None
-    assert unavailable_state.weighted_runs == []
 
 
 def test_build_dashboard_switches_tabs_and_refreshes_only_the_active_page(

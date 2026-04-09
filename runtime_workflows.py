@@ -20,6 +20,7 @@ class SummaryWorkflowResult:
 
     summary_runs: list[Any]
     raw_runs: list[tuple[str, RunData]]
+    raw_runs_by_key: dict[str, tuple[str, RunData]]
 
 
 def load_runtime_config(config_path: str | Path) -> Config:
@@ -128,13 +129,83 @@ def load_summary_runs_from_cache(
                 config,
                 expected_modes=config.weighting_modes,
                 expected_summary_ids=summary_cache.DEFAULT_SUMMARY_IDS,
-                expected_config_digest=config.config_digest,
+                expected_summary_config_digest=config.summary_config_digest,
                 expected_run_fingerprint=expected_run_fingerprint,
                 expected_label=expected_label,
                 expected_run_key=expected_run_key,
             )
         )
     return summary_runs
+
+
+def run_entries_with_keys(run_entries: list[dict]) -> list[tuple[dict, str]]:
+    """Return each resolved run entry paired with its stable summary cache key."""
+    run_labels = [
+        entry.get("label", Path(entry.get("dir", "")).name or "run")
+        for entry in run_entries
+    ]
+    run_keys = summary_cache.build_run_keys(run_labels)
+    return list(zip(run_entries, run_keys))
+
+
+def load_raw_runs_for_dashboard(
+    *,
+    config: Config,
+    run_entries: list[dict],
+    required_run_keys: list[str],
+    existing_raw_runs_by_key: dict[str, tuple[str, RunData]] | None = None,
+) -> list[tuple[str, RunData]]:
+    """Load raw runs for dashboard-only pages without rebuilding summaries."""
+    existing_raw_runs_by_key = dict(existing_raw_runs_by_key or {})
+    if not required_run_keys:
+        return []
+    if not run_entries:
+        LOGGER.warning(
+            "Enabled dashboard pages require raw run data, but no raw run inputs are available."
+        )
+        return []
+
+    entries_by_key = {
+        run_key: entry for entry, run_key in run_entries_with_keys(run_entries)
+    }
+    missing_run_keys = [
+        run_key for run_key in required_run_keys if run_key not in entries_by_key
+    ]
+    if missing_run_keys:
+        LOGGER.warning(
+            "Enabled dashboard pages require raw run data, but raw inputs could not be resolved "
+            "for summary runs: %s",
+            ", ".join(repr(run_key) for run_key in missing_run_keys),
+        )
+        return []
+
+    ordered_raw_runs: list[tuple[str, RunData]] = []
+    for run_key in required_run_keys:
+        cached_raw_run = existing_raw_runs_by_key.get(run_key)
+        if cached_raw_run is not None:
+            ordered_raw_runs.append(cached_raw_run)
+            continue
+
+        entry = entries_by_key[run_key]
+        run_dir = entry.get("dir", "")
+        label = entry.get("label", Path(run_dir).name)
+        skim = entry.get("skim_file") or None
+        LOGGER.info("Reading raw runs for dashboard page needs: %r", label)
+        raw_run = summary_reader.read_run(
+            run_dir,
+            config,
+            label=label,
+            skim_file=skim,
+            hh_weight_col=entry.get("hh_weight_col") or None,
+            person_weight_col=entry.get("person_weight_col") or None,
+            trip_weight_col=entry.get("trip_weight_col") or None,
+        )
+        raw_run = summary_reader.prepare_data(raw_run, config)
+        LOGGER.info("Prepared raw runs for dashboard page needs: %r", label)
+        loaded = (label, raw_run)
+        existing_raw_runs_by_key[run_key] = loaded
+        ordered_raw_runs.append(loaded)
+    return ordered_raw_runs
 
 
 def run_summary_workflow(
@@ -148,13 +219,10 @@ def run_summary_workflow(
     """Load summaries for the configured runs, using raw runs only in the summary step."""
     summary_runs: list[Any] = []
     raw_runs: list[tuple[str, RunData]] = []
-    run_labels = [
-        entry.get("label", Path(entry.get("dir", "")).name or "run")
-        for entry in run_entries
-    ]
-    run_keys = summary_cache.build_run_keys(run_labels)
+    raw_runs_by_key: dict[str, tuple[str, RunData]] = {}
+    runs_with_keys = run_entries_with_keys(run_entries)
 
-    for entry, run_key in zip(run_entries, run_keys):
+    for entry, run_key in runs_with_keys:
         run_dir = entry.get("dir", "")
         label = entry.get("label", Path(run_dir).name)
         skim = entry.get("skim_file") or None
@@ -178,7 +246,7 @@ def run_summary_workflow(
                     config,
                     expected_modes=config.weighting_modes,
                     expected_summary_ids=summary_cache.DEFAULT_SUMMARY_IDS,
-                    expected_config_digest=config.config_digest,
+                    expected_summary_config_digest=config.summary_config_digest,
                     expected_run_fingerprint=run_fingerprint,
                     expected_label=label,
                     expected_run_key=run_key,
@@ -201,7 +269,9 @@ def run_summary_workflow(
         )
         raw_run = summary_reader.prepare_data(raw_run, config)
         LOGGER.info("Prepared run: %r", label)
-        raw_runs.append((label, raw_run))
+        raw_loaded = (label, raw_run)
+        raw_runs.append(raw_loaded)
+        raw_runs_by_key[run_key] = raw_loaded
 
         summary_run = summary_cache.create_summary_run(
             label=label,
@@ -224,7 +294,11 @@ def run_summary_workflow(
 
     if not summary_runs:
         raise ValueError("no runs were loaded.")
-    return SummaryWorkflowResult(summary_runs=summary_runs, raw_runs=raw_runs)
+    return SummaryWorkflowResult(
+        summary_runs=summary_runs,
+        raw_runs=raw_runs,
+        raw_runs_by_key=raw_runs_by_key,
+    )
 
 
 def run_dashboard_workflow(

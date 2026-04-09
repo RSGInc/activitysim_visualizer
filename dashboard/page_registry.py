@@ -15,7 +15,6 @@ from dashboard.page_definitions import DashboardPageDefinition, RawDataMode
 from summarize.cache import SUMMARY_SPEC_BY_ID
 from summarize.reader import Config, RunData
 
-_WARNED_LEGACY_CONFIG_PATHS: set[str] = set()
 LOGGER = get_logger("dashboard.page_registry")
 VALID_RAW_DATA_MODES: tuple[RawDataMode, ...] = ("none", "optional", "required")
 
@@ -117,52 +116,71 @@ def default_page_definitions() -> tuple[DashboardPageDefinition, ...]:
     )
 
 
-def _warn_missing_dashboard_pages(config: Config) -> None:
-    config_path = str(config.config_path)
-    if config_path in _WARNED_LEGACY_CONFIG_PATHS:
-        return
-    LOGGER.warning(
-        "Warning: config does not define 'dashboard_pages'. "
-        "Using legacy behavior and including the default dashboard pages."
-    )
-    _WARNED_LEGACY_CONFIG_PATHS.add(config_path)
-
-
-def resolve_page_definitions(config: Config) -> list[DashboardPageDefinition]:
-    """Resolve the configured dashboard pages in display order."""
+def _resolve_configured_page_definitions(
+    configured_page_ids: list[str],
+) -> list[DashboardPageDefinition]:
     available_pages = list(all_page_definitions())
-    if config.dashboard_pages is None:
-        _warn_missing_dashboard_pages(config)
-        return list(default_page_definitions())
-
     available_by_id = {
         page_definition.page_id: page_definition for page_definition in available_pages
     }
     unknown_page_ids = [
-        page_id for page_id in config.dashboard_pages if page_id not in available_by_id
+        page_id for page_id in configured_page_ids if page_id not in available_by_id
     ]
     if unknown_page_ids:
         raise ValueError(
-            "Unsupported dashboard_pages entries: "
+            "Unsupported configured page ids: "
             + ", ".join(repr(page_id) for page_id in unknown_page_ids)
         )
     duplicate_page_ids = [
         page_id
-        for page_id in dict.fromkeys(config.dashboard_pages)
-        if config.dashboard_pages.count(page_id) > 1
+        for page_id in dict.fromkeys(configured_page_ids)
+        if configured_page_ids.count(page_id) > 1
     ]
     if duplicate_page_ids:
         raise ValueError(
-            "Duplicate dashboard_pages entries are not allowed: "
+            "Duplicate configured page ids are not allowed: "
             + ", ".join(repr(page_id) for page_id in duplicate_page_ids)
         )
-    return [available_by_id[page_id] for page_id in config.dashboard_pages]
+    return [available_by_id[page_id] for page_id in configured_page_ids]
 
 
-def enabled_raw_data_mode(config: Config) -> RawDataMode:
-    """Return the strongest raw-data requirement across the enabled dashboard pages."""
+def resolve_live_page_definitions(config: Config) -> list[DashboardPageDefinition]:
+    """Resolve the live dashboard pages in display order."""
+    if config.dashboard_pages is None:
+        return list(default_page_definitions())
+    try:
+        return _resolve_configured_page_definitions(config.dashboard_pages)
+    except ValueError as exc:
+        message = str(exc).replace(
+            "configured page ids", "visualizer.dashboard_pages entries"
+        )
+        raise ValueError(message) from exc
+
+
+def resolve_page_definitions(config: Config) -> list[DashboardPageDefinition]:
+    """Compatibility alias for the live dashboard page resolver."""
+    return resolve_live_page_definitions(config)
+
+
+def resolve_export_page_definitions(config: Config) -> list[DashboardPageDefinition]:
+    """Resolve the export HTML pages in display order."""
+    if not config.export_html.pages_configured:
+        return list(default_page_definitions())
+    try:
+        return _resolve_configured_page_definitions(list(config.export_html.pages.keys()))
+    except ValueError as exc:
+        message = str(exc).replace(
+            "configured page ids", "visualizer.export_html.pages entries"
+        )
+        raise ValueError(message) from exc
+
+
+def enabled_raw_data_mode_for_pages(
+    page_definitions: list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...],
+) -> RawDataMode:
+    """Return the strongest raw-data requirement across a page definition set."""
     mode: RawDataMode = "none"
-    for page_definition in resolve_page_definitions(config):
+    for page_definition in page_definitions:
         if page_definition.raw_data_mode == "required":
             return "required"
         if page_definition.raw_data_mode == "optional":
@@ -170,12 +188,22 @@ def enabled_raw_data_mode(config: Config) -> RawDataMode:
     return mode
 
 
-def build_dashboard_raw_run_provider(
+def enabled_raw_data_mode(config: Config) -> RawDataMode:
+    """Return the strongest raw-data requirement across the enabled dashboard pages."""
+    return enabled_raw_data_mode_for_pages(resolve_live_page_definitions(config))
+
+
+def enabled_export_raw_data_mode(config: Config) -> RawDataMode:
+    """Return the strongest raw-data requirement across the enabled export pages."""
+    return enabled_raw_data_mode_for_pages(resolve_export_page_definitions(config))
+
+
+def build_raw_run_provider_for_page_definitions(
     runs: list[tuple[str, RunData]] | None,
-    config: Config,
+    page_definitions: list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...],
 ) -> DashboardRawRunProvider:
-    """Return the raw-run provider needed for the enabled dashboard pages."""
-    raw_mode = enabled_raw_data_mode(config)
+    """Return the raw-run provider needed for the given page definition set."""
+    raw_mode = enabled_raw_data_mode_for_pages(page_definitions)
     if raw_mode == "none":
         return DashboardRawRunProvider.not_requested()
     if runs:
@@ -183,13 +211,35 @@ def build_dashboard_raw_run_provider(
     return DashboardRawRunProvider.unavailable()
 
 
-def build_registered_live_pages(
+def build_dashboard_raw_run_provider(
+    runs: list[tuple[str, RunData]] | None,
+    config: Config,
+) -> DashboardRawRunProvider:
+    """Return the raw-run provider needed for the enabled dashboard pages."""
+    return build_raw_run_provider_for_page_definitions(
+        runs,
+        resolve_live_page_definitions(config),
+    )
+
+
+def build_export_raw_run_provider(
+    runs: list[tuple[str, RunData]] | None,
+    config: Config,
+) -> DashboardRawRunProvider:
+    """Return the raw-run provider needed for the export page set."""
+    return build_raw_run_provider_for_page_definitions(
+        runs,
+        resolve_export_page_definitions(config),
+    )
+
+
+def _build_registered_pages(
     state: DashboardState,
     config: Config,
+    page_definitions: list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...],
 ) -> list[DashboardPage]:
-    """Instantiate the registered live dashboard page controllers."""
     pages: list[DashboardPage] = []
-    for page_definition in resolve_page_definitions(config):
+    for page_definition in page_definitions:
         controller_cls = page_definition.controller_cls
         if controller_cls is None:
             raise ValueError(
@@ -197,3 +247,23 @@ def build_registered_live_pages(
             )
         pages.append(controller_cls(state, config))
     return pages
+
+
+def build_registered_live_pages(
+    state: DashboardState,
+    config: Config,
+) -> list[DashboardPage]:
+    """Instantiate the registered live dashboard page controllers."""
+    return _build_registered_pages(state, config, resolve_live_page_definitions(config))
+
+
+def build_registered_export_pages(
+    state: DashboardState,
+    config: Config,
+) -> list[DashboardPage]:
+    """Instantiate the registered export page controllers."""
+    return _build_registered_pages(
+        state,
+        config,
+        resolve_export_page_definitions(config),
+    )

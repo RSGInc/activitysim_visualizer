@@ -34,18 +34,21 @@ Copy `config.yaml` and edit it for your model deployment. Key sections:
 
 | Section | Required | Description |
 |---|---|---|
-| `name` / `dashboard_title` | Yes | Display names for the run and dashboard header |
-| `dashboard_pages` | No | Ordered list of page IDs to include in live and export modes |
+| `name` / `visualizer.dashboard_title` | Yes | Display names for the run and dashboard header |
+| `visualizer.dashboard_pages` | No | Ordered list of page IDs to include in the live dashboard |
 | `files` | Yes | Stems (or full filenames) of ActivitySim output files |
 | `columns` | Yes | Column name overrides if your outputs use non-standard names |
 | `zones` | Yes | Set `use_maz: false` for TAZ-only models; configure MAZ/TAZ columns otherwise |
 | `runs` | Yes | List of run directories with labels and optional per-run skim/weight overrides |
 | `skim` | No | Global OMX skim file path and matrix name for distance/time summaries |
-| `outputs` | No | Summary cache root directory and enabled weighting modes |
+| `summaries` | No | Summary cache root directory and enabled weighting modes |
+| `visualizer.export_html` | No | Export-only dashboard controls, page order, and page selector combinations |
 | `person_types` | No | Display labels for `ptype` values |
 | `geography` | No | Enable district/county-level breakdowns using a land-use column |
 | `modes` | No | Control display order and grouping of travel modes in charts |
-| `run_colors` | No | Hex colors for each run (cycles if more runs than colors) |
+| `visualizer.run_colors` | No | Hex colors for each run (cycles if more runs than colors) |
+
+If `summaries` or `visualizer` is omitted entirely, the app falls back to built-in defaults for cache location, weighting modes, page ordering, export ordering, and export widget states. Older top-level/output aliases are no longer read.
 
 ### Specifying runs
 
@@ -68,22 +71,41 @@ If no weight columns are specified and no `sample_rate` column is found, all wei
 
 ### Selecting dashboard pages
 
-Use top-level `dashboard_pages` to control which pages appear and in what order:
+Use `visualizer.dashboard_pages` to control which pages appear live and in what order:
 
 ```yaml
-dashboard_pages:
-  - overview
-  - long_term
-  - tour_summary
-  - destination
-  - trip_mode
+visualizer:
+  dashboard_pages:
+    - overview
+    - long_term
+    - tour_summary
+    - destination
+    - trip_mode
 ```
 
 Rules:
-- The list controls page order in both the live dashboard and `--export-html`.
+- The list controls live dashboard page inclusion and order only.
 - Each entry must be a stable page ID, not the visible tab title.
 - Unknown or duplicate page IDs fail during config load.
 - Omit raw-data demo pages from this list unless you intentionally want the dashboard to request raw runs.
+
+Use `visualizer.export_html.pages` to control export page inclusion and order:
+
+```yaml
+visualizer:
+  export_html:
+    pages:
+      trip_mode:
+        tour_mode: all
+      overview: {}
+      destination:
+        purpose: all
+```
+
+Rules:
+- The mapping key order is the export page order.
+- Only pages listed in `visualizer.export_html.pages` are exported when that mapping is present.
+- If `visualizer.export_html.pages` is omitted, export falls back to the default page set in default order.
 
 ---
 
@@ -122,7 +144,7 @@ python run.py --write-csvs
 python run.py --write-csvs --no-dashboard
 ```
 
-Summary caches are written under `outputs.summary_root` using this layout:
+Summary caches are written under `summaries.root` using this layout:
 
 ```text
 <summary_root>/
@@ -337,13 +359,14 @@ Available chart helpers in `dashboard/components.py`:
 
 **b. Add the page to config**
 
-Include the page ID in top-level `dashboard_pages` wherever you want it to appear:
+Include the page ID in `visualizer.dashboard_pages` wherever you want it to appear:
 
 ```yaml
-dashboard_pages:
-  - overview
-  - my_page
-  - trip_mode
+visualizer:
+  dashboard_pages:
+    - overview
+    - my_page
+    - trip_mode
 ```
 
 That is the only page-registration step needed.
@@ -370,7 +393,7 @@ PAGE = DashboardPageDefinition(
 )
 ```
 
-If the selector should be configurable from YAML, document its key under `outputs.export_html.pages.<page_id>.<selector_id>`.
+If the selector should be configurable from YAML, document its key under `visualizer.export_html.pages.<page_id>.<selector_id>`.
 
 **d. Add tests**
 

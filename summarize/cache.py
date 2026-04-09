@@ -26,7 +26,7 @@ from summarize import (
 from summarize.reader import Config, RunData
 from summarize.writer import write_all
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 SUPPORTED_WEIGHTING_MODES = ("weighted", "unweighted")
 
 
@@ -331,7 +331,7 @@ def write_summary_run_cache(
         "run_key": summary_run.run_key,
         "source_run_dir": summary_run.source_run_dir,
         "config_path": config.config_path,
-        "config_digest": config.config_digest,
+        "summary_config_digest": config.summary_config_digest,
         "weighting_modes": weighting_modes,
         "summary_ids": summary_ids,
         "summary_files": summary_file_map(summary_ids),
@@ -363,7 +363,7 @@ def load_summary_run_cache(
     *,
     expected_modes: list[str] | None = None,
     expected_summary_ids: list[str] | None = None,
-    expected_config_digest: str | None = None,
+    expected_summary_config_digest: str | None = None,
     expected_run_fingerprint: dict[str, object] | None = None,
     expected_label: str | None = None,
     expected_run_key: str | None = None,
@@ -371,7 +371,7 @@ def load_summary_run_cache(
     cache_dir = Path(cache_dir)
     manifest = _read_manifest(cache_dir)
     schema_version = int(manifest.get("schema_version", 0))
-    if schema_version != SCHEMA_VERSION:
+    if schema_version not in {SCHEMA_VERSION, 2}:
         raise SummaryCacheError(
             f"Unsupported cache schema_version {schema_version} in {cache_dir}"
         )
@@ -385,11 +385,20 @@ def load_summary_run_cache(
             f"Cache run key mismatch in {cache_dir}: expected {expected_run_key!r}, found {manifest.get('run_key')!r}"
         )
     if (
-        expected_config_digest is not None
-        and manifest.get("config_digest") != expected_config_digest
+        expected_summary_config_digest is not None
+        and manifest.get("summary_config_digest") is not None
+        and manifest.get("summary_config_digest") != expected_summary_config_digest
     ):
         raise SummaryCacheError(
-            f"Cache config digest mismatch in {cache_dir}; summaries were built from a different config."
+            f"Cache summary config digest mismatch in {cache_dir}; summaries were built from a different summary configuration."
+        )
+    if (
+        expected_summary_config_digest is not None
+        and manifest.get("summary_config_digest") is None
+        and manifest.get("config_digest") is not None
+    ):
+        raise SummaryCacheError(
+            f"Cache {cache_dir} uses a legacy full-config digest. Rebuild summaries once to migrate to presentation-safe caches."
         )
     if (
         expected_run_fingerprint is not None

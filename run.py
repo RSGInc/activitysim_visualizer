@@ -9,8 +9,10 @@ import time
 from pathlib import Path
 
 from activitysim_viz_logging import configure_logging, get_logger, shutdown_logging
+from dashboard.page_registry import enabled_export_raw_data_mode, enabled_raw_data_mode
 from runtime_workflows import (
     load_runtime_config,
+    load_raw_runs_for_dashboard,
     load_summary_runs_from_cache,
     resolve_run_entries,
     run_dashboard_workflow,
@@ -106,6 +108,7 @@ def main() -> None:
     LOGGER.info("Loading config: %s", args.config)
     LOGGER.info("Logging to %s", log_path)
     cache_root = summary_cache_root(config, create=args.from_csvs is None)
+    required_run_keys: list[str] = []
 
     try:
         if args.from_csvs is not None:
@@ -121,6 +124,7 @@ def main() -> None:
                 explicit_cache_dirs=args.from_csvs,
                 run_entries=run_entries,
             )
+            required_run_keys = [summary_run.run_key for summary_run in summary_runs]
             raw_runs = []
         else:
             run_entries = resolve_run_entries(
@@ -137,6 +141,7 @@ def main() -> None:
                 write_cache=args.write_csvs or not args.skip_summary_cache_write,
             )
             summary_runs = summary_result.summary_runs
+            required_run_keys = [summary_run.run_key for summary_run in summary_runs]
             raw_runs = summary_result.raw_runs
 
         if args.no_dashboard:
@@ -147,6 +152,26 @@ def main() -> None:
             )
             shutdown_logging()
             return
+
+        requires_raw_data = (
+            enabled_export_raw_data_mode(config) != "none"
+            if args.export_html
+            else enabled_raw_data_mode(config) != "none"
+        )
+        if requires_raw_data:
+            existing_raw_runs_by_key = (
+                summary_result.raw_runs_by_key
+                if args.from_csvs is None
+                else None
+            )
+            raw_runs = load_raw_runs_for_dashboard(
+                config=config,
+                run_entries=run_entries,
+                required_run_keys=required_run_keys,
+                existing_raw_runs_by_key=existing_raw_runs_by_key,
+            )
+        else:
+            raw_runs = []
 
         run_dashboard_workflow(
             raw_runs=raw_runs,

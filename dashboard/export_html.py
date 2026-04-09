@@ -20,8 +20,8 @@ from dashboard.components import set_percent_mode, set_run_colors
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
 from dashboard.page_registry import (
     all_page_definitions,
-    build_dashboard_raw_run_provider,
-    build_registered_live_pages,
+    build_export_raw_run_provider,
+    build_registered_export_pages,
 )
 from summarize.cache import SummaryRun
 from summarize.reader import Config, ExportSelectorRequest, RunData
@@ -145,7 +145,7 @@ def _serialize_dashboard_state(
     value_mode: str,
     warned_unavailable_selectors: set[tuple[str, str]],
 ) -> dict[str, Any]:
-    raw_run_provider = build_dashboard_raw_run_provider(runs, config)
+    raw_run_provider = build_export_raw_run_provider(runs, config)
     state = DashboardState(
         summary_runs=summary_runs,
         weighting_modes=config.weighting_modes,
@@ -154,7 +154,7 @@ def _serialize_dashboard_state(
     state.weight_mode = weight_mode
     state.value_mode = value_mode
     set_percent_mode(value_mode == "Percent")
-    pages = build_registered_live_pages(state, config)
+    pages = build_registered_export_pages(state, config)
 
     page_defs: list[dict[str, str]] = []
     content_by_page: dict[str, Any] = {}
@@ -441,7 +441,7 @@ def _resolve_selector_metadata(
             if warning_key not in warned_unavailable_selectors:
                 LOGGER.warning(
                     "Warning: "
-                    f"outputs.export_html.pages.{page_id}.{selector_id} is configured, "
+                    f"visualizer.export_html.pages.{page_id}.{selector_id} is configured, "
                     "but the selector is unavailable for this export. "
                     "Ignoring the configuration and exporting the page with its fallback layout."
                 )
@@ -464,7 +464,7 @@ def _resolve_selector_metadata(
         request=request,
         options=options,
         default_value=default_value,
-        field_name=f"outputs.export_html.pages.{page_id}.{selector_id}",
+        field_name=f"visualizer.export_html.pages.{page_id}.{selector_id}",
     )
     return {
         "id": selector_id,
@@ -520,7 +520,7 @@ def _validate_page_export_config(config: Config) -> None:
     )
     if unknown_pages:
         raise ValueError(
-            "Unsupported outputs.export_html.pages entries: "
+            "Unsupported visualizer.export_html.pages entries: "
             + ", ".join(repr(page_id) for page_id in unknown_pages)
         )
 
@@ -535,7 +535,7 @@ def _validate_page_export_config(config: Config) -> None:
         )
         if unknown_selectors:
             raise ValueError(
-                f"Unsupported outputs.export_html.pages.{page_id} entries: "
+                f"Unsupported visualizer.export_html.pages.{page_id} entries: "
                 + ", ".join(repr(selector_id) for selector_id in unknown_selectors)
             )
 

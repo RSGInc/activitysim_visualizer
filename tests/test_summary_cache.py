@@ -5,6 +5,7 @@ import sys
 
 import panel as pn
 import polars as pl
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -21,6 +22,7 @@ from dashboard.pages.trip_mode import TripModePage
 from dashboard.data_access import DashboardRawRunProvider
 from dashboard.state import DashboardState
 from summarize.cache import (
+    SummaryCacheError,
     build_run_keys,
     create_summary_run,
     load_summary_run_cache,
@@ -30,18 +32,20 @@ from summarize.reader import Config, RunData
 
 
 def _write_config(tmp_path: Path) -> Config:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         "\n".join(
             [
                 'name: "Test Config"',
-                'dashboard_title: "Test Dashboard"',
                 "runs: []",
-                "outputs:",
-                "  summary_root: summary_cache",
+                "summaries:",
+                "  root: summary_cache",
                 "  weighting_modes:",
                 "    - weighted",
                 "    - unweighted",
+                "visualizer:",
+                '  dashboard_title: "Test Dashboard"',
             ]
         ),
         encoding="utf-8",
@@ -166,7 +170,7 @@ def test_summary_cache_round_trip_creates_configured_layout(tmp_path: Path) -> N
             "destination_average_distance",
             "geo_flows",
         ],
-        expected_config_digest=config.config_digest,
+        expected_summary_config_digest=config.summary_config_digest,
         expected_run_fingerprint=fingerprint,
         expected_label="Base",
         expected_run_key="base",
@@ -181,6 +185,136 @@ def test_summary_cache_round_trip_creates_configured_layout(tmp_path: Path) -> N
         {"purpose": "shopping", "distbin": 1, "freq": 4.0},
     ]
     assert loaded.summaries_by_mode["weighted"]["geo_flows"].width == 0
+
+
+def test_summary_cache_ignores_presentation_only_config_changes(
+    tmp_path: Path,
+) -> None:
+    config_a_path = tmp_path / "a" / "config.yaml"
+    config_a_path.parent.mkdir(parents=True, exist_ok=True)
+    config_a_path.write_text(
+        "\n".join(
+            [
+                'name: "Test Config"',
+                "runs: []",
+                "summaries:",
+                "  root: summary_cache",
+                "  weighting_modes:",
+                "    - weighted",
+                "    - unweighted",
+                "visualizer:",
+                '  dashboard_title: "Dashboard A"',
+                "  dashboard_pages:",
+                "    - overview",
+                "    - destination",
+                "  export_html:",
+                "    dashboard:",
+                "      weighting: all",
+                "    pages:",
+                "      destination: {}",
+                "      overview: {}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config_b_path = tmp_path / "b" / "config.yaml"
+    config_b_path.parent.mkdir(parents=True, exist_ok=True)
+    config_b_path.write_text(
+        "\n".join(
+            [
+                'name: "Test Config"',
+                "runs: []",
+                "summaries:",
+                "  root: summary_cache",
+                "  weighting_modes:",
+                "    - weighted",
+                "    - unweighted",
+                "visualizer:",
+                '  dashboard_title: "Dashboard B"',
+                "  dashboard_pages:",
+                "    - destination",
+                "    - overview",
+                "  export_html:",
+                "    dashboard:",
+                "      values: all",
+                "    pages:",
+                "      overview: {}",
+                "      destination:",
+                "        purpose: all",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config_a = Config.from_yaml(config_a_path)
+    config_b = Config.from_yaml(config_b_path)
+    summary_run = _sample_summary_run()
+    fingerprint = {"label": "Base", "run_dir": "C:/runs/base"}
+
+    cache_dir = write_summary_run_cache(summary_run, config_a, run_fingerprint=fingerprint)
+
+    loaded = load_summary_run_cache(
+        cache_dir,
+        config_b,
+        expected_modes=config_b.weighting_modes,
+        expected_summary_ids=[
+            "destination_distance",
+            "destination_average_distance",
+            "geo_flows",
+        ],
+        expected_summary_config_digest=config_b.summary_config_digest,
+        expected_run_fingerprint=fingerprint,
+        expected_label="Base",
+        expected_run_key="base",
+    )
+
+    assert loaded.label == "Base"
+
+
+def test_summary_cache_invalidates_when_summary_affecting_config_changes(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path / "base")
+    changed_path = tmp_path / "changed" / "config.yaml"
+    changed_path.parent.mkdir(parents=True, exist_ok=True)
+    changed_path.write_text(
+        "\n".join(
+            [
+                'name: "Test Config"',
+                "runs: []",
+                "summaries:",
+                "  root: summary_cache",
+                "  weighting_modes:",
+                "    - weighted",
+                "visualizer:",
+                '  dashboard_title: "Test Dashboard"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    changed_config = Config.from_yaml(changed_path)
+    summary_run = _sample_summary_run()
+    fingerprint = {"label": "Base", "run_dir": "C:/runs/base"}
+
+    cache_dir = write_summary_run_cache(summary_run, config, run_fingerprint=fingerprint)
+
+    with pytest.raises(
+        SummaryCacheError,
+        match="summary config digest mismatch|missing weighting modes",
+    ):
+        load_summary_run_cache(
+            cache_dir,
+            changed_config,
+            expected_modes=changed_config.weighting_modes,
+            expected_summary_ids=[
+                "destination_distance",
+                "destination_average_distance",
+                "geo_flows",
+            ],
+            expected_summary_config_digest=changed_config.summary_config_digest,
+            expected_run_fingerprint=fingerprint,
+            expected_label="Base",
+            expected_run_key="base",
+        )
 
 
 def test_destination_page_can_render_from_cached_summaries_only(tmp_path: Path) -> None:
