@@ -13,6 +13,7 @@ from typing import Callable
 import polars as pl
 
 from summarize import (
+    daily_travel,
     demographics,
     destination,
     long_term,
@@ -123,11 +124,27 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         long_term.telecommute,
     ),
     ### DAILY TRAVEL SUMMARIES
-    SummarySpec("dap_summary", "dapSummary_vis", tours.dap_summary),
+    SummarySpec(
+        "daily_activity_pattern_by_person_type",
+        "daily_activity_pattern_by_person_type",
+        daily_travel.dap_summary,
+    ),
+    SummarySpec(
+        "mandatory_tour_frequency_by_person_type",
+        "mandatory_tour_frequency_by_person_type",
+        daily_travel.mandatory_tour_freq,
+    ),
+    SummarySpec(
+        "nonmandatory_tour_frequency_by_person_type",
+        "nonmandatory_tour_frequency_by_person_type",
+        daily_travel.indiv_nm_summary,
+    ),
+    # total escorted tours
+    # number escorted tours to/from school
+    # tour rate per person
+    # trip rate per person
     SummarySpec("mand_tour_lengths", "mandTourLengths", mandatory.mand_tour_lengths),
     SummarySpec("geo_flows", "geoFlows", mandatory.geo_flows),
-    SummarySpec("mandatory_tour_freq", "mtfSummary_vis", tours.mandatory_tour_freq),
-    SummarySpec("indiv_nm_summary", "inmSummary_vis", tours.indiv_nm_summary),
     SummarySpec("nm_tour_rates", "nm_tour_rates", tours.nm_tour_rates),
     SummarySpec("joint_tour_freq", "jtf", lambda rd, config: tours.joint_tour_freq(rd)),
     SummarySpec(

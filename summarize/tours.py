@@ -10,118 +10,6 @@ import polars as pl
 from .reader import RunData, Config
 
 
-def dap_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    """DAP by person type. Columns: ptype, DAP, freq."""
-    ptype_col = config.col_ptype
-    if ptype_col not in rd.per.columns or "cdap_activity" not in rd.per.columns:
-        return pl.DataFrame({"ptype": [], "DAP": [], "freq": []})
-
-    df = (
-        rd.per.filter(pl.col("cdap_activity").is_not_null())
-        .group_by([ptype_col, "cdap_activity"])
-        .agg(pl.col("finalweight").sum().alias("freq"))
-        .rename({ptype_col: "ptype", "cdap_activity": "DAP"})
-        .with_columns(pl.col("ptype").cast(pl.Utf8))
-    )
-
-    total = (
-        df.group_by("DAP")
-        .agg(pl.col("freq").sum())
-        .with_columns(pl.lit("Total").alias("ptype"))
-        .select(["ptype", "DAP", "freq"])
-    )
-
-    return pl.concat([df, total])
-
-
-def mandatory_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
-    """Mandatory tour frequency by person type. Columns: ptype, MTF, freq."""
-    ptype_col = config.col_ptype
-    if ptype_col not in rd.per.columns or "imf_choice" not in rd.per.columns:
-        return pl.DataFrame({"ptype": [], "MTF": [], "freq": []})
-
-    df = (
-        rd.per.filter(pl.col("imf_choice") > 0)
-        .group_by([ptype_col, "imf_choice"])
-        .agg(pl.col("finalweight").sum().alias("freq"))
-        .rename({ptype_col: "ptype", "imf_choice": "MTF"})
-        .with_columns(pl.col("ptype").cast(pl.Utf8))
-    )
-
-    total = (
-        df.group_by("MTF")
-        .agg(pl.col("freq").sum())
-        .with_columns(pl.lit("Total").alias("ptype"))
-        .select(["ptype", "MTF", "freq"])
-    )
-
-    return pl.concat([df, total])
-
-
-def indiv_nm_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    """Individual NM tour frequency distribution by person type.
-
-    Columns: ptype, nmtours (0/1/2/3pl), freq.
-    NM tours = non-mandatory individual + joint participant.
-    """
-    per = rd.per
-    ptype_col = config.col_ptype
-
-    if "tour_category" in rd.tours.columns:
-        inm_counts = (
-            rd.tours.filter(pl.col("tour_category") == "non-mandatory")
-            .group_by("person_id")
-            .agg(pl.len().alias("inmTours"))
-        )
-    else:
-        inm_counts = (
-            rd.tours.head(0)
-            .select(["person_id"])
-            .with_columns(pl.lit(0).alias("inmTours"))
-        )
-
-    jnm_counts = rd.joint_participants.group_by("person_id").agg(
-        pl.len().alias("jnumTours")
-    )
-
-    per2 = (
-        per.join(inm_counts, on="person_id", how="left")
-        .join(jnm_counts, on="person_id", how="left")
-        .with_columns(
-            [
-                pl.col("inmTours").fill_null(0),
-                pl.col("jnumTours").fill_null(0),
-            ]
-        )
-        .with_columns((pl.col("inmTours") + pl.col("jnumTours")).alias("numTours"))
-    )
-
-    per2 = per2.with_columns(
-        pl.when(pl.col("numTours") == 0)
-        .then(pl.lit("0"))
-        .when(pl.col("numTours") == 1)
-        .then(pl.lit("1"))
-        .when(pl.col("numTours") == 2)
-        .then(pl.lit("2"))
-        .otherwise(pl.lit("3pl"))
-        .alias("nmtours")
-    )
-
-    df = (
-        per2.group_by([ptype_col, "nmtours"])
-        .agg(pl.col("finalweight").sum().alias("freq"))
-        .rename({ptype_col: "ptype"})
-        .with_columns(pl.col("ptype").cast(pl.Utf8))
-    )
-    total = (
-        df.group_by("nmtours")
-        .agg(pl.col("freq").sum())
-        .with_columns(pl.lit("Total").alias("ptype"))
-        .select(["ptype", "nmtours", "freq"])
-    )
-    return pl.concat([df, total])
-
-
 def nm_tour_rates(rd: RunData, config: Config) -> pl.DataFrame:
     """NM tour rates per person by person type and purpose.
 
@@ -277,7 +165,7 @@ def joint_tour_freq(rd: RunData) -> pl.DataFrame:
         (21, 0, 0, 0, 1, 1),
     ]
 
-    for (code, *vals) in codes:
+    for code, *vals in codes:
         conds = []
         for i, v in enumerate(vals):
             col = f"j{i}"
