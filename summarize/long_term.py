@@ -274,7 +274,7 @@ def free_parking(rd: RunData, config: Config) -> pl.DataFrame:
     raise NotImplementedError()
 
 
-def telecommute(rd: RunData) -> pl.DataFrame:
+def telecommute(rd: RunData, config: Config | None = None) -> pl.DataFrame:
     """Telecommute frequency distribution. Columns: telecommute_frequency, person_count."""
     if "telecommute_frequency" not in rd.per.columns:
         return pl.DataFrame(

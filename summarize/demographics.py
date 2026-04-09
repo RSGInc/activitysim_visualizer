@@ -4,7 +4,7 @@ import polars as pl
 from .reader import RunData, Config
 
 
-def hh_size(rd: RunData, config: Config) -> pl.DataFrame:
+def hh_size(rd: RunData, config: Config | None = None) -> pl.DataFrame:
     """Returns DataFrame: household_size (1-5+), household_count."""
     return (
         rd.hh.group_by("HHSIZE")

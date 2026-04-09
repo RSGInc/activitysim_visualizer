@@ -16,6 +16,7 @@ from summarize import (
     daily_travel,
     demographics,
     destination,
+    joint_travel,
     long_term,
     mandatory,
     stops,
@@ -143,23 +144,33 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
     # number escorted tours to/from school
     # tour rate per person
     # trip rate per person
+    ### JOINT TRAVEL SUMMARIES
+    SummarySpec("jtf_distribution", "jtf_distribution", joint_travel.joint_tour_freq),
+    SummarySpec(
+        "joint_tours_by_household_size",
+        "joint_tours_by_household_size",
+        joint_travel.joint_tours_hhsize,
+    ),
+    SummarySpec(
+        "joint_tour_party_size_distribution",
+        "joint_tour_party_size_distribution",
+        joint_travel.joint_party_size,
+    ),
+    SummarySpec(
+        "joint_tour_composition_distribution",
+        "joint_tour_composition_distribution",
+        joint_travel.joint_composition,
+    ),
+    # joint tour composition by party size
+    # joint tour participation per person by hh size
+    SummarySpec(
+        "household_jtp_by_household_size_and_jtf",
+        "household_jtp_by_household_size_and_jtf",
+        joint_travel.jtf_by_hhsize,
+    ),
     SummarySpec("mand_tour_lengths", "mandTourLengths", mandatory.mand_tour_lengths),
     SummarySpec("geo_flows", "geoFlows", mandatory.geo_flows),
     SummarySpec("nm_tour_rates", "nm_tour_rates", tours.nm_tour_rates),
-    SummarySpec("joint_tour_freq", "jtf", lambda rd, config: tours.joint_tour_freq(rd)),
-    SummarySpec(
-        "joint_composition", "jointComp", lambda rd, config: tours.joint_composition(rd)
-    ),
-    SummarySpec(
-        "joint_party_size",
-        "jointPartySize",
-        lambda rd, config: tours.joint_party_size(rd),
-    ),
-    SummarySpec(
-        "joint_tours_hhsize",
-        "jointToursHHSize",
-        lambda rd, config: tours.joint_tours_hhsize(rd),
-    ),
     SummarySpec("tour_mode_profile", "tmodeProfile_vis", tour_mode.tour_mode_profile),
     SummarySpec(
         "grouped_tour_mode_profile",
