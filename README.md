@@ -115,7 +115,7 @@ python run.py \
 ### Write calibration CSVs
 
 ```bash
-# Launch dashboard and refresh the configured summary cache
+# Refresh the configured summary cache, then launch the dashboard
 python run.py --write-csvs
 
 # Write cache files only (no dashboard)
@@ -137,6 +137,24 @@ Summary caches are written under `outputs.summary_root` using this layout:
 ```bash
 python run.py --export-html output.html
 ```
+
+### Recommended workflow patterns
+
+```bash
+# Build or refresh summary caches from raw ActivitySim outputs
+python run.py --write-csvs --no-dashboard
+
+# Serve the dashboard from prebuilt summary caches only
+python run.py --from-csvs
+
+# Export a cache-backed dashboard without rereading raw outputs
+python run.py --from-csvs --export-html output.html
+```
+
+Notes:
+- The summary workflow reads raw ActivitySim outputs and writes summary caches.
+- The dashboard and export workflows consume precomputed `summary_runs` and do not generate missing summaries.
+- Raw run data is only passed into the dashboard when an enabled page explicitly requires it.
 
 ### Additional options
 
@@ -260,13 +278,11 @@ Each tab in the dashboard is a module in `dashboard/pages/`. The supported exten
 from __future__ import annotations
 
 import panel as pn
-import polars as pl
 
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
-from summarize import trips as trip_sums
-from summarize.reader import Config, RunData
+from summarize.reader import Config
 
 
 class MyPage(DashboardPage):
@@ -280,21 +296,26 @@ class MyPage(DashboardPage):
         )
 
     def _refresh(self) -> None:
-        runs = self.state.get_runs()
         if not self.state.run_labels:
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        data = [
-            (label, trip_sums.trip_distance_by_mode(rd, self.config))
-            for label, rd in runs
-        ]
+        trip_mode_profile = self.require_summary("trip_mode_profile")
+        if trip_mode_profile is None:
+            self._body.objects = [
+                self.data_not_available_card(
+                    detail="This page only renders from precomputed summary tables.",
+                    missing_items=["trip_mode_profile"],
+                )
+            ]
+            return
+
         self._body.objects = [
             bar_chart(
-                data,
-                x_col="distance_bin",
+                trip_mode_profile,
+                x_col="trip_mode",
                 y_col="freq",
-                title="Trip Distance by Mode",
+                title="Trip Mode Profile",
             )
         ]
 
@@ -304,6 +325,7 @@ PAGE = DashboardPageDefinition(
     title="My New Page",
     order=120,
     controller_cls=MyPage,
+    required_summary_ids=("trip_mode_profile",),
 )
 ```
 
@@ -363,7 +385,8 @@ The page-module API is now the only supported dashboard extension API. Each page
 ### Tips
 
 - **Reactive widgets**: For persistent pages, create `pn.widgets` on the controller instance and call `_watch_widget(...)` so the page refreshes without losing widget state.
-- **Weighted vs. unweighted**: Inside a `DashboardPage`, use `self.state.get_runs()` to get the currently active weighted or unweighted run set.
+- **Summary-backed pages**: Prefer `require_summary(...)` and `require_summaries(...)` so pages degrade cleanly instead of rebuilding data inside the dashboard.
+- **Raw-data pages**: Only use `require_raw_runs(...)` on pages whose `PAGE.raw_data_mode` is `"optional"` or `"required"`.
 - **Percent vs. count**: Call `from dashboard.components import set_percent_mode` and check `_DISPLAY_PERCENT_MODE` if your chart needs to respond to the Percent/Count toggle, or pass `pct_col` to `bar_chart` for automatic normalization.
 - **Export-safe layouts**: Stick to the Panel view types already supported by the HTML export path, such as `pn.Column`, `pn.Row`, `pn.Card`, `pn.Tabs`, `pn.pane.Markdown`, `pn.pane.HTML`, `pn.widgets.Select`, `pn.widgets.RadioButtonGroup`, `pn.widgets.Tabulator`, and `pn.pane.Plotly`.
 - **Column safety**: Always check that expected columns exist before using them, returning an empty DataFrame with the right schema if they are absent.

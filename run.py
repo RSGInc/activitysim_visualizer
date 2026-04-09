@@ -1,4 +1,4 @@
-"""ActivitySim Visualizer - CLI entry point."""
+"""ActivitySim Visualizer CLI entry point."""
 
 from __future__ import annotations
 
@@ -6,6 +6,15 @@ import argparse
 import sys
 import time
 from pathlib import Path
+
+from runtime_workflows import (
+    load_runtime_config,
+    load_summary_runs_from_cache,
+    resolve_run_entries,
+    run_dashboard_workflow,
+    run_summary_workflow,
+    summary_cache_root,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -88,232 +97,64 @@ def main() -> None:
         )
         sys.exit(1)
 
-    from summarize.cache import (
-        DEFAULT_SUMMARY_IDS,
-        SummaryCacheError,
-        build_mode_summaries,
-        build_run_fingerprint,
-        build_run_keys,
-        create_summary_run,
-        discover_cache_dirs,
-        load_summary_run_cache,
-        normalize_weighting_modes,
-        summary_root,
-        write_summary_run_cache,
-    )
-    from summarize.reader import Config, prepare_data, read_run, resolve_skim_path
-
     print(f"[main] Loading config: {args.config}")
-    config = Config.from_yaml(args.config)
-    config.weighting_modes = normalize_weighting_modes(config.weighting_modes)
-    cache_root = summary_root(config)
-    if args.from_csvs is None:
-        cache_root.mkdir(parents=True, exist_ok=True)
+    config = load_runtime_config(args.config)
+    cache_root = summary_cache_root(config, create=args.from_csvs is None)
 
-    def _resolve_run_entries(require_runs: bool) -> list[dict]:
-        if args.cli_runs:
-            print("[main] Using runs provided on CLI")
-            run_entries = []
-            cli_skims = args.cli_run_skims or []
-            for i, (run_dir, label) in enumerate(args.cli_runs):
-                skim = cli_skims[i] if i < len(cli_skims) else None
-                if skim in ("", "null", "None"):
-                    skim = None
-                run_entries.append({"dir": run_dir, "label": label, "skim_file": skim})
-            return run_entries
-        if config.runs:
-            print("[main] Using runs from config")
-            return list(config.runs)
-        if require_runs:
-            print(
-                "Error: no runs specified. Add runs to config.yaml or use --run DIR LABEL.",
-                file=sys.stderr,
+    try:
+        if args.from_csvs is not None:
+            run_entries = resolve_run_entries(
+                cli_runs=args.cli_runs,
+                cli_run_skims=args.cli_run_skims,
+                config=config,
+                require_runs=False,
             )
-            sys.exit(1)
-        return []
-
-    raw_runs: list[tuple[str, object]] = []
-    summary_runs = []
-
-    if args.from_csvs is not None:
-        explicit_dirs = [Path(path).resolve() for path in args.from_csvs]
-        if explicit_dirs:
-            cache_dirs = explicit_dirs
-            run_entries_by_key: dict[str, dict] = {}
+            summary_runs = load_summary_runs_from_cache(
+                config=config,
+                cache_root=cache_root,
+                explicit_cache_dirs=args.from_csvs,
+                run_entries=run_entries,
+            )
+            raw_runs = []
         else:
-            run_entries = _resolve_run_entries(require_runs=False)
-            if run_entries:
-                run_labels = [
-                    entry.get("label", Path(entry.get("dir", "")).name or "run")
-                    for entry in run_entries
-                ]
-                run_keys = build_run_keys(run_labels)
-                cache_dirs = [cache_root / run_key for run_key in run_keys]
-                run_entries_by_key = {
-                    run_key: entry for entry, run_key in zip(run_entries, run_keys)
-                }
-            else:
-                cache_dirs = discover_cache_dirs(cache_root)
-                run_entries_by_key = {}
-
-        if not cache_dirs:
-            print(
-                "Error: no summary cache directories were found to load.",
-                file=sys.stderr,
+            run_entries = resolve_run_entries(
+                cli_runs=args.cli_runs,
+                cli_run_skims=args.cli_run_skims,
+                config=config,
+                require_runs=True,
             )
-            sys.exit(1)
-
-        print("[main] Loading pre-computed summary caches")
-        for cache_dir in cache_dirs:
-            expected_label = None
-            expected_run_key = None
-            expected_run_fingerprint = None
-            if cache_dir.name in run_entries_by_key:
-                entry = run_entries_by_key[cache_dir.name]
-                run_dir = entry.get("dir", "")
-                expected_label = entry.get("label", Path(run_dir).name)
-                expected_run_key = cache_dir.name
-                expected_run_fingerprint = build_run_fingerprint(
-                    label=expected_label,
-                    run_dir=run_dir,
-                    skim_file=resolve_skim_path(
-                        entry.get("skim_file") or None,
-                        config.skim_file,
-                        run_dir,
-                    ),
-                    hh_weight_col=entry.get("hh_weight_col") or None,
-                    person_weight_col=entry.get("person_weight_col") or None,
-                    trip_weight_col=entry.get("trip_weight_col") or None,
-                )
-            summary_runs.append(
-                load_summary_run_cache(
-                    cache_dir,
-                    config,
-                    expected_modes=config.weighting_modes,
-                    expected_summary_ids=DEFAULT_SUMMARY_IDS,
-                    expected_config_digest=config.config_digest,
-                    expected_run_fingerprint=expected_run_fingerprint,
-                    expected_label=expected_label,
-                    expected_run_key=expected_run_key,
-                )
+            summary_result = run_summary_workflow(
+                config=config,
+                cache_root=cache_root,
+                run_entries=run_entries,
+                prefer_cache=not args.write_csvs,
+                write_cache=args.write_csvs or not args.skip_summary_cache_write,
             )
-    else:
-        run_entries = _resolve_run_entries(require_runs=True)
-        run_labels = [
-            entry.get("label", Path(entry.get("dir", "")).name or "run")
-            for entry in run_entries
-        ]
-        run_keys = build_run_keys(run_labels)
+            summary_runs = summary_result.summary_runs
+            raw_runs = summary_result.raw_runs
 
-        for entry, run_key in zip(run_entries, run_keys):
-            run_dir = entry.get("dir", "")
-            label = entry.get("label", Path(run_dir).name)
-            skim = entry.get("skim_file") or None
-            resolved_skim = resolve_skim_path(skim, config.skim_file, run_dir)
-            run_fingerprint = build_run_fingerprint(
-                label=label,
-                run_dir=run_dir,
-                skim_file=resolved_skim,
-                hh_weight_col=entry.get("hh_weight_col") or None,
-                person_weight_col=entry.get("person_weight_col") or None,
-                trip_weight_col=entry.get("trip_weight_col") or None,
-            )
-            cache_dir = cache_root / run_key
+        if args.no_dashboard:
+            print("Done writing CSVs. Exiting.")
+            print(f"[main] Run completed in {(time.perf_counter() - t0) / 60:.2f} minutes.")
+            return
 
-            if not args.write_csvs:
-                try:
-                    cached_run = load_summary_run_cache(
-                        cache_dir,
-                        config,
-                        expected_modes=config.weighting_modes,
-                        expected_summary_ids=DEFAULT_SUMMARY_IDS,
-                        expected_config_digest=config.config_digest,
-                        expected_run_fingerprint=run_fingerprint,
-                        expected_label=label,
-                        expected_run_key=run_key,
-                    )
-                    print(f"[main] Loaded summary cache for run: {label!r}")
-                    summary_runs.append(cached_run)
-                    continue
-                except SummaryCacheError as exc:
-                    print(f"[main] Cache miss for {label!r}: {exc}")
-
-            print(f"Reading run: {label!r} from {run_dir}")
-            rd = read_run(
-                run_dir,
-                config,
-                label=label,
-                skim_file=skim,
-                hh_weight_col=entry.get("hh_weight_col") or None,
-                person_weight_col=entry.get("person_weight_col") or None,
-                trip_weight_col=entry.get("trip_weight_col") or None,
-            )
-            rd = prepare_data(rd, config)
-            print(f"[main] Prepared run: {label!r}")
-            raw_runs.append((label, rd))
-
-            summary_run = create_summary_run(
-                label=label,
-                run_key=run_key,
-                summaries_by_mode=build_mode_summaries(rd, config),
-                source_run_dir=str(rd.run_dir),
-                raw_run=rd,
-            )
-            summary_runs.append(summary_run)
-
-            if args.write_csvs or not args.skip_summary_cache_write:
-                print(f"[main] Writing summary cache for run: {label!r}")
-                cache_path = write_summary_run_cache(
-                    summary_run,
-                    config,
-                    run_fingerprint=run_fingerprint,
-                )
-                print(f"[main] Wrote summaries: {cache_path}")
-            else:
-                print(f"[main] Skipped cache write for run: {label!r}")
-
-    if not summary_runs:
-        print("Error: no runs were loaded.", file=sys.stderr)
+        run_dashboard_workflow(
+            raw_runs=raw_runs,
+            summary_runs=summary_runs,
+            config=config,
+            export_html_path=args.export_html,
+            port=args.port,
+            show=not args.no_show,
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    if args.no_dashboard:
-        print("Done writing CSVs. Exiting.")
-        print(f"[main] Run completed in {(time.perf_counter() - t0) / 60:.2f} minutes.")
-        return
-
-    from dashboard.app import build_dashboard
-    from dashboard.export_html import write_export_html_document
-    import panel as pn
-
+    elapsed = (time.perf_counter() - t0) / 60
     if args.export_html:
-        print("[main] Building dashboard")
-        print(f"Exporting dashboard to {args.export_html} ...")
-        write_export_html_document(
-            args.export_html,
-            raw_runs,
-            config,
-            summary_runs=summary_runs,
-        )
-        print("Done.")
-        print(
-            f"[main] Dashboard created in {(time.perf_counter() - t0) / 60:.2f} minutes."
-        )
+        print(f"[main] Dashboard created in {elapsed:.2f} minutes.")
         return
-
-    print("[main] Building dashboard")
-    dashboard = build_dashboard(
-        raw_runs,
-        config,
-        # static_export=False,
-        summary_runs=summary_runs,
-    )
-    print(f"[main] Dashboard created in {(time.perf_counter() - t0) / 60:.2f} minutes.")
-    pn.serve(
-        dashboard,
-        port=args.port,
-        show=not args.no_show,
-        title=config.dashboard_title,
-    )
+    print(f"[main] Dashboard created in {elapsed:.2f} minutes.")
 
 
 if __name__ == "__main__":

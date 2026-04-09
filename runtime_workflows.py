@@ -1,0 +1,267 @@
+"""Shared runtime workflows for summarize, dashboard, and export execution."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from summarize import cache as summary_cache
+from summarize import reader as summary_reader
+from summarize.reader import Config, RunData
+
+
+@dataclass(frozen=True)
+class SummaryWorkflowResult:
+    """Prepared summary runs plus any raw runs loaded along the way."""
+
+    summary_runs: list[Any]
+    raw_runs: list[tuple[str, RunData]]
+
+
+def load_runtime_config(config_path: str | Path) -> Config:
+    """Load config and normalize the shared runtime settings."""
+    config = Config.from_yaml(config_path)
+    config.weighting_modes = summary_cache.normalize_weighting_modes(config.weighting_modes)
+    return config
+
+
+def resolve_run_entries(
+    *,
+    cli_runs: list[tuple[str, str]] | None,
+    cli_run_skims: list[str] | None,
+    config: Config,
+    require_runs: bool,
+) -> list[dict]:
+    """Resolve raw run inputs from CLI overrides or config."""
+    if cli_runs:
+        print("[main] Using runs provided on CLI")
+        run_entries: list[dict] = []
+        resolved_cli_skims = cli_run_skims or []
+        for idx, (run_dir, label) in enumerate(cli_runs):
+            skim = resolved_cli_skims[idx] if idx < len(resolved_cli_skims) else None
+            if skim in ("", "null", "None"):
+                skim = None
+            run_entries.append({"dir": run_dir, "label": label, "skim_file": skim})
+        return run_entries
+
+    if config.runs:
+        print("[main] Using runs from config")
+        return list(config.runs)
+
+    if require_runs:
+        raise ValueError(
+            "no runs specified. Add runs to config.yaml or use --run DIR LABEL."
+        )
+    return []
+
+
+def summary_cache_root(config: Config, *, create: bool) -> Path:
+    """Return the configured summary cache root, creating it when requested."""
+    cache_root = summary_cache.summary_root(config)
+    if create:
+        cache_root.mkdir(parents=True, exist_ok=True)
+    return cache_root
+
+
+def load_summary_runs_from_cache(
+    *,
+    config: Config,
+    cache_root: Path,
+    explicit_cache_dirs: list[str] | None,
+    run_entries: list[dict] | None,
+) -> list[Any]:
+    """Load precomputed summary runs for dashboard/export-only workflows."""
+    explicit_dirs = [Path(path).resolve() for path in (explicit_cache_dirs or [])]
+    if explicit_dirs:
+        cache_dirs = explicit_dirs
+        run_entries_by_key: dict[str, dict] = {}
+    else:
+        if run_entries:
+            run_labels = [
+                entry.get("label", Path(entry.get("dir", "")).name or "run")
+                for entry in run_entries
+            ]
+            run_keys = summary_cache.build_run_keys(run_labels)
+            cache_dirs = [cache_root / run_key for run_key in run_keys]
+            run_entries_by_key = {
+                run_key: entry for entry, run_key in zip(run_entries, run_keys)
+            }
+        else:
+            cache_dirs = summary_cache.discover_cache_dirs(cache_root)
+            run_entries_by_key = {}
+
+    if not cache_dirs:
+        raise ValueError("no summary cache directories were found to load.")
+
+    summary_runs: list[Any] = []
+    print("[main] Loading pre-computed summary caches")
+    for cache_dir in cache_dirs:
+        expected_label = None
+        expected_run_key = None
+        expected_run_fingerprint = None
+        if cache_dir.name in run_entries_by_key:
+            entry = run_entries_by_key[cache_dir.name]
+            run_dir = entry.get("dir", "")
+            expected_label = entry.get("label", Path(run_dir).name)
+            expected_run_key = cache_dir.name
+            expected_run_fingerprint = summary_cache.build_run_fingerprint(
+                label=expected_label,
+                run_dir=run_dir,
+                skim_file=summary_reader.resolve_skim_path(
+                    entry.get("skim_file") or None,
+                    config.skim_file,
+                    run_dir,
+                ),
+                hh_weight_col=entry.get("hh_weight_col") or None,
+                person_weight_col=entry.get("person_weight_col") or None,
+                trip_weight_col=entry.get("trip_weight_col") or None,
+            )
+        summary_runs.append(
+            summary_cache.load_summary_run_cache(
+                cache_dir,
+                config,
+                expected_modes=config.weighting_modes,
+                expected_summary_ids=summary_cache.DEFAULT_SUMMARY_IDS,
+                expected_config_digest=config.config_digest,
+                expected_run_fingerprint=expected_run_fingerprint,
+                expected_label=expected_label,
+                expected_run_key=expected_run_key,
+            )
+        )
+    return summary_runs
+
+
+def run_summary_workflow(
+    *,
+    config: Config,
+    cache_root: Path,
+    run_entries: list[dict],
+    prefer_cache: bool,
+    write_cache: bool,
+) -> SummaryWorkflowResult:
+    """Load summaries for the configured runs, using raw runs only in the summary step."""
+    summary_runs: list[Any] = []
+    raw_runs: list[tuple[str, RunData]] = []
+    run_labels = [
+        entry.get("label", Path(entry.get("dir", "")).name or "run")
+        for entry in run_entries
+    ]
+    run_keys = summary_cache.build_run_keys(run_labels)
+
+    for entry, run_key in zip(run_entries, run_keys):
+        run_dir = entry.get("dir", "")
+        label = entry.get("label", Path(run_dir).name)
+        skim = entry.get("skim_file") or None
+        resolved_skim = summary_reader.resolve_skim_path(skim, config.skim_file, run_dir)
+        run_fingerprint = summary_cache.build_run_fingerprint(
+            label=label,
+            run_dir=run_dir,
+            skim_file=resolved_skim,
+            hh_weight_col=entry.get("hh_weight_col") or None,
+            person_weight_col=entry.get("person_weight_col") or None,
+            trip_weight_col=entry.get("trip_weight_col") or None,
+        )
+        cache_dir = cache_root / run_key
+
+        if prefer_cache:
+            try:
+                cached_run = summary_cache.load_summary_run_cache(
+                    cache_dir,
+                    config,
+                    expected_modes=config.weighting_modes,
+                    expected_summary_ids=summary_cache.DEFAULT_SUMMARY_IDS,
+                    expected_config_digest=config.config_digest,
+                    expected_run_fingerprint=run_fingerprint,
+                    expected_label=label,
+                    expected_run_key=run_key,
+                )
+                print(f"[main] Loaded summary cache for run: {label!r}")
+                summary_runs.append(cached_run)
+                continue
+            except summary_cache.SummaryCacheError as exc:
+                print(f"[main] Cache miss for {label!r}: {exc}")
+
+        print(f"Reading run: {label!r} from {run_dir}")
+        raw_run = summary_reader.read_run(
+            run_dir,
+            config,
+            label=label,
+            skim_file=skim,
+            hh_weight_col=entry.get("hh_weight_col") or None,
+            person_weight_col=entry.get("person_weight_col") or None,
+            trip_weight_col=entry.get("trip_weight_col") or None,
+        )
+        raw_run = summary_reader.prepare_data(raw_run, config)
+        print(f"[main] Prepared run: {label!r}")
+        raw_runs.append((label, raw_run))
+
+        summary_run = summary_cache.create_summary_run(
+            label=label,
+            run_key=run_key,
+            summaries_by_mode=summary_cache.build_mode_summaries(raw_run, config),
+            source_run_dir=str(raw_run.run_dir),
+            raw_run=raw_run,
+        )
+        summary_runs.append(summary_run)
+
+        if write_cache:
+            print(f"[main] Writing summary cache for run: {label!r}")
+            cache_path = summary_cache.write_summary_run_cache(
+                summary_run,
+                config,
+                run_fingerprint=run_fingerprint,
+            )
+            print(f"[main] Wrote summaries: {cache_path}")
+        else:
+            print(f"[main] Skipped cache write for run: {label!r}")
+
+    if not summary_runs:
+        raise ValueError("no runs were loaded.")
+    return SummaryWorkflowResult(summary_runs=summary_runs, raw_runs=raw_runs)
+
+
+def run_dashboard_workflow(
+    *,
+    raw_runs: list[tuple[str, RunData]],
+    summary_runs: list[Any],
+    config: Config,
+    export_html_path: str | None = None,
+    port: int = 5006,
+    show: bool = True,
+) -> None:
+    """Render the dashboard or export from already-prepared inputs only."""
+    if not summary_runs:
+        raise ValueError(
+            "dashboard workflow requires precomputed summary runs and will not build them."
+        )
+
+    if export_html_path:
+        from dashboard.export_html import write_export_html_document
+
+        print("[main] Building dashboard")
+        print(f"Exporting dashboard to {export_html_path} ...")
+        write_export_html_document(
+            export_html_path,
+            raw_runs,
+            config,
+            summary_runs=summary_runs,
+        )
+        print("Done.")
+        return
+
+    from dashboard.app import build_dashboard
+    import panel as pn
+
+    print("[main] Building dashboard")
+    dashboard = build_dashboard(
+        raw_runs,
+        config,
+        summary_runs=summary_runs,
+    )
+    pn.serve(
+        dashboard,
+        port=port,
+        show=show,
+        title=config.dashboard_title,
+    )

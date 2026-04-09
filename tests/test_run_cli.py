@@ -5,10 +5,12 @@ import sys
 
 import panel as pn
 import polars as pl
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import run
+import runtime_workflows
 from dashboard import app as dashboard_app
 from summarize import cache as summary_cache
 from summarize import reader as summary_reader
@@ -288,3 +290,17 @@ def test_main_uses_cache_hit_for_one_run_and_raw_fallback_for_another(
             "summary_run_labels": ["Run A", "Run B"],
         }
     ]
+
+
+def test_dashboard_workflow_rejects_missing_summary_runs(tmp_path: Path) -> None:
+    config = _write_cli_config(tmp_path, runs=[])
+
+    with pytest.raises(
+        ValueError,
+        match="dashboard workflow requires precomputed summary runs",
+    ):
+        runtime_workflows.run_dashboard_workflow(
+            raw_runs=[],
+            summary_runs=[],
+            config=config,
+        )
