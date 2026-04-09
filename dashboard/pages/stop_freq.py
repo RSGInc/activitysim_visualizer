@@ -8,8 +8,7 @@ import polars as pl
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
-from summarize import stops
-from summarize.reader import Config, RunData
+from summarize.reader import Config
 
 
 def discover_purpose_columns(
@@ -128,7 +127,7 @@ def purpose_chart_data(
 class StopFreqPage(DashboardPage):
     def __init__(self, state, config: Config) -> None:
         super().__init__("Stop Frequency", state, config)
-        purp_opts = self._purpose_options(state.weighted_runs)
+        purp_opts = self._purpose_options()
         self.purp_sel = pn.widgets.Select(
             name="Tour Purpose", options=purp_opts, value=purp_opts[0]
         )
@@ -141,30 +140,31 @@ class StopFreqPage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def _purpose_options(self, runs: list[tuple[str, RunData]]) -> list[str]:
-        stop_list = self.state.get_precomputed_summary("stop_freq", "weighted")
+    def _purpose_options(self) -> list[str]:
+        stop_list = self.state.get_summary_table_set("stop_freq", "weighted")
         if stop_list is None:
-            stop_list = [(label, stops.stop_freq(rd)) for label, rd in runs]
+            return ["Total"]
         purp_opts, _ = discover_purpose_columns(stop_list)
         return purp_opts
 
     def _refresh(self) -> None:
-        runs = self.state.get_runs()
         if not self.state.run_labels:
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
+        summaries = self.require_summaries(*self.required_summary_ids)
+        if summaries is None:
+            self._body.objects = [
+                self.data_not_available_card(
+                    detail="This page only renders from precomputed summary tables.",
+                    missing_items=list(self.required_summary_ids),
+                )
+            ]
+            return
+
         purp = self.purp_sel.value
-        stop_list = self.get_summary(
-            "stop_freq",
-            lambda: [(label, stops.stop_freq(rd)) for label, rd in runs],
-        )
-        purp_by_tp = self.get_summary(
-            "stop_purpose_by_tour_purpose",
-            lambda: [
-                (label, stops.stop_purpose_by_tour_purpose(rd)) for label, rd in runs
-            ],
-        )
+        stop_list = summaries["stop_freq"]
+        purp_by_tp = summaries["stop_purpose_by_tour_purpose"]
         purp_opts, purpose_col = discover_purpose_columns(stop_list)
         self.purp_sel.options = purp_opts
         if self.purp_sel.value not in purp_opts:
@@ -230,4 +230,7 @@ PAGE = DashboardPageDefinition(
             label="Tour Purpose",
         ),
     ),
+    required_summary_ids=("stop_freq", "stop_purpose_by_tour_purpose"),
 )
+
+StopFreqPage.definition = PAGE

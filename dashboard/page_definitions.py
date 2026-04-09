@@ -42,3 +42,4 @@ class DashboardPageDefinition:
     order: int = 0
     controller_cls: type["DashboardPage"] | None = None
     selectors: tuple[PageSelectorDefinition, ...] = field(default_factory=tuple)
+    required_summary_ids: tuple[str, ...] = field(default_factory=tuple)

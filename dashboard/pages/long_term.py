@@ -8,8 +8,7 @@ import polars as pl
 from dashboard.components import bar_chart, data_table, density_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
-from summarize import demographics, mandatory
-from summarize.reader import Config, RunData
+from summarize.reader import Config
 
 
 def auto_ownership_chart_data(
@@ -76,7 +75,7 @@ class LongTermPage(DashboardPage):
         super().__init__("Long-Term", state, config)
         self.geo_sel: pn.widgets.Select | None = None
         if config.geography_enabled:
-            geo_groups = self._geo_options(state.weighted_runs)
+            geo_groups = self._geo_options()
             self.geo_sel = pn.widgets.Select(
                 name="Geography", options=geo_groups, value=geo_groups[0]
             )
@@ -88,68 +87,36 @@ class LongTermPage(DashboardPage):
             header.append(pn.Row(pn.pane.Markdown("**Geography:**"), self.geo_sel))
         self.view = pn.Column(*header, self._body, sizing_mode="stretch_width")
 
-    def _geo_options(self, runs: list[tuple[str, RunData]]) -> list[str]:
-        tlfd_list = self.state.get_precomputed_summary("tlfd_work", "weighted")
+    def _geo_options(self) -> list[str]:
+        tlfd_list = self.state.get_summary_table_set("tlfd_work", "weighted")
         if tlfd_list is None:
-            tlfd_list = [
-                (label, mandatory.tlfd(rd, self.config)["work"]) for label, rd in runs
-            ]
+            return ["Total"]
         return geo_options(tlfd_list)
 
     def _refresh(self) -> None:
-        runs = self.state.get_runs()
         if not self.state.run_labels:
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        auto_own_list = self.get_summary(
-            "auto_ownership",
-            lambda: [
-                (
-                    label,
-                    demographics.auto_ownership(rd).with_columns(
-                        pl.col("HHVEH").cast(pl.Utf8)
-                    ),
+        summaries = self.require_summaries(*self.required_summary_ids)
+        if summaries is None:
+            self._body.objects = [
+                self.data_not_available_card(
+                    detail="This page only renders from precomputed summary tables.",
+                    missing_items=list(self.required_summary_ids),
                 )
-                for label, rd in runs
-            ],
-        )
-        work_tlfd_list = self.get_summary(
-            "tlfd_work",
-            lambda: [
-                (label, mandatory.tlfd(rd, self.config)["work"]) for label, rd in runs
-            ],
-        )
-        univ_tlfd_list = self.get_summary(
-            "tlfd_univ",
-            lambda: [
-                (label, mandatory.tlfd(rd, self.config)["univ"]) for label, rd in runs
-            ],
-        )
-        schl_tlfd_list = self.get_summary(
-            "tlfd_schl",
-            lambda: [
-                (label, mandatory.tlfd(rd, self.config)["schl"]) for label, rd in runs
-            ],
-        )
-        wfh_list = self.get_summary(
-            "wfh",
-            lambda: [(label, mandatory.wfh(rd, self.config)) for label, rd in runs],
-        )
-        tc_list = self.get_summary(
-            "telecommute",
-            lambda: [(label, mandatory.telecommute(rd)) for label, rd in runs],
-        )
-        mand_len_list = self.get_summary(
-            "mand_tour_lengths",
-            lambda: [
-                (label, mandatory.mand_tour_lengths(rd, self.config))
-                for label, rd in runs
-            ],
-        )
+            ]
+            return
 
+        auto_own_list = auto_ownership_chart_data(summaries["auto_ownership"])
+        work_tlfd_list = summaries["tlfd_work"]
+        univ_tlfd_list = summaries["tlfd_univ"]
+        schl_tlfd_list = summaries["tlfd_schl"]
+        wfh_list = summaries["wfh"]
+        tc_list = summaries["telecommute"]
+        mand_len_list = summaries["mand_tour_lengths"]
         auto_chart = bar_chart(
-            auto_ownership_chart_data(auto_own_list),
+            auto_own_list,
             x_col="HHVEH",
             y_col="freq",
             title="Auto Ownership",
@@ -222,12 +189,17 @@ class LongTermPage(DashboardPage):
                     ),
                 ),
             )
-            flow_list = self.get_summary(
-                "geo_flows",
-                lambda: [
-                    (label, mandatory.geo_flows(rd, self.config)) for label, rd in runs
-                ],
-            )
+            flow_list = self.require_summary("geo_flows")
+            if flow_list is None:
+                self._body.objects = [
+                    self.data_not_available_card(
+                        detail=(
+                            "This page requires the geography flow summary when geography is enabled."
+                        ),
+                        missing_items=["geo_flows"],
+                    )
+                ]
+                return
             flow_widget = data_table(
                 [
                     (label, df)
@@ -300,4 +272,15 @@ PAGE = DashboardPageDefinition(
             enabled_when=lambda page, config: config.geography_enabled,
         ),
     ),
+    required_summary_ids=(
+        "auto_ownership",
+        "tlfd_work",
+        "tlfd_univ",
+        "tlfd_schl",
+        "wfh",
+        "telecommute",
+        "mand_tour_lengths",
+    ),
 )
+
+LongTermPage.definition = PAGE

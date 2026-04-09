@@ -3,22 +3,21 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
+import panel as pn
 import polars as pl
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from dashboard.live_pages import (
-    DestinationPage,
-    LongTermPage,
-    OverviewPage,
-    StopFreqPage,
-    StopLocationPage,
-    StopTimingPage,
-    TourModePage,
-    TourTODPage,
-    TourSummaryPage,
-    TripModePage,
-)
+from dashboard.pages.destination import DestinationPage
+from dashboard.pages.long_term import LongTermPage
+from dashboard.pages.overview import OverviewPage
+from dashboard.pages.stop_freq import StopFreqPage
+from dashboard.pages.stop_location import StopLocationPage
+from dashboard.pages.stop_timing import StopTimingPage
+from dashboard.pages.tour_mode import TourModePage
+from dashboard.pages.tour_summary import TourSummaryPage
+from dashboard.pages.tour_tod import TourTODPage
+from dashboard.pages.trip_mode import TripModePage
 from dashboard.state import DashboardState
 from summarize.cache import (
     build_run_keys,
@@ -234,7 +233,7 @@ def test_destination_page_avoids_string_vs_int_purpose_mismatch_from_cached_summ
     assert page._body.objects
 
 
-def test_destination_page_uses_shared_purpose_discovery_for_live_raw_runs(
+def test_destination_page_shows_data_unavailable_when_only_raw_runs_are_loaded(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -246,11 +245,13 @@ def test_destination_page_uses_shared_purpose_discovery_for_live_raw_runs(
     page = DestinationPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.purp_sel.options) == ["All NM", "eatout", "social"]
-    assert page._body.objects
+    assert list(page.purp_sel.options) == ["All NM"]
+    assert len(page._body.objects) == 1
+    assert isinstance(page._body.objects[0], pn.Card)
+    assert page._body.objects[0].title == "Data Not Available"
 
 
-def test_destination_page_prefers_raw_purpose_discovery_over_mixed_summary_dtypes(
+def test_destination_page_ignores_raw_runs_and_uses_summary_purpose_discovery(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -281,7 +282,7 @@ def test_destination_page_prefers_raw_purpose_discovery_over_mixed_summary_dtype
     page = DestinationPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.purp_sel.options) == ["All NM", "eatout", "social"]
+    assert list(page.purp_sel.options) == ["All NM", "1"]
     assert page._body.objects
 
 

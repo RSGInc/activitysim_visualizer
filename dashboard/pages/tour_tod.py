@@ -8,8 +8,7 @@ import polars as pl
 from dashboard.components import density_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
-from summarize import tour_tod
-from summarize.reader import Config, RunData
+from summarize.reader import Config
 
 
 def _time_label(timebin: int, maxbin: int) -> str:
@@ -94,7 +93,7 @@ def chart_data(
 class TourTODPage(DashboardPage):
     def __init__(self, state, config: Config) -> None:
         super().__init__("Tour TOD", state, config)
-        purp_opts = self._purpose_options(state.weighted_runs)
+        purp_opts = self._purpose_options()
         self.purp_sel = pn.widgets.Select(
             name="Purpose", options=purp_opts, value=purp_opts[0]
         )
@@ -107,24 +106,26 @@ class TourTODPage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def _purpose_options(self, runs: list[tuple[str, RunData]]) -> list[str]:
-        tod_list = self.state.get_precomputed_summary("tour_tod_profiles", "weighted")
+    def _purpose_options(self) -> list[str]:
+        tod_list = self.state.get_summary_table_set("tour_tod_profiles", "weighted")
         if tod_list is None:
-            if not runs:
-                return ["work"]
-            tod_list = [(label, tour_tod.tod_profiles(rd)) for label, rd in runs]
+            return ["work"]
         return purpose_options(tod_list)
 
     def _refresh(self) -> None:
-        runs = self.state.get_runs()
         if not self.state.run_labels:
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        tod_list = self.get_summary(
-            "tour_tod_profiles",
-            lambda: [(label, tour_tod.tod_profiles(rd)) for label, rd in runs],
-        )
+        tod_list = self.require_summary("tour_tod_profiles")
+        if tod_list is None:
+            self._body.objects = [
+                self.data_not_available_card(
+                    detail="This page only renders from precomputed summary tables.",
+                    missing_items=list(self.required_summary_ids),
+                )
+            ]
+            return
         purp_opts = purpose_options(tod_list)
         self.purp_sel.options = purp_opts
         if self.purp_sel.value not in purp_opts:
@@ -180,4 +181,7 @@ PAGE = DashboardPageDefinition(
             label="Purpose",
         ),
     ),
+    required_summary_ids=("tour_tod_profiles",),
 )
+
+TourTODPage.definition = PAGE

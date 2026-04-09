@@ -8,8 +8,7 @@ import polars as pl
 from dashboard.components import density_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
-from summarize import stops
-from summarize.reader import Config, RunData
+from summarize.reader import Config
 
 
 def _time_label(timebin: int, maxbin: int) -> str:
@@ -100,7 +99,7 @@ def chart_data(
 class StopTimingPage(DashboardPage):
     def __init__(self, state, config: Config) -> None:
         super().__init__("Stop Timing", state, config)
-        purp_opts = self._purpose_options(state.weighted_runs)
+        purp_opts = self._purpose_options()
         self.purp_sel = pn.widgets.Select(
             name="Purpose", options=purp_opts, value=purp_opts[0]
         )
@@ -113,24 +112,29 @@ class StopTimingPage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def _purpose_options(self, runs: list[tuple[str, RunData]]) -> list[str]:
-        timing_list = self.state.get_precomputed_summary("stop_timing", "weighted")
+    def _purpose_options(self) -> list[str]:
+        timing_list = self.state.get_summary_table_set("stop_timing", "weighted")
         if timing_list is None:
-            timing_list = [(label, stops.stop_timing(rd)) for label, rd in runs]
+            return ["work"]
         purp_opts, _ = discover_purpose_columns(timing_list)
         return purp_opts
 
     def _refresh(self) -> None:
-        runs = self.state.get_runs()
         if not self.state.run_labels:
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
+        timing_list = self.require_summary("stop_timing")
+        if timing_list is None:
+            self._body.objects = [
+                self.data_not_available_card(
+                    detail="This page only renders from precomputed summary tables.",
+                    missing_items=list(self.required_summary_ids),
+                )
+            ]
+            return
+
         purp = self.purp_sel.value
-        timing_list = self.get_summary(
-            "stop_timing",
-            lambda: [(label, stops.stop_timing(rd)) for label, rd in runs],
-        )
         purp_opts, run_to_purpose_col = discover_purpose_columns(timing_list)
         self.purp_sel.options = purp_opts
         if self.purp_sel.value not in purp_opts:
@@ -176,4 +180,7 @@ PAGE = DashboardPageDefinition(
             label="Purpose",
         ),
     ),
+    required_summary_ids=("stop_timing",),
 )
+
+StopTimingPage.definition = PAGE

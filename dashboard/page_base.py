@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import panel as pn
 
 from dashboard import DashboardState
+from dashboard.components import data_unavailable_card
 from summarize.reader import Config
 
 if TYPE_CHECKING:
@@ -69,20 +70,68 @@ class DashboardPage:
         """Return the registered page title when one has been assigned."""
         return cls.definition.title if cls.definition is not None else None
 
-    def get_summary(self, summary_name: str, factory):
-        """Return a cached raw summary for the current weighting mode."""
-        precomputed = self.state.get_precomputed_summary(
-            summary_name, self.weighting_key
-        )
-        if precomputed is not None:
-            return precomputed
-        return self.state.get_or_create_cached(
-            "page_summary",
-            self.name,
-            self.weighting_key,
-            summary_name,
-            factory=factory,
-        )
+    @property
+    def required_summary_ids(self) -> tuple[str, ...]:
+        if self.definition is None:
+            return ()
+        return self.definition.required_summary_ids
+
+    def _warn_once(self, key: str, message: str) -> None:
+        warnings = self._page_state.setdefault("warnings_emitted", set())
+        if key in warnings:
+            return
+        print(message)
+        warnings.add(key)
+
+    def data_not_available_card(
+        self,
+        *,
+        detail: str,
+        missing_items: list[str] | tuple[str, ...] | None = None,
+        title: str = "Data Not Available",
+    ) -> pn.Card:
+        return data_unavailable_card(title, detail, missing_items=missing_items)
+
+    def get_summary(self, summary_name: str):
+        """Return one summary table per run for the current weighting mode."""
+        return self.state.get_summary_table_set(summary_name, self.weighting_key)
+
+    def has_summary(self, summary_name: str) -> bool:
+        return self.state.has_summary_table_set(summary_name, self.weighting_key)
+
+    def require_summary(self, summary_name: str):
+        summary = self.get_summary(summary_name)
+        if summary is None:
+            self._warn_once(
+                f"missing-summary:{summary_name}",
+                (
+                    f"Warning: dashboard page '{self.name}' requires summary "
+                    f"'{summary_name}' for weighting mode '{self.weighting_key}', "
+                    "but it is unavailable."
+                ),
+            )
+        return summary
+
+    def require_summaries(self, *summary_names: str) -> dict[str, Any] | None:
+        missing = [
+            summary_name
+            for summary_name in summary_names
+            if not self.has_summary(summary_name)
+        ]
+        if missing:
+            for summary_name in missing:
+                self._warn_once(
+                    f"missing-summary:{summary_name}",
+                    (
+                        f"Warning: dashboard page '{self.name}' requires summary "
+                        f"'{summary_name}' for weighting mode '{self.weighting_key}', "
+                        "but it is unavailable."
+                    ),
+                )
+            return None
+        return {
+            summary_name: self.get_summary(summary_name) for summary_name in summary_names
+        }
 
     def get_filtered_view(self, view_name: str, *filters: Any, factory):
         """Return a cached chart-ready filtered view for the current page state."""

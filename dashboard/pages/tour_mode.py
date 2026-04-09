@@ -8,8 +8,7 @@ import polars as pl
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
-from summarize import tour_mode as tm
-from summarize.reader import Config, RunData
+from summarize.reader import Config
 
 
 def purpose_options(mode_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
@@ -47,7 +46,7 @@ def charts_by_column(
 class TourModePage(DashboardPage):
     def __init__(self, state, config: Config) -> None:
         super().__init__("Tour Mode", state, config)
-        total_opts = self._purpose_options(state.weighted_runs)
+        total_opts = self._purpose_options()
         self.purp_sel = pn.widgets.Select(
             name="Purpose", options=total_opts, value=total_opts[0]
         )
@@ -60,26 +59,28 @@ class TourModePage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def _purpose_options(self, runs: list[tuple[str, RunData]]) -> list[str]:
-        mode_list = self.state.get_precomputed_summary("tour_mode_profile", "weighted")
+    def _purpose_options(self) -> list[str]:
+        mode_list = self.state.get_summary_table_set("tour_mode_profile", "weighted")
         if mode_list is None:
-            mode_list = [
-                (label, tm.tour_mode_profile(rd, self.config)) for label, rd in runs
-            ]
+            return ["Total"]
         return purpose_options(mode_list)
 
     def _refresh(self) -> None:
-        runs = self.state.get_runs()
         if not self.state.run_labels:
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        mode_list = self.get_summary(
-            "tour_mode_profile",
-            lambda: [
-                (label, tm.tour_mode_profile(rd, self.config)) for label, rd in runs
-            ],
-        )
+        summaries = self.require_summaries(*self.required_summary_ids)
+        if summaries is None:
+            self._body.objects = [
+                self.data_not_available_card(
+                    detail="This page only renders from precomputed summary tables.",
+                    missing_items=list(self.required_summary_ids),
+                )
+            ]
+            return
+
+        mode_list = summaries["tour_mode_profile"]
         purp_opts = purpose_options(mode_list)
         self.purp_sel.options = purp_opts
         if self.purp_sel.value not in purp_opts:
@@ -115,13 +116,17 @@ class TourModePage(DashboardPage):
         ]
 
         if self.config.mode_groups:
-            grouped_list = self.get_summary(
-                "grouped_tour_mode_profile",
-                lambda: [
-                    (label, tm.grouped_tour_mode_profile(rd, self.config))
-                    for label, rd in runs
-                ],
-            )
+            grouped_list = self.require_summary("grouped_tour_mode_profile")
+            if grouped_list is None:
+                self._body.objects = [
+                    self.data_not_available_card(
+                        detail=(
+                            "This page requires the grouped tour mode summary when mode groups are enabled."
+                        ),
+                        missing_items=["grouped_tour_mode_profile"],
+                    )
+                ]
+                return
             body.extend(
                 [
                     pn.pane.Markdown("### Grouped Mode Summary"),
@@ -151,4 +156,7 @@ PAGE = DashboardPageDefinition(
             label="Purpose",
         ),
     ),
+    required_summary_ids=("tour_mode_profile",),
 )
+
+TourModePage.definition = PAGE

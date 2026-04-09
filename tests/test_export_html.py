@@ -8,7 +8,9 @@ import polars as pl
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from _dashboard_expectations import EXPECTED_DEFAULT_PAGES
 from dashboard.export_html import build_export_html_document, write_export_html_document
 from summarize.cache import create_summary_run
 from summarize.reader import Config
@@ -17,6 +19,7 @@ from summarize.reader import Config
 def _write_config(
     tmp_path: Path,
     *,
+    dashboard_pages: list[str] | None | object = ...,
     weighting_modes: list[str] | None = None,
     modes_lines: list[str] | None = None,
     geography_lines: list[str] | None = None,
@@ -29,6 +32,11 @@ def _write_config(
         'dashboard_title: "Test Dashboard"',
         "runs: []",
     ]
+    if dashboard_pages is ...:
+        dashboard_pages = [page_id for page_id, _ in EXPECTED_DEFAULT_PAGES]
+    if dashboard_pages is not None:
+        lines.append("dashboard_pages:")
+        lines.extend(f"  - {page_id}" for page_id in dashboard_pages)
     if modes_lines:
         lines.append("modes:")
         lines.extend(f"  {line}" for line in modes_lines)
@@ -297,6 +305,7 @@ def test_export_html_config_defaults_to_weighted_percent(tmp_path: Path) -> None
 
     assert config.export_html.weighting == ["weighted"]
     assert config.export_html.values == ["percent"]
+    assert config.dashboard_pages == [page_id for page_id, _ in EXPECTED_DEFAULT_PAGES]
     assert config.export_html.dashboard.weighting == ["weighted"]
     assert config.export_html.dashboard.values == ["percent"]
     assert config.export_html.pages == {}
@@ -372,6 +381,12 @@ def test_export_html_config_supports_legacy_flat_dashboard_aliases(tmp_path: Pat
     assert config.export_html.dashboard.values == ["percent", "count"]
 
 
+def test_config_allows_missing_dashboard_pages_for_legacy_configs(tmp_path: Path) -> None:
+    config = _write_config(tmp_path, dashboard_pages=None)
+
+    assert config.dashboard_pages is None
+
+
 def test_export_html_config_rejects_invalid_or_empty_values(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="Unsupported outputs.export_html.dashboard.weighting"):
         _write_config(
@@ -382,6 +397,14 @@ def test_export_html_config_rejects_invalid_or_empty_values(tmp_path: Path) -> N
                 "    - weighted",
                 "    - bogus",
             ],
+        )
+
+
+def test_config_rejects_duplicate_dashboard_pages(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="dashboard_pages contains duplicate page id"):
+        _write_config(
+            tmp_path,
+            dashboard_pages=["overview", "overview"],
         )
 
     with pytest.raises(
@@ -451,7 +474,7 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     assert payload["dashboard_controls"]["weighting"] == ["Weighted", "Unweighted"]
     assert payload["dashboard_controls"]["values"] == ["Percent", "Count"]
     assert payload["default_state"] == {"weighting": "Weighted", "values": "Percent"}
-    assert len(payload["pages"]) == 11
+    assert [(page["id"], page["title"]) for page in payload["pages"]] == EXPECTED_DEFAULT_PAGES
     assert payload["page_export_support"]["client_side_runtime"] == "dashboard-and-page-selectors"
     assert payload["page_export_support"]["enabled_page_selectors"] == [
         {"page_id": "destination", "selector_id": "purpose"},
@@ -564,6 +587,34 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
         node.get("selector_id") == "person_type" and node.get("export_enabled") and not node.get("disabled")
         for node in widget_nodes
     )
+
+
+def test_build_export_html_document_respects_configured_dashboard_page_subset_and_order(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=["trip_mode", "overview", "destination"],
+        export_html_lines=[
+            "dashboard:",
+            "  weighting: all",
+            "  values: all",
+        ],
+    )
+
+    html = build_export_html_document([], config, summary_runs=[_full_summary_run()])
+    payload = _extract_payload(html)
+
+    assert [(page["id"], page["title"]) for page in payload["pages"]] == [
+        ("trip_mode", "Trip Mode"),
+        ("overview", "Overview"),
+        ("destination", "Destination"),
+    ]
+    assert list(payload["states"]["Weighted||Percent"]) == [
+        "trip_mode",
+        "overview",
+        "destination",
+    ]
 
 
 def test_build_export_html_document_validates_page_selector_requests_against_registry(

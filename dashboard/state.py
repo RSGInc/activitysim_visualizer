@@ -2,25 +2,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 import param
 import polars as pl
 
-from summarize.cache import SummaryRun, normalize_weighting_modes, strip_weights
+from dashboard.data_access import (
+    DashboardRawRunProvider,
+    DashboardSummarySeries,
+)
+from summarize.cache import SummaryRun, normalize_weighting_modes
 from summarize.reader import RunData
-
-
-@dataclass
-class SummarySeries:
-    """Summary tables available for one run, optionally paired with raw data."""
-
-    label: str
-    summaries_by_mode: dict[str, dict[str, pl.DataFrame]]
-    raw_run: RunData | None = None
-    run_key: str | None = None
-    source_run_dir: str | None = None
 
 
 class DashboardState(param.Parameterized):
@@ -38,11 +30,19 @@ class DashboardState(param.Parameterized):
         *,
         summary_runs: list[SummaryRun] | None = None,
         weighting_modes: list[str] | None = None,
+        raw_run_provider: DashboardRawRunProvider | None = None,
         **params: Any,
     ) -> None:
         super().__init__(**params)
-        self._weighted_runs = list(runs or [])
-        self._unweighted_runs: list[tuple[str, RunData]] | None = None
+        if raw_run_provider is not None and runs:
+            raise ValueError(
+                "Pass raw runs either through 'runs' or 'raw_run_provider', not both."
+            )
+        self._raw_run_provider = (
+            raw_run_provider
+            if raw_run_provider is not None
+            else DashboardRawRunProvider.from_runs(runs)
+        )
         self._weighting_modes = normalize_weighting_modes(weighting_modes)
         weight_options = [mode.title() for mode in self._weighting_modes]
         self.param.weight_mode.objects = weight_options
@@ -50,51 +50,44 @@ class DashboardState(param.Parameterized):
         self._page_state: dict[str, dict[str, Any]] = {}
         self._caches: dict[str, dict[tuple[Any, ...], Any]] = {}
         self._cache_stats: dict[str, dict[str, int]] = {}
-        self._summary_runs: list[SummarySeries] = self._build_summary_series(
+        self._summary_runs: list[DashboardSummarySeries] = self._build_summary_series(
             summary_runs
         )
 
     def _build_summary_series(
         self,
         summary_runs: list[SummaryRun] | None,
-    ) -> list[SummarySeries]:
+    ) -> list[DashboardSummarySeries]:
         if not summary_runs:
             return []
-        raw_by_label = {label: rd for label, rd in self._weighted_runs}
         return [
-            SummarySeries(
-                label=summary_run.label,
-                summaries_by_mode=summary_run.summaries_by_mode,
-                raw_run=summary_run.raw_run or raw_by_label.get(summary_run.label),
-                run_key=summary_run.run_key,
-                source_run_dir=summary_run.source_run_dir,
-            )
+            DashboardSummarySeries.from_summary_run(summary_run)
             for summary_run in summary_runs
         ]
 
     @property
     def weighted_runs(self) -> list[tuple[str, RunData]]:
-        """Return the original weighted run list."""
-        return self._weighted_runs
+        """Compatibility wrapper for callers that still expect ambient raw runs."""
+        return self.get_raw_runs_if_loaded(weighted=True) or []
 
     @property
     def unweighted_runs(self) -> list[tuple[str, RunData]]:
-        """Return cached unweighted runs, creating them on first access."""
-        if self._unweighted_runs is None:
-            self._unweighted_runs = [
-                (label, strip_weights(rd)) for label, rd in self._weighted_runs
-            ]
-        return self._unweighted_runs
+        """Compatibility wrapper for callers that still expect ambient raw runs."""
+        return self.get_raw_runs_if_loaded(weighted=False) or []
 
     @property
     def enabled_weighting_modes(self) -> list[str]:
         return list(self._weighting_modes)
 
     @property
+    def raw_run_availability(self) -> str:
+        return self._raw_run_provider.availability
+
+    @property
     def run_labels(self) -> list[str]:
         if self._summary_runs:
             return [run.label for run in self._summary_runs]
-        return [label for label, _ in self._weighted_runs]
+        return self._raw_run_provider.labels()
 
     @property
     def page_state(self) -> dict[str, dict[str, Any]]:
@@ -121,34 +114,54 @@ class DashboardState(param.Parameterized):
         """Return a stable key for the current global display state."""
         return (self.weighting_key(), self.value_key())
 
-    def get_runs(self, weighted: bool | None = None) -> list[tuple[str, RunData]]:
-        """Return weighted or unweighted runs, defaulting to current state."""
+    def get_raw_runs_if_loaded(
+        self,
+        weighted: bool | None = None,
+    ) -> list[tuple[str, RunData]] | None:
+        """Return raw runs only when the dashboard explicitly has them loaded."""
         if weighted is None:
             weighted = self.weight_mode == "Weighted"
-        return self.weighted_runs if weighted else self.unweighted_runs
+        return self._raw_run_provider.get_runs_if_loaded(weighted=weighted)
+
+    def get_runs(self, weighted: bool | None = None) -> list[tuple[str, RunData]]:
+        """Compatibility wrapper for callers that still expect ambient raw runs."""
+        return self.get_raw_runs_if_loaded(weighted=weighted) or []
+
+    def get_summary_table_set(
+        self,
+        summary_name: str,
+        weighting_key: str | None = None,
+    ) -> list[tuple[str, pl.DataFrame]] | None:
+        """Return one summary table per run for the requested weighting mode."""
+        if not self._summary_runs:
+            return None
+        mode = weighting_key or self.weighting_key()
+        summary_list: list[tuple[str, pl.DataFrame]] = []
+        for run in self._summary_runs:
+            table = run.get_table(summary_name, mode)
+            if table is None:
+                return None
+            summary_list.append((run.label, table))
+        return summary_list
+
+    def has_summary_table_set(
+        self,
+        summary_name: str,
+        weighting_key: str | None = None,
+    ) -> bool:
+        return self.get_summary_table_set(summary_name, weighting_key) is not None
 
     def get_precomputed_summary(
         self,
         summary_name: str,
         weighting_key: str | None = None,
     ) -> list[tuple[str, pl.DataFrame]] | None:
-        if not self._summary_runs:
-            return None
-        mode = weighting_key or self.weighting_key()
-        summary_list: list[tuple[str, pl.DataFrame]] = []
-        for run in self._summary_runs:
-            mode_tables = run.summaries_by_mode.get(mode)
-            if mode_tables is None or summary_name not in mode_tables:
-                return None
-            summary_list.append((run.label, mode_tables[summary_name]))
-        return summary_list
+        """Compatibility wrapper for the summary-first dashboard data API."""
+        return self.get_summary_table_set(summary_name, weighting_key)
 
     def summary_raw_runs(self) -> list[tuple[str, RunData]]:
-        return [
-            (run.label, run.raw_run)
-            for run in self._summary_runs
-            if run.raw_run is not None
-        ]
+        """Compatibility wrapper for older callers expecting summary-linked raw runs."""
+        return self.get_raw_runs_if_loaded(weighted=True) or []
 
     def get_page_state(self, page_name: str) -> dict[str, Any]:
         """Return mutable page-local state for a page, creating it if needed."""

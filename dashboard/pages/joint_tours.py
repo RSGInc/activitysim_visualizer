@@ -1,13 +1,16 @@
 """Joint tours page: JTF, composition, party size, by HH size."""
 
 from __future__ import annotations
+
 import panel as pn
 import polars as pl
+
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
 from summarize.reader import Config
-from summarize import tours as tour_sums
+
+
 class JointToursPage(DashboardPage):
     def __init__(self, state, config: Config) -> None:
         super().__init__("Joint Tours", state, config)
@@ -24,15 +27,21 @@ class JointToursPage(DashboardPage):
         )
 
     def _refresh(self) -> None:
-        runs = self.state.get_runs()
         if not self.state.run_labels:
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        jtf_list = self.get_summary(
-            "joint_tour_freq",
-            lambda: [(label, tour_sums.joint_tour_freq(rd)) for label, rd in runs],
-        )
+        summaries = self.require_summaries(*self.required_summary_ids)
+        if summaries is None:
+            self._body.objects = [
+                self.data_not_available_card(
+                    detail="This page only renders from precomputed summary tables.",
+                    missing_items=list(self.required_summary_ids),
+                )
+            ]
+            return
+
+        jtf_list = summaries["joint_tour_freq"]
 
         def _ordered_comp(df: pl.DataFrame) -> pl.DataFrame:
             if len(df) == 0:
@@ -58,29 +67,18 @@ class JointToursPage(DashboardPage):
                 .drop("_ord")
             )
 
-        comp_list = self.get_summary(
-            "joint_composition",
-            lambda: [
-                (label, _ordered_comp(tour_sums.joint_composition(rd)))
-                for label, rd in runs
-            ],
-        )
-        party_list = self.get_summary(
-            "joint_party_size",
-            lambda: [
-                (
-                    label,
-                    tour_sums.joint_party_size(rd).with_columns(
-                        pl.col("NUMBER_HH").cast(pl.Utf8)
-                    ),
-                )
-                for label, rd in runs
-            ],
-        )
-        hhsize_list = self.get_summary(
-            "joint_tours_hhsize",
-            lambda: [(label, tour_sums.joint_tours_hhsize(rd)) for label, rd in runs],
-        )
+        comp_list = [
+            (label, _ordered_comp(df))
+            for label, df in summaries["joint_composition"]
+        ]
+        party_list = [
+            (
+                label,
+                df.with_columns(pl.col("NUMBER_HH").cast(pl.Utf8)),
+            )
+            for label, df in summaries["joint_party_size"]
+        ]
+        hhsize_list = summaries["joint_tours_hhsize"]
 
         def _ordered_presence(df: pl.DataFrame) -> pl.DataFrame:
             base = pl.DataFrame({"jointTours": ["0", "1", "2+"]})
@@ -173,4 +171,12 @@ PAGE = DashboardPageDefinition(
             label="HH Size",
         ),
     ),
+    required_summary_ids=(
+        "joint_tour_freq",
+        "joint_composition",
+        "joint_party_size",
+        "joint_tours_hhsize",
+    ),
 )
+
+JointToursPage.definition = PAGE

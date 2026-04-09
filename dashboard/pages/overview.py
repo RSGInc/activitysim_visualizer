@@ -8,7 +8,6 @@ import polars as pl
 from dashboard.components import _to_pandas, bar_chart, kpi_box
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
-from summarize import demographics, totals
 from summarize.reader import Config
 
 KPI_METRICS = [
@@ -99,26 +98,29 @@ class OverviewPage(DashboardPage):
         self.view = self._body
 
     def _refresh(self) -> None:
-        runs = self.state.get_runs()
         if not self.state.run_labels:
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        totals_list = self.get_summary(
-            "totals",
-            lambda: [
-                (label, totals.system_totals(rd, self.config)) for label, rd in runs
-            ],
-        )
-        pertype_list = self.get_summary(
-            "person_type",
-            lambda: [
-                (label, demographics.person_type(rd, self.config)) for label, rd in runs
-            ],
-        )
-        hhsize_list = self.get_summary(
-            "hh_size",
-            lambda: [(label, demographics.hh_size(rd)) for label, rd in runs],
+        summaries = self.require_summaries(*self.required_summary_ids)
+        if summaries is None:
+            self._body.objects = [
+                pn.pane.Markdown("## Overview"),
+                self.data_not_available_card(
+                    detail=(
+                        "This page only renders from precomputed summary tables."
+                    ),
+                    missing_items=list(self.required_summary_ids),
+                ),
+            ]
+            return
+
+        totals_list = summaries["totals"]
+        pertype_list = summaries["person_type"]
+        hhsize_list = summaries["hh_size"]
+        pct_df = self.get_filtered_view(
+            "overview_pct",
+            factory=lambda: percent_difference_table(totals_list),
         )
 
         def _card(metric: str, label: str):
@@ -132,11 +134,6 @@ class OverviewPage(DashboardPage):
                     for run_label, tot_df in totals_list
                 ],
             )
-
-        pct_df = self.get_filtered_view(
-            "overview_pct",
-            factory=lambda: percent_difference_table(totals_list),
-        )
 
         ptype_chart = bar_chart(
             person_type_chart_data(pertype_list),
@@ -192,4 +189,7 @@ PAGE = DashboardPageDefinition(
     title="Overview",
     order=10,
     controller_cls=OverviewPage,
+    required_summary_ids=("totals", "person_type", "hh_size"),
 )
+
+OverviewPage.definition = PAGE

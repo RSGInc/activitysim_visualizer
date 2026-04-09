@@ -8,8 +8,7 @@ import polars as pl
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
-from summarize import trips
-from summarize.reader import Config, RunData
+from summarize.reader import Config
 
 
 def discover_options(
@@ -58,7 +57,7 @@ def chart_data(
 class TripModePage(DashboardPage):
     def __init__(self, state, config: Config) -> None:
         super().__init__("Trip Mode", state, config)
-        purp_opts, tmode_opts = self._options(state.weighted_runs)
+        purp_opts, tmode_opts = self._options()
         self.purp_sel = pn.widgets.Select(
             name="Tour Purpose", options=purp_opts, value="Total"
         )
@@ -75,29 +74,30 @@ class TripModePage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def _options(self, runs: list[tuple[str, RunData]]) -> tuple[list[str], list[str]]:
-        trip_list = self.state.get_precomputed_summary("trip_mode_profile", "weighted")
+    def _options(self) -> tuple[list[str], list[str]]:
+        trip_list = self.state.get_summary_table_set("trip_mode_profile", "weighted")
         if trip_list is None:
-            trip_list = [
-                (label, trips.trip_mode_profile(rd, self.config)) for label, rd in runs
-            ]
+            return ["Total"], []
         purp_opts, tmode_opts, _ = discover_options(trip_list)
         return purp_opts, tmode_opts
 
     def _refresh(self) -> None:
-        runs = self.state.get_runs()
         if not self.state.run_labels:
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
+        trip_list = self.require_summary("trip_mode_profile")
+        if trip_list is None:
+            self._body.objects = [
+                self.data_not_available_card(
+                    detail="This page only renders from precomputed summary tables.",
+                    missing_items=list(self.required_summary_ids),
+                )
+            ]
+            return
+
         purp = self.purp_sel.value
         tmode = self.tmode_sel.value
-        trip_list = self.get_summary(
-            "trip_mode_profile",
-            lambda: [
-                (label, trips.trip_mode_profile(rd, self.config)) for label, rd in runs
-            ],
-        )
         purp_opts, tmode_opts, run_to_purpose_col = discover_options(trip_list)
         self.purp_sel.options = purp_opts
         if self.purp_sel.value not in purp_opts:
@@ -144,4 +144,7 @@ PAGE = DashboardPageDefinition(
             label="Tour Mode",
         ),
     ),
+    required_summary_ids=("trip_mode_profile",),
 )
+
+TripModePage.definition = PAGE

@@ -8,8 +8,7 @@ import polars as pl
 from dashboard.components import density_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
-from summarize import stops
-from summarize.reader import Config, RunData
+from summarize.reader import Config
 
 
 def discover_purpose_columns(
@@ -69,15 +68,20 @@ class StopLocationPage(DashboardPage):
         self.view = self._body
 
     def _refresh(self) -> None:
-        runs = self.state.get_runs()
         if not self.state.run_labels:
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        loc_list = self.get_summary(
-            "stop_location",
-            lambda: [(label, stops.stop_location(rd)) for label, rd in runs],
-        )
+        loc_list = self.require_summary("stop_location")
+        if loc_list is None:
+            self._body.objects = [
+                pn.pane.Markdown("## Stop Location"),
+                self.data_not_available_card(
+                    detail="This page only renders from precomputed summary tables.",
+                    missing_items=list(self.required_summary_ids),
+                ),
+            ]
+            return
         purp_opts, run_to_purpose_col = discover_purpose_columns(loc_list)
 
         charts = [
@@ -121,4 +125,7 @@ PAGE = DashboardPageDefinition(
     title="Stop Location",
     order=90,
     controller_cls=StopLocationPage,
+    required_summary_ids=("stop_location",),
 )
+
+StopLocationPage.definition = PAGE

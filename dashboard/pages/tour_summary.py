@@ -8,8 +8,7 @@ import polars as pl
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
-from summarize import tours as tour_sums
-from summarize.reader import Config, RunData
+from summarize.reader import Config
 
 
 def ptype_options(dap_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
@@ -112,7 +111,7 @@ def chart_data(
 class TourSummaryPage(DashboardPage):
     def __init__(self, state, config: Config) -> None:
         super().__init__("Tour Summary", state, config)
-        ptype_opts = self._ptype_options(state.weighted_runs)
+        ptype_opts = self._ptype_options()
         ptype_label_map = {
             p: ("Total" if str(p) == "Total" else config.ptype_label(p))
             for p in ptype_opts
@@ -134,44 +133,32 @@ class TourSummaryPage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def _ptype_options(self, runs: list[tuple[str, RunData]]) -> list[str]:
-        dap_list = self.state.get_precomputed_summary("dap_summary", "weighted")
+    def _ptype_options(self) -> list[str]:
+        dap_list = self.state.get_summary_table_set("dap_summary", "weighted")
         if dap_list is None:
-            if not runs:
-                return ["Total"]
-            dap_list = [
-                (label, tour_sums.dap_summary(rd, self.config)) for label, rd in runs
-            ]
+            return ["Total"]
         if not dap_list:
             return ["Total"]
         return ptype_options(dap_list)
 
     def _refresh(self) -> None:
-        runs = self.state.get_runs()
         if not self.state.run_labels:
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        dap_list = self.get_summary(
-            "dap_summary",
-            lambda: [
-                (label, tour_sums.dap_summary(rd, self.config)) for label, rd in runs
-            ],
-        )
-        mtf_list = self.get_summary(
-            "mandatory_tour_freq",
-            lambda: [
-                (label, tour_sums.mandatory_tour_freq(rd, self.config))
-                for label, rd in runs
-            ],
-        )
-        inm_list = self.get_summary(
-            "indiv_nm_summary",
-            lambda: [
-                (label, tour_sums.indiv_nm_summary(rd, self.config))
-                for label, rd in runs
-            ],
-        )
+        summaries = self.require_summaries(*self.required_summary_ids)
+        if summaries is None:
+            self._body.objects = [
+                self.data_not_available_card(
+                    detail="This page only renders from precomputed summary tables.",
+                    missing_items=list(self.required_summary_ids),
+                )
+            ]
+            return
+
+        dap_list = summaries["dap_summary"]
+        mtf_list = summaries["mandatory_tour_freq"]
+        inm_list = summaries["indiv_nm_summary"]
         ptype_opts = ptype_options(dap_list)
         ptype_label_map, self._label_to_ptype = ptype_maps(ptype_opts, self.config)
         display_opts = [ptype_label_map[p] for p in ptype_opts] or ["Total"]
@@ -229,4 +216,7 @@ PAGE = DashboardPageDefinition(
             label="Person Type",
         ),
     ),
+    required_summary_ids=("dap_summary", "mandatory_tour_freq", "indiv_nm_summary"),
 )
+
+TourSummaryPage.definition = PAGE

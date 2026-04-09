@@ -329,3 +329,22 @@ def district_selector(
 ) -> pn.widgets.Select:
     all_opts = ["All"] + districts
     return pn.widgets.Select(name=name, options=all_opts, value="All")
+
+
+def data_unavailable_card(
+    title: str,
+    detail: str,
+    missing_items: list[str] | tuple[str, ...] | None = None,
+) -> pn.Card:
+    """Return a standard placeholder card for unavailable page data."""
+    detail_lines = [detail]
+    if missing_items:
+        detail_lines.append("")
+        detail_lines.append("Missing data:")
+        detail_lines.extend(f"- `{item}`" for item in missing_items)
+    return pn.Card(
+        pn.pane.Markdown("\n".join(detail_lines)),
+        title=title,
+        sizing_mode="stretch_width",
+        styles={"border-radius": "10px"},
+    )
