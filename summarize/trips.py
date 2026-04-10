@@ -4,7 +4,8 @@ Uses tour_mode and trip_mode strings directly from ActivitySim outputs.
 """
 
 import polars as pl
-from .reader import RunData, Config
+from runtime.config import Config
+from runtime.models import RunData
 
 
 def trip_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:

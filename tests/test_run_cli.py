@@ -12,10 +12,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import run
 import runtime_workflows
 from dashboard import app as dashboard_app
+from runtime import run_data as runtime_run_data
+from runtime.config import Config
+from runtime.models import RunData
 from summarize import cache as summary_cache
-from summarize import reader as summary_reader
 from summarize.cache import build_run_fingerprint, create_summary_run, write_summary_run_cache
-from summarize.reader import Config, RunData
+
+summary_reader = runtime_run_data
 
 
 def _write_cli_config(

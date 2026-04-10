@@ -7,7 +7,8 @@ Uses string values directly from ActivitySim outputs:
 """
 
 import polars as pl
-from .reader import RunData, Config
+from runtime.config import Config
+from runtime.models import RunData
 
 
 def dap_summary(rd: RunData, config: Config) -> pl.DataFrame:

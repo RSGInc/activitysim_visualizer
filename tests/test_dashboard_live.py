@@ -28,8 +28,8 @@ from dashboard.page_registry import (
     resolve_page_definitions,
 )
 from dashboard.state import DashboardState
+from runtime.models import RunData
 from summarize.cache import SUMMARY_SPEC_BY_ID
-from summarize.reader import RunData
 
 
 def _raw_trip_run() -> RunData:
