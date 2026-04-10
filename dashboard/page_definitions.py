@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable, Literal
 
 import panel as pn
 
-from summarize.reader import Config
+from runtime.config import Config
 
 if TYPE_CHECKING:
     from dashboard.page_base import DashboardPage

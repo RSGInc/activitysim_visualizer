@@ -12,6 +12,8 @@ from typing import Callable
 
 import polars as pl
 
+from runtime.config import Config
+from runtime.models import RunData
 from summarize import (
     demographics,
     destination,
@@ -23,7 +25,6 @@ from summarize import (
     tours,
     trips,
 )
-from summarize.reader import Config, RunData
 from summarize.writer import write_all
 
 SCHEMA_VERSION = 3

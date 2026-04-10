@@ -11,8 +11,8 @@ from dashboard.data_access import (
     DashboardRawRunProvider,
     DashboardSummarySeries,
 )
+from runtime.models import RunData
 from summarize.cache import SummaryRun, normalize_weighting_modes
-from summarize.reader import RunData
 
 
 class DashboardState(param.Parameterized):

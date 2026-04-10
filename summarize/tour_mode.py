@@ -5,7 +5,8 @@ Supports optional mode ordering (config.mode_order) and grouping (config.mode_gr
 """
 
 import polars as pl
-from .reader import RunData, Config
+from runtime.config import Config
+from runtime.models import RunData
 
 
 def tour_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:

@@ -8,7 +8,8 @@ import polars as pl
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
-from summarize.reader import Config, RunData
+from runtime.config import Config
+from runtime.models import RunData
 
 
 def trip_mode_distribution(

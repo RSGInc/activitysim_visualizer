@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import polars as pl
 
-from .reader import RunData
+from runtime.models import RunData
 
 
 def _combined_nm_tours(rd: RunData, purpose: str | None = None) -> pl.DataFrame:

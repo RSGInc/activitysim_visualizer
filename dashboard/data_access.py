@@ -7,8 +7,8 @@ from typing import Literal
 
 import polars as pl
 
+from runtime.models import RunData
 from summarize.cache import SummaryRun, strip_weights
-from summarize.reader import RunData
 
 RawRunAvailability = Literal["loaded", "unavailable", "not_requested"]
 

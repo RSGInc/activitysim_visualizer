@@ -4,7 +4,8 @@ Uses primary_purpose string directly from ActivitySim outputs.
 """
 
 import polars as pl
-from .reader import RunData, Config
+from runtime.config import Config
+from runtime.models import RunData
 
 
 def stop_freq(rd: RunData) -> pl.DataFrame:

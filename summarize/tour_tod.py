@@ -5,7 +5,8 @@ Purposes are discovered from data, not hardcoded.
 """
 
 import polars as pl
-from .reader import RunData, Config
+from runtime.config import Config
+from runtime.models import RunData
 
 
 def tod_profiles(rd: RunData) -> pl.DataFrame:

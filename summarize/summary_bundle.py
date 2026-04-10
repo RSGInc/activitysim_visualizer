@@ -1,11 +1,15 @@
 """Compatibility wrappers around the summary cache registry."""
 
+# TODO: Check if this file is stale and can be deleted.
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
 from pathlib import Path
 
+from runtime.config import Config
+from runtime.models import RunData
 from summarize.cache import (
     build_mode_summaries,
     build_run_keys,
@@ -15,7 +19,6 @@ from summarize.cache import (
     strip_weights,
     write_summary_run_cache,
 )
-from summarize.reader import Config, RunData
 
 
 def write_summary_bundle(

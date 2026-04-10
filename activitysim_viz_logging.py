@@ -8,7 +8,7 @@ import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from summarize.reader import Config
+    from runtime.config import Config
 
 LOGGER_NAMESPACE = "activitysim_viz"
 DEFAULT_LOG_FILENAME = "activitysim_visualizer.log"

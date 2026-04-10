@@ -12,8 +12,9 @@ from dashboard import DashboardState
 from dashboard.data_access import DashboardRawRunProvider
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition, RawDataMode
+from runtime.config import Config
+from runtime.models import RunData
 from summarize.cache import SUMMARY_SPEC_BY_ID
-from summarize.reader import Config, RunData
 
 LOGGER = get_logger("dashboard.page_registry")
 VALID_RAW_DATA_MODES: tuple[RawDataMode, ...] = ("none", "optional", "required")

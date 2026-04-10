@@ -8,7 +8,7 @@ import polars as pl
 from dashboard.components import _to_pandas, bar_chart, kpi_box
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
-from summarize.reader import Config
+from runtime.config import Config
 
 KPI_METRICS = [
     "population",

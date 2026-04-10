@@ -10,7 +10,7 @@ import panel as pn
 from activitysim_viz_logging import get_logger
 from dashboard import DashboardState
 from dashboard.components import data_unavailable_card
-from summarize.reader import Config
+from runtime.config import Config
 
 if TYPE_CHECKING:
     from dashboard.page_definitions import DashboardPageDefinition

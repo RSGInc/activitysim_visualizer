@@ -6,7 +6,8 @@ the land_use file column specified in config.geography_landuse_col.
 """
 
 import polars as pl
-from .reader import RunData, Config
+from runtime.config import Config
+from runtime.models import RunData
 
 # ---------------------------------------------------------------------------
 # TLFD

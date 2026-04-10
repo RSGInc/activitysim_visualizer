@@ -1,7 +1,8 @@
 """System-wide KPI totals."""
 
 import polars as pl
-from .reader import RunData, Config
+from runtime.config import Config
+from runtime.models import RunData
 
 
 def system_totals(rd: RunData, config: Config | None = None) -> pl.DataFrame:

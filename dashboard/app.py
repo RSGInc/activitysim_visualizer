@@ -10,8 +10,9 @@ from dashboard.page_registry import (
     build_dashboard_raw_run_provider,
     build_registered_live_pages,
 )
+from runtime.config import Config
+from runtime.models import RunData
 from summarize.cache import SummaryRun
-from summarize.reader import Config, RunData
 
 pn.extension("plotly", "tabulator", sizing_mode="stretch_width")
 pn.config.raw_css.append("""

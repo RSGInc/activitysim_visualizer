@@ -7,9 +7,10 @@ from pathlib import Path
 from typing import Any
 
 from activitysim_viz_logging import get_logger
+from runtime import run_data as runtime_run_data
+from runtime.config import Config
+from runtime.models import RunData
 from summarize import cache as summary_cache
-from summarize import reader as summary_reader
-from summarize.reader import Config, RunData
 
 LOGGER = get_logger("main")
 
@@ -114,7 +115,7 @@ def load_summary_runs_from_cache(
             expected_run_fingerprint = summary_cache.build_run_fingerprint(
                 label=expected_label,
                 run_dir=run_dir,
-                skim_file=summary_reader.resolve_skim_path(
+                skim_file=runtime_run_data.resolve_skim_path(
                     entry.get("skim_file") or None,
                     config.skim_file,
                     run_dir,
@@ -191,7 +192,7 @@ def load_raw_runs_for_dashboard(
         label = entry.get("label", Path(run_dir).name)
         skim = entry.get("skim_file") or None
         LOGGER.info("Reading raw runs for dashboard page needs: %r", label)
-        raw_run = summary_reader.read_run(
+        raw_run = runtime_run_data.read_run(
             run_dir,
             config,
             label=label,
@@ -200,7 +201,7 @@ def load_raw_runs_for_dashboard(
             person_weight_col=entry.get("person_weight_col") or None,
             trip_weight_col=entry.get("trip_weight_col") or None,
         )
-        raw_run = summary_reader.prepare_data(raw_run, config)
+        raw_run = runtime_run_data.prepare_data(raw_run, config)
         LOGGER.info("Prepared raw runs for dashboard page needs: %r", label)
         loaded = (label, raw_run)
         existing_raw_runs_by_key[run_key] = loaded
@@ -226,7 +227,7 @@ def run_summary_workflow(
         run_dir = entry.get("dir", "")
         label = entry.get("label", Path(run_dir).name)
         skim = entry.get("skim_file") or None
-        resolved_skim = summary_reader.resolve_skim_path(
+        resolved_skim = runtime_run_data.resolve_skim_path(
             skim, config.skim_file, run_dir
         )
         run_fingerprint = summary_cache.build_run_fingerprint(
@@ -258,7 +259,7 @@ def run_summary_workflow(
                 LOGGER.info("Cache miss for %r: %s", label, exc)
 
         LOGGER.info("Reading run %r from %s", label, run_dir)
-        raw_run = summary_reader.read_run(
+        raw_run = runtime_run_data.read_run(
             run_dir,
             config,
             label=label,
@@ -267,7 +268,7 @@ def run_summary_workflow(
             person_weight_col=entry.get("person_weight_col") or None,
             trip_weight_col=entry.get("trip_weight_col") or None,
         )
-        raw_run = summary_reader.prepare_data(raw_run, config)
+        raw_run = runtime_run_data.prepare_data(raw_run, config)
         LOGGER.info("Prepared run: %r", label)
         raw_loaded = (label, raw_run)
         raw_runs.append(raw_loaded)

@@ -8,7 +8,7 @@ import polars as pl
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
-from summarize.reader import Config
+from runtime.config import Config
 
 
 def ptype_options(dap_list: list[tuple[str, pl.DataFrame]]) -> list[str]:

@@ -1,7 +1,8 @@
 """Household and person demographic summaries."""
 
 import polars as pl
-from .reader import RunData, Config
+from runtime.config import Config
+from runtime.models import RunData
 
 
 def auto_ownership(rd: RunData) -> pl.DataFrame:
