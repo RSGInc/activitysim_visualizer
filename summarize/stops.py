@@ -7,36 +7,6 @@ import polars as pl
 from .reader import RunData, Config
 
 
-def stop_freq(rd: RunData) -> pl.DataFrame:
-    """Stop frequency by tour purpose (outbound, inbound, total).
-
-    Columns: primary_purpose, ob_stops (0-3+), ib_stops (0-3+), tot_stops (0-6+), freq.
-    """
-    # Find a valid non-numeric purpose column if available
-    purpose_col = None
-    for cand in ("primary_purpose", "tour_type", "purpose"):
-        if cand in rd.tours.columns and not rd.tours[cand].dtype.is_numeric():
-            purpose_col = cand
-            break
-
-    if purpose_col is None:
-        return pl.DataFrame()
-
-    all_tours = rd.tours.filter(pl.col("tour_category").is_not_null())
-    ob = (
-        all_tours.with_columns(
-            [
-                pl.col("num_ob_stops").clip(0, 3).alias("ob_stops"),
-                pl.col("num_ib_stops").clip(0, 3).alias("ib_stops"),
-                pl.col("num_tot_stops").clip(0, 6).alias("tot_stops"),
-            ]
-        )
-        .group_by([purpose_col, "ob_stops", "ib_stops", "tot_stops"])
-        .agg(pl.col("finalweight").sum().alias("freq"))
-    )
-    return ob
-
-
 def stop_purpose_by_tour_purpose(rd: RunData) -> pl.DataFrame:
     """Stop destination purpose by tour purpose.
 

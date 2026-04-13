@@ -23,7 +23,7 @@ from summarize import (
     totals,
     tour_mode,
     tour_tod,
-    tours,
+    tour,
     trips,
 )
 from summarize.reader import Config, RunData
@@ -168,22 +168,37 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         "household_jtp_by_household_size_and_jtf",
         joint_travel.jtf_by_hhsize,
     ),
+    # TOUR SUMMARIES
+    # tour category
+    # tour purpose
+    # allocated vehicle age
+    # allocated vehicle fuel type
+    # allocated vehicle body type
+    SummarySpec(
+        "tour_mode_by_tour_purpose_and_auto_sufficiency",
+        "tour_mode_by_tour_purpose_and_auto_sufficiency",
+        tour.tour_mode,
+    ),
+    # at-work sub-tour frequency
+    SummarySpec(
+        "tour_time_of_day_by_tour_purpose",
+        "tour_time_of_day_by_tour_purpose",
+        tour.tour_tod,
+    ),
+    SummarySpec(
+        "tour_stop_frequency_by_tour_purpose",
+        "tour_stop_frequency_by_tour_purpose",
+        tour.stop_freq,
+    ),
     SummarySpec("mand_tour_lengths", "mandTourLengths", mandatory.mand_tour_lengths),
     SummarySpec("geo_flows", "geoFlows", mandatory.geo_flows),
     SummarySpec("nm_tour_rates", "nm_tour_rates", tours.nm_tour_rates),
-    SummarySpec("tour_mode_profile", "tmodeProfile_vis", tour_mode.tour_mode_profile),
     SummarySpec(
         "grouped_tour_mode_profile",
         "groupedTmodeProfile_vis",
         tour_mode.grouped_tour_mode_profile,
     ),
-    SummarySpec(
-        "tour_tod_profiles",
-        "todProfile_vis",
-        lambda rd, config: tour_tod.tod_profiles(rd),
-    ),
     SummarySpec("trip_mode_profile", "tripModeProfile_vis", trips.trip_mode_profile),
-    SummarySpec("stop_freq", "stopFreq", lambda rd, config: stops.stop_freq(rd)),
     SummarySpec(
         "stop_purpose_by_tour_purpose",
         "stopPurpose",
