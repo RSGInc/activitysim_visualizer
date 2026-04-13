@@ -17,7 +17,12 @@ RawDataMode = Literal["none", "optional", "required"]
 
 @dataclass(frozen=True)
 class PageSelectorDefinition:
-    """One page-level selector that may be supported in HTML export."""
+    """One page-level selector that may be supported in HTML export.
+    selector_id: str of the name by which the widget is referred in Config.visualizer.export_html.pages
+    widget_attr: str of the attribute of the dashboard page that "owns" the widget
+
+    e.g., The widget JointToursPage.hhsize_sel has selector_id="hh_size" and widget_attr="hhsize_sel" is the widget_attr
+    """
 
     selector_id: str
     widget_attr: str

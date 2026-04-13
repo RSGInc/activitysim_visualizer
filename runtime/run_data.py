@@ -21,6 +21,56 @@ from runtime.models import RunData
 LOGGER = get_logger("runtime.run_data")
 
 
+def _resolve_source_column(
+    df: pl.DataFrame,
+    preferred: str | list[str] | None,
+    *,
+    fallbacks: tuple[str, ...] = (),
+    require_non_numeric: bool = False,
+) -> str | None:
+    """Return the first matching source column for one semantic concept.
+
+    For purpose-like fields we prefer non-numeric columns to preserve the
+    existing summary behavior of displaying readable labels when available.
+    """
+
+    candidates: list[str] = []
+    if isinstance(preferred, list):
+        preferred_candidates = preferred
+    elif preferred is None:
+        preferred_candidates = []
+    else:
+        preferred_candidates = [preferred]
+
+    for candidate in [*preferred_candidates, *fallbacks]:
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+    if not candidates:
+        return None
+
+    if require_non_numeric:
+        for candidate in candidates:
+            if candidate in df.columns and not df[candidate].dtype.is_numeric():
+                return candidate
+
+    for candidate in candidates:
+        if candidate in df.columns:
+            return candidate
+    return None
+
+
+def _materialize_column(
+    df: pl.DataFrame,
+    target: str,
+    source: str | None,
+) -> pl.DataFrame:
+    """Alias a source column into a canonical target column when needed."""
+
+    if target in df.columns or source is None or source not in df.columns:
+        return df
+    return df.with_columns(pl.col(source).alias(target))
+
+
 def _skim_lookup(
     skim: np.ndarray,
     otaz: np.ndarray,
@@ -302,14 +352,165 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     """Enrich ``RunData`` with derived columns needed by summaries and dashboard pages."""
     skim = rd.skim_matrix
     skim_map = rd.skim_zone_map
-    land_use = rd.land_use
     LOGGER.info("[prepare_data] Starting: %s", rd.label)
 
+    # Prepare canonical identifiers and summary-facing raw fields before any
+    # weighting or joins. Summary modules should consume these prepared names.
+    hh = rd.hh
+    per = rd.per
+    tours = rd.tours
+    trips = rd.trips
+    joint_participants = rd.joint_participants
+    land_use = rd.land_use
+
+    hh = _materialize_column(
+        hh,
+        "household_id",
+        _resolve_source_column(hh, config.col_household_id),
+    )
+
+    per = _materialize_column(
+        per,
+        "household_id",
+        _resolve_source_column(per, config.col_household_id),
+    )
+    per = _materialize_column(
+        per,
+        "person_id",
+        _resolve_source_column(per, config.col_person_id),
+    )
+
+    tours = _materialize_column(
+        tours,
+        "household_id",
+        _resolve_source_column(tours, config.col_household_id),
+    )
+    tours = _materialize_column(
+        tours,
+        "person_id",
+        _resolve_source_column(tours, config.col_person_id),
+    )
+    tours = _materialize_column(
+        tours,
+        "tour_id",
+        _resolve_source_column(tours, config.col_tour_id),
+    )
+    tours = _materialize_column(
+        tours,
+        "tour_category",
+        _resolve_source_column(tours, config.col_tour_category),
+    )
+    tours = _materialize_column(
+        tours,
+        "tour_mode",
+        _resolve_source_column(tours, config.col_tour_mode),
+    )
+    tours = _materialize_column(
+        tours,
+        "tour_purpose",
+        _resolve_source_column(
+            tours,
+            config.col_tour_purpose,
+            require_non_numeric=True,
+        ),
+    )
+    tours = _materialize_column(
+        tours,
+        "start_hour",
+        _resolve_source_column(tours, config.col_tour_start),
+    )
+    tours = _materialize_column(
+        tours,
+        "end_hour",
+        _resolve_source_column(tours, config.col_tour_end),
+    )
+    tours = _materialize_column(
+        tours,
+        "tourdur",
+        _resolve_source_column(tours, config.col_tour_duration),
+    )
+
+    trips = _materialize_column(
+        trips,
+        "household_id",
+        _resolve_source_column(trips, config.col_household_id),
+    )
+    trips = _materialize_column(
+        trips,
+        "person_id",
+        _resolve_source_column(trips, config.col_person_id),
+    )
+    trips = _materialize_column(
+        trips,
+        "tour_id",
+        _resolve_source_column(trips, config.col_tour_id),
+    )
+    trips = _materialize_column(
+        trips,
+        "trip_id",
+        _resolve_source_column(trips, config.col_trip_id),
+    )
+    trips = _materialize_column(
+        trips,
+        "trip_mode",
+        _resolve_source_column(trips, config.col_trip_mode),
+    )
+    trips = _materialize_column(
+        trips,
+        "trip_purpose",
+        _resolve_source_column(
+            trips,
+            config.col_trip_purpose,
+            require_non_numeric=True,
+        ),
+    )
+    trips = _materialize_column(
+        trips,
+        "depart_hour",
+        _resolve_source_column(trips, config.col_trip_depart),
+    )
+    trips = _materialize_column(
+        trips,
+        "tour_mode",
+        _resolve_source_column(trips, config.col_tour_mode),
+    )
+    trips = _materialize_column(
+        trips,
+        "tour_category",
+        _resolve_source_column(trips, config.col_tour_category),
+    )
+    trips = _materialize_column(
+        trips,
+        "tour_purpose",
+        _resolve_source_column(
+            trips,
+            config.col_tour_purpose,
+            require_non_numeric=True,
+        ),
+    )
+
+    joint_participants = _materialize_column(
+        joint_participants,
+        "person_id",
+        _resolve_source_column(joint_participants, config.col_person_id),
+    )
+    joint_participants = _materialize_column(
+        joint_participants,
+        "tour_id",
+        _resolve_source_column(joint_participants, config.col_tour_id),
+    )
+
+    land_use = _materialize_column(
+        land_use,
+        "EMPLOYMENT",
+        _resolve_source_column(land_use, config.col_total_employment),
+    )
+
     hh, per, tours, trips = compute_weights(
-        rd.hh,
-        rd.per,
-        rd.tours,
-        rd.trips,
+        hh,
+        per,
+        tours,
+        trips,
         config,
         hh_weight_col=rd.hh_weight_col,
         person_weight_col=rd.person_weight_col,
@@ -484,8 +685,8 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     elif "SKIMDIST" not in tours.columns:
         tours = tours.with_columns(pl.lit(0.0).alias("SKIMDIST"))
 
-    if "tour_id" in tours.columns and "person_id" in rd.joint_participants.columns:
-        party_size = rd.joint_participants.group_by("tour_id").agg(
+    if "tour_id" in tours.columns and "person_id" in joint_participants.columns:
+        party_size = joint_participants.group_by("tour_id").agg(
             pl.len().alias("NUMBER_HH")
         )
         tours = tours.join(party_size, on="tour_id", how="left")
@@ -493,13 +694,7 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
         tours = tours.with_columns(pl.lit(1).alias("NUMBER_HH"))
     tours = tours.with_columns(pl.col("NUMBER_HH").fill_null(1))
 
-    if "start" in tours.columns and "start_hour" not in tours.columns:
-        tours = tours.with_columns(pl.col("start").alias("start_hour"))
-    if "end" in tours.columns and "end_hour" not in tours.columns:
-        tours = tours.with_columns(pl.col("end").alias("end_hour"))
-    if "duration" in tours.columns and "tourdur" not in tours.columns:
-        tours = tours.with_columns(pl.col("duration").alias("tourdur"))
-    elif (
+    if (
         "start_hour" in tours.columns
         and "end_hour" in tours.columns
         and "tourdur" not in tours.columns
@@ -514,7 +709,7 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
             "tour_id",
             "AUTOSUFF",
             "NUMBER_HH",
-            "primary_purpose",
+            "tour_purpose",
             "tour_mode",
             "tour_category",
         ]
@@ -526,10 +721,12 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
         how="left",
         suffix="_tour",
     )
-    for column in ["primary_purpose", "tour_mode", "tour_category"]:
+    for column in ["tour_purpose", "tour_mode", "tour_category"]:
         tour_col = f"{column}_tour"
         if tour_col in trips.columns and column in trips.columns:
-            trips = trips.drop(tour_col)
+            trips = trips.with_columns(
+                pl.coalesce([pl.col(tour_col), pl.col(column)]).alias(column)
+            ).drop(tour_col)
         elif tour_col in trips.columns:
             trips = trips.rename({tour_col: column})
 
@@ -567,9 +764,7 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     elif "od_dist" not in trips.columns:
         trips = trips.with_columns(pl.lit(0.0).alias("od_dist"))
 
-    if "depart" in trips.columns and "depart_hour" not in trips.columns:
-        trips = trips.with_columns(pl.col("depart").alias("depart_hour"))
-    elif "depart_hour" not in trips.columns:
+    if "depart_hour" not in trips.columns:
         trips = trips.with_columns(pl.lit(1).alias("depart_hour"))
 
     if "outbound" in trips.columns and "inbound" not in trips.columns:
@@ -635,7 +830,7 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
         per=per,
         tours=tours,
         trips=trips,
-        joint_participants=rd.joint_participants,
+        joint_participants=joint_participants,
         land_use=land_use,
         skim_matrix=skim,
         skim_zone_map=skim_map,

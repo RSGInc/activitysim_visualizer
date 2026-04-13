@@ -22,10 +22,10 @@ def _combined_nm_tours(rd: RunData, purpose: str | None = None) -> pl.DataFrame:
         )
 
     if purpose and purpose != "All NM":
-        if "primary_purpose" not in tours.columns:
+        if "tour_purpose" not in tours.columns:
             return pl.DataFrame({"SKIMDIST": [], "finalweight": []})
-        indiv = indiv.filter(pl.col("primary_purpose") == purpose)
-        joint = joint.filter(pl.col("primary_purpose") == purpose)
+        indiv = indiv.filter(pl.col("tour_purpose") == purpose)
+        joint = joint.filter(pl.col("tour_purpose") == purpose)
 
     parts: list[pl.DataFrame] = []
     for df in (indiv, joint):
@@ -43,11 +43,11 @@ def distance_distribution(rd: RunData) -> pl.DataFrame:
     Columns: purpose, distbin, freq
     """
     tours = rd.tours
-    if "tour_category" in tours.columns and "primary_purpose" in tours.columns:
+    if "tour_category" in tours.columns and "tour_purpose" in tours.columns:
         purposes = sorted(
             tours.filter(
                 pl.col("tour_category").is_in(["non-mandatory", "atwork", "joint"])
-            )["primary_purpose"]
+            )["tour_purpose"]
             .drop_nulls()
             .unique()
             .to_list()
@@ -94,11 +94,11 @@ def average_distance(rd: RunData) -> pl.DataFrame:
     Columns: purpose, avg_distance
     """
     tours = rd.tours
-    if "tour_category" in tours.columns and "primary_purpose" in tours.columns:
+    if "tour_category" in tours.columns and "tour_purpose" in tours.columns:
         purposes = sorted(
             tours.filter(
                 pl.col("tour_category").is_in(["non-mandatory", "atwork", "joint"])
-            )["primary_purpose"]
+            )["tour_purpose"]
             .drop_nulls()
             .unique()
             .to_list()

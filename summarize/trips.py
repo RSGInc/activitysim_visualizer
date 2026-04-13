@@ -17,18 +17,11 @@ def trip_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
     if not needed.issubset(rd.trips.columns):
         return pl.DataFrame()
 
-    # Find a valid non-numeric purpose column if available
-    purpose_col = None
-    for cand in ("primary_purpose", "tour_type", "purpose"):
-        if cand in rd.trips.columns and not rd.trips[cand].dtype.is_numeric():
-            purpose_col = cand
-            break
-
     cols = ["tour_mode", "trip_mode"]
-    if purpose_col:
-        cols = [purpose_col] + cols
+    if "tour_purpose" in rd.trips.columns:
+        cols = ["tour_purpose"] + cols
 
-    return (
+    result = (
         rd.trips.filter(
             pl.col("tour_mode").is_not_null() & pl.col("trip_mode").is_not_null()
         )
@@ -36,3 +29,6 @@ def trip_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
         .agg(pl.col("finalweight").sum().alias("freq"))
         .sort(cols)
     )
+    if "tour_purpose" in result.columns:
+        result = result.rename({"tour_purpose": "primary_purpose"})
+    return result

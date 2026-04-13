@@ -35,13 +35,8 @@ def tour_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
         else rd.tours.head(0)
     )
 
-    # Build purpose group filter pairs: (label, df, filter_expr)
     purpose_groups = []
-    purpose_col = None
-    for cand in ("primary_purpose", "tour_type", "purpose"):
-        if cand in rd.tours.columns and not rd.tours[cand].dtype.is_numeric():
-            purpose_col = cand
-            break
+    purpose_col = "tour_purpose" if "tour_purpose" in rd.tours.columns else None
     if purpose_col:
         purposes = (
             indiv[purpose_col].drop_nulls().cast(pl.Utf8).unique().sort().to_list()

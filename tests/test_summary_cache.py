@@ -28,7 +28,8 @@ from summarize.cache import (
     load_summary_run_cache,
     write_summary_run_cache,
 )
-from summarize.reader import Config, RunData
+from runtime.config import Config
+from runtime.models import RunData
 
 
 def _write_config(tmp_path: Path) -> Config:

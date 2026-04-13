@@ -132,14 +132,14 @@ def nm_tour_rates(rd: RunData, config: Config) -> pl.DataFrame:
     ptype_col = config.col_ptype
     if (
         "tour_category" not in rd.tours.columns
-        or "primary_purpose" not in rd.tours.columns
+        or "tour_purpose" not in rd.tours.columns
         or ptype_col not in rd.tours.columns
         or ptype_col not in rd.per.columns
     ):
         return pl.DataFrame({"ptype": [], "tour_purp": [], "tour_rate": []})
 
     nm_tours = rd.tours.filter(pl.col("tour_category") == "non-mandatory")
-    purposes = nm_tours["primary_purpose"].drop_nulls().unique().to_list()
+    purposes = nm_tours["tour_purpose"].drop_nulls().unique().to_list()
     purposes.sort()
 
     per_counts = rd.per.group_by(ptype_col).agg(
@@ -148,7 +148,7 @@ def nm_tour_rates(rd: RunData, config: Config) -> pl.DataFrame:
     total_per = rd.per["finalweight"].sum()
     ptypes = rd.per[ptype_col].drop_nulls().unique().to_list()
 
-    nm_grouped = nm_tours.group_by([ptype_col, "primary_purpose"]).agg(
+    nm_grouped = nm_tours.group_by([ptype_col, "tour_purpose"]).agg(
         pl.col("finalweight").sum().alias("n_tours")
     )
 
@@ -158,7 +158,7 @@ def nm_tour_rates(rd: RunData, config: Config) -> pl.DataFrame:
         n_per = float(n_per_row[0]) if len(n_per_row) > 0 else 0
         for purp in purposes:
             n_row = nm_grouped.filter(
-                (pl.col(ptype_col) == ptype) & (pl.col("primary_purpose") == purp)
+                (pl.col(ptype_col) == ptype) & (pl.col("tour_purpose") == purp)
             )["n_tours"]
             n = float(n_row[0]) if len(n_row) > 0 else 0
             result.append(
@@ -170,7 +170,7 @@ def nm_tour_rates(rd: RunData, config: Config) -> pl.DataFrame:
             )
 
     for purp in purposes:
-        n_row = nm_grouped.filter(pl.col("primary_purpose") == purp)["n_tours"]
+        n_row = nm_grouped.filter(pl.col("tour_purpose") == purp)["n_tours"]
         n = float(n_row.sum()) if len(n_row) > 0 else 0
         result.append(
             {
@@ -222,8 +222,8 @@ def joint_tour_freq(rd: RunData) -> pl.DataFrame:
 
     # Map purpose strings to slot letters (a-e for up to 5 NM purposes)
     nm_purposes = (
-        joint_tours["primary_purpose"].drop_nulls().unique().sort().to_list()
-        if "primary_purpose" in joint_tours.columns
+        joint_tours["tour_purpose"].drop_nulls().unique().sort().to_list()
+        if "tour_purpose" in joint_tours.columns
         else []
     )
     # Take up to 5 most common (for JTF coding)
@@ -234,7 +234,7 @@ def joint_tour_freq(rd: RunData) -> pl.DataFrame:
 
     for purp, slot in purpose_slots.items():
         counts = (
-            joint_tours.filter(pl.col("primary_purpose") == purp)
+            joint_tours.filter(pl.col("tour_purpose") == purp)
             .group_by("household_id")
             .agg(pl.len().cast(pl.Int64).alias(slot))
         )
@@ -409,7 +409,7 @@ def tours_by_pertype_purpose(rd: RunData, config: Config) -> pl.DataFrame:
     ptype_col = config.col_ptype
     if (
         "tour_category" not in rd.tours.columns
-        or "primary_purpose" not in rd.tours.columns
+        or "tour_purpose" not in rd.tours.columns
         or ptype_col not in rd.tours.columns
     ):
         return pl.DataFrame({"ptype": [], "primary_purpose": [], "freq": []})
@@ -419,8 +419,8 @@ def tours_by_pertype_purpose(rd: RunData, config: Config) -> pl.DataFrame:
             (pl.col("tour_category") == "non-mandatory")
             & (pl.col("tour_category") != "joint")
         )
-        .group_by([ptype_col, "primary_purpose"])
+        .group_by([ptype_col, "tour_purpose"])
         .agg(pl.col("finalweight").sum().alias("freq"))
-        .rename({ptype_col: "ptype"})
+        .rename({ptype_col: "ptype", "tour_purpose": "primary_purpose"})
         .sort(["ptype", "primary_purpose"])
     )

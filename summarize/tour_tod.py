@@ -25,14 +25,8 @@ def tod_profiles(rd: RunData) -> pl.DataFrame:
         (pl.col("finalweight") * pl.col("NUMBER_HH")).alias("wgt")
     )
 
-    # Find a valid non-numeric purpose column if available
-    purpose_col = None
-    for cand in ("primary_purpose", "tour_type", "purpose"):
-        if cand in rd.tours.columns and not rd.tours[cand].dtype.is_numeric():
-            purpose_col = cand
-            break
+    purpose_col = "tour_purpose" if "tour_purpose" in rd.tours.columns else None
 
-    # Build (label, df, filter) pairs from purpose column values
     purpose_groups = []
     if purpose_col:
         purps = indiv[purpose_col].drop_nulls().unique().sort().to_list()

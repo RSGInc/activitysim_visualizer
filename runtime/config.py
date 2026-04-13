@@ -161,6 +161,41 @@ def _normalize_export_selector_request(
     return ExportSelectorRequest(mode="explicit", values=tuple(normalized))
 
 
+def _normalize_column_aliases(
+    raw_value,
+    *,
+    field_name: str,
+    default: list[str],
+    allow_none: bool = False,
+) -> list[str] | None:
+    """Normalize a schema column alias config entry to an ordered list."""
+
+    if raw_value is None:
+        return None if allow_none else list(default)
+
+    if isinstance(raw_value, str):
+        candidates = [raw_value]
+    elif isinstance(raw_value, list):
+        candidates = raw_value
+    else:
+        raise ValueError(f"{field_name} must be a string or list of strings.")
+
+    normalized: list[str] = []
+    for item in candidates:
+        if not isinstance(item, str):
+            raise ValueError(f"{field_name} entries must be strings.")
+        token = item.strip()
+        if not token or token in normalized:
+            continue
+        normalized.append(token)
+
+    if not normalized:
+        if allow_none:
+            return None
+        raise ValueError(f"{field_name} resolved to no values.")
+    return normalized
+
+
 _DEFAULT_RUN_COLORS = [
     "#1f77b4",
     "#ff7f0e",
@@ -218,6 +253,20 @@ class Config:
     col_num_workers: str
     col_num_adults: str
     col_sample_rate: Optional[str]
+    col_household_id: list[str]
+    col_person_id: list[str]
+    col_tour_id: list[str]
+    col_trip_id: list[str]
+    col_tour_purpose: list[str]
+    col_trip_purpose: list[str]
+    col_tour_mode: list[str]
+    col_trip_mode: list[str]
+    col_tour_category: list[str]
+    col_tour_start: list[str]
+    col_tour_end: list[str]
+    col_tour_duration: list[str]
+    col_trip_depart: list[str]
+    col_total_employment: list[str]
     person_type_labels: Optional[dict[str, str]]
 
     use_maz: bool
@@ -480,6 +529,76 @@ class Config:
             col_num_workers=cols.get("num_workers", "num_workers"),
             col_num_adults=cols.get("num_adults", "num_adults"),
             col_sample_rate=cols.get("sample_rate") or None,
+            col_household_id=_normalize_column_aliases(
+                cols.get("household_id"),
+                field_name="columns.household_id",
+                default=["household_id"],
+            ),
+            col_person_id=_normalize_column_aliases(
+                cols.get("person_id"),
+                field_name="columns.person_id",
+                default=["person_id"],
+            ),
+            col_tour_id=_normalize_column_aliases(
+                cols.get("tour_id"),
+                field_name="columns.tour_id",
+                default=["tour_id"],
+            ),
+            col_trip_id=_normalize_column_aliases(
+                cols.get("trip_id"),
+                field_name="columns.trip_id",
+                default=["trip_id"],
+            ),
+            col_tour_purpose=_normalize_column_aliases(
+                cols.get("tour_purpose"),
+                field_name="columns.tour_purpose",
+                default=["primary_purpose", "tour_type", "purpose"],
+            ),
+            col_trip_purpose=_normalize_column_aliases(
+                cols.get("trip_purpose"),
+                field_name="columns.trip_purpose",
+                default=["purpose"],
+            ),
+            col_tour_mode=_normalize_column_aliases(
+                cols.get("tour_mode"),
+                field_name="columns.tour_mode",
+                default=["tour_mode"],
+            ),
+            col_trip_mode=_normalize_column_aliases(
+                cols.get("trip_mode"),
+                field_name="columns.trip_mode",
+                default=["trip_mode"],
+            ),
+            col_tour_category=_normalize_column_aliases(
+                cols.get("tour_category"),
+                field_name="columns.tour_category",
+                default=["tour_category"],
+            ),
+            col_tour_start=_normalize_column_aliases(
+                cols.get("tour_start"),
+                field_name="columns.tour_start",
+                default=["start", "start_hour"],
+            ),
+            col_tour_end=_normalize_column_aliases(
+                cols.get("tour_end"),
+                field_name="columns.tour_end",
+                default=["end", "end_hour"],
+            ),
+            col_tour_duration=_normalize_column_aliases(
+                cols.get("tour_duration"),
+                field_name="columns.tour_duration",
+                default=["duration", "tourdur"],
+            ),
+            col_trip_depart=_normalize_column_aliases(
+                cols.get("trip_depart"),
+                field_name="columns.trip_depart",
+                default=["depart", "depart_hour"],
+            ),
+            col_total_employment=_normalize_column_aliases(
+                cols.get("total_employment"),
+                field_name="columns.total_employment",
+                default=["EMPLOY_TOT", "TOTEMP", "total_employment", "employment"],
+            ),
             person_type_labels=person_type_labels,
             use_maz=bool(zones.get("use_maz", True)),
             maz_col=zones.get("maz_col", "zone_id"),
@@ -521,6 +640,20 @@ class Config:
                 "num_workers": self.col_num_workers,
                 "num_adults": self.col_num_adults,
                 "sample_rate": self.col_sample_rate,
+                "household_id": list(self.col_household_id),
+                "person_id": list(self.col_person_id),
+                "tour_id": list(self.col_tour_id),
+                "trip_id": list(self.col_trip_id),
+                "tour_purpose": list(self.col_tour_purpose),
+                "trip_purpose": list(self.col_trip_purpose),
+                "tour_mode": list(self.col_tour_mode),
+                "trip_mode": list(self.col_trip_mode),
+                "tour_category": list(self.col_tour_category),
+                "tour_start": list(self.col_tour_start),
+                "tour_end": list(self.col_tour_end),
+                "tour_duration": list(self.col_tour_duration),
+                "trip_depart": list(self.col_trip_depart),
+                "total_employment": list(self.col_total_employment),
             },
             "person_type_labels": (
                 {

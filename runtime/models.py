@@ -11,7 +11,16 @@ import polars as pl
 
 @dataclass
 class RunData:
-    """Holds all data for one ActivitySim run, enriched by ``prepare_data()``."""
+    """Holds all data for one ActivitySim run, enriched by ``prepare_data()``.
+
+    Summary code should rely on prepared runtime columns rather than guessing raw
+    ActivitySim schema. Today that contract includes canonical identifiers
+    (for example ``household_id``, ``person_id``, ``tour_id``), prepared
+    household aliases such as ``HHVEH``/``HHSIZE``, and prepared trip/tour
+    fields such as ``tour_purpose``, ``trip_purpose``, ``tour_mode``,
+    ``trip_mode``, ``tour_category``, ``depart_hour``, ``stops``,
+    ``out_dir_dist``, ``SKIMDIST``, ``HGEO``, and ``WGEO`` when available.
+    """
 
     label: str
     run_dir: str

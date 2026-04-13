@@ -13,15 +13,7 @@ def system_totals(rd: RunData, config: Config | None = None) -> pl.DataFrame:
     """
     pop = rd.per["finalweight"].sum()
     hh = rd.hh["finalweight"].sum()
-    emp_col = next(
-        (
-            c
-            for c in ["EMPLOY_TOT", "TOTEMP", "total_employment", "employment"]
-            if c in rd.land_use.columns
-        ),
-        None,
-    )
-    emp = rd.land_use[emp_col].sum() if emp_col else 0
+    emp = rd.land_use["EMPLOYMENT"].sum() if "EMPLOYMENT" in rd.land_use.columns else 0
 
     tours = rd.tours["finalweight"].sum()
     trips_total = rd.trips["finalweight"].sum()

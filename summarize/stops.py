@@ -13,18 +13,11 @@ def stop_freq(rd: RunData) -> pl.DataFrame:
 
     Columns: primary_purpose, ob_stops (0-3+), ib_stops (0-3+), tot_stops (0-6+), freq.
     """
-    # Find a valid non-numeric purpose column if available
-    purpose_col = None
-    for cand in ("primary_purpose", "tour_type", "purpose"):
-        if cand in rd.tours.columns and not rd.tours[cand].dtype.is_numeric():
-            purpose_col = cand
-            break
-
-    if purpose_col is None:
+    if "tour_purpose" not in rd.tours.columns:
         return pl.DataFrame()
 
     all_tours = rd.tours.filter(pl.col("tour_category").is_not_null())
-    ob = (
+    return (
         all_tours.with_columns(
             [
                 pl.col("num_ob_stops").clip(0, 3).alias("ob_stops"),
@@ -32,10 +25,10 @@ def stop_freq(rd: RunData) -> pl.DataFrame:
                 pl.col("num_tot_stops").clip(0, 6).alias("tot_stops"),
             ]
         )
-        .group_by([purpose_col, "ob_stops", "ib_stops", "tot_stops"])
+        .group_by(["tour_purpose", "ob_stops", "ib_stops", "tot_stops"])
         .agg(pl.col("finalweight").sum().alias("freq"))
+        .rename({"tour_purpose": "primary_purpose"})
     )
-    return ob
 
 
 def stop_purpose_by_tour_purpose(rd: RunData) -> pl.DataFrame:
@@ -43,26 +36,19 @@ def stop_purpose_by_tour_purpose(rd: RunData) -> pl.DataFrame:
 
     Columns: primary_purpose (tour), purpose (stop/trip), freq.
     """
-    # Find a valid non-numeric purpose column if available
-    purpose_col = None
-    for cand in ("primary_purpose", "tour_type"):
-        if cand in rd.trips.columns and not rd.trips[cand].dtype.is_numeric():
-            purpose_col = cand
-            break
-
-    if "stops" not in rd.trips.columns or "purpose" not in rd.trips.columns:
-        return pl.DataFrame()
-    if purpose_col is None:
+    needed = {"stops", "tour_purpose", "trip_purpose"}
+    if not needed.issubset(rd.trips.columns):
         return pl.DataFrame()
 
     stops = rd.trips.filter(pl.col("stops") == 1)
     return (
         stops.filter(
-            pl.col(purpose_col).is_not_null() & pl.col("purpose").is_not_null()
+            pl.col("tour_purpose").is_not_null() & pl.col("trip_purpose").is_not_null()
         )
-        .group_by([purpose_col, "purpose"])
+        .group_by(["tour_purpose", "trip_purpose"])
         .agg(pl.col("finalweight").sum().alias("freq"))
-        .sort([purpose_col, "purpose"])
+        .sort(["tour_purpose", "trip_purpose"])
+        .rename({"tour_purpose": "primary_purpose", "trip_purpose": "purpose"})
     )
 
 
@@ -79,31 +65,24 @@ def stop_location(rd: RunData) -> pl.DataFrame:
         pl.col("out_dir_dist").clip(0, 999).alias("ood")
     ).with_columns(pl.col("ood").cast(pl.Int32).clip(0, 40).alias("distbin"))
 
-    for cand in ("primary_purpose", "tour_type", "purpose"):
-        if cand in rd.trips.columns and not rd.trips[cand].dtype.is_numeric():
-            purpose_col = cand
-            break
-    else:
-        purpose_col = None
-
     bins = list(range(0, 41))
-    if purpose_col is None:
+    if "tour_purpose" not in stops2.columns:
         counts = stops2.group_by("distbin").agg(pl.col("finalweight").sum().alias("n"))
         base = pl.DataFrame({"distbin": bins})
         result = base.join(counts, on="distbin", how="left").fill_null(0)
         return result.with_columns(pl.lit("Total").alias("primary_purpose"))
 
-    purposes = stops2[purpose_col].drop_nulls().unique().to_list()
+    purposes = stops2["tour_purpose"].drop_nulls().unique().to_list()
     rows = []
     for purp in purposes:
-        sub = stops2.filter(pl.col(purpose_col) == purp)
+        sub = stops2.filter(pl.col("tour_purpose") == purp)
         counts = sub.group_by("distbin").agg(pl.col("finalweight").sum().alias("n"))
         for db in bins:
             n_row = counts.filter(pl.col("distbin") == db)["n"]
             rows.append(
                 {
                     "distbin": db,
-                    purpose_col: purp,
+                    "primary_purpose": purp,
                     "freq": float(n_row[0]) if len(n_row) > 0 else 0.0,
                 }
             )
@@ -115,13 +94,8 @@ def stop_timing(rd: RunData) -> pl.DataFrame:
 
     Columns: timebin, primary_purpose, freq_stop_dep, freq_trip_dep.
     """
-    # Prefer "depart", fallback to "depart_hour"
-    dep_col = None
-    if "depart" in rd.trips.columns:
-        dep_col = "depart"
-    elif "depart_hour" in rd.trips.columns:
-        dep_col = "depart_hour"
-    else:
+    dep_col = "depart_hour"
+    if dep_col not in rd.trips.columns:
         return pl.DataFrame()
 
     if "stops" not in rd.trips.columns:
@@ -137,18 +111,11 @@ def stop_timing(rd: RunData) -> pl.DataFrame:
             max_period = 48
     bins = list(range(1, 25 if max_period <= 24 else 49))
 
-    # Find a valid non-numeric purpose column if available
-    purpose_col = None
-    for cand in ("primary_purpose", "tour_type", "purpose"):
-        if cand in rd.trips.columns and not rd.trips[cand].dtype.is_numeric():
-            purpose_col = cand
-            break
-
-    if purpose_col is None:
+    if "tour_purpose" not in rd.trips.columns:
         purposes = {"Total": pl.lit(True)}
     else:
-        purpose_list = rd.trips[purpose_col].drop_nulls().unique().sort().to_list()
-        purposes = {p: pl.col(purpose_col) == p for p in purpose_list}
+        purpose_list = rd.trips["tour_purpose"].drop_nulls().unique().sort().to_list()
+        purposes = {p: pl.col("tour_purpose") == p for p in purpose_list}
         purposes["Total"] = pl.lit(True)
 
     rows = []
