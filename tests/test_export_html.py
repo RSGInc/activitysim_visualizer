@@ -246,8 +246,7 @@ def _full_summary_run():
         ),
         "stop_freq": pl.DataFrame(
             {
-                "primary_purpose": [1, 1, 2],
-                "tour_type": ["eatout", "eatout", "social"],
+                "purpose": ["eatout", "eatout", "social"],
                 "ob_stops": [0, 1, 0],
                 "ib_stops": [0, 0, 1],
                 "tot_stops": [0, 1, 1],
@@ -256,24 +255,21 @@ def _full_summary_run():
         ),
         "stop_purpose_by_tour_purpose": pl.DataFrame(
             {
-                "primary_purpose": [1, 1, 2],
-                "tour_type": ["eatout", "eatout", "social"],
-                "purpose": ["shop", "eat", "visit"],
+                "tour_purpose": ["eatout", "eatout", "social"],
+                "stop_purpose": ["shop", "eat", "visit"],
                 "freq": [4.0, 6.0, 8.0],
             }
         ),
         "stop_location": pl.DataFrame(
             {
-                "primary_purpose": [1, 1, 2, 2],
-                "tour_type": ["eatout", "eatout", "social", "social"],
+                "purpose": ["eatout", "eatout", "social", "social"],
                 "distbin": [0, 1, 0, 1],
                 "freq": [8.0, 4.0, 5.0, 7.0],
             }
         ),
         "stop_timing": pl.DataFrame(
             {
-                "primary_purpose": [1, 1, 2, 2],
-                "tour_type": ["eatout", "eatout", "social", "social"],
+                "purpose": ["eatout", "eatout", "social", "social"],
                 "timebin": [1, 2, 1, 2],
                 "freq_stop_dep": [3.0, 4.0, 5.0, 6.0],
                 "freq_trip_dep": [2.0, 3.0, 4.0, 5.0],
@@ -281,8 +277,7 @@ def _full_summary_run():
         ),
         "trip_mode_profile": pl.DataFrame(
             {
-                "primary_purpose": [1, 1, 2, 2],
-                "tour_type": ["eatout", "eatout", "social", "social"],
+                "purpose": ["eatout", "eatout", "social", "social"],
                 "tour_mode": ["DRIVE", "WALK", "DRIVE", "WALK"],
                 "trip_mode": ["DRIVEALONE", "WALK", "SHARED", "WALK"],
                 "freq": [10.0, 2.0, 5.0, 3.0],

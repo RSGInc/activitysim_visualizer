@@ -552,12 +552,12 @@ class Config:
             col_tour_purpose=_normalize_column_aliases(
                 cols.get("tour_purpose"),
                 field_name="columns.tour_purpose",
-                default=["primary_purpose", "tour_type", "purpose"],
+                default=["tour_purpose", "primary_purpose", "tour_type", "purpose"],
             ),
             col_trip_purpose=_normalize_column_aliases(
                 cols.get("trip_purpose"),
                 field_name="columns.trip_purpose",
-                default=["purpose"],
+                default=["trip_purpose", "purpose"],
             ),
             col_tour_mode=_normalize_column_aliases(
                 cols.get("tour_mode"),

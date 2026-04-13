@@ -66,7 +66,9 @@ def _materialize_column(
 ) -> pl.DataFrame:
     """Alias a source column into a canonical target column when needed."""
 
-    if target in df.columns or source is None or source not in df.columns:
+    if source is None or source not in df.columns:
+        return df
+    if source == target:
         return df
     return df.with_columns(pl.col(source).alias(target))
 

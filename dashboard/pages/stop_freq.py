@@ -1,4 +1,4 @@
-"""Stop frequency page."""
+"""Stop frequency page built from canonical summary-table columns."""
 
 from __future__ import annotations
 
@@ -11,35 +11,27 @@ from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefi
 from runtime.config import Config
 
 
-def discover_purpose_columns(
-    stop_list: list[tuple[str, pl.DataFrame]],
-) -> tuple[list[str], dict[str, str]]:
-    """Collect non-numeric purpose options and source columns from stop summaries."""
+def purpose_options(stop_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
+    """Collect available purpose options from canonical stop summaries."""
     purposes_set = set()
-    purpose_col: dict[str, str] = {}
-    for label, df in stop_list:
-        for cand in ("primary_purpose", "tour_type", "purpose"):
-            if cand in df.columns and not df[cand].dtype.is_numeric():
-                purpose_col[label] = cand
-                purposes_set.update(df[cand].drop_nulls().unique().to_list())
-                break
-
+    for _, df in stop_list:
+        if len(df) > 0 and "purpose" in df.columns:
+            purposes_set.update(df["purpose"].drop_nulls().cast(pl.Utf8).unique().to_list())
     if purposes_set:
-        return ["Total"] + sorted(purposes_set), purpose_col
-    return ["Total"], purpose_col
+        return ["Total"] + [purpose for purpose in sorted(purposes_set) if purpose != "Total"]
+    return ["Total"]
 
 
 def frequency_chart_data(
     stop_list: list[tuple[str, pl.DataFrame]],
     purp: str,
-    purpose_col: dict[str, str],
 ) -> tuple[
     list[tuple[str, pl.DataFrame]],
     list[tuple[str, pl.DataFrame]],
     list[tuple[str, pl.DataFrame]],
 ]:
     """Build outbound, inbound, and total stop-frequency datasets."""
-    if len(purpose_col) == 0 or purp == "Total":
+    if purp == "Total":
         ob_data = [
             (
                 label,
@@ -74,7 +66,7 @@ def frequency_chart_data(
         ob_data = [
             (
                 label,
-                df.filter(pl.col(purpose_col[label]) == purp)
+                df.filter(pl.col("purpose") == purp)
                 .group_by("ob_stops")
                 .agg(pl.col("freq").sum())
                 .sort("ob_stops")
@@ -85,7 +77,7 @@ def frequency_chart_data(
         ib_data = [
             (
                 label,
-                df.filter(pl.col(purpose_col[label]) == purp)
+                df.filter(pl.col("purpose") == purp)
                 .group_by("ib_stops")
                 .agg(pl.col("freq").sum())
                 .sort("ib_stops")
@@ -96,7 +88,7 @@ def frequency_chart_data(
         tot_data = [
             (
                 label,
-                df.filter(pl.col(purpose_col[label]) == purp)
+                df.filter(pl.col("purpose") == purp)
                 .group_by("tot_stops")
                 .agg(pl.col("freq").sum())
                 .sort("tot_stops")
@@ -110,16 +102,15 @@ def frequency_chart_data(
 def purpose_chart_data(
     purp_by_tp: list[tuple[str, pl.DataFrame]],
     purp: str,
-    purpose_col: dict[str, str],
 ) -> list[tuple[str, pl.DataFrame]]:
     """Build stop-purpose chart data for the selected tour purpose."""
-    if len(purpose_col) == 0 or purp == "Total":
+    if purp == "Total":
         return [
-            (label, df.group_by("purpose").agg(pl.col("freq").sum()))
+            (label, df.group_by("stop_purpose").agg(pl.col("freq").sum()))
             for label, df in purp_by_tp
         ]
     return [
-        (label, df.filter(pl.col(purpose_col[label]) == purp))
+        (label, df.filter(pl.col("tour_purpose") == purp))
         for label, df in purp_by_tp
     ]
 
@@ -144,8 +135,7 @@ class StopFreqPage(DashboardPage):
         stop_list = self.state.get_summary_table_set("stop_freq", "weighted")
         if stop_list is None:
             return ["Total"]
-        purp_opts, _ = discover_purpose_columns(stop_list)
-        return purp_opts
+        return purpose_options(stop_list)
 
     def _refresh(self) -> None:
         if not self.state.run_labels:
@@ -165,7 +155,7 @@ class StopFreqPage(DashboardPage):
         purp = self.purp_sel.value
         stop_list = summaries["stop_freq"]
         purp_by_tp = summaries["stop_purpose_by_tour_purpose"]
-        purp_opts, purpose_col = discover_purpose_columns(stop_list)
+        purp_opts = purpose_options(stop_list)
         self.purp_sel.options = purp_opts
         if self.purp_sel.value not in purp_opts:
             self.purp_sel.value = purp_opts[0]
@@ -175,8 +165,8 @@ class StopFreqPage(DashboardPage):
             "stop_freq",
             purp,
             factory=lambda: (
-                *frequency_chart_data(stop_list, purp, purpose_col),
-                purpose_chart_data(purp_by_tp, purp, purpose_col),
+                *frequency_chart_data(stop_list, purp),
+                purpose_chart_data(purp_by_tp, purp),
             ),
         )
 
@@ -209,7 +199,7 @@ class StopFreqPage(DashboardPage):
             ),
             bar_chart(
                 purp_chart_data,
-                "purpose",
+                "stop_purpose",
                 "freq",
                 f"Stop Purpose - tour={purp}",
                 "Stop Purpose",

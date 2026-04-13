@@ -27,7 +27,7 @@ from summarize import (
 )
 from summarize.writer import write_all
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 SUPPORTED_WEIGHTING_MODES = ("weighted", "unweighted")
 
 

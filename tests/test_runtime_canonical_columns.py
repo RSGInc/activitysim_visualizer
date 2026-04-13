@@ -10,7 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from runtime.config import Config
 from runtime.models import RunData
 from runtime.run_data import prepare_data
-from summarize import destination, stops, totals, trips
+from summarize import destination, stops, totals, tour_mode, tour_tod, trips
+from summarize.schema import SUMMARY_OUTPUT_COLUMNS
 
 
 def _write_config(tmp_path: Path, *, column_lines: list[str] | None = None) -> Config:
@@ -210,6 +211,33 @@ def _raw_run_with_primary_purpose_only(*, label: str = "Build") -> RunData:
     )
 
 
+def _raw_run_with_numeric_tour_purpose_and_string_tour_type() -> RunData:
+    return RunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1], "home_zone_id": [10]}),
+        per=pl.DataFrame({"person_id": [101], "household_id": [1], "ptype": [1]}),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [1001],
+                "person_id": [101],
+                "household_id": [1],
+                "tour_purpose": [10],
+                "primary_purpose": [10],
+                "tour_type": ["eatout"],
+                "tour_mode": ["DRIVE"],
+                "tour_category": ["non-mandatory"],
+            }
+        ),
+        trips=pl.DataFrame({"tour_id": [1001], "person_id": [101], "household_id": [1]}),
+        joint_participants=pl.DataFrame({"tour_id": [], "person_id": []}, schema={"tour_id": pl.Int64, "person_id": pl.Int64}),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+
 def test_config_normalizes_column_alias_values_and_preserves_order(tmp_path: Path) -> None:
     config = _write_config(
         tmp_path,
@@ -244,6 +272,14 @@ def test_prepare_data_uses_default_fallbacks_for_purpose_timing_and_employment(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
+
+    assert config.col_tour_purpose == [
+        "tour_purpose",
+        "primary_purpose",
+        "tour_type",
+        "purpose",
+    ]
+    assert config.col_trip_purpose == ["trip_purpose", "purpose"]
 
     prepared = prepare_data(_raw_run_with_default_fallback_columns(), config)
 
@@ -281,6 +317,16 @@ def test_prepare_data_prefers_non_numeric_purpose_alias_when_multiple_candidates
     )
 
     prepared = prepare_data(_raw_run_with_default_fallback_columns(), config)
+
+    assert prepared.tours["tour_purpose"].to_list() == ["eatout"]
+
+
+def test_prepare_data_overwrites_numeric_raw_tour_purpose_with_readable_alias(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+
+    prepared = prepare_data(_raw_run_with_numeric_tour_purpose_and_string_tour_type(), config)
 
     assert prepared.tours["tour_purpose"].to_list() == ["eatout"]
 
@@ -352,13 +398,28 @@ def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
     prepared = prepare_data(_raw_run_with_alternate_columns(), config)
 
     trip_mode_profile = trips.trip_mode_profile(prepared, config)
-    assert trip_mode_profile.columns == ["primary_purpose", "tour_mode", "trip_mode", "freq"]
-    assert trip_mode_profile["primary_purpose"].to_list() == ["eatout", "eatout"]
+    assert trip_mode_profile.columns == ["purpose", "tour_mode", "trip_mode", "freq"]
+    assert trip_mode_profile["purpose"].to_list() == ["eatout", "eatout"]
 
     stop_purpose = stops.stop_purpose_by_tour_purpose(prepared)
-    assert stop_purpose.columns == ["primary_purpose", "purpose", "freq"]
-    assert stop_purpose["primary_purpose"].to_list() == ["eatout"]
-    assert stop_purpose["purpose"].to_list() == ["shop"]
+    assert stop_purpose.columns == ["tour_purpose", "stop_purpose", "freq"]
+    assert stop_purpose["tour_purpose"].to_list() == ["eatout"]
+    assert stop_purpose["stop_purpose"].to_list() == ["shop"]
+
+    stop_freq = stops.stop_freq(prepared)
+    assert stop_freq.columns == list(SUMMARY_OUTPUT_COLUMNS["stop_freq"])
+
+    stop_location = stops.stop_location(prepared)
+    assert stop_location.columns == list(SUMMARY_OUTPUT_COLUMNS["stop_location"])
+
+    stop_timing = stops.stop_timing(prepared)
+    assert stop_timing.columns == list(SUMMARY_OUTPUT_COLUMNS["stop_timing"])
+
+    tour_mode_profile = tour_mode.tour_mode_profile(prepared, config)
+    assert tour_mode_profile.columns == list(SUMMARY_OUTPUT_COLUMNS["tour_mode_profile"])
+
+    tour_tod_profiles = tour_tod.tod_profiles(prepared)
+    assert tour_tod_profiles.columns == list(SUMMARY_OUTPUT_COLUMNS["tour_tod_profiles"])
 
     totals_df = totals.system_totals(prepared, config)
     assert totals_df["employment"].to_list() == [24.0]

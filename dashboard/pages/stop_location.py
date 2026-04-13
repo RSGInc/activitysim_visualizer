@@ -1,4 +1,4 @@
-"""Stop location page: out-of-direction distance."""
+"""Stop location page built from canonical summary-table columns."""
 
 from __future__ import annotations
 
@@ -11,23 +11,13 @@ from dashboard.page_definitions import DashboardPageDefinition
 from runtime.config import Config
 
 
-def discover_purpose_columns(
-    loc_list: list[tuple[str, pl.DataFrame]],
-) -> tuple[list[str], dict[str, str | None]]:
-    """Collect non-numeric purpose options and source columns from location summaries."""
+def purpose_options(loc_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
+    """Collect purpose options from canonical stop-location summaries."""
     purposes_set = set()
-    run_to_purpose_col: dict[str, str | None] = {}
-    for run_label, df in loc_list:
-        for cand in ("primary_purpose", "tour_type", "purpose"):
-            if cand in df.columns and not df[cand].dtype.is_numeric():
-                run_to_purpose_col[run_label] = cand
-                break
-        else:
-            run_to_purpose_col[run_label] = None
-        purpose_col = run_to_purpose_col[run_label]
-        if purpose_col:
-            purposes_set.update(df[purpose_col].drop_nulls().unique().to_list())
-    return sorted(purposes_set) if purposes_set else [], run_to_purpose_col
+    for _, df in loc_list:
+        if len(df) > 0 and "purpose" in df.columns:
+            purposes_set.update(df["purpose"].drop_nulls().cast(pl.Utf8).unique().to_list())
+    return sorted(purposes_set) if purposes_set else []
 
 
 def all_purpose_chart_data(
@@ -43,19 +33,12 @@ def all_purpose_chart_data(
 def purpose_chart_data(
     loc_list: list[tuple[str, pl.DataFrame]],
     purpose: str,
-    run_to_purpose_col: dict[str, str | None],
 ) -> list[tuple[str, pl.DataFrame]]:
     """Build stop-location comparison data for one purpose."""
     return [
         (
             label,
-            (
-                df.filter(pl.col(run_to_purpose_col[label]) == purpose).select(
-                    ["distbin", "freq"]
-                )
-                if run_to_purpose_col.get(label) is not None
-                else pl.DataFrame({"distbin": [], "freq": []})
-            ),
+            df.filter(pl.col("purpose") == purpose).select(["distbin", "freq"]),
         )
         for label, df in loc_list
     ]
@@ -82,7 +65,7 @@ class StopLocationPage(DashboardPage):
                 ),
             ]
             return
-        purp_opts, run_to_purpose_col = discover_purpose_columns(loc_list)
+        purp_opts = purpose_options(loc_list)
 
         charts = [
             density_chart(
@@ -104,9 +87,7 @@ class StopLocationPage(DashboardPage):
                     self.get_filtered_view(
                         "stop_location",
                         purp,
-                        factory=lambda purp=purp: purpose_chart_data(
-                            loc_list, purp, run_to_purpose_col
-                        ),
+                        factory=lambda purp=purp: purpose_chart_data(loc_list, purp),
                     ),
                     "distbin",
                     "freq",

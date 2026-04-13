@@ -1,4 +1,4 @@
-"""Stop timing page: stop and trip departure profiles."""
+"""Stop timing page built from canonical summary-table columns."""
 
 from __future__ import annotations
 
@@ -19,23 +19,13 @@ def _time_label(timebin: int, maxbin: int) -> str:
     return f"{hh:02d}:{mm:02d}"
 
 
-def discover_purpose_columns(
-    timing_list: list[tuple[str, pl.DataFrame]],
-) -> tuple[list[str], dict[str, str | None]]:
-    """Collect non-numeric purpose options and source columns from timing summaries."""
-    run_to_purpose_col: dict[str, str | None] = {}
+def purpose_options(timing_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
+    """Collect purpose options from canonical stop-timing summaries."""
     purposes_set = set()
-    for label, df in timing_list:
-        for cand in ("primary_purpose", "tour_type", "purpose"):
-            if cand in df.columns and not df[cand].dtype.is_numeric():
-                run_to_purpose_col[label] = cand
-                purposes_set.update(df[cand].drop_nulls().unique().to_list())
-                break
-        else:
-            run_to_purpose_col[label] = None
-    if purposes_set:
-        return sorted(purposes_set), run_to_purpose_col
-    return ["work"], run_to_purpose_col
+    for _, df in timing_list:
+        if len(df) > 0 and "purpose" in df.columns:
+            purposes_set.update(df["purpose"].drop_nulls().cast(pl.Utf8).unique().to_list())
+    return sorted(purposes_set) if purposes_set else ["Total"]
 
 
 def max_timebin(timing_list: list[tuple[str, pl.DataFrame]]) -> int:
@@ -50,14 +40,11 @@ def prep_profile(
     df: pl.DataFrame,
     val_col: str,
     purpose: str,
-    purpose_col: str | None,
     maxbin: int,
 ) -> pl.DataFrame:
     """Prepare one timing profile for plotting."""
-    if purpose_col is None or purpose_col not in df.columns:
-        return pl.DataFrame({"timebin": [], "freq": [], "clock_time": []})
     return (
-        df.filter(pl.col(purpose_col) == purpose)
+        df.filter(pl.col("purpose") == purpose)
         .select(["timebin", val_col])
         .rename({val_col: "freq"})
         .with_columns(
@@ -71,25 +58,20 @@ def prep_profile(
 def chart_data(
     timing_list: list[tuple[str, pl.DataFrame]],
     purpose: str,
-    run_to_purpose_col: dict[str, str | None],
 ) -> tuple[list[tuple[str, pl.DataFrame]], list[tuple[str, pl.DataFrame]]]:
     """Build stop- and trip-departure profile datasets."""
     maxbin = max_timebin(timing_list)
     stop_dep = [
         (
             label,
-            prep_profile(
-                df, "freq_stop_dep", purpose, run_to_purpose_col.get(label), maxbin
-            ),
+            prep_profile(df, "freq_stop_dep", purpose, maxbin),
         )
         for label, df in timing_list
     ]
     trip_dep = [
         (
             label,
-            prep_profile(
-                df, "freq_trip_dep", purpose, run_to_purpose_col.get(label), maxbin
-            ),
+            prep_profile(df, "freq_trip_dep", purpose, maxbin),
         )
         for label, df in timing_list
     ]
@@ -115,9 +97,8 @@ class StopTimingPage(DashboardPage):
     def _purpose_options(self) -> list[str]:
         timing_list = self.state.get_summary_table_set("stop_timing", "weighted")
         if timing_list is None:
-            return ["work"]
-        purp_opts, _ = discover_purpose_columns(timing_list)
-        return purp_opts
+            return ["Total"]
+        return purpose_options(timing_list)
 
     def _refresh(self) -> None:
         if not self.state.run_labels:
@@ -135,7 +116,7 @@ class StopTimingPage(DashboardPage):
             return
 
         purp = self.purp_sel.value
-        purp_opts, run_to_purpose_col = discover_purpose_columns(timing_list)
+        purp_opts = purpose_options(timing_list)
         self.purp_sel.options = purp_opts
         if self.purp_sel.value not in purp_opts:
             self.purp_sel.value = purp_opts[0]
@@ -144,7 +125,7 @@ class StopTimingPage(DashboardPage):
         stop_dep, trip_dep = self.get_filtered_view(
             "stop_timing",
             purp,
-            factory=lambda: chart_data(timing_list, purp, run_to_purpose_col),
+            factory=lambda: chart_data(timing_list, purp),
         )
         x_label = "Clock time (start at 03:00)"
 

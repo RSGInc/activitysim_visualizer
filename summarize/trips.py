@@ -1,7 +1,4 @@
-"""Trip mode by tour mode cross-tab.
-
-Uses tour_mode and trip_mode strings directly from ActivitySim outputs.
-"""
+"""Trip mode by tour mode cross-tab."""
 
 import polars as pl
 from runtime.config import Config
@@ -9,9 +6,9 @@ from runtime.models import RunData
 
 
 def trip_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
-    """Trip mode by tour mode by primary purpose.
+    """Trip mode by tour mode by purpose.
 
-    Columns: primary_purpose, tour_mode, trip_mode, freq.
+    Columns: purpose, tour_mode, trip_mode, freq.
     """
     needed = {"tour_mode", "trip_mode"}
     if not needed.issubset(rd.trips.columns):
@@ -30,5 +27,9 @@ def trip_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
         .sort(cols)
     )
     if "tour_purpose" in result.columns:
-        result = result.rename({"tour_purpose": "primary_purpose"})
+        result = result.rename({"tour_purpose": "purpose"})
+    else:
+        result = result.with_columns(pl.lit("Total").alias("purpose")).select(
+            ["purpose", "tour_mode", "trip_mode", "freq"]
+        )
     return result

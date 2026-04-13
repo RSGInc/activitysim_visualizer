@@ -1,7 +1,4 @@
-"""Stop frequency, purpose, location, and timing summaries.
-
-Uses primary_purpose string directly from ActivitySim outputs.
-"""
+"""Stop frequency, purpose, location, and timing summaries."""
 
 import polars as pl
 from runtime.config import Config
@@ -11,7 +8,7 @@ from runtime.models import RunData
 def stop_freq(rd: RunData) -> pl.DataFrame:
     """Stop frequency by tour purpose (outbound, inbound, total).
 
-    Columns: primary_purpose, ob_stops (0-3+), ib_stops (0-3+), tot_stops (0-6+), freq.
+    Columns: purpose, ob_stops (0-3+), ib_stops (0-3+), tot_stops (0-6+), freq.
     """
     if "tour_purpose" not in rd.tours.columns:
         return pl.DataFrame()
@@ -27,14 +24,14 @@ def stop_freq(rd: RunData) -> pl.DataFrame:
         )
         .group_by(["tour_purpose", "ob_stops", "ib_stops", "tot_stops"])
         .agg(pl.col("finalweight").sum().alias("freq"))
-        .rename({"tour_purpose": "primary_purpose"})
+        .rename({"tour_purpose": "purpose"})
     )
 
 
 def stop_purpose_by_tour_purpose(rd: RunData) -> pl.DataFrame:
     """Stop destination purpose by tour purpose.
 
-    Columns: primary_purpose (tour), purpose (stop/trip), freq.
+    Columns: tour_purpose, stop_purpose, freq.
     """
     needed = {"stops", "tour_purpose", "trip_purpose"}
     if not needed.issubset(rd.trips.columns):
@@ -48,14 +45,14 @@ def stop_purpose_by_tour_purpose(rd: RunData) -> pl.DataFrame:
         .group_by(["tour_purpose", "trip_purpose"])
         .agg(pl.col("finalweight").sum().alias("freq"))
         .sort(["tour_purpose", "trip_purpose"])
-        .rename({"tour_purpose": "primary_purpose", "trip_purpose": "purpose"})
+        .rename({"trip_purpose": "stop_purpose"})
     )
 
 
 def stop_location(rd: RunData) -> pl.DataFrame:
     """Out-of-direction distance for stops, in 41 bins (0–40 miles).
 
-    Columns: distbin (0-40), primary_purpose, freq.
+    Columns: distbin (0-40), purpose, freq.
     """
     if "stops" not in rd.trips.columns:
         return pl.DataFrame()
@@ -70,7 +67,11 @@ def stop_location(rd: RunData) -> pl.DataFrame:
         counts = stops2.group_by("distbin").agg(pl.col("finalweight").sum().alias("n"))
         base = pl.DataFrame({"distbin": bins})
         result = base.join(counts, on="distbin", how="left").fill_null(0)
-        return result.with_columns(pl.lit("Total").alias("primary_purpose"))
+        return (
+            result.with_columns(pl.lit("Total").alias("purpose"))
+            .rename({"n": "freq"})
+            .select(["distbin", "purpose", "freq"])
+        )
 
     purposes = stops2["tour_purpose"].drop_nulls().unique().to_list()
     rows = []
@@ -82,7 +83,7 @@ def stop_location(rd: RunData) -> pl.DataFrame:
             rows.append(
                 {
                     "distbin": db,
-                    "primary_purpose": purp,
+                    "purpose": purp,
                     "freq": float(n_row[0]) if len(n_row) > 0 else 0.0,
                 }
             )
@@ -92,7 +93,7 @@ def stop_location(rd: RunData) -> pl.DataFrame:
 def stop_timing(rd: RunData) -> pl.DataFrame:
     """Stop and trip departure timing profiles.
 
-    Columns: timebin, primary_purpose, freq_stop_dep, freq_trip_dep.
+    Columns: timebin, purpose, freq_stop_dep, freq_trip_dep.
     """
     dep_col = "depart_hour"
     if dep_col not in rd.trips.columns:
@@ -134,7 +135,7 @@ def stop_timing(rd: RunData) -> pl.DataFrame:
             rows.append(
                 {
                     "timebin": tb,
-                    "primary_purpose": purp_name,
+                    "purpose": purp_name,
                     "freq_stop_dep": float(ns[0]) if len(ns) > 0 else 0.0,
                     "freq_trip_dep": float(nt[0]) if len(nt) > 0 else 0.0,
                 }

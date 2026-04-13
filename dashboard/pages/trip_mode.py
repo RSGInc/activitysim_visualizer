@@ -1,4 +1,4 @@
-"""Trip mode by tour mode cross-tab page."""
+"""Trip mode by tour mode cross-tab page built from canonical summary columns."""
 
 from __future__ import annotations
 
@@ -13,45 +13,37 @@ from runtime.config import Config
 
 def discover_options(
     trip_list: list[tuple[str, pl.DataFrame]],
-) -> tuple[list[str], list[str], dict[str, str | None]]:
+) -> tuple[list[str], list[str]]:
     """Discover trip mode selector options from summary tables."""
-    run_to_purpose_col: dict[str, str | None] = {}
     purposes_set = set()
     tmode_set = set()
-    for label, df in trip_list:
-        for cand in ("primary_purpose", "tour_type", "purpose"):
-            if cand in df.columns and not df[cand].dtype.is_numeric():
-                run_to_purpose_col[label] = cand
-                purposes_set.update(df[cand].drop_nulls().unique().to_list())
-                break
-        else:
-            run_to_purpose_col[label] = None
+    for _, df in trip_list:
+        if "purpose" in df.columns:
+            purposes_set.update(df["purpose"].drop_nulls().cast(pl.Utf8).unique().to_list())
         if "tour_mode" in df.columns:
             tmode_set.update(df["tour_mode"].drop_nulls().unique().to_list())
 
-    purp_opts = sorted(purposes_set) if purposes_set else ["work"]
+    purp_opts = sorted(purposes_set) if purposes_set else []
     purp_opts = ["Total"] + [p for p in purp_opts if p != "Total"]
     tmode_opts = sorted(tmode_set) if tmode_set else []
-    return purp_opts, tmode_opts, run_to_purpose_col
+    return purp_opts, tmode_opts
 
 
 def chart_data(
     trip_list: list[tuple[str, pl.DataFrame]],
     purp: str,
     tmode: str,
-    run_to_purpose_col: dict[str, str | None],
 ) -> list[tuple[str, pl.DataFrame]]:
     """Build trip mode chart data for the selected purpose and tour mode."""
 
-    def apply_filter(df: pl.DataFrame, label: str) -> pl.DataFrame:
-        purpose_col = run_to_purpose_col.get(label)
-        if purpose_col and purp != "Total" and purpose_col in df.columns:
-            df = df.filter(pl.col(purpose_col) == purp)
+    def apply_filter(df: pl.DataFrame) -> pl.DataFrame:
+        if purp != "Total":
+            df = df.filter(pl.col("purpose") == purp)
         if tmode != "All" and "tour_mode" in df.columns:
             df = df.filter(pl.col("tour_mode") == tmode)
         return df.group_by("trip_mode").agg(pl.col("freq").sum()).sort("trip_mode")
 
-    return [(label, apply_filter(df, label)) for label, df in trip_list]
+    return [(label, apply_filter(df)) for label, df in trip_list]
 
 
 class TripModePage(DashboardPage):
@@ -78,8 +70,7 @@ class TripModePage(DashboardPage):
         trip_list = self.state.get_summary_table_set("trip_mode_profile", "weighted")
         if trip_list is None:
             return ["Total"], []
-        purp_opts, tmode_opts, _ = discover_options(trip_list)
-        return purp_opts, tmode_opts
+        return discover_options(trip_list)
 
     def _refresh(self) -> None:
         if not self.state.run_labels:
@@ -98,7 +89,7 @@ class TripModePage(DashboardPage):
 
         purp = self.purp_sel.value
         tmode = self.tmode_sel.value
-        purp_opts, tmode_opts, run_to_purpose_col = discover_options(trip_list)
+        purp_opts, tmode_opts = discover_options(trip_list)
         self.purp_sel.options = purp_opts
         if self.purp_sel.value not in purp_opts:
             self.purp_sel.value = purp_opts[0]
@@ -112,7 +103,7 @@ class TripModePage(DashboardPage):
             "trip_mode",
             purp,
             tmode,
-            factory=lambda: chart_data(trip_list, purp, tmode, run_to_purpose_col),
+            factory=lambda: chart_data(trip_list, purp, tmode),
         )
 
         self._body.objects = [

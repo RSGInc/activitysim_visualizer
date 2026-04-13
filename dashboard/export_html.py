@@ -36,8 +36,14 @@ def build_export_html_document(
     summary_runs: list[SummaryRun] | None = None,
 ) -> str:
     """Build a self-contained client-side HTML export document."""
-    payload = _build_export_payload(runs, config, summary_runs=summary_runs)
-    payload_json = json.dumps(payload, default=_json_default).replace("</", "<\\/")
+    payload = _sanitize_export_payload(
+        _build_export_payload(runs, config, summary_runs=summary_runs)
+    )
+    payload_json = json.dumps(
+        payload,
+        default=_json_default,
+        allow_nan=False,
+    ).replace("</", "<\\/")
     plotly_js = get_plotlyjs()
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -125,15 +131,15 @@ def _build_export_payload(
             "enabled_page_selectors": _enabled_page_selectors_payload(),
         },
         "client_runtime": "figure-swap-v1",
-        "client_export_note": (
-            "Offline export uses client-side figure and table swapping for "
-            "dashboard-level Weighting and Values controls. Supported page-level "
-            "selectors currently include Long-Term > Geography, "
-            "Tour Summary > Person Type, Joint Tours > HH Size, "
-            "Destination > Purpose, Tour TOD > Purpose, Tour Mode > Purpose, "
-            "Stop Frequency > Tour Purpose, Stop Timing > Purpose, and "
-            "Trip Mode > Tour Purpose and Tour Mode."
-        ),
+        # "client_export_note": (
+        #     "Offline export uses client-side figure and table swapping for "
+        #     "dashboard-level Weighting and Values controls. Supported page-level "
+        #     "selectors currently include Long-Term > Geography, "
+        #     "Tour Summary > Person Type, Joint Tours > HH Size, "
+        #     "Destination > Purpose, Tour TOD > Purpose, Tour Mode > Purpose, "
+        #     "Stop Frequency > Tour Purpose, Stop Timing > Purpose, and "
+        #     "Trip Mode > Tour Purpose and Tour Mode."
+        # ),
     }
 
 
@@ -561,17 +567,46 @@ def _variant_key(values: list[str] | tuple[str, ...]) -> str:
     return json.dumps(list(values), separators=(",", ":"))
 
 
+def _sanitize_export_payload(value: Any) -> Any:
+    """Recursively replace JSON-unsafe numeric values with null."""
+    if isinstance(value, dict):
+        return {key: _sanitize_export_payload(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_export_payload(item) for item in value]
+    if isinstance(value, tuple):
+        return [_sanitize_export_payload(item) for item in value]
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, np.floating):
+        if np.isnan(value) or np.isinf(value):
+            return None
+        return float(value)
+    if isinstance(value, float):
+        if np.isnan(value) or np.isinf(value):
+            return None
+        return value
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+    if pd.isna(value):
+        return None
+    return value
+
+
 def _json_default(value: Any) -> Any:
     if isinstance(value, np.integer):
         return int(value)
     if isinstance(value, np.floating):
-        if np.isnan(value):
+        if np.isnan(value) or np.isinf(value):
             return None
         return float(value)
     if isinstance(value, np.bool_):
         return bool(value)
     if isinstance(value, pd.Timestamp):
         return value.isoformat()
+    if isinstance(value, float):
+        if np.isnan(value) or np.isinf(value):
+            return None
+        return value
     if pd.isna(value):
         return None
     raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
