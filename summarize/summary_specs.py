@@ -7,10 +7,9 @@ from typing import Callable
 
 import polars as pl
 
-from summarize.summaries import (
-    validation,
-)
-from summarize.reader import Config, RunData
+
+from runtime.config import Config
+from runtime.models import RunData
 from summarize.summaries import (
     daily_travel,
     demographics,
@@ -19,6 +18,7 @@ from summarize.summaries import (
     long_term,
     tour,
     trip,
+    validation,
 )
 
 

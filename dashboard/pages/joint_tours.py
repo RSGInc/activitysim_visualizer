@@ -41,7 +41,7 @@ class JointToursPage(DashboardPage):
             ]
             return
 
-        jtf_list = summaries["joint_tour_freq"]
+        jtf_list = summaries["jtf_distribution"]
 
         def _ordered_comp(df: pl.DataFrame) -> pl.DataFrame:
             if len(df) == 0:
@@ -69,16 +69,16 @@ class JointToursPage(DashboardPage):
 
         comp_list = [
             (label, _ordered_comp(df))
-            for label, df in summaries["joint_composition"]
+            for label, df in summaries["joint_tour_composition_distribution"]
         ]
         party_list = [
             (
                 label,
-                df.with_columns(pl.col("NUMBER_HH").cast(pl.Utf8)),
+                df.with_columns(pl.col("party_size").cast(pl.Utf8)),
             )
-            for label, df in summaries["joint_party_size"]
+            for label, df in summaries["joint_tour_party_size_distribution"]
         ]
-        hhsize_list = summaries["joint_tours_hhsize"]
+        hhsize_list = summaries["household_jtp_by_household_size_and_jtf"]
 
         def _ordered_presence(df: pl.DataFrame) -> pl.DataFrame:
             base = pl.DataFrame({"jointTours": ["0", "1", "2+"]})
@@ -104,7 +104,9 @@ class JointToursPage(DashboardPage):
                 return (label, agg)
             return (
                 label,
-                _ordered_presence(df.filter(pl.col("hhsize").cast(pl.Utf8) == hhsize)),
+                _ordered_presence(
+                    df.filter(pl.col("household_size").cast(pl.Utf8) == hhsize)
+                ),
             )
 
         hhsize = self.hhsize_sel.value
@@ -119,8 +121,8 @@ class JointToursPage(DashboardPage):
         self._body.objects = [
             bar_chart(
                 jtf_list,
-                x_col="alt_name",
-                y_col="freq",
+                x_col="jtf_label",
+                y_col="household_count",
                 title="Joint Tour Frequency (21 alternatives)",
                 xaxis_title="Alternative",
                 yaxis_title="Households",
@@ -131,7 +133,7 @@ class JointToursPage(DashboardPage):
                 bar_chart(
                     comp_list,
                     x_col="tour_composition",
-                    y_col="freq",
+                    y_col="joint_tour_count",
                     title="Joint Tour Composition",
                     xaxis_title="Composition",
                     yaxis_title="Tours",
@@ -139,8 +141,8 @@ class JointToursPage(DashboardPage):
                 ),
                 bar_chart(
                     party_list,
-                    x_col="NUMBER_HH",
-                    y_col="freq",
+                    x_col="party_size",
+                    y_col="joint_tour_count",
                     title="Joint Tour Party Size",
                     xaxis_title="Party Size",
                     yaxis_title="Tours",
@@ -149,8 +151,8 @@ class JointToursPage(DashboardPage):
             ),
             bar_chart(
                 hhsize_data,
-                "jointTours",
-                "freq",
+                "jtf",
+                "household_percent",
                 f"Joint Tour Presence by HH Size ({hhsize})",
                 "Joint Tours",
                 "% HH",
@@ -172,10 +174,10 @@ PAGE = DashboardPageDefinition(
         ),
     ),
     required_summary_ids=(
-        "joint_tour_freq",
-        "joint_composition",
-        "joint_party_size",
-        "joint_tours_hhsize",
+        "jtf_distribution",
+        "joint_tour_composition_distribution",
+        "joint_tour_party_size_distribution",
+        "household_jtp_by_household_size_and_jtf",
     ),
 )
 
