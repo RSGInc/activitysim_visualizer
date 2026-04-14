@@ -6,8 +6,9 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart, data_table, density_chart
-from summarize import demographics, mandatory
+from summarize import mandatory
 from summarize.reader import Config, RunData
+from summarize.summaries import demographics
 
 
 def auto_ownership_chart_data(

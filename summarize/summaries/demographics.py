@@ -1,7 +1,7 @@
 """Household and person demographic summaries."""
 
 import polars as pl
-from .reader import RunData, Config
+from ..reader import RunData, Config
 
 
 def hh_size(rd: RunData, config: Config | None = None) -> pl.DataFrame:

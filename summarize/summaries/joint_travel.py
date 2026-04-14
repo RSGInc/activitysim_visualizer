@@ -2,7 +2,7 @@
 
 import polars as pl
 
-from .reader import RunData, Config
+from ..reader import RunData, Config
 
 
 def joint_tour_freq(rd: RunData, config: Config | None = None) -> pl.DataFrame:

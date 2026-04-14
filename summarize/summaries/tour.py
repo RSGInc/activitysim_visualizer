@@ -376,3 +376,125 @@ def tour_tod(rd: RunData, config: Config) -> pl.DataFrame:
     return pl.concat([df_long, total], how="vertical").sort(
         ["time_bin", "tour_purpose"]
     )
+
+
+def tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
+    raise NotImplementedError()
+
+
+def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
+    """Average mandatory tour distances.
+
+    Returns DataFrame: mandatory_tour_purpose, geography, average_tour_distance.
+    """
+    ptype_col = config.col_ptype
+
+    workers = (
+        rd.per.filter(
+            (pl.col("workplace_zone_id") > 0)
+            & (
+                pl.col("is_worker")
+                .cast(pl.Utf8)
+                .str.to_lowercase()
+                .is_in(["true", "1"])
+            )
+        )
+        if "is_worker" in rd.per.columns
+        else rd.per.head(0)
+    )
+
+    if ptype_col in rd.per.columns:
+        univ_s = (
+            rd.per.filter(
+                (pl.col("school_zone_id") > 0)
+                & (
+                    pl.col("is_student")
+                    .cast(pl.Utf8)
+                    .str.to_lowercase()
+                    .is_in(["true", "1"])
+                )
+                & (pl.col(ptype_col).cast(pl.Utf8) == "3")
+            )
+            if "is_student" in rd.per.columns
+            else rd.per.head(0)
+        )
+
+        schl_s = (
+            rd.per.filter(
+                (pl.col("school_zone_id") > 0)
+                & (
+                    pl.col("is_student")
+                    .cast(pl.Utf8)
+                    .str.to_lowercase()
+                    .is_in(["true", "1"])
+                )
+                & (pl.col(ptype_col).cast(pl.Utf8).cast(pl.Int32, strict=False) >= 6)
+            )
+            if "is_student" in rd.per.columns
+            else rd.per.head(0)
+        )
+    else:
+        univ_s = rd.per.head(0)
+        schl_s = rd.per.head(0)
+
+    def _avg_by_geo(
+        persons: pl.DataFrame,
+        purpose_name: str,
+        dist_col: str,
+        geo_col: str = "HGEO",
+    ) -> pl.DataFrame:
+        if dist_col not in persons.columns or len(persons) == 0:
+            return pl.DataFrame(
+                {
+                    "mandatory_tour_purpose": [purpose_name],
+                    "geography": ["all_geographies"],
+                    "average_tour_distance": [None],
+                }
+            )
+
+        rows = []
+
+        if config.geography_enabled and geo_col in persons.columns:
+            groups = sorted(persons[geo_col].drop_nulls().unique().to_list())
+            for grp in groups:
+                sub = persons.filter(pl.col(geo_col) == grp)
+                rows.append(
+                    {
+                        "mandatory_tour_purpose": purpose_name,
+                        "geography": str(grp),
+                        "average_tour_distance": sub[dist_col].mean(),
+                    }
+                )
+
+        rows.append(
+            {
+                "mandatory_tour_purpose": purpose_name,
+                "geography": "all_geographies",
+                "average_tour_distance": persons[dist_col].mean(),
+            }
+        )
+
+        return pl.DataFrame(rows)
+
+    result = pl.concat(
+        [
+            _avg_by_geo(workers, "work", "distance_to_work"),
+            _avg_by_geo(univ_s, "university", "distance_to_school"),
+            _avg_by_geo(schl_s, "school", "distance_to_school"),
+        ],
+        how="vertical",
+    )
+
+    return result.select(
+        "mandatory_tour_purpose",
+        "geography",
+        "average_tour_distance",
+    ).sort(["mandatory_tour_purpose", "geography"])
+
+
+def int_vs_ext_non_mand_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
+    raise NotImplementedError()
+
+
+def ext_non_mand_tour_loc(rd: RunData, config: Config) -> pl.DataFrame:
+    raise NotImplementedError()

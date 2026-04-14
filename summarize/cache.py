@@ -8,25 +8,17 @@ from datetime import datetime, timezone
 import json
 import re
 from pathlib import Path
-from typing import Callable
+
 
 import polars as pl
 
-from summarize import (
-    daily_travel,
-    demographics,
-    destination,
-    joint_travel,
-    long_term,
-    mandatory,
-    stops,
-    totals,
-    tour_mode,
-    tour_tod,
-    tour,
-    trips,
-)
+
 from summarize.reader import Config, RunData
+from summarize.summary_specs import (
+    DEFAULT_SUMMARY_IDS,
+    SUMMARY_SPEC_BY_ID,
+    SUMMARY_FILENAME_BY_ID,
+)
 from summarize.writer import write_all
 
 SCHEMA_VERSION = 2
@@ -37,13 +29,6 @@ class SummaryCacheError(RuntimeError):
     """Raised when a summary cache directory is invalid or incomplete."""
 
 
-@dataclass(frozen=True)
-class SummarySpec:
-    summary_id: str
-    filename: str
-    builder: Callable[[RunData, Config], pl.DataFrame]
-
-
 @dataclass
 class SummaryRun:
     label: str
@@ -52,179 +37,6 @@ class SummaryRun:
     source_run_dir: str | None = None
     raw_run: RunData | None = None
     manifest: dict[str, object] | None = None
-
-
-def _build_tlfd_work(rd: RunData, config: Config) -> pl.DataFrame:
-    return mandatory.tlfd(rd, config)["work"]
-
-
-def _build_tlfd_univ(rd: RunData, config: Config) -> pl.DataFrame:
-    return mandatory.tlfd(rd, config)["univ"]
-
-
-def _build_tlfd_schl(rd: RunData, config: Config) -> pl.DataFrame:
-    return mandatory.tlfd(rd, config)["schl"]
-
-
-SUMMARY_SPECS: tuple[SummarySpec, ...] = (
-    ### DEMOGRAPHIC SUMMARIES
-    SummarySpec(
-        "household_size_distribution",
-        "household_size_distribution",
-        demographics.hh_size,
-    ),
-    SummarySpec(
-        "person_type_distribution", "person_type_distribution", demographics.person_type
-    ),
-    SummarySpec(
-        "population_totals", "population_totals", demographics.population_totals
-    ),
-    ### LONG TERM SUMMARIES
-    # license holding
-    # bicycle comfort
-    # AV Ownership
-    SummarySpec(
-        "auto_ownership_distribution",
-        "auto_ownership_distribution",
-        long_term.auto_ownership,
-    ),
-    SummarySpec(
-        "work_from_home_rate_by_geography",
-        "work_from_home_rate_by_geography",
-        long_term.wfh,
-    ),
-    # Internal vs external workers.
-    # External worker workplace location
-    # Workplace location vs land use employment
-    # commuting flows
-    # school location vs land use
-    SummarySpec(
-        "work_location_distance_distribution_by_geography",
-        "work_location_distance_distribution_by_geography",
-        _build_tlfd_work,
-    ),
-    SummarySpec(
-        "university_location_distance_distribution_by_geography",
-        "university_location_distance_distribution_by_geography",
-        _build_tlfd_univ,
-    ),
-    SummarySpec(
-        "school_location_distance_distribution_by_geography",
-        "school_location_distance_distribution_by_geography",
-        _build_tlfd_schl,
-    ),
-    # vehicle age
-    # vehicle fuel type
-    # vehicle body type
-    # transit pass ownership
-    # transit subsidy
-    # free parking
-    SummarySpec(
-        "telecommute_frequency_distribution",
-        "telecommute_frequency_distribution",
-        long_term.telecommute,
-    ),
-    ### DAILY TRAVEL SUMMARIES
-    SummarySpec(
-        "daily_activity_pattern_by_person_type",
-        "daily_activity_pattern_by_person_type",
-        daily_travel.dap_summary,
-    ),
-    SummarySpec(
-        "mandatory_tour_frequency_by_person_type",
-        "mandatory_tour_frequency_by_person_type",
-        daily_travel.mandatory_tour_freq,
-    ),
-    SummarySpec(
-        "nonmandatory_tour_frequency_by_person_type",
-        "nonmandatory_tour_frequency_by_person_type",
-        daily_travel.indiv_nm_summary,
-    ),
-    # total escorted tours
-    # number escorted tours to/from school
-    # tour rate per person
-    # trip rate per person
-    ### JOINT TRAVEL SUMMARIES
-    SummarySpec("jtf_distribution", "jtf_distribution", joint_travel.joint_tour_freq),
-    SummarySpec(
-        "joint_tours_by_household_size",
-        "joint_tours_by_household_size",
-        joint_travel.joint_tours_hhsize,
-    ),
-    SummarySpec(
-        "joint_tour_party_size_distribution",
-        "joint_tour_party_size_distribution",
-        joint_travel.joint_party_size,
-    ),
-    SummarySpec(
-        "joint_tour_composition_distribution",
-        "joint_tour_composition_distribution",
-        joint_travel.joint_composition,
-    ),
-    # joint tour composition by party size
-    # joint tour participation per person by hh size
-    SummarySpec(
-        "household_jtp_by_household_size_and_jtf",
-        "household_jtp_by_household_size_and_jtf",
-        joint_travel.jtf_by_hhsize,
-    ),
-    # TOUR SUMMARIES
-    # tour category
-    # tour purpose
-    # allocated vehicle age
-    # allocated vehicle fuel type
-    # allocated vehicle body type
-    SummarySpec(
-        "tour_mode_by_tour_purpose_and_auto_sufficiency",
-        "tour_mode_by_tour_purpose_and_auto_sufficiency",
-        tour.tour_mode,
-    ),
-    # at-work sub-tour frequency
-    SummarySpec(
-        "tour_time_of_day_by_tour_purpose",
-        "tour_time_of_day_by_tour_purpose",
-        tour.tour_tod,
-    ),
-    SummarySpec(
-        "tour_stop_frequency_by_tour_purpose",
-        "tour_stop_frequency_by_tour_purpose",
-        tour.stop_freq,
-    ),
-    SummarySpec("mand_tour_lengths", "mandTourLengths", mandatory.mand_tour_lengths),
-    SummarySpec("geo_flows", "geoFlows", mandatory.geo_flows),
-    SummarySpec("nm_tour_rates", "nm_tour_rates", tours.nm_tour_rates),
-    SummarySpec(
-        "grouped_tour_mode_profile",
-        "groupedTmodeProfile_vis",
-        tour_mode.grouped_tour_mode_profile,
-    ),
-    SummarySpec("trip_mode_profile", "tripModeProfile_vis", trips.trip_mode_profile),
-    SummarySpec(
-        "stop_purpose_by_tour_purpose",
-        "stopPurpose",
-        lambda rd, config: stops.stop_purpose_by_tour_purpose(rd),
-    ),
-    SummarySpec(
-        "stop_location", "stopLocation", lambda rd, config: stops.stop_location(rd)
-    ),
-    SummarySpec("stop_timing", "stopTiming", lambda rd, config: stops.stop_timing(rd)),
-    SummarySpec(
-        "destination_distance",
-        "destinationDistByPurpose",
-        lambda rd, config: destination.distance_distribution(rd),
-    ),
-    SummarySpec(
-        "destination_average_distance",
-        "destinationAvgDistance",
-        lambda rd, config: destination.average_distance(rd),
-    ),
-)
-
-SUMMARY_SPEC_BY_ID = {spec.summary_id: spec for spec in SUMMARY_SPECS}
-SUMMARY_FILENAME_BY_ID = {
-    spec.summary_id: f"{spec.filename}.csv" for spec in SUMMARY_SPECS
-}
-DEFAULT_SUMMARY_IDS = [spec.summary_id for spec in SUMMARY_SPECS]
 
 
 def normalize_weighting_modes(modes: list[str] | None) -> list[str]:

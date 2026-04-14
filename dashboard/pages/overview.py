@@ -6,8 +6,9 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import _to_pandas, bar_chart, kpi_box
-from summarize import demographics, totals
+from summarize import totals
 from summarize.reader import Config, RunData
+from summarize.summaries import demographics
 
 KPI_METRICS = [
     "population",

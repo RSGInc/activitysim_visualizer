@@ -2,7 +2,7 @@
 
 import polars as pl
 
-from .reader import RunData, Config
+from ..reader import RunData, Config
 
 
 def license_holding_status(rd: RunData, config: Config) -> pl.DataFrame:

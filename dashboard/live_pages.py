@@ -27,7 +27,6 @@ from dashboard.pages import (
     trip_mode as trip_mode_page,
 )
 from summarize import (
-    demographics,
     destination as destination_sums,
     mandatory,
     stops,
@@ -38,6 +37,7 @@ from summarize import (
     trips,
 )
 from summarize.reader import Config, RunData
+from summarize.summaries import demographics
 
 
 class OverviewPage(DashboardPage):
