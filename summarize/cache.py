@@ -8,22 +8,16 @@ from datetime import datetime, timezone
 import json
 import re
 from pathlib import Path
-from typing import Callable
+
 
 import polars as pl
 
 from runtime.config import Config
 from runtime.models import RunData
-from summarize import (
-    demographics,
-    destination,
-    mandatory,
-    stops,
-    totals,
-    tour_mode,
-    tour_tod,
-    tours,
-    trips,
+from summarize.summary_specs import (
+    DEFAULT_SUMMARY_IDS,
+    SUMMARY_SPEC_BY_ID,
+    SUMMARY_FILENAME_BY_ID,
 )
 from summarize.writer import write_all
 
@@ -35,13 +29,6 @@ class SummaryCacheError(RuntimeError):
     """Raised when a summary cache directory is invalid or incomplete."""
 
 
-@dataclass(frozen=True)
-class SummarySpec:
-    summary_id: str
-    filename: str
-    builder: Callable[[RunData, Config], pl.DataFrame]
-
-
 @dataclass
 class SummaryRun:
     label: str
@@ -49,99 +36,6 @@ class SummaryRun:
     summaries_by_mode: dict[str, dict[str, pl.DataFrame]]
     source_run_dir: str | None = None
     manifest: dict[str, object] | None = None
-
-
-def _build_tlfd_work(rd: RunData, config: Config) -> pl.DataFrame:
-    return mandatory.tlfd(rd, config)["work"]
-
-
-def _build_tlfd_univ(rd: RunData, config: Config) -> pl.DataFrame:
-    return mandatory.tlfd(rd, config)["univ"]
-
-
-def _build_tlfd_schl(rd: RunData, config: Config) -> pl.DataFrame:
-    return mandatory.tlfd(rd, config)["schl"]
-
-
-SUMMARY_SPECS: tuple[SummarySpec, ...] = (
-    SummarySpec(
-        "auto_ownership",
-        "autoOwnership",
-        lambda rd, config: demographics.auto_ownership(rd),
-    ),
-    SummarySpec("person_type", "pertypeDistbn", demographics.person_type),
-    SummarySpec("hh_size", "hhSizeDist", lambda rd, config: demographics.hh_size(rd)),
-    SummarySpec("tlfd_work", "workTLFD", _build_tlfd_work),
-    SummarySpec("tlfd_univ", "univTLFD", _build_tlfd_univ),
-    SummarySpec("tlfd_schl", "schlTLFD", _build_tlfd_schl),
-    SummarySpec("mand_tour_lengths", "mandTourLengths", mandatory.mand_tour_lengths),
-    SummarySpec("wfh", "wfh_summary", mandatory.wfh),
-    SummarySpec(
-        "telecommute",
-        "telecommuteFrequency",
-        lambda rd, config: mandatory.telecommute(rd),
-    ),
-    SummarySpec("geo_flows", "geoFlows", mandatory.geo_flows),
-    SummarySpec("dap_summary", "dapSummary_vis", tours.dap_summary),
-    SummarySpec("mandatory_tour_freq", "mtfSummary_vis", tours.mandatory_tour_freq),
-    SummarySpec("indiv_nm_summary", "inmSummary_vis", tours.indiv_nm_summary),
-    SummarySpec("nm_tour_rates", "nm_tour_rates", tours.nm_tour_rates),
-    SummarySpec("joint_tour_freq", "jtf", lambda rd, config: tours.joint_tour_freq(rd)),
-    SummarySpec(
-        "joint_composition", "jointComp", lambda rd, config: tours.joint_composition(rd)
-    ),
-    SummarySpec(
-        "joint_party_size",
-        "jointPartySize",
-        lambda rd, config: tours.joint_party_size(rd),
-    ),
-    SummarySpec(
-        "joint_tours_hhsize",
-        "jointToursHHSize",
-        lambda rd, config: tours.joint_tours_hhsize(rd),
-    ),
-    SummarySpec("tour_mode_profile", "tmodeProfile_vis", tour_mode.tour_mode_profile),
-    SummarySpec(
-        "grouped_tour_mode_profile",
-        "groupedTmodeProfile_vis",
-        tour_mode.grouped_tour_mode_profile,
-    ),
-    SummarySpec(
-        "tour_tod_profiles",
-        "todProfile_vis",
-        lambda rd, config: tour_tod.tod_profiles(rd),
-    ),
-    SummarySpec("trip_mode_profile", "tripModeProfile_vis", trips.trip_mode_profile),
-    SummarySpec("stop_freq", "stopFreq", lambda rd, config: stops.stop_freq(rd)),
-    SummarySpec(
-        "stop_purpose_by_tour_purpose",
-        "stopPurpose",
-        lambda rd, config: stops.stop_purpose_by_tour_purpose(rd),
-    ),
-    SummarySpec(
-        "stop_location", "stopLocation", lambda rd, config: stops.stop_location(rd)
-    ),
-    SummarySpec("stop_timing", "stopTiming", lambda rd, config: stops.stop_timing(rd)),
-    SummarySpec(
-        "totals", "totals", lambda rd, config: totals.system_totals(rd, config)
-    ),
-    SummarySpec(
-        "destination_distance",
-        "destinationDistByPurpose",
-        lambda rd, config: destination.distance_distribution(rd),
-    ),
-    SummarySpec(
-        "destination_average_distance",
-        "destinationAvgDistance",
-        lambda rd, config: destination.average_distance(rd),
-    ),
-)
-
-SUMMARY_SPEC_BY_ID = {spec.summary_id: spec for spec in SUMMARY_SPECS}
-SUMMARY_FILENAME_BY_ID = {
-    spec.summary_id: f"{spec.filename}.csv" for spec in SUMMARY_SPECS
-}
-DEFAULT_SUMMARY_IDS = [spec.summary_id for spec in SUMMARY_SPECS]
 
 
 def normalize_weighting_modes(modes: list[str] | None) -> list[str]:

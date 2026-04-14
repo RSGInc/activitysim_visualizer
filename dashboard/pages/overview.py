@@ -107,9 +107,7 @@ class OverviewPage(DashboardPage):
             self._body.objects = [
                 pn.pane.Markdown("## Overview"),
                 self.data_not_available_card(
-                    detail=(
-                        "This page only renders from precomputed summary tables."
-                    ),
+                    detail=("This page only renders from precomputed summary tables."),
                     missing_items=list(self.required_summary_ids),
                 ),
             ]
