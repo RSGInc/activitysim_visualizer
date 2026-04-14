@@ -89,7 +89,6 @@ def main() -> None:
         sys.exit(1)
 
     from summarize.cache import (
-        DEFAULT_SUMMARY_IDS,
         SummaryCacheError,
         build_mode_summaries,
         build_run_fingerprint,
@@ -101,6 +100,7 @@ def main() -> None:
         summary_root,
         write_summary_run_cache,
     )
+    from summarize.summary_specs import DEFAULT_SUMMARY_IDS
     from summarize.reader import Config, prepare_data, read_run, resolve_skim_path
 
     print(f"[main] Loading config: {args.config}")
