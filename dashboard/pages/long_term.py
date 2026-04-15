@@ -16,7 +16,7 @@ def auto_ownership_chart_data(
 ) -> list[tuple[str, pl.DataFrame]]:
     """Cast HH vehicle ownership values for chart display."""
     return [
-        (label, df.with_columns(pl.col("HHVEH").cast(pl.Utf8)))
+        (label, df.with_columns(pl.col("household_vehicle_count").cast(pl.Utf8)))
         for label, df in auto_own_list
     ]
 
@@ -26,18 +26,26 @@ def wfh_chart_data(
 ) -> list[tuple[str, pl.DataFrame]]:
     """Select WFH chart columns for non-empty summaries."""
     return [
-        (label, df.select(["Geography", "WFH"]))
+        (
+            label,
+            df.select(
+                pl.col("geography"),
+                pl.col("work_from_home_worker_count"),
+            ),
+        )
         for label, df in wfh_list
-        if len(df) > 0
+        if df is not None and len(df) > 0
     ]
 
 
 def geo_options(work_tlfd_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
     """Collect geography selector options from work TLFD data."""
     first_tlfd = work_tlfd_list[0][1] if work_tlfd_list else None
-    if first_tlfd is None:
+    if first_tlfd is None or len(first_tlfd) == 0:
         return ["Total"]
-    return ["Total"] + [c for c in first_tlfd.columns if c not in ("distbin", "Total")]
+    geos = first_tlfd.select("geography").drop_nulls().unique().to_series().to_list()
+
+    return ["Total"] + sorted(g for g in geos if g != "all_geographies")
 
 
 def tlfd_chart_data(
@@ -50,24 +58,79 @@ def tlfd_chart_data(
     list[tuple[str, pl.DataFrame]],
     list[tuple[str, pl.DataFrame]],
 ]:
-    """Build TLFD datasets for one geography selection."""
-    col = geo if geo != "Total" else "Total"
+    """Build TLFD datasets for one geography selection from long-form summaries."""
+    geography = "all_geographies" if geo == "Total" else geo
     work_data = [
-        (label, df.select(["distbin", col]).rename({col: "freq"}))
+        (
+            label,
+            df.filter(pl.col("geography") == geography)
+            .select(
+                pl.col("distance_bin"),
+                pl.col("person_count"),
+            )
+            .sort("distance_bin"),
+        )
         for label, df in work_tlfd_list
-        if col in df.columns
+        if df is not None and len(df) > 0
     ]
     univ_data = [
-        (label, df.select(["distbin", col]).rename({col: "freq"}))
+        (
+            label,
+            df.filter(pl.col("geography") == geography)
+            .select(
+                pl.col("distance_bin"),
+                pl.col("person_count"),
+            )
+            .sort("distance_bin"),
+        )
         for label, df in univ_tlfd_list
-        if col in df.columns
+        if df is not None and len(df) > 0
     ]
     schl_data = [
-        (label, df.select(["distbin", col]).rename({col: "freq"}))
+        (
+            label,
+            df.filter(pl.col("geography") == geography)
+            .select(
+                pl.col("distance_bin"),
+                pl.col("person_count"),
+            )
+            .sort("distance_bin"),
+        )
         for label, df in schl_tlfd_list
-        if col in df.columns
+        if df is not None and len(df) > 0
     ]
     return work_data, univ_data, schl_data
+
+
+def avg_mand_tour_len_table_data(
+    data_list: list[tuple[str, pl.DataFrame]],
+) -> list[tuple[str, pl.DataFrame]]:
+    """Convert long mandatory tour length summaries into pivoted table format."""
+    out = []
+
+    for label, df in data_list:
+        if df is None or len(df) == 0:
+            continue
+
+        table_df = df.with_columns(
+            pl.when(pl.col("geography") == "all_geographies")
+            .then(pl.lit("Total"))
+            .otherwise(pl.col("geography"))
+            .alias("geography")
+        ).pivot(
+            values="average_tour_distance",
+            index="geography",
+            on="mandatory_tour_purpose",
+        )
+
+        # Keep geography first, then purpose columns sorted
+        cols = table_df.columns
+        purpose_cols = sorted(c for c in cols if c != "geography")
+        table_df = table_df.select(["geography", *purpose_cols])
+
+        out.append((label, table_df))
+
+    return out
 
 
 class LongTermPage(DashboardPage):
@@ -88,7 +151,9 @@ class LongTermPage(DashboardPage):
         self.view = pn.Column(*header, self._body, sizing_mode="stretch_width")
 
     def _geo_options(self) -> list[str]:
-        tlfd_list = self.state.get_summary_table_set("tlfd_work", "weighted")
+        tlfd_list = self.state.get_summary_table_set(
+            "work_location_distance_distribution_by_geography", "weighted"
+        )
         if tlfd_list is None:
             return ["Total"]
         return geo_options(tlfd_list)
@@ -108,17 +173,23 @@ class LongTermPage(DashboardPage):
             ]
             return
 
-        auto_own_list = auto_ownership_chart_data(summaries["auto_ownership"])
-        work_tlfd_list = summaries["tlfd_work"]
-        univ_tlfd_list = summaries["tlfd_univ"]
-        schl_tlfd_list = summaries["tlfd_schl"]
-        wfh_list = summaries["wfh"]
-        tc_list = summaries["telecommute"]
-        mand_len_list = summaries["mand_tour_lengths"]
+        auto_own_list = auto_ownership_chart_data(
+            summaries["auto_ownership_distribution"]
+        )
+        work_tlfd_list = summaries["work_location_distance_distribution_by_geography"]
+        univ_tlfd_list = summaries[
+            "university_location_distance_distribution_by_geography"
+        ]
+        schl_tlfd_list = summaries["school_location_distance_distribution_by_geography"]
+        wfh_list = summaries["work_from_home_rate_by_geography"]
+        tc_list = summaries["telecommute_frequency_distribution"]
+        mand_len_list = summaries[
+            "average_mandatory_tour_distance_by_purpose_and_geography"
+        ]
         auto_chart = bar_chart(
             auto_own_list,
-            x_col="HHVEH",
-            y_col="freq",
+            x_col="household_vehicle_count",
+            y_col="household_count",
             title="Auto Ownership",
             xaxis_title="Vehicles",
             yaxis_title="Households",
@@ -128,7 +199,7 @@ class LongTermPage(DashboardPage):
         tc_chart = bar_chart(
             tc_list,
             x_col="telecommute_frequency",
-            y_col="freq",
+            y_col="person_count",
             title="Telecommute Frequency",
             xaxis_title="Frequency",
             yaxis_title="Workers",
@@ -136,8 +207,8 @@ class LongTermPage(DashboardPage):
         )
         wfh_chart = bar_chart(
             wfh_chart_data(wfh_list),
-            x_col="Geography",
-            y_col="WFH",
+            x_col="geography",
+            y_col="work_from_home_worker_count",
             title="Work From Home by Geography",
             xaxis_title="Geography",
             yaxis_title="Workers",
@@ -162,8 +233,8 @@ class LongTermPage(DashboardPage):
                 pn.Row(
                     density_chart(
                         work_data,
-                        "distbin",
-                        "freq",
+                        "distance_bin",
+                        "person_count",
                         "Work TLFD",
                         "Distance (miles)",
                         normalize=False,
@@ -171,8 +242,8 @@ class LongTermPage(DashboardPage):
                     ),
                     density_chart(
                         univ_data,
-                        "distbin",
-                        "freq",
+                        "distance_bin",
+                        "person_count",
                         "University TLFD",
                         "Distance (miles)",
                         normalize=False,
@@ -180,8 +251,8 @@ class LongTermPage(DashboardPage):
                     ),
                     density_chart(
                         schl_data,
-                        "distbin",
-                        "freq",
+                        "distance_bin",
+                        "person_count",
                         "School TLFD",
                         "Distance (miles)",
                         normalize=False,
@@ -221,8 +292,8 @@ class LongTermPage(DashboardPage):
                 pn.Row(
                     density_chart(
                         work_data,
-                        "distbin",
-                        "freq",
+                        "distance_bin",
+                        "person_count",
                         "Work TLFD",
                         "Distance (miles)",
                         normalize=False,
@@ -230,8 +301,8 @@ class LongTermPage(DashboardPage):
                     ),
                     density_chart(
                         univ_data,
-                        "distbin",
-                        "freq",
+                        "distance_bin",
+                        "person_count",
                         "University TLFD",
                         "Distance (miles)",
                         normalize=False,
@@ -239,8 +310,8 @@ class LongTermPage(DashboardPage):
                     ),
                     density_chart(
                         schl_data,
-                        "distbin",
-                        "freq",
+                        "distance_bin",
+                        "person_count",
                         "School TLFD",
                         "Distance (miles)",
                         normalize=False,
@@ -255,7 +326,10 @@ class LongTermPage(DashboardPage):
             tlfd_section,
             pn.Row(tc_chart, wfh_chart),
             flow_widget,
-            data_table(mand_len_list, "Average Mandatory Tour Lengths (miles)"),
+            data_table(
+                avg_mand_tour_len_table_data(mand_len_list),
+                "Average Mandatory Tour Lengths (miles)",
+            ),
         ]
 
 
@@ -273,13 +347,13 @@ PAGE = DashboardPageDefinition(
         ),
     ),
     required_summary_ids=(
-        "auto_ownership",
-        "tlfd_work",
-        "tlfd_univ",
-        "tlfd_schl",
-        "wfh",
-        "telecommute",
-        "mand_tour_lengths",
+        "auto_ownership_distribution",
+        "work_location_distance_distribution_by_geography",
+        "university_location_distance_distribution_by_geography",
+        "school_location_distance_distribution_by_geography",
+        "work_from_home_rate_by_geography",
+        "telecommute_frequency_distribution",
+        "average_mandatory_tour_distance_by_purpose_and_geography",
     ),
 )
 

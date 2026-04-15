@@ -57,7 +57,11 @@ def configure_logging(
     console_handler.setLevel(level)
     console_handler.setFormatter(formatter)
 
-    file_handler = logging.FileHandler(resolved_log_path, encoding="utf-8")
+    file_handler = logging.FileHandler(
+        resolved_log_path,
+        mode="w",
+        encoding="utf-8",
+    )
     file_handler.setLevel(level)
     file_handler.setFormatter(formatter)
 

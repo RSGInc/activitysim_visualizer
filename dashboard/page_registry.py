@@ -46,7 +46,6 @@ def all_page_definitions() -> tuple[DashboardPageDefinition, ...]:
             raise ValueError(
                 f"Dashboard page {page_definition.page_id!r} does not declare a controller."
             )
-        _validate_page_definition(page_definition)
         controller_cls.definition = page_definition
         page_definitions.append(page_definition)
 
@@ -100,6 +99,15 @@ def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
         )
 
 
+def _validate_selected_page_definitions(
+    page_definitions: list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...],
+) -> None:
+    """Validate only the page definitions enabled for the active workflow."""
+
+    for page_definition in page_definitions:
+        _validate_page_definition(page_definition)
+
+
 def page_definition_by_id(page_id: str) -> DashboardPageDefinition | None:
     """Look up a registered page definition by stable page id."""
     for page_definition in all_page_definitions():
@@ -148,14 +156,18 @@ def _resolve_configured_page_definitions(
 def resolve_live_page_definitions(config: Config) -> list[DashboardPageDefinition]:
     """Resolve the live dashboard pages in display order."""
     if config.dashboard_pages is None:
-        return list(default_page_definitions())
+        page_definitions = list(default_page_definitions())
+        _validate_selected_page_definitions(page_definitions)
+        return page_definitions
     try:
-        return _resolve_configured_page_definitions(config.dashboard_pages)
+        page_definitions = _resolve_configured_page_definitions(config.dashboard_pages)
     except ValueError as exc:
         message = str(exc).replace(
             "configured page ids", "visualizer.dashboard_pages entries"
         )
         raise ValueError(message) from exc
+    _validate_selected_page_definitions(page_definitions)
+    return page_definitions
 
 
 def resolve_page_definitions(config: Config) -> list[DashboardPageDefinition]:
@@ -166,14 +178,20 @@ def resolve_page_definitions(config: Config) -> list[DashboardPageDefinition]:
 def resolve_export_page_definitions(config: Config) -> list[DashboardPageDefinition]:
     """Resolve the export HTML pages in display order."""
     if not config.export_html.pages_configured:
-        return list(default_page_definitions())
+        page_definitions = list(default_page_definitions())
+        _validate_selected_page_definitions(page_definitions)
+        return page_definitions
     try:
-        return _resolve_configured_page_definitions(list(config.export_html.pages.keys()))
+        page_definitions = _resolve_configured_page_definitions(
+            list(config.export_html.pages.keys())
+        )
     except ValueError as exc:
         message = str(exc).replace(
             "configured page ids", "visualizer.export_html.pages entries"
         )
         raise ValueError(message) from exc
+    _validate_selected_page_definitions(page_definitions)
+    return page_definitions
 
 
 def enabled_raw_data_mode_for_pages(
