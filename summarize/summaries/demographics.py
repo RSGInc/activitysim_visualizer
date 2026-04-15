@@ -36,7 +36,7 @@ def person_type(rd: RunData, config: Config) -> pl.DataFrame:
         .with_columns(
             pl.col("person_type")
             .map_elements(
-                lambda v: (config.person_type_labels or {}).get(v),
+                lambda v: config.person_type_label(v),
                 return_dtype=pl.Utf8,
             )
             .alias("person_type_label")

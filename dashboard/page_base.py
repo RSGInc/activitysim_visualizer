@@ -53,6 +53,11 @@ class DashboardPage:
     def _watch_widget(self, widget: pn.widgets.Widget) -> None:
         widget.param.watch(lambda event: self.refresh(force=True), "value")
 
+    def new_section(self, *objects, **kwargs) -> pn.Column:
+        """Create a stable page section container that can be refreshed in place."""
+        kwargs.setdefault("sizing_mode", "stretch_width")
+        return pn.Column(*objects, **kwargs)
+
     @property
     def as_percent(self) -> bool:
         """Return whether the current display mode should show percentages."""

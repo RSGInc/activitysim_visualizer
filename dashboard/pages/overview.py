@@ -76,7 +76,7 @@ def person_type_chart_data(
 ) -> list[tuple[str, pl.DataFrame]]:
     """Cast person type labels for chart display."""
     return [
-        (label, df.with_columns(pl.col("ptype_name").cast(pl.Utf8)))
+        (label, df.with_columns(pl.col("person_type_label").cast(pl.Utf8)))
         for label, df in pertype_list
     ]
 
@@ -86,7 +86,7 @@ def hh_size_chart_data(
 ) -> list[tuple[str, pl.DataFrame]]:
     """Cast household size labels for chart display."""
     return [
-        (label, df.with_columns(pl.col("HHSIZE").cast(pl.Utf8)))
+        (label, df.with_columns(pl.col("household_size").cast(pl.Utf8)))
         for label, df in hhsize_list
     ]
 
@@ -113,9 +113,10 @@ class OverviewPage(DashboardPage):
             ]
             return
 
-        totals_list = summaries["totals"]
-        pertype_list = summaries["person_type"]
-        hhsize_list = summaries["hh_size"]
+        totals_list = summaries["population_totals"]
+        pertype_list = summaries["person_type_distribution"]
+        hhsize_list = summaries["household_size_distribution"]
+        vmt_list = summaries["auto_vmt_totals"]
         pct_df = self.get_filtered_view(
             "overview_pct",
             factory=lambda: percent_difference_table(totals_list),
@@ -135,8 +136,8 @@ class OverviewPage(DashboardPage):
 
         ptype_chart = bar_chart(
             person_type_chart_data(pertype_list),
-            x_col="ptype_name",
-            y_col="freq",
+            x_col="person_type_label",
+            y_col="person_count",
             title="Person Type Distribution",
             xaxis_title="Person Type",
             yaxis_title="Persons",
@@ -145,8 +146,8 @@ class OverviewPage(DashboardPage):
         )
         hhsize_chart = bar_chart(
             hh_size_chart_data(hhsize_list),
-            x_col="HHSIZE",
-            y_col="freq",
+            x_col="household_size",
+            y_col="household_count",
             title="Household Size Distribution",
             xaxis_title="HH Size",
             yaxis_title="Households",
@@ -154,19 +155,30 @@ class OverviewPage(DashboardPage):
             as_percent=self.as_percent,
         )
 
+        vmt_box = kpi_box(
+            label="VMT",
+            values=[
+                (
+                    run_label,
+                    metric_value(tot_df, "auto_vmt"),
+                )
+                for run_label, tot_df in vmt_list
+            ],
+        )
+
         self._body.objects = [
             pn.pane.Markdown("## Overview"),
             pn.pane.Markdown("### Key Performance Indicators"),
             pn.Row(
-                _card("population", "Population"),
-                _card("households", "Households"),
-                _card("vmt", "VMT"),
+                _card("person_count", "Population"),
+                _card("household_count", "Households"),
+                vmt_box,
                 sizing_mode="stretch_width",
             ),
             pn.Row(
-                _card("tours", "Tours"),
-                _card("trips", "Trips"),
-                _card("stops", "Stops"),
+                _card("tour_count", "Tours"),
+                _card("trip_count", "Trips"),
+                _card("stop_count", "Stops"),
                 sizing_mode="stretch_width",
             ),
             pn.pane.Markdown("### Percent Difference vs Base Run"),
@@ -187,7 +199,12 @@ PAGE = DashboardPageDefinition(
     title="Overview",
     order=10,
     controller_cls=OverviewPage,
-    required_summary_ids=("totals", "person_type", "hh_size"),
+    required_summary_ids=(
+        "population_totals",
+        "person_type_distribution",
+        "household_size_distribution",
+        "auto_vmt_totals",
+    ),
 )
 
 OverviewPage.definition = PAGE
