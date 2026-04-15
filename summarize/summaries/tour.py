@@ -33,17 +33,16 @@ def tour_mode(rd: RunData, config: Config) -> pl.DataFrame:
     tour_count_zero_auto, tour_count_auto_deficient,
     tour_count_auto_sufficient, tour_count_all_households.
     """
+    result_schema = {
+        "tour_mode": pl.Utf8,
+        "tour_purpose": pl.Utf8,
+        "tour_count_zero_auto": pl.Float64,
+        "tour_count_auto_deficient": pl.Float64,
+        "tour_count_auto_sufficient": pl.Float64,
+        "tour_count_all_households": pl.Float64,
+    }
     if "tour_mode" not in rd.tours.columns:
-        return pl.DataFrame(
-            {
-                "tour_mode": [],
-                "tour_purpose": [],
-                "tour_count_zero_auto": [],
-                "tour_count_auto_deficient": [],
-                "tour_count_auto_sufficient": [],
-                "tour_count_all_households": [],
-            }
-        )
+        return pl.DataFrame(schema=result_schema)
 
     indiv = (
         rd.tours.filter(
@@ -127,7 +126,15 @@ def tour_mode(rd: RunData, config: Config) -> pl.DataFrame:
             }
         )
 
-    df_result = pl.DataFrame(result_rows)
+    df_result = pl.DataFrame(
+        result_rows,
+        schema={
+            "tour_mode": pl.Utf8,
+            "tour_purpose": pl.Utf8,
+            "autosuff": pl.Int32,
+            "tour_count": pl.Float64,
+        },
+    )
 
     pivot = df_result.pivot(
         on="autosuff",
@@ -195,6 +202,13 @@ def stop_freq(rd: RunData, config: Config) -> pl.DataFrame:
     Returns DataFrame:
     tour_purpose, outbound_stop_count (0-3+), inbound_stop_count (0-3+), total_stop_count (0-6+), tour_count.
     """
+    result_schema = {
+        "tour_purpose": pl.Utf8,
+        "outbound_stop_count": pl.Int32,
+        "inbound_stop_count": pl.Int32,
+        "total_stop_count": pl.Int32,
+        "tour_count": pl.Float64,
+    }
     # Find a valid non-numeric purpose column if available
     purpose_col = None
     for cand in ("primary_purpose", "tour_type", "purpose"):
@@ -203,15 +217,7 @@ def stop_freq(rd: RunData, config: Config) -> pl.DataFrame:
             break
 
     if purpose_col is None:
-        return pl.DataFrame(
-            {
-                "tour_purpose": [],
-                "outbound_stop_count": [],
-                "inbound_stop_count": [],
-                "total_stop_count": [],
-                "tour_count": [],
-            }
-        )
+        return pl.DataFrame(schema=result_schema)
 
     return (
         rd.tours.filter(pl.col("tour_category").is_not_null())
@@ -260,16 +266,15 @@ def tour_tod(rd: RunData, config: Config) -> pl.DataFrame:
     Returns DataFrame: time_bin (1-48), tour_purpose, departure_tour_count,
     arrival_tour_count, duration_tour_count.
     """
+    result_schema = {
+        "time_bin": pl.Int32,
+        "tour_purpose": pl.Utf8,
+        "departure_tour_count": pl.Float64,
+        "arrival_tour_count": pl.Float64,
+        "duration_tour_count": pl.Float64,
+    }
     if "tour_category" not in rd.tours.columns:
-        return pl.DataFrame(
-            {
-                "time_bin": [],
-                "tour_purpose": [],
-                "departure_tour_count": [],
-                "arrival_tour_count": [],
-                "duration_tour_count": [],
-            }
-        )
+        return pl.DataFrame(schema=result_schema)
 
     indiv = rd.tours.filter(
         pl.col("tour_category").is_in(["mandatory", "non-mandatory", "atwork"])
@@ -342,15 +347,7 @@ def tour_tod(rd: RunData, config: Config) -> pl.DataFrame:
             )
 
     if not all_rows:
-        return pl.DataFrame(
-            {
-                "time_bin": [],
-                "tour_purpose": [],
-                "departure_tour_count": [],
-                "arrival_tour_count": [],
-                "duration_tour_count": [],
-            }
-        )
+        return pl.DataFrame(schema=result_schema)
 
     df_long = pl.DataFrame(all_rows, infer_schema_length=None)
 
@@ -387,7 +384,12 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
 
     Returns DataFrame: mandatory_tour_purpose, geography, average_tour_distance.
     """
-    ptype_col = config.col_ptype
+    result_schema = {
+        "mandatory_tour_purpose": pl.Utf8,
+        "geography": pl.Utf8,
+        "average_tour_distance": pl.Float64,
+    }
+    ptype_col = "person_type" if "person_type" in rd.per.columns else None
 
     workers = (
         rd.per.filter(
@@ -403,7 +405,7 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
         else rd.per.head(0)
     )
 
-    if ptype_col in rd.per.columns:
+    if ptype_col is not None:
         univ_s = (
             rd.per.filter(
                 (pl.col("school_zone_id") > 0)
@@ -474,7 +476,7 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
             }
         )
 
-        return pl.DataFrame(rows)
+        return pl.DataFrame(rows, result_schema)
 
     result = pl.concat(
         [

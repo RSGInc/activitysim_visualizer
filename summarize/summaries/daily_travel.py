@@ -2,33 +2,30 @@
 
 import polars as pl
 
-from ..reader import RunData, Config
+from runtime.config import Config
+from runtime.models import RunData
 
 
 def dap_summary(rd: RunData, config: Config) -> pl.DataFrame:
     """DAP by person type. Columns: person_type, daily_activity_pattern, person_count"""
-    ptype_col = config.col_ptype
-
-    if ptype_col not in rd.per.columns or "cdap_activity" not in rd.per.columns:
-        return pl.DataFrame(
-            {
-                "person_type": [],
-                "daily_activity_pattern": [],
-                "person_count": [],
-            }
-        )
+    result_schema = {
+        "person_type": pl.Utf8,
+        "daily_activity_pattern": pl.Utf8,
+        "person_count": pl.Float64,
+    }
+    if "person_type" not in rd.per.columns or "cdap_activity" not in rd.per.columns:
+        return pl.DataFrame(schema=result_schema)
 
     df = (
         rd.per.filter(pl.col("cdap_activity").is_not_null())
-        .group_by([ptype_col, "cdap_activity"])
+        .group_by(["person_type", "cdap_activity"])
         .agg(person_count=pl.col("finalweight").sum())
-        .rename(
-            {
-                ptype_col: "person_type",
-                "cdap_activity": "daily_activity_pattern",
-            }
+        .rename({"cdap_activity": "daily_activity_pattern"})
+        .with_columns(
+            pl.col("person_type").cast(pl.Utf8).alias("person_type"),
+            pl.col("daily_activity_pattern").cast(pl.Utf8),
         )
-        .with_columns(pl.col("person_type").cast(pl.Utf8))
+        .select("person_type", "daily_activity_pattern", "person_count")
     )
 
     total = (
@@ -45,28 +42,21 @@ def dap_summary(rd: RunData, config: Config) -> pl.DataFrame:
 
 def mandatory_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
     """Returns DataFrame: person_type, mandatory_tour_frequency, person_count."""
-    ptype_col = config.col_ptype
-
-    if ptype_col not in rd.per.columns or "imf_choice" not in rd.per.columns:
-        return pl.DataFrame(
-            {
-                "person_type": [],
-                "mandatory_tour_frequency": [],
-                "person_count": [],
-            }
-        )
+    result_schema = {
+        "person_type": pl.Utf8,
+        "mandatory_tour_frequency": pl.Int32,
+        "person_count": pl.Float64,
+    }
+    if "person_type" not in rd.per.columns or "imf_choice" not in rd.per.columns:
+        return pl.DataFrame(schema=result_schema)
 
     df = (
         rd.per.filter(pl.col("imf_choice") > 0)
-        .group_by([ptype_col, "imf_choice"])
+        .group_by(["person_type", "imf_choice"])
         .agg(person_count=pl.col("finalweight").sum())
-        .rename(
-            {
-                ptype_col: "person_type",
-                "imf_choice": "mandatory_tour_frequency",
-            }
-        )
-        .with_columns(pl.col("person_type").cast(pl.Utf8))
+        .rename({"imf_choice": "mandatory_tour_frequency"})
+        .with_columns(pl.col("person_type").cast(pl.Utf8).alias("person_type"))
+        .select("person_type", "mandatory_tour_frequency", "person_count")
     )
 
     total = (
@@ -83,17 +73,14 @@ def mandatory_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
 
 def indiv_nm_summary(rd: RunData, config: Config) -> pl.DataFrame:
     """Returns DataFrame: person_type, nonmandatory_tour_frequency, person_count."""
+    result_schema = {
+        "person_type": pl.Utf8,
+        "nonmandatory_tour_frequency": pl.Utf8,
+        "person_count": pl.Float64,
+    }
     per = rd.per
-    ptype_col = config.col_ptype
-
-    if ptype_col not in per.columns:
-        return pl.DataFrame(
-            {
-                "person_type": [],
-                "nonmandatory_tour_frequency": [],
-                "person_count": [],
-            }
-        )
+    if "person_type" not in per.columns:
+        return pl.DataFrame(schema=result_schema)
 
     if "tour_category" in rd.tours.columns:
         inm_counts = (
@@ -134,10 +121,10 @@ def indiv_nm_summary(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
     df = (
-        per2.group_by([ptype_col, "nonmandatory_tour_frequency"])
+        per2.group_by(["person_type", "nonmandatory_tour_frequency"])
         .agg(person_count=pl.col("finalweight").sum())
-        .rename({ptype_col: "person_type"})
-        .with_columns(pl.col("person_type").cast(pl.Utf8))
+        .with_columns(pl.col("person_type").cast(pl.Utf8).alias("person_type"))
+        .select("person_type", "nonmandatory_tour_frequency", "person_count")
     )
 
     total = (

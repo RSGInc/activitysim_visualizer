@@ -125,7 +125,14 @@ def distance_distribution(rd: RunData, config: Config) -> pl.DataFrame:
                 }
             )
 
-    return pl.DataFrame(rows)
+    return pl.DataFrame(
+        rows,
+        schema={
+            "purpose": pl.Utf8,
+            "distbin": pl.Int32,
+            "freq": pl.Float64,
+        },
+    )
 
 
 def average_distance(rd: RunData, config: Config) -> pl.DataFrame:
@@ -133,6 +140,11 @@ def average_distance(rd: RunData, config: Config) -> pl.DataFrame:
 
     Columns: purpose, avg_distance
     """
+    result_schema = {
+        "purpose": pl.Utf8,
+        "avg_distance": pl.Float64,
+    }
+
     tours = rd.tours
     if "tour_category" in tours.columns and "primary_purpose" in tours.columns:
         purposes = sorted(
@@ -168,7 +180,7 @@ def average_distance(rd: RunData, config: Config) -> pl.DataFrame:
                 )
         rows.append({"purpose": purpose, "avg_distance": avg_distance})
 
-    return pl.DataFrame(rows or {"purpose": [], "avg_distance": []})
+    return pl.DataFrame(rows, schema=result_schema)
 
 
 def nm_tour_rates(rd: RunData, config: Config) -> pl.DataFrame:
@@ -177,14 +189,19 @@ def nm_tour_rates(rd: RunData, config: Config) -> pl.DataFrame:
     Columns: ptype, tour_purp, tour_rate.
     Purposes are the raw primary_purpose strings from NM tours.
     """
-    ptype_col = config.col_ptype
+    result_schema = {
+        "ptype": pl.Utf8,
+        "tour_purp": pl.Utf8,
+        "tour_rate": pl.Float64,
+    }
+    ptype_col = "person_type" if "person_type" in rd.per.columns else None
     if (
         "tour_category" not in rd.tours.columns
         or "primary_purpose" not in rd.tours.columns
+        or ptype_col is None
         or ptype_col not in rd.tours.columns
-        or ptype_col not in rd.per.columns
     ):
-        return pl.DataFrame({"ptype": [], "tour_purp": [], "tour_rate": []})
+        return pl.DataFrame(schema=result_schema)
 
     nm_tours = rd.tours.filter(pl.col("tour_category") == "non-mandatory")
     purposes = nm_tours["primary_purpose"].drop_nulls().unique().to_list()
@@ -230,7 +247,7 @@ def nm_tour_rates(rd: RunData, config: Config) -> pl.DataFrame:
             }
         )
 
-    return pl.DataFrame(result)
+    return pl.DataFrame(result, schema=result_schema)
 
 
 def system_totals(rd: RunData, config: Config | None = None) -> pl.DataFrame:
@@ -239,6 +256,17 @@ def system_totals(rd: RunData, config: Config | None = None) -> pl.DataFrame:
     population, households, employment, tours, trips, stops,
     pmt, vmt, vehicle_trips.
     """
+    result_schema = {
+        "population": pl.Float64,
+        "households": pl.Float64,
+        "employment": pl.Float64,
+        "tours": pl.Float64,
+        "trips": pl.Float64,
+        "stops": pl.Float64,
+        "pmt": pl.Float64,
+        "vmt": pl.Float64,
+        "vehicle_trips": pl.Float64,
+    }
     pop = rd.per["finalweight"].sum()
     hh = rd.hh["finalweight"].sum()
     emp_col = next(
@@ -295,17 +323,20 @@ def system_totals(rd: RunData, config: Config | None = None) -> pl.DataFrame:
     return pl.DataFrame(
         [
             {
-                "population": float(pop),
-                "households": float(hh),
-                "employment": float(emp),
-                "tours": float(tours),
-                "trips": float(trips_total),
-                "stops": float(stops),
-                "pmt": float(pmt) if pmt else 0.0,
-                "vmt": float(vmt) if vmt else 0.0,
-                "vehicle_trips": float(vehicle_trips),
+                "population": float(pop) if pop is not None else 0.0,
+                "households": float(hh) if hh is not None else 0.0,
+                "employment": float(emp) if emp is not None else 0.0,
+                "tours": float(tours) if tours is not None else 0.0,
+                "trips": float(trips_total) if trips_total is not None else 0.0,
+                "stops": float(stops) if stops is not None else 0.0,
+                "pmt": float(pmt) if pmt is not None else 0.0,
+                "vmt": float(vmt) if vmt is not None else 0.0,
+                "vehicle_trips": float(vehicle_trips)
+                if vehicle_trips is not None
+                else 0.0,
             }
-        ]
+        ],
+        schema=result_schema,
     )
 
 
@@ -315,8 +346,16 @@ def tour_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
     Returns DataFrame: tour_mode, purpose_group, freq_as0, freq_as1, freq_as2, freq_all.
     Purpose groups are derived from tour_category and primary_purpose string values.
     """
+    result_schema = {
+        "tour_mode": pl.Utf8,
+        "purpose": pl.Utf8,
+        "freq_as0": pl.Float64,
+        "freq_as1": pl.Float64,
+        "freq_as2": pl.Float64,
+        "freq_all": pl.Float64,
+    }
     if "tour_mode" not in rd.tours.columns:
-        return pl.DataFrame()
+        return pl.DataFrame(schema=result_schema)
 
     indiv = (
         rd.tours.filter(
@@ -388,7 +427,15 @@ def tour_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
     if not result_rows:
         return pl.DataFrame()
 
-    df_result = pl.DataFrame(result_rows)
+    df_result = pl.DataFrame(
+        result_rows,
+        schema={
+            "tour_mode": pl.Utf8,
+            "purpose": pl.Utf8,
+            "autosuff": pl.Int32,
+            "freq": pl.Float64,
+        },
+    )
     pivot = df_result.pivot(
         on="autosuff",
         index=["tour_mode", "purpose"],
@@ -424,7 +471,7 @@ def tour_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
         .select(cols)
     )
 
-    return pl.concat([pivot, total])
+    return pl.concat([pivot, total], how="vertical")
 
 
 def grouped_tour_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
@@ -433,12 +480,21 @@ def grouped_tour_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
     Returns DataFrame: mode_group, purpose, freq_as0, freq_as1, freq_as2, freq_all.
     Returns empty DataFrame if mode_groups not configured.
     """
+    result_schema = {
+        "mode_group": pl.Utf8,
+        "purpose": pl.Utf8,
+        "freq_as0": pl.Float64,
+        "freq_as1": pl.Float64,
+        "freq_as2": pl.Float64,
+        "freq_all": pl.Float64,
+    }
+
     if not config.mode_groups:
-        return pl.DataFrame()
+        return pl.DataFrame(schema=result_schema)
 
     detail = tour_mode_profile(rd, config)
     if len(detail) == 0:
-        return pl.DataFrame()
+        return pl.DataFrame(schema=result_schema)
 
     mode_to_group = {}
     for grp, modes in config.mode_groups.items():
@@ -449,7 +505,11 @@ def grouped_tour_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
         {
             "tour_mode": list(mode_to_group.keys()),
             "mode_group": list(mode_to_group.values()),
-        }
+        },
+        schema={
+            "tour_mode": pl.Utf8,
+            "mode_group": pl.Utf8,
+        },
     )
 
     result = (

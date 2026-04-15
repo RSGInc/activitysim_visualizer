@@ -2,7 +2,8 @@
 
 import polars as pl
 
-from ..reader import RunData, Config
+from runtime.config import Config
+from runtime.models import RunData
 
 
 def license_holding_status(rd: RunData, config: Config) -> pl.DataFrame:
@@ -31,6 +32,12 @@ def wfh(rd: RunData, config: Config) -> pl.DataFrame:
     """Work-from-home summary by geography group + all_geographies.
     Returns DataFrame: geography, worker_count, work_from_home_worker_count.
     If geography disabled, returns a single all_geographies row."""
+
+    RESULT_SCHEMA = {
+        "geography": pl.Utf8,
+        "worker_count": pl.Float64,
+        "work_from_home_worker_count": pl.Float64,
+    }
     if "is_worker" not in rd.per.columns:
         return pl.DataFrame(
             {
@@ -70,13 +77,7 @@ def wfh(rd: RunData, config: Config) -> pl.DataFrame:
             .with_columns(pl.col("geography").cast(pl.Utf8))
         )
     else:
-        by_geo = pl.DataFrame(
-            {
-                "geography": [],
-                "worker_count": [],
-                "work_from_home_worker_count": [],
-            }
-        )
+        by_geo = pl.DataFrame(schema=RESULT_SCHEMA)
 
     total = workers.select(
         geography=pl.lit("all_geographies"),
@@ -124,20 +125,21 @@ def tlfd(rd: RunData, config: Config) -> dict[str, pl.DataFrame]:
         )
 
     def _make_tlfd(persons: pl.DataFrame, dist_col: str) -> pl.DataFrame:
-        empty = pl.DataFrame(
-            {
-                "distance_bin": [],
-                "geography": [],
-                "person_count": [],
-            }
-        )
+        result_schema = {
+            "distance_bin": pl.Int32,
+            "geography": pl.Utf8,
+            "person_count": pl.Float64,
+        }
+        empty = pl.DataFrame(schema=result_schema)
 
         if dist_col not in persons.columns:
             return empty
 
         df = _bin_dist(persons, dist_col)
 
-        distance_bins = pl.DataFrame({"distance_bin": list(range(1, 52))})
+        distance_bins = pl.DataFrame(
+            {"distance_bin": list(range(1, 52))}, schema={"distance_bin": pl.Int32}
+        )
 
         if config.geography_enabled and "HGEO" in df.columns:
             geographies = (
@@ -191,7 +193,7 @@ def tlfd(rd: RunData, config: Config) -> dict[str, pl.DataFrame]:
             "distance_bin", "geography", "person_count"
         )
 
-    ptype_col = config.col_ptype
+    ptype_col = "person_type" if "person_type" in rd.per.columns else None
 
     workers = (
         rd.per.filter(
@@ -207,7 +209,7 @@ def tlfd(rd: RunData, config: Config) -> dict[str, pl.DataFrame]:
         else rd.per.head(0)
     )
 
-    if ptype_col in rd.per.columns:
+    if ptype_col is not None:
         per_ptype = rd.per
 
         univ = (
@@ -276,13 +278,12 @@ def free_parking(rd: RunData, config: Config) -> pl.DataFrame:
 
 def telecommute(rd: RunData, config: Config | None = None) -> pl.DataFrame:
     """Telecommute frequency distribution. Columns: telecommute_frequency, person_count."""
+    result_schema = {
+        "telecommute_frequency": pl.Utf8,
+        "person_count": pl.Float64,
+    }
     if "telecommute_frequency" not in rd.per.columns:
-        return pl.DataFrame(
-            {
-                "telecommute_frequency": [],
-                "person_count": [],
-            }
-        )
+        return pl.DataFrame(schema=result_schema)
 
     return (
         rd.per.filter(

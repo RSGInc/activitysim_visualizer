@@ -14,6 +14,11 @@ def stop_purpose_by_tour_purpose(rd: RunData, config: Config) -> pl.DataFrame:
 
     Returns DataFrame: stop_destination_purpose, tour_purpose, stop_count.
     """
+    result_schema = {
+        "stop_destination_purpose": pl.Utf8,
+        "tour_purpose": pl.Utf8,
+        "stop_count": pl.Float64,
+    }
     # Find a valid non-numeric purpose column if available
     purpose_col = None
     for cand in ("primary_purpose", "tour_type"):
@@ -22,22 +27,10 @@ def stop_purpose_by_tour_purpose(rd: RunData, config: Config) -> pl.DataFrame:
             break
 
     if "stops" not in rd.trips.columns or "purpose" not in rd.trips.columns:
-        return pl.DataFrame(
-            {
-                "stop_destination_purpose": [],
-                "tour_purpose": [],
-                "stop_count": [],
-            }
-        )
+        return pl.DataFrame(schema=result_schema)
 
     if purpose_col is None:
-        return pl.DataFrame(
-            {
-                "stop_destination_purpose": [],
-                "tour_purpose": [],
-                "stop_count": [],
-            }
-        )
+        return pl.DataFrame(schema=result_schema)
 
     return (
         rd.trips.filter(pl.col("stops") == 1)
@@ -57,16 +50,15 @@ def stop_purpose_by_tour_purpose(rd: RunData, config: Config) -> pl.DataFrame:
 
 def trip_mode(rd: RunData, config: Config) -> pl.DataFrame:
     """Returns DataFrame: tour_purpose, tour_mode, trip_mode, trip_count."""
+    result_schema = {
+        "tour_purpose": pl.Utf8,
+        "tour_mode": pl.Utf8,
+        "trip_mode": pl.Utf8,
+        "trip_count": pl.Float64,
+    }
     needed = {"tour_mode", "trip_mode"}
     if not needed.issubset(rd.trips.columns):
-        return pl.DataFrame(
-            {
-                "tour_purpose": [],
-                "tour_mode": [],
-                "trip_mode": [],
-                "trip_count": [],
-            }
-        )
+        return pl.DataFrame(schema=result_schema)
 
     # Find a valid non-numeric purpose column if available
     purpose_col = None
@@ -76,14 +68,7 @@ def trip_mode(rd: RunData, config: Config) -> pl.DataFrame:
             break
 
     if purpose_col is None:
-        return pl.DataFrame(
-            {
-                "tour_purpose": [],
-                "tour_mode": [],
-                "trip_mode": [],
-                "trip_count": [],
-            }
-        )
+        return pl.DataFrame(schema=result_schema)
 
     base = (
         rd.trips.filter(
@@ -94,6 +79,12 @@ def trip_mode(rd: RunData, config: Config) -> pl.DataFrame:
         .group_by([purpose_col, "tour_mode", "trip_mode"])
         .agg(trip_count=pl.col("finalweight").sum())
         .rename({purpose_col: "tour_purpose"})
+        .select(
+            pl.col("tour_purpose").cast(pl.Utf8),
+            pl.col("tour_mode").cast(pl.Utf8),
+            pl.col("trip_mode").cast(pl.Utf8),
+            pl.col("trip_count").cast(pl.Float64),
+        )
     )
 
     all_purposes = (
@@ -132,6 +123,12 @@ def trip_stop_tod(rd: RunData, config: Config) -> pl.DataFrame:
 
     Returns DataFrame: tour_purpose, time_bin, departure_trip_count, departure_stop_count.
     """
+    result_schema = {
+        "tour_purpose": pl.Utf8,
+        "time_bin": pl.Int32,
+        "departure_trip_count": pl.Float64,
+        "departure_stop_count": pl.Float64,
+    }
     # Prefer "depart", fallback to "depart_hour"
     dep_col = None
     if "depart" in rd.trips.columns:
@@ -139,24 +136,10 @@ def trip_stop_tod(rd: RunData, config: Config) -> pl.DataFrame:
     elif "depart_hour" in rd.trips.columns:
         dep_col = "depart_hour"
     else:
-        return pl.DataFrame(
-            {
-                "tour_purpose": [],
-                "time_bin": [],
-                "departure_trip_count": [],
-                "departure_stop_count": [],
-            }
-        )
+        return pl.DataFrame(schema=result_schema)
 
     if "stops" not in rd.trips.columns:
-        return pl.DataFrame(
-            {
-                "tour_purpose": [],
-                "time_bin": [],
-                "departure_trip_count": [],
-                "departure_stop_count": [],
-            }
-        )
+        return pl.DataFrame(schema=result_schema)
 
     stops = rd.trips.filter(pl.col("stops") == 1)
     all_trips = rd.trips
@@ -209,7 +192,7 @@ def trip_stop_tod(rd: RunData, config: Config) -> pl.DataFrame:
             )
 
     return (
-        pl.DataFrame(rows, infer_schema_length=None)
+        pl.DataFrame(rows, schema=result_schema)
         .select(
             "tour_purpose",
             "time_bin",
@@ -229,25 +212,18 @@ def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
 
     Returns DataFrame: distance_bin, tour_purpose, stop_count.
     """
+    result_schema = {
+        "distance_bin": pl.Int32,
+        "tour_purpose": pl.Utf8,
+        "stop_count": pl.Float64,
+    }
     if "stops" not in rd.trips.columns:
-        return pl.DataFrame(
-            {
-                "distance_bin": [],
-                "tour_purpose": [],
-                "stop_count": [],
-            }
-        )
+        return pl.DataFrame(schema=result_schema)
 
     stops = rd.trips.filter(pl.col("stops") == 1)
 
     if "out_dir_dist" not in stops.columns:
-        return pl.DataFrame(
-            {
-                "distance_bin": [],
-                "tour_purpose": [],
-                "stop_count": [],
-            }
-        )
+        return pl.DataFrame(schema=result_schema)
 
     stops2 = stops.with_columns(
         pl.col("out_dir_dist").fill_null(0).clip(0, 999).alias("ood")
@@ -259,7 +235,9 @@ def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
             purpose_col = cand
             break
 
-    bins_df = pl.DataFrame({"distance_bin": list(range(0, 41))})
+    bins_df = pl.DataFrame(
+        {"distance_bin": list(range(0, 41))}, schema={"distance_bin": pl.Int32}
+    )
 
     if purpose_col is None:
         total = (
@@ -282,6 +260,11 @@ def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
         .group_by([purpose_col, "distance_bin"])
         .agg(stop_count=pl.col("finalweight").sum())
         .rename({purpose_col: "tour_purpose"})
+        .select(
+            pl.col("distance_bin").cast(pl.Int32),
+            pl.col("tour_purpose").cast(pl.Utf8),
+            pl.col("stop_count").cast(pl.Float64),
+        )
     )
 
     purposes = (
@@ -295,13 +278,22 @@ def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
         bins_df.join(purposes, how="cross")
         .join(by_purpose, on=["distance_bin", "tour_purpose"], how="left")
         .with_columns(pl.col("stop_count").fill_null(0.0))
+        .select(
+            pl.col("distance_bin").cast(pl.Int32),
+            pl.col("tour_purpose").cast(pl.Utf8),
+            pl.col("stop_count").cast(pl.Float64),
+        )
     )
 
     total = (
         stops2.group_by("distance_bin")
         .agg(stop_count=pl.col("finalweight").sum())
         .with_columns(pl.lit("all_tour_purposes").alias("tour_purpose"))
-        .select("distance_bin", "tour_purpose", "stop_count")
+        .select(
+            pl.col("distance_bin").cast(pl.Int32),
+            pl.col("tour_purpose").cast(pl.Utf8),
+            pl.col("stop_count").cast(pl.Float64),
+        )
     )
 
     dense_total = (

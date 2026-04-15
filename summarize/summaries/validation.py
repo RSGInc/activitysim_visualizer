@@ -23,6 +23,9 @@ def transit_transfer_rate(rd: RunData, config: Config) -> pl.DataFrame:
 
 def auto_vmt_totals(rd: RunData, config: Config) -> pl.DataFrame:
     """Returns single-row DataFrame with column: auto_vmt."""
+    result_schema = {
+        "auto_vmt": pl.Float64,
+    }
     trips_df = rd.trips
 
     if (
@@ -30,7 +33,7 @@ def auto_vmt_totals(rd: RunData, config: Config) -> pl.DataFrame:
         or "od_dist" not in trips_df.columns
         or "finalweight" not in trips_df.columns
     ):
-        return pl.DataFrame([{"auto_vmt": 0.0}])
+        return pl.DataFrame([{"auto_vmt": 0.0}], schema=result_schema)
 
     auto_modes: list[str] | None = None
     if config is not None and config.mode_groups and "Auto" in config.mode_groups:
@@ -58,7 +61,9 @@ def auto_vmt_totals(rd: RunData, config: Config) -> pl.DataFrame:
         (pl.col("od_dist") * pl.col("finalweight") / occupancy_expr).alias("auto_vmt_w")
     )["auto_vmt_w"].sum()
 
-    return pl.DataFrame([{"auto_vmt": float(auto_vmt) if auto_vmt else 0.0}])
+    return pl.DataFrame(
+        [{"auto_vmt": float(auto_vmt) if auto_vmt else 0.0}], schema=result_schema
+    )
 
 
 def commercial_vehicle_vmt(rd: RunData, config: Config) -> pl.DataFrame:
