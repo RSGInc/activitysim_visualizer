@@ -411,7 +411,9 @@ class Config:
             dashboard_pages = []
             for raw_page_id in dashboard_pages_cfg:
                 if not isinstance(raw_page_id, str):
-                    raise ValueError("visualizer.dashboard_pages entries must be strings.")
+                    raise ValueError(
+                        "visualizer.dashboard_pages entries must be strings."
+                    )
                 page_id = raw_page_id.strip().lower()
                 if not page_id:
                     raise ValueError(
@@ -432,7 +434,9 @@ class Config:
             "weighting_modes",
             ["weighted", "unweighted"],
         )
-        raw_weighting_modes = [str(mode).strip().lower() for mode in weighting_modes_cfg]
+        raw_weighting_modes = [
+            str(mode).strip().lower() for mode in weighting_modes_cfg
+        ]
         supported_weighting_modes = {"weighted", "unweighted"}
         invalid_weighting_modes = [
             mode
@@ -497,9 +501,11 @@ class Config:
                     raise ValueError(
                         f"visualizer.export_html.pages.{page_id} contains an empty selector id."
                     )
-                normalized_selector_cfg[selector_id] = _normalize_export_selector_request(
-                    raw_selector_cfg,
-                    field_name=f"visualizer.export_html.pages.{page_id}.{selector_id}",
+                normalized_selector_cfg[selector_id] = (
+                    _normalize_export_selector_request(
+                        raw_selector_cfg,
+                        field_name=f"visualizer.export_html.pages.{page_id}.{selector_id}",
+                    )
                 )
             normalized_pages[page_id] = normalized_selector_cfg
 
@@ -522,7 +528,9 @@ class Config:
             pages_configured=pages_configured,
         )
 
-        dashboard_title = visualizer_cfg.get("dashboard_title", "ActivitySim Visualizer")
+        dashboard_title = visualizer_cfg.get(
+            "dashboard_title", "ActivitySim Visualizer"
+        )
         run_colors = visualizer_cfg.get("run_colors", list(_DEFAULT_RUN_COLORS))
         if not isinstance(run_colors, list):
             raise ValueError("visualizer.run_colors must be a list when provided.")
@@ -633,7 +641,9 @@ class Config:
             mode_groups=modes_cfg.get("groups"),
             runs=raw.get("runs", []),
         )
-        config.summary_config_digest = _digest_payload(config.summary_signature_payload())
+        config.summary_config_digest = _digest_payload(
+            config.summary_signature_payload()
+        )
         config.presentation_config_digest = _digest_payload(
             config.presentation_signature_payload()
         )
@@ -753,13 +763,13 @@ class Config:
             return series.cast(pl.Utf8)
         mapping = self.geography_mapping
         return series.cast(pl.Utf8).map_elements(
-            lambda value: mapping.get(str(value), str(value))
-            if value is not None
-            else None,
+            lambda value: (
+                mapping.get(str(value), str(value)) if value is not None else None
+            ),
             return_dtype=pl.Utf8,
         )
 
-    def ptype_label(self, value) -> str:
+    def person_type_label(self, value) -> str:
         """Return the display label for a person type value."""
         value_str = str(value)
         if self.person_type_labels and value_str in self.person_type_labels:

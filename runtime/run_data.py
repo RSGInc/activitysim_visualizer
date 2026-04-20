@@ -63,14 +63,27 @@ def _materialize_column(
     df: pl.DataFrame,
     target: str,
     source: str | None,
+    *,
+    overwrite: bool = False,
 ) -> pl.DataFrame:
     """Alias a source column into a canonical target column when needed."""
 
     if source is None or source not in df.columns:
         return df
-    if source == target:
+    if source == target and not overwrite:
+        return df
+    if target in df.columns and not overwrite:
         return df
     return df.with_columns(pl.col(source).alias(target))
+
+
+def _cast_if_present(df: pl.DataFrame, casts: dict[str, pl.DataType]) -> pl.DataFrame:
+    exprs = [
+        pl.col(col).cast(dtype).alias(col)
+        for col, dtype in casts.items()
+        if col in df.columns
+    ]
+    return df.with_columns(exprs) if exprs else df
 
 
 def _skim_lookup(
@@ -154,7 +167,9 @@ def _find_and_read(run_dir: Path, configured: str) -> pl.DataFrame:
         return pl.read_parquet(parquet_path)
     if csv_path.exists():
         return pl.read_csv(csv_path, infer_schema_length=None)
-    raise FileNotFoundError(f"Cannot find '{stem}.parquet' or '{stem}.csv' in {run_dir}")
+    raise FileNotFoundError(
+        f"Cannot find '{stem}.parquet' or '{stem}.csv' in {run_dir}"
+    )
 
 
 def compute_weights(
@@ -176,27 +191,45 @@ def compute_weights(
         LOGGER.info("[compute_weights] Auto-detected sample_rate column in households.")
 
     if hh_weight_col and hh_weight_col in hh.columns:
-        LOGGER.info("[compute_weights] Using household weight column: %s", hh_weight_col)
-        hh = hh.with_columns(pl.col(hh_weight_col).cast(pl.Float64).alias("finalweight"))
-    elif (not explicit_weight_supplied) and sample_rate_col and sample_rate_col in hh.columns:
+        LOGGER.info(
+            "[compute_weights] Using household weight column: %s", hh_weight_col
+        )
+        hh = hh.with_columns(
+            pl.col(hh_weight_col).cast(pl.Float64).alias("finalweight")
+        )
+    elif (
+        (not explicit_weight_supplied)
+        and sample_rate_col
+        and sample_rate_col in hh.columns
+    ):
         LOGGER.info(
             "[compute_weights] Using sample-rate expansion from column: %s",
             sample_rate_col,
         )
         hh = hh.with_columns(
-            (pl.lit(1.0) / pl.col(sample_rate_col).cast(pl.Float64)).alias("finalweight")
+            (pl.lit(1.0) / pl.col(sample_rate_col).cast(pl.Float64)).alias(
+                "finalweight"
+            )
         )
     else:
-        if explicit_weight_supplied and sample_rate_col and sample_rate_col in hh.columns:
+        if (
+            explicit_weight_supplied
+            and sample_rate_col
+            and sample_rate_col in hh.columns
+        ):
             LOGGER.info(
                 "[compute_weights] Explicit run weight columns supplied; skipping sample_rate expansion."
             )
         else:
-            LOGGER.info("[compute_weights] No weight column found; defaulting finalweight=1.")
+            LOGGER.info(
+                "[compute_weights] No weight column found; defaulting finalweight=1."
+            )
         hh = hh.with_columns(pl.lit(1.0).alias("finalweight"))
 
     if person_weight_col and person_weight_col in per.columns:
-        LOGGER.info("[compute_weights] Using person weight column: %s", person_weight_col)
+        LOGGER.info(
+            "[compute_weights] Using person weight column: %s", person_weight_col
+        )
         per = per.with_columns(
             pl.col(person_weight_col).cast(pl.Float64).alias("finalweight")
         )
@@ -238,8 +271,14 @@ def compute_weights(
                 .drop("_hw")
             )
 
-    if trip_weight_col and trip_weight_col in trips.columns and "tour_id" in trips.columns:
-        tour_avg = trips.group_by("tour_id").agg(pl.col("finalweight").mean().alias("_tw"))
+    if (
+        trip_weight_col
+        and trip_weight_col in trips.columns
+        and "tour_id" in trips.columns
+    ):
+        tour_avg = trips.group_by("tour_id").agg(
+            pl.col("finalweight").mean().alias("_tw")
+        )
         tours = (
             tours.join(tour_avg, on="tour_id", how="left")
             .with_columns(pl.col("_tw").fill_null(1.0).alias("finalweight"))
@@ -309,7 +348,9 @@ def read_run(
                 norm_map: dict[int, int] = {}
                 for key, value in raw_map.items():
                     normalized_key = (
-                        key.decode("utf-8") if isinstance(key, (bytes, bytearray)) else key
+                        key.decode("utf-8")
+                        if isinstance(key, (bytes, bytearray))
+                        else key
                     )
                     try:
                         norm_map[int(normalized_key)] = int(value)
@@ -381,6 +422,12 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
         "person_id",
         _resolve_source_column(per, config.col_person_id),
     )
+    per = _materialize_column(
+        per,
+        "person_type",
+        _resolve_source_column(per, config.col_ptype, fallbacks=("person_type", "ptype")),
+        overwrite=True,
+    )
 
     tours = _materialize_column(
         tours,
@@ -391,6 +438,16 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
         tours,
         "person_id",
         _resolve_source_column(tours, config.col_person_id),
+    )
+    tours = _materialize_column(
+        tours,
+        "person_type",
+        _resolve_source_column(
+            tours,
+            config.col_ptype,
+            fallbacks=("person_type", "ptype"),
+        ),
+        overwrite=True,
     )
     tours = _materialize_column(
         tours,
@@ -637,7 +694,9 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
         )
 
     hh_for_tours = [
-        column for column in ["household_id", "HHVEH", "WORKERS", "ADULTS"] if column in hh.columns
+        column
+        for column in ["household_id", "HHVEH", "WORKERS", "ADULTS"]
+        if column in hh.columns
     ]
     tours = tours.join(hh.select(hh_for_tours), on="household_id", how="left")
 
@@ -822,6 +881,82 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
             )
         else:
             trips = trips.with_columns(pl.lit(0.0).alias("out_dir_dist"))
+
+    hh = _cast_if_present(
+        hh,
+        {
+            "household_id": pl.Int64,
+            "finalweight": pl.Float64,
+            "HHVEH": pl.Int32,
+            "HHSIZE": pl.Int32,
+            "WORKERS": pl.Int32,
+            "ADULTS": pl.Int32,
+            "HGEO": pl.Utf8,
+        },
+    )
+
+    per = _cast_if_present(
+        per,
+        {
+            "household_id": pl.Int64,
+            "person_id": pl.Int64,
+            "finalweight": pl.Float64,
+            "HGEO": pl.Utf8,
+            "WGEO": pl.Utf8,
+            "is_worker": pl.Utf8,
+            "work_from_home": pl.Utf8,
+            "mandatory_tour_frequency": pl.Utf8,
+            "distance_to_work": pl.Float64,
+            "distance_to_school": pl.Float64,
+        },
+    )
+
+    tours = _cast_if_present(
+        tours,
+        {
+            "household_id": pl.Int64,
+            "person_id": pl.Int64,
+            "tour_id": pl.Int64,
+            "tour_category": pl.Utf8,
+            "tour_mode": pl.Utf8,
+            "tour_purpose": pl.Utf8,
+            "start_hour": pl.Int32,
+            "end_hour": pl.Int32,
+            "tourdur": pl.Int32,
+            "OTAZ": pl.Int32,
+            "DTAZ": pl.Int32,
+            "SKIMDIST": pl.Float64,
+            "NUMBER_HH": pl.Int32,
+            "AUTOSUFF": pl.Int32,
+            "finalweight": pl.Float64,
+        },
+    )
+
+    trips = _cast_if_present(
+        trips,
+        {
+            "household_id": pl.Int64,
+            "person_id": pl.Int64,
+            "tour_id": pl.Int64,
+            "trip_id": pl.Int64,
+            "trip_mode": pl.Utf8,
+            "trip_purpose": pl.Utf8,
+            "tour_mode": pl.Utf8,
+            "tour_purpose": pl.Utf8,
+            "tour_category": pl.Utf8,
+            "depart_hour": pl.Int32,
+            "OTAZ": pl.Int32,
+            "DTAZ": pl.Int32,
+            "od_dist": pl.Float64,
+            "out_dir_dist": pl.Float64,
+            "stops": pl.Int32,
+            "inbound": pl.Int32,
+            "trip_num": pl.Int32,
+            "AUTOSUFF": pl.Int32,
+            "num_participants": pl.Int32,
+            "finalweight": pl.Float64,
+        },
+    )
 
     LOGGER.info("[prepare_data] Complete: %s", rd.label)
     return RunData(

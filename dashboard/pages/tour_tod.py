@@ -26,40 +26,64 @@ def _duration_hours(timebin: int, maxbin: int) -> float:
 
 def purpose_options(tod_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
     """Discover purpose options from TOD summaries."""
-    first_df = next((df for _, df in tod_list if len(df) > 0), pl.DataFrame())
-    if len(first_df) > 0 and "purpose" in first_df.columns:
-        purposes = sorted(first_df["purpose"].drop_nulls().unique().to_list())
-        return ["Total"] + [p for p in purposes if p != "Total"]
-    return ["work"]
+    purposes_set = set()
+    for _, df in tod_list:
+        if len(df) > 0 and "tour_purpose" in df.columns:
+            purposes_set.update(
+                df["tour_purpose"].drop_nulls().cast(pl.Utf8).unique().to_list()
+            )
+    return sorted(str(purpose) for purpose in purposes_set) if purposes_set else []
+
+
+def purpose_mapping(raw_purposes: list[str]) -> tuple[list[str], dict[str, str | None]]:
+    """Build selector display values for tour-purpose summaries."""
+    mapping: dict[str, str | None] = {}
+    if "all_tour_purposes" in raw_purposes:
+        mapping["Total"] = "all_tour_purposes"
+    else:
+        mapping["Total"] = None
+    for purpose in raw_purposes:
+        if purpose not in {"all_tour_purposes", "Total"}:
+            mapping[purpose] = purpose
+    return list(mapping), mapping
 
 
 def max_timebin(tod_list: list[tuple[str, pl.DataFrame]]) -> int:
     """Return the maximum available timebin, defaulting to 48."""
     for _, df in tod_list:
-        if len(df) > 0 and "timebin" in df.columns:
-            return int(df["timebin"].max())
+        if len(df) > 0 and "time_bin" in df.columns:
+            return int(df["time_bin"].max())
     return 48
 
 
 def prep_profile(
-    df: pl.DataFrame, purpose: str, val_col: str, maxbin: int
+    df: pl.DataFrame, purpose: str | None, val_col: str, maxbin: int
 ) -> pl.DataFrame:
     """Prepare one tour TOD profile for plotting."""
-    return (
-        df.filter(pl.col("purpose") == purpose)
-        .select(["timebin", val_col])
-        .rename({val_col: "freq"})
-        .with_columns(
-            pl.col("timebin")
-            .map_elements(lambda tb: _time_label(int(tb), maxbin), return_dtype=pl.Utf8)
-            .alias("clock_time")
+    if purpose is None:
+        purpose_col = pl.col("tour_purpose").cast(pl.Utf8)
+        selected = (
+            df.filter(~purpose_col.is_in(["all_tour_purposes", "Total"]))
+            .group_by("time_bin")
+            .agg(pl.col(val_col).sum().alias("freq"))
+            .sort("time_bin")
         )
+    else:
+        selected = (
+            df.filter(pl.col("tour_purpose").cast(pl.Utf8) == purpose)
+            .select(["time_bin", val_col])
+            .rename({val_col: "freq"})
+        )
+    return selected.with_columns(
+        pl.col("time_bin")
+        .map_elements(lambda tb: _time_label(int(tb), maxbin), return_dtype=pl.Utf8)
+        .alias("clock_time")
     )
 
 
 def chart_data(
     tod_list: list[tuple[str, pl.DataFrame]],
-    purpose: str,
+    purpose: str | None,
 ) -> tuple[
     list[tuple[str, pl.DataFrame]],
     list[tuple[str, pl.DataFrame]],
@@ -68,16 +92,18 @@ def chart_data(
     """Build departure, arrival, and duration datasets for one purpose."""
     maxbin = max_timebin(tod_list)
     dep_data = [
-        (label, prep_profile(df, purpose, "freq_dep", maxbin)) for label, df in tod_list
+        (label, prep_profile(df, purpose, "departure_tour_count", maxbin))
+        for label, df in tod_list
     ]
     arr_data = [
-        (label, prep_profile(df, purpose, "freq_arr", maxbin)) for label, df in tod_list
+        (label, prep_profile(df, purpose, "arrival_tour_count", maxbin))
+        for label, df in tod_list
     ]
     dur_data = [
         (
             label,
-            prep_profile(df, purpose, "freq_dur", maxbin).with_columns(
-                pl.col("timebin")
+            prep_profile(df, purpose, "duration_tour_count", maxbin).with_columns(
+                pl.col("time_bin")
                 .map_elements(
                     lambda tb: _duration_hours(int(tb), maxbin),
                     return_dtype=pl.Float64,
@@ -94,6 +120,11 @@ class TourTODPage(DashboardPage):
     def __init__(self, state, config: Config) -> None:
         super().__init__("Tour TOD", state, config)
         purp_opts = self._purpose_options()
+        _, self._purpose_to_raw = purpose_mapping(
+            [] if purp_opts == ["Total"] else purp_opts
+        )
+        if not self._purpose_to_raw:
+            self._purpose_to_raw = {"Total": None}
         self.purp_sel = pn.widgets.Select(
             name="Purpose", options=purp_opts, value=purp_opts[0]
         )
@@ -107,17 +138,21 @@ class TourTODPage(DashboardPage):
         )
 
     def _purpose_options(self) -> list[str]:
-        tod_list = self.state.get_summary_table_set("tour_tod_profiles", "weighted")
+        tod_list = self.state.get_summary_table_set(
+            "tour_time_of_day_by_tour_purpose", "weighted"
+        )
         if tod_list is None:
-            return ["work"]
-        return purpose_options(tod_list)
+            return ["Total"]
+        raw_purposes = purpose_options(tod_list)
+        options, _ = purpose_mapping(raw_purposes)
+        return options or ["Total"]
 
     def _refresh(self) -> None:
         if not self.state.run_labels:
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        tod_list = self.require_summary("tour_tod_profiles")
+        tod_list = self.require_summary("tour_time_of_day_by_tour_purpose")
         if tod_list is None:
             self._body.objects = [
                 self.data_not_available_card(
@@ -126,16 +161,21 @@ class TourTODPage(DashboardPage):
                 )
             ]
             return
-        purp_opts = purpose_options(tod_list)
+        raw_purposes = purpose_options(tod_list)
+        purp_opts, self._purpose_to_raw = purpose_mapping(raw_purposes)
+        if not purp_opts:
+            purp_opts = ["Total"]
+            self._purpose_to_raw = {"Total": None}
         self.purp_sel.options = purp_opts
         if self.purp_sel.value not in purp_opts:
             self.purp_sel.value = purp_opts[0]
         purp = self.purp_sel.value
+        raw_purpose = self._purpose_to_raw.get(purp)
 
         dep_data, arr_data, dur_data = self.get_filtered_view(
             "tour_tod",
-            purp,
-            factory=lambda: chart_data(tod_list, purp),
+            raw_purpose,
+            factory=lambda: chart_data(tod_list, raw_purpose),
         )
         x_label = "Clock time (start at 03:00)"
         dur_plot = density_chart(
@@ -181,7 +221,7 @@ PAGE = DashboardPageDefinition(
             label="Purpose",
         ),
     ),
-    required_summary_ids=("tour_tod_profiles",),
+    required_summary_ids=("tour_time_of_day_by_tour_purpose",),
 )
 
 TourTODPage.definition = PAGE

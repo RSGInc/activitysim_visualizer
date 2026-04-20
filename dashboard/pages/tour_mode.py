@@ -15,26 +15,57 @@ def purpose_options(mode_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
     """Collect available purposes across all runs."""
     purpose_set = set()
     for _, df in mode_list:
-        if len(df) > 0 and "purpose" in df.columns:
-            purpose_set.update(df["purpose"].drop_nulls().to_list())
-    purposes = sorted(list(purpose_set))
-    return (
-        (["Total"] + [p for p in purposes if p != "Total"]) if purposes else ["Total"]
-    )
+        if len(df) > 0 and "tour_purpose" in df.columns:
+            purpose_set.update(df["tour_purpose"].drop_nulls().cast(pl.Utf8).to_list())
+    return sorted(str(purpose) for purpose in purpose_set) if purpose_set else []
+
+
+def purpose_mapping(raw_purposes: list[str]) -> tuple[list[str], dict[str, str | None]]:
+    """Build selector display values for tour-purpose summaries."""
+    mapping: dict[str, str | None] = {}
+    if "all_tour_purposes" in raw_purposes:
+        mapping["Total"] = "all_tour_purposes"
+    else:
+        mapping["Total"] = None
+    for purpose in raw_purposes:
+        if purpose not in {"all_tour_purposes", "Total"}:
+            mapping[purpose] = purpose
+    return list(mapping), mapping
 
 
 def charts_by_column(
     mode_list: list[tuple[str, pl.DataFrame]],
-    purpose: str,
+    purpose: str | None,
     columns: list[str] | None = None,
 ) -> dict[str, list[tuple[str, pl.DataFrame]]]:
     """Build chart-ready mode datasets for the selected purpose."""
-    columns = columns or ["freq_all", "freq_as0", "freq_as1", "freq_as2"]
+    columns = columns or [
+        "tour_count_all_households",
+        "tour_count_zero_auto",
+        "tour_count_auto_deficient",
+        "tour_count_auto_sufficient",
+    ]
+
+    def filtered_df(df: pl.DataFrame, column: str) -> pl.DataFrame:
+        if purpose is None:
+            purpose_col = pl.col("tour_purpose").cast(pl.Utf8)
+            return (
+                df.filter(~purpose_col.is_in(["all_tour_purposes", "Total"]))
+                .group_by("tour_mode")
+                .agg(pl.col(column).sum().alias(column))
+                .sort("tour_mode")
+            )
+        return (
+            df.filter(pl.col("tour_purpose").cast(pl.Utf8) == purpose)
+            .select(["tour_mode", column])
+            .sort("tour_mode")
+        )
+
     return {
         col: [
             (
                 label,
-                df.filter(pl.col("purpose") == purpose).select(["tour_mode", col]),
+                filtered_df(df, col),
             )
             for label, df in mode_list
             if col in df.columns
@@ -47,6 +78,11 @@ class TourModePage(DashboardPage):
     def __init__(self, state, config: Config) -> None:
         super().__init__("Tour Mode", state, config)
         total_opts = self._purpose_options()
+        _, self._purpose_to_raw = purpose_mapping(
+            [] if total_opts == ["Total"] else total_opts
+        )
+        if not self._purpose_to_raw:
+            self._purpose_to_raw = {"Total": None}
         self.purp_sel = pn.widgets.Select(
             name="Purpose", options=total_opts, value=total_opts[0]
         )
@@ -60,10 +96,14 @@ class TourModePage(DashboardPage):
         )
 
     def _purpose_options(self) -> list[str]:
-        mode_list = self.state.get_summary_table_set("tour_mode_profile", "weighted")
+        mode_list = self.state.get_summary_table_set(
+            "tour_mode_by_tour_purpose_and_auto_sufficiency", "weighted"
+        )
         if mode_list is None:
             return ["Total"]
-        return purpose_options(mode_list)
+        raw_purposes = purpose_options(mode_list)
+        options, _ = purpose_mapping(raw_purposes)
+        return options or ["Total"]
 
     def _refresh(self) -> None:
         if not self.state.run_labels:
@@ -80,17 +120,22 @@ class TourModePage(DashboardPage):
             ]
             return
 
-        mode_list = summaries["tour_mode_profile"]
-        purp_opts = purpose_options(mode_list)
+        mode_list = summaries["tour_mode_by_tour_purpose_and_auto_sufficiency"]
+        raw_purposes = purpose_options(mode_list)
+        purp_opts, self._purpose_to_raw = purpose_mapping(raw_purposes)
+        if not purp_opts:
+            purp_opts = ["Total"]
+            self._purpose_to_raw = {"Total": None}
         self.purp_sel.options = purp_opts
         if self.purp_sel.value not in purp_opts:
             self.purp_sel.value = purp_opts[0]
         purp = self.purp_sel.value
+        raw_purpose = self._purpose_to_raw.get(purp)
 
         charts_by_col = self.get_filtered_view(
             "tour_mode",
-            purp,
-            factory=lambda: charts_by_column(mode_list, purp),
+            raw_purpose,
+            factory=lambda: charts_by_column(mode_list, raw_purpose),
         )
 
         def make_chart(col: str, title: str):
@@ -106,12 +151,12 @@ class TourModePage(DashboardPage):
 
         body = [
             pn.Row(
-                make_chart("freq_all", "All Households"),
-                make_chart("freq_as0", "Zero Autos"),
+                make_chart("tour_count_all_households", "All Households"),
+                make_chart("tour_count_zero_auto", "Zero Autos"),
             ),
             pn.Row(
-                make_chart("freq_as1", "Autos < Workers"),
-                make_chart("freq_as2", "Autos >= Workers"),
+                make_chart("tour_count_auto_deficient", "Autos < Workers"),
+                make_chart("tour_count_auto_sufficient", "Autos >= Workers"),
             ),
         ]
 
@@ -156,7 +201,7 @@ PAGE = DashboardPageDefinition(
             label="Purpose",
         ),
     ),
-    required_summary_ids=("tour_mode_profile",),
+    required_summary_ids=("tour_mode_by_tour_purpose_and_auto_sufficiency",),
 )
 
 TourModePage.definition = PAGE

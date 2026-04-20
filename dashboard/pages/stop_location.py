@@ -12,22 +12,50 @@ from runtime.config import Config
 
 
 def purpose_options(loc_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
-    """Collect purpose options from canonical stop-location summaries."""
+    """Collect purpose options from stop-location summaries."""
     purposes_set = set()
     for _, df in loc_list:
-        if len(df) > 0 and "purpose" in df.columns:
-            purposes_set.update(df["purpose"].drop_nulls().cast(pl.Utf8).unique().to_list())
-    return sorted(purposes_set) if purposes_set else []
+        if len(df) > 0 and "tour_purpose" in df.columns:
+            purposes_set.update(
+                df["tour_purpose"].drop_nulls().cast(pl.Utf8).unique().to_list()
+            )
+    return sorted(
+        str(purpose)
+        for purpose in purposes_set
+        if purpose not in {"all_tour_purposes", "Total"}
+    )
 
 
 def all_purpose_chart_data(
     loc_list: list[tuple[str, pl.DataFrame]],
 ) -> list[tuple[str, pl.DataFrame]]:
     """Build the all-purpose stop-location comparison data."""
-    return [
-        (label, df.group_by("distbin").agg(pl.col("freq").sum()).sort("distbin"))
-        for label, df in loc_list
-    ]
+    all_data: list[tuple[str, pl.DataFrame]] = []
+    for label, df in loc_list:
+        raw_purposes = (
+            df["tour_purpose"].drop_nulls().cast(pl.Utf8).unique().to_list()
+            if "tour_purpose" in df.columns
+            else []
+        )
+        if "all_tour_purposes" in raw_purposes:
+            all_df = (
+                df.filter(pl.col("tour_purpose").cast(pl.Utf8) == "all_tour_purposes")
+                .select(["distance_bin", "stop_count"])
+                .sort("distance_bin")
+            )
+        else:
+            all_df = (
+                df.filter(
+                    ~pl.col("tour_purpose")
+                    .cast(pl.Utf8)
+                    .is_in(["all_tour_purposes", "Total"])
+                )
+                .group_by("distance_bin")
+                .agg(pl.col("stop_count").sum().alias("stop_count"))
+                .sort("distance_bin")
+            )
+        all_data.append((label, all_df))
+    return all_data
 
 
 def purpose_chart_data(
@@ -38,7 +66,9 @@ def purpose_chart_data(
     return [
         (
             label,
-            df.filter(pl.col("purpose") == purpose).select(["distbin", "freq"]),
+            df.filter(pl.col("tour_purpose") == purpose).select(
+                ["distance_bin", "stop_count"]
+            ),
         )
         for label, df in loc_list
     ]
@@ -55,7 +85,7 @@ class StopLocationPage(DashboardPage):
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        loc_list = self.require_summary("stop_location")
+        loc_list = self.require_summary("stop_out_of_direction_distance_by_tour_purpose")
         if loc_list is None:
             self._body.objects = [
                 pn.pane.Markdown("## Stop Location"),
@@ -73,8 +103,8 @@ class StopLocationPage(DashboardPage):
                     "stop_location_all",
                     factory=lambda: all_purpose_chart_data(loc_list),
                 ),
-                "distbin",
-                "freq",
+                "distance_bin",
+                "stop_count",
                 "Stop Out-of-Direction Distance - All Purposes",
                 "Miles",
                 normalize=False,
@@ -89,8 +119,8 @@ class StopLocationPage(DashboardPage):
                         purp,
                         factory=lambda purp=purp: purpose_chart_data(loc_list, purp),
                     ),
-                    "distbin",
-                    "freq",
+                    "distance_bin",
+                    "stop_count",
                     f"Stop Out-of-Direction Distance - {purp}",
                     "Miles",
                     normalize=False,
@@ -106,7 +136,7 @@ PAGE = DashboardPageDefinition(
     title="Stop Location",
     order=90,
     controller_cls=StopLocationPage,
-    required_summary_ids=("stop_location",),
+    required_summary_ids=("stop_out_of_direction_distance_by_tour_purpose",),
 )
 
 StopLocationPage.definition = PAGE

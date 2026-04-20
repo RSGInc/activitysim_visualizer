@@ -160,9 +160,7 @@ def main() -> None:
         )
         if requires_raw_data:
             existing_raw_runs_by_key = (
-                summary_result.raw_runs_by_key
-                if args.from_csvs is None
-                else None
+                summary_result.raw_runs_by_key if args.from_csvs is None else None
             )
             raw_runs = load_raw_runs_for_dashboard(
                 config=config,

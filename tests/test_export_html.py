@@ -67,16 +67,16 @@ def _write_config(
 
 def _scale_table(df: pl.DataFrame, factor: float) -> pl.DataFrame:
     metric_columns = {
-        "population",
-        "households",
-        "employment",
-        "tours",
-        "trips",
-        "stops",
-        "pmt",
-        "vmt",
-        "vehicle_trips",
-        "WFH",
+        "person_count",
+        "household_count",
+        "tour_count",
+        "trip_count",
+        "stop_count",
+        "auto_vmt",
+        "worker_count",
+        "work_from_home_worker_count",
+        "household_percent",
+        "joint_tour_count",
     }
     exprs = [
         (pl.col(column) * factor).alias(column)
@@ -85,64 +85,82 @@ def _scale_table(df: pl.DataFrame, factor: float) -> pl.DataFrame:
         or column.startswith("freq")
         or column.startswith("pct")
         or column.startswith("avg")
+        or column.endswith(("_count", "_distance", "_percent"))
     ]
     return df.with_columns(exprs) if exprs else df.clone()
 
 
 def _full_summary_run():
     weighted = {
-        "totals": pl.DataFrame(
+        "population_totals": pl.DataFrame(
             {
-                "population": [100.0],
-                "households": [40.0],
-                "employment": [60.0],
-                "tours": [55.0],
-                "trips": [120.0],
-                "stops": [35.0],
-                "pmt": [250.0],
-                "vmt": [180.0],
-                "vehicle_trips": [90.0],
+                "person_count": [100.0],
+                "household_count": [40.0],
+                "tour_count": [55.0],
+                "trip_count": [120.0],
+                "stop_count": [35.0],
             }
         ),
-        "person_type": pl.DataFrame(
+        "person_type_distribution": pl.DataFrame(
             {
-                "ptype_name": ["worker", "student"],
-                "freq": [70.0, 30.0],
-                "pct": [70.0, 30.0],
+                "person_type": ["worker", "student"],
+                "person_type_label": ["worker", "student"],
+                "person_count": [70.0, 30.0],
             }
         ),
-        "hh_size": pl.DataFrame(
+        "household_size_distribution": pl.DataFrame(
             {
-                "HHSIZE": [1, 2],
-                "freq": [15.0, 25.0],
-                "pct": [37.5, 62.5],
+                "household_size": [1, 2],
+                "household_count": [15.0, 25.0],
             }
         ),
-        "auto_ownership": pl.DataFrame(
-            {"HHVEH": [0, 1], "freq": [12.0, 18.0], "pct": [40.0, 60.0]}
-        ),
-        "tlfd_work": pl.DataFrame(
+        "auto_vmt_totals": pl.DataFrame({"auto_vmt": [180.0]}),
+        "auto_ownership_distribution": pl.DataFrame(
             {
-                "distbin": [0, 1],
-                "Total": [6.0, 4.0],
-                "Urban": [4.0, 2.5],
-                "Suburban": [2.0, 1.5],
+                "household_vehicle_count": [0, 1],
+                "household_count": [12.0, 18.0],
             }
         ),
-        "tlfd_univ": pl.DataFrame(
+        "work_location_distance_distribution_by_geography": pl.DataFrame(
             {
-                "distbin": [0, 1],
-                "Total": [3.0, 2.0],
-                "Urban": [1.5, 1.0],
-                "Suburban": [1.5, 1.0],
+                "distance_bin": [1, 2, 1, 2, 1, 2],
+                "geography": [
+                    "all_geographies",
+                    "all_geographies",
+                    "Urban",
+                    "Urban",
+                    "Suburban",
+                    "Suburban",
+                ],
+                "person_count": [6.0, 4.0, 4.0, 2.5, 2.0, 1.5],
             }
         ),
-        "tlfd_schl": pl.DataFrame(
+        "university_location_distance_distribution_by_geography": pl.DataFrame(
             {
-                "distbin": [0, 1],
-                "Total": [5.0, 1.0],
-                "Urban": [3.0, 0.5],
-                "Suburban": [2.0, 0.5],
+                "distance_bin": [1, 2, 1, 2, 1, 2],
+                "geography": [
+                    "all_geographies",
+                    "all_geographies",
+                    "Urban",
+                    "Urban",
+                    "Suburban",
+                    "Suburban",
+                ],
+                "person_count": [3.0, 2.0, 1.5, 1.0, 1.5, 1.0],
+            }
+        ),
+        "school_location_distance_distribution_by_geography": pl.DataFrame(
+            {
+                "distance_bin": [1, 2, 1, 2, 1, 2],
+                "geography": [
+                    "all_geographies",
+                    "all_geographies",
+                    "Urban",
+                    "Urban",
+                    "Suburban",
+                    "Suburban",
+                ],
+                "person_count": [5.0, 1.0, 3.0, 0.5, 2.0, 0.5],
             }
         ),
         "geo_flows": pl.DataFrame(
@@ -152,54 +170,84 @@ def _full_summary_run():
                 "Workers": [7.0, 4.0],
             }
         ),
-        "wfh": pl.DataFrame(
+        "work_from_home_rate_by_geography": pl.DataFrame(
             {
-                "Geography": ["Total", "Urban", "Suburban"],
-                "WFH": [11.0, 7.0, 4.0],
+                "geography": ["all_geographies", "Urban", "Suburban"],
+                "worker_count": [20.0, 12.0, 8.0],
+                "work_from_home_worker_count": [11.0, 7.0, 4.0],
             }
         ),
-        "telecommute": pl.DataFrame(
-            {"telecommute_frequency": ["never", "often"], "freq": [7.0, 5.0]}
-        ),
-        "mand_tour_lengths": pl.DataFrame({"segment": ["work"], "freq": [8.5]}),
-        "dap_summary": pl.DataFrame(
+        "telecommute_frequency_distribution": pl.DataFrame(
             {
-                "ptype": ["Total", "Total", "Total", "worker", "worker"],
-                "DAP": ["M", "N", "H", "M", "N"],
-                "freq": [10.0, 8.0, 2.0, 6.0, 4.0],
+                "telecommute_frequency": ["never", "often"],
+                "person_count": [7.0, 5.0],
             }
         ),
-        "mandatory_tour_freq": pl.DataFrame(
+        "average_mandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
             {
-                "ptype": ["Total", "Total", "worker", "worker"],
-                "MTF": [1, 2, 1, 5],
-                "freq": [7.0, 5.0, 4.0, 2.0],
+                "mandatory_tour_purpose": ["work", "work", "work"],
+                "geography": ["all_geographies", "Urban", "Suburban"],
+                "average_tour_distance": [8.5, 7.5, 9.5],
             }
         ),
-        "indiv_nm_summary": pl.DataFrame(
+        "daily_activity_pattern_by_person_type": pl.DataFrame(
             {
-                "ptype": ["Total", "Total", "worker", "worker"],
-                "nmtours": ["0", "1", "0", "2"],
-                "freq": [3.0, 9.0, 2.0, 6.0],
+                "person_type": [
+                    "all_person_types",
+                    "all_person_types",
+                    "all_person_types",
+                    "worker",
+                    "worker",
+                ],
+                "daily_activity_pattern": ["M", "N", "H", "M", "N"],
+                "person_count": [10.0, 8.0, 2.0, 6.0, 4.0],
             }
         ),
-        "joint_tour_freq": pl.DataFrame(
-            {"alt_name": ["0", "1+"], "freq": [12.0, 8.0]}
+        "mandatory_tour_frequency_by_person_type": pl.DataFrame(
+            {
+                "person_type": [
+                    "all_person_types",
+                    "all_person_types",
+                    "worker",
+                    "worker",
+                ],
+                "mandatory_tour_frequency": [1, 2, 1, 5],
+                "person_count": [7.0, 5.0, 4.0, 2.0],
+            }
         ),
-        "joint_composition": pl.DataFrame(
+        "nonmandatory_tour_frequency_by_person_type": pl.DataFrame(
+            {
+                "person_type": [
+                    "all_person_types",
+                    "all_person_types",
+                    "worker",
+                    "worker",
+                ],
+                "nonmandatory_tour_frequency": ["0", "1", "0", "2"],
+                "person_count": [3.0, 9.0, 2.0, 6.0],
+            }
+        ),
+        "jtf_distribution": pl.DataFrame(
+            {
+                "jtf_code": [1, 2, 3],
+                "jtf_label": ["No Joint Tours", "1 Shopping", "1 Maintenance"],
+                "household_count": [12.0, 5.0, 3.0],
+            }
+        ),
+        "joint_tour_composition_distribution": pl.DataFrame(
             {
                 "tour_composition": ["adults", "mixed", "children"],
-                "freq": [4.0, 3.0, 1.0],
+                "joint_tour_count": [4.0, 3.0, 1.0],
             }
         ),
-        "joint_party_size": pl.DataFrame(
-            {"NUMBER_HH": [2, 3], "freq": [5.0, 3.0]}
+        "joint_tour_party_size_distribution": pl.DataFrame(
+            {"party_size": [2, 3], "joint_tour_count": [5.0, 3.0]}
         ),
-        "joint_tours_hhsize": pl.DataFrame(
+        "household_jtp_by_household_size_and_jtf": pl.DataFrame(
             {
-                "hhsize": ["2", "2", "3", "3"],
-                "jointTours": ["0", "1", "0", "2+"],
-                "freq": [4.0, 6.0, 3.0, 5.0],
+                "household_size": ["2", "2", "3", "3"],
+                "jtf": ["0", "1", "0", "2+"],
+                "household_percent": [40.0, 60.0, 37.5, 62.5],
             }
         ),
         "destination_distance": pl.DataFrame(
@@ -215,23 +263,33 @@ def _full_summary_run():
                 "avg_distance": [3.25, 4.5],
             }
         ),
-        "tour_tod_profiles": pl.DataFrame(
+        "tour_time_of_day_by_tour_purpose": pl.DataFrame(
             {
-                "purpose": ["Total", "Total", "work", "work"],
-                "timebin": [1, 2, 1, 2],
-                "freq_dep": [5.0, 6.0, 3.0, 4.0],
-                "freq_arr": [4.0, 5.0, 2.0, 3.0],
-                "freq_dur": [2.0, 3.0, 1.0, 2.0],
+                "tour_purpose": [
+                    "all_tour_purposes",
+                    "all_tour_purposes",
+                    "work",
+                    "work",
+                ],
+                "time_bin": [1, 2, 1, 2],
+                "departure_tour_count": [5.0, 6.0, 3.0, 4.0],
+                "arrival_tour_count": [4.0, 5.0, 2.0, 3.0],
+                "duration_tour_count": [2.0, 3.0, 1.0, 2.0],
             }
         ),
-        "tour_mode_profile": pl.DataFrame(
+        "tour_mode_by_tour_purpose_and_auto_sufficiency": pl.DataFrame(
             {
-                "purpose": ["Total", "Total", "work", "work"],
+                "tour_purpose": [
+                    "all_tour_purposes",
+                    "all_tour_purposes",
+                    "work",
+                    "work",
+                ],
                 "tour_mode": ["DRIVE", "WALK", "DRIVE", "WALK"],
-                "freq_all": [10.0, 5.0, 7.0, 3.0],
-                "freq_as0": [2.0, 4.0, 1.0, 2.0],
-                "freq_as1": [3.0, 1.0, 2.0, 1.0],
-                "freq_as2": [5.0, 0.0, 4.0, 0.0],
+                "tour_count_all_households": [10.0, 5.0, 7.0, 3.0],
+                "tour_count_zero_auto": [2.0, 4.0, 1.0, 2.0],
+                "tour_count_auto_deficient": [3.0, 1.0, 2.0, 1.0],
+                "tour_count_auto_sufficient": [5.0, 0.0, 4.0, 0.0],
             }
         ),
         "grouped_tour_mode_profile": pl.DataFrame(
@@ -244,49 +302,103 @@ def _full_summary_run():
                 "freq_as2": [5.0, 0.0, 4.0, 0.0],
             }
         ),
-        "stop_freq": pl.DataFrame(
+        "tour_stop_frequency_by_tour_purpose": pl.DataFrame(
             {
-                "purpose": ["eatout", "eatout", "social"],
-                "ob_stops": [0, 1, 0],
-                "ib_stops": [0, 0, 1],
-                "tot_stops": [0, 1, 1],
-                "freq": [10.0, 5.0, 8.0],
+                "tour_purpose": [
+                    "all_tour_purposes",
+                    "all_tour_purposes",
+                    "eatout",
+                    "eatout",
+                    "social",
+                ],
+                "outbound_stop_count": [0, 1, 0, 1, 0],
+                "inbound_stop_count": [0, 1, 0, 0, 1],
+                "total_stop_count": [0, 2, 0, 1, 1],
+                "tour_count": [18.0, 5.0, 10.0, 5.0, 8.0],
             }
         ),
-        "stop_purpose_by_tour_purpose": pl.DataFrame(
+        "stop_destination_purpose_by_tour_purpose": pl.DataFrame(
             {
-                "tour_purpose": ["eatout", "eatout", "social"],
-                "stop_purpose": ["shop", "eat", "visit"],
-                "freq": [4.0, 6.0, 8.0],
+                "tour_purpose": [
+                    "all_tour_purposes",
+                    "all_tour_purposes",
+                    "eatout",
+                    "eatout",
+                    "social",
+                ],
+                "stop_destination_purpose": ["shop", "eat", "shop", "eat", "visit"],
+                "stop_count": [4.0, 14.0, 4.0, 6.0, 8.0],
             }
         ),
-        "stop_location": pl.DataFrame(
+        "stop_out_of_direction_distance_by_tour_purpose": pl.DataFrame(
             {
-                "purpose": ["eatout", "eatout", "social", "social"],
-                "distbin": [0, 1, 0, 1],
-                "freq": [8.0, 4.0, 5.0, 7.0],
+                "tour_purpose": [
+                    "all_tour_purposes",
+                    "all_tour_purposes",
+                    "eatout",
+                    "eatout",
+                    "social",
+                    "social",
+                ],
+                "distance_bin": [0, 1, 0, 1, 0, 1],
+                "stop_count": [13.0, 11.0, 8.0, 4.0, 5.0, 7.0],
             }
         ),
-        "stop_timing": pl.DataFrame(
+        "trip_departure_time_by_purpose": pl.DataFrame(
             {
-                "purpose": ["eatout", "eatout", "social", "social"],
-                "timebin": [1, 2, 1, 2],
-                "freq_stop_dep": [3.0, 4.0, 5.0, 6.0],
-                "freq_trip_dep": [2.0, 3.0, 4.0, 5.0],
+                "tour_purpose": [
+                    "all_tour_purposes",
+                    "all_tour_purposes",
+                    "eatout",
+                    "eatout",
+                    "social",
+                    "social",
+                ],
+                "time_bin": [1, 2, 1, 2, 1, 2],
+                "departure_stop_count": [8.0, 10.0, 3.0, 4.0, 5.0, 6.0],
+                "departure_trip_count": [6.0, 8.0, 2.0, 3.0, 4.0, 5.0],
             }
         ),
-        "trip_mode_profile": pl.DataFrame(
+        "trip_mode_by_tour_purpose_and_tour_mode": pl.DataFrame(
             {
-                "purpose": ["eatout", "eatout", "social", "social"],
-                "tour_mode": ["DRIVE", "WALK", "DRIVE", "WALK"],
-                "trip_mode": ["DRIVEALONE", "WALK", "SHARED", "WALK"],
-                "freq": [10.0, 2.0, 5.0, 3.0],
+                "tour_purpose": [
+                    "all_tour_purposes",
+                    "all_tour_purposes",
+                    "eatout",
+                    "eatout",
+                    "social",
+                    "social",
+                    "all_tour_purposes",
+                    "eatout",
+                    "social",
+                ],
+                "tour_mode": [
+                    "DRIVE",
+                    "WALK",
+                    "DRIVE",
+                    "WALK",
+                    "DRIVE",
+                    "WALK",
+                    "all_tour_modes",
+                    "all_tour_modes",
+                    "all_tour_modes",
+                ],
+                "trip_mode": [
+                    "DRIVEALONE",
+                    "WALK",
+                    "DRIVEALONE",
+                    "WALK",
+                    "SHARED",
+                    "WALK",
+                    "WALK",
+                    "DRIVEALONE",
+                    "SHARED",
+                ],
+                "trip_count": [15.0, 5.0, 10.0, 2.0, 5.0, 3.0, 5.0, 10.0, 5.0],
             }
         ),
     }
-    unweighted = {
-        name: _scale_table(df, 0.5) for name, df in weighted.items()
-    }
+    unweighted = {name: _scale_table(df, 0.5) for name, df in weighted.items()}
     return create_summary_run(
         label="Base",
         run_key="base",
@@ -396,16 +508,27 @@ def test_export_html_config_resolves_nested_dashboard_and_page_requests(
 
     assert config_all.export_html.weighting == ["weighted", "unweighted"]
     assert config_all.export_html.values == ["percent", "count"]
-    assert config_all.export_html.selector_request("tour_summary", "person_type").mode == "all"
-    assert config_all.export_html.selector_request("trip_mode", "tour_mode").mode == "explicit"
+    assert (
+        config_all.export_html.selector_request("tour_summary", "person_type").mode
+        == "all"
+    )
+    assert (
+        config_all.export_html.selector_request("trip_mode", "tour_mode").mode
+        == "explicit"
+    )
     assert config_all.export_html.selector_request("trip_mode", "tour_mode").values == (
         "all",
         "drive",
     )
     assert config_list.export_html.weighting == ["unweighted", "weighted"]
     assert config_list.export_html.values == ["count", "percent"]
-    assert config_list.export_html.selector_request("destination", "purpose").mode == "explicit"
-    assert config_list.export_html.selector_request("destination", "purpose").values == (
+    assert (
+        config_list.export_html.selector_request("destination", "purpose").mode
+        == "explicit"
+    )
+    assert config_list.export_html.selector_request(
+        "destination", "purpose"
+    ).values == (
         "all nm",
         "eatout",
     )
@@ -445,7 +568,9 @@ def test_config_defaults_when_summaries_and_visualizer_sections_are_absent(
 
     config = Config.from_yaml(config_path)
 
-    assert config.summary_root == str((tmp_path / "artifacts" / "summary_cache").resolve())
+    assert config.summary_root == str(
+        (tmp_path / "artifacts" / "summary_cache").resolve()
+    )
     assert config.weighting_modes == ["weighted", "unweighted"]
     assert config.dashboard_title == "ActivitySim Visualizer"
     assert config.dashboard_pages is None
@@ -587,8 +712,13 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     assert payload["dashboard_controls"]["weighting"] == ["Weighted", "Unweighted"]
     assert payload["dashboard_controls"]["values"] == ["Percent", "Count"]
     assert payload["default_state"] == {"weighting": "Weighted", "values": "Percent"}
-    assert [(page["id"], page["title"]) for page in payload["pages"]] == EXPECTED_DEFAULT_PAGES
-    assert payload["page_export_support"]["client_side_runtime"] == "dashboard-and-page-selectors"
+    assert [
+        (page["id"], page["title"]) for page in payload["pages"]
+    ] == EXPECTED_DEFAULT_PAGES
+    assert (
+        payload["page_export_support"]["client_side_runtime"]
+        == "dashboard-and-page-selectors"
+    )
     assert payload["page_export_support"]["enabled_page_selectors"] == [
         {"page_id": "destination", "selector_id": "purpose"},
         {"page_id": "joint_tours", "selector_id": "hh_size"},
@@ -639,7 +769,7 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     assert page_defs["stop_frequency"]["selectors"][0]["export_enabled"] is True
     assert page_defs["stop_timing"]["selectors"][0]["id"] == "purpose"
     assert page_defs["stop_timing"]["selectors"][0]["request_mode"] == "default"
-    assert page_defs["stop_timing"]["selectors"][0]["resolved_values"] == ["eatout"]
+    assert page_defs["stop_timing"]["selectors"][0]["resolved_values"] == ["Total"]
     assert page_defs["stop_timing"]["selectors"][0]["export_enabled"] is True
     assert page_defs["trip_mode"]["selectors"][0]["id"] == "tour_purpose"
     assert page_defs["trip_mode"]["selectors"][0]["request_mode"] == "default"
@@ -656,51 +786,51 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     tour_summary = weighted_percent["tour_summary"]
     assert tour_summary["kind"] == "page_variants"
     assert tour_summary["selector_ids"] == ["person_type"]
-    assert tour_summary["default_key"] == "[\"Total\"]"
-    assert sorted(tour_summary["variants"]) == ["[\"Total\"]"]
+    assert tour_summary["default_key"] == '["Total"]'
+    assert sorted(tour_summary["variants"]) == ['["Total"]']
     joint_tours = weighted_percent["joint_tours"]
     assert joint_tours["kind"] == "page_variants"
     assert joint_tours["selector_ids"] == ["hh_size"]
-    assert joint_tours["default_key"] == "[\"Total\"]"
-    assert sorted(joint_tours["variants"]) == ["[\"Total\"]"]
+    assert joint_tours["default_key"] == '["Total"]'
+    assert sorted(joint_tours["variants"]) == ['["Total"]']
     destination = weighted_percent["destination"]
     assert destination["kind"] == "page_variants"
     assert destination["selector_ids"] == ["purpose"]
-    assert destination["default_key"] == "[\"All NM\"]"
-    assert sorted(destination["variants"]) == ["[\"All NM\"]"]
+    assert destination["default_key"] == '["All NM"]'
+    assert sorted(destination["variants"]) == ['["All NM"]']
     tour_tod = weighted_percent["tour_tod"]
     assert tour_tod["kind"] == "page_variants"
     assert tour_tod["selector_ids"] == ["purpose"]
-    assert tour_tod["default_key"] == "[\"Total\"]"
-    assert sorted(tour_tod["variants"]) == ["[\"Total\"]"]
+    assert tour_tod["default_key"] == '["Total"]'
+    assert sorted(tour_tod["variants"]) == ['["Total"]']
     tour_mode = weighted_percent["tour_mode"]
     assert tour_mode["kind"] == "page_variants"
     assert tour_mode["selector_ids"] == ["purpose"]
-    assert tour_mode["default_key"] == "[\"Total\"]"
-    assert sorted(tour_mode["variants"]) == ["[\"Total\"]"]
+    assert tour_mode["default_key"] == '["Total"]'
+    assert sorted(tour_mode["variants"]) == ['["Total"]']
     stop_frequency = weighted_percent["stop_frequency"]
     assert stop_frequency["kind"] == "page_variants"
     assert stop_frequency["selector_ids"] == ["tour_purpose"]
-    assert stop_frequency["default_key"] == "[\"Total\"]"
-    assert sorted(stop_frequency["variants"]) == ["[\"Total\"]"]
+    assert stop_frequency["default_key"] == '["Total"]'
+    assert sorted(stop_frequency["variants"]) == ['["Total"]']
     stop_timing = weighted_percent["stop_timing"]
     assert stop_timing["kind"] == "page_variants"
     assert stop_timing["selector_ids"] == ["purpose"]
-    assert stop_timing["default_key"] == "[\"eatout\"]"
-    assert sorted(stop_timing["variants"]) == ["[\"eatout\"]"]
+    assert stop_timing["default_key"] == '["Total"]'
+    assert sorted(stop_timing["variants"]) == ['["Total"]']
     trip_mode = weighted_percent["trip_mode"]
     assert trip_mode["kind"] == "page_variants"
     assert trip_mode["selector_ids"] == ["tour_purpose", "tour_mode"]
-    assert trip_mode["default_key"] == "[\"Total\",\"All\"]"
-    assert sorted(trip_mode["variants"]) == ["[\"Total\",\"All\"]"]
+    assert trip_mode["default_key"] == '["Total","All"]'
+    assert sorted(trip_mode["variants"]) == ['["Total","All"]']
     widget_nodes = [
-        node
-        for node in _walk_nodes(tour_summary)
-        if node.get("kind") == "widget"
+        node for node in _walk_nodes(tour_summary) if node.get("kind") == "widget"
     ]
     assert widget_nodes
     assert any(
-        node.get("selector_id") == "person_type" and node.get("export_enabled") and not node.get("disabled")
+        node.get("selector_id") == "person_type"
+        and node.get("export_enabled")
+        and not node.get("disabled")
         for node in widget_nodes
     )
 
@@ -752,7 +882,9 @@ def test_build_export_html_document_defaults_to_registry_order_when_export_pages
     html = build_export_html_document([], config, summary_runs=[_full_summary_run()])
     payload = _extract_payload(html)
 
-    assert [(page["id"], page["title"]) for page in payload["pages"]] == EXPECTED_DEFAULT_PAGES
+    assert [
+        (page["id"], page["title"]) for page in payload["pages"]
+    ] == EXPECTED_DEFAULT_PAGES
 
 
 def test_build_export_html_document_renders_raw_demo_page_when_raw_runs_are_loaded(
@@ -816,10 +948,10 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
             "  weighting: all",
             "  values: all",
             "pages:",
-                "  tour_summary:",
-                "    person_type:",
-                "      - total",
-                "      - worker",
+            "  tour_summary:",
+            "    person_type:",
+            "      - total",
+            "      - worker",
             "  joint_tours:",
             "    hh_size: all",
             "  destination:",
@@ -873,6 +1005,7 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
     assert page_defs["stop_frequency"]["selectors"][0]["export_enabled"] is True
     assert page_defs["stop_timing"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["stop_timing"]["selectors"][0]["resolved_values"] == [
+        "Total",
         "eatout",
         "social",
     ]
@@ -907,64 +1040,65 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
     weighted_percent = payload["states"]["Weighted||Percent"]["tour_summary"]
     assert weighted_percent["kind"] == "page_variants"
     assert sorted(weighted_percent["variants"]) == [
-        "[\"Total\"]",
-        "[\"worker\"]",
+        '["Total"]',
+        '["worker"]',
     ]
     joint_tours_weighted_percent = payload["states"]["Weighted||Percent"]["joint_tours"]
     assert joint_tours_weighted_percent["kind"] == "page_variants"
     assert sorted(joint_tours_weighted_percent["variants"]) == [
-        "[\"2\"]",
-        "[\"3\"]",
-        "[\"4\"]",
-        "[\"5\"]",
-        "[\"Total\"]",
+        '["2"]',
+        '["3"]',
+        '["4"]',
+        '["5"]',
+        '["Total"]',
     ]
     destination_weighted_percent = payload["states"]["Weighted||Percent"]["destination"]
     assert destination_weighted_percent["kind"] == "page_variants"
     assert sorted(destination_weighted_percent["variants"]) == [
-        "[\"All NM\"]",
-        "[\"eatout\"]",
-        "[\"social\"]",
+        '["All NM"]',
+        '["eatout"]',
+        '["social"]',
     ]
     stop_frequency_weighted_percent = payload["states"]["Weighted||Percent"][
         "stop_frequency"
     ]
     assert stop_frequency_weighted_percent["kind"] == "page_variants"
     assert sorted(stop_frequency_weighted_percent["variants"]) == [
-        "[\"Total\"]",
-        "[\"eatout\"]",
-        "[\"social\"]",
+        '["Total"]',
+        '["eatout"]',
+        '["social"]',
     ]
     stop_timing_weighted_percent = payload["states"]["Weighted||Percent"]["stop_timing"]
     assert stop_timing_weighted_percent["kind"] == "page_variants"
     assert sorted(stop_timing_weighted_percent["variants"]) == [
-        "[\"eatout\"]",
-        "[\"social\"]",
+        '["Total"]',
+        '["eatout"]',
+        '["social"]',
     ]
     tour_tod_weighted_percent = payload["states"]["Weighted||Percent"]["tour_tod"]
     assert tour_tod_weighted_percent["kind"] == "page_variants"
     assert sorted(tour_tod_weighted_percent["variants"]) == [
-        "[\"Total\"]",
-        "[\"work\"]",
+        '["Total"]',
+        '["work"]',
     ]
     tour_mode_weighted_percent = payload["states"]["Weighted||Percent"]["tour_mode"]
     assert tour_mode_weighted_percent["kind"] == "page_variants"
     assert sorted(tour_mode_weighted_percent["variants"]) == [
-        "[\"Total\"]",
-        "[\"work\"]",
+        '["Total"]',
+        '["work"]',
     ]
     trip_mode_weighted_percent = payload["states"]["Weighted||Percent"]["trip_mode"]
     assert trip_mode_weighted_percent["kind"] == "page_variants"
     assert sorted(trip_mode_weighted_percent["variants"]) == [
-        "[\"Total\",\"All\"]",
-        "[\"Total\",\"DRIVE\"]",
-        "[\"Total\",\"WALK\"]",
-        "[\"eatout\",\"All\"]",
-        "[\"eatout\",\"DRIVE\"]",
-        "[\"eatout\",\"WALK\"]",
-        "[\"social\",\"All\"]",
-        "[\"social\",\"DRIVE\"]",
-        "[\"social\",\"WALK\"]",
+        '["Total","All"]',
+        '["Total","DRIVE"]',
+        '["Total","WALK"]',
+        '["eatout","All"]',
+        '["eatout","DRIVE"]',
+        '["eatout","WALK"]',
+        '["social","All"]',
+        '["social","DRIVE"]',
+        '["social","WALK"]',
     ]
 
 
@@ -993,14 +1127,13 @@ def test_build_export_html_document_keeps_grouped_tour_mode_chart_when_mode_grou
 
     assert tour_mode["kind"] == "page_variants"
     assert sorted(tour_mode["variants"]) == [
-        "[\"Total\"]",
-        "[\"work\"]",
+        '["Total"]',
+        '["work"]',
     ]
-    variant_nodes = _walk_nodes(tour_mode["variants"]["[\"Total\"]"])
+    variant_nodes = _walk_nodes(tour_mode["variants"]['["Total"]'])
     assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 5
     assert any(
-        node.get("kind") == "html"
-        and "Grouped Mode Summary" in node.get("html", "")
+        node.get("kind") == "html" and "Grouped Mode Summary" in node.get("html", "")
         for node in variant_nodes
     )
 
@@ -1029,21 +1162,21 @@ def test_build_export_html_document_serializes_long_term_geography_variants(
     assert page_defs["long_term"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["long_term"]["selectors"][0]["resolved_values"] == [
         "Total",
-        "Urban",
         "Suburban",
+        "Urban",
     ]
     assert page_defs["long_term"]["selectors"][0]["export_enabled"] is True
 
     long_term = payload["states"]["Weighted||Percent"]["long_term"]
     assert long_term["kind"] == "page_variants"
     assert long_term["selector_ids"] == ["geography"]
-    assert long_term["default_key"] == "[\"Total\"]"
+    assert long_term["default_key"] == '["Total"]'
     assert sorted(long_term["variants"]) == [
-        "[\"Suburban\"]",
-        "[\"Total\"]",
-        "[\"Urban\"]",
+        '["Suburban"]',
+        '["Total"]',
+        '["Urban"]',
     ]
-    variant_nodes = _walk_nodes(long_term["variants"]["[\"Urban\"]"])
+    variant_nodes = _walk_nodes(long_term["variants"]['["Urban"]'])
     assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 6
     assert sum(1 for node in variant_nodes if node.get("kind") == "table") == 2
 
@@ -1085,11 +1218,11 @@ def test_build_export_html_document_serializes_stop_frequency_four_chart_variant
 
     assert stop_frequency["kind"] == "page_variants"
     assert sorted(stop_frequency["variants"]) == [
-        "[\"Total\"]",
-        "[\"eatout\"]",
-        "[\"social\"]",
+        '["Total"]',
+        '["eatout"]',
+        '["social"]',
     ]
-    variant_nodes = _walk_nodes(stop_frequency["variants"]["[\"eatout\"]"])
+    variant_nodes = _walk_nodes(stop_frequency["variants"]['["eatout"]'])
     assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 4
 
 
@@ -1111,10 +1244,11 @@ def test_build_export_html_document_serializes_stop_timing_two_chart_variant(
 
     assert stop_timing["kind"] == "page_variants"
     assert sorted(stop_timing["variants"]) == [
-        "[\"eatout\"]",
-        "[\"social\"]",
+        '["Total"]',
+        '["eatout"]',
+        '["social"]',
     ]
-    variant_nodes = _walk_nodes(stop_timing["variants"]["[\"eatout\"]"])
+    variant_nodes = _walk_nodes(stop_timing["variants"]['["Total"]'])
     assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 2
 
 
@@ -1136,13 +1270,13 @@ def test_build_export_html_document_serializes_joint_tours_hh_size_variants(
 
     assert joint_tours["kind"] == "page_variants"
     assert sorted(joint_tours["variants"]) == [
-        "[\"2\"]",
-        "[\"3\"]",
-        "[\"4\"]",
-        "[\"5\"]",
-        "[\"Total\"]",
+        '["2"]',
+        '["3"]',
+        '["4"]',
+        '["5"]',
+        '["Total"]',
     ]
-    variant_nodes = _walk_nodes(joint_tours["variants"]["[\"2\"]"])
+    variant_nodes = _walk_nodes(joint_tours["variants"]['["2"]'])
     assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 4
 
 
@@ -1166,17 +1300,17 @@ def test_build_export_html_document_serializes_trip_mode_tour_purpose_variants(
     assert trip_mode["kind"] == "page_variants"
     assert trip_mode["selector_ids"] == ["tour_purpose", "tour_mode"]
     assert sorted(trip_mode["variants"]) == [
-        "[\"Total\",\"All\"]",
-        "[\"Total\",\"DRIVE\"]",
-        "[\"Total\",\"WALK\"]",
-        "[\"eatout\",\"All\"]",
-        "[\"eatout\",\"DRIVE\"]",
-        "[\"eatout\",\"WALK\"]",
-        "[\"social\",\"All\"]",
-        "[\"social\",\"DRIVE\"]",
-        "[\"social\",\"WALK\"]",
+        '["Total","All"]',
+        '["Total","DRIVE"]',
+        '["Total","WALK"]',
+        '["eatout","All"]',
+        '["eatout","DRIVE"]',
+        '["eatout","WALK"]',
+        '["social","All"]',
+        '["social","DRIVE"]',
+        '["social","WALK"]',
     ]
-    variant_nodes = _walk_nodes(trip_mode["variants"]["[\"eatout\",\"DRIVE\"]"])
+    variant_nodes = _walk_nodes(trip_mode["variants"]['["eatout","DRIVE"]'])
     assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 1
     widget_nodes = [node for node in variant_nodes if node.get("kind") == "widget"]
     assert any(
@@ -1207,7 +1341,9 @@ def test_build_export_html_document_rejects_unknown_page_and_selector_ids(
     with pytest.raises(
         ValueError, match="Unsupported visualizer.export_html.pages entries"
     ):
-        build_export_html_document([], bad_page_config, summary_runs=[_full_summary_run()])
+        build_export_html_document(
+            [], bad_page_config, summary_runs=[_full_summary_run()]
+        )
 
     bad_selector_config = _write_config(
         tmp_path / "bad_selector",
@@ -1259,4 +1395,5 @@ def test_export_html_save_writes_single_client_side_html_file(tmp_path: Path) ->
     assert "Plotly.newPlot" in html
     assert "export-layout" in html
     assert "Runs Loaded" in html
+    assert "Tour Purpose" in html
     assert "panel.models.state.State" not in html
