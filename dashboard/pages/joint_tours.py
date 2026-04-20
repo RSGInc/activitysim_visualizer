@@ -15,7 +15,7 @@ class JointToursPage(DashboardPage):
     def __init__(self, state, config: Config) -> None:
         super().__init__("Joint Tours", state, config)
         self.hhsize_sel = pn.widgets.Select(
-            name="HH Size", options=["Total", "2", "3", "4", "5"], value="Total"
+            name="Household Size", options=["Total", "2", "3", "4", "5"], value="Total"
         )
         self._watch_widget(self.hhsize_sel)
         self._summary_section = self.new_section()
@@ -157,13 +157,15 @@ class JointToursPage(DashboardPage):
             ),
         ]
         self._presence_section.objects = [
-            pn.pane.Markdown("### Percentage of Households Taking Part in a Joint Tour"),
-            pn.Row(pn.pane.Markdown("**HH Size:**"), self.hhsize_sel),
+            pn.pane.Markdown(
+                "### Percentage of Households Taking Part in a Joint Tour"
+            ),
+            pn.Row(pn.pane.Markdown("**Household Size:**"), self.hhsize_sel),
             bar_chart(
                 hhsize_data,
                 "jtf",
                 "household_percent",
-                f"HH Size: {hhsize}",
+                f"Household Size: {hhsize}",
                 "Joint Tours",
                 "% HH",
                 as_percent=self.as_percent,
@@ -180,7 +182,7 @@ PAGE = DashboardPageDefinition(
         PageSelectorDefinition(
             selector_id="hh_size",
             widget_attr="hhsize_sel",
-            label="HH Size",
+            label="Household Size",
         ),
     ),
     required_summary_ids=(

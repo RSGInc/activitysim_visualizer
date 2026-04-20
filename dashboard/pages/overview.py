@@ -138,7 +138,7 @@ class OverviewPage(DashboardPage):
             x_col="household_size",
             y_col="household_count",
             title="Household Size Distribution",
-            xaxis_title="HH Size",
+            xaxis_title="Household Size",
             yaxis_title="Households",
             pct_col="pct",
             as_percent=self.as_percent,

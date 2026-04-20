@@ -30,6 +30,8 @@ from summarize.cache import (
 )
 from runtime.config import Config
 from runtime.models import RunData
+from runtime.run_data import prepare_data
+from summarize.summaries import legacy
 
 
 def _write_config(tmp_path: Path) -> Config:
@@ -135,6 +137,59 @@ def _destination_raw_run() -> RunData:
         tours=tours,
         trips=pl.DataFrame(),
         joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+
+def _prepared_destination_raw_run() -> RunData:
+    return RunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame(
+            {
+                "household_id": [1],
+                "home_zone_id": [10],
+                "auto_ownership": [1],
+                "num_workers": [1],
+                "num_adults": [1],
+            }
+        ),
+        per=pl.DataFrame(
+            {
+                "person_id": [101],
+                "household_id": [1],
+                "ptype": [1],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [1001],
+                "person_id": [101],
+                "household_id": [1],
+                "tour_purpose": [10],
+                "primary_purpose": [10],
+                "tour_type": ["eatout"],
+                "tour_mode": ["DRIVE"],
+                "tour_category": ["non-mandatory"],
+                "origin": [10],
+                "destination": [20],
+                "SKIMDIST": [3.5],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "tour_id": [1001],
+                "person_id": [101],
+                "household_id": [1],
+            }
+        ),
+        joint_participants=pl.DataFrame(
+            {"tour_id": [], "person_id": []},
+            schema={"tour_id": pl.Int64, "person_id": pl.Int64},
+        ),
         land_use=pl.DataFrame(),
         skim_matrix=None,
         skim_zone_map=None,
@@ -420,6 +475,37 @@ def test_destination_page_ignores_raw_runs_and_uses_summary_purpose_discovery(
     assert page._body.objects
 
 
+def test_destination_legacy_summaries_prefer_readable_purpose_aliases(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+
+    distance_df = legacy.distance_distribution(_destination_raw_run(), config)
+    average_df = legacy.average_distance(_destination_raw_run(), config)
+
+    assert sorted(distance_df["purpose"].unique().to_list()) == [
+        "All NM",
+        "eatout",
+        "social",
+    ]
+    assert average_df["purpose"].to_list() == ["eatout", "social"]
+
+
+def test_prepare_data_overwrites_numeric_tour_purpose_before_destination_summaries(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    prepared = prepare_data(_prepared_destination_raw_run(), config)
+
+    assert prepared.tours["tour_purpose"].to_list() == ["eatout"]
+
+    distance_df = legacy.distance_distribution(prepared, config)
+    average_df = legacy.average_distance(prepared, config)
+
+    assert sorted(distance_df["purpose"].unique().to_list()) == ["All NM", "eatout"]
+    assert average_df["purpose"].to_list() == ["eatout"]
+
+
 def test_stop_frequency_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
     stop_summary_run = _summary_run_with_tables(
@@ -583,7 +669,14 @@ def test_stop_location_live_page_uses_shared_summary_helpers(tmp_path: Path) -> 
     page = StopLocationPage(state, config)
     page.refresh(force=True)
 
-    assert len(page._body.objects) == 4
+    assert list(page.purp_sel.options) == ["Total", "eatout", "social"]
+    assert page.purp_sel.value == "Total"
+    assert len(page._body.objects) == 1
+
+    page.purp_sel.value = "social"
+    page.refresh(force=True)
+
+    assert len(page._body.objects) == 1
 
 
 def test_tour_summary_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:

@@ -109,7 +109,7 @@ class StopTimingPage(DashboardPage):
         self._body = pn.Column(sizing_mode="stretch_width")
         self.view = pn.Column(
             pn.pane.Markdown("## Stop Timing"),
-            pn.Row(pn.pane.Markdown("**Purpose:**"), self.purp_sel),
+            pn.Row(pn.pane.Markdown("**Tour Purpose:**"), self.purp_sel),
             self._body,
             sizing_mode="stretch_width",
         )
@@ -167,7 +167,7 @@ class StopTimingPage(DashboardPage):
                 trip_dep,
                 "clock_time",
                 "freq",
-                f"Trip Departure - {purp}",
+                f"Trip Departure Time - {purp}",
                 x_label,
                 as_percent=self.as_percent,
             ),
@@ -175,7 +175,7 @@ class StopTimingPage(DashboardPage):
                 stop_dep,
                 "clock_time",
                 "freq",
-                f"Stop Departure - {purp}",
+                f"Stop Departure Time - {purp}",
                 x_label,
                 as_percent=self.as_percent,
             ),
@@ -191,7 +191,7 @@ PAGE = DashboardPageDefinition(
         PageSelectorDefinition(
             selector_id="purpose",
             widget_attr="purp_sel",
-            label="Purpose",
+            label="Tour Purpose",
         ),
     ),
     required_summary_ids=("trip_departure_time_by_purpose",),

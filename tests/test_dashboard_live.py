@@ -66,6 +66,9 @@ def test_page_registry_exposes_expected_default_definitions() -> None:
         "tour_purpose",
         "tour_mode",
     ]
+    assert [selector.selector_id for selector in page_definition_by_id("stop_location").selectors] == [
+        "purpose",
+    ]
     assert page_definition_by_id("raw_trip_demo") is not None
     assert page_definition_by_id("raw_trip_demo").default_enabled is False
     assert page_definition_by_id("raw_trip_demo").raw_data_mode == "required"

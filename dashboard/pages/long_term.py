@@ -288,7 +288,7 @@ class LongTermPage(DashboardPage):
                 ),
             )
             tlfd_section = pn.Column(
-                pn.pane.Markdown("### Trip Length Frequency Distributions"),
+                pn.pane.Markdown("### Trip Length Frequency Distributions (TLFD)"),
                 pn.Row(
                     density_chart(
                         work_data,

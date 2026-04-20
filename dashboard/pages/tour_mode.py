@@ -90,7 +90,7 @@ class TourModePage(DashboardPage):
         self._body = pn.Column(sizing_mode="stretch_width")
         self.view = pn.Column(
             pn.pane.Markdown("## Tour Mode Choice"),
-            pn.Row(pn.pane.Markdown("**Purpose:**"), self.purp_sel),
+            pn.Row(pn.pane.Markdown("**Tour Purpose:**"), self.purp_sel),
             self._body,
             sizing_mode="stretch_width",
         )
@@ -198,7 +198,7 @@ PAGE = DashboardPageDefinition(
         PageSelectorDefinition(
             selector_id="purpose",
             widget_attr="purp_sel",
-            label="Purpose",
+            label="Tour Purpose",
         ),
     ),
     required_summary_ids=("tour_mode_by_tour_purpose_and_auto_sufficiency",),

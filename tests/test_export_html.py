@@ -572,7 +572,7 @@ def test_config_defaults_when_summaries_and_visualizer_sections_are_absent(
         (tmp_path / "artifacts" / "summary_cache").resolve()
     )
     assert config.weighting_modes == ["weighted", "unweighted"]
-    assert config.dashboard_title == "ActivitySim Visualizer"
+    assert config.dashboard_title == "Ignored Legacy Title"
     assert config.dashboard_pages is None
     assert config.run_colors == [
         "#1f77b4",
@@ -587,6 +587,28 @@ def test_config_defaults_when_summaries_and_visualizer_sections_are_absent(
     assert config.export_html.dashboard.weighting == ["weighted"]
     assert config.export_html.dashboard.values == ["percent"]
     assert config.export_html.pages == {}
+
+
+def test_config_prefers_visualizer_dashboard_title_over_legacy_top_level_title(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'name: "Dashboard Title Precedence"',
+                'dashboard_title: "Legacy Dashboard Title"',
+                "runs: []",
+                "visualizer:",
+                '  dashboard_title: "Visualizer Dashboard Title"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = Config.from_yaml(config_path)
+
+    assert config.dashboard_title == "Visualizer Dashboard Title"
 
 
 def test_config_ignores_flat_export_html_dashboard_aliases(tmp_path: Path) -> None:

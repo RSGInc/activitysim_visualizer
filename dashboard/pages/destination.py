@@ -19,7 +19,11 @@ def purpose_options(dist_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
     purposes = sorted(
         [
             purpose
-            for purpose in first_df["purpose"].cast(pl.Utf8).drop_nulls().unique().to_list()
+            for purpose in first_df["purpose"]
+            .cast(pl.Utf8)
+            .drop_nulls()
+            .unique()
+            .to_list()
             if purpose != "All NM"
         ]
     )
@@ -73,8 +77,10 @@ class DestinationPage(DashboardPage):
         self._watch_widget(self.purp_sel)
         self._body = pn.Column(sizing_mode="stretch_width")
         self.view = pn.Column(
-            pn.pane.Markdown("## Destination Choice (NM Tour Distances)"),
-            pn.Row(pn.pane.Markdown("**Purpose:**"), self.purp_sel),
+            pn.pane.Markdown(
+                "## Destination Choice (Non-Mandatory (NM) Tour Distances)"
+            ),
+            pn.Row(pn.pane.Markdown("**Tour Purpose:**"), self.purp_sel),
             self._body,
             sizing_mode="stretch_width",
         )
@@ -125,7 +131,7 @@ class DestinationPage(DashboardPage):
                 data,
                 "distbin",
                 "freq",
-                f"NM Tour Distance Distribution - {purpose}",
+                f"Non-Mandatory Tour Distance Distribution - {purpose}",
                 "Distance (miles)",
                 normalize=False,
                 as_percent=self.as_percent,
@@ -148,7 +154,7 @@ PAGE = DashboardPageDefinition(
         PageSelectorDefinition(
             selector_id="purpose",
             widget_attr="purp_sel",
-            label="Purpose",
+            label="Tour Purpose",
         ),
     ),
     required_summary_ids=("destination_distance", "destination_average_distance"),

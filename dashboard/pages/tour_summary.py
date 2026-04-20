@@ -17,7 +17,9 @@ def ptype_options(dap_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
     for _, df in dap_list:
         if "person_type" in df.columns:
             ptype_set.update(df["person_type"].cast(pl.Utf8).unique().to_list())
-    return sorted(str(ptype) for ptype in ptype_set) if ptype_set else ["all_person_types"]
+    return (
+        sorted(str(ptype) for ptype in ptype_set) if ptype_set else ["all_person_types"]
+    )
 
 
 def ptype_maps(
@@ -191,7 +193,9 @@ class TourSummaryPage(DashboardPage):
         display_opts, self._label_to_ptype = ptype_maps(ptype_opts, self.config)
         self.ptype_sel.options = display_opts
         if self.ptype_sel.value not in display_opts:
-            self.ptype_sel.value = "Total" if "Total" in display_opts else display_opts[0]
+            self.ptype_sel.value = (
+                "Total" if "Total" in display_opts else display_opts[0]
+            )
         ptype_label = self.ptype_sel.value
         ptype = self._label_to_ptype.get(ptype_label, ptype_label)
 
@@ -221,7 +225,7 @@ class TourSummaryPage(DashboardPage):
             inm_data,
             "nonmandatory_tour_frequency",
             "person_count",
-            f"Individual NM Tours - {ptype_label}",
+            f"Individual Non-Mandatory Tours - {ptype_label}",
             "# Tours",
             as_percent=self.as_percent,
         )

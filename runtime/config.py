@@ -363,12 +363,13 @@ class Config:
         if not isinstance(outputs_cfg, dict):
             raise ValueError("outputs must be a mapping when provided.")
 
-        _warn_ignored_legacy_key(
-            mapping=raw,
-            key="dashboard_title",
-            legacy_field_name="dashboard_title",
-            replacement_field_name="visualizer.dashboard_title",
-        )
+        if "dashboard_title" in raw and "dashboard_title" in visualizer_cfg:
+            _warn_ignored_legacy_key(
+                mapping=raw,
+                key="dashboard_title",
+                legacy_field_name="dashboard_title",
+                replacement_field_name="visualizer.dashboard_title",
+            )
         _warn_ignored_legacy_key(
             mapping=raw,
             key="dashboard_pages",
@@ -528,9 +529,9 @@ class Config:
             pages_configured=pages_configured,
         )
 
-        dashboard_title = visualizer_cfg.get(
-            "dashboard_title", "ActivitySim Visualizer"
-        )
+        dashboard_title = visualizer_cfg.get("dashboard_title")
+        if dashboard_title is None:
+            dashboard_title = raw.get("dashboard_title", "ActivitySim Visualizer")
         run_colors = visualizer_cfg.get("run_colors", list(_DEFAULT_RUN_COLORS))
         if not isinstance(run_colors, list):
             raise ValueError("visualizer.run_colors must be a list when provided.")

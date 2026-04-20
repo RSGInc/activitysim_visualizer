@@ -59,6 +59,22 @@ def _resolve_source_column(
     return None
 
 
+def resolve_source_column(
+    df: pl.DataFrame,
+    preferred: str | list[str] | None,
+    *,
+    fallbacks: tuple[str, ...] = (),
+    require_non_numeric: bool = False,
+) -> str | None:
+    """Public wrapper for config-aware source-column resolution."""
+    return _resolve_source_column(
+        df,
+        preferred,
+        fallbacks=fallbacks,
+        require_non_numeric=require_non_numeric,
+    )
+
+
 def _materialize_column(
     df: pl.DataFrame,
     target: str,
@@ -75,6 +91,34 @@ def _materialize_column(
     if target in df.columns and not overwrite:
         return df
     return df.with_columns(pl.col(source).alias(target))
+
+
+def _materialize_preferred_column(
+    df: pl.DataFrame,
+    target: str,
+    preferred: str | list[str] | None,
+    *,
+    fallbacks: tuple[str, ...] = (),
+    require_non_numeric: bool = False,
+) -> pl.DataFrame:
+    """Materialize a preferred source column, replacing numeric placeholders."""
+    source = resolve_source_column(
+        df,
+        preferred,
+        fallbacks=fallbacks,
+        require_non_numeric=require_non_numeric,
+    )
+    overwrite = False
+    if (
+        source is not None
+        and source != target
+        and target in df.columns
+        and require_non_numeric
+        and df[target].dtype.is_numeric()
+        and not df[source].dtype.is_numeric()
+    ):
+        overwrite = True
+    return _materialize_column(df, target, source, overwrite=overwrite)
 
 
 def _cast_if_present(df: pl.DataFrame, casts: dict[str, pl.DataType]) -> pl.DataFrame:
@@ -464,14 +508,11 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
         "tour_mode",
         _resolve_source_column(tours, config.col_tour_mode),
     )
-    tours = _materialize_column(
+    tours = _materialize_preferred_column(
         tours,
         "tour_purpose",
-        _resolve_source_column(
-            tours,
-            config.col_tour_purpose,
-            require_non_numeric=True,
-        ),
+        config.col_tour_purpose,
+        require_non_numeric=True,
     )
     tours = _materialize_column(
         tours,
@@ -514,14 +555,11 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
         "trip_mode",
         _resolve_source_column(trips, config.col_trip_mode),
     )
-    trips = _materialize_column(
+    trips = _materialize_preferred_column(
         trips,
         "trip_purpose",
-        _resolve_source_column(
-            trips,
-            config.col_trip_purpose,
-            require_non_numeric=True,
-        ),
+        config.col_trip_purpose,
+        require_non_numeric=True,
     )
     trips = _materialize_column(
         trips,
@@ -538,14 +576,11 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
         "tour_category",
         _resolve_source_column(trips, config.col_tour_category),
     )
-    trips = _materialize_column(
+    trips = _materialize_preferred_column(
         trips,
         "tour_purpose",
-        _resolve_source_column(
-            trips,
-            config.col_tour_purpose,
-            require_non_numeric=True,
-        ),
+        config.col_tour_purpose,
+        require_non_numeric=True,
     )
 
     joint_participants = _materialize_column(
