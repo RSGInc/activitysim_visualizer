@@ -82,8 +82,8 @@ If no explicit weight columns are configured and no `sample_rate` column is pres
 This repo supports three distinct workflows:
 
 1. Raw outputs -> summary cache
-2. Summary cache -> live dashboard
-3. Summary cache plus optional raw runs -> standalone HTML export
+2. Summary cache plus optional raw runs -> live dashboard
+3. Summary cache -> standalone HTML export
 
 Summary caches are written under `summaries.root` with one directory per run:
 
