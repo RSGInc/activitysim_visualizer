@@ -78,7 +78,12 @@ def load_summary_runs_from_cache(
     explicit_cache_dirs: list[str] | None,
     run_entries: list[dict] | None,
 ) -> list[Any]:
-    """Load precomputed summary runs for dashboard/export-only workflows."""
+    """Load validated summary caches for dashboard or export workflows.
+
+    This path never rebuilds missing summaries. It is the cache-only branch used
+    by ``--from-csvs`` and by workflows that should fail fast instead of
+    silently regenerating summary content.
+    """
     explicit_dirs = [Path(path).resolve() for path in (explicit_cache_dirs or [])]
     if explicit_dirs:
         cache_dirs = explicit_dirs
@@ -156,7 +161,11 @@ def load_raw_runs_for_dashboard(
     required_run_keys: list[str],
     existing_raw_runs_by_key: dict[str, tuple[str, RunData]] | None = None,
 ) -> list[tuple[str, RunData]]:
-    """Load raw runs for dashboard-only pages without rebuilding summaries."""
+    """Load raw runs only when enabled pages require them.
+
+    Most pages should stay summary-backed. This loader exists for the smaller
+    set of pages that opt into raw-run access through ``raw_data_mode``.
+    """
     existing_raw_runs_by_key = dict(existing_raw_runs_by_key or {})
     if not required_run_keys:
         return []
@@ -217,7 +226,14 @@ def run_summary_workflow(
     prefer_cache: bool,
     write_cache: bool,
 ) -> SummaryWorkflowResult:
-    """Load summaries for the configured runs, using raw runs only in the summary step."""
+    """Build or reuse summaries for the configured runs.
+
+    The summary workflow is intentionally cache-aware:
+
+    - try to reuse an existing cache when ``prefer_cache`` is true
+    - fall back to raw-run loading only when the cache is missing or invalid
+    - optionally write back refreshed cache contents for future runs
+    """
     summary_runs: list[Any] = []
     raw_runs: list[tuple[str, RunData]] = []
     raw_runs_by_key: dict[str, tuple[str, RunData]] = {}
@@ -241,6 +257,8 @@ def run_summary_workflow(
         cache_dir = cache_root / run_key
 
         if prefer_cache:
+            # Cache reuse is intentionally attempted before raw-run loading so
+            # presentation-only changes do not force expensive summary rebuilds.
             try:
                 cached_run = summary_cache.load_summary_run_cache(
                     cache_dir,
@@ -258,6 +276,8 @@ def run_summary_workflow(
             except summary_cache.SummaryCacheError as exc:
                 LOGGER.info("Cache miss for %r: %s", label, exc)
 
+        # Once cache reuse fails, the workflow falls back to the authoritative
+        # raw inputs and rebuilds summaries from prepared runtime tables.
         LOGGER.info("Reading run %r from %s", label, run_dir)
         raw_run = runtime_run_data.read_run(
             run_dir,
@@ -311,7 +331,11 @@ def run_dashboard_workflow(
     port: int = 5006,
     show: bool = True,
 ) -> None:
-    """Render the dashboard or export from already-prepared inputs only."""
+    """Render the live dashboard or a standalone HTML export.
+
+    This workflow assumes summary computation has already happened. It consumes
+    ``summary_runs`` as an input contract rather than triggering a rebuild.
+    """
     if not summary_runs:
         raise ValueError(
             "dashboard workflow requires precomputed summary runs and will not build them."

@@ -22,7 +22,15 @@ LOGGER = get_logger("runtime.config")
 
 @dataclass(frozen=True)
 class ExportSelectorRequest:
-    """Requested export state selection for one page-level selector."""
+    """Requested export values for one page-level selector.
+
+    This is the normalized config contract used by the HTML export path after
+    YAML parsing. ``mode`` controls how values are resolved:
+
+    - ``default``: export only the widget's default value
+    - ``all``: export every currently available widget option
+    - ``explicit``: export only the normalized values listed in ``values``
+    """
 
     mode: str = "default"
     values: tuple[str, ...] = ()
@@ -30,7 +38,7 @@ class ExportSelectorRequest:
 
 @dataclass(frozen=True)
 class ExportDashboardSettings:
-    """Resolved dashboard-level export controls."""
+    """Resolved dashboard-level controls for HTML export."""
 
     weighting: list[str] = field(default_factory=lambda: ["weighted"])
     values: list[str] = field(default_factory=lambda: ["percent"])
@@ -45,7 +53,14 @@ class ExportDashboardSettings:
 
 @dataclass(frozen=True)
 class ExportHTMLSettings:
-    """Resolved export HTML settings for dashboard and page-level controls."""
+    """Normalized HTML export configuration.
+
+    This combines two related settings:
+
+    - dashboard-level state selection such as weighted/unweighted and
+      percent/count combinations
+    - page-level selector requests keyed by ``page_id`` and ``selector_id``
+    """
 
     dashboard: ExportDashboardSettings = field(default_factory=ExportDashboardSettings)
     pages: dict[str, dict[str, ExportSelectorRequest]] = field(default_factory=dict)
@@ -231,7 +246,12 @@ def _digest_payload(payload: dict[str, Any]) -> str:
 
 @dataclass
 class Config:
-    """All configuration for the visualizer, loaded from config.yaml."""
+    """Normalized runtime configuration shared by summarize and dashboard code.
+
+    ``Config`` is the single normalized contract used by raw run loading,
+    summary generation, cache validation, live dashboard assembly, and
+    standalone HTML export.
+    """
 
     config_path: str
     config_digest: str
@@ -287,6 +307,7 @@ class Config:
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "Config":
+        """Load, validate, and normalize ``config.yaml`` into a ``Config``."""
         config_path = Path(path).resolve()
         config_bytes = config_path.read_bytes()
         raw = yaml.safe_load(config_bytes.decode("utf-8")) or {}
@@ -619,6 +640,7 @@ class Config:
         return config
 
     def summary_signature_payload(self) -> dict[str, Any]:
+        """Return the config subset that changes summary cache contents."""
         geography_payload: dict[str, Any] = {"enabled": self.geography_enabled}
         if self.geography_enabled:
             geography_payload["landuse_col"] = self.geography_landuse_col
@@ -684,6 +706,7 @@ class Config:
         }
 
     def presentation_signature_payload(self) -> dict[str, Any]:
+        """Return the config subset that only changes presentation behavior."""
         return {
             "dashboard_title": self.dashboard_title,
             "dashboard_pages": (
@@ -713,6 +736,7 @@ class Config:
         }
 
     def run_color(self, idx: int) -> str:
+        """Return the configured display color for one run index."""
         return self.run_colors[idx % len(self.run_colors)]
 
     def ordered_modes(self, modes_in_data: list[str]) -> list[str]:
@@ -736,6 +760,7 @@ class Config:
         )
 
     def ptype_label(self, value) -> str:
+        """Return the display label for a person type value."""
         value_str = str(value)
         if self.person_type_labels and value_str in self.person_type_labels:
             return self.person_type_labels[value_str]

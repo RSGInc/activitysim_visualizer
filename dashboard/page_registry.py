@@ -47,6 +47,8 @@ def all_page_definitions() -> tuple[DashboardPageDefinition, ...]:
                 f"Dashboard page {page_definition.page_id!r} does not declare a controller."
             )
         _validate_page_definition(page_definition)
+        # Mirror the module-level PAGE object onto the controller class so
+        # instantiated pages can recover their registration contract later.
         controller_cls.definition = page_definition
         page_definitions.append(page_definition)
 
@@ -76,6 +78,7 @@ def all_page_definitions() -> tuple[DashboardPageDefinition, ...]:
 
 
 def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
+    """Validate one discovered dashboard page definition."""
     if page_definition.raw_data_mode not in VALID_RAW_DATA_MODES:
         raise ValueError(
             f"Dashboard page {page_definition.page_id!r} declares invalid raw_data_mode "
@@ -94,6 +97,8 @@ def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
         if summary_id not in SUMMARY_SPEC_BY_ID
     ]
     if unknown_summary_ids:
+        # Pages reference summaries by stable id. Validating here catches
+        # dashboard/summarize registration drift before any render happens.
         raise ValueError(
             f"Dashboard page {page_definition.page_id!r} declares unknown summary ids: "
             + ", ".join(repr(summary_id) for summary_id in unknown_summary_ids)
@@ -120,6 +125,7 @@ def default_page_definitions() -> tuple[DashboardPageDefinition, ...]:
 def _resolve_configured_page_definitions(
     configured_page_ids: list[str],
 ) -> list[DashboardPageDefinition]:
+    """Resolve config-facing page ids to registered page definitions."""
     available_pages = list(all_page_definitions())
     available_by_id = {
         page_definition.page_id: page_definition for page_definition in available_pages
@@ -239,6 +245,7 @@ def _build_registered_pages(
     config: Config,
     page_definitions: list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...],
 ) -> list[DashboardPage]:
+    """Instantiate page controllers for an already-resolved definition list."""
     pages: list[DashboardPage] = []
     for page_definition in page_definitions:
         controller_cls = page_definition.controller_cls

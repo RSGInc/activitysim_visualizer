@@ -17,11 +17,18 @@ RawDataMode = Literal["none", "optional", "required"]
 
 @dataclass(frozen=True)
 class PageSelectorDefinition:
-    """One page-level selector that may be supported in HTML export.
-    selector_id: str of the name by which the widget is referred in Config.visualizer.export_html.pages
-    widget_attr: str of the attribute of the dashboard page that "owns" the widget
+    """Describe one page-local widget that may participate in HTML export.
 
-    e.g., The widget JointToursPage.hhsize_sel has selector_id="hh_size" and widget_attr="hhsize_sel" is the widget_attr
+    Attributes:
+        selector_id: Stable config-facing selector name used under
+            ``visualizer.export_html.pages.<page_id>.<selector_id>``.
+        widget_attr: Attribute name on the page instance that resolves to the
+            backing Panel widget.
+        label: Human-readable label used in serialized export metadata.
+        enabled_when: Optional predicate that can disable export support when
+            page state or config makes the widget unavailable.
+        exportable: Whether the export path should attempt to treat this widget
+            as an interactive selector.
     """
 
     selector_id: str
@@ -31,10 +38,12 @@ class PageSelectorDefinition:
     exportable: bool = True
 
     def widget_for(self, page: Any) -> pn.widgets.Widget | None:
+        """Return the backing widget from a page instance when present."""
         widget = getattr(page, self.widget_attr, None)
         return widget if isinstance(widget, pn.widgets.Widget) else None
 
     def available_for(self, page: Any, config: Config) -> bool:
+        """Return whether this selector is available for the current page state."""
         if self.enabled_when is not None and not self.enabled_when(page, config):
             return False
         return self.widget_for(page) is not None
@@ -42,7 +51,7 @@ class PageSelectorDefinition:
 
 @dataclass(frozen=True)
 class DashboardPageDefinition:
-    """A dashboard page definition consumed by live and export code."""
+    """Register one dashboard page for live mode and HTML export."""
 
     page_id: str
     title: str

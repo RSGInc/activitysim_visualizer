@@ -19,7 +19,11 @@ LOGGER = get_logger("dashboard.page")
 
 
 class DashboardPage:
-    """Persistent page object for the live Panel dashboard."""
+    """Persistent controller for one dashboard page.
+
+    Pages own widget instances, page-local cached views, and the summary/raw-run
+    lookups needed to refresh their visible Panel layout.
+    """
 
     definition: DashboardPageDefinition | None = None
 
@@ -51,6 +55,7 @@ class DashboardPage:
         self._page_state["last_rendered_state"] = None
 
     def _watch_widget(self, widget: pn.widgets.Widget) -> None:
+        """Refresh the page when a page-local widget value changes."""
         widget.param.watch(lambda event: self.refresh(force=True), "value")
 
     @property
@@ -109,6 +114,7 @@ class DashboardPage:
         return self.state.has_summary_table_set(summary_name, self.weighting_key)
 
     def require_summary(self, summary_name: str):
+        """Return one summary table per run, warning once when unavailable."""
         summary = self.get_summary(summary_name)
         if summary is None:
             self._warn_once(
@@ -122,6 +128,7 @@ class DashboardPage:
         return summary
 
     def require_summaries(self, *summary_names: str) -> dict[str, Any] | None:
+        """Return multiple summary tables or ``None`` when any are missing."""
         missing = [
             summary_name
             for summary_name in summary_names
@@ -148,6 +155,7 @@ class DashboardPage:
         return self.state.get_raw_runs_if_loaded(weighted=weighted)
 
     def require_raw_runs(self, *, weighted: bool | None = None):
+        """Return raw runs or warn once when this session does not have them."""
         raw_runs = self.get_raw_runs(weighted=weighted)
         if raw_runs is not None:
             return raw_runs

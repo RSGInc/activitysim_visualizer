@@ -20,6 +20,9 @@ class RunData:
     fields such as ``tour_purpose``, ``trip_purpose``, ``tour_mode``,
     ``trip_mode``, ``tour_category``, ``depart_hour``, ``stops``,
     ``out_dir_dist``, ``SKIMDIST``, ``HGEO``, and ``WGEO`` when available.
+
+    New summary builders should treat this dataclass as their source-of-truth
+    interface rather than reaching back to raw, unprepared ActivitySim files.
     """
 
     label: str

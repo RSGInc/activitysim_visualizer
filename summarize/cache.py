@@ -37,6 +37,15 @@ class SummaryCacheError(RuntimeError):
 
 @dataclass(frozen=True)
 class SummarySpec:
+    """One registered summary table in the cache layer.
+
+    Attributes:
+        summary_id: Stable identifier used by dashboard pages and tests.
+        filename: CSV filename stem written under each weighting mode directory.
+        builder: Callable that produces the summary table from prepared runtime
+            inputs.
+    """
+
     summary_id: str
     filename: str
     builder: Callable[[RunData, Config], pl.DataFrame]
@@ -44,6 +53,8 @@ class SummarySpec:
 
 @dataclass
 class SummaryRun:
+    """One run's summary tables grouped by weighting mode."""
+
     label: str
     run_key: str
     summaries_by_mode: dict[str, dict[str, pl.DataFrame]]
@@ -63,6 +74,8 @@ def _build_tlfd_schl(rd: RunData, config: Config) -> pl.DataFrame:
     return mandatory.tlfd(rd, config)["schl"]
 
 
+# This tuple is the canonical summary registry. Adding a new summary is not
+# complete until it appears here with a stable id and filename mapping.
 SUMMARY_SPECS: tuple[SummarySpec, ...] = (
     SummarySpec(
         "auto_ownership",
@@ -145,6 +158,7 @@ DEFAULT_SUMMARY_IDS = [spec.summary_id for spec in SUMMARY_SPECS]
 
 
 def normalize_weighting_modes(modes: list[str] | None) -> list[str]:
+    """Validate, normalize, and deduplicate weighting mode names."""
     if not modes:
         modes = list(SUPPORTED_WEIGHTING_MODES)
     normalized: list[str] = []
@@ -192,7 +206,7 @@ def build_summaries(
     config: Config,
     summary_ids: list[str] | None = None,
 ) -> dict[str, pl.DataFrame]:
-    """Build the configured summary tables for a run."""
+    """Build the requested summary tables for one prepared run."""
     summary_ids = summary_ids or DEFAULT_SUMMARY_IDS
     tables: dict[str, pl.DataFrame] = {}
     for summary_id in summary_ids:
@@ -209,7 +223,11 @@ def build_mode_summaries(
     weighting_modes: list[str] | None = None,
     summary_ids: list[str] | None = None,
 ) -> dict[str, dict[str, pl.DataFrame]]:
-    """Build all requested summary tables for each weighting mode."""
+    """Build the requested summaries for every enabled weighting mode.
+
+    Weighted and unweighted behavior is centralized here. Summary builders only
+    ever read ``finalweight``; they do not branch on weighting mode.
+    """
     weighting_modes = normalize_weighting_modes(
         weighting_modes or config.weighting_modes
     )
@@ -267,6 +285,7 @@ def build_run_fingerprint(
     person_weight_col: str | None,
     trip_weight_col: str | None,
 ) -> dict[str, object]:
+    """Return the run inputs that determine whether a cache is reusable."""
     return {
         "label": label,
         "run_dir": str(run_dir) if run_dir is not None else None,
@@ -285,6 +304,7 @@ def create_summary_run(
     source_run_dir: str | None = None,
     manifest: dict[str, object] | None = None,
 ) -> SummaryRun:
+    """Package a run's summary tables into the shared ``SummaryRun`` wrapper."""
     return SummaryRun(
         label=label,
         run_key=run_key,
@@ -301,6 +321,7 @@ def write_summary_run_cache(
     output_root: str | Path | None = None,
     run_fingerprint: dict[str, object] | None = None,
 ) -> Path:
+    """Write one run's summary cache directory and manifest."""
     output_root = Path(output_root) if output_root is not None else summary_root(config)
     output_root.mkdir(parents=True, exist_ok=True)
 
@@ -318,12 +339,17 @@ def write_summary_run_cache(
         for summary_id, table in mode_tables.items():
             filename = Path(summary_file_map([summary_id])[summary_id]).stem
             if table.width == 0:
+                # Persist empty summaries with a sentinel file so cache loading
+                # can distinguish "empty but expected" from "missing".
                 file_tables[filename] = pl.DataFrame({"__empty__": []})
                 empty_summaries[mode].append(summary_id)
             else:
                 file_tables[filename] = table
         write_all(file_tables, run_dir / mode)
 
+    # The manifest is the compatibility boundary for cache reuse. Presentation
+    # changes can keep reusing the same summary outputs, but summary-input
+    # changes should invalidate the cache.
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -369,6 +395,7 @@ def load_summary_run_cache(
     expected_label: str | None = None,
     expected_run_key: str | None = None,
 ) -> SummaryRun:
+    """Load and validate one run's summary cache directory."""
     cache_dir = Path(cache_dir)
     manifest = _read_manifest(cache_dir)
     schema_version = int(manifest.get("schema_version", 0))
@@ -454,6 +481,8 @@ def load_summary_run_cache(
             if summary_id in empty_summaries.get(mode, []) and table.columns == [
                 "__empty__"
             ]:
+                # Restore the sentinel representation back to a real empty frame
+                # before handing summary tables to the rest of the app.
                 table = pl.DataFrame()
             mode_tables[summary_id] = table
         summaries_by_mode[mode] = mode_tables
@@ -468,6 +497,7 @@ def load_summary_run_cache(
 
 
 def discover_cache_dirs(root: str | Path) -> list[Path]:
+    """Return child cache directories that contain a manifest."""
     root = Path(root)
     if not root.exists():
         return []

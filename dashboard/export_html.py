@@ -35,7 +35,7 @@ def build_export_html_document(
     config: Config,
     summary_runs: list[SummaryRun] | None = None,
 ) -> str:
-    """Build a self-contained client-side HTML export document."""
+    """Build a self-contained HTML document for offline dashboard viewing."""
     payload = _sanitize_export_payload(
         _build_export_payload(runs, config, summary_runs=summary_runs)
     )
@@ -90,6 +90,7 @@ def _build_export_payload(
     config: Config,
     summary_runs: list[SummaryRun] | None = None,
 ) -> dict[str, Any]:
+    """Build the client-side payload consumed by the export runtime."""
     set_run_colors(config.run_colors)
     _validate_page_export_config(config)
     export_weight_values = config.export_html.panel_weighting_values()
@@ -158,6 +159,7 @@ def _serialize_dashboard_state(
     value_mode: str,
     warned_unavailable_selectors: set[tuple[str, str]],
 ) -> dict[str, Any]:
+    """Serialize one dashboard-level weighting/value state combination."""
     raw_run_provider = build_export_raw_run_provider(runs, config)
     state = DashboardState(
         summary_runs=summary_runs,
@@ -209,6 +211,7 @@ def _serialize_page_content(
     config: Config,
     widget_metadata: dict[int, tuple[str | None, dict[str, Any] | None]],
 ) -> dict[str, Any]:
+    """Serialize one page, expanding selector variants when export-enabled."""
     enabled_selectors = [
         selector_meta
         for _, selector_meta in widget_metadata.values()
@@ -236,6 +239,8 @@ def _serialize_page_content(
     default_values = [
         selector_meta["default_value"] for selector_meta in enabled_selectors
     ]
+    # Pre-render every supported selector combination so the static HTML can
+    # swap between variants client-side without a Python backend.
     for combination in product(*selector_values):
         for selector_id, selected_value in zip(selector_order, combination):
             widget = selector_widgets.get(selector_id)
@@ -267,6 +272,7 @@ def _serialize_viewable(
     disable_widgets: bool,
     widget_metadata: dict[int, tuple[str | None, dict[str, Any] | None]] | None = None,
 ) -> dict[str, Any]:
+    """Serialize a supported Panel viewable into the export JSON tree."""
     widget_metadata = widget_metadata or {}
     if isinstance(obj, pn.Card):
         return {
@@ -396,6 +402,7 @@ def _serialize_viewable(
 
 
 def _iter_tabs(tabs: pn.Tabs) -> list[tuple[str, Any]]:
+    """Return tab titles paired with their child objects."""
     result: list[tuple[str, Any]] = []
     for index, child in enumerate(tabs.objects):
         title = tabs._names[index] if index < len(tabs._names) else f"Tab {index + 1}"
@@ -404,6 +411,7 @@ def _iter_tabs(tabs: pn.Tabs) -> list[tuple[str, Any]]:
 
 
 def _page_definition_for_page(page: Any) -> DashboardPageDefinition:
+    """Return the registered page definition attached to a page instance."""
     page_def = getattr(page, "definition", None)
     if isinstance(page_def, DashboardPageDefinition):
         return page_def
@@ -418,6 +426,7 @@ def _build_widget_metadata(
     config: Config,
     warned_unavailable_selectors: set[tuple[str, str]],
 ) -> dict[int, tuple[str | None, dict[str, Any] | None]]:
+    """Build selector metadata keyed by widget identity for serialization."""
     metadata: dict[int, tuple[str | None, dict[str, Any] | None]] = {}
     for selector_def in page_def.selectors:
         selector_meta = _resolve_selector_metadata(
@@ -440,6 +449,7 @@ def _resolve_selector_metadata(
     config: Config,
     warned_unavailable_selectors: set[tuple[str, str]],
 ) -> dict[str, Any]:
+    """Resolve one page selector into export metadata."""
     page_id = page_def.page_id
     selector_id = selector_def.selector_id
     request = config.export_html.selector_request(page_id, selector_id)
@@ -499,6 +509,7 @@ def _resolve_selector_values(
     default_value: str,
     field_name: str,
 ) -> list[str]:
+    """Resolve configured selector requests against actual widget options."""
     if request.mode == "default":
         return [default_value]
     if request.mode == "all":
@@ -527,6 +538,7 @@ def _resolve_selector_values(
 
 
 def _validate_page_export_config(config: Config) -> None:
+    """Validate export page and selector ids against the live registry."""
     known_pages = {page.page_id: page for page in all_page_definitions()}
     unknown_pages = sorted(
         page_id for page_id in config.export_html.pages if page_id not in known_pages
@@ -554,6 +566,7 @@ def _validate_page_export_config(config: Config) -> None:
 
 
 def _enabled_page_selectors_payload() -> list[dict[str, str]]:
+    """Return every exportable page selector in stable sorted order."""
     return sorted(
         [
             {"page_id": page.page_id, "selector_id": selector.selector_id}
@@ -599,6 +612,7 @@ def _sanitize_export_payload(value: Any) -> Any:
 
 
 def _json_default(value: Any) -> Any:
+    """Serialize pandas/numpy scalars that standard ``json`` cannot handle."""
     if isinstance(value, np.integer):
         return int(value)
     if isinstance(value, np.floating):
