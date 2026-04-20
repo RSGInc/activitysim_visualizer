@@ -48,8 +48,8 @@ def test_warning_paths_are_written_to_log_file(
         label="Base",
         run_key="base",
         summaries_by_mode={
-            "weighted": {"person_type": pl.DataFrame()},
-            "unweighted": {"person_type": pl.DataFrame()},
+            "weighted": {"person_type_distribution": pl.DataFrame()},
+            "unweighted": {"person_type_distribution": pl.DataFrame()},
         },
         source_run_dir="C:/runs/base",
     )
@@ -57,7 +57,7 @@ def test_warning_paths_are_written_to_log_file(
     build_dashboard([], config, summary_runs=[missing_summary_run])
     _flush_logger_handlers()
 
-    expected = "requires summary 'totals'"
+    expected = "requires summary 'population_totals'"
     assert expected in log_path.read_text(encoding="utf-8")
     shutdown_logging()
 

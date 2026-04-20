@@ -67,16 +67,16 @@ def _write_config(
 
 def _scale_table(df: pl.DataFrame, factor: float) -> pl.DataFrame:
     metric_columns = {
-        "population",
-        "households",
-        "employment",
-        "tours",
-        "trips",
-        "stops",
-        "pmt",
-        "vmt",
-        "vehicle_trips",
-        "WFH",
+        "person_count",
+        "household_count",
+        "tour_count",
+        "trip_count",
+        "stop_count",
+        "auto_vmt",
+        "worker_count",
+        "work_from_home_worker_count",
+        "household_percent",
+        "joint_tour_count",
     }
     exprs = [
         (pl.col(column) * factor).alias(column)
@@ -85,64 +85,82 @@ def _scale_table(df: pl.DataFrame, factor: float) -> pl.DataFrame:
         or column.startswith("freq")
         or column.startswith("pct")
         or column.startswith("avg")
+        or column.endswith(("_count", "_distance", "_percent"))
     ]
     return df.with_columns(exprs) if exprs else df.clone()
 
 
 def _full_summary_run():
     weighted = {
-        "totals": pl.DataFrame(
+        "population_totals": pl.DataFrame(
             {
-                "population": [100.0],
-                "households": [40.0],
-                "employment": [60.0],
-                "tours": [55.0],
-                "trips": [120.0],
-                "stops": [35.0],
-                "pmt": [250.0],
-                "vmt": [180.0],
-                "vehicle_trips": [90.0],
+                "person_count": [100.0],
+                "household_count": [40.0],
+                "tour_count": [55.0],
+                "trip_count": [120.0],
+                "stop_count": [35.0],
             }
         ),
-        "person_type": pl.DataFrame(
+        "person_type_distribution": pl.DataFrame(
             {
-                "ptype_name": ["worker", "student"],
-                "freq": [70.0, 30.0],
-                "pct": [70.0, 30.0],
+                "person_type": ["worker", "student"],
+                "person_type_label": ["worker", "student"],
+                "person_count": [70.0, 30.0],
             }
         ),
-        "hh_size": pl.DataFrame(
+        "household_size_distribution": pl.DataFrame(
             {
-                "HHSIZE": [1, 2],
-                "freq": [15.0, 25.0],
-                "pct": [37.5, 62.5],
+                "household_size": [1, 2],
+                "household_count": [15.0, 25.0],
             }
         ),
-        "auto_ownership": pl.DataFrame(
-            {"HHVEH": [0, 1], "freq": [12.0, 18.0], "pct": [40.0, 60.0]}
-        ),
-        "tlfd_work": pl.DataFrame(
+        "auto_vmt_totals": pl.DataFrame({"auto_vmt": [180.0]}),
+        "auto_ownership_distribution": pl.DataFrame(
             {
-                "distbin": [0, 1],
-                "Total": [6.0, 4.0],
-                "Urban": [4.0, 2.5],
-                "Suburban": [2.0, 1.5],
+                "household_vehicle_count": [0, 1],
+                "household_count": [12.0, 18.0],
             }
         ),
-        "tlfd_univ": pl.DataFrame(
+        "work_location_distance_distribution_by_geography": pl.DataFrame(
             {
-                "distbin": [0, 1],
-                "Total": [3.0, 2.0],
-                "Urban": [1.5, 1.0],
-                "Suburban": [1.5, 1.0],
+                "distance_bin": [1, 2, 1, 2, 1, 2],
+                "geography": [
+                    "all_geographies",
+                    "all_geographies",
+                    "Urban",
+                    "Urban",
+                    "Suburban",
+                    "Suburban",
+                ],
+                "person_count": [6.0, 4.0, 4.0, 2.5, 2.0, 1.5],
             }
         ),
-        "tlfd_schl": pl.DataFrame(
+        "university_location_distance_distribution_by_geography": pl.DataFrame(
             {
-                "distbin": [0, 1],
-                "Total": [5.0, 1.0],
-                "Urban": [3.0, 0.5],
-                "Suburban": [2.0, 0.5],
+                "distance_bin": [1, 2, 1, 2, 1, 2],
+                "geography": [
+                    "all_geographies",
+                    "all_geographies",
+                    "Urban",
+                    "Urban",
+                    "Suburban",
+                    "Suburban",
+                ],
+                "person_count": [3.0, 2.0, 1.5, 1.0, 1.5, 1.0],
+            }
+        ),
+        "school_location_distance_distribution_by_geography": pl.DataFrame(
+            {
+                "distance_bin": [1, 2, 1, 2, 1, 2],
+                "geography": [
+                    "all_geographies",
+                    "all_geographies",
+                    "Urban",
+                    "Urban",
+                    "Suburban",
+                    "Suburban",
+                ],
+                "person_count": [5.0, 1.0, 3.0, 0.5, 2.0, 0.5],
             }
         ),
         "geo_flows": pl.DataFrame(
@@ -152,54 +170,84 @@ def _full_summary_run():
                 "Workers": [7.0, 4.0],
             }
         ),
-        "wfh": pl.DataFrame(
+        "work_from_home_rate_by_geography": pl.DataFrame(
             {
-                "Geography": ["Total", "Urban", "Suburban"],
-                "WFH": [11.0, 7.0, 4.0],
+                "geography": ["all_geographies", "Urban", "Suburban"],
+                "worker_count": [20.0, 12.0, 8.0],
+                "work_from_home_worker_count": [11.0, 7.0, 4.0],
             }
         ),
-        "telecommute": pl.DataFrame(
-            {"telecommute_frequency": ["never", "often"], "freq": [7.0, 5.0]}
-        ),
-        "mand_tour_lengths": pl.DataFrame({"segment": ["work"], "freq": [8.5]}),
-        "dap_summary": pl.DataFrame(
+        "telecommute_frequency_distribution": pl.DataFrame(
             {
-                "ptype": ["Total", "Total", "Total", "worker", "worker"],
-                "DAP": ["M", "N", "H", "M", "N"],
-                "freq": [10.0, 8.0, 2.0, 6.0, 4.0],
+                "telecommute_frequency": ["never", "often"],
+                "person_count": [7.0, 5.0],
             }
         ),
-        "mandatory_tour_freq": pl.DataFrame(
+        "average_mandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
             {
-                "ptype": ["Total", "Total", "worker", "worker"],
-                "MTF": [1, 2, 1, 5],
-                "freq": [7.0, 5.0, 4.0, 2.0],
+                "mandatory_tour_purpose": ["work", "work", "work"],
+                "geography": ["all_geographies", "Urban", "Suburban"],
+                "average_tour_distance": [8.5, 7.5, 9.5],
             }
         ),
-        "indiv_nm_summary": pl.DataFrame(
+        "daily_activity_pattern_by_person_type": pl.DataFrame(
             {
-                "ptype": ["Total", "Total", "worker", "worker"],
-                "nmtours": ["0", "1", "0", "2"],
-                "freq": [3.0, 9.0, 2.0, 6.0],
+                "person_type": [
+                    "all_person_types",
+                    "all_person_types",
+                    "all_person_types",
+                    "worker",
+                    "worker",
+                ],
+                "daily_activity_pattern": ["M", "N", "H", "M", "N"],
+                "person_count": [10.0, 8.0, 2.0, 6.0, 4.0],
             }
         ),
-        "joint_tour_freq": pl.DataFrame(
-            {"alt_name": ["0", "1+"], "freq": [12.0, 8.0]}
+        "mandatory_tour_frequency_by_person_type": pl.DataFrame(
+            {
+                "person_type": [
+                    "all_person_types",
+                    "all_person_types",
+                    "worker",
+                    "worker",
+                ],
+                "mandatory_tour_frequency": [1, 2, 1, 5],
+                "person_count": [7.0, 5.0, 4.0, 2.0],
+            }
         ),
-        "joint_composition": pl.DataFrame(
+        "nonmandatory_tour_frequency_by_person_type": pl.DataFrame(
+            {
+                "person_type": [
+                    "all_person_types",
+                    "all_person_types",
+                    "worker",
+                    "worker",
+                ],
+                "nonmandatory_tour_frequency": ["0", "1", "0", "2"],
+                "person_count": [3.0, 9.0, 2.0, 6.0],
+            }
+        ),
+        "jtf_distribution": pl.DataFrame(
+            {
+                "jtf_code": [1, 2, 3],
+                "jtf_label": ["No Joint Tours", "1 Shopping", "1 Maintenance"],
+                "household_count": [12.0, 5.0, 3.0],
+            }
+        ),
+        "joint_tour_composition_distribution": pl.DataFrame(
             {
                 "tour_composition": ["adults", "mixed", "children"],
-                "freq": [4.0, 3.0, 1.0],
+                "joint_tour_count": [4.0, 3.0, 1.0],
             }
         ),
-        "joint_party_size": pl.DataFrame(
-            {"NUMBER_HH": [2, 3], "freq": [5.0, 3.0]}
+        "joint_tour_party_size_distribution": pl.DataFrame(
+            {"party_size": [2, 3], "joint_tour_count": [5.0, 3.0]}
         ),
-        "joint_tours_hhsize": pl.DataFrame(
+        "household_jtp_by_household_size_and_jtf": pl.DataFrame(
             {
-                "hhsize": ["2", "2", "3", "3"],
-                "jointTours": ["0", "1", "0", "2+"],
-                "freq": [4.0, 6.0, 3.0, 5.0],
+                "household_size": ["2", "2", "3", "3"],
+                "jtf": ["0", "1", "0", "2+"],
+                "household_percent": [40.0, 60.0, 37.5, 62.5],
             }
         ),
         "destination_distance": pl.DataFrame(
@@ -215,23 +263,33 @@ def _full_summary_run():
                 "avg_distance": [3.25, 4.5],
             }
         ),
-        "tour_tod_profiles": pl.DataFrame(
+        "tour_time_of_day_by_tour_purpose": pl.DataFrame(
             {
-                "purpose": ["Total", "Total", "work", "work"],
-                "timebin": [1, 2, 1, 2],
-                "freq_dep": [5.0, 6.0, 3.0, 4.0],
-                "freq_arr": [4.0, 5.0, 2.0, 3.0],
-                "freq_dur": [2.0, 3.0, 1.0, 2.0],
+                "tour_purpose": [
+                    "all_tour_purposes",
+                    "all_tour_purposes",
+                    "work",
+                    "work",
+                ],
+                "time_bin": [1, 2, 1, 2],
+                "departure_tour_count": [5.0, 6.0, 3.0, 4.0],
+                "arrival_tour_count": [4.0, 5.0, 2.0, 3.0],
+                "duration_tour_count": [2.0, 3.0, 1.0, 2.0],
             }
         ),
-        "tour_mode_profile": pl.DataFrame(
+        "tour_mode_by_tour_purpose_and_auto_sufficiency": pl.DataFrame(
             {
-                "purpose": ["Total", "Total", "work", "work"],
+                "tour_purpose": [
+                    "all_tour_purposes",
+                    "all_tour_purposes",
+                    "work",
+                    "work",
+                ],
                 "tour_mode": ["DRIVE", "WALK", "DRIVE", "WALK"],
-                "freq_all": [10.0, 5.0, 7.0, 3.0],
-                "freq_as0": [2.0, 4.0, 1.0, 2.0],
-                "freq_as1": [3.0, 1.0, 2.0, 1.0],
-                "freq_as2": [5.0, 0.0, 4.0, 0.0],
+                "tour_count_all_households": [10.0, 5.0, 7.0, 3.0],
+                "tour_count_zero_auto": [2.0, 4.0, 1.0, 2.0],
+                "tour_count_auto_deficient": [3.0, 1.0, 2.0, 1.0],
+                "tour_count_auto_sufficient": [5.0, 0.0, 4.0, 0.0],
             }
         ),
         "grouped_tour_mode_profile": pl.DataFrame(
@@ -244,43 +302,99 @@ def _full_summary_run():
                 "freq_as2": [5.0, 0.0, 4.0, 0.0],
             }
         ),
-        "stop_freq": pl.DataFrame(
+        "tour_stop_frequency_by_tour_purpose": pl.DataFrame(
             {
-                "purpose": ["eatout", "eatout", "social"],
-                "ob_stops": [0, 1, 0],
-                "ib_stops": [0, 0, 1],
-                "tot_stops": [0, 1, 1],
-                "freq": [10.0, 5.0, 8.0],
+                "tour_purpose": [
+                    "all_tour_purposes",
+                    "all_tour_purposes",
+                    "eatout",
+                    "eatout",
+                    "social",
+                ],
+                "outbound_stop_count": [0, 1, 0, 1, 0],
+                "inbound_stop_count": [0, 1, 0, 0, 1],
+                "total_stop_count": [0, 2, 0, 1, 1],
+                "tour_count": [18.0, 5.0, 10.0, 5.0, 8.0],
             }
         ),
-        "stop_purpose_by_tour_purpose": pl.DataFrame(
+        "stop_destination_purpose_by_tour_purpose": pl.DataFrame(
             {
-                "tour_purpose": ["eatout", "eatout", "social"],
-                "stop_purpose": ["shop", "eat", "visit"],
-                "freq": [4.0, 6.0, 8.0],
+                "tour_purpose": [
+                    "all_tour_purposes",
+                    "all_tour_purposes",
+                    "eatout",
+                    "eatout",
+                    "social",
+                ],
+                "stop_destination_purpose": ["shop", "eat", "shop", "eat", "visit"],
+                "stop_count": [4.0, 14.0, 4.0, 6.0, 8.0],
             }
         ),
-        "stop_location": pl.DataFrame(
+        "stop_out_of_direction_distance_by_tour_purpose": pl.DataFrame(
             {
-                "purpose": ["eatout", "eatout", "social", "social"],
-                "distbin": [0, 1, 0, 1],
-                "freq": [8.0, 4.0, 5.0, 7.0],
+                "tour_purpose": [
+                    "all_tour_purposes",
+                    "all_tour_purposes",
+                    "eatout",
+                    "eatout",
+                    "social",
+                    "social",
+                ],
+                "distance_bin": [0, 1, 0, 1, 0, 1],
+                "stop_count": [13.0, 11.0, 8.0, 4.0, 5.0, 7.0],
             }
         ),
-        "stop_timing": pl.DataFrame(
+        "trip_departure_time_by_purpose": pl.DataFrame(
             {
-                "purpose": ["eatout", "eatout", "social", "social"],
-                "timebin": [1, 2, 1, 2],
-                "freq_stop_dep": [3.0, 4.0, 5.0, 6.0],
-                "freq_trip_dep": [2.0, 3.0, 4.0, 5.0],
+                "tour_purpose": [
+                    "all_tour_purposes",
+                    "all_tour_purposes",
+                    "eatout",
+                    "eatout",
+                    "social",
+                    "social",
+                ],
+                "time_bin": [1, 2, 1, 2, 1, 2],
+                "departure_stop_count": [8.0, 10.0, 3.0, 4.0, 5.0, 6.0],
+                "departure_trip_count": [6.0, 8.0, 2.0, 3.0, 4.0, 5.0],
             }
         ),
-        "trip_mode_profile": pl.DataFrame(
+        "trip_mode_by_tour_purpose_and_tour_mode": pl.DataFrame(
             {
-                "purpose": ["eatout", "eatout", "social", "social"],
-                "tour_mode": ["DRIVE", "WALK", "DRIVE", "WALK"],
-                "trip_mode": ["DRIVEALONE", "WALK", "SHARED", "WALK"],
-                "freq": [10.0, 2.0, 5.0, 3.0],
+                "tour_purpose": [
+                    "all_tour_purposes",
+                    "all_tour_purposes",
+                    "eatout",
+                    "eatout",
+                    "social",
+                    "social",
+                    "all_tour_purposes",
+                    "eatout",
+                    "social",
+                ],
+                "tour_mode": [
+                    "DRIVE",
+                    "WALK",
+                    "DRIVE",
+                    "WALK",
+                    "DRIVE",
+                    "WALK",
+                    "all_tour_modes",
+                    "all_tour_modes",
+                    "all_tour_modes",
+                ],
+                "trip_mode": [
+                    "DRIVEALONE",
+                    "WALK",
+                    "DRIVEALONE",
+                    "WALK",
+                    "SHARED",
+                    "WALK",
+                    "WALK",
+                    "DRIVEALONE",
+                    "SHARED",
+                ],
+                "trip_count": [15.0, 5.0, 10.0, 2.0, 5.0, 3.0, 5.0, 10.0, 5.0],
             }
         ),
     }
@@ -630,7 +744,7 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     assert page_defs["stop_frequency"]["selectors"][0]["export_enabled"] is True
     assert page_defs["stop_timing"]["selectors"][0]["id"] == "purpose"
     assert page_defs["stop_timing"]["selectors"][0]["request_mode"] == "default"
-    assert page_defs["stop_timing"]["selectors"][0]["resolved_values"] == ["eatout"]
+    assert page_defs["stop_timing"]["selectors"][0]["resolved_values"] == ["Total"]
     assert page_defs["stop_timing"]["selectors"][0]["export_enabled"] is True
     assert page_defs["trip_mode"]["selectors"][0]["id"] == "tour_purpose"
     assert page_defs["trip_mode"]["selectors"][0]["request_mode"] == "default"
@@ -677,8 +791,8 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     stop_timing = weighted_percent["stop_timing"]
     assert stop_timing["kind"] == "page_variants"
     assert stop_timing["selector_ids"] == ["purpose"]
-    assert stop_timing["default_key"] == "[\"eatout\"]"
-    assert sorted(stop_timing["variants"]) == ["[\"eatout\"]"]
+    assert stop_timing["default_key"] == "[\"Total\"]"
+    assert sorted(stop_timing["variants"]) == ["[\"Total\"]"]
     trip_mode = weighted_percent["trip_mode"]
     assert trip_mode["kind"] == "page_variants"
     assert trip_mode["selector_ids"] == ["tour_purpose", "tour_mode"]
@@ -864,6 +978,7 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
     assert page_defs["stop_frequency"]["selectors"][0]["export_enabled"] is True
     assert page_defs["stop_timing"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["stop_timing"]["selectors"][0]["resolved_values"] == [
+        "Total",
         "eatout",
         "social",
     ]
@@ -929,6 +1044,7 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
     stop_timing_weighted_percent = payload["states"]["Weighted||Percent"]["stop_timing"]
     assert stop_timing_weighted_percent["kind"] == "page_variants"
     assert sorted(stop_timing_weighted_percent["variants"]) == [
+        "[\"Total\"]",
         "[\"eatout\"]",
         "[\"social\"]",
     ]
@@ -1020,8 +1136,8 @@ def test_build_export_html_document_serializes_long_term_geography_variants(
     assert page_defs["long_term"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["long_term"]["selectors"][0]["resolved_values"] == [
         "Total",
-        "Urban",
         "Suburban",
+        "Urban",
     ]
     assert page_defs["long_term"]["selectors"][0]["export_enabled"] is True
 
@@ -1102,10 +1218,11 @@ def test_build_export_html_document_serializes_stop_timing_two_chart_variant(
 
     assert stop_timing["kind"] == "page_variants"
     assert sorted(stop_timing["variants"]) == [
+        "[\"Total\"]",
         "[\"eatout\"]",
         "[\"social\"]",
     ]
-    variant_nodes = _walk_nodes(stop_timing["variants"]["[\"eatout\"]"])
+    variant_nodes = _walk_nodes(stop_timing["variants"]["[\"Total\"]"])
     assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 2
 
 
@@ -1248,5 +1365,5 @@ def test_export_html_save_writes_single_client_side_html_file(tmp_path: Path) ->
     assert "Count" in html
     assert "activitysim-export-data" in html
     assert "Plotly.newPlot" in html
-    assert "Tour Mode > Purpose" in html
+    assert "Tour Purpose" in html
     assert "panel.models.state.State" not in html

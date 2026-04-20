@@ -16,27 +16,36 @@ def ptype_options(dap_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
     ptype_set = set()
     for _, df in dap_list:
         if "person_type" in df.columns:
-            ptype_set.update(df["person_type"].unique().to_list())
-    return sorted(ptype_set) if ptype_set else ["all_person_types"]
+            ptype_set.update(df["person_type"].cast(pl.Utf8).unique().to_list())
+    return sorted(str(ptype) for ptype in ptype_set) if ptype_set else ["all_person_types"]
 
 
-def ptype_maps(ptype_opts: list[str], config: Config) -> tuple[dict, dict[str, object]]:
+def ptype_maps(
+    ptype_opts: list[str], config: Config
+) -> tuple[list[str], dict[str, str | None]]:
     """Return display and reverse mappings for person-type selectors."""
-    ptype_label_map = {
-        p: (
-            "All Person Types"
-            if str(p) == "all_person_types"
-            else config.person_type_label(p)
-        )
-        for p in ptype_opts
-    }
-    label_to_ptype = {lbl: p for p, lbl in ptype_label_map.items()}
-    return ptype_label_map, label_to_ptype
+    label_to_ptype: dict[str, str | None] = {}
+    if "all_person_types" in ptype_opts:
+        label_to_ptype["Total"] = "all_person_types"
+    else:
+        label_to_ptype["Total"] = None
+    for ptype in ptype_opts:
+        if ptype in {"all_person_types", "Total"}:
+            continue
+        label_to_ptype[config.person_type_label(ptype)] = ptype
+    return list(label_to_ptype), label_to_ptype
 
 
-def ordered_dap(df: pl.DataFrame, ptype) -> pl.DataFrame:
+def _ptype_filter(df: pl.DataFrame, ptype: str | None) -> pl.DataFrame:
+    ptype_col = pl.col("person_type").cast(pl.Utf8)
+    if ptype is None:
+        return df.filter(~ptype_col.is_in(["all_person_types", "Total"]))
+    return df.filter(ptype_col == ptype)
+
+
+def ordered_dap(df: pl.DataFrame, ptype: str | None) -> pl.DataFrame:
     """Return ordered DAP rows for one person type."""
-    d = df.filter(pl.col("person_type") == ptype)
+    d = _ptype_filter(df, ptype)
     base = pl.DataFrame({"daily_activity_pattern": ["M", "N", "H"]})
     return (
         base.join(
@@ -65,9 +74,9 @@ def ordered_dap(df: pl.DataFrame, ptype) -> pl.DataFrame:
     )
 
 
-def ordered_mtf(df: pl.DataFrame, ptype) -> pl.DataFrame:
+def ordered_mtf(df: pl.DataFrame, ptype: str | None) -> pl.DataFrame:
     """Return ordered mandatory-tour-frequency rows for one person type."""
-    d = df.filter(pl.col("person_type") == ptype).with_columns(
+    d = _ptype_filter(df, ptype).with_columns(
         pl.col("mandatory_tour_frequency")
         .cast(pl.Int64)
         .alias("mandatory_tour_frequency")
@@ -97,9 +106,9 @@ def ordered_mtf(df: pl.DataFrame, ptype) -> pl.DataFrame:
     )
 
 
-def ordered_inm(df: pl.DataFrame, ptype) -> pl.DataFrame:
+def ordered_inm(df: pl.DataFrame, ptype: str | None) -> pl.DataFrame:
     """Return ordered individual non-mandatory-tour rows for one person type."""
-    d = df.filter(pl.col("person_type") == ptype).with_columns(
+    d = _ptype_filter(df, ptype).with_columns(
         pl.col("nonmandatory_tour_frequency")
         .cast(pl.Utf8)
         .alias("nonmandatory_tour_frequency")
@@ -116,7 +125,7 @@ def chart_data(
     dap_list: list[tuple[str, pl.DataFrame]],
     mtf_list: list[tuple[str, pl.DataFrame]],
     inm_list: list[tuple[str, pl.DataFrame]],
-    ptype,
+    ptype: str | None,
 ) -> tuple[
     list[tuple[str, pl.DataFrame]],
     list[tuple[str, pl.DataFrame]],
@@ -134,13 +143,8 @@ class TourSummaryPage(DashboardPage):
     def __init__(self, state, config: Config) -> None:
         super().__init__("Tour Summary", state, config)
         ptype_opts = self._ptype_options()
-        ptype_label_map, self._label_to_ptype = ptype_maps(ptype_opts, config)
-        display_opts = [ptype_label_map[p] for p in ptype_opts] or ["All Person Types"]
-        default_value = (
-            "All Person Types"
-            if "All Person Types" in display_opts
-            else display_opts[0]
-        )
+        display_opts, self._label_to_ptype = ptype_maps(ptype_opts, config)
+        default_value = "Total" if "Total" in display_opts else display_opts[0]
         self.ptype_sel = pn.widgets.Select(
             name="Person Type",
             options=display_opts,
@@ -184,15 +188,10 @@ class TourSummaryPage(DashboardPage):
         mtf_list = summaries["mandatory_tour_frequency_by_person_type"]
         inm_list = summaries["nonmandatory_tour_frequency_by_person_type"]
         ptype_opts = ptype_options(dap_list)
-        ptype_label_map, self._label_to_ptype = ptype_maps(ptype_opts, self.config)
-        display_opts = [ptype_label_map[p] for p in ptype_opts] or ["All Person Types"]
+        display_opts, self._label_to_ptype = ptype_maps(ptype_opts, self.config)
         self.ptype_sel.options = display_opts
         if self.ptype_sel.value not in display_opts:
-            self.ptype_sel.value = (
-                "All Person Types"
-                if "All Person Types" in display_opts
-                else display_opts[0]
-            )
+            self.ptype_sel.value = "Total" if "Total" in display_opts else display_opts[0]
         ptype_label = self.ptype_sel.value
         ptype = self._label_to_ptype.get(ptype_label, ptype_label)
 

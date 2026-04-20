@@ -202,7 +202,7 @@ def test_build_dashboard_can_refresh_every_default_page_from_precomputed_summari
     assert template._dashboard_pages[5].purp_sel.options == ["Total", "work"]
     assert template._dashboard_pages[6].purp_sel.options == ["Total", "work"]
     assert template._dashboard_pages[7].purp_sel.options == ["Total", "eatout", "social"]
-    assert template._dashboard_pages[9].purp_sel.options == ["eatout", "social"]
+    assert template._dashboard_pages[9].purp_sel.options == ["Total", "eatout", "social"]
     assert template._dashboard_pages[10].tmode_sel.options == ["All", "DRIVE", "WALK"]
 
 
@@ -248,13 +248,13 @@ def test_dashboard_state_exposes_summary_first_accessors(tmp_path: Path) -> None
         weighting_modes=config.weighting_modes,
     )
 
-    totals = state.get_summary_table_set("totals", "weighted")
+    totals = state.get_summary_table_set("population_totals", "weighted")
 
     assert totals is not None
-    assert state.has_summary_table_set("totals", "weighted") is True
+    assert state.has_summary_table_set("population_totals", "weighted") is True
     assert state.has_summary_table_set("missing_summary", "weighted") is False
     assert totals[0][0] == "Base"
-    assert totals[0][1]["population"][0] == 100.0
+    assert totals[0][1]["person_count"][0] == 100.0
     assert state.get_raw_runs_if_loaded(weighted=True) is None
     assert state.raw_run_availability == "not_requested"
 

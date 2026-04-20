@@ -11,27 +11,12 @@ from dashboard.page_definitions import DashboardPageDefinition
 from runtime.config import Config
 
 KPI_METRICS = [
-    "population",
-    "households",
-    "employment",
-    "tours",
-    "trips",
-    "stops",
-    "pmt",
-    "vmt",
-    "vehicle_trips",
-]
-
-KPI_LABELS = [
-    "Population",
-    "Households",
-    "Employment",
-    "Tours",
-    "Trips",
-    "Stops",
-    "PMT",
-    "VMT",
-    "Vehicle Trips",
+    ("person_count", "Population"),
+    ("household_count", "Households"),
+    ("auto_vmt", "VMT"),
+    ("tour_count", "Tours"),
+    ("trip_count", "Trips"),
+    ("stop_count", "Stops"),
 ]
 
 KPI_ICONS = {
@@ -54,17 +39,21 @@ def metric_value(df: pl.DataFrame, metric: str) -> float:
 
 def percent_difference_table(
     totals_list: list[tuple[str, pl.DataFrame]],
+    vmt_list: list[tuple[str, pl.DataFrame]],
 ) -> pl.DataFrame:
     """Build percent difference rows versus the first run."""
-    if not totals_list:
+    if not totals_list or not vmt_list:
         return pl.DataFrame()
     pct_rows = []
     base_label, base_df = totals_list[0]
-    for metric, label in zip(KPI_METRICS, KPI_LABELS):
-        base_val = metric_value(base_df, metric)
+    _, base_vmt_df = vmt_list[0]
+    for metric, label in KPI_METRICS:
+        source_list = vmt_list if metric == "auto_vmt" else totals_list
+        source_base = base_vmt_df if metric == "auto_vmt" else base_df
+        base_val = metric_value(source_base, metric)
         row = {"Metric": label, base_label: "0.00%"}
-        for run_label, tot_df in totals_list[1:]:
-            val = metric_value(tot_df, metric)
+        for run_label, source_df in source_list[1:]:
+            val = metric_value(source_df, metric)
             pct = ((val - base_val) / base_val * 100.0) if base_val != 0 else 0.0
             row[run_label] = f"{pct:.2f}%"
         pct_rows.append(row)
@@ -119,7 +108,7 @@ class OverviewPage(DashboardPage):
         vmt_list = summaries["auto_vmt_totals"]
         pct_df = self.get_filtered_view(
             "overview_pct",
-            factory=lambda: percent_difference_table(totals_list),
+            factory=lambda: percent_difference_table(totals_list, vmt_list),
         )
 
         def _card(metric: str, label: str):
