@@ -1,6 +1,7 @@
 """Shared chart builders, layout helpers, and color palette for ActivitySim visualizer."""
 
 from __future__ import annotations
+import html
 import panel as pn
 import plotly.graph_objects as go
 import polars as pl
@@ -37,6 +38,35 @@ def set_run_colors(colors: list[str] | None) -> None:
 def set_percent_mode(enabled: bool) -> None:
     global _DISPLAY_PERCENT_MODE
     _DISPLAY_PERCENT_MODE = bool(enabled)
+
+
+def build_run_legend_entries(run_labels: list[str]) -> list[dict[str, str]]:
+    """Return ordered run legend entries with the configured display colors."""
+    return [
+        {"label": str(label), "color": run_color(index)}
+        for index, label in enumerate(run_labels)
+    ]
+
+
+def run_legend_item_html(label: str, color: str) -> str:
+    """Return the shared HTML used for one run legend item."""
+    safe_label = html.escape(str(label))
+    safe_color = html.escape(str(color), quote=True)
+    return (
+        f'<div class="run-legend-item" data-run-label="{safe_label}" '
+        f'data-run-color="{safe_color}" '
+        f'style="padding:8px 10px;border-left:4px solid {safe_color};margin:6px 0;'
+        f'border-radius:6px;background:rgba(127,127,127,0.06)">'
+        f'<b style="color:{safe_color}">{safe_label}</b></div>'
+    )
+
+
+def build_run_legend_panes(run_labels: list[str]) -> list[pn.pane.HTML]:
+    """Return sidebar-ready panes for the configured run legend."""
+    return [
+        pn.pane.HTML(run_legend_item_html(entry["label"], entry["color"]))
+        for entry in build_run_legend_entries(run_labels)
+    ]
 
 
 def _layout(

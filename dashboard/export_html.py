@@ -16,7 +16,7 @@ import panel as pn
 from plotly.offline import get_plotlyjs
 
 from dashboard import DashboardState
-from dashboard.components import set_percent_mode, set_run_colors
+from dashboard.components import build_run_legend_entries, set_percent_mode, set_run_colors
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
 from dashboard.page_registry import (
     all_page_definitions,
@@ -94,6 +94,12 @@ def _build_export_payload(
     _validate_page_export_config(config)
     export_weight_values = config.export_html.panel_weighting_values()
     export_value_values = config.export_html.panel_value_values()
+    raw_run_provider = build_export_raw_run_provider(runs, config)
+    chrome_state = DashboardState(
+        summary_runs=summary_runs,
+        weighting_modes=config.weighting_modes,
+        raw_run_provider=raw_run_provider,
+    )
     state_payloads: dict[str, dict[str, Any]] = {}
     warned_unavailable_selectors: set[tuple[str, str]] = set()
 
@@ -114,6 +120,15 @@ def _build_export_payload(
 
     return {
         "title": config.dashboard_title,
+        "runs_loaded": build_run_legend_entries(chrome_state.run_labels),
+        "chrome": {
+            "layout": "left_rail",
+            "rail_sections": ["runs_loaded", "display_options"],
+            "controls_enabled": {
+                "weighting": len(export_weight_values) > 1,
+                "values": len(export_value_values) > 1,
+            },
+        },
         "dashboard_controls": {
             "weighting": export_weight_values,
             "values": export_value_values,
@@ -131,15 +146,6 @@ def _build_export_payload(
             "enabled_page_selectors": _enabled_page_selectors_payload(),
         },
         "client_runtime": "figure-swap-v1",
-        # "client_export_note": (
-        #     "Offline export uses client-side figure and table swapping for "
-        #     "dashboard-level Weighting and Values controls. Supported page-level "
-        #     "selectors currently include Long-Term > Geography, "
-        #     "Tour Summary > Person Type, Joint Tours > HH Size, "
-        #     "Destination > Purpose, Tour TOD > Purpose, Tour Mode > Purpose, "
-        #     "Stop Frequency > Tour Purpose, Stop Timing > Purpose, and "
-        #     "Trip Mode > Tour Purpose and Tour Mode."
-        # ),
     }
 
 
@@ -613,23 +619,34 @@ def _json_default(value: Any) -> Any:
 
 
 _EXPORT_CSS = """
+:root {
+  --accent: #4E79A7;
+  --accent-dark: #315c88;
+  --ink: #1f2937;
+  --muted: #6b7280;
+  --line: #d4dbe5;
+  --surface: #ffffff;
+  --surface-soft: #f8fafc;
+  --shadow: 0 10px 35px rgba(31, 41, 55, 0.08);
+}
 body {
   margin: 0;
   font-family: Inter, 'Segoe UI', Arial, sans-serif;
   background: linear-gradient(180deg, #f6f8fb 0%, #eef3f9 100%);
-  color: #1f2937;
+  color: var(--ink);
 }
 .export-shell {
-  max-width: 1600px;
+  max-width: 1680px;
   margin: 0 auto;
   padding: 24px;
 }
 .export-header {
-  background: white;
+  background: var(--surface);
   border-radius: 16px;
   padding: 24px;
-  box-shadow: 0 10px 35px rgba(31, 41, 55, 0.08);
-  margin-bottom: 18px;
+  box-shadow: var(--shadow);
+  margin-bottom: 20px;
+  border-top: 8px solid var(--accent);
 }
 .export-header h1 {
   margin: 0 0 8px;
@@ -639,51 +656,92 @@ body {
   color: #4b5563;
   margin: 0;
 }
+.export-layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.export-rail, .export-main {
+  min-width: 0;
+}
+.export-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.rail-card, .page-panel, .card, .widget-shell {
+  background: var(--surface);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+.rail-card {
+  padding: 18px 20px;
+}
+.rail-section-title {
+  margin: 0 0 12px;
+  font-size: 22px;
+  line-height: 1.2;
+}
+.run-legend-list {
+  display: flex;
+  flex-direction: column;
+}
+.run-legend-item {
+  font-size: 14px;
+}
+.run-legend-empty, .display-options-note {
+  font-size: 12px;
+  color: #666;
+  margin: 0;
+}
+.rail-divider {
+  height: 1px;
+  background: rgba(148, 163, 184, 0.28);
+  margin: 6px 0 0;
+}
 .control-row, .page-tab-row, .local-tab-row {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
 }
-.control-panel {
-  background: white;
-  border-radius: 16px;
-  padding: 18px 20px;
-  box-shadow: 0 10px 35px rgba(31, 41, 55, 0.08);
-  margin-bottom: 18px;
-}
 .control-group {
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-right: 24px;
 }
 .control-group-title {
   font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #6b7280;
+  color: var(--muted);
 }
 .toggle-chip {
   border: 1px solid #cbd5e1;
-  background: #f8fafc;
+  background: var(--surface-soft);
   color: #334155;
   border-radius: 999px;
   padding: 8px 14px;
   font-weight: 600;
   cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 .toggle-chip.active {
-  background: #1f6feb;
-  border-color: #1f6feb;
-  color: white;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--surface);
+}
+.toggle-chip.disabled {
+  cursor: default;
+  opacity: 0.7;
 }
 .page-tab-row {
   margin-bottom: 16px;
 }
 .page-tab-button, .local-tab-button {
-  border: 1px solid #d4dbe5;
-  background: white;
+  border: 1px solid var(--line);
+  background: var(--surface);
   border-radius: 12px;
   padding: 10px 14px;
   cursor: pointer;
@@ -691,14 +749,9 @@ body {
   color: #334155;
 }
 .page-tab-button.active, .local-tab-button.active {
-  background: #0f172a;
-  color: white;
-  border-color: #0f172a;
-}
-.page-panel, .card, .widget-shell {
-  background: white;
-  border-radius: 16px;
-  box-shadow: 0 10px 35px rgba(31, 41, 55, 0.08);
+  background: var(--accent);
+  color: var(--surface);
+  border-color: var(--accent);
 }
 .page-panel {
   padding: 22px;
@@ -741,7 +794,7 @@ body {
   padding: 9px 12px;
   border-radius: 10px;
   border: 1px solid #cbd5e1;
-  background: #f8fafc;
+  background: var(--surface-soft);
 }
 .widget-radio-options {
   display: flex;
@@ -767,7 +820,7 @@ body {
 table.export-table {
   width: 100%;
   border-collapse: collapse;
-  background: white;
+  background: var(--surface);
 }
 table.export-table th,
 table.export-table td {
@@ -786,12 +839,15 @@ table.export-table thead th {
   padding: 12px;
   border: 1px dashed #cbd5e1;
   border-radius: 12px;
-  color: #6b7280;
-  background: #f8fafc;
+  color: var(--muted);
+  background: var(--surface-soft);
 }
 @media (max-width: 900px) {
   .export-shell {
     padding: 14px;
+  }
+  .export-layout {
+    grid-template-columns: 1fr;
   }
   .page-panel {
     padding: 16px;
@@ -833,11 +889,23 @@ _EXPORT_RUNTIME_JS = r"""
   }
 
   function makeButton(label, active, onClick, className) {
+    let disabled = false;
+    if (typeof active === "object" && active !== null) {
+      const config = active;
+      disabled = !!config.disabled;
+      onClick = config.onClick;
+      className = config.className;
+      active = !!config.active;
+      label = config.label || label;
+    }
     const button = document.createElement("button");
     button.type = "button";
-    button.className = className + (active ? " active" : "");
+    button.className = className + (active ? " active" : "") + (disabled ? " disabled" : "");
     button.textContent = label;
-    button.addEventListener("click", onClick);
+    button.disabled = disabled;
+    if (!disabled) {
+      button.addEventListener("click", onClick);
+    }
     return button;
   }
 
@@ -1001,9 +1069,16 @@ _EXPORT_RUNTIME_JS = r"""
 
   function renderControls() {
     const shell = document.createElement("div");
-    shell.className = "control-panel";
-    const row = document.createElement("div");
-    row.className = "control-row";
+    shell.className = "rail-card";
+    const title = document.createElement("h2");
+    title.className = "rail-section-title";
+    title.textContent = "Display Options";
+    shell.appendChild(title);
+
+    const note = document.createElement("p");
+    note.className = "display-options-note";
+    note.textContent = "Display mode controls.";
+    shell.appendChild(note);
 
     [
       ["Weighting", payload.dashboard_controls.weighting, "weighting"],
@@ -1011,31 +1086,99 @@ _EXPORT_RUNTIME_JS = r"""
     ].forEach(([label, options, key]) => {
       const group = document.createElement("div");
       group.className = "control-group";
+      if (shell.children.length > 2) {
+        group.style.marginTop = "16px";
+      } else {
+        group.style.marginTop = "12px";
+      }
       const title = document.createElement("div");
       title.className = "control-group-title";
       title.textContent = label;
       group.appendChild(title);
       const chips = document.createElement("div");
       chips.className = "control-row";
+      const enabled = !!(payload.chrome && payload.chrome.controls_enabled && payload.chrome.controls_enabled[key]);
       options.forEach((option) => {
         chips.appendChild(
           makeButton(
             option,
-            state[key] === option,
-            () => {
-              state[key] = option;
-              renderApp();
+            {
+              active: state[key] === option,
+              disabled: !enabled,
+              onClick: () => {
+                state[key] = option;
+                renderApp();
+              },
+              className: "toggle-chip",
             },
+            null,
             "toggle-chip"
           )
         );
       });
       group.appendChild(chips);
-      row.appendChild(group);
+      shell.appendChild(group);
     });
 
-    shell.appendChild(row);
     return shell;
+  }
+
+  function renderRunsLoaded() {
+    const shell = document.createElement("div");
+    shell.className = "rail-card";
+
+    const title = document.createElement("h2");
+    title.className = "rail-section-title";
+    title.textContent = "Runs Loaded";
+    shell.appendChild(title);
+
+    const list = document.createElement("div");
+    list.className = "run-legend-list";
+    const runs = payload.runs_loaded || [];
+    if (!runs.length) {
+      const empty = document.createElement("p");
+      empty.className = "run-legend-empty";
+      empty.textContent = "No runs loaded.";
+      list.appendChild(empty);
+    } else {
+      runs.forEach((run) => {
+        const item = document.createElement("div");
+        item.className = "run-legend-item";
+        item.setAttribute("data-run-label", run.label || "");
+        item.setAttribute("data-run-color", run.color || "");
+        item.style.padding = "8px 10px";
+        item.style.borderLeft = "4px solid " + (run.color || "#94a3b8");
+        item.style.margin = "6px 0";
+        item.style.borderRadius = "6px";
+        item.style.background = "rgba(127,127,127,0.06)";
+        const label = document.createElement("b");
+        label.style.color = run.color || "";
+        label.textContent = run.label || "";
+        item.appendChild(label);
+        list.appendChild(item);
+      });
+    }
+    shell.appendChild(list);
+    return shell;
+  }
+
+  function renderRail() {
+    const rail = document.createElement("aside");
+    rail.className = "export-rail";
+    const sections = (payload.chrome && payload.chrome.rail_sections) || [];
+    sections.forEach((section, index) => {
+      if (section === "runs_loaded") {
+        rail.appendChild(renderRunsLoaded());
+      } else if (section === "display_options") {
+        if (index > 0) {
+          const divider = document.createElement("div");
+          divider.className = "rail-divider";
+          rail.appendChild(divider);
+        }
+        rail.appendChild(renderControls());
+      }
+    });
+    return rail;
   }
 
   function renderPageTabs() {
@@ -1093,16 +1236,26 @@ _EXPORT_RUNTIME_JS = r"""
     header.className = "export-header";
     const title = document.createElement("h1");
     title.textContent = payload.title;
-    const note = document.createElement("p");
-    note.className = "export-note";
-    note.textContent = payload.client_export_note;
     header.appendChild(title);
-    header.appendChild(note);
+    if (payload.client_export_note && String(payload.client_export_note).trim()) {
+      const note = document.createElement("p");
+      note.className = "export-note";
+      note.textContent = payload.client_export_note;
+      header.appendChild(note);
+    }
 
     shell.appendChild(header);
-    shell.appendChild(renderControls());
-    shell.appendChild(renderPageTabs());
-    shell.appendChild(renderPagePanel());
+    const layout = document.createElement("div");
+    layout.className = "export-layout";
+    layout.appendChild(renderRail());
+
+    const main = document.createElement("main");
+    main.className = "export-main";
+    main.appendChild(renderPageTabs());
+    main.appendChild(renderPagePanel());
+    layout.appendChild(main);
+
+    shell.appendChild(layout);
     app.appendChild(shell);
   }
 

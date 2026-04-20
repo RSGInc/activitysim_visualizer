@@ -578,6 +578,12 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     )
     payload = _extract_payload(html)
 
+    assert payload["runs_loaded"] == [{"label": "Base", "color": "#1f77b4"}]
+    assert payload["chrome"] == {
+        "layout": "left_rail",
+        "rail_sections": ["runs_loaded", "display_options"],
+        "controls_enabled": {"weighting": True, "values": True},
+    }
     assert payload["dashboard_controls"]["weighting"] == ["Weighted", "Unweighted"]
     assert payload["dashboard_controls"]["values"] == ["Percent", "Count"]
     assert payload["default_state"] == {"weighting": "Weighted", "values": "Percent"}
@@ -601,6 +607,9 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
         "Weighted||Count",
         "Weighted||Percent",
     ]
+    assert "export-layout" in html
+    assert "export-rail" in html
+    assert ">undefined<" not in html
 
     page_defs = {page["id"]: page for page in payload["pages"]}
     assert page_defs["long_term"]["selectors"] == []
@@ -1248,5 +1257,6 @@ def test_export_html_save_writes_single_client_side_html_file(tmp_path: Path) ->
     assert "Count" in html
     assert "activitysim-export-data" in html
     assert "Plotly.newPlot" in html
-    assert "Tour Mode > Purpose" in html
+    assert "export-layout" in html
+    assert "Runs Loaded" in html
     assert "panel.models.state.State" not in html

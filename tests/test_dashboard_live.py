@@ -179,6 +179,17 @@ def test_build_dashboard_uses_expected_default_page_order(tmp_path: Path) -> Non
     assert [page.page_id() for page in template._dashboard_pages] == EXPECTED_DEFAULT_PAGE_IDS
 
 
+def test_build_dashboard_sidebar_uses_shared_run_legend_markup(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    template = build_dashboard([], config, summary_runs=[_full_summary_run()])
+    legend_item = template.sidebar[1]
+
+    assert isinstance(legend_item, pn.pane.HTML)
+    assert 'class="run-legend-item"' in legend_item.object
+    assert 'data-run-label="Base"' in legend_item.object
+    assert 'data-run-color="#1f77b4"' in legend_item.object
+
+
 def test_build_dashboard_can_refresh_every_default_page_from_precomputed_summaries_only(
     tmp_path: Path,
 ) -> None:

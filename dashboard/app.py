@@ -5,7 +5,11 @@ from __future__ import annotations
 import panel as pn
 
 from dashboard import DashboardState
-from dashboard.components import run_color, set_percent_mode, set_run_colors
+from dashboard.components import (
+    build_run_legend_panes,
+    set_percent_mode,
+    set_run_colors,
+)
 from dashboard.page_registry import (
     build_dashboard_raw_run_provider,
     build_registered_live_pages,
@@ -23,11 +27,6 @@ pn.config.raw_css.append("""
 .bk-btn-group .bk-btn { border-width: 1.5px; font-weight: 600; }
 .bk-btn-group .bk-btn.bk-active { box-shadow: inset 0 0 0 2px rgba(0,0,0,.15); }
 """)
-
-
-def _color(idx: int) -> str:
-    return run_color(idx)
-
 
 def build_dashboard(
     runs: list[tuple[str, RunData]],
@@ -118,14 +117,7 @@ def build_dashboard(
 
     sidebar_items = [
         pn.pane.Markdown("## Runs Loaded"),
-        *[
-            pn.pane.HTML(
-                f'<div style="padding:8px 10px;border-left:4px solid {_color(i)};margin:6px 0;'
-                f'border-radius:6px;background:rgba(127,127,127,0.06)">'
-                f'<b style="color:{_color(i)}">{label}</b></div>'
-            )
-            for i, label in enumerate(run_labels)
-        ],
+        *build_run_legend_panes(run_labels),
         pn.layout.Divider(),
         pn.pane.Markdown("## Display Options"),
         pn.pane.HTML(
