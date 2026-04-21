@@ -28,6 +28,7 @@ pn.config.raw_css.append("""
 .bk-btn-group .bk-btn.bk-active { box-shadow: inset 0 0 0 2px rgba(0,0,0,.15); }
 """)
 
+
 def build_dashboard(
     runs: list[tuple[str, RunData]],
     config: Config,

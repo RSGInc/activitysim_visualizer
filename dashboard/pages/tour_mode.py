@@ -84,7 +84,7 @@ class TourModePage(DashboardPage):
         if not self._purpose_to_raw:
             self._purpose_to_raw = {"Total": None}
         self.purp_sel = pn.widgets.Select(
-            name="Purpose", options=total_opts, value=total_opts[0]
+            name="Tour Purpose", options=total_opts, value=total_opts[0]
         )
         self._watch_widget(self.purp_sel)
         self._body = pn.Column(sizing_mode="stretch_width")

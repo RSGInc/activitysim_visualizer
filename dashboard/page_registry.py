@@ -106,8 +106,9 @@ def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
 
 
 def _validate_selected_page_definitions(
-    page_definitions: list[DashboardPageDefinition]
-    | tuple[DashboardPageDefinition, ...],
+    page_definitions: (
+        list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
+    ),
 ) -> None:
     """Validate only the page definitions enabled for the active workflow."""
 
@@ -203,8 +204,9 @@ def resolve_export_page_definitions(config: Config) -> list[DashboardPageDefinit
 
 
 def enabled_raw_data_mode_for_pages(
-    page_definitions: list[DashboardPageDefinition]
-    | tuple[DashboardPageDefinition, ...],
+    page_definitions: (
+        list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
+    ),
 ) -> RawDataMode:
     """Return the strongest raw-data requirement across a page definition set."""
     mode: RawDataMode = "none"
@@ -228,8 +230,9 @@ def enabled_export_raw_data_mode(config: Config) -> RawDataMode:
 
 def build_raw_run_provider_for_page_definitions(
     runs: list[tuple[str, RunData]] | None,
-    page_definitions: list[DashboardPageDefinition]
-    | tuple[DashboardPageDefinition, ...],
+    page_definitions: (
+        list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
+    ),
 ) -> DashboardRawRunProvider:
     """Return the raw-run provider needed for the given page definition set."""
     raw_mode = enabled_raw_data_mode_for_pages(page_definitions)
@@ -265,8 +268,9 @@ def build_export_raw_run_provider(
 def _build_registered_pages(
     state: DashboardState,
     config: Config,
-    page_definitions: list[DashboardPageDefinition]
-    | tuple[DashboardPageDefinition, ...],
+    page_definitions: (
+        list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
+    ),
 ) -> list[DashboardPage]:
     """Instantiate page controllers for an already-resolved definition list."""
     pages: list[DashboardPage] = []

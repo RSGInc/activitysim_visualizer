@@ -72,7 +72,7 @@ class DestinationPage(DashboardPage):
         super().__init__("Destination", state, config)
         purp_opts = self._purpose_options()
         self.purp_sel = pn.widgets.Select(
-            name="Purpose", options=purp_opts, value=purp_opts[0]
+            name="Tour Purpose", options=purp_opts, value=purp_opts[0]
         )
         self._watch_widget(self.purp_sel)
         self._body = pn.Column(sizing_mode="stretch_width")

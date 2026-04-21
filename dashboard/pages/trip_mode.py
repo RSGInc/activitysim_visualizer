@@ -23,7 +23,9 @@ def discover_options(
                 df["tour_purpose"].drop_nulls().cast(pl.Utf8).unique().to_list()
             )
         if "tour_mode" in df.columns:
-            tmode_set.update(df["tour_mode"].drop_nulls().cast(pl.Utf8).unique().to_list())
+            tmode_set.update(
+                df["tour_mode"].drop_nulls().cast(pl.Utf8).unique().to_list()
+            )
 
     return (
         sorted(str(purpose) for purpose in purposes_set),
@@ -44,7 +46,9 @@ def purpose_mapping(raw_purposes: list[str]) -> tuple[list[str], dict[str, str |
     return list(mapping), mapping
 
 
-def tour_mode_mapping(raw_tour_modes: list[str]) -> tuple[list[str], dict[str, str | None]]:
+def tour_mode_mapping(
+    raw_tour_modes: list[str],
+) -> tuple[list[str], dict[str, str | None]]:
     """Build selector display values for tour-mode summaries."""
     mapping: dict[str, str | None] = {}
     if "all_tour_modes" in raw_tour_modes:
@@ -174,7 +178,7 @@ class TripModePage(DashboardPage):
                 filtered_trip_mode,
                 "trip_mode",
                 "trip_count",
-                f"Trip Mode - {purp} / Tour Mode: {tmode}",
+                f"Trip Mode for {purp} Tours with {tmode} Tour Mode",
                 "Trip Mode",
                 as_percent=self.as_percent,
             )

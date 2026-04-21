@@ -73,7 +73,9 @@ def frequency_chart_data(
                 .group_by("inbound_stop_count")
                 .agg(pl.col("tour_count").sum().alias("freq"))
                 .sort("inbound_stop_count")
-                .with_columns(pl.col("inbound_stop_count").cast(pl.Utf8).alias("stops")),
+                .with_columns(
+                    pl.col("inbound_stop_count").cast(pl.Utf8).alias("stops")
+                ),
             )
             for label, df in stop_list
         ]
@@ -113,7 +115,9 @@ def frequency_chart_data(
                 .group_by("inbound_stop_count")
                 .agg(pl.col("tour_count").sum().alias("freq"))
                 .sort("inbound_stop_count")
-                .with_columns(pl.col("inbound_stop_count").cast(pl.Utf8).alias("stops")),
+                .with_columns(
+                    pl.col("inbound_stop_count").cast(pl.Utf8).alias("stops")
+                ),
             )
             for label, df in stop_list
         ]

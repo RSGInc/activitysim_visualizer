@@ -469,7 +469,9 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     per = _materialize_column(
         per,
         "person_type",
-        _resolve_source_column(per, config.col_ptype, fallbacks=("person_type", "ptype")),
+        _resolve_source_column(
+            per, config.col_ptype, fallbacks=("person_type", "ptype")
+        ),
         overwrite=True,
     )
 

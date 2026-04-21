@@ -16,7 +16,11 @@ import panel as pn
 from plotly.offline import get_plotlyjs
 
 from dashboard import DashboardState
-from dashboard.components import build_run_legend_entries, set_percent_mode, set_run_colors
+from dashboard.components import (
+    build_run_legend_entries,
+    set_percent_mode,
+    set_run_colors,
+)
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
 from dashboard.page_registry import (
     all_page_definitions,

@@ -352,9 +352,9 @@ def system_totals(rd: RunData, config: Config | None = None) -> pl.DataFrame:
                 "stops": float(stops) if stops is not None else 0.0,
                 "pmt": float(pmt) if pmt is not None else 0.0,
                 "vmt": float(vmt) if vmt is not None else 0.0,
-                "vehicle_trips": float(vehicle_trips)
-                if vehicle_trips is not None
-                else 0.0,
+                "vehicle_trips": (
+                    float(vehicle_trips) if vehicle_trips is not None else 0.0
+                ),
             }
         ],
         schema=result_schema,
