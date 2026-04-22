@@ -36,9 +36,7 @@ def configure_logging(
     log_path: str | Path | None = None,
 ) -> Path:
     """Configure console and file logging for the application namespace."""
-    resolved_log_path = (
-        Path(log_path) if log_path is not None else default_log_path(config)
-    )
+    resolved_log_path = Path(log_path) if log_path is not None else default_log_path(config)
     resolved_log_path.parent.mkdir(parents=True, exist_ok=True)
 
     app_logger = logging.getLogger(LOGGER_NAMESPACE)
