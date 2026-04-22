@@ -8,11 +8,11 @@ import param
 import polars as pl
 
 from dashboard.data_access import (
-    DashboardRawRunProvider,
+    DashboardPreparedRunProvider,
     DashboardSummarySeries,
 )
 from runtime.models import RunData
-from summarize.cache import SummaryRun, normalize_weighting_modes
+from processor.summarize.cache import SummaryRun, normalize_weighting_modes
 
 
 class DashboardState(param.Parameterized):
@@ -28,14 +28,18 @@ class DashboardState(param.Parameterized):
         self,
         summary_runs: list[SummaryRun] | None = None,
         weighting_modes: list[str] | None = None,
-        raw_run_provider: DashboardRawRunProvider | None = None,
+        prepared_run_provider: DashboardPreparedRunProvider | None = None,
+        raw_run_provider: DashboardPreparedRunProvider | None = None,
         **params: Any,
     ) -> None:
         super().__init__(**params)
-        self._raw_run_provider = (
-            raw_run_provider
-            if raw_run_provider is not None
-            else DashboardRawRunProvider.not_requested()
+        provider = (
+            prepared_run_provider
+            if prepared_run_provider is not None
+            else raw_run_provider
+        )
+        self._prepared_run_provider = (
+            provider if provider is not None else DashboardPreparedRunProvider.not_requested()
         )
         self._weighting_modes = normalize_weighting_modes(weighting_modes)
         weight_options = [mode.title() for mode in self._weighting_modes]
@@ -64,14 +68,18 @@ class DashboardState(param.Parameterized):
         return list(self._weighting_modes)
 
     @property
+    def prepared_run_availability(self) -> str:
+        return self._prepared_run_provider.availability
+
+    @property
     def raw_run_availability(self) -> str:
-        return self._raw_run_provider.availability
+        return self.prepared_run_availability
 
     @property
     def run_labels(self) -> list[str]:
         if self._summary_runs:
             return [run.label for run in self._summary_runs]
-        return self._raw_run_provider.labels()
+        return self._prepared_run_provider.labels()
 
     @property
     def page_state(self) -> dict[str, dict[str, Any]]:
@@ -98,14 +106,21 @@ class DashboardState(param.Parameterized):
         """Return a stable key for the current global display state."""
         return (self.weighting_key(), self.value_key())
 
+    def get_prepared_runs_if_loaded(
+        self,
+        weighted: bool | None = None,
+    ) -> list[tuple[str, RunData]] | None:
+        """Return prepared runs only when the dashboard explicitly has them loaded."""
+        if weighted is None:
+            weighted = self.weight_mode == "Weighted"
+        return self._prepared_run_provider.get_runs_if_loaded(weighted=weighted)
+
     def get_raw_runs_if_loaded(
         self,
         weighted: bool | None = None,
     ) -> list[tuple[str, RunData]] | None:
-        """Return raw runs only when the dashboard explicitly has them loaded."""
-        if weighted is None:
-            weighted = self.weight_mode == "Weighted"
-        return self._raw_run_provider.get_runs_if_loaded(weighted=weighted)
+        """Temporary compatibility alias for prepared-run access."""
+        return self.get_prepared_runs_if_loaded(weighted=weighted)
 
     def get_summary_table_set(
         self,

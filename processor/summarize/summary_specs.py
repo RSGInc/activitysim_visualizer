@@ -10,7 +10,7 @@ import polars as pl
 
 from runtime.config import Config
 from runtime.models import RunData
-from summarize.summaries import (
+from processor.summarize.summaries import (
     daily_travel,
     demographics,
     joint_travel,

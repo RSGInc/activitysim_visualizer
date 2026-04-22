@@ -205,7 +205,7 @@ Important fields:
 - `controller_cls`: the page controller class
 - `required_summary_ids`: every summary the page needs
 - `selectors`: optional `PageSelectorDefinition(...)` entries
-- `raw_data_mode`: usually `"none"` for summary-backed pages
+- `prepared_data_mode`: usually `"none"` for summary-backed pages
 
 #### 9. Add the page to config if you want it enabled
 

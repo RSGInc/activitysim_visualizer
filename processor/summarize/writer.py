@@ -5,7 +5,7 @@ from pathlib import Path
 from activitysim_viz_logging import get_logger
 import polars as pl
 
-LOGGER = get_logger("summarize.writer")
+LOGGER = get_logger("processor.summarize.writer")
 
 
 def write_all(summaries: dict[str, pl.DataFrame], output_dir: str | Path) -> None:

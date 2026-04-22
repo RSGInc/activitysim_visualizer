@@ -24,24 +24,24 @@ from dashboard.components import (
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
 from dashboard.page_registry import (
     all_page_definitions,
-    build_export_raw_run_provider,
+    build_export_prepared_run_provider,
     build_registered_export_pages,
 )
 from runtime.config import Config, ExportSelectorRequest
 from runtime.models import RunData
-from summarize.cache import SummaryRun
+from processor.summarize.cache import SummaryRun
 
 LOGGER = get_logger("dashboard.export")
 
 
 def build_export_html_document(
-    runs: list[tuple[str, RunData]],
+    prepared_runs: list[tuple[str, RunData]],
     config: Config,
     summary_runs: list[SummaryRun] | None = None,
 ) -> str:
     """Build a self-contained HTML document for offline dashboard viewing."""
     payload = _sanitize_export_payload(
-        _build_export_payload(runs, config, summary_runs=summary_runs)
+        _build_export_payload(prepared_runs, config, summary_runs=summary_runs)
     )
     payload_json = json.dumps(
         payload,
@@ -75,7 +75,7 @@ def build_export_html_document(
 
 def write_export_html_document(
     output_path: str | Path,
-    runs: list[tuple[str, RunData]],
+    prepared_runs: list[tuple[str, RunData]],
     config: Config,
     summary_runs: list[SummaryRun] | None = None,
 ) -> Path:
@@ -83,14 +83,14 @@ def write_export_html_document(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
-        build_export_html_document(runs, config, summary_runs=summary_runs),
+        build_export_html_document(prepared_runs, config, summary_runs=summary_runs),
         encoding="utf-8",
     )
     return output_path
 
 
 def _build_export_payload(
-    runs: list[tuple[str, RunData]],
+    prepared_runs: list[tuple[str, RunData]],
     config: Config,
     summary_runs: list[SummaryRun] | None = None,
 ) -> dict[str, Any]:
@@ -99,11 +99,11 @@ def _build_export_payload(
     _validate_page_export_config(config)
     export_weight_values = config.export_html.panel_weighting_values()
     export_value_values = config.export_html.panel_value_values()
-    raw_run_provider = build_export_raw_run_provider(runs, config)
+    prepared_run_provider = build_export_prepared_run_provider(prepared_runs, config)
     chrome_state = DashboardState(
         summary_runs=summary_runs,
         weighting_modes=config.weighting_modes,
-        raw_run_provider=raw_run_provider,
+        prepared_run_provider=prepared_run_provider,
     )
     state_payloads: dict[str, dict[str, Any]] = {}
     warned_unavailable_selectors: set[tuple[str, str]] = set()
@@ -113,7 +113,8 @@ def _build_export_payload(
         for value_mode in export_value_values:
             state_key = _state_key(weight_mode, value_mode)
             state_payloads[state_key] = _serialize_dashboard_state(
-                runs,
+                prepared_runs,
+                # Prepared runs are the only disaggregate contract the dashboard should see.
                 config,
                 summary_runs=summary_runs,
                 weight_mode=weight_mode,
@@ -155,7 +156,7 @@ def _build_export_payload(
 
 
 def _serialize_dashboard_state(
-    runs: list[tuple[str, RunData]],
+    prepared_runs: list[tuple[str, RunData]],
     config: Config,
     *,
     summary_runs: list[SummaryRun] | None = None,
@@ -164,11 +165,11 @@ def _serialize_dashboard_state(
     warned_unavailable_selectors: set[tuple[str, str]],
 ) -> dict[str, Any]:
     """Serialize one dashboard-level weighting/value state combination."""
-    raw_run_provider = build_export_raw_run_provider(runs, config)
+    prepared_run_provider = build_export_prepared_run_provider(prepared_runs, config)
     state = DashboardState(
         summary_runs=summary_runs,
         weighting_modes=config.weighting_modes,
-        raw_run_provider=raw_run_provider,
+        prepared_run_provider=prepared_run_provider,
     )
     state.weight_mode = weight_mode
     state.value_mode = value_mode

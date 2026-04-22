@@ -255,6 +255,7 @@ class Config:
 
     config_path: str
     config_digest: str
+    prepare_config_digest: str
     summary_config_digest: str
     presentation_config_digest: str
     name: str
@@ -543,6 +544,7 @@ class Config:
         config = cls(
             config_path=str(config_path),
             config_digest=hashlib.sha256(config_bytes).hexdigest(),
+            prepare_config_digest="",
             summary_config_digest="",
             presentation_config_digest="",
             name=raw.get("name", ""),
@@ -642,6 +644,9 @@ class Config:
             mode_groups=modes_cfg.get("groups"),
             runs=raw.get("runs", []),
         )
+        config.prepare_config_digest = _digest_payload(
+            config.prepare_signature_payload()
+        )
         config.summary_config_digest = _digest_payload(
             config.summary_signature_payload()
         )
@@ -649,6 +654,52 @@ class Config:
             config.presentation_signature_payload()
         )
         return config
+
+    def prepare_signature_payload(self) -> dict[str, Any]:
+        """Return the config subset that changes prepared-table contents."""
+        geography_payload: dict[str, Any] = {"enabled": self.geography_enabled}
+        if self.geography_enabled:
+            geography_payload["landuse_col"] = self.geography_landuse_col
+            geography_payload["mapping"] = (
+                {
+                    key: self.geography_mapping[key]
+                    for key in sorted(self.geography_mapping)
+                }
+                if self.geography_mapping
+                else None
+            )
+        return {
+            "files": {key: self.files[key] for key in sorted(self.files)},
+            "columns": {
+                "ptype": self.col_ptype,
+                "hhsize": self.col_hhsize,
+                "auto_ownership": self.col_auto_ownership,
+                "num_workers": self.col_num_workers,
+                "num_adults": self.col_num_adults,
+                "sample_rate": self.col_sample_rate,
+                "household_id": list(self.col_household_id),
+                "person_id": list(self.col_person_id),
+                "tour_id": list(self.col_tour_id),
+                "trip_id": list(self.col_trip_id),
+                "tour_purpose": list(self.col_tour_purpose),
+                "trip_purpose": list(self.col_trip_purpose),
+                "tour_mode": list(self.col_tour_mode),
+                "trip_mode": list(self.col_trip_mode),
+                "tour_category": list(self.col_tour_category),
+                "tour_start": list(self.col_tour_start),
+                "tour_end": list(self.col_tour_end),
+                "tour_duration": list(self.col_tour_duration),
+                "trip_depart": list(self.col_trip_depart),
+                "total_employment": list(self.col_total_employment),
+            },
+            "zones": {
+                "use_maz": self.use_maz,
+                "maz_col": self.maz_col,
+                "taz_col": self.taz_col,
+            },
+            "geography": geography_payload,
+            "skim": {"matrix": self.skim_matrix},
+        }
 
     def summary_signature_payload(self) -> dict[str, Any]:
         """Return the config subset that changes summary cache contents."""

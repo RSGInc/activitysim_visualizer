@@ -12,7 +12,7 @@ from runtime.config import Config
 if TYPE_CHECKING:
     from dashboard.page_base import DashboardPage
 
-RawDataMode = Literal["none", "optional", "required"]
+PreparedDataMode = Literal["none", "optional", "required"]
 
 
 @dataclass(frozen=True)
@@ -57,7 +57,12 @@ class DashboardPageDefinition:
     title: str
     order: int = 0
     default_enabled: bool = True
-    raw_data_mode: RawDataMode = "none"
+    prepared_data_mode: PreparedDataMode = "none"
     controller_cls: type["DashboardPage"] | None = None
     selectors: tuple[PageSelectorDefinition, ...] = field(default_factory=tuple)
     required_summary_ids: tuple[str, ...] = field(default_factory=tuple)
+
+    @property
+    def raw_data_mode(self) -> PreparedDataMode:
+        """Temporary compatibility alias while prepared-data naming rolls through."""
+        return self.prepared_data_mode

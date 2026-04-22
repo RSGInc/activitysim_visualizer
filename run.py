@@ -9,13 +9,18 @@ import time
 from pathlib import Path
 
 from activitysim_viz_logging import configure_logging, get_logger, shutdown_logging
-from dashboard.page_registry import enabled_export_raw_data_mode, enabled_raw_data_mode
+from dashboard.page_registry import (
+    enabled_export_prepared_data_mode,
+    enabled_prepared_data_mode,
+)
 from runtime_workflows import (
     load_runtime_config,
-    load_raw_runs_for_dashboard,
+    load_prepared_runs_for_dashboard,
     load_summary_runs_from_cache,
+    prepared_cache_root,
     resolve_run_entries,
     run_dashboard_workflow,
+    run_prepare_workflow,
     run_summary_workflow,
     summary_cache_root,
 )
@@ -50,20 +55,40 @@ def parse_args() -> argparse.Namespace:
         help="Skim file for each --run entry (in order); use '' or 'null' for global default",
     )
     parser.add_argument(
+        "--prepare",
+        action="store_true",
+        help="Run the prepare step and materialize prepared-table outputs.",
+    )
+    parser.add_argument(
+        "--summarize",
+        action="store_true",
+        help="Run the summarize step and build or reuse summary caches.",
+    )
+    parser.add_argument(
+        "--dashboard",
+        action="store_true",
+        help="Run the dashboard step explicitly.",
+    )
+    parser.add_argument(
+        "--prepare-only",
+        action="store_true",
+        help="Run only the prepare step and exit.",
+    )
+    parser.add_argument(
         "--write-csvs",
         action="store_true",
-        help="Refresh and write summary CSV caches to the configured summary root",
+        help="Force summary cache writes during the summarize step.",
     )
     parser.add_argument(
         "--no-dashboard",
         action="store_true",
-        help="Skip the dashboard (only write CSVs; requires --write-csvs)",
+        help="Legacy shortcut to skip the dashboard step during default runs.",
     )
     parser.add_argument(
         "--from-csvs",
         nargs="*",
         metavar="CSV_DIR",
-        help="Load pre-computed summary CSVs from directories instead of raw run outputs",
+        help="Load pre-computed summary CSVs for a dashboard-only run.",
     )
     parser.add_argument(
         "--skip-summary-cache-write",
@@ -89,17 +114,64 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def resolve_requested_steps(args: argparse.Namespace) -> list[str]:
+    """Resolve the ordered workflow steps requested on the CLI."""
+    explicit_steps = args.prepare_only or args.prepare or args.summarize or args.dashboard
+
+    if args.from_csvs is not None and args.write_csvs:
+        raise ValueError("--from-csvs cannot be combined with --write-csvs.")
+    if args.prepare_only and (args.prepare or args.summarize or args.dashboard):
+        raise ValueError(
+            "--prepare-only cannot be combined with --prepare, --summarize, or --dashboard."
+        )
+    if args.dashboard and args.no_dashboard:
+        raise ValueError("--dashboard cannot be combined with --no-dashboard.")
+
+    if args.prepare_only:
+        steps = ["prepare"]
+    elif explicit_steps:
+        steps = [
+            step
+            for step, enabled in (
+                ("prepare", args.prepare),
+                ("summarize", args.summarize),
+                ("dashboard", args.dashboard),
+            )
+            if enabled
+        ]
+    else:
+        if args.no_dashboard and not args.write_csvs:
+            raise ValueError("--no-dashboard requires --write-csvs.")
+        if args.from_csvs is not None:
+            steps = ["dashboard"]
+        else:
+            steps = ["summarize"]
+            if not args.no_dashboard:
+                steps.append("dashboard")
+
+    if args.from_csvs is not None and any(
+        step in {"prepare", "summarize"} for step in steps
+    ):
+        raise ValueError("--from-csvs only supports the dashboard step.")
+    if "dashboard" in steps and "summarize" not in steps and args.from_csvs is None:
+        raise ValueError("dashboard step without summarize requires --from-csvs.")
+    if args.write_csvs and "summarize" not in steps:
+        raise ValueError("--write-csvs requires the summarize step.")
+    if args.skip_summary_cache_write and "summarize" not in steps:
+        raise ValueError("--skip-summary-cache-write requires the summarize step.")
+
+    return steps
+
+
 def main() -> None:
     t0 = time.perf_counter()
     args = parse_args()
+    resolved_steps: list[str] | None = None
 
-    if args.no_dashboard and not args.write_csvs:
-        print("Error: --no-dashboard requires --write-csvs.", file=sys.stderr)
-        sys.exit(1)
-    if args.from_csvs is not None and args.write_csvs:
-        print(
-            "Error: --from-csvs cannot be combined with --write-csvs.", file=sys.stderr
-        )
+    try:
+        resolved_steps = resolve_requested_steps(args)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
 
     config = load_runtime_config(args.config)
@@ -107,17 +179,49 @@ def main() -> None:
     LOGGER.info("Starting ActivitySim Visualizer")
     LOGGER.info("Loading config: %s", args.config)
     LOGGER.info("Logging to %s", log_path)
-    cache_root = summary_cache_root(config, create=args.from_csvs is None)
-    required_run_keys: list[str] = []
 
     try:
-        if args.from_csvs is not None:
-            run_entries = resolve_run_entries(
-                cli_runs=args.cli_runs,
-                cli_run_skims=args.cli_run_skims,
+        steps = resolved_steps or resolve_requested_steps(args)
+        LOGGER.info("Requested workflow steps: %s", ", ".join(steps))
+        cache_root = summary_cache_root(config, create="summarize" in steps)
+        prepared_root = prepared_cache_root(
+            config,
+            create="prepare" in steps or "summarize" in steps,
+        )
+
+        run_entries = resolve_run_entries(
+            cli_runs=args.cli_runs,
+            cli_run_skims=args.cli_run_skims,
+            config=config,
+            require_runs="prepare" in steps or "summarize" in steps,
+        )
+        processor_result = None
+        summary_runs = []
+        required_run_keys: list[str] = []
+
+        if "prepare" in steps:
+            processor_result = run_prepare_workflow(
                 config=config,
-                require_runs=False,
+                prepared_root=prepared_root,
+                run_entries=run_entries,
+                prefer_cache=True,
+                write_cache=True,
+                existing_result=processor_result,
             )
+
+        if "summarize" in steps:
+            processor_result = run_summary_workflow(
+                config=config,
+                cache_root=cache_root,
+                prepared_root=prepared_root,
+                run_entries=run_entries,
+                prefer_cache=not args.write_csvs,
+                write_cache=args.write_csvs or not args.skip_summary_cache_write,
+                existing_result=processor_result,
+            )
+            summary_runs = processor_result.summary_runs
+            required_run_keys = list(processor_result.run_keys)
+        elif args.from_csvs is not None:
             summary_runs = load_summary_runs_from_cache(
                 config=config,
                 cache_root=cache_root,
@@ -125,27 +229,9 @@ def main() -> None:
                 run_entries=run_entries,
             )
             required_run_keys = [summary_run.run_key for summary_run in summary_runs]
-            raw_runs = []
-        else:
-            run_entries = resolve_run_entries(
-                cli_runs=args.cli_runs,
-                cli_run_skims=args.cli_run_skims,
-                config=config,
-                require_runs=True,
-            )
-            summary_result = run_summary_workflow(
-                config=config,
-                cache_root=cache_root,
-                run_entries=run_entries,
-                prefer_cache=not args.write_csvs,
-                write_cache=args.write_csvs or not args.skip_summary_cache_write,
-            )
-            summary_runs = summary_result.summary_runs
-            required_run_keys = [summary_run.run_key for summary_run in summary_runs]
-            raw_runs = summary_result.raw_runs
 
-        if args.no_dashboard:
-            LOGGER.info("Done writing CSVs. Exiting.")
+        if "dashboard" not in steps:
+            LOGGER.info("Completed requested processor steps. Exiting.")
             LOGGER.info(
                 "Run completed in %.2f minutes.",
                 (time.perf_counter() - t0) / 60,
@@ -153,26 +239,29 @@ def main() -> None:
             shutdown_logging()
             return
 
-        requires_raw_data = (
-            enabled_export_raw_data_mode(config) != "none"
+        prepared_runs = []
+        requires_prepared_data = (
+            enabled_export_prepared_data_mode(config) != "none"
             if args.export_html
-            else enabled_raw_data_mode(config) != "none"
+            else enabled_prepared_data_mode(config) != "none"
         )
-        if requires_raw_data:
-            existing_raw_runs_by_key = (
-                summary_result.raw_runs_by_key if args.from_csvs is None else None
+        if requires_prepared_data:
+            existing_prepared_runs_by_key = (
+                processor_result.prepared_runs_by_key
+                if processor_result is not None
+                else None
             )
-            raw_runs = load_raw_runs_for_dashboard(
+            prepared_runs = load_prepared_runs_for_dashboard(
                 config=config,
                 run_entries=run_entries,
                 required_run_keys=required_run_keys,
-                existing_raw_runs_by_key=existing_raw_runs_by_key,
+                existing_prepared_runs_by_key=existing_prepared_runs_by_key,
             )
         else:
-            raw_runs = []
+            prepared_runs = []
 
         run_dashboard_workflow(
-            raw_runs=raw_runs,
+            prepared_runs=prepared_runs,
             summary_runs=summary_runs,
             config=config,
             export_html_path=args.export_html,

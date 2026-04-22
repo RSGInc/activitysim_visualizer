@@ -1,11 +1,11 @@
 # Adding Summary Tables
 
-This guide is for contributors adding a new summary table to the `summarize/` package and, optionally, exposing it in the dashboard.
+This guide is for contributors adding a new summary table to the `processor/summarize/` package and, optionally, exposing it in the dashboard.
 
 The short version is:
 
-1. Add or update a builder function in `summarize/`.
-2. Register it in `summarize/cache.py`.
+1. Add or update a builder function in `processor/summarize/summaries/`.
+2. Register it in `processor/summarize/summary_specs.py`.
 3. Add or update canonical output schema metadata when the table is part of the reusable dashboard contract.
 4. Wire it into a dashboard page through `required_summary_ids` if a page needs it.
 5. Add tests.
@@ -23,15 +23,14 @@ The builder should not know whether the dashboard is in live mode or export mode
 
 Add the summary to the most relevant existing topic module when possible:
 
-- `summarize/demographics.py`
-- `summarize/mandatory.py`
-- `summarize/tours.py`
-- `summarize/tour_mode.py`
-- `summarize/tour_tod.py`
-- `summarize/stops.py`
-- `summarize/trips.py`
-- `summarize/totals.py`
-- `summarize/destination.py`
+- `processor/summarize/summaries/demographics.py`
+- `processor/summarize/summaries/daily_travel.py`
+- `processor/summarize/summaries/joint_travel.py`
+- `processor/summarize/summaries/long_term.py`
+- `processor/summarize/summaries/tour.py`
+- `processor/summarize/summaries/trip.py`
+- `processor/summarize/summaries/validation.py`
+- `processor/summarize/summaries/legacy.py`
 
 Create a new module only when the summary is a distinct topic area rather than just another table in an existing topic.
 
@@ -75,7 +74,7 @@ def trip_distance_by_mode(rd: RunData, config: Config) -> pl.DataFrame:
     )
 ```
 
-## Step 3: Register the Summary in `summarize/cache.py`
+## Step 3: Register the Summary in `processor/summarize/summary_specs.py`
 
 Registration happens in the `SUMMARY_SPECS` tuple:
 
@@ -99,7 +98,7 @@ If the summary is not in `SUMMARY_SPECS`, it does not exist to the rest of the a
 
 ## Step 4: Add Canonical Output Schema Metadata When Needed
 
-If the new table is a reusable dashboard-facing contract, add its canonical output columns to `summarize/schema.py`.
+If the new table is a reusable dashboard-facing contract, add its canonical output columns to `processor/summarize/schema.py`.
 
 Do this when:
 
@@ -134,9 +133,9 @@ This is what makes the summary available through `DashboardState` and keeps live
 
 Use this order when adding a new summary that will appear in the dashboard:
 
-1. Add `trip_distance_by_mode()` to `summarize/trips.py`.
-2. Register it in `summarize/cache.py` with a stable `summary_id`.
-3. Add its column contract to `summarize/schema.py` if the page will treat it as a stable reusable table.
+1. Add `trip_distance_by_mode()` to `processor/summarize/summaries/trip.py`.
+2. Register it in `processor/summarize/summary_specs.py` with a stable `summary_id`.
+3. Add its column contract to `processor/summarize/schema.py` if the page will treat it as a stable reusable table.
 4. Add a new page or update an existing page in `dashboard/pages/`.
 5. Declare the page dependency in `PAGE.required_summary_ids`.
 6. Add export selector metadata only if the page has page-local controls that must work in HTML export.
@@ -180,9 +179,9 @@ Test at least:
 
 ## Good Files to Read Before Editing
 
-- `summarize/cache.py` for registration and weighting behavior
+- `processor/summarize/cache.py` for registration and weighting behavior
 - `runtime/models.py` for the prepared `RunData` contract
 - `runtime/run_data.py` for canonical column preparation
-- `summarize/schema.py` for dashboard-facing output contracts
+- `processor/summarize/schema.py` for dashboard-facing output contracts
 - `tests/test_runtime_canonical_columns.py` for the expected testing style
 - [adding-dashboard-pages.md](adding-dashboard-pages.md) if the summary will be displayed in the UI

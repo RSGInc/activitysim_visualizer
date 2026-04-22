@@ -21,7 +21,8 @@ from dashboard.pages.tour_tod import TourTODPage
 from dashboard.pages.trip_mode import TripModePage
 from dashboard.data_access import DashboardRawRunProvider
 from dashboard.state import DashboardState
-from summarize.cache import (
+from processor.prepare import build_prepared_manifest_identity
+from processor.summarize.cache import (
     SummaryCacheError,
     build_run_keys,
     create_summary_run,
@@ -31,7 +32,7 @@ from summarize.cache import (
 from runtime.config import Config
 from runtime.models import RunData
 from runtime.run_data import prepare_data
-from summarize.summaries import legacy
+from processor.summarize.summaries import legacy
 
 
 def _write_config(tmp_path: Path) -> Config:
@@ -196,6 +197,19 @@ def _prepared_destination_raw_run() -> RunData:
     )
 
 
+def _prepared_identity(
+    *,
+    config: Config,
+    run_key: str,
+    fingerprint: dict[str, object],
+) -> dict[str, object]:
+    return build_prepared_manifest_identity(
+        run_key=run_key,
+        config=config,
+        run_fingerprint=fingerprint,
+    )
+
+
 def test_build_run_keys_handles_case_insensitive_collisions() -> None:
     assert build_run_keys(["Base", "base", "Build"]) == ["base-1", "base-2", "build"]
 
@@ -209,6 +223,11 @@ def test_summary_cache_round_trip_creates_configured_layout(tmp_path: Path) -> N
         summary_run,
         config,
         run_fingerprint=fingerprint,
+        prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="base",
+            fingerprint=fingerprint,
+        ),
     )
 
     assert cache_dir == Path(config.summary_root) / "base"
@@ -228,6 +247,11 @@ def test_summary_cache_round_trip_creates_configured_layout(tmp_path: Path) -> N
         ],
         expected_summary_config_digest=config.summary_config_digest,
         expected_run_fingerprint=fingerprint,
+        expected_prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="base",
+            fingerprint=fingerprint,
+        ),
         expected_label="Base",
         expected_run_key="base",
     )
@@ -306,7 +330,16 @@ def test_summary_cache_ignores_presentation_only_config_changes(
     summary_run = _sample_summary_run()
     fingerprint = {"label": "Base", "run_dir": "C:/runs/base"}
 
-    cache_dir = write_summary_run_cache(summary_run, config_a, run_fingerprint=fingerprint)
+    cache_dir = write_summary_run_cache(
+        summary_run,
+        config_a,
+        run_fingerprint=fingerprint,
+        prepared_manifest_identity=_prepared_identity(
+            config=config_a,
+            run_key="base",
+            fingerprint=fingerprint,
+        ),
+    )
 
     loaded = load_summary_run_cache(
         cache_dir,
@@ -319,6 +352,11 @@ def test_summary_cache_ignores_presentation_only_config_changes(
         ],
         expected_summary_config_digest=config_b.summary_config_digest,
         expected_run_fingerprint=fingerprint,
+        expected_prepared_manifest_identity=_prepared_identity(
+            config=config_b,
+            run_key="base",
+            fingerprint=fingerprint,
+        ),
         expected_label="Base",
         expected_run_key="base",
     )
@@ -351,7 +389,16 @@ def test_summary_cache_invalidates_when_summary_affecting_config_changes(
     summary_run = _sample_summary_run()
     fingerprint = {"label": "Base", "run_dir": "C:/runs/base"}
 
-    cache_dir = write_summary_run_cache(summary_run, config, run_fingerprint=fingerprint)
+    cache_dir = write_summary_run_cache(
+        summary_run,
+        config,
+        run_fingerprint=fingerprint,
+        prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="base",
+            fingerprint=fingerprint,
+        ),
+    )
 
     with pytest.raises(
         SummaryCacheError,
@@ -368,6 +415,11 @@ def test_summary_cache_invalidates_when_summary_affecting_config_changes(
             ],
             expected_summary_config_digest=changed_config.summary_config_digest,
             expected_run_fingerprint=fingerprint,
+            expected_prepared_manifest_identity=_prepared_identity(
+                config=changed_config,
+                run_key="base",
+                fingerprint=fingerprint,
+            ),
             expected_label="Base",
             expected_run_key="base",
         )

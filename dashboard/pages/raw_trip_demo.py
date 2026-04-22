@@ -1,4 +1,4 @@
-"""Demo page that intentionally uses disaggregate raw trip records."""
+"""Demo page that intentionally uses disaggregate prepared trip records."""
 
 from __future__ import annotations
 
@@ -13,9 +13,9 @@ from runtime.models import RunData
 
 
 def trip_mode_distribution(
-    raw_runs: list[tuple[str, RunData]],
+    prepared_runs: list[tuple[str, RunData]],
 ) -> list[tuple[str, pl.DataFrame]]:
-    """Aggregate raw trip records into one trip-mode distribution per run."""
+    """Aggregate prepared trip records into one trip-mode distribution per run."""
 
     def _one_run(trips: pl.DataFrame) -> pl.DataFrame:
         if "trip_mode" not in trips.columns:
@@ -39,11 +39,11 @@ def trip_mode_distribution(
             .sort("trip_mode")
         )
 
-    return [(label, _one_run(run.trips)) for label, run in raw_runs]
+    return [(label, _one_run(run.trips)) for label, run in prepared_runs]
 
 
 class RawTripDemoPage(DashboardPage):
-    """Example page for future raw-data pages to follow."""
+    """Example page for future prepared-data pages to follow."""
 
     def __init__(self, state, config: Config) -> None:
         super().__init__("Raw Trip Demo", state, config)
@@ -55,16 +55,16 @@ class RawTripDemoPage(DashboardPage):
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        raw_runs = self.require_raw_runs()
-        if raw_runs is None:
+        prepared_runs = self.require_prepared_runs()
+        if prepared_runs is None:
             self._body.objects = [
                 pn.pane.Markdown("## Raw Trip Demo"),
                 self.data_not_available_card(
                     detail=(
-                        "This demo page intentionally requires disaggregate raw trip "
+                        "This demo page intentionally requires disaggregate prepared trip "
                         "records and does not render from summary tables."
                     ),
-                    missing_items=["raw_run_data"],
+                    missing_items=["prepared_run_data"],
                 ),
             ]
             return
@@ -72,13 +72,13 @@ class RawTripDemoPage(DashboardPage):
         trip_mode_list = self.get_filtered_view(
             "raw_trip_demo_trip_modes",
             self.weighting_key,
-            factory=lambda: trip_mode_distribution(raw_runs),
+            factory=lambda: trip_mode_distribution(prepared_runs),
         )
         self._body.objects = [
             pn.pane.Markdown("## Raw Trip Demo"),
             pn.pane.Markdown(
-                "This page demonstrates the opt-in raw-data path by aggregating "
-                "trip records directly from the loaded runs."
+                "This page demonstrates the opt-in prepared-data path by aggregating "
+                "trip records directly from the loaded prepared runs."
             ),
             bar_chart(
                 trip_mode_list,
@@ -97,7 +97,7 @@ PAGE = DashboardPageDefinition(
     title="Raw Trip Demo",
     order=900,
     default_enabled=False,
-    raw_data_mode="required",
+    prepared_data_mode="required",
     controller_cls=RawTripDemoPage,
 )
 

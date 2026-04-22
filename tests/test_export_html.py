@@ -15,7 +15,7 @@ from _dashboard_expectations import EXPECTED_DEFAULT_PAGES
 from dashboard.export_html import build_export_html_document, write_export_html_document
 from runtime.config import Config
 from runtime.models import RunData
-from summarize.cache import create_summary_run
+from processor.summarize.cache import create_summary_run
 
 
 def _write_config(

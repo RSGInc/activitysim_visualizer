@@ -11,12 +11,12 @@ from dashboard.components import (
     set_run_colors,
 )
 from dashboard.page_registry import (
-    build_dashboard_raw_run_provider,
+    build_dashboard_prepared_run_provider,
     build_registered_live_pages,
 )
 from runtime.config import Config
 from runtime.models import RunData
-from summarize.cache import SummaryRun
+from processor.summarize.cache import SummaryRun
 
 pn.extension("plotly", "tabulator", sizing_mode="stretch_width")
 pn.config.raw_css.append("""
@@ -30,18 +30,18 @@ pn.config.raw_css.append("""
 
 
 def build_dashboard(
-    runs: list[tuple[str, RunData]],
+    prepared_runs: list[tuple[str, RunData]],
     config: Config,
     # static_export: bool = False,
     summary_runs: list[SummaryRun] | None = None,
 ) -> pn.template.FastListTemplate:
     """Assemble the full Panel dashboard from a list of (label, RunData) tuples."""
     set_run_colors(config.run_colors)
-    raw_run_provider = build_dashboard_raw_run_provider(runs, config)
+    prepared_run_provider = build_dashboard_prepared_run_provider(prepared_runs, config)
     state = DashboardState(
         summary_runs=summary_runs,
         weighting_modes=config.weighting_modes,
-        raw_run_provider=raw_run_provider,
+        prepared_run_provider=prepared_run_provider,
     )
     run_labels = state.run_labels
 

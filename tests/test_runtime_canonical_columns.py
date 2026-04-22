@@ -10,8 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from runtime.config import Config
 from runtime.models import RunData
 from runtime.run_data import prepare_data
-from summarize import destination, stops, totals, tour_mode, tour_tod, trips
-from summarize.schema import SUMMARY_OUTPUT_COLUMNS
+from processor.summarize.schema import SUMMARY_OUTPUT_COLUMNS
+from processor.summarize.summaries import legacy, tour, trip
 
 
 def _write_config(tmp_path: Path, *, column_lines: list[str] | None = None) -> Config:
@@ -397,33 +397,47 @@ def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
     )
     prepared = prepare_data(_raw_run_with_alternate_columns(), config)
 
-    trip_mode_profile = trips.trip_mode_profile(prepared, config)
-    assert trip_mode_profile.columns == ["purpose", "tour_mode", "trip_mode", "freq"]
-    assert trip_mode_profile["purpose"].to_list() == ["eatout", "eatout"]
+    trip_mode_profile = trip.trip_mode(prepared, config)
+    assert trip_mode_profile.columns == list(
+        SUMMARY_OUTPUT_COLUMNS["trip_mode_by_tour_purpose_and_tour_mode"]
+    )
+    assert "eatout" in trip_mode_profile["tour_purpose"].to_list()
 
-    stop_purpose = stops.stop_purpose_by_tour_purpose(prepared)
-    assert stop_purpose.columns == ["tour_purpose", "stop_purpose", "freq"]
+    stop_purpose = trip.stop_purpose_by_tour_purpose(prepared, config)
+    assert stop_purpose.columns == list(
+        SUMMARY_OUTPUT_COLUMNS["stop_destination_purpose_by_tour_purpose"]
+    )
     assert stop_purpose["tour_purpose"].to_list() == ["eatout"]
-    assert stop_purpose["stop_purpose"].to_list() == ["shop"]
+    assert stop_purpose["stop_destination_purpose"].to_list() == ["shop"]
 
-    stop_freq = stops.stop_freq(prepared)
-    assert stop_freq.columns == list(SUMMARY_OUTPUT_COLUMNS["stop_freq"])
+    stop_freq = tour.stop_freq(prepared, config)
+    assert stop_freq.columns == list(
+        SUMMARY_OUTPUT_COLUMNS["tour_stop_frequency_by_tour_purpose"]
+    )
 
-    stop_location = stops.stop_location(prepared)
-    assert stop_location.columns == list(SUMMARY_OUTPUT_COLUMNS["stop_location"])
+    stop_location = trip.stop_ood_distance(prepared, config)
+    assert stop_location.columns == list(
+        SUMMARY_OUTPUT_COLUMNS["stop_out_of_direction_distance_by_tour_purpose"]
+    )
 
-    stop_timing = stops.stop_timing(prepared)
-    assert stop_timing.columns == list(SUMMARY_OUTPUT_COLUMNS["stop_timing"])
+    stop_timing = trip.trip_stop_tod(prepared, config)
+    assert stop_timing.columns == list(
+        SUMMARY_OUTPUT_COLUMNS["trip_departure_time_by_purpose"]
+    )
 
-    tour_mode_profile = tour_mode.tour_mode_profile(prepared, config)
-    assert tour_mode_profile.columns == list(SUMMARY_OUTPUT_COLUMNS["tour_mode_profile"])
+    tour_mode_profile = tour.tour_mode(prepared, config)
+    assert tour_mode_profile.columns == list(
+        SUMMARY_OUTPUT_COLUMNS["tour_mode_by_tour_purpose_and_auto_sufficiency"]
+    )
 
-    tour_tod_profiles = tour_tod.tod_profiles(prepared)
-    assert tour_tod_profiles.columns == list(SUMMARY_OUTPUT_COLUMNS["tour_tod_profiles"])
+    tour_tod_profiles = tour.tour_tod(prepared, config)
+    assert tour_tod_profiles.columns == list(
+        SUMMARY_OUTPUT_COLUMNS["tour_time_of_day_by_tour_purpose"]
+    )
 
-    totals_df = totals.system_totals(prepared, config)
+    totals_df = legacy.system_totals(prepared, config)
     assert totals_df["employment"].to_list() == [24.0]
 
-    distance_df = destination.distance_distribution(prepared)
+    distance_df = legacy.distance_distribution(prepared, config)
     assert "purpose" in distance_df.columns
     assert "All NM" in distance_df["purpose"].to_list()

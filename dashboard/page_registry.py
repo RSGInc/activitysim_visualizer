@@ -9,15 +9,19 @@ import pkgutil
 from activitysim_viz_logging import get_logger
 import dashboard.pages as dashboard_pages_package
 from dashboard import DashboardState
-from dashboard.data_access import DashboardRawRunProvider
+from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition, RawDataMode
+from dashboard.page_definitions import DashboardPageDefinition, PreparedDataMode
 from runtime.config import Config
 from runtime.models import RunData
-from summarize.cache import SUMMARY_SPEC_BY_ID
+from processor.summarize.cache import SUMMARY_SPEC_BY_ID
 
 LOGGER = get_logger("dashboard.page_registry")
-VALID_RAW_DATA_MODES: tuple[RawDataMode, ...] = ("none", "optional", "required")
+VALID_PREPARED_DATA_MODES: tuple[PreparedDataMode, ...] = (
+    "none",
+    "optional",
+    "required",
+)
 
 
 def _load_page_modules():
@@ -79,10 +83,10 @@ def all_page_definitions() -> tuple[DashboardPageDefinition, ...]:
 
 def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
     """Validate one discovered dashboard page definition."""
-    if page_definition.raw_data_mode not in VALID_RAW_DATA_MODES:
+    if page_definition.prepared_data_mode not in VALID_PREPARED_DATA_MODES:
         raise ValueError(
-            f"Dashboard page {page_definition.page_id!r} declares invalid raw_data_mode "
-            f"{page_definition.raw_data_mode!r}."
+            f"Dashboard page {page_definition.page_id!r} declares invalid prepared_data_mode "
+            f"{page_definition.prepared_data_mode!r}."
         )
 
     required_summary_ids = page_definition.required_summary_ids
@@ -203,29 +207,85 @@ def resolve_export_page_definitions(config: Config) -> list[DashboardPageDefinit
     return page_definitions
 
 
-def enabled_raw_data_mode_for_pages(
+def enabled_prepared_data_mode_for_pages(
     page_definitions: (
         list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
     ),
-) -> RawDataMode:
-    """Return the strongest raw-data requirement across a page definition set."""
-    mode: RawDataMode = "none"
+) -> PreparedDataMode:
+    """Return the strongest prepared-data requirement across a page definition set."""
+    mode: PreparedDataMode = "none"
     for page_definition in page_definitions:
-        if page_definition.raw_data_mode == "required":
+        if page_definition.prepared_data_mode == "required":
             return "required"
-        if page_definition.raw_data_mode == "optional":
+        if page_definition.prepared_data_mode == "optional":
             mode = "optional"
     return mode
 
 
-def enabled_raw_data_mode(config: Config) -> RawDataMode:
-    """Return the strongest raw-data requirement across the enabled dashboard pages."""
-    return enabled_raw_data_mode_for_pages(resolve_live_page_definitions(config))
+def enabled_prepared_data_mode(config: Config) -> PreparedDataMode:
+    """Return the strongest prepared-data requirement across the enabled dashboard pages."""
+    return enabled_prepared_data_mode_for_pages(resolve_live_page_definitions(config))
 
 
-def enabled_export_raw_data_mode(config: Config) -> RawDataMode:
-    """Return the strongest raw-data requirement across the enabled export pages."""
-    return enabled_raw_data_mode_for_pages(resolve_export_page_definitions(config))
+def enabled_export_prepared_data_mode(config: Config) -> PreparedDataMode:
+    """Return the strongest prepared-data requirement across the enabled export pages."""
+    return enabled_prepared_data_mode_for_pages(resolve_export_page_definitions(config))
+
+
+def build_prepared_run_provider_for_page_definitions(
+    runs: list[tuple[str, RunData]] | None,
+    page_definitions: (
+        list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
+    ),
+) -> DashboardPreparedRunProvider:
+    """Return the prepared-run provider needed for the given page definition set."""
+    prepared_mode = enabled_prepared_data_mode_for_pages(page_definitions)
+    if prepared_mode == "none":
+        return DashboardPreparedRunProvider.not_requested()
+    if runs:
+        return DashboardPreparedRunProvider.loaded(runs)
+    return DashboardPreparedRunProvider.unavailable()
+
+
+def build_dashboard_prepared_run_provider(
+    runs: list[tuple[str, RunData]] | None,
+    config: Config,
+) -> DashboardPreparedRunProvider:
+    """Return the prepared-run provider needed for the enabled dashboard pages."""
+    return build_prepared_run_provider_for_page_definitions(
+        runs,
+        resolve_live_page_definitions(config),
+    )
+
+
+def build_export_prepared_run_provider(
+    runs: list[tuple[str, RunData]] | None,
+    config: Config,
+) -> DashboardPreparedRunProvider:
+    """Return the prepared-run provider needed for the export page set."""
+    return build_prepared_run_provider_for_page_definitions(
+        runs,
+        resolve_export_page_definitions(config),
+    )
+
+
+def enabled_raw_data_mode_for_pages(
+    page_definitions: (
+        list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
+    ),
+) -> PreparedDataMode:
+    """Temporary compatibility alias for prepared-data mode lookup."""
+    return enabled_prepared_data_mode_for_pages(page_definitions)
+
+
+def enabled_raw_data_mode(config: Config) -> PreparedDataMode:
+    """Temporary compatibility alias for prepared-data mode lookup."""
+    return enabled_prepared_data_mode(config)
+
+
+def enabled_export_raw_data_mode(config: Config) -> PreparedDataMode:
+    """Temporary compatibility alias for prepared-data mode lookup."""
+    return enabled_export_prepared_data_mode(config)
 
 
 def build_raw_run_provider_for_page_definitions(
@@ -233,36 +293,25 @@ def build_raw_run_provider_for_page_definitions(
     page_definitions: (
         list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
     ),
-) -> DashboardRawRunProvider:
-    """Return the raw-run provider needed for the given page definition set."""
-    raw_mode = enabled_raw_data_mode_for_pages(page_definitions)
-    if raw_mode == "none":
-        return DashboardRawRunProvider.not_requested()
-    if runs:
-        return DashboardRawRunProvider.loaded(runs)
-    return DashboardRawRunProvider.unavailable()
+) -> DashboardPreparedRunProvider:
+    """Temporary compatibility alias for prepared-run provider construction."""
+    return build_prepared_run_provider_for_page_definitions(runs, page_definitions)
 
 
 def build_dashboard_raw_run_provider(
     runs: list[tuple[str, RunData]] | None,
     config: Config,
-) -> DashboardRawRunProvider:
-    """Return the raw-run provider needed for the enabled dashboard pages."""
-    return build_raw_run_provider_for_page_definitions(
-        runs,
-        resolve_live_page_definitions(config),
-    )
+) -> DashboardPreparedRunProvider:
+    """Temporary compatibility alias for prepared-run provider construction."""
+    return build_dashboard_prepared_run_provider(runs, config)
 
 
 def build_export_raw_run_provider(
     runs: list[tuple[str, RunData]] | None,
     config: Config,
-) -> DashboardRawRunProvider:
-    """Return the raw-run provider needed for the export page set."""
-    return build_raw_run_provider_for_page_definitions(
-        runs,
-        resolve_export_page_definitions(config),
-    )
+) -> DashboardPreparedRunProvider:
+    """Temporary compatibility alias for prepared-run provider construction."""
+    return build_export_prepared_run_provider(runs, config)
 
 
 def _build_registered_pages(
