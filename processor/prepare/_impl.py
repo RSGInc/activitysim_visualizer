@@ -1,9 +1,8 @@
 """Processor-owned raw-run loading and enrichment helpers.
 
-This module is the implementation backing ``processor.prepare``. It owns the
-ActivitySim raw run loading and preparation used by both summary generation and
-prepared-table downstream consumers. Runtime modules import from here as a
-temporary compatibility shim while the package migration is in progress.
+This module backs the public ``processor.prepare`` package. It owns the
+ActivitySim raw-run loading and prepared-table enrichment used by both summary
+generation and prepared-table downstream consumers.
 """
 
 from __future__ import annotations

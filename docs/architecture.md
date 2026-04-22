@@ -13,7 +13,7 @@ The codebase is organized around those jobs rather than around one monolithic ap
 | Area | Purpose | Key files |
 |---|---|---|
 | CLI and workflow orchestration | Parse step selections, choose cache-first vs rebuild flow, and hand off to prepare/summarize/dashboard workflows | `run.py`, `runtime_workflows.py` |
-| Shared runtime contracts | Normalize YAML config and expose shared cross-cutting contracts used by both processor and dashboard | `runtime/config.py`, `runtime/models.py` |
+| Shared runtime contracts | Normalize YAML config and expose shared cross-cutting contracts used by both processor and dashboard | `runtime/config.py` |
 | Processor prepare step | Read raw ActivitySim outputs, materialize canonical prepared columns, and manage prepared-table cache I/O | `processor/models.py`, `processor/prepare/*` |
 | Summary generation and cache I/O | Register summary builders, compute weighted/unweighted tables, write/load cache manifests and CSVs | `processor/summarize/cache.py`, `processor/summarize/schema.py`, `processor/summarize/summaries/*.py` |
 | Dashboard registry and state | Discover pages, validate page contracts, hold live state and cached filtered views | `dashboard/page_registry.py`, `dashboard/page_definitions.py`, `dashboard/state.py`, `dashboard/page_base.py` |
@@ -60,7 +60,7 @@ If a new feature adds a config key or changes config behavior, the README and an
 
 ### `RunData`
 
-`processor.models.RunData` is the prepared-data contract consumed by summary builders. Summary code should rely on canonical prepared columns rather than guessing raw ActivitySim column names directly. `processor/prepare/` is the layer that materializes those canonical fields and now also owns prepared-table cache helpers.
+`processor.models.RunData` is the prepared-data contract consumed by summary builders and prepared-data dashboard pages. Summary code should rely on canonical prepared columns rather than guessing raw ActivitySim column names directly. `processor/prepare/` is the layer that materializes those canonical fields and owns prepared-table cache helpers.
 
 ### `SummarySpec` and `SUMMARY_SPECS`
 
@@ -74,7 +74,7 @@ Adding a summary is not complete until it is registered there.
 
 ### `DashboardPageDefinition` and `PageSelectorDefinition`
 
-Dashboard pages are registered through module-level `PAGE = DashboardPageDefinition(...)` objects in `dashboard/pages/`. Export-capable page-local controls are declared in `PAGE.selectors` using `PageSelectorDefinition`.
+Dashboard pages are registered through module-level `PAGE = DashboardPageDefinition(...)` objects in `dashboard/pages/`. Export-capable page-local controls are declared in `PAGE.selectors` using `PageSelectorDefinition`. Pages also declare their data contract there through `required_summary_ids`, `prepared_data_mode`, and, when needed, `required_prepared_tables`.
 
 These definitions are consumed by both the live dashboard and the HTML export path, so they are the supported page extension API.
 
@@ -86,9 +86,7 @@ activitysim_visualizer/
 |-- runtime_workflows.py
 |-- config.yaml
 |-- runtime/
-|   |-- config.py
-|   |-- models.py
-|   `-- run_data.py      # temporary compatibility shim during migration
+|   `-- config.py
 |-- processor/
 |   |-- models.py
 |   |-- prepare/

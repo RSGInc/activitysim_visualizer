@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable, Literal
 
 import panel as pn
 
+from processor.models import PreparedTableName
 from runtime.config import Config
 
 if TYPE_CHECKING:
@@ -61,8 +62,13 @@ class DashboardPageDefinition:
     controller_cls: type["DashboardPage"] | None = None
     selectors: tuple[PageSelectorDefinition, ...] = field(default_factory=tuple)
     required_summary_ids: tuple[str, ...] = field(default_factory=tuple)
+    required_prepared_tables: tuple[PreparedTableName, ...] = field(default_factory=tuple)
 
-    @property
-    def raw_data_mode(self) -> PreparedDataMode:
-        """Temporary compatibility alias while prepared-data naming rolls through."""
-        return self.prepared_data_mode
+
+@dataclass(frozen=True)
+class DashboardDataRequirements:
+    """Aggregated summary/prepared-table requirements for a page set."""
+
+    prepared_data_mode: PreparedDataMode = "none"
+    required_summary_ids: tuple[str, ...] = field(default_factory=tuple)
+    required_prepared_tables: tuple[PreparedTableName, ...] = field(default_factory=tuple)

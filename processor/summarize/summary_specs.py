@@ -8,8 +8,8 @@ from typing import Callable
 import polars as pl
 
 
+from processor.models import RunData
 from runtime.config import Config
-from runtime.models import RunData
 from processor.summarize.summaries import (
     daily_travel,
     demographics,

@@ -19,8 +19,10 @@ from dashboard.pages.tour_mode import TourModePage
 from dashboard.pages.tour_summary import TourSummaryPage
 from dashboard.pages.tour_tod import TourTODPage
 from dashboard.pages.trip_mode import TripModePage
-from dashboard.data_access import DashboardRawRunProvider
+from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.state import DashboardState
+from processor.models import RunData
+from processor.prepare import prepare_data
 from processor.prepare import build_prepared_manifest_identity
 from processor.summarize.cache import (
     SummaryCacheError,
@@ -30,8 +32,6 @@ from processor.summarize.cache import (
     write_summary_run_cache,
 )
 from runtime.config import Config
-from runtime.models import RunData
-from runtime.run_data import prepare_data
 from processor.summarize.summaries import legacy
 
 
@@ -474,13 +474,15 @@ def test_destination_page_avoids_string_vs_int_purpose_mismatch_from_cached_summ
     assert page._body.objects
 
 
-def test_destination_page_shows_data_unavailable_when_only_raw_runs_are_loaded(
+def test_destination_page_shows_data_unavailable_when_only_prepared_runs_are_loaded(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
     state = DashboardState(
         weighting_modes=config.weighting_modes,
-        raw_run_provider=DashboardRawRunProvider.loaded([("Base", _destination_raw_run())]),
+        prepared_run_provider=DashboardPreparedRunProvider.loaded(
+            [("Base", _destination_raw_run())]
+        ),
     )
 
     page = DestinationPage(state, config)
@@ -492,7 +494,7 @@ def test_destination_page_shows_data_unavailable_when_only_raw_runs_are_loaded(
     assert page._body.objects[0].title == "Data Not Available"
 
 
-def test_destination_page_ignores_raw_runs_and_uses_summary_purpose_discovery(
+def test_destination_page_ignores_prepared_runs_and_uses_summary_purpose_discovery(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -517,7 +519,9 @@ def test_destination_page_ignores_raw_runs_and_uses_summary_purpose_discovery(
     state = DashboardState(
         summary_runs=[summary_run],
         weighting_modes=config.weighting_modes,
-        raw_run_provider=DashboardRawRunProvider.loaded([("Base", _destination_raw_run())]),
+        prepared_run_provider=DashboardPreparedRunProvider.loaded(
+            [("Base", _destination_raw_run())]
+        ),
     )
 
     page = DestinationPage(state, config)

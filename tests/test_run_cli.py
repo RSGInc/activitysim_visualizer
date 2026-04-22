@@ -12,10 +12,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import run
 import runtime_workflows
 from dashboard import app as dashboard_app
+from processor import prepare as processor_prepare
 from processor.prepare import build_prepared_manifest_identity
-from runtime import run_data as runtime_run_data
+from processor.models import RunData
 from runtime.config import Config
-from runtime.models import RunData
 from processor.summarize import cache as summary_cache
 from processor.summarize.cache import (
     build_run_fingerprint,
@@ -23,7 +23,7 @@ from processor.summarize.cache import (
     write_summary_run_cache,
 )
 
-summary_reader = runtime_run_data
+summary_reader = processor_prepare
 
 
 def _write_cli_config(
@@ -513,7 +513,7 @@ def test_main_uses_cache_hit_for_one_run_and_raw_fallback_for_another(
     def fake_build_dashboard(runs, config, summary_runs=None):
         dashboard_calls.append(
             {
-                "raw_run_labels": [label for label, _ in runs],
+                "prepared_run_labels": [label for label, _ in runs],
                 "summary_run_labels": [summary_run.label for summary_run in summary_runs or []],
             }
         )
@@ -539,13 +539,13 @@ def test_main_uses_cache_hit_for_one_run_and_raw_fallback_for_another(
     assert built_summaries == ["Run B"]
     assert dashboard_calls == [
         {
-            "raw_run_labels": [],
+            "prepared_run_labels": [],
             "summary_run_labels": ["Run A", "Run B"],
         }
     ]
 
 
-def test_main_loads_raw_runs_for_enabled_live_raw_data_page_even_on_cache_hits(
+def test_main_loads_prepared_runs_for_enabled_live_prepared_data_page_even_on_cache_hits(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -614,7 +614,7 @@ def test_main_loads_raw_runs_for_enabled_live_raw_data_page_even_on_cache_hits(
     def fake_build_dashboard(runs, config, summary_runs=None):
         dashboard_calls.append(
             {
-                "raw_run_labels": [label for label, _ in runs],
+                "prepared_run_labels": [label for label, _ in runs],
                 "summary_run_labels": [summary_run.label for summary_run in summary_runs or []],
             }
         )
@@ -639,13 +639,13 @@ def test_main_loads_raw_runs_for_enabled_live_raw_data_page_even_on_cache_hits(
     assert read_calls == ["Run A", "Run B"]
     assert dashboard_calls == [
         {
-            "raw_run_labels": ["Run A", "Run B"],
+            "prepared_run_labels": ["Run A", "Run B"],
             "summary_run_labels": ["Run A", "Run B"],
         }
     ]
 
 
-def test_main_from_csvs_loads_raw_runs_for_enabled_live_raw_data_page_when_inputs_exist(
+def test_main_from_csvs_loads_prepared_runs_for_enabled_live_prepared_data_page_when_inputs_exist(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -691,7 +691,7 @@ def test_main_from_csvs_loads_raw_runs_for_enabled_live_raw_data_page_when_input
     def fake_build_dashboard(runs, config, summary_runs=None):
         dashboard_calls.append(
             {
-                "raw_run_labels": [label for label, _ in runs],
+                "prepared_run_labels": [label for label, _ in runs],
                 "summary_run_labels": [summary_run.label for summary_run in summary_runs or []],
             }
         )
@@ -717,13 +717,13 @@ def test_main_from_csvs_loads_raw_runs_for_enabled_live_raw_data_page_when_input
     assert read_calls == ["Run A"]
     assert dashboard_calls == [
         {
-            "raw_run_labels": ["Run A"],
+            "prepared_run_labels": ["Run A"],
             "summary_run_labels": ["Run A"],
         }
     ]
 
 
-def test_main_from_csvs_keeps_raw_page_unavailable_when_no_inputs_exist(
+def test_main_from_csvs_keeps_prepared_data_page_unavailable_when_no_inputs_exist(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -751,7 +751,7 @@ def test_main_from_csvs_keeps_raw_page_unavailable_when_no_inputs_exist(
     def fake_build_dashboard(runs, config, summary_runs=None):
         dashboard_calls.append(
             {
-                "raw_run_labels": [label for label, _ in runs],
+                "prepared_run_labels": [label for label, _ in runs],
                 "summary_run_labels": [summary_run.label for summary_run in summary_runs or []],
             }
         )
@@ -776,13 +776,13 @@ def test_main_from_csvs_keeps_raw_page_unavailable_when_no_inputs_exist(
 
     assert dashboard_calls == [
         {
-            "raw_run_labels": [],
+            "prepared_run_labels": [],
             "summary_run_labels": ["Base"],
         }
     ]
 
 
-def test_main_export_does_not_load_raw_runs_for_live_only_raw_page(
+def test_main_export_does_not_load_prepared_runs_for_live_only_prepared_data_page(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -833,7 +833,7 @@ def test_main_export_does_not_load_raw_runs_for_live_only_raw_page(
         export_calls.append(
             {
                 "output_path": output_path,
-                "raw_run_labels": [label for label, _ in runs],
+                "prepared_run_labels": [label for label, _ in runs],
                 "summary_run_labels": [summary_run.label for summary_run in summary_runs or []],
             }
         )
@@ -862,7 +862,7 @@ def test_main_export_does_not_load_raw_runs_for_live_only_raw_page(
     assert export_calls == [
         {
             "output_path": str(tmp_path / "dashboard.html"),
-            "raw_run_labels": [],
+            "prepared_run_labels": [],
             "summary_run_labels": ["Run A"],
         }
     ]
@@ -876,7 +876,7 @@ def test_dashboard_workflow_rejects_missing_summary_runs(tmp_path: Path) -> None
         match="dashboard workflow requires precomputed summary runs",
     ):
         runtime_workflows.run_dashboard_workflow(
-            raw_runs=[],
+            prepared_runs=[],
             summary_runs=[],
             config=config,
         )

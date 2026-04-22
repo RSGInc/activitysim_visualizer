@@ -2,7 +2,7 @@
 
 import polars as pl
 from runtime.config import Config
-from runtime.models import RunData
+from processor.models import RunData
 
 
 def trip_purpose(rd: RunData, config: Config) -> pl.DataFrame:

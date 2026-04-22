@@ -7,7 +7,7 @@ from typing import Literal
 
 import polars as pl
 
-from runtime.models import RunData
+from processor.models import RunData
 from processor.summarize.cache import SummaryRun, strip_weights
 
 PreparedRunAvailability = Literal["loaded", "unavailable", "not_requested"]
@@ -99,8 +99,3 @@ class DashboardPreparedRunProvider:
                 (label, strip_weights(rd)) for label, rd in self.weighted_runs
             ]
         return list(self._unweighted_runs)
-
-
-# Temporary compatibility aliases while the prepared-run naming rolls through.
-RawRunAvailability = PreparedRunAvailability
-DashboardRawRunProvider = DashboardPreparedRunProvider

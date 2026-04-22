@@ -14,9 +14,9 @@ from dashboard.page_registry import (
     build_dashboard_prepared_run_provider,
     build_registered_live_pages,
 )
-from runtime.config import Config
-from runtime.models import RunData
+from processor.models import RunData
 from processor.summarize.cache import SummaryRun
+from runtime.config import Config
 
 pn.extension("plotly", "tabulator", sizing_mode="stretch_width")
 pn.config.raw_css.append("""
@@ -142,99 +142,3 @@ def build_dashboard(
     template._dashboard_pages = pages
     template._dashboard_watchers = watchers
     return template
-
-
-# STALE: Superseded by build_export_html_document workflow in export_html.py
-
-# def build_export_view(
-#     runs: list[tuple[str, RunData]],
-#     config: Config,
-#     summary_runs: list[SummaryRun] | None = None,
-# ) -> tuple[pn.viewable.Viewable, dict[pn.widgets.Widget, list[object]]]:
-#     """Build a single-file HTML export view with embedded global widget states.
-
-#
-#     """
-#     set_run_colors(config.run_colors)
-#     state = DashboardState(
-#         summary_runs=summary_runs,
-#         weighting_modes=config.weighting_modes,
-#         raw_run_provider=build_dashboard_raw_run_provider(runs, config),
-#     )
-#     export_weight_values = config.export_html.panel_weighting_values()
-#     export_value_values = config.export_html.panel_value_values()
-#     state.weight_mode = export_weight_values[0]
-#     state.value_mode = export_value_values[0]
-#     set_percent_mode(state.value_mode == "Percent")
-
-#     weight_mode = pn.widgets.RadioButtonGroup(
-#         name="Weighting",
-#         options=export_weight_values,
-#         value=state.weight_mode,
-#         button_type="primary",
-#         width=250,
-#         disabled=len(export_weight_values) <= 1,
-#     )
-#     value_mode = pn.widgets.RadioButtonGroup(
-#         name="Values",
-#         options=export_value_values,
-#         value=state.value_mode,
-#         button_type="primary",
-#         width=220,
-#         disabled=len(export_value_values) <= 1,
-#     )
-
-#     pages = build_registered_live_pages(state, config)
-
-#     def _refresh_all_pages() -> None:
-#         set_percent_mode(state.value_mode == "Percent")
-#         for page in pages:
-#             page.mark_stale()
-#             page.refresh_if_needed()
-
-#     def _on_weight_widget_change(event) -> None:
-#         state.weight_mode = event.new
-
-#     def _on_value_widget_change(event) -> None:
-#         state.value_mode = event.new
-
-#     _refresh_all_pages()
-#     for page in pages:
-#         if page.view is not None:
-#             _disable_export_controls(page.view)
-
-#     watchers = [
-#         weight_mode.param.watch(_on_weight_widget_change, "value"),
-#         value_mode.param.watch(_on_value_widget_change, "value"),
-#         state.param.watch(lambda event: _refresh_all_pages(), "weight_mode"),
-#         state.param.watch(lambda event: _refresh_all_pages(), "value_mode"),
-#     ]
-
-#     tabs = pn.Tabs(
-#         *[(page.name, page.view) for page in pages if page.view is not None],
-#         dynamic=False,
-#     )
-#     export_view = pn.Column(
-#         pn.pane.Markdown(f"# {config.dashboard_title}"),
-#         pn.pane.Markdown(
-#             "**Offline export**\n\n"
-#             "This HTML embeds only the configured global **Weighting** and **Values** states. "
-#             "Page-level selectors are shown for context but disabled offline."
-#         ),
-#         pn.Row(weight_mode, value_mode),
-#         tabs,
-#         sizing_mode="stretch_width",
-#     )
-#     export_view._export_watchers = watchers
-#     export_view._export_state = state
-#     export_view._export_pages = pages
-#     return export_view, {
-#         weight_mode: list(export_weight_values),
-#         value_mode: list(export_value_values),
-#     }
-
-
-# def _disable_export_controls(view: pn.viewable.Viewable) -> None:
-#     """Disable page-local controls in static export views."""
-#     for widget in view.select(pn.widgets.Widget):
-#         widget.disabled = True

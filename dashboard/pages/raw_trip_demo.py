@@ -8,8 +8,8 @@ import polars as pl
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
+from processor.models import RunData
 from runtime.config import Config
-from runtime.models import RunData
 
 
 def trip_mode_distribution(
@@ -46,7 +46,7 @@ class RawTripDemoPage(DashboardPage):
     """Example page for future prepared-data pages to follow."""
 
     def __init__(self, state, config: Config) -> None:
-        super().__init__("Raw Trip Demo", state, config)
+        super().__init__("Prepared Trip Demo", state, config)
         self._body = pn.Column(sizing_mode="stretch_width")
         self.view = self._body
 
@@ -58,7 +58,7 @@ class RawTripDemoPage(DashboardPage):
         prepared_runs = self.require_prepared_runs()
         if prepared_runs is None:
             self._body.objects = [
-                pn.pane.Markdown("## Raw Trip Demo"),
+                pn.pane.Markdown("## Prepared Trip Demo"),
                 self.data_not_available_card(
                     detail=(
                         "This demo page intentionally requires disaggregate prepared trip "
@@ -75,7 +75,7 @@ class RawTripDemoPage(DashboardPage):
             factory=lambda: trip_mode_distribution(prepared_runs),
         )
         self._body.objects = [
-            pn.pane.Markdown("## Raw Trip Demo"),
+            pn.pane.Markdown("## Prepared Trip Demo"),
             pn.pane.Markdown(
                 "This page demonstrates the opt-in prepared-data path by aggregating "
                 "trip records directly from the loaded prepared runs."
@@ -94,10 +94,11 @@ class RawTripDemoPage(DashboardPage):
 
 PAGE = DashboardPageDefinition(
     page_id="raw_trip_demo",
-    title="Raw Trip Demo",
+    title="Prepared Trip Demo",
     order=900,
     default_enabled=False,
     prepared_data_mode="required",
+    required_prepared_tables=("trips",),
     controller_cls=RawTripDemoPage,
 )
 

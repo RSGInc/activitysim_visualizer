@@ -10,13 +10,15 @@ from pathlib import Path
 
 from activitysim_viz_logging import configure_logging, get_logger, shutdown_logging
 from dashboard.page_registry import (
-    enabled_export_prepared_data_mode,
-    enabled_prepared_data_mode,
+    export_data_requirements,
+    live_data_requirements,
 )
 from runtime_workflows import (
     load_runtime_config,
     load_prepared_runs_for_dashboard,
     load_summary_runs_from_cache,
+    prune_processor_result,
+    prune_summary_runs,
     prepared_cache_root,
     resolve_run_entries,
     run_dashboard_workflow,
@@ -240,11 +242,25 @@ def main() -> None:
             return
 
         prepared_runs = []
-        requires_prepared_data = (
-            enabled_export_prepared_data_mode(config) != "none"
+        dashboard_requirements = (
+            export_data_requirements(config)
             if args.export_html
-            else enabled_prepared_data_mode(config) != "none"
+            else live_data_requirements(config)
         )
+        processor_result = prune_processor_result(
+            processor_result,
+            required_summary_ids=dashboard_requirements.required_summary_ids,
+            required_prepared_tables=dashboard_requirements.required_prepared_tables,
+        )
+        if processor_result is not None:
+            summary_runs = list(processor_result.summary_runs)
+        else:
+            summary_runs = prune_summary_runs(
+                summary_runs,
+                dashboard_requirements.required_summary_ids,
+            )
+
+        requires_prepared_data = dashboard_requirements.prepared_data_mode != "none"
         if requires_prepared_data:
             existing_prepared_runs_by_key = (
                 processor_result.prepared_runs_by_key
@@ -255,6 +271,7 @@ def main() -> None:
                 config=config,
                 run_entries=run_entries,
                 required_run_keys=required_run_keys,
+                required_prepared_tables=dashboard_requirements.required_prepared_tables,
                 existing_prepared_runs_by_key=existing_prepared_runs_by_key,
             )
         else:

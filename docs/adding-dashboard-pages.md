@@ -206,6 +206,7 @@ Important fields:
 - `required_summary_ids`: every summary the page needs
 - `selectors`: optional `PageSelectorDefinition(...)` entries
 - `prepared_data_mode`: usually `"none"` for summary-backed pages
+- `required_prepared_tables`: required when `prepared_data_mode` is not `"none"`
 
 #### 9. Add the page to config if you want it enabled
 
@@ -219,6 +220,19 @@ visualizer:
     - overview
     - my_new_page
     - trip_mode
+```
+
+Prepared-data page example:
+
+```python
+PAGE = DashboardPageDefinition(
+    page_id="raw_trip_demo",
+    title="Prepared Trip Demo",
+    order=900,
+    controller_cls=PreparedTripDemoPage,
+    prepared_data_mode="required",
+    required_prepared_tables=("trips",),
+)
 ```
 
 ## Selector Support in HTML Export

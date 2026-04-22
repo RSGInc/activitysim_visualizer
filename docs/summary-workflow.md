@@ -23,7 +23,7 @@ High-level path:
 1. `run.py` parses CLI flags.
 2. `runtime_workflows.resolve_run_entries()` chooses run inputs from CLI or config.
 3. `runtime_workflows.run_prepare_workflow()` tries prepared-cache reuse first.
-4. On a miss, raw runs are read and normalized in `runtime/run_data.py`.
+4. On a miss, raw runs are read and normalized in `processor.prepare`.
 5. `processor.prepare.write_prepared_run_cache()` writes one prepared cache directory per run.
 
 Prepared cache layout:
@@ -93,6 +93,7 @@ Important behavior:
 - Summary-backed pages do not rebuild summary tables.
 - If an enabled page requires disaggregate tables, `run.py` loads prepared runs for that page set from memory, prepared cache, or the prepare workflow.
 - Most pages should stay summary-backed and declare their requirements through `PAGE.required_summary_ids`.
+- Prepared-data pages must also declare `PAGE.required_prepared_tables`, which lets the workflow prune unused prepared tables before dashboard startup/export.
 
 When you want one invocation to do both processor work and dashboard startup, run the steps explicitly together:
 
@@ -139,7 +140,7 @@ Summary builders should always aggregate `finalweight` rather than switching beh
 
 | Question | Start here |
 |---|---|
-| How are runs loaded and normalized? | `runtime/run_data.py` |
+| How are runs loaded and normalized? | `processor/prepare/reader.py`, `processor/prepare/enrichment.py` |
 | Why was a prepared or summary cache reused or rejected? | `runtime_workflows.py`, `processor/prepare/cache.py`, `processor/summarize/cache.py` |
 | Which summary ids exist? | `processor/summarize/cache.py` |
 | Which output columns are considered canonical? | `processor/summarize/schema.py` |

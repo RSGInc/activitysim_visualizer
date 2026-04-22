@@ -25,15 +25,20 @@ Activate the environment:
 Then choose one of the common workflows:
 
 ```bash
-# Build or refresh summary caches from raw ActivitySim outputs
-python run.py --write-csvs --no-dashboard
+# Materialize prepared tables only
+python run.py --prepare-only
 
-# Serve the dashboard from prebuilt summary caches
+# Run summarize + dashboard explicitly
+python run.py --summarize --dashboard
+
+# Serve the dashboard from prebuilt summary caches only
 python run.py --from-csvs
 
 # Export a cache-backed dashboard to standalone HTML
 python run.py --from-csvs --export-html output.html
 ```
+
+`python run.py` remains a shortcut for `--summarize --dashboard`.
 
 The live dashboard runs at [http://localhost:5006](http://localhost:5006) by default.
 
@@ -79,11 +84,26 @@ If no explicit weight columns are configured and no `sample_rate` column is pres
 
 ## Main Workflows
 
-This repo supports three distinct workflows:
+This repo supports four explicit workflow stages:
 
-1. Raw outputs -> summary cache
-2. Summary cache plus optional raw runs -> live dashboard
-3. Summary cache -> standalone HTML export
+1. Raw ActivitySim outputs -> prepared cache
+2. Prepared cache -> summary cache
+3. Summary cache plus page-required prepared tables -> live dashboard
+4. Summary cache plus export-required prepared tables -> standalone HTML export
+
+Prepared caches are written under the configured prepared root with one directory per run:
+
+```text
+<prepared_root>/
+  <run_key>/
+    manifest.json
+    households.parquet|csv
+    persons.parquet|csv
+    tours.parquet|csv
+    trips.parquet|csv
+    joint_tour_participants.parquet|csv
+    land_use.parquet|csv
+```
 
 Summary caches are written under `summaries.root` with one directory per run:
 
@@ -95,7 +115,7 @@ Summary caches are written under `summaries.root` with one directory per run:
     unweighted/
 ```
 
-The cache manifest records summary ids, weighting modes, a summary-config digest, and a run fingerprint so the runtime can tell whether an existing cache is still safe to reuse.
+Prepared manifests record the prepare-config digest plus the run fingerprint used to build each prepared run. Summary manifests record summary ids, weighting modes, a summary-config digest, the run fingerprint, and the prepared-manifest identity they were built from.
 
 ## Codebase Map
 
@@ -105,20 +125,15 @@ activitysim_visualizer/
 |-- runtime_workflows.py
 |-- runtime/
 |   |-- config.py
+|-- processor/
 |   |-- models.py
-|   `-- run_data.py
-|-- summarize/
-|   |-- cache.py
-|   |-- schema.py
-|   |-- demographics.py
-|   |-- mandatory.py
-|   |-- tours.py
-|   |-- tour_mode.py
-|   |-- tour_tod.py
-|   |-- stops.py
-|   |-- trips.py
-|   |-- totals.py
-|   `-- destination.py
+|   |-- prepare/
+|   `-- summarize/
+|       |-- cache.py
+|       |-- schema.py
+|       |-- summary_specs.py
+|       |-- writer.py
+|       `-- summaries/
 |-- dashboard/
 |   |-- app.py
 |   |-- components.py

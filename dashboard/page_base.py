@@ -70,7 +70,7 @@ class DashboardPage:
 
     @property
     def weighting_key(self) -> str:
-        """Return the current weighting key used for raw summary caches."""
+        """Return the current weighting key used for summary-table lookup."""
         return self.state.weighting_key()
 
     @classmethod
@@ -94,10 +94,6 @@ class DashboardPage:
         if self.definition is None:
             return "none"
         return self.definition.prepared_data_mode
-
-    @property
-    def raw_data_mode(self) -> str:
-        return self.prepared_data_mode
 
     def _warn_once(self, key: str, message: str) -> None:
         warnings = self._page_state.setdefault("warnings_emitted", set())
@@ -183,14 +179,6 @@ class DashboardPage:
             ),
         )
         return None
-
-    def get_raw_runs(self, *, weighted: bool | None = None):
-        """Temporary compatibility alias for prepared-run access."""
-        return self.get_prepared_runs(weighted=weighted)
-
-    def require_raw_runs(self, *, weighted: bool | None = None):
-        """Temporary compatibility alias for prepared-run access."""
-        return self.require_prepared_runs(weighted=weighted)
 
     def get_filtered_view(self, view_name: str, *filters: Any, factory):
         """Return a cached chart-ready filtered view for the current page state."""

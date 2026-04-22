@@ -13,9 +13,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _dashboard_expectations import EXPECTED_DEFAULT_PAGES
 from dashboard.export_html import build_export_html_document, write_export_html_document
-from runtime.config import Config
-from runtime.models import RunData
+from processor.models import RunData
 from processor.summarize.cache import create_summary_run
+from runtime.config import Config
 
 
 def _write_config(
@@ -909,7 +909,7 @@ def test_build_export_html_document_defaults_to_registry_order_when_export_pages
     ] == EXPECTED_DEFAULT_PAGES
 
 
-def test_build_export_html_document_renders_raw_demo_page_when_raw_runs_are_loaded(
+def test_build_export_html_document_renders_prepared_trip_demo_page_when_runs_are_loaded(
     tmp_path: Path,
 ) -> None:
     config = _write_config(
@@ -928,14 +928,14 @@ def test_build_export_html_document_renders_raw_demo_page_when_raw_runs_are_load
     raw_demo = payload["states"]["Weighted||Percent"]["raw_trip_demo"]
 
     assert [(page["id"], page["title"]) for page in payload["pages"]] == [
-        ("raw_trip_demo", "Raw Trip Demo")
+        ("raw_trip_demo", "Prepared Trip Demo")
     ]
     assert raw_demo["kind"] == "static_page"
     variant_nodes = _walk_nodes(raw_demo)
     assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 1
 
 
-def test_build_export_html_document_shows_placeholder_for_raw_demo_without_raw_runs(
+def test_build_export_html_document_shows_placeholder_for_prepared_trip_demo_without_runs(
     tmp_path: Path,
 ) -> None:
     config = _write_config(

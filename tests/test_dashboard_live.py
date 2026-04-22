@@ -22,13 +22,14 @@ from dashboard.page_definitions import DashboardPageDefinition
 import dashboard.pages as dashboard_pages_package
 from dashboard.page_registry import (
     all_page_definitions,
+    data_requirements_for_pages,
     default_page_definitions,
     enabled_prepared_data_mode,
     page_definition_by_id,
     resolve_page_definitions,
 )
 from dashboard.state import DashboardState
-from runtime.models import RunData
+from processor.models import RunData
 from processor.summarize.cache import SUMMARY_SPEC_BY_ID
 
 
@@ -71,7 +72,9 @@ def test_page_registry_exposes_expected_default_definitions() -> None:
     ]
     assert page_definition_by_id("raw_trip_demo") is not None
     assert page_definition_by_id("raw_trip_demo").default_enabled is False
+    assert page_definition_by_id("raw_trip_demo").title == "Prepared Trip Demo"
     assert page_definition_by_id("raw_trip_demo").prepared_data_mode == "required"
+    assert page_definition_by_id("raw_trip_demo").required_prepared_tables == ("trips",)
 
 
 def test_discovered_page_modules_export_page_definitions_without_legacy_build_api() -> None:
@@ -151,6 +154,17 @@ def test_enabled_prepared_data_mode_only_flips_on_for_pages_that_request_it(
 
     assert enabled_prepared_data_mode(summary_only_config) == "none"
     assert enabled_prepared_data_mode(raw_demo_config) == "required"
+
+
+def test_data_requirements_for_pages_aggregates_summary_and_prepared_dependencies() -> None:
+    overview = page_definition_by_id("overview")
+    raw_trip_demo = page_definition_by_id("raw_trip_demo")
+
+    requirements = data_requirements_for_pages([overview, raw_trip_demo])
+
+    assert requirements.prepared_data_mode == "required"
+    assert requirements.required_prepared_tables == ("trips",)
+    assert requirements.required_summary_ids == overview.required_summary_ids
 
 
 def test_resolve_page_definitions_rejects_unknown_configured_page_ids(

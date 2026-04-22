@@ -27,9 +27,9 @@ from dashboard.page_registry import (
     build_export_prepared_run_provider,
     build_registered_export_pages,
 )
-from runtime.config import Config, ExportSelectorRequest
-from runtime.models import RunData
+from processor.models import RunData
 from processor.summarize.cache import SummaryRun
+from runtime.config import Config, ExportSelectorRequest
 
 LOGGER = get_logger("dashboard.export")
 

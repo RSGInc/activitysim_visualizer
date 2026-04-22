@@ -6,9 +6,14 @@ from pathlib import Path
 from typing import Any
 
 from activitysim_viz_logging import get_logger
+from dashboard.page_registry import export_data_requirements, live_data_requirements
 from processor import prepare as processor_prepare
-from processor.models import ProcessorWorkflowResult, RunData
-from runtime import run_data as runtime_run_data
+from processor.models import (
+    PreparedTableName,
+    ProcessorWorkflowResult,
+    RunData,
+    prune_prepared_runs,
+)
 from runtime.config import Config
 from processor.summarize import cache as summary_cache
 
@@ -119,7 +124,7 @@ def load_summary_runs_from_cache(
             expected_run_fingerprint = processor_prepare.build_run_fingerprint(
                 label=expected_label,
                 run_dir=run_dir,
-                skim_file=runtime_run_data.resolve_skim_path(
+                skim_file=processor_prepare.resolve_skim_path(
                     entry.get("skim_file") or None,
                     config.skim_file,
                     run_dir,
@@ -163,6 +168,65 @@ def run_entries_with_keys(run_entries: list[dict]) -> list[tuple[dict, str]]:
     return list(zip(run_entries, run_keys))
 
 
+def prune_summary_runs(
+    summary_runs: list[Any],
+    required_summary_ids: list[str] | tuple[str, ...],
+) -> list[Any]:
+    """Return summary runs containing only the summary ids needed downstream."""
+    if not summary_runs:
+        return []
+
+    required_ids = set(required_summary_ids)
+    return [
+        summary_cache.create_summary_run(
+            label=summary_run.label,
+            run_key=summary_run.run_key,
+            summaries_by_mode={
+                mode: {
+                    summary_id: table
+                    for summary_id, table in mode_tables.items()
+                    if summary_id in required_ids
+                }
+                for mode, mode_tables in summary_run.summaries_by_mode.items()
+            },
+            source_run_dir=summary_run.source_run_dir,
+            manifest=summary_run.manifest,
+        )
+        for summary_run in summary_runs
+    ]
+
+
+def prune_processor_result(
+    result: ProcessorWorkflowResult | None,
+    *,
+    required_summary_ids: list[str] | tuple[str, ...],
+    required_prepared_tables: list[PreparedTableName] | tuple[PreparedTableName, ...],
+) -> ProcessorWorkflowResult | None:
+    """Return a processor result trimmed to the next dashboard/export step."""
+    if result is None:
+        return None
+
+    pruned_prepared_runs_by_key = {
+        run_key: (
+            label,
+            prune_prepared_runs([(label, prepared_run)], required_prepared_tables)[0][1],
+        )
+        for run_key, (label, prepared_run) in result.prepared_runs_by_key.items()
+    }
+    ordered_prepared_runs = [
+        pruned_prepared_runs_by_key[run_key]
+        for run_key in result.run_keys
+        if run_key in pruned_prepared_runs_by_key
+    ]
+    return ProcessorWorkflowResult(
+        summary_runs=prune_summary_runs(result.summary_runs, required_summary_ids),
+        prepared_runs=ordered_prepared_runs,
+        prepared_runs_by_key=pruned_prepared_runs_by_key,
+        run_keys=list(result.run_keys),
+        run_fingerprints_by_key=dict(result.run_fingerprints_by_key),
+    )
+
+
 def _run_cache_metadata(
     *,
     entry: dict,
@@ -173,7 +237,7 @@ def _run_cache_metadata(
     run_dir = entry.get("dir", "")
     label = entry.get("label", Path(run_dir).name)
     skim = entry.get("skim_file") or None
-    resolved_skim = runtime_run_data.resolve_skim_path(skim, config.skim_file, run_dir)
+    resolved_skim = processor_prepare.resolve_skim_path(skim, config.skim_file, run_dir)
     run_fingerprint = processor_prepare.build_run_fingerprint(
         label=label,
         run_dir=run_dir,
@@ -235,7 +299,7 @@ def _resolve_prepared_run(
             LOGGER.info("Prepared cache miss for %r: %s", label, exc)
 
     LOGGER.info("Reading run %r from %s", label, run_dir)
-    prepared_run = runtime_run_data.read_run(
+    prepared_run = processor_prepare.read_run(
         run_dir,
         config,
         label=label,
@@ -244,7 +308,7 @@ def _resolve_prepared_run(
         person_weight_col=entry.get("person_weight_col") or None,
         trip_weight_col=entry.get("trip_weight_col") or None,
     )
-    prepared_run = runtime_run_data.prepare_data(prepared_run, config)
+    prepared_run = processor_prepare.prepare_data(prepared_run, config)
     LOGGER.info("Prepared run: %r", label)
     if write_cache:
         processor_prepare.write_prepared_run_cache(
@@ -317,6 +381,9 @@ def load_prepared_runs_for_dashboard(
     config: Config,
     run_entries: list[dict],
     required_run_keys: list[str],
+    required_prepared_tables: (
+        list[PreparedTableName] | tuple[PreparedTableName, ...] | None
+    ) = None,
     existing_prepared_runs_by_key: dict[str, tuple[str, RunData]] | None = None,
 ) -> list[tuple[str, RunData]]:
     """Load prepared runs only when enabled pages require them.
@@ -365,27 +432,12 @@ def load_prepared_runs_for_dashboard(
         write_cache=True,
         existing_result=prepare_result,
     )
-    return [
+    ordered_runs = [
         prepare_result.prepared_runs_by_key[run_key]
         for run_key in required_run_keys
         if run_key in prepare_result.prepared_runs_by_key
     ]
-
-
-def load_raw_runs_for_dashboard(
-    *,
-    config: Config,
-    run_entries: list[dict],
-    required_run_keys: list[str],
-    existing_raw_runs_by_key: dict[str, tuple[str, RunData]] | None = None,
-) -> list[tuple[str, RunData]]:
-    """Temporary compatibility alias for prepared-run dashboard loading."""
-    return load_prepared_runs_for_dashboard(
-        config=config,
-        run_entries=run_entries,
-        required_run_keys=required_run_keys,
-        existing_prepared_runs_by_key=existing_raw_runs_by_key,
-    )
+    return prune_prepared_runs(ordered_runs, required_prepared_tables or ())
 
 
 def run_summary_workflow(
@@ -504,7 +556,6 @@ def run_dashboard_workflow(
     *,
     summary_runs: list[Any],
     prepared_runs: list[tuple[str, RunData]] | None = None,
-    raw_runs: list[tuple[str, RunData]] | None = None,
     config: Config,
     export_html_path: str | None = None,
     port: int = 5006,
@@ -516,11 +567,25 @@ def run_dashboard_workflow(
     ``summary_runs`` as an input contract rather than triggering a rebuild.
     """
     if prepared_runs is None:
-        prepared_runs = list(raw_runs or [])
+        prepared_runs = []
     if not summary_runs:
         raise ValueError(
             "dashboard workflow requires precomputed summary runs and will not build them."
         )
+    requirements = (
+        export_data_requirements(config)
+        if export_html_path
+        else live_data_requirements(config)
+    )
+    summary_runs = prune_summary_runs(
+        summary_runs,
+        requirements.required_summary_ids,
+    )
+    prepared_runs = (
+        prune_prepared_runs(prepared_runs, requirements.required_prepared_tables)
+        if requirements.prepared_data_mode != "none"
+        else []
+    )
 
     if export_html_path:
         from dashboard.export_html import write_export_html_document

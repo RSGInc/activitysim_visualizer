@@ -11,9 +11,8 @@ import runtime_workflows
 from processor import prepare as processor_prepare
 from processor.models import ProcessorWorkflowResult
 from processor.prepare import build_prepared_manifest_identity, write_prepared_run_cache
-from runtime import run_data as runtime_run_data
+from processor.models import RunData
 from runtime.config import Config
-from runtime.models import RunData
 from processor.summarize import cache as summary_cache
 from processor.summarize.cache import (
     build_run_fingerprint,
@@ -22,7 +21,13 @@ from processor.summarize.cache import (
 )
 
 
-def _write_config(tmp_path: Path, *, runs: list[dict]) -> Config:
+def _write_config(
+    tmp_path: Path,
+    *,
+    runs: list[dict],
+    dashboard_pages: list[str] | None = None,
+    export_html_lines: list[str] | None = None,
+) -> Config:
     tmp_path.mkdir(parents=True, exist_ok=True)
     config_path = tmp_path / "config.yaml"
     lines = [
@@ -34,8 +39,14 @@ def _write_config(tmp_path: Path, *, runs: list[dict]) -> Config:
         "    - unweighted",
         "visualizer:",
         '  dashboard_title: "Workflow Test Dashboard"',
-        "runs:",
     ]
+    if dashboard_pages is not None:
+        lines.append("  dashboard_pages:")
+        lines.extend(f"    - {page_id}" for page_id in dashboard_pages)
+    if export_html_lines:
+        lines.append("  export_html:")
+        lines.extend(f"    {line}" for line in export_html_lines)
+    lines.append("runs:")
     for run_entry in runs:
         run_dir = str(run_entry["dir"]).replace("\\", "/")
         lines.extend(
@@ -124,14 +135,14 @@ def test_run_prepare_workflow_uses_cache_hit_without_raw_read_or_prepare_rebuild
     )
 
     monkeypatch.setattr(
-        runtime_run_data,
+        processor_prepare,
         "read_run",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called on a prepared-cache hit")
         ),
     )
     monkeypatch.setattr(
-        runtime_run_data,
+        processor_prepare,
         "prepare_data",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called on a prepared-cache hit")
@@ -164,7 +175,7 @@ def test_run_prepare_workflow_rebuilds_and_writes_prepared_cache_on_cache_miss(
     prepare_calls: list[str] = []
 
     monkeypatch.setattr(
-        runtime_run_data,
+        processor_prepare,
         "read_run",
         lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
@@ -172,7 +183,7 @@ def test_run_prepare_workflow_rebuilds_and_writes_prepared_cache_on_cache_miss(
         )[1],
     )
     monkeypatch.setattr(
-        runtime_run_data,
+        processor_prepare,
         "prepare_data",
         lambda rd, config: (
             prepare_calls.append(rd.label),
@@ -225,14 +236,14 @@ def test_run_summary_workflow_uses_cache_hit_without_raw_read_or_summary_rebuild
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
     monkeypatch.setattr(
-        runtime_run_data,
+        processor_prepare,
         "read_run",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called on a cache hit")
         ),
     )
     monkeypatch.setattr(
-        runtime_run_data,
+        processor_prepare,
         "prepare_data",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called on a cache hit")
@@ -274,7 +285,7 @@ def test_run_summary_workflow_rebuilds_and_writes_cache_on_cache_miss(
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
     monkeypatch.setattr(
-        runtime_run_data,
+        processor_prepare,
         "read_run",
         lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
@@ -282,7 +293,7 @@ def test_run_summary_workflow_rebuilds_and_writes_cache_on_cache_miss(
         )[1],
     )
     monkeypatch.setattr(
-        runtime_run_data,
+        processor_prepare,
         "prepare_data",
         lambda rd, config: (
             prepare_calls.append(rd.label),
@@ -351,7 +362,7 @@ def test_run_summary_workflow_uses_prepared_cache_before_raw_rebuild(
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
     monkeypatch.setattr(
-        runtime_run_data,
+        processor_prepare,
         "read_run",
         lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
@@ -359,7 +370,7 @@ def test_run_summary_workflow_uses_prepared_cache_before_raw_rebuild(
         )[1],
     )
     monkeypatch.setattr(
-        runtime_run_data,
+        processor_prepare,
         "prepare_data",
         lambda rd, config: (
             prepare_calls.append(rd.label),
@@ -404,14 +415,14 @@ def test_run_summary_workflow_reuses_in_memory_prepared_runs_without_reload(
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
     monkeypatch.setattr(
-        runtime_run_data,
+        processor_prepare,
         "read_run",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called when prepared runs already exist in memory")
         ),
     )
     monkeypatch.setattr(
-        runtime_run_data,
+        processor_prepare,
         "prepare_data",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called when prepared runs already exist in memory")
@@ -480,7 +491,7 @@ def test_load_prepared_runs_for_dashboard_reuses_existing_loaded_runs_by_key(
     prepare_calls: list[str] = []
 
     monkeypatch.setattr(
-        runtime_run_data,
+        processor_prepare,
         "read_run",
         lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
@@ -488,7 +499,7 @@ def test_load_prepared_runs_for_dashboard_reuses_existing_loaded_runs_by_key(
         )[1],
     )
     monkeypatch.setattr(
-        runtime_run_data,
+        processor_prepare,
         "prepare_data",
         lambda rd, config: (
             prepare_calls.append(rd.label),
@@ -520,14 +531,14 @@ def test_load_prepared_runs_for_dashboard_returns_empty_when_required_runs_are_m
     )
 
     monkeypatch.setattr(
-        runtime_run_data,
+        processor_prepare,
         "read_run",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called when required runs are unresolved")
         ),
     )
     monkeypatch.setattr(
-        runtime_run_data,
+        processor_prepare,
         "prepare_data",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called when required runs are unresolved")
@@ -541,3 +552,169 @@ def test_load_prepared_runs_for_dashboard_returns_empty_when_required_runs_are_m
     )
 
     assert ordered_runs == []
+
+
+def test_prune_processor_result_keeps_only_required_dashboard_data() -> None:
+    prepared_run = RunData(
+        label="Run A",
+        run_dir="C:/runs/run_a",
+        skim_file="C:/runs/run_a/skims.omx",
+        hh=pl.DataFrame({"household_id": [1]}),
+        per=pl.DataFrame({"person_id": [10]}),
+        tours=pl.DataFrame({"tour_id": [20]}),
+        trips=pl.DataFrame({"trip_id": [100], "trip_mode": ["WALK"]}),
+        joint_participants=pl.DataFrame({"tour_id": [20], "person_id": [10]}),
+        land_use=pl.DataFrame({"zone_id": [1]}),
+        skim_matrix=None,
+        skim_zone_map={1: 0},
+    )
+    summary_run = create_summary_run(
+        label="Run A",
+        run_key="run-a",
+        summaries_by_mode={
+            "weighted": {
+                "population_totals": pl.DataFrame({"person_count": [100.0]}),
+                "extra_summary": pl.DataFrame({"value": [1]}),
+            },
+            "unweighted": {
+                "population_totals": pl.DataFrame({"person_count": [50.0]}),
+                "extra_summary": pl.DataFrame({"value": [2]}),
+            },
+        },
+        source_run_dir="C:/runs/run_a",
+    )
+    result = ProcessorWorkflowResult(
+        summary_runs=[summary_run],
+        prepared_runs=[("Run A", prepared_run)],
+        prepared_runs_by_key={"run-a": ("Run A", prepared_run)},
+        run_keys=["run-a"],
+    )
+
+    pruned = runtime_workflows.prune_processor_result(
+        result,
+        required_summary_ids=("population_totals",),
+        required_prepared_tables=("trips",),
+    )
+
+    assert pruned is not None
+    assert list(pruned.summary_runs[0].summaries_by_mode["weighted"]) == [
+        "population_totals"
+    ]
+    assert pruned.prepared_runs_by_key["run-a"][1].hh.is_empty()
+    assert pruned.prepared_runs_by_key["run-a"][1].per.is_empty()
+    assert pruned.prepared_runs_by_key["run-a"][1].trips is prepared_run.trips
+    assert pruned.prepared_runs_by_key["run-a"][1].trips["trip_id"].to_list() == [100]
+    assert pruned.prepared_runs_by_key["run-a"][1].skim_file is None
+
+
+def test_load_prepared_runs_for_dashboard_prunes_existing_runs_to_required_tables(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_a_dir = tmp_path / "run_a"
+    config = _write_config(
+        tmp_path,
+        runs=[{"dir": str(run_a_dir), "label": "Run A"}],
+    )
+    existing_run = RunData(
+        label="Run A",
+        run_dir=str(run_a_dir),
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1]}),
+        per=pl.DataFrame({"person_id": [10]}),
+        tours=pl.DataFrame({"tour_id": [20]}),
+        trips=pl.DataFrame({"trip_id": [100], "trip_mode": ["WALK"]}),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame({"zone_id": [1]}),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    monkeypatch.setattr(
+        processor_prepare,
+        "read_run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("read_run should not be called when the run is already loaded")
+        ),
+    )
+    monkeypatch.setattr(
+        processor_prepare,
+        "prepare_data",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("prepare_data should not be called when the run is already loaded")
+        ),
+    )
+
+    ordered_runs = runtime_workflows.load_prepared_runs_for_dashboard(
+        config=config,
+        run_entries=config.runs,
+        required_run_keys=["run-a"],
+        required_prepared_tables=("trips",),
+        existing_prepared_runs_by_key={"run-a": ("Run A", existing_run)},
+    )
+
+    assert [label for label, _ in ordered_runs] == ["Run A"]
+    assert ordered_runs[0][1].hh.is_empty()
+    assert ordered_runs[0][1].tours.is_empty()
+    assert ordered_runs[0][1].trips["trip_id"].to_list() == [100]
+
+
+def test_run_dashboard_workflow_prunes_inputs_before_live_dashboard(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import panel as pn
+    from dashboard import app as dashboard_app
+
+    config = _write_config(
+        tmp_path,
+        runs=[],
+        dashboard_pages=["raw_trip_demo"],
+    )
+    prepared_run = RunData(
+        label="Run A",
+        run_dir="C:/runs/run_a",
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1]}),
+        per=pl.DataFrame({"person_id": [10]}),
+        tours=pl.DataFrame({"tour_id": [20]}),
+        trips=pl.DataFrame({"trip_id": [100], "trip_mode": ["WALK"]}),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame({"zone_id": [1]}),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+    summary_run = create_summary_run(
+        label="Run A",
+        run_key="run-a",
+        summaries_by_mode={
+            "weighted": {
+                "population_totals": pl.DataFrame({"person_count": [100.0]}),
+            },
+            "unweighted": {
+                "population_totals": pl.DataFrame({"person_count": [50.0]}),
+            },
+        },
+        source_run_dir="C:/runs/run_a",
+    )
+    captured: dict[str, object] = {}
+
+    def fake_build_dashboard(runs, config, summary_runs=None):
+        captured["runs"] = runs
+        captured["summary_runs"] = summary_runs
+        return "dashboard"
+
+    monkeypatch.setattr(dashboard_app, "build_dashboard", fake_build_dashboard)
+    monkeypatch.setattr(pn, "serve", lambda *args, **kwargs: None)
+
+    runtime_workflows.run_dashboard_workflow(
+        prepared_runs=[("Run A", prepared_run)],
+        summary_runs=[summary_run],
+        config=config,
+        show=False,
+    )
+
+    assert captured["runs"][0][1].hh.is_empty()
+    assert captured["runs"][0][1].per.is_empty()
+    assert captured["runs"][0][1].trips["trip_id"].to_list() == [100]
+    assert captured["summary_runs"][0].summaries_by_mode["weighted"] == {}

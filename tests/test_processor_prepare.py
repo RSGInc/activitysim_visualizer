@@ -15,13 +15,6 @@ from processor.prepare import (
     resolve_source_column as processor_resolve_source_column,
 )
 from runtime.config import Config
-from runtime.models import RunData as RuntimeRunData
-from runtime.run_data import (
-    prepare_data as runtime_prepare_data,
-    read_run as runtime_read_run,
-    resolve_skim_path as runtime_resolve_skim_path,
-    resolve_source_column as runtime_resolve_source_column,
-)
 
 
 def _write_config(tmp_path: Path) -> Config:
@@ -110,15 +103,11 @@ def _raw_run() -> ProcessorRunData:
     )
 
 
-def test_runtime_model_reexports_processor_run_data() -> None:
-    assert RuntimeRunData is ProcessorRunData
-
-
-def test_runtime_run_data_reexports_processor_prepare_helpers() -> None:
-    assert runtime_prepare_data is processor_prepare_data
-    assert runtime_read_run is processor_read_run
-    assert runtime_resolve_skim_path is processor_resolve_skim_path
-    assert runtime_resolve_source_column is processor_resolve_source_column
+def test_processor_prepare_module_exposes_canonical_prepare_helpers() -> None:
+    assert callable(processor_prepare_data)
+    assert callable(processor_read_run)
+    assert callable(processor_resolve_skim_path)
+    assert callable(processor_resolve_source_column)
 
 
 def test_processor_prepare_data_exposes_the_same_prepared_contract(

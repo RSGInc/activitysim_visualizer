@@ -11,7 +11,7 @@ from dashboard.data_access import (
     DashboardPreparedRunProvider,
     DashboardSummarySeries,
 )
-from runtime.models import RunData
+from processor.models import RunData
 from processor.summarize.cache import SummaryRun, normalize_weighting_modes
 
 
@@ -29,17 +29,13 @@ class DashboardState(param.Parameterized):
         summary_runs: list[SummaryRun] | None = None,
         weighting_modes: list[str] | None = None,
         prepared_run_provider: DashboardPreparedRunProvider | None = None,
-        raw_run_provider: DashboardPreparedRunProvider | None = None,
         **params: Any,
     ) -> None:
         super().__init__(**params)
-        provider = (
+        self._prepared_run_provider = (
             prepared_run_provider
             if prepared_run_provider is not None
-            else raw_run_provider
-        )
-        self._prepared_run_provider = (
-            provider if provider is not None else DashboardPreparedRunProvider.not_requested()
+            else DashboardPreparedRunProvider.not_requested()
         )
         self._weighting_modes = normalize_weighting_modes(weighting_modes)
         weight_options = [mode.title() for mode in self._weighting_modes]
@@ -70,10 +66,6 @@ class DashboardState(param.Parameterized):
     @property
     def prepared_run_availability(self) -> str:
         return self._prepared_run_provider.availability
-
-    @property
-    def raw_run_availability(self) -> str:
-        return self.prepared_run_availability
 
     @property
     def run_labels(self) -> list[str]:
@@ -114,13 +106,6 @@ class DashboardState(param.Parameterized):
         if weighted is None:
             weighted = self.weight_mode == "Weighted"
         return self._prepared_run_provider.get_runs_if_loaded(weighted=weighted)
-
-    def get_raw_runs_if_loaded(
-        self,
-        weighted: bool | None = None,
-    ) -> list[tuple[str, RunData]] | None:
-        """Temporary compatibility alias for prepared-run access."""
-        return self.get_prepared_runs_if_loaded(weighted=weighted)
 
     def get_summary_table_set(
         self,
