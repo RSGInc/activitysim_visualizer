@@ -7,15 +7,135 @@ from processor.models import RunData
 
 
 def license_holding_status(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    result_schema = {
+        "person_type": pl.Utf8,
+        "license_holding_status": pl.Utf8,
+        "person_type_label": pl.Utf8,
+        "person_count": pl.Float64,
+    }
+
+    required = {"person_type", "has_license", "finalweight"}
+    if not required.issubset(set(rd.per.columns)):
+        return pl.DataFrame(schema=result_schema)
+
+    base = rd.per.filter(
+        pl.col("person_type").is_not_null() & pl.col("has_license").is_not_null()
+    ).with_columns(
+        pl.col("person_type").cast(pl.Utf8),
+        pl.when(pl.col("has_license"))
+        .then(pl.lit("has_license"))
+        .otherwise(pl.lit("no_license"))
+        .alias("license_holding_status"),
+    )
+
+    by_person_type = base.group_by(["person_type", "license_holding_status"]).agg(
+        person_count=pl.col("finalweight").sum()
+    )
+
+    all_person_types = (
+        base.with_columns(pl.lit("all_person_types").alias("person_type"))
+        .group_by(["person_type", "license_holding_status"])
+        .agg(person_count=pl.col("finalweight").sum())
+    )
+
+    return (
+        pl.concat([by_person_type, all_person_types], how="vertical")
+        .with_columns(
+            pl.col("person_type").cast(pl.Utf8),
+            pl.col("license_holding_status").cast(pl.Utf8),
+            pl.col("person_type")
+            .map_elements(
+                lambda x: (
+                    "All Person Types"
+                    if x == "all_person_types"
+                    else config.person_type_label(x)
+                ),
+                return_dtype=pl.Utf8,
+            )
+            .alias("person_type_label"),
+            pl.col("person_count").cast(pl.Float64),
+        )
+        .select(
+            "person_type",
+            "license_holding_status",
+            "person_type_label",
+            "person_count",
+        )
+        .sort(["person_type", "license_holding_status"])
+    )
 
 
 def bicycle_comfort_level(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    result_schema = {
+        "person_type": pl.Utf8,
+        "bicycle_comfort_level": pl.Utf8,
+        "person_type_label": pl.Utf8,
+        "person_count": pl.Float64,
+    }
+
+    required = {"person_type", "bike_comfort", "finalweight"}
+    if not required.issubset(set(rd.per.columns)):
+        return pl.DataFrame(schema=result_schema)
+
+    base = rd.per.filter(
+        pl.col("person_type").is_not_null() & pl.col("bike_comfort").is_not_null()
+    ).with_columns(
+        pl.col("person_type").cast(pl.Utf8),
+        pl.col("bike_comfort").cast(pl.Utf8).alias("bicycle_comfort_level"),
+    )
+
+    by_person_type = base.group_by(["person_type", "bicycle_comfort_level"]).agg(
+        person_count=pl.col("finalweight").sum()
+    )
+
+    all_person_types = (
+        base.with_columns(pl.lit("all_person_types").alias("person_type"))
+        .group_by(["person_type", "bicycle_comfort_level"])
+        .agg(person_count=pl.col("finalweight").sum())
+    )
+
+    return (
+        pl.concat([by_person_type, all_person_types], how="vertical")
+        .with_columns(
+            pl.col("person_type").cast(pl.Utf8),
+            pl.col("bicycle_comfort_level").cast(pl.Utf8),
+            pl.col("person_type")
+            .map_elements(
+                lambda x: (
+                    "All Person Types"
+                    if x == "all_person_types"
+                    else config.person_type_label(x)
+                ),
+                return_dtype=pl.Utf8,
+            )
+            .alias("person_type_label"),
+            pl.col("person_count").cast(pl.Float64),
+        )
+        .select(
+            "person_type",
+            "bicycle_comfort_level",
+            "person_type_label",
+            "person_count",
+        )
+        .sort(["person_type", "bicycle_comfort_level"])
+    )
 
 
 def av_ownership(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    result_schema = {
+        "household_with_autonomous_vehicle_count": pl.Float64,
+    }
+
+    required = {"av_ownership", "finalweight"}
+    if not required.issubset(set(rd.hh.columns)):
+        return pl.DataFrame(schema=result_schema)
+
+    return rd.hh.filter(pl.col("av_ownership") == True).select(
+        pl.col("finalweight")
+        .sum()
+        .cast(pl.Float64)
+        .alias("household_with_autonomous_vehicle_count")
+    )
 
 
 def auto_ownership(rd: RunData, config: Config) -> pl.DataFrame:
@@ -90,12 +210,200 @@ def wfh(rd: RunData, config: Config) -> pl.DataFrame:
     return pl.concat([by_geo, total]).sort("geography")
 
 
+def _empty_internal_external_worker_by_geography() -> pl.DataFrame:
+    return pl.DataFrame(
+        schema={
+            "geography_type": pl.Utf8,
+            "geography_id": pl.Utf8,
+            "internal_worker_count": pl.Float64,
+            "external_worker_count": pl.Float64,
+        }
+    )
+
+
+def _empty_external_worker_workplace_locations() -> pl.DataFrame:
+    return pl.DataFrame(
+        schema={
+            "geography_type": pl.Utf8,
+            "geography_id": pl.Utf8,
+            "external_worker_count": pl.Float64,
+        }
+    )
+
+
+def _worker_filter_expr() -> pl.Expr:
+    # rd.per["is_worker"] is documented as a large_string column in the uploaded schema,
+    # so this handles both string- and bool-like encodings defensively.
+    return (
+        pl.col("is_worker")
+        .cast(pl.Utf8)
+        .str.to_lowercase()
+        .is_in(["true", "1", "yes", "worker"])
+    )
+
+
+def _aggregate_internal_external_counts(
+    df: pl.DataFrame,
+    geography_type: str,
+    geography_id_col: str,
+) -> pl.DataFrame:
+    return (
+        df.group_by(geography_id_col)
+        .agg(
+            internal_worker_count=pl.when(~pl.col("is_external_worker"))
+            .then(pl.col("finalweight"))
+            .otherwise(0.0)
+            .sum(),
+            external_worker_count=pl.when(pl.col("is_external_worker"))
+            .then(pl.col("finalweight"))
+            .otherwise(0.0)
+            .sum(),
+        )
+        .rename({geography_id_col: "geography_id"})
+        .with_columns(
+            pl.lit(geography_type).alias("geography_type"),
+            pl.col("geography_id").cast(pl.Utf8),
+            pl.col("internal_worker_count").cast(pl.Float64),
+            pl.col("external_worker_count").cast(pl.Float64),
+        )
+        .select(
+            "geography_type",
+            "geography_id",
+            "internal_worker_count",
+            "external_worker_count",
+        )
+    )
+
+
+def _aggregate_external_worker_counts(
+    df: pl.DataFrame,
+    geography_type: str,
+    geography_id_col: str,
+) -> pl.DataFrame:
+    return (
+        df.group_by(geography_id_col)
+        .agg(external_worker_count=pl.col("finalweight").sum())
+        .rename({geography_id_col: "geography_id"})
+        .with_columns(
+            pl.lit(geography_type).alias("geography_type"),
+            pl.col("geography_id").cast(pl.Utf8),
+            pl.col("external_worker_count").cast(pl.Float64),
+        )
+        .select("geography_type", "geography_id", "external_worker_count")
+    )
+
+
 def internal_vs_external(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    """
+    Always emits MAZ/home_zone_id rows.
+    May also emit configured geography aggregations if the repo exposes
+    a geography lookup/mapping helper in config.
+    """
+    required = {
+        "is_worker",
+        "is_external_worker",
+        "home_zone_id",
+        "finalweight",
+    }
+    if not required.issubset(set(rd.per.columns)):
+        return _empty_internal_external_worker_by_geography()
+
+    base = rd.per.filter(
+        _worker_filter_expr()
+        & pl.col("is_external_worker").is_not_null()
+        & pl.col("home_zone_id").is_not_null()
+    ).select("home_zone_id", "is_external_worker", "finalweight")
+
+    if base.is_empty():
+        return _empty_internal_external_worker_by_geography()
+
+    outputs = [
+        _aggregate_internal_external_counts(
+            base,
+            geography_type="maz",
+            geography_id_col="home_zone_id",
+        )
+    ]
+
+    # TODO: Need to update below for geographic aggregation
+
+    # Adapt this block to your repo's existing geography config/helper pattern.
+    # The primer says geography-aware summaries may aggregate to configured
+    # geographies when a MAZ-to-geography lookup is provided.
+    #
+    # Example expected pattern:
+    # if config.geography_enabled:
+    #     for geography_type, lookup_df in config.home_maz_geography_lookups():
+    #         # lookup_df must map home_zone_id -> geography_id
+    #         geo_df = (
+    #             base.join(lookup_df, on="home_zone_id", how="inner")
+    #             .pipe(_aggregate_internal_external_counts, geography_type, "geography_id")
+    #         )
+    #         outputs.append(geo_df)
+
+    return (
+        pl.concat(outputs, how="vertical")
+        .with_columns(
+            pl.col("geography_type").cast(pl.Utf8),
+            pl.col("geography_id").cast(pl.Utf8),
+            pl.col("internal_worker_count").cast(pl.Float64),
+            pl.col("external_worker_count").cast(pl.Float64),
+        )
+        .sort(["geography_type", "geography_id"])
+    )
 
 
 def external_workplace_loc(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    """
+    Always emits MAZ/external_workplace_zone_id rows.
+    May also emit configured geography aggregations if the repo exposes
+    an external-workplace geography lookup/mapping helper in config.
+    """
+    required = {
+        "is_external_worker",
+        "external_workplace_zone_id",
+        "finalweight",
+    }
+    if not required.issubset(set(rd.per.columns)):
+        return _empty_external_worker_workplace_locations()
+
+    base = rd.per.filter(
+        (pl.col("is_external_worker") == True)
+        & pl.col("external_workplace_zone_id").is_not_null()
+    ).select("external_workplace_zone_id", "finalweight")
+
+    if base.is_empty():
+        return _empty_external_worker_workplace_locations()
+
+    outputs = [
+        _aggregate_external_worker_counts(
+            base,
+            geography_type="maz",
+            geography_id_col="external_workplace_zone_id",
+        )
+    ]
+
+    # TODO Update to match geographic aggregation API
+    # Adapt this block to your repo's actual config/helper API.
+    # Example expected pattern:
+    # if config.geography_enabled:
+    #     for geography_type, lookup_df in config.external_workplace_maz_geography_lookups():
+    #         # lookup_df must map external_workplace_zone_id -> geography_id
+    #         geo_df = (
+    #             base.join(lookup_df, on="external_workplace_zone_id", how="inner")
+    #             .pipe(_aggregate_external_worker_counts, geography_type, "geography_id")
+    #         )
+    #         outputs.append(geo_df)
+
+    return (
+        pl.concat(outputs, how="vertical")
+        .with_columns(
+            pl.col("geography_type").cast(pl.Utf8),
+            pl.col("geography_id").cast(pl.Utf8),
+            pl.col("external_worker_count").cast(pl.Float64),
+        )
+        .sort(["geography_type", "geography_id"])
+    )
 
 
 def workplace_vs_land_use_employment(rd: RunData, config: Config) -> pl.DataFrame:

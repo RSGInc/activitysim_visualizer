@@ -160,6 +160,7 @@ The contributor-oriented docs live under [`docs/`](docs/):
 - [`docs/summary-workflow.md`](docs/summary-workflow.md): cache generation, cache loading, and export/live runtime flow
 - [`docs/adding-summaries.md`](docs/adding-summaries.md): how to add and register new summary tables
 - [`docs/adding-dashboard-pages.md`](docs/adding-dashboard-pages.md): how to add pages, selectors, and shared dashboard components
+- [`docs/plotting-summary-tables.md`](docs/plotting-summary-tables.md): how to turn summary tables into bar, line, and distribution charts
 - [`docs/export_html_schema.md`](docs/export_html_schema.md): the offline export payload/runtime contract
 - [`docs/export_html_contributor_guide.md`](docs/export_html_contributor_guide.md): how to extend export support for pages and selectors
 - [`docs/adr/ADR-custom-export-runtime.md`](docs/adr/ADR-custom-export-runtime.md): why the project keeps the custom offline export runtime
