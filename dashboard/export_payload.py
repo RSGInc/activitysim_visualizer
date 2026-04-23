@@ -13,22 +13,29 @@ from dashboard.components import (
     set_run_colors,
 )
 from dashboard.export_context import ExportBuildContext
+from dashboard.export_protocols import validate_export_page
 from dashboard.export_serializer import (
     page_definition_for_page,
     serialize_viewable,
     variant_key,
 )
 from dashboard.export_types import (
+    EXPORT_CLIENT_RUNTIME,
+    EXPORT_PAGE_SELECTOR_RUNTIME,
+    EXPORT_SCHEMA_VERSION,
     ExportPayload,
     PageContentPayload,
     PageDescriptorPayload,
+    PageSelectorReferencePayload,
     SelectorMetadataPayload,
 )
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
 from dashboard.page_registry import (
-    all_page_definitions,
     build_export_raw_run_provider,
     build_registered_export_pages,
+    exportable_page_selectors,
+    page_definition_by_id,
+    selector_definition_by_id,
 )
 from runtime.config import Config, ExportSelectorRequest
 from runtime.models import RunData
@@ -68,6 +75,7 @@ def build_export_payload(
                 page_order = state_payloads[key]["pages"]
 
     return {
+        "schema_version": EXPORT_SCHEMA_VERSION,
         "title": config.dashboard_title,
         "runs_loaded": build_run_legend_entries(chrome_state.run_labels),
         "chrome": {
@@ -91,10 +99,10 @@ def build_export_payload(
             key: payload["content_by_page"] for key, payload in state_payloads.items()
         },
         "page_export_support": {
-            "client_side_runtime": "dashboard-and-page-selectors",
+            "client_side_runtime": EXPORT_PAGE_SELECTOR_RUNTIME,
             "enabled_page_selectors": enabled_page_selectors_payload(),
         },
-        "client_runtime": "figure-swap-v1",
+        "client_runtime": EXPORT_CLIENT_RUNTIME,
     }
 
 
@@ -114,6 +122,7 @@ def serialize_dashboard_state(
     page_defs: list[PageDescriptorPayload] = []
     content_by_page: dict[str, PageContentPayload] = {}
     for page in pages:
+        validate_export_page(page)
         page.refresh(force=True)
         if page.view is None:
             continue
@@ -319,9 +328,10 @@ def resolve_selector_values(
 
 def validate_page_export_config(config: Config) -> None:
     """Validate export page and selector ids against the live registry."""
-    known_pages = {page.page_id: page for page in all_page_definitions()}
     unknown_pages = sorted(
-        page_id for page_id in config.export_html.pages if page_id not in known_pages
+        page_id
+        for page_id in config.export_html.pages
+        if page_definition_by_id(page_id) is None
     )
     if unknown_pages:
         raise ValueError(
@@ -330,13 +340,10 @@ def validate_page_export_config(config: Config) -> None:
         )
 
     for page_id, selectors in config.export_html.pages.items():
-        known_selectors = {
-            selector.selector_id for selector in known_pages[page_id].selectors
-        }
         unknown_selectors = sorted(
             selector_id
             for selector_id in selectors
-            if selector_id not in known_selectors
+            if selector_definition_by_id(page_id, selector_id) is None
         )
         if unknown_selectors:
             raise ValueError(
@@ -350,9 +357,7 @@ def enabled_page_selectors_payload() -> list[PageSelectorReferencePayload]:
     return sorted(
         [
             {"page_id": page.page_id, "selector_id": selector.selector_id}
-            for page in all_page_definitions()
-            for selector in page.selectors
-            if selector.exportable
+            for page, selector in exportable_page_selectors()
         ],
         key=lambda item: (item["page_id"], item["selector_id"]),
     )

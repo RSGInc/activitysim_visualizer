@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dashboard.export_types import EXPORT_SCHEMA_VERSION
+
 
 EXPORT_CSS = """
 :root {
@@ -227,6 +229,24 @@ table.export-table thead th {
   color: var(--muted);
   background: var(--surface-soft);
 }
+.export-error-panel {
+  background: #fff4f4;
+  border: 1px solid #f0b6b6;
+  border-left: 6px solid #c53d3d;
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 20px 22px;
+}
+.export-error-title {
+  margin: 0 0 8px;
+  color: #7f1d1d;
+  font-size: 22px;
+}
+.export-error-message {
+  margin: 0;
+  color: #5b2430;
+  line-height: 1.5;
+}
 @media (max-width: 900px) {
   .export-shell {
     padding: 14px;
@@ -243,15 +263,86 @@ table.export-table thead th {
 
 EXPORT_RUNTIME_JS = r"""
 (function () {
-  const payload = JSON.parse(document.getElementById("activitysim-export-data").textContent);
+  const SUPPORTED_SCHEMA_VERSION = "__EXPORT_SCHEMA_VERSION__";
+  const dataElement = document.getElementById("activitysim-export-data");
+  const app = document.getElementById("app");
+  let payload = null;
+
+  function clearElement(element) {
+    while (element.firstChild) {
+      element.removeChild(element.firstChild);
+    }
+  }
+
+  function renderRuntimeError(message, detail) {
+    console.error("[activitysim-export] " + message, detail);
+    clearElement(app);
+
+    const shell = document.createElement("div");
+    shell.className = "export-shell";
+
+    const panel = document.createElement("div");
+    panel.className = "export-error-panel";
+
+    const title = document.createElement("h1");
+    title.className = "export-error-title";
+    title.textContent = "Offline export failed to load";
+    panel.appendChild(title);
+
+    const body = document.createElement("p");
+    body.className = "export-error-message";
+    body.textContent = message;
+    panel.appendChild(body);
+
+    if (detail) {
+      const extra = document.createElement("p");
+      extra.className = "export-error-message";
+      extra.textContent = String(detail);
+      panel.appendChild(extra);
+    }
+
+    shell.appendChild(panel);
+    app.appendChild(shell);
+  }
+
+  function validatePayloadSchema(candidate) {
+    if (!candidate || typeof candidate !== "object") {
+      throw new Error("Export payload was missing or malformed.");
+    }
+    if (candidate.schema_version !== SUPPORTED_SCHEMA_VERSION) {
+      throw new Error(
+        "Unsupported export schema version. Expected "
+          + SUPPORTED_SCHEMA_VERSION
+          + " but received "
+          + String(candidate.schema_version || "<missing>")
+          + "."
+      );
+    }
+    if (!Array.isArray(candidate.pages)) {
+      throw new Error("Export payload is missing its page descriptors.");
+    }
+    if (!candidate.default_state || !candidate.states) {
+      throw new Error("Export payload is missing required dashboard state data.");
+    }
+  }
+
+  try {
+    payload = JSON.parse(dataElement.textContent);
+    validatePayloadSchema(payload);
+  } catch (error) {
+    renderRuntimeError(
+      "This HTML export is not compatible with the embedded client runtime.",
+      error && error.message ? error.message : error
+    );
+    return;
+  }
+
   const state = {
     weighting: payload.default_state.weighting,
     values: payload.default_state.values,
     activePage: payload.pages.length ? payload.pages[0].id : null,
     pageSelectors: {},
   };
-
-  const app = document.getElementById("app");
 
   (payload.pages || []).forEach((page) => {
     const selectorState = {};
@@ -265,12 +356,6 @@ EXPORT_RUNTIME_JS = r"""
 
   function stateKey() {
     return state.weighting + "||" + state.values;
-  }
-
-  function clearElement(element) {
-    while (element.firstChild) {
-      element.removeChild(element.firstChild);
-    }
   }
 
   function makeButton(label, active, onClick, className) {
@@ -651,6 +736,9 @@ EXPORT_RUNTIME_JS = r"""
 
 def build_export_html_shell(*, title: str, payload_json: str, plotly_js: str) -> str:
     """Assemble the final self-contained HTML document."""
+    runtime_js = EXPORT_RUNTIME_JS.replace(
+        "__EXPORT_SCHEMA_VERSION__", EXPORT_SCHEMA_VERSION
+    )
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -668,7 +756,7 @@ def build_export_html_shell(*, title: str, payload_json: str, plotly_js: str) ->
   <div id="app"></div>
   <script id="activitysim-export-data" type="application/json">{payload_json}</script>
   <script>
-{EXPORT_RUNTIME_JS}
+{runtime_js}
   </script>
 </body>
 </html>

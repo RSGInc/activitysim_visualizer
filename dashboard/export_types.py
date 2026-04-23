@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any, Literal, TypedDict
+
+EXPORT_SCHEMA_VERSION = "1.0"
+EXPORT_CLIENT_RUNTIME = "figure-swap-v1"
+EXPORT_PAGE_SELECTOR_RUNTIME = "dashboard-and-page-selectors"
 
 NodeKind = Literal[
     "container",
@@ -157,5 +161,4 @@ class ExportPayload(TypedDict):
     states: dict[str, dict[str, PageContentPayload]]
     page_export_support: PageExportSupportPayload
     client_runtime: str
-    schema_version: NotRequired[str]
-
+    schema_version: str
