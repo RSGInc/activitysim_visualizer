@@ -342,7 +342,7 @@ def run_dashboard_workflow(
         )
 
     if export_html_path:
-        from dashboard.export_html import write_export_html_document
+        from dashboard.export.html import write_export_html_document
 
         LOGGER.info("Building dashboard")
         LOGGER.info("Exporting dashboard to %s ...", export_html_path)

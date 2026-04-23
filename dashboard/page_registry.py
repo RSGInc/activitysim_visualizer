@@ -142,7 +142,9 @@ def selector_definition_by_id(
     return None
 
 
-def exportable_page_selectors() -> list[tuple[DashboardPageDefinition, PageSelectorDefinition]]:
+def exportable_page_selectors() -> (
+    list[tuple[DashboardPageDefinition, PageSelectorDefinition]]
+):
     """Return all exportable page selectors in stable page/selector order."""
     return [
         (page_definition, selector)
@@ -230,7 +232,9 @@ def resolve_page_definitions(config: Config) -> list[DashboardPageDefinition]:
 def resolve_export_page_definitions(config: Config) -> list[DashboardPageDefinition]:
     """Resolve the export HTML pages in display order."""
     configured_page_ids = (
-        list(config.export_html.pages.keys()) if config.export_html.pages_configured else None
+        list(config.export_html.pages.keys())
+        if config.export_html.pages_configured
+        else None
     )
     return _resolve_page_definitions_for_ids(
         configured_page_ids,

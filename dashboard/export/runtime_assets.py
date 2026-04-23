@@ -7,7 +7,6 @@ from pathlib import Path
 
 from dashboard.export.types import EXPORT_SCHEMA_VERSION
 
-
 ASSET_DIR = Path(__file__).with_name("assets")
 EXPORT_CSS_PATH = ASSET_DIR / "export.css"
 EXPORT_RUNTIME_JS_PATH = ASSET_DIR / "export_runtime.js"
