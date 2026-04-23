@@ -595,6 +595,13 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
         "tour_id",
         _resolve_source_column(joint_participants, config.col_tour_id),
     )
+    joint_participants = _cast_if_present(
+        joint_participants,
+        {
+            "person_id": pl.Int64,
+            "tour_id": pl.Int64,
+        },
+    )
 
     land_use = _materialize_column(
         land_use,
@@ -614,7 +621,11 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     )
     LOGGER.info("[prepare_data] Weights ready for '%s'", rd.label)
 
-    if config.use_maz:
+    if (
+        config.use_maz
+        and config.maz_col in land_use.columns
+        and config.taz_col in land_use.columns
+    ):
         LOGGER.info("[prepare_data] Building MAZ->TAZ lookup for '%s'", rd.label)
         maz_taz = (
             land_use.select([config.maz_col, config.taz_col])
@@ -625,7 +636,14 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
         maz_taz = None
 
     zone_geo: Optional[pl.DataFrame] = None
-    if config.geography_enabled and config.geography_landuse_col:
+    if (
+        config.geography_enabled
+        and config.geography_landuse_col
+        and (
+            (config.taz_col if config.use_maz else config.maz_col) in land_use.columns
+        )
+        and config.geography_landuse_col in land_use.columns
+    ):
         LOGGER.info(
             "[prepare_data] Applying geography labels from '%s'",
             config.geography_landuse_col,
@@ -783,7 +801,11 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     elif "SKIMDIST" not in tours.columns:
         tours = tours.with_columns(pl.lit(0.0).alias("SKIMDIST"))
 
-    if "tour_id" in tours.columns and "person_id" in joint_participants.columns:
+    if (
+        "tour_id" in tours.columns
+        and "tour_id" in joint_participants.columns
+        and joint_participants.schema.get("tour_id") != pl.Null
+    ):
         party_size = joint_participants.group_by("tour_id").agg(
             pl.len().alias("NUMBER_HH")
         )
@@ -829,8 +851,13 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
             trips = trips.rename({tour_col: column})
 
     if "HHVEH" not in trips.columns:
+        hh_trip_join_cols = [
+            column
+            for column in ["household_id", "HHVEH", "WORKERS"]
+            if column in hh.columns
+        ]
         trips = trips.join(
-            hh.select(["household_id", "HHVEH", "WORKERS"]),
+            hh.select(hh_trip_join_cols),
             on="household_id",
             how="left",
         )

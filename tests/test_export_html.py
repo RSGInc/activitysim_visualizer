@@ -746,6 +746,7 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
         {"page_id": "joint_tours", "selector_id": "hh_size"},
         {"page_id": "long_term", "selector_id": "geography"},
         {"page_id": "stop_frequency", "selector_id": "tour_purpose"},
+        {"page_id": "stop_location", "selector_id": "purpose"},
         {"page_id": "stop_timing", "selector_id": "purpose"},
         {"page_id": "tour_mode", "selector_id": "purpose"},
         {"page_id": "tour_summary", "selector_id": "person_type"},
@@ -789,6 +790,10 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     assert page_defs["stop_frequency"]["selectors"][0]["request_mode"] == "default"
     assert page_defs["stop_frequency"]["selectors"][0]["resolved_values"] == ["Total"]
     assert page_defs["stop_frequency"]["selectors"][0]["export_enabled"] is True
+    assert page_defs["stop_location"]["selectors"][0]["id"] == "purpose"
+    assert page_defs["stop_location"]["selectors"][0]["request_mode"] == "default"
+    assert page_defs["stop_location"]["selectors"][0]["resolved_values"] == ["Total"]
+    assert page_defs["stop_location"]["selectors"][0]["export_enabled"] is True
     assert page_defs["stop_timing"]["selectors"][0]["id"] == "purpose"
     assert page_defs["stop_timing"]["selectors"][0]["request_mode"] == "default"
     assert page_defs["stop_timing"]["selectors"][0]["resolved_values"] == ["Total"]
@@ -835,6 +840,11 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     assert stop_frequency["selector_ids"] == ["tour_purpose"]
     assert stop_frequency["default_key"] == '["Total"]'
     assert sorted(stop_frequency["variants"]) == ['["Total"]']
+    stop_location = weighted_percent["stop_location"]
+    assert stop_location["kind"] == "page_variants"
+    assert stop_location["selector_ids"] == ["purpose"]
+    assert stop_location["default_key"] == '["Total"]'
+    assert sorted(stop_location["variants"]) == ['["Total"]']
     stop_timing = weighted_percent["stop_timing"]
     assert stop_timing["kind"] == "page_variants"
     assert stop_timing["selector_ids"] == ["purpose"]
@@ -980,6 +990,8 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
             "    purpose: all",
             "  stop_frequency:",
             "    tour_purpose: all",
+            "  stop_location:",
+            "    purpose: all",
             "  stop_timing:",
             "    purpose: all",
             "  tour_tod:",
@@ -1025,6 +1037,13 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
         "social",
     ]
     assert page_defs["stop_frequency"]["selectors"][0]["export_enabled"] is True
+    assert page_defs["stop_location"]["selectors"][0]["request_mode"] == "all"
+    assert page_defs["stop_location"]["selectors"][0]["resolved_values"] == [
+        "Total",
+        "eatout",
+        "social",
+    ]
+    assert page_defs["stop_location"]["selectors"][0]["export_enabled"] is True
     assert page_defs["stop_timing"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["stop_timing"]["selectors"][0]["resolved_values"] == [
         "Total",
@@ -1086,6 +1105,15 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
     ]
     assert stop_frequency_weighted_percent["kind"] == "page_variants"
     assert sorted(stop_frequency_weighted_percent["variants"]) == [
+        '["Total"]',
+        '["eatout"]',
+        '["social"]',
+    ]
+    stop_location_weighted_percent = payload["states"]["Weighted||Percent"][
+        "stop_location"
+    ]
+    assert stop_location_weighted_percent["kind"] == "page_variants"
+    assert sorted(stop_location_weighted_percent["variants"]) == [
         '["Total"]',
         '["eatout"]',
         '["social"]',

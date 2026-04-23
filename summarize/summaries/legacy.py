@@ -293,7 +293,13 @@ def system_totals(rd: RunData, config: Config | None = None) -> pl.DataFrame:
     emp_col = next(
         (
             c
-            for c in ["EMPLOY_TOT", "TOTEMP", "total_employment", "employment"]
+            for c in [
+                "EMPLOYMENT",
+                "EMPLOY_TOT",
+                "TOTEMP",
+                "total_employment",
+                "employment",
+            ]
             if c in rd.land_use.columns
         ),
         None,
