@@ -224,11 +224,31 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         joint_travel.jtf_by_hhsize,
     ),
     # TOUR SUMMARIES
-    # tour category
-    # tour purpose
-    # allocated vehicle age
-    # allocated vehicle fuel type
-    # allocated vehicle body type
+    SummarySpec(
+        "tour_category_distribution",
+        "tour_category_distribution",
+        tour.tour_category,
+    ),
+    SummarySpec(
+        "tour_purpose_distribution",
+        "tour_purpose_distribution",
+        tour.tour_purpose,
+    ),
+    SummarySpec(
+        "allocated_vehicle_age_by_occupancy",
+        "allocated_vehicle_age_by_occupancy",
+        tour.allocated_vehicle_age,
+    ),
+    SummarySpec(
+        "allocated_vehicle_fuel_type_by_occupancy",
+        "allocated_vehicle_fuel_type_by_occupancy",
+        tour.allocated_vehicle_fuel,
+    ),
+    SummarySpec(
+        "allocated_vehicle_body_type_by_occupancy",
+        "allocated_vehicle_body_type_by_occupancy",
+        tour.allocated_vehicle_body,
+    ),
     SummarySpec(
         "tour_mode_by_tour_purpose_and_auto_sufficiency",
         "tour_mode_by_tour_purpose_and_auto_sufficiency",
@@ -239,21 +259,41 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         "tour_stop_frequency_by_tour_purpose",
         tour.stop_freq,
     ),
-    # at-work sub-tour frequency
+    SummarySpec(
+        "atwork_subtour_frequency_distribution",
+        "atwork_subtour_frequency_distribution",
+        tour.atwork_subtour_frequency_distribution,
+    ),
     SummarySpec(
         "tour_time_of_day_by_tour_purpose",
         "tour_time_of_day_by_tour_purpose",
         tour.tour_tod,
     ),
-    # tour distance
+    SummarySpec(
+        "tour_distance_by_tour_purpose",
+        "tour_distance_by_tour_purpose",
+        tour.tour_distance,
+    ),
     SummarySpec(
         "average_mandatory_tour_distance_by_purpose_and_geography",
         "average_mandatory_tour_distance_by_purpose_and_geography",
         tour.avg_mand_tour_distance,
     ),
-    # avg non-mandatory tour distance
-    # interval vs external non mandatory tour freq
-    # external nonmandatory tour location
+    SummarySpec(
+        "average_nonmandatory_tour_distance_by_purpose_and_geography",
+        "average_nonmandatory_tour_distance_by_purpose_and_geography",
+        tour.avg_non_mand_tour_distance,
+    ),
+    SummarySpec(
+        "internal_external_nonmandatory_tour_frequency_by_home_geography",
+        "internal_external_nonmandatory_tour_frequency_by_home_geography",
+        long_term.int_vs_ext_non_mand_tour_freq,
+    ),
+    SummarySpec(
+        "external_nonmandatory_tour_locations",
+        "external_nonmandatory_tour_locations",
+        long_term.external_nonmandatory_tour_locations,
+    ),
     # TRIP SUMMARIES
     # trip purpose
     SummarySpec(

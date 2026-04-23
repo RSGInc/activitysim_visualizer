@@ -6,23 +6,194 @@ from processor.models import RunData
 
 
 def tour_category(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    result_schema = {
+        "tour_category": pl.Utf8,
+        "tour_count": pl.Float64,
+    }
+
+    required = {"tour_category", "finalweight"}
+    if not required.issubset(set(rd.tours.columns)):
+        return pl.DataFrame(schema=result_schema)
+
+    return (
+        rd.tours.filter(pl.col("tour_category").is_not_null())
+        .group_by("tour_category")
+        .agg(tour_count=pl.col("finalweight").sum())
+        .with_columns(
+            pl.col("tour_category").cast(pl.Utf8),
+            pl.col("tour_count").cast(pl.Float64),
+        )
+        .select("tour_category", "tour_count")
+        .sort("tour_category")
+    )
 
 
 def tour_purpose(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    result_schema = {
+        "tour_purpose": pl.Utf8,
+        "tour_count": pl.Float64,
+    }
+
+    required = {"tour_purpose", "finalweight"}
+    if not required.issubset(set(rd.tours.columns)):
+        return pl.DataFrame(schema=result_schema)
+
+    return (
+        rd.tours.filter(pl.col("tour_purpose").is_not_null())
+        .group_by("tour_purpose")
+        .agg(tour_count=pl.col("finalweight").sum())
+        .with_columns(
+            pl.col("tour_purpose").cast(pl.Utf8),
+            pl.col("tour_count").cast(pl.Float64),
+        )
+        .select("tour_purpose", "tour_count")
+        .sort("tour_purpose")
+    )
+
+
+def _prepared_allocated_vehicles_from_tours(rd: RunData) -> pl.DataFrame:
+    """
+    Reshapes allocated vehicle columns on tours into a long table with:
+      - occupancy
+      - allocated_vehicle_type
+      - body_type
+      - fuel_type
+      - age
+      - finalweight
+
+    Assumes allocated vehicle strings use the same pattern as vehicle_type:
+      {body}_{age}_{fuel}
+    e.g. Car_11_Gas
+    """
+    required = {
+        "vehicle_occup_1",
+        "vehicle_occup_2",
+        "vehicle_occup_3.5",
+        "finalweight",
+    }
+    if not required.issubset(set(rd.tours.columns)):
+        return pl.DataFrame()
+
+    long_df = pl.concat(
+        [
+            rd.tours.select(
+                pl.lit("1").alias("occupancy"),
+                pl.col("vehicle_occup_1").alias("allocated_vehicle_type"),
+                pl.col("finalweight"),
+            ),
+            rd.tours.select(
+                pl.lit("2").alias("occupancy"),
+                pl.col("vehicle_occup_2").alias("allocated_vehicle_type"),
+                pl.col("finalweight"),
+            ),
+            rd.tours.select(
+                pl.lit("3+").alias("occupancy"),
+                pl.col("vehicle_occup_3.5").alias("allocated_vehicle_type"),
+                pl.col("finalweight"),
+            ),
+        ],
+        how="vertical",
+    )
+
+    return (
+        long_df.filter(pl.col("allocated_vehicle_type").is_not_null())
+        .with_columns(
+            parts=pl.col("allocated_vehicle_type").cast(pl.Utf8).str.split("_"),
+        )
+        .with_columns(
+            body_type=pl.col("parts").list.get(0).cast(pl.Utf8),
+            age_raw=pl.col("parts").list.get(1).cast(pl.Int64, strict=False),
+            fuel_type=pl.col("parts").list.get(2).cast(pl.Utf8),
+        )
+        .filter(
+            pl.col("body_type").is_not_null()
+            & pl.col("fuel_type").is_not_null()
+            & pl.col("age_raw").is_not_null()
+        )
+        .with_columns(
+            pl.when(pl.col("age_raw") >= 20)
+            .then(pl.lit("20+"))
+            .otherwise(pl.col("age_raw").cast(pl.Utf8))
+            .alias("age")
+        )
+        .drop(["parts", "age_raw"])
+    )
 
 
 def allocated_vehicle_age(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    result_schema = {
+        "age": pl.Utf8,
+        "occupancy": pl.Utf8,
+        "vehicle_count": pl.Float64,
+    }
+
+    vehicles = _prepared_allocated_vehicles_from_tours(rd)
+    if vehicles.is_empty():
+        return pl.DataFrame(schema=result_schema)
+
+    return (
+        vehicles.group_by(["age", "occupancy"])
+        .agg(vehicle_count=pl.col("finalweight").sum())
+        .with_columns(
+            pl.col("age").cast(pl.Utf8),
+            pl.col("occupancy").cast(pl.Utf8),
+            pl.col("vehicle_count").cast(pl.Float64),
+            pl.when(pl.col("age") == "20+")
+            .then(999)
+            .otherwise(pl.col("age").cast(pl.Int64, strict=False))
+            .alias("_sort_age"),
+        )
+        .sort(["_sort_age", "occupancy"])
+        .select("age", "occupancy", "vehicle_count")
+    )
 
 
 def allocated_vehicle_fuel(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    result_schema = {
+        "fuel_type": pl.Utf8,
+        "occupancy": pl.Utf8,
+        "vehicle_count": pl.Float64,
+    }
+
+    vehicles = _prepared_allocated_vehicles_from_tours(rd)
+    if vehicles.is_empty():
+        return pl.DataFrame(schema=result_schema)
+
+    return (
+        vehicles.group_by(["fuel_type", "occupancy"])
+        .agg(vehicle_count=pl.col("finalweight").sum())
+        .with_columns(
+            pl.col("fuel_type").cast(pl.Utf8),
+            pl.col("occupancy").cast(pl.Utf8),
+            pl.col("vehicle_count").cast(pl.Float64),
+        )
+        .select("fuel_type", "occupancy", "vehicle_count")
+        .sort(["fuel_type", "occupancy"])
+    )
 
 
 def allocated_vehicle_body(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    result_schema = {
+        "body_type": pl.Utf8,
+        "occupancy": pl.Utf8,
+        "vehicle_count": pl.Float64,
+    }
+
+    vehicles = _prepared_allocated_vehicles_from_tours(rd)
+    if vehicles.is_empty():
+        return pl.DataFrame(schema=result_schema)
+
+    return (
+        vehicles.group_by(["body_type", "occupancy"])
+        .agg(vehicle_count=pl.col("finalweight").sum())
+        .with_columns(
+            pl.col("body_type").cast(pl.Utf8),
+            pl.col("occupancy").cast(pl.Utf8),
+            pl.col("vehicle_count").cast(pl.Float64),
+        )
+        .select("body_type", "occupancy", "vehicle_count")
+        .sort(["body_type", "occupancy"])
+    )
 
 
 def tour_mode(rd: RunData, config: Config) -> pl.DataFrame:
@@ -70,7 +241,12 @@ def tour_mode(rd: RunData, config: Config) -> pl.DataFrame:
 
         if len(joint) > 0:
             j_purposes = (
-                joint["tour_purpose"].drop_nulls().cast(pl.Utf8).unique().sort().to_list()
+                joint["tour_purpose"]
+                .drop_nulls()
+                .cast(pl.Utf8)
+                .unique()
+                .sort()
+                .to_list()
             )
             for p in j_purposes:
                 purpose_groups.append(
@@ -243,7 +419,30 @@ def stop_freq(rd: RunData, config: Config) -> pl.DataFrame:
 
 
 def at_work_sub_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    result_schema = {
+        "atwork_subtour_frequency_category": pl.Utf8,
+        "atwork_subtour_count": pl.Float64,
+    }
+
+    required = {"tour_purpose", "atwork_subtour_frequency", "finalweight"}
+    if not required.issubset(set(rd.tours.columns)):
+        return pl.DataFrame(schema=result_schema)
+
+    return (
+        rd.tours.filter(
+            (pl.col("tour_purpose").cast(pl.Utf8).str.to_lowercase() == "work")
+            & pl.col("atwork_subtour_frequency").is_not_null()
+        )
+        .group_by("atwork_subtour_frequency")
+        .agg(atwork_subtour_count=pl.col("finalweight").sum())
+        .rename({"atwork_subtour_frequency": "atwork_subtour_frequency_category"})
+        .with_columns(
+            pl.col("atwork_subtour_frequency_category").cast(pl.Utf8),
+            pl.col("atwork_subtour_count").cast(pl.Float64),
+        )
+        .select("atwork_subtour_frequency_category", "atwork_subtour_count")
+        .sort("atwork_subtour_frequency_category")
+    )
 
 
 def tour_tod(rd: RunData, config: Config) -> pl.DataFrame:
@@ -279,7 +478,9 @@ def tour_tod(rd: RunData, config: Config) -> pl.DataFrame:
         if len(joint) > 0:
             j_purps = joint["tour_purpose"].drop_nulls().unique().sort().to_list()
             for p in j_purps:
-                purpose_groups.append((f"joint_{p}", joint, pl.col("tour_purpose") == p))
+                purpose_groups.append(
+                    (f"joint_{p}", joint, pl.col("tour_purpose") == p)
+                )
     else:
         return pl.DataFrame(schema=result_schema)
 
@@ -356,9 +557,82 @@ def tour_tod(rd: RunData, config: Config) -> pl.DataFrame:
 
 
 def tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    result_schema = {
+        "distance_bin": pl.Utf8,
+        "tour_purpose": pl.Utf8,
+        "tour_count": pl.Float64,
+    }
+
+    required = {
+        "tour_purpose",
+        "tour_category",
+        "number_of_participants",
+        "SKIMDIST",
+        "finalweight",
+    }
+    if not required.issubset(set(rd.tours.columns)):
+        return pl.DataFrame(schema=result_schema)
+
+    base = (
+        rd.tours.filter(
+            pl.col("tour_purpose").is_not_null() & pl.col("SKIMDIST").is_not_null()
+        )
+        .with_columns(
+            pl.col("tour_purpose").cast(pl.Utf8),
+            pl.when(pl.col("tour_category").cast(pl.Utf8).str.to_lowercase() == "joint")
+            .then(
+                pl.col("finalweight")
+                * pl.coalesce(
+                    [pl.col("number_of_participants").cast(pl.Float64), pl.lit(1.0)]
+                )
+            )
+            .otherwise(pl.col("finalweight"))
+            .alias("adjusted_weight"),
+            pl.col("SKIMDIST")
+            .cast(pl.Float64)
+            .round(0)
+            .alias("distance_miles_rounded"),
+        )
+        .with_columns(
+            pl.when(pl.col("distance_miles_rounded") >= 40)
+            .then(pl.lit("40+"))
+            .otherwise(
+                pl.col("distance_miles_rounded")
+                .cast(pl.Int64, strict=False)
+                .cast(pl.Utf8)
+            )
+            .alias("distance_bin")
+        )
+    )
+
+    by_purpose = base.group_by(["distance_bin", "tour_purpose"]).agg(
+        tour_count=pl.col("adjusted_weight").sum()
+    )
+
+    all_purposes = (
+        base.with_columns(pl.lit("all_tour_purposes").alias("tour_purpose"))
+        .group_by(["distance_bin", "tour_purpose"])
+        .agg(tour_count=pl.col("adjusted_weight").sum())
+    )
+
+    return (
+        pl.concat([by_purpose, all_purposes], how="vertical")
+        .with_columns(
+            pl.col("distance_bin").cast(pl.Utf8),
+            pl.col("tour_purpose").cast(pl.Utf8),
+            pl.col("tour_count").cast(pl.Float64),
+            pl.when(pl.col("distance_bin") == "40+")
+            .then(999)
+            .otherwise(pl.col("distance_bin").cast(pl.Int64, strict=False))
+            .alias("_sort_distance"),
+        )
+        .select("distance_bin", "tour_purpose", "tour_count", "_sort_distance")
+        .sort(["_sort_distance", "tour_purpose"])
+        .select("distance_bin", "tour_purpose", "tour_count")
+    )
 
 
+# TODO: Check if should use SKIMDIST instead of distance_to_school / distance_to_work
 def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     """Average mandatory tour distances.
 
@@ -474,9 +748,306 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     ).sort(["mandatory_tour_purpose", "geography"])
 
 
+def avg_non_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
+    """Average non-mandatory tour distance by purpose and geography.
+
+    Returns DataFrame:
+        nonmandatory_tour_purpose, geography, average_tour_distance
+    """
+    result_schema = {
+        "nonmandatory_tour_purpose": pl.Utf8,
+        "geography": pl.Utf8,
+        "average_tour_distance": pl.Float64,
+    }
+
+    required = {"tour_category", "tour_purpose", "SKIMDIST", "finalweight"}
+    if not required.issubset(set(rd.tours.columns)):
+        return pl.DataFrame(schema=result_schema)
+
+    tours = rd.tours.filter(
+        (pl.col("tour_category").cast(pl.Utf8).str.to_lowercase() == "non_mandatory")
+        & pl.col("tour_purpose").is_not_null()
+        & pl.col("SKIMDIST").is_not_null()
+        & pl.col("finalweight").is_not_null()
+    )
+
+    if tours.is_empty():
+        return pl.DataFrame(schema=result_schema)
+
+    def _weighted_avg_by_geo(
+        df: pl.DataFrame,
+        purpose_name: str,
+        geo_col: str = "HGEO",
+    ) -> pl.DataFrame:
+        rows = []
+
+        if config.geography_enabled and geo_col in df.columns:
+            groups = sorted(df[geo_col].drop_nulls().unique().to_list())
+            for grp in groups:
+                sub = df.filter(pl.col(geo_col) == grp)
+                weight_sum = sub["finalweight"].sum()
+
+                avg_dist = (
+                    None
+                    if weight_sum in (None, 0)
+                    else (sub["SKIMDIST"] * sub["finalweight"]).sum() / weight_sum
+                )
+
+                rows.append(
+                    {
+                        "nonmandatory_tour_purpose": purpose_name,
+                        "geography": str(grp),
+                        "average_tour_distance": avg_dist,
+                    }
+                )
+
+        total_weight = df["finalweight"].sum()
+        total_avg = (
+            None
+            if total_weight in (None, 0)
+            else (df["SKIMDIST"] * df["finalweight"]).sum() / total_weight
+        )
+
+        rows.append(
+            {
+                "nonmandatory_tour_purpose": purpose_name,
+                "geography": "all_geographies",
+                "average_tour_distance": total_avg,
+            }
+        )
+
+        return pl.DataFrame(rows, schema=result_schema)
+
+    purposes = (
+        tours.select("tour_purpose")
+        .unique()
+        .drop_nulls()
+        .sort("tour_purpose")
+        .get_column("tour_purpose")
+        .to_list()
+    )
+
+    result = pl.concat(
+        [
+            _weighted_avg_by_geo(
+                tours.filter(pl.col("tour_purpose") == purpose),
+                str(purpose),
+            )
+            for purpose in purposes
+        ],
+        how="vertical",
+    )
+
+    return (
+        result.with_columns(
+            pl.col("nonmandatory_tour_purpose").cast(pl.Utf8),
+            pl.col("geography").cast(pl.Utf8),
+            pl.col("average_tour_distance").cast(pl.Float64),
+        )
+        .select(
+            "nonmandatory_tour_purpose",
+            "geography",
+            "average_tour_distance",
+        )
+        .sort(["nonmandatory_tour_purpose", "geography"])
+    )
+
+
 def int_vs_ext_non_mand_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    result_schema = {
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
+        "internal_nonmandatory_tour_count": pl.Float64,
+        "external_nonmandatory_tour_count": pl.Float64,
+    }
+
+    person_required = {"person_id", "home_zone_id"}
+    tour_required = {"person_id", "tour_category", "is_external_tour", "finalweight"}
+
+    if not person_required.issubset(set(rd.per.columns)) or not tour_required.issubset(
+        set(rd.tours.columns)
+    ):
+        return pl.DataFrame(schema=result_schema)
+
+    def aggregate_counts(
+        df: pl.DataFrame,
+        geography_type: str,
+        geography_id_col: str,
+    ) -> pl.DataFrame:
+        return (
+            df.group_by(geography_id_col)
+            .agg(
+                internal_nonmandatory_tour_count=pl.when(~pl.col("is_external_tour"))
+                .then(pl.col("finalweight"))
+                .otherwise(0.0)
+                .sum(),
+                external_nonmandatory_tour_count=pl.when(pl.col("is_external_tour"))
+                .then(pl.col("finalweight"))
+                .otherwise(0.0)
+                .sum(),
+            )
+            .rename({geography_id_col: "geography_id"})
+            .with_columns(
+                pl.lit(geography_type).alias("geography_type"),
+                pl.col("geography_id").cast(pl.Utf8),
+                pl.col("internal_nonmandatory_tour_count").cast(pl.Float64),
+                pl.col("external_nonmandatory_tour_count").cast(pl.Float64),
+            )
+            .select(
+                "geography_type",
+                "geography_id",
+                "internal_nonmandatory_tour_count",
+                "external_nonmandatory_tour_count",
+            )
+        )
+
+    base = (
+        rd.tours.filter(
+            (
+                pl.col("tour_category").cast(pl.Utf8).str.to_lowercase()
+                == "non_mandatory"
+            )
+            & pl.col("person_id").is_not_null()
+            & pl.col("is_external_tour").is_not_null()
+        )
+        .join(
+            rd.per.select("person_id", "home_zone_id"),
+            on="person_id",
+            how="inner",
+        )
+        .filter(pl.col("home_zone_id").is_not_null())
+        .select("home_zone_id", "is_external_tour", "finalweight")
+    )
+
+    if base.is_empty():
+        return pl.DataFrame(schema=result_schema)
+
+    outputs = [
+        aggregate_counts(
+            base,
+            geography_type="maz",
+            geography_id_col="home_zone_id",
+        )
+    ]
+
+    # TODO: Adapt for home-geography helper pattern.
+    # The primer says geography-aware summaries may also aggregate to configured
+    # geographies when a MAZ-to-geography lookup is available. :contentReference[oaicite:2]{index=2}
+    #
+    # Example expected pattern:
+    # if config.geography_enabled:
+    #     for geography_type, lookup_df in config.home_maz_geography_lookups():
+    #         # lookup_df maps home_zone_id / MAZ -> geography_id
+    #         geo_df = (
+    #             base.join(
+    #                 lookup_df,
+    #                 left_on="home_zone_id",
+    #                 right_on="MAZ",
+    #                 how="inner",
+    #             )
+    #             .pipe(aggregate_counts, geography_type, "geography_id")
+    #         )
+    #         outputs.append(geo_df)
+
+    return (
+        pl.concat(outputs, how="vertical")
+        .with_columns(
+            pl.col("geography_type").cast(pl.Utf8),
+            pl.col("geography_id").cast(pl.Utf8),
+            pl.col("internal_nonmandatory_tour_count").cast(pl.Float64),
+            pl.col("external_nonmandatory_tour_count").cast(pl.Float64),
+        )
+        .select(
+            "geography_type",
+            "geography_id",
+            "internal_nonmandatory_tour_count",
+            "external_nonmandatory_tour_count",
+        )
+        .sort(["geography_type", "geography_id"])
+    )
 
 
 def ext_non_mand_tour_loc(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    result_schema = {
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
+        "external_nonmandatory_tour_count": pl.Float64,
+    }
+
+    required = {
+        "tour_category",
+        "is_external_tour",
+        "destination",
+        "finalweight",
+    }
+    if not required.issubset(set(rd.tours.columns)):
+        return pl.DataFrame(schema=result_schema)
+
+    def aggregate_counts(
+        df: pl.DataFrame,
+        geography_type: str,
+        geography_id_col: str,
+    ) -> pl.DataFrame:
+        return (
+            df.group_by(geography_id_col)
+            .agg(external_nonmandatory_tour_count=pl.col("finalweight").sum())
+            .rename({geography_id_col: "geography_id"})
+            .with_columns(
+                pl.lit(geography_type).alias("geography_type"),
+                pl.col("geography_id").cast(pl.Utf8),
+                pl.col("external_nonmandatory_tour_count").cast(pl.Float64),
+            )
+            .select(
+                "geography_type",
+                "geography_id",
+                "external_nonmandatory_tour_count",
+            )
+        )
+
+    base = rd.tours.filter(
+        (pl.col("tour_category").cast(pl.Utf8).str.to_lowercase() == "non_mandatory")
+        & (pl.col("is_external_tour") == True)
+        & pl.col("destination").is_not_null()
+    ).select("destination", "finalweight")
+
+    if base.is_empty():
+        return pl.DataFrame(schema=result_schema)
+
+    outputs = [
+        aggregate_counts(
+            base,
+            geography_type="maz",
+            geography_id_col="destination",
+        )
+    ]
+
+    # TODO Adapt this block to existing destination-geography helper pattern.
+    # Expected idea:
+    # if config.geography_enabled:
+    #     for geography_type, lookup_df in config.destination_maz_geography_lookups():
+    #         # lookup_df maps MAZ -> geography_id
+    #         geo_df = (
+    #             base.join(
+    #                 lookup_df,
+    #                 left_on="destination",
+    #                 right_on="MAZ",
+    #                 how="inner",
+    #             )
+    #             .pipe(aggregate_counts, geography_type, "geography_id")
+    #         )
+    #         outputs.append(geo_df)
+
+    return (
+        pl.concat(outputs, how="vertical")
+        .with_columns(
+            pl.col("geography_type").cast(pl.Utf8),
+            pl.col("geography_id").cast(pl.Utf8),
+            pl.col("external_nonmandatory_tour_count").cast(pl.Float64),
+        )
+        .select(
+            "geography_type",
+            "geography_id",
+            "external_nonmandatory_tour_count",
+        )
+        .sort(["geography_type", "geography_id"])
+    )
