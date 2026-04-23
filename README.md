@@ -137,7 +137,13 @@ activitysim_visualizer/
 |-- dashboard/
 |   |-- app.py
 |   |-- components.py
-|   |-- export_html.py
+|   |-- export/
+|   |   |-- html.py
+|   |   |-- payload.py
+|   |   |-- serializer.py
+|   |   |-- runtime_assets.py
+|   |   |-- types.py
+|   |   `-- assets/
 |   |-- page_base.py
 |   |-- page_definitions.py
 |   |-- page_registry.py
@@ -154,6 +160,9 @@ The contributor-oriented docs live under [`docs/`](docs/):
 - [`docs/summary-workflow.md`](docs/summary-workflow.md): cache generation, cache loading, and export/live runtime flow
 - [`docs/adding-summaries.md`](docs/adding-summaries.md): how to add and register new summary tables
 - [`docs/adding-dashboard-pages.md`](docs/adding-dashboard-pages.md): how to add pages, selectors, and shared dashboard components
+- [`docs/export_html_schema.md`](docs/export_html_schema.md): the offline export payload/runtime contract
+- [`docs/export_html_contributor_guide.md`](docs/export_html_contributor_guide.md): how to extend export support for pages and selectors
+- [`docs/adr/ADR-custom-export-runtime.md`](docs/adr/ADR-custom-export-runtime.md): why the project keeps the custom offline export runtime
 
 If you are new to the codebase, start with `architecture.md`, then read the specific extension guide for the area you plan to change.
 
@@ -164,6 +173,7 @@ When behavior changes, update the docs in the same change:
 - New config key or config behavior: update this README and any affected workflow guide.
 - New summary contract or registration pattern: update `docs/adding-summaries.md`.
 - New page, selector, or export behavior: update `docs/adding-dashboard-pages.md`.
+- New export payload/runtime behavior: update `docs/export_html_schema.md` and `docs/export_html_contributor_guide.md`.
 - Architecture or runtime-flow changes: update `docs/architecture.md` or `docs/summary-workflow.md`.
 
 Treat this README plus the `docs/` guides as the canonical contributor onboarding set.

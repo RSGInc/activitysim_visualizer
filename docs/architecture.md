@@ -17,7 +17,7 @@ The codebase is organized around those jobs rather than around one monolithic ap
 | Processor prepare step | Read raw ActivitySim outputs, materialize canonical prepared columns, and manage prepared-table cache I/O | `processor/models.py`, `processor/prepare/*` |
 | Summary generation and cache I/O | Register summary builders, compute weighted/unweighted tables, write/load cache manifests and CSVs | `processor/summarize/cache.py`, `processor/summarize/schema.py`, `processor/summarize/summaries/*.py` |
 | Dashboard registry and state | Discover pages, validate page contracts, hold live state and cached filtered views | `dashboard/page_registry.py`, `dashboard/page_definitions.py`, `dashboard/state.py`, `dashboard/page_base.py` |
-| Rendering | Build the live Panel app or serialize a client-side HTML document | `dashboard/app.py`, `dashboard/components.py`, `dashboard/export_html.py` |
+| Rendering | Build the live Panel app or serialize a client-side HTML document | `dashboard/app.py`, `dashboard/components.py`, `dashboard/export/` |
 
 ## End-to-End Flow
 
@@ -39,7 +39,7 @@ run.py
        C. load_summary_runs_from_cache() for dashboard-only cache runs
           -> processor.summarize.cache.load_summary_run_cache()
        D. dashboard.app.build_dashboard()
-       E. dashboard.export_html.build_export_html_document()
+       E. dashboard.export.html.build_export_html_document()
 ```
 
 ## Core Runtime Contracts
@@ -113,7 +113,13 @@ activitysim_visualizer/
 |-- dashboard/
 |   |-- app.py
 |   |-- components.py
-|   |-- export_html.py
+|   |-- export/
+|   |   |-- html.py
+|   |   |-- payload.py
+|   |   |-- serializer.py
+|   |   |-- runtime_assets.py
+|   |   |-- types.py
+|   |   `-- assets/
 |   |-- page_base.py
 |   |-- page_definitions.py
 |   |-- page_registry.py
@@ -127,3 +133,4 @@ activitysim_visualizer/
 - Start with [summary-workflow.md](summary-workflow.md) if you need to understand cache generation, cache loading, and prepared-run usage.
 - Read [adding-summaries.md](adding-summaries.md) before changing anything under `processor/summarize/`.
 - Read [adding-dashboard-pages.md](adding-dashboard-pages.md) before adding a dashboard page or page-local export selector.
+- Read [export_html_schema.md](export_html_schema.md) and [export_html_contributor_guide.md](export_html_contributor_guide.md) before changing the offline export contract.

@@ -12,7 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _dashboard_expectations import EXPECTED_DEFAULT_PAGES
-from dashboard.export_html import build_export_html_document, write_export_html_document
+from dashboard.export.html import build_export_html_document, write_export_html_document
+from dashboard.export.types import EXPORT_CLIENT_RUNTIME, EXPORT_SCHEMA_VERSION
 from processor.models import RunData
 from processor.summarize.cache import create_summary_run
 from runtime.config import Config
@@ -725,6 +726,7 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     )
     payload = _extract_payload(html)
 
+    assert payload["schema_version"] == EXPORT_SCHEMA_VERSION
     assert payload["runs_loaded"] == [{"label": "Base", "color": "#1f77b4"}]
     assert payload["chrome"] == {
         "layout": "left_rail",
@@ -741,11 +743,13 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
         payload["page_export_support"]["client_side_runtime"]
         == "dashboard-and-page-selectors"
     )
+    assert payload["client_runtime"] == EXPORT_CLIENT_RUNTIME
     assert payload["page_export_support"]["enabled_page_selectors"] == [
         {"page_id": "destination", "selector_id": "purpose"},
         {"page_id": "joint_tours", "selector_id": "hh_size"},
         {"page_id": "long_term", "selector_id": "geography"},
         {"page_id": "stop_frequency", "selector_id": "tour_purpose"},
+        {"page_id": "stop_location", "selector_id": "purpose"},
         {"page_id": "stop_timing", "selector_id": "purpose"},
         {"page_id": "tour_mode", "selector_id": "purpose"},
         {"page_id": "tour_summary", "selector_id": "person_type"},
@@ -761,6 +765,10 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     ]
     assert "export-layout" in html
     assert "export-rail" in html
+    assert "Unsupported export schema version." in html
+    assert "Offline export failed to load" in html
+    assert "This HTML export encountered a runtime rendering error." in html
+    assert "Plotly.react" in html
     assert ">undefined<" not in html
 
     page_defs = {page["id"]: page for page in payload["pages"]}
@@ -1414,7 +1422,7 @@ def test_export_html_save_writes_single_client_side_html_file(tmp_path: Path) ->
     assert "Unweighted" in html
     assert "Count" in html
     assert "activitysim-export-data" in html
-    assert "Plotly.newPlot" in html
+    assert "Plotly.react" in html
     assert "export-layout" in html
     assert "Runs Loaded" in html
     assert "Tour Purpose" in html

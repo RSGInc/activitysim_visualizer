@@ -115,7 +115,7 @@ High-level path:
 
 1. `runtime_workflows.load_summary_runs_from_cache()` loads the same summary inputs used by live mode.
 2. `dashboard.page_registry` resolves the export page set.
-3. `dashboard.export_html.build_export_html_document()` creates a client-side payload that contains:
+3. `dashboard.export.html.build_export_html_document()` creates a client-side payload that contains:
    - dashboard-level state combinations
    - serialized page content
    - selector metadata for export-enabled page widgets
@@ -145,10 +145,12 @@ Summary builders should always aggregate `finalweight` rather than switching beh
 | Which summary ids exist? | `processor/summarize/cache.py` |
 | Which output columns are considered canonical? | `processor/summarize/schema.py` |
 | How does a page get discovered? | `dashboard/page_registry.py` |
-| How does export know about page-local selectors? | `dashboard/page_definitions.py`, `dashboard/export_html.py` |
+| How does export know about page-local selectors? | `dashboard/page_definitions.py`, `dashboard/export/payload.py`, `dashboard/export/serializer.py` |
 
 ## Related Guides
 
 - [architecture.md](architecture.md)
 - [adding-summaries.md](adding-summaries.md)
 - [adding-dashboard-pages.md](adding-dashboard-pages.md)
+- [export_html_schema.md](export_html_schema.md)
+- [export_html_contributor_guide.md](export_html_contributor_guide.md)

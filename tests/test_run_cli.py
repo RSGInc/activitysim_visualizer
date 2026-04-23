@@ -839,7 +839,7 @@ def test_main_export_does_not_load_prepared_runs_for_live_only_prepared_data_pag
         )
 
     monkeypatch.setattr(
-        "dashboard.export_html.write_export_html_document",  # type: ignore[arg-type]
+        "dashboard.export.html.write_export_html_document",  # type: ignore[arg-type]
         fake_write_export,
         raising=False,
     )

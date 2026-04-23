@@ -260,7 +260,7 @@ Important details:
 
 - `selector_id` is the stable config-facing name used under `visualizer.export_html.pages.<page_id>.<selector_id>`.
 - `widget_attr` must match the attribute name on the page instance.
-- Export only supports the widget types that `dashboard/export_html.py` knows how to serialize.
+- Export only supports the widget types that `dashboard/export/serializer.py` knows how to serialize.
 
 If you add a widget but do not declare it in `PAGE.selectors`, the live dashboard can still work, but the HTML export will treat it as a static control.
 
@@ -338,7 +338,7 @@ If you want the chart to export cleanly:
 - creating widgets inside `_refresh()` instead of in `__init__`
 - forgetting to call `_watch_widget(...)`
 - passing raw summary tables into a chart helper when reshaping is still needed
-- returning a Panel object type that `dashboard/export_html.py` does not serialize
+- returning a Panel object type that `dashboard/export/serializer.py` does not serialize
 - writing page-specific logic into `dashboard/components.py`
 
 ## How to Sanity-Check Your Work

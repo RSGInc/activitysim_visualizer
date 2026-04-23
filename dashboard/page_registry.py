@@ -114,10 +114,7 @@ def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
             f"Dashboard page {page_definition.page_id!r} declares unknown prepared tables: "
             + ", ".join(repr(table_name) for table_name in unknown_prepared_tables)
         )
-    if (
-        page_definition.prepared_data_mode == "none"
-        and required_prepared_tables
-    ):
+    if page_definition.prepared_data_mode == "none" and required_prepared_tables:
         raise ValueError(
             f"Dashboard page {page_definition.page_id!r} declares required_prepared_tables "
             "but prepared_data_mode is 'none'."
@@ -154,6 +151,32 @@ def page_definition_by_id(page_id: str) -> DashboardPageDefinition | None:
         if page_definition.page_id == page_id:
             return page_definition
     return None
+
+
+def selector_definition_by_id(
+    page_id: str,
+    selector_id: str,
+) -> PageSelectorDefinition | None:
+    """Look up one registered selector definition by page id and selector id."""
+    page_definition = page_definition_by_id(page_id)
+    if page_definition is None:
+        return None
+    for selector in page_definition.selectors:
+        if selector.selector_id == selector_id:
+            return selector
+    return None
+
+
+def exportable_page_selectors() -> list[
+    tuple[DashboardPageDefinition, PageSelectorDefinition]
+]:
+    """Return all exportable page selectors in stable page/selector order."""
+    return [
+        (page_definition, selector)
+        for page_definition in all_page_definitions()
+        for selector in page_definition.selectors
+        if selector.exportable
+    ]
 
 
 def default_page_definitions() -> tuple[DashboardPageDefinition, ...]:
@@ -194,21 +217,36 @@ def _resolve_configured_page_definitions(
     return [available_by_id[page_id] for page_id in configured_page_ids]
 
 
-def resolve_live_page_definitions(config: Config) -> list[DashboardPageDefinition]:
-    """Resolve the live dashboard pages in display order."""
-    if config.dashboard_pages is None:
-        page_definitions = list(default_page_definitions())
-        _validate_selected_page_definitions(page_definitions)
-        return page_definitions
+def _resolve_page_definitions_for_ids(
+    configured_page_ids: list[str] | None,
+    *,
+    default_to_enabled: bool,
+    error_field_name: str,
+) -> list[DashboardPageDefinition]:
+    """Resolve pages for one workflow using shared ordering and validation."""
+    if configured_page_ids is None:
+        if default_to_enabled:
+            page_definitions = list(default_page_definitions())
+            _validate_selected_page_definitions(page_definitions)
+            return page_definitions
+        return []
+
     try:
-        page_definitions = _resolve_configured_page_definitions(config.dashboard_pages)
+        page_definitions = _resolve_configured_page_definitions(configured_page_ids)
     except ValueError as exc:
-        message = str(exc).replace(
-            "configured page ids", "visualizer.dashboard_pages entries"
-        )
+        message = str(exc).replace("configured page ids", error_field_name)
         raise ValueError(message) from exc
     _validate_selected_page_definitions(page_definitions)
     return page_definitions
+
+
+def resolve_live_page_definitions(config: Config) -> list[DashboardPageDefinition]:
+    """Resolve the live dashboard pages in display order."""
+    return _resolve_page_definitions_for_ids(
+        config.dashboard_pages,
+        default_to_enabled=True,
+        error_field_name="visualizer.dashboard_pages entries",
+    )
 
 
 def resolve_page_definitions(config: Config) -> list[DashboardPageDefinition]:
@@ -333,6 +371,8 @@ def build_export_prepared_run_provider(
         runs,
         resolve_export_page_definitions(config),
     )
+
+
 def _build_registered_pages(
     state: DashboardState,
     config: Config,
