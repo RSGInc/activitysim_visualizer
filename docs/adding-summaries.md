@@ -180,7 +180,7 @@ Test at least:
 ## Good Files to Read Before Editing
 
 - `processor/summarize/cache.py` for registration and weighting behavior
-- `runtime/models.py` for the prepared `RunData` contract
+- `processor/models.py` for the prepared `RunData` contract
 - `processor/prepare/enrichment.py` for canonical column preparation
 - `processor/summarize/schema.py` for dashboard-facing output contracts
 - `tests/test_runtime_canonical_columns.py` for the expected testing style

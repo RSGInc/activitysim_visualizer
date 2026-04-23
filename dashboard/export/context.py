@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from dashboard import DashboardState
-from dashboard.data_access import DashboardRawRunProvider
+from dashboard.data_access import DashboardPreparedRunProvider
 from runtime.config import Config
-from summarize.cache import SummaryRun
+from processor.summarize.cache import SummaryRun
 
 
 @dataclass(slots=True)
@@ -16,7 +16,7 @@ class ExportBuildContext:
 
     config: Config
     summary_runs: list[SummaryRun] | None
-    raw_run_provider: DashboardRawRunProvider
+    prepared_run_provider: DashboardPreparedRunProvider
     warned_unavailable_selectors: set[tuple[str, str]] = field(default_factory=set)
 
     def build_dashboard_state(self) -> DashboardState:
@@ -24,5 +24,5 @@ class ExportBuildContext:
         return DashboardState(
             summary_runs=self.summary_runs,
             weighting_modes=self.config.weighting_modes,
-            raw_run_provider=self.raw_run_provider,
+            prepared_run_provider=self.prepared_run_provider,
         )

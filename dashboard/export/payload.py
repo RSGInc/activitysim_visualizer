@@ -31,15 +31,15 @@ from dashboard.export.types import (
 )
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
 from dashboard.page_registry import (
-    build_export_raw_run_provider,
+    build_export_prepared_run_provider,
     build_registered_export_pages,
     exportable_page_selectors,
     page_definition_by_id,
     selector_definition_by_id,
 )
+from processor.models import RunData
+from processor.summarize.cache import SummaryRun
 from runtime.config import Config, ExportSelectorRequest
-from runtime.models import RunData
-from summarize.cache import SummaryRun
 
 LOGGER = get_logger("dashboard.export")
 
@@ -57,7 +57,7 @@ def build_export_payload(
     context = ExportBuildContext(
         config=config,
         summary_runs=summary_runs,
-        raw_run_provider=build_export_raw_run_provider(runs, config),
+        prepared_run_provider=build_export_prepared_run_provider(runs, config),
     )
     chrome_state = context.build_dashboard_state()
     state_payloads: dict[str, dict[str, Any]] = {}

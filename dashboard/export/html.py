@@ -12,8 +12,8 @@ from dashboard.export.payload import build_export_payload
 from dashboard.export.runtime_assets import build_export_html_shell
 from dashboard.export.serializer import json_default, sanitize_export_payload
 from runtime.config import Config
-from runtime.models import RunData
-from summarize.cache import SummaryRun
+from processor.models import RunData
+from processor.summarize.cache import SummaryRun
 
 
 def build_export_html_document(
