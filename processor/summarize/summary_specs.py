@@ -90,9 +90,21 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         "external_worker_workplace_locations",
         long_term.external_workplace_loc,
     ),
-    # Workplace location vs land use employment
-    # commuting flows
-    # school location vs land use
+    SummarySpec(
+        "workplace_location_employment_comparison",
+        "workplace_location_employment_comparison",
+        long_term.workplace_vs_land_use_employment,
+    ),
+    SummarySpec(
+        "school_location_enrollment_comparison",
+        "school_location_enrollment_comparison",
+        long_term.school_loc_vs_land_use_enrollment,
+    ),
+    SummarySpec(
+        "commuting_flows",
+        "commuting_flows",
+        long_term.commuting_flows,
+    ),
     SummarySpec(
         "work_location_distance_distribution_by_geography",
         "work_location_distance_distribution_by_geography",
@@ -108,12 +120,36 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         "school_location_distance_distribution_by_geography",
         _build_tlfd_schl,
     ),
-    # vehicle age
-    # vehicle fuel type
-    # vehicle body type
-    # transit pass ownership
-    # transit subsidy
-    # free parking
+    SummarySpec(
+        "vehicle_age_distribution",
+        "vehicle_age_distribution",
+        long_term.vehicle_char_age,
+    ),
+    SummarySpec(
+        "vehicle_fuel_type_distribution",
+        "vehicle_fuel_type_distribution",
+        long_term.vehicle_char_fuel,
+    ),
+    SummarySpec(
+        "vehicle_body_type_distribution",
+        "vehicle_body_type_distribution",
+        long_term.vehicle_char_body,
+    ),
+    SummarySpec(
+        "transit_pass_ownership_by_person_type",
+        "transit_pass_ownership_by_person_type",
+        long_term.transit_pass,
+    ),
+    SummarySpec(
+        "transit_subsidy_by_person_type",
+        "transit_subsidy_by_person_type",
+        long_term.transit_subsidy,
+    ),
+    SummarySpec(
+        "free_parking_eligibility_by_workplace_geography",
+        "free_parking_eligibility_by_workplace_geography",
+        long_term.free_parking,
+    ),
     SummarySpec(
         "telecommute_frequency_distribution",
         "telecommute_frequency_distribution",

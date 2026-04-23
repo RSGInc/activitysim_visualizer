@@ -50,3 +50,83 @@ SUMMARY_OUTPUT_COLUMNS: dict[str, tuple[str, ...]] = {
     "destination_distance": ("purpose", "distbin", "freq"),
     "destination_average_distance": ("purpose", "avg_distance"),
 }
+
+
+LONG_TERM_SUMMARIES_COLUMNS = {
+    "license_holding_status_distribution": (
+        "person_type",
+        "license_holding_status",
+        "person_type_label",
+        "person_count",
+    ),
+    "bicycle_comfort_level_distribution": (),
+    "autonomous_vehicle_ownership_totals": (),
+    "auto_ownership_distribution": (
+        "person_type",
+        "bicycle_comfort_level",
+        "person_type_label",
+        "person_count",
+    ),
+    "work_from_home_rate_by_geography": (),
+    "internal_external_worker_by_geography": (
+        "geography_type",
+        "geography_id",
+        "internal_worker_count",
+        "external_worker_count",
+    ),
+    "external_worker_workplace_locations": (
+        "geography_type",
+        "geography_id",
+        "external_worker_count",
+    ),
+    "workplace_location_employment_comparison": (
+        "geography_type",
+        "geography_id",
+        "employment_count",
+        "worker_count",
+    ),
+    "school_location_enrollment_comparison": (
+        "geography_type",
+        "geography_id",
+        "student_type",
+        "enrollment_count",
+        "student_count",
+    ),
+    "commuting_flows": (
+        "origin_geography_type",
+        "origin_geography_id",
+        "destination_geography_type",
+        "destination_geography_id",
+        "commuter_count",
+    ),
+    "vehicle_age_distribution": (
+        "age",
+        "vehicle_count",
+    ),
+    "vehicle_fuel_type_distribution": (
+        "fuel_type",
+        "vehicle_count",
+    ),
+    "vehicle_body_type_distribution": (
+        "body_type",
+        "vehicle_count",
+    ),
+    "transit_pass_ownership_by_person_type": (
+        "person_type",
+        "transit_pass_ownership_status",
+        "person_type_label",
+        "person_count",
+    ),
+    "transit_subsidy_by_person_type": (
+        "person_type",
+        "transit_subsidy_status",
+        "person_type_label",
+        "person_count",
+    ),
+    "free_parking_eligibility_by_workplace_geography": (
+        "geography_type",
+        "geography_id",
+        "workers_without_free_parking_count",
+        "workers_with_free_parking_count",
+    ),
+}
