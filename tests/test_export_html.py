@@ -746,6 +746,7 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
         {"page_id": "joint_tours", "selector_id": "hh_size"},
         {"page_id": "long_term", "selector_id": "geography"},
         {"page_id": "stop_frequency", "selector_id": "tour_purpose"},
+        {"page_id": "stop_location", "selector_id": "purpose"},
         {"page_id": "stop_timing", "selector_id": "purpose"},
         {"page_id": "tour_mode", "selector_id": "purpose"},
         {"page_id": "tour_summary", "selector_id": "person_type"},
