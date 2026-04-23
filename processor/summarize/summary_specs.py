@@ -171,10 +171,26 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         "nonmandatory_tour_frequency_by_person_type",
         daily_travel.indiv_nm_summary,
     ),
-    # total escorted tours
-    # number escorted tours to/from school
-    # tour rate per person
-    # trip rate per person
+    SummarySpec(
+        "escorted_tour_totals",
+        "escorted_tour_totals",
+        daily_travel.total_escorted_tours,
+    ),
+    SummarySpec(
+        "school_escorted_tours_by_escort_type_and_direction",
+        "school_escorted_tours_by_escort_type_and_direction",
+        daily_travel.escorted_tours_to_from_school,
+    ),
+    SummarySpec(
+        "tour_rates_by_person_type_and_tour_purpose",
+        "tour_rates_by_person_type_and_tour_purpose",
+        daily_travel.tour_rate_per_person,
+    ),
+    SummarySpec(
+        "trip_rates_by_person_type_and_trip_purpose",
+        "trip_rates_by_person_type_and_trip_purpose",
+        daily_travel.trip_rate_per_person,
+    ),
     ### JOINT TRAVEL SUMMARIES
     SummarySpec("jtf_distribution", "jtf_distribution", joint_travel.joint_tour_freq),
     SummarySpec(
@@ -192,8 +208,16 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         "joint_tour_composition_distribution",
         joint_travel.joint_composition,
     ),
-    # joint tour composition by party size
-    # joint tour participation per person by hh size
+    SummarySpec(
+        "joint_tour_composition_by_party_size",
+        "joint_tour_composition_by_party_size",
+        joint_travel.joint_composition_by_party_size,
+    ),
+    SummarySpec(
+        "person_jtp_by_household_size",
+        "person_jtp_by_household_size",
+        joint_travel.joint_participation_person_by_hhsize,
+    ),
     SummarySpec(
         "household_jtp_by_household_size_and_jtf",
         "household_jtp_by_household_size_and_jtf",

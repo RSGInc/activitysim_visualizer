@@ -140,16 +140,227 @@ def indiv_nm_summary(rd: RunData, config: Config) -> pl.DataFrame:
 
 
 def total_escorted_tours(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    result_schema = {
+        "tour_count": pl.Float64,
+    }
+
+    required = {"school_esc_outbound", "school_esc_inbound", "finalweight"}
+    if not required.issubset(set(rd.tours.columns)):
+        return pl.DataFrame(schema=result_schema)
+
+    escorted = rd.tours.filter(
+        pl.col("school_esc_outbound").is_not_null()
+        | pl.col("school_esc_inbound").is_not_null()
+    ).filter(
+        (pl.col("school_esc_outbound").cast(pl.Utf8).str.to_lowercase() != "none")
+        | (pl.col("school_esc_inbound").cast(pl.Utf8).str.to_lowercase() != "none")
+    )
+
+    if escorted.is_empty():
+        return pl.DataFrame(
+            {"tour_count": [0.0]},
+            schema=result_schema,
+        )
+
+    return escorted.select(
+        pl.col("finalweight").sum().cast(pl.Float64).alias("tour_count")
+    )
 
 
+# TODO: Verify how unescorted tours are tracked in tables
 def escorted_tours_to_from_school(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    result_schema = {
+        "escort_type": pl.Utf8,
+        "direction": pl.Utf8,
+        "tour_count": pl.Float64,
+    }
+
+    required = {
+        "tour_purpose",
+        "school_esc_outbound",
+        "school_esc_inbound",
+        "finalweight",
+    }
+    if not required.issubset(set(rd.tours.columns)):
+        return pl.DataFrame(schema=result_schema)
+
+    school_tours = rd.tours.filter(
+        pl.col("tour_purpose").cast(pl.Utf8).str.to_lowercase() == "school"
+    )
+
+    if school_tours.is_empty():
+        return pl.DataFrame(schema=result_schema)
+
+    outbound = (
+        school_tours.filter(
+            pl.col("school_esc_outbound").is_not_null()
+            & (pl.col("school_esc_outbound").cast(pl.Utf8).str.to_lowercase() != "none")
+        )
+        .group_by("school_esc_outbound")
+        .agg(tour_count=pl.col("finalweight").sum())
+        .rename({"school_esc_outbound": "escort_type"})
+        .with_columns(pl.lit("outbound").alias("direction"))
+    )
+
+    inbound = (
+        school_tours.filter(
+            pl.col("school_esc_inbound").is_not_null()
+            & (pl.col("school_esc_inbound").cast(pl.Utf8).str.to_lowercase() != "none")
+        )
+        .group_by("school_esc_inbound")
+        .agg(tour_count=pl.col("finalweight").sum())
+        .rename({"school_esc_inbound": "escort_type"})
+        .with_columns(pl.lit("inbound").alias("direction"))
+    )
+
+    all_directions = (
+        pl.concat(
+            [
+                school_tours.select(
+                    pl.col("school_esc_outbound").alias("escort_type"),
+                    pl.col("finalweight"),
+                ).filter(
+                    pl.col("escort_type").is_not_null()
+                    & (pl.col("escort_type").cast(pl.Utf8).str.to_lowercase() != "none")
+                ),
+                school_tours.select(
+                    pl.col("school_esc_inbound").alias("escort_type"),
+                    pl.col("finalweight"),
+                ).filter(
+                    pl.col("escort_type").is_not_null()
+                    & (pl.col("escort_type").cast(pl.Utf8).str.to_lowercase() != "none")
+                ),
+            ],
+            how="vertical",
+        )
+        .group_by("escort_type")
+        .agg(tour_count=pl.col("finalweight").sum())
+        .with_columns(pl.lit("all_directions").alias("direction"))
+    )
+
+    return (
+        pl.concat([outbound, inbound, all_directions], how="vertical")
+        .with_columns(
+            pl.col("escort_type").cast(pl.Utf8),
+            pl.col("direction").cast(pl.Utf8),
+            pl.col("tour_count").cast(pl.Float64),
+        )
+        .select("escort_type", "direction", "tour_count")
+        .sort(["escort_type", "direction"])
+    )
 
 
 def tour_rate_per_person(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    result_schema = {
+        "person_type": pl.Utf8,
+        "tour_purpose": pl.Utf8,
+        "tour_rate": pl.Float64,
+    }
+
+    person_required = {"person_id", "person_type", "finalweight"}
+    tour_required = {"person_id", "tour_purpose", "finalweight"}
+
+    if not person_required.issubset(set(rd.per.columns)) or not tour_required.issubset(
+        set(rd.tours.columns)
+    ):
+        return pl.DataFrame(schema=result_schema)
+
+    person_totals = (
+        rd.per.filter(pl.col("person_type").is_not_null())
+        .group_by("person_type")
+        .agg(person_count=pl.col("finalweight").sum())
+        .with_columns(pl.col("person_type").cast(pl.Utf8))
+    )
+
+    tour_totals = (
+        rd.tours.filter(
+            pl.col("person_id").is_not_null() & pl.col("tour_purpose").is_not_null()
+        )
+        .join(
+            rd.per.select("person_id", "person_type"),
+            on="person_id",
+            how="inner",
+        )
+        .filter(pl.col("person_type").is_not_null())
+        .group_by(["person_type", "tour_purpose"])
+        .agg(tour_count=pl.col("finalweight").sum())
+        .with_columns(
+            pl.col("person_type").cast(pl.Utf8),
+            pl.col("tour_purpose").cast(pl.Utf8),
+        )
+    )
+
+    return (
+        tour_totals.join(person_totals, on="person_type", how="left")
+        .with_columns(
+            pl.when(pl.col("person_count") > 0)
+            .then(pl.col("tour_count") / pl.col("person_count"))
+            .otherwise(None)
+            .alias("tour_rate")
+        )
+        .with_columns(
+            pl.col("person_type").cast(pl.Utf8),
+            pl.col("tour_purpose").cast(pl.Utf8),
+            pl.col("tour_rate").cast(pl.Float64),
+        )
+        .select("person_type", "tour_purpose", "tour_rate")
+        .sort(["person_type", "tour_purpose"])
+    )
 
 
 def trip_rate_per_person(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    result_schema = {
+        "person_type": pl.Utf8,
+        "trip_purpose": pl.Utf8,
+        "trip_rate": pl.Float64,
+    }
+
+    person_required = {"person_id", "person_type", "finalweight"}
+    trip_required = {"person_id", "trip_purpose", "finalweight"}
+
+    if not person_required.issubset(set(rd.per.columns)) or not trip_required.issubset(
+        set(rd.trips.columns)
+    ):
+        return pl.DataFrame(schema=result_schema)
+
+    person_totals = (
+        rd.per.filter(pl.col("person_type").is_not_null())
+        .group_by("person_type")
+        .agg(person_count=pl.col("finalweight").sum())
+        .with_columns(pl.col("person_type").cast(pl.Utf8))
+    )
+
+    trip_totals = (
+        rd.trips.filter(
+            pl.col("person_id").is_not_null() & pl.col("trip_purpose").is_not_null()
+        )
+        .join(
+            rd.per.select("person_id", "person_type"),
+            on="person_id",
+            how="inner",
+        )
+        .filter(pl.col("person_type").is_not_null())
+        .group_by(["person_type", "trip_purpose"])
+        .agg(trip_count=pl.col("finalweight").sum())
+        .with_columns(
+            pl.col("person_type").cast(pl.Utf8),
+            pl.col("trip_purpose").cast(pl.Utf8),
+        )
+    )
+
+    return (
+        trip_totals.join(person_totals, on="person_type", how="left")
+        .with_columns(
+            pl.when(pl.col("person_count") > 0)
+            .then(pl.col("trip_count") / pl.col("person_count"))
+            .otherwise(None)
+            .alias("trip_rate")
+        )
+        .with_columns(
+            pl.col("person_type").cast(pl.Utf8),
+            pl.col("trip_purpose").cast(pl.Utf8),
+            pl.col("trip_rate").cast(pl.Float64),
+        )
+        .select("person_type", "trip_purpose", "trip_rate")
+        .sort(["person_type", "trip_purpose"])
+    )

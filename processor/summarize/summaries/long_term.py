@@ -1373,9 +1373,9 @@ def free_parking(rd: RunData, config: Config) -> pl.DataFrame:
         )
     ]
 
-    # Adapt this block to the repo's existing workplace geography helper pattern.
-    # The primer says geography-aware summaries may also aggregate to configured
-    # geographies when a MAZ-to-geography lookup is available. :contentReference[oaicite:2]{index=2}
+    # TODO: Update with geography aggregation helper
+    # Geography-aware summaries may also aggregate to configured
+    # geographies when a MAZ-to-geography lookup is available.
     #
     # Example expected pattern:
     # if config.geography_enabled:

@@ -55,9 +55,7 @@ def joint_tour_freq(rd: RunData, config: Config | None = None) -> pl.DataFrame:
     if "tour_purpose" not in joint_tours.columns:
         return jtf_lookup.with_columns(pl.lit(0.0).alias("household_count"))
     # Map purpose strings to slot letters (a-e for up to 5 NM purposes)
-    nm_purposes = (
-        joint_tours["tour_purpose"].drop_nulls().unique().sort().to_list()
-    )
+    nm_purposes = joint_tours["tour_purpose"].drop_nulls().unique().sort().to_list()
     # Take up to 5 most common (for JTF coding)
     purpose_slots = {p: f"j{i}" for i, p in enumerate(nm_purposes[:5])}
     slot_cols = [f"j{i}" for i in range(len(purpose_slots))]
@@ -253,11 +251,99 @@ def joint_composition(rd: RunData, config: Config | None = None) -> pl.DataFrame
 
 
 def joint_composition_by_party_size(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    result_schema = {
+        "tour_composition": pl.Utf8,
+        "party_size": pl.Int64,
+        "joint_tour_count": pl.Float64,
+    }
+
+    required = {
+        "tour_category",
+        "composition",
+        "number_of_participants",
+        "finalweight",
+    }
+    if not required.issubset(set(rd.tours.columns)):
+        return pl.DataFrame(schema=result_schema)
+
+    return (
+        rd.tours.filter(
+            pl.col("tour_category").cast(pl.Utf8).str.to_lowercase() == "joint"
+        )
+        .filter(
+            pl.col("composition").is_not_null()
+            & pl.col("number_of_participants").is_not_null()
+        )
+        .group_by(["composition", "number_of_participants"])
+        .agg(joint_tour_count=pl.col("finalweight").sum())
+        .rename(
+            {
+                "composition": "tour_composition",
+                "number_of_participants": "party_size",
+            }
+        )
+        .with_columns(
+            pl.col("tour_composition").cast(pl.Utf8),
+            pl.col("party_size").cast(pl.Int64),
+            pl.col("joint_tour_count").cast(pl.Float64),
+        )
+        .select("tour_composition", "party_size", "joint_tour_count")
+        .sort(["tour_composition", "party_size"])
+    )
 
 
 def joint_participation_person_by_hhsize(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    result_schema = {
+        "household_size": pl.Int64,
+        "person_percent": pl.Float64,
+    }
+
+    person_required = {"household_id", "num_joint_tours", "finalweight"}
+    hh_required = {"household_id", "hhsize"}
+
+    if not person_required.issubset(set(rd.per.columns)) or not hh_required.issubset(
+        set(rd.hh.columns)
+    ):
+        return pl.DataFrame(schema=result_schema)
+
+    persons_with_hhsize = rd.per.join(
+        rd.hh.select("household_id", "hhsize"),
+        on="household_id",
+        how="left",
+    ).filter(pl.col("hhsize").is_not_null())
+
+    if persons_with_hhsize.is_empty():
+        return pl.DataFrame(schema=result_schema)
+
+    total_people = persons_with_hhsize.group_by("hhsize").agg(
+        total_person_weight=pl.col("finalweight").sum()
+    )
+
+    joint_tour_people = (
+        persons_with_hhsize.filter(
+            pl.col("num_joint_tours").is_not_null() & (pl.col("num_joint_tours") > 0)
+        )
+        .group_by("hhsize")
+        .agg(joint_tour_person_weight=pl.col("finalweight").sum())
+    )
+
+    return (
+        total_people.join(joint_tour_people, on="hhsize", how="left")
+        .with_columns(
+            pl.col("joint_tour_person_weight").fill_null(0.0),
+            pl.when(pl.col("total_person_weight") > 0)
+            .then(pl.col("joint_tour_person_weight") / pl.col("total_person_weight"))
+            .otherwise(None)
+            .alias("person_percent"),
+        )
+        .rename({"hhsize": "household_size"})
+        .with_columns(
+            pl.col("household_size").cast(pl.Int64),
+            pl.col("person_percent").cast(pl.Float64),
+        )
+        .select("household_size", "person_percent")
+        .sort("household_size")
+    )
 
 
 def jtf_by_hhsize(rd: RunData, config: Config | None = None) -> pl.DataFrame:
