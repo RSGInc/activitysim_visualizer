@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import panel as pn
 
-from dashboard.export_types import ExportNode
+from dashboard.export.types import ExportNode
 from dashboard.page_definitions import DashboardPageDefinition
 
 

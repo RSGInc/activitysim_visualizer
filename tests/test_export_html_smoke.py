@@ -8,12 +8,12 @@ from uuid import uuid4
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from dashboard.export_html import write_export_html_document
-from dashboard.export_runtime_assets import (
+from dashboard.export.html import write_export_html_document
+from dashboard.export.runtime_assets import (
     load_export_css,
     load_export_runtime_js,
 )
-from dashboard.export_types import EXPORT_SCHEMA_VERSION
+from dashboard.export.types import EXPORT_SCHEMA_VERSION
 from test_export_html import _full_summary_run, _write_config
 
 

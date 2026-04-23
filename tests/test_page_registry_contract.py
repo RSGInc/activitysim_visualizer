@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from dashboard import DashboardState
-from dashboard.export_protocols import validate_export_page
+from dashboard.export.protocols import validate_export_page
 from dashboard.page_registry import (
     all_page_definitions,
     build_registered_export_pages,

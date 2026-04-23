@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import pytest
 
-from dashboard.export_html import build_export_html_document
+from dashboard.export.html import build_export_html_document
 from test_export_html import _extract_payload, _full_summary_run, _write_config
 
 

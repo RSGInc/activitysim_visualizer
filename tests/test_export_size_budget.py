@@ -7,7 +7,7 @@ from uuid import uuid4
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from dashboard.export_html import build_export_html_document
+from dashboard.export.html import build_export_html_document
 from test_export_html import _full_summary_run, _write_config
 
 EXPORT_HTML_BASELINE_BYTES = 5_926_538

@@ -12,8 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _dashboard_expectations import EXPECTED_DEFAULT_PAGES
-from dashboard.export_html import build_export_html_document, write_export_html_document
-from dashboard.export_types import EXPORT_CLIENT_RUNTIME, EXPORT_SCHEMA_VERSION
+from dashboard.export.html import build_export_html_document, write_export_html_document
+from dashboard.export.types import EXPORT_CLIENT_RUNTIME, EXPORT_SCHEMA_VERSION
 from runtime.config import Config
 from runtime.models import RunData
 from summarize.cache import create_summary_run

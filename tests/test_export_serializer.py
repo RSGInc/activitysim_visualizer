@@ -10,7 +10,7 @@ import pandas as pd
 import panel as pn
 import plotly.graph_objects as go
 
-from dashboard.export_serializer import serialize_viewable
+from dashboard.export.serializer import serialize_viewable
 
 
 def test_serialize_viewable_supports_container_and_card_nodes() -> None:

@@ -8,8 +8,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _dashboard_expectations import EXPECTED_DEFAULT_PAGES
-from dashboard.export_payload import build_export_payload
-from dashboard.export_types import (
+from dashboard.export.payload import build_export_payload
+from dashboard.export.types import (
     EXPORT_CLIENT_RUNTIME,
     EXPORT_PAGE_SELECTOR_RUNTIME,
     EXPORT_SCHEMA_VERSION,
