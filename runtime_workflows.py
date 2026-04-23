@@ -437,7 +437,9 @@ def load_prepared_runs_for_dashboard(
         for run_key in required_run_keys
         if run_key in prepare_result.prepared_runs_by_key
     ]
-    return prune_prepared_runs(ordered_runs, required_prepared_tables or ())
+    if required_prepared_tables:
+        return prune_prepared_runs(ordered_runs, required_prepared_tables)
+    return ordered_runs
 
 
 def run_summary_workflow(

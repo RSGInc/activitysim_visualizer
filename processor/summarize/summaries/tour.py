@@ -61,29 +61,23 @@ def tour_mode(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
     purpose_groups = []
-    purpose_col = None
-    for cand in ("primary_purpose", "tour_type", "purpose"):
-        if cand in rd.tours.columns and not rd.tours[cand].dtype.is_numeric():
-            purpose_col = cand
-            break
-
-    if purpose_col:
+    if "tour_purpose" in rd.tours.columns:
         purposes = (
-            indiv[purpose_col].drop_nulls().cast(pl.Utf8).unique().sort().to_list()
+            indiv["tour_purpose"].drop_nulls().cast(pl.Utf8).unique().sort().to_list()
         )
         for p in purposes:
-            purpose_groups.append((p, indiv, pl.col(purpose_col).cast(pl.Utf8) == p))
+            purpose_groups.append((p, indiv, pl.col("tour_purpose").cast(pl.Utf8) == p))
 
         if len(joint) > 0:
             j_purposes = (
-                joint[purpose_col].drop_nulls().cast(pl.Utf8).unique().sort().to_list()
+                joint["tour_purpose"].drop_nulls().cast(pl.Utf8).unique().sort().to_list()
             )
             for p in j_purposes:
                 purpose_groups.append(
-                    (f"joint_{p}", joint, pl.col(purpose_col).cast(pl.Utf8) == p)
+                    (f"joint_{p}", joint, pl.col("tour_purpose").cast(pl.Utf8) == p)
                 )
     else:
-        purpose_groups.append(("all_tour_purposes", rd.tours, pl.lit(True)))
+        return pl.DataFrame(schema=result_schema)
 
     all_modes = rd.tours["tour_mode"].drop_nulls().unique().to_list()
     all_modes = config.ordered_modes(all_modes)
@@ -209,14 +203,7 @@ def stop_freq(rd: RunData, config: Config) -> pl.DataFrame:
         "total_stop_count": pl.Int32,
         "tour_count": pl.Float64,
     }
-    # Find a valid non-numeric purpose column if available
-    purpose_col = None
-    for cand in ("primary_purpose", "tour_type", "purpose"):
-        if cand in rd.tours.columns and not rd.tours[cand].dtype.is_numeric():
-            purpose_col = cand
-            break
-
-    if purpose_col is None:
+    if "tour_purpose" not in rd.tours.columns:
         return pl.DataFrame(schema=result_schema)
 
     return (
@@ -230,14 +217,13 @@ def stop_freq(rd: RunData, config: Config) -> pl.DataFrame:
         )
         .group_by(
             [
-                purpose_col,
+                "tour_purpose",
                 "outbound_stop_count",
                 "inbound_stop_count",
                 "total_stop_count",
             ]
         )
         .agg(tour_count=pl.col("finalweight").sum())
-        .rename({purpose_col: "tour_purpose"})
         .select(
             "tour_purpose",
             "outbound_stop_count",
@@ -284,24 +270,18 @@ def tour_tod(rd: RunData, config: Config) -> pl.DataFrame:
         (pl.col("finalweight") * pl.col("NUMBER_HH")).alias("wgt")
     )
 
-    purpose_col = None
-    for cand in ("primary_purpose", "tour_type", "purpose"):
-        if cand in rd.tours.columns and not rd.tours[cand].dtype.is_numeric():
-            purpose_col = cand
-            break
-
     purpose_groups = []
-    if purpose_col:
-        purps = indiv[purpose_col].drop_nulls().unique().sort().to_list()
+    if "tour_purpose" in rd.tours.columns:
+        purps = indiv["tour_purpose"].drop_nulls().unique().sort().to_list()
         for p in purps:
-            purpose_groups.append((p, indiv, pl.col(purpose_col) == p))
+            purpose_groups.append((p, indiv, pl.col("tour_purpose") == p))
 
         if len(joint) > 0:
-            j_purps = joint[purpose_col].drop_nulls().unique().sort().to_list()
+            j_purps = joint["tour_purpose"].drop_nulls().unique().sort().to_list()
             for p in j_purps:
-                purpose_groups.append((f"joint_{p}", joint, pl.col(purpose_col) == p))
+                purpose_groups.append((f"joint_{p}", joint, pl.col("tour_purpose") == p))
     else:
-        purpose_groups.append(("all_tour_purposes", rd.tours, pl.lit(True)))
+        return pl.DataFrame(schema=result_schema)
 
     max_period = 48
     if "start_hour" in rd.tours.columns:

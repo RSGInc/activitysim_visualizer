@@ -52,11 +52,11 @@ def joint_tour_freq(rd: RunData, config: Config | None = None) -> pl.DataFrame:
         return jtf_lookup.with_columns(pl.lit(0.0).alias("household_count"))
 
     joint_tours = rd.tours.filter(pl.col("tour_category") == "joint")
+    if "tour_purpose" not in joint_tours.columns:
+        return jtf_lookup.with_columns(pl.lit(0.0).alias("household_count"))
     # Map purpose strings to slot letters (a-e for up to 5 NM purposes)
     nm_purposes = (
-        joint_tours["primary_purpose"].drop_nulls().unique().sort().to_list()
-        if "primary_purpose" in joint_tours.columns
-        else []
+        joint_tours["tour_purpose"].drop_nulls().unique().sort().to_list()
     )
     # Take up to 5 most common (for JTF coding)
     purpose_slots = {p: f"j{i}" for i, p in enumerate(nm_purposes[:5])}
@@ -66,7 +66,7 @@ def joint_tour_freq(rd: RunData, config: Config | None = None) -> pl.DataFrame:
 
     for purp, slot in purpose_slots.items():
         counts = (
-            joint_tours.filter(pl.col("primary_purpose") == purp)
+            joint_tours.filter(pl.col("tour_purpose") == purp)
             .group_by("household_id")
             .agg(pl.len().cast(pl.Int64).alias(slot))
         )

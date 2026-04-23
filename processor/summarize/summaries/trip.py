@@ -19,28 +19,20 @@ def stop_purpose_by_tour_purpose(rd: RunData, config: Config) -> pl.DataFrame:
         "tour_purpose": pl.Utf8,
         "stop_count": pl.Float64,
     }
-    # Find a valid non-numeric purpose column if available
-    purpose_col = None
-    for cand in ("primary_purpose", "tour_type"):
-        if cand in rd.trips.columns and not rd.trips[cand].dtype.is_numeric():
-            purpose_col = cand
-            break
-
-    if "stops" not in rd.trips.columns or "purpose" not in rd.trips.columns:
-        return pl.DataFrame(schema=result_schema)
-
-    if purpose_col is None:
+    required = {"stops", "tour_purpose", "trip_purpose", "finalweight"}
+    if not required.issubset(rd.trips.columns):
         return pl.DataFrame(schema=result_schema)
 
     return (
         rd.trips.filter(pl.col("stops") == 1)
-        .filter(pl.col(purpose_col).is_not_null() & pl.col("purpose").is_not_null())
-        .group_by([purpose_col, "purpose"])
+        .filter(
+            pl.col("tour_purpose").is_not_null() & pl.col("trip_purpose").is_not_null()
+        )
+        .group_by(["tour_purpose", "trip_purpose"])
         .agg(stop_count=pl.col("finalweight").sum())
         .rename(
             {
-                purpose_col: "tour_purpose",
-                "purpose": "stop_destination_purpose",
+                "trip_purpose": "stop_destination_purpose",
             }
         )
         .select("stop_destination_purpose", "tour_purpose", "stop_count")
@@ -60,25 +52,17 @@ def trip_mode(rd: RunData, config: Config) -> pl.DataFrame:
     if not needed.issubset(rd.trips.columns):
         return pl.DataFrame(schema=result_schema)
 
-    # Find a valid non-numeric purpose column if available
-    purpose_col = None
-    for cand in ("primary_purpose", "tour_type", "purpose"):
-        if cand in rd.trips.columns and not rd.trips[cand].dtype.is_numeric():
-            purpose_col = cand
-            break
-
-    if purpose_col is None:
+    if "tour_purpose" not in rd.trips.columns:
         return pl.DataFrame(schema=result_schema)
 
     base = (
         rd.trips.filter(
-            pl.col(purpose_col).is_not_null()
+            pl.col("tour_purpose").is_not_null()
             & pl.col("tour_mode").is_not_null()
             & pl.col("trip_mode").is_not_null()
         )
-        .group_by([purpose_col, "tour_mode", "trip_mode"])
+        .group_by(["tour_purpose", "tour_mode", "trip_mode"])
         .agg(trip_count=pl.col("finalweight").sum())
-        .rename({purpose_col: "tour_purpose"})
         .select(
             pl.col("tour_purpose").cast(pl.Utf8),
             pl.col("tour_mode").cast(pl.Utf8),
@@ -152,19 +136,12 @@ def trip_stop_tod(rd: RunData, config: Config) -> pl.DataFrame:
 
     bins = list(range(1, 25 if max_period <= 24 else 49))
 
-    # Find a valid non-numeric purpose column if available
-    purpose_col = None
-    for cand in ("primary_purpose", "tour_type", "purpose"):
-        if cand in rd.trips.columns and not rd.trips[cand].dtype.is_numeric():
-            purpose_col = cand
-            break
+    if "tour_purpose" not in rd.trips.columns:
+        return pl.DataFrame(schema=result_schema)
 
-    if purpose_col is None:
-        purposes = {"all_tour_purposes": pl.lit(True)}
-    else:
-        purpose_list = rd.trips[purpose_col].drop_nulls().unique().sort().to_list()
-        purposes = {p: pl.col(purpose_col) == p for p in purpose_list}
-        purposes["all_tour_purposes"] = pl.lit(True)
+    purpose_list = rd.trips["tour_purpose"].drop_nulls().unique().sort().to_list()
+    purposes = {p: pl.col("tour_purpose") == p for p in purpose_list}
+    purposes["all_tour_purposes"] = pl.lit(True)
 
     rows = []
     for purpose_name, filt in purposes.items():
@@ -229,37 +206,17 @@ def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
         pl.col("out_dir_dist").fill_null(0).clip(0, 999).alias("ood")
     ).with_columns(pl.col("ood").cast(pl.Int32).clip(0, 40).alias("distance_bin"))
 
-    purpose_col = None
-    for cand in ("primary_purpose", "tour_type", "purpose"):
-        if cand in rd.trips.columns and not rd.trips[cand].dtype.is_numeric():
-            purpose_col = cand
-            break
-
     bins_df = pl.DataFrame(
         {"distance_bin": list(range(0, 41))}, schema={"distance_bin": pl.Int32}
     )
 
-    if purpose_col is None:
-        total = (
-            stops2.group_by("distance_bin")
-            .agg(stop_count=pl.col("finalweight").sum())
-            .with_columns(pl.lit("all_tour_purposes").alias("tour_purpose"))
-            .select("distance_bin", "tour_purpose", "stop_count")
-        )
-
-        return (
-            bins_df.with_columns(pl.lit("all_tour_purposes").alias("tour_purpose"))
-            .join(total, on=["distance_bin", "tour_purpose"], how="left")
-            .with_columns(pl.col("stop_count").fill_null(0.0))
-            .select("distance_bin", "tour_purpose", "stop_count")
-            .sort(["distance_bin", "tour_purpose"])
-        )
+    if "tour_purpose" not in stops2.columns:
+        return pl.DataFrame(schema=result_schema)
 
     by_purpose = (
-        stops2.filter(pl.col(purpose_col).is_not_null())
-        .group_by([purpose_col, "distance_bin"])
+        stops2.filter(pl.col("tour_purpose").is_not_null())
+        .group_by(["tour_purpose", "distance_bin"])
         .agg(stop_count=pl.col("finalweight").sum())
-        .rename({purpose_col: "tour_purpose"})
         .select(
             pl.col("distance_bin").cast(pl.Int32),
             pl.col("tour_purpose").cast(pl.Utf8),
@@ -268,7 +225,7 @@ def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
     purposes = (
-        stops2.select(pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"))
+        stops2.select(pl.col("tour_purpose").cast(pl.Utf8).alias("tour_purpose"))
         .drop_nulls()
         .unique()
         .sort("tour_purpose")
@@ -304,8 +261,8 @@ def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
 
     return (
         pl.concat([dense_by_purpose, dense_total], how="vertical")
-        .select("distance_bin", "tour_purpose", "stop_count")
-        .sort(["distance_bin", "tour_purpose"])
+        .select("tour_purpose", "distance_bin", "stop_count")
+        .sort(["tour_purpose", "distance_bin"])
     )
 
 

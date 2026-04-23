@@ -535,16 +535,25 @@ def test_destination_legacy_summaries_prefer_readable_purpose_aliases(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
+    prepared = prepare_data(_prepared_destination_raw_run(), config)
+
+    distance_df = legacy.distance_distribution(prepared, config)
+    average_df = legacy.average_distance(prepared, config)
+
+    assert sorted(distance_df["purpose"].unique().to_list()) == ["All NM", "eatout"]
+    assert average_df["purpose"].to_list() == ["eatout"]
+
+
+def test_destination_legacy_summaries_return_empty_without_canonical_purpose(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
 
     distance_df = legacy.distance_distribution(_destination_raw_run(), config)
     average_df = legacy.average_distance(_destination_raw_run(), config)
 
-    assert sorted(distance_df["purpose"].unique().to_list()) == [
-        "All NM",
-        "eatout",
-        "social",
-    ]
-    assert average_df["purpose"].to_list() == ["eatout", "social"]
+    assert distance_df.is_empty()
+    assert average_df.is_empty()
 
 
 def test_prepare_data_overwrites_numeric_tour_purpose_before_destination_summaries(

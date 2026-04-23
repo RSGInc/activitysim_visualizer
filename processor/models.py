@@ -36,9 +36,16 @@ class RunData:
     ActivitySim schema. Today that contract includes canonical identifiers
     (for example ``household_id``, ``person_id``, ``tour_id``), prepared
     household aliases such as ``HHVEH``/``HHSIZE``, and prepared trip/tour
-    fields such as ``tour_purpose``, ``trip_purpose``, ``tour_mode``,
-    ``trip_mode``, ``tour_category``, ``depart_hour``, ``stops``,
-    ``out_dir_dist``, ``SKIMDIST``, ``HGEO``, and ``WGEO`` when available.
+    fields such as:
+
+    - tours: ``tour_purpose``, ``tour_mode``, ``tour_category``, ``start_hour``,
+      ``end_hour``, ``tourdur``, ``num_ob_stops``, ``num_ib_stops``,
+      ``num_tot_stops``, ``SKIMDIST``, ``AUTOSUFF``, ``NUMBER_HH``,
+      ``finalweight``
+    - trips: ``tour_purpose``, ``trip_purpose``, ``tour_mode``, ``trip_mode``,
+      ``depart_hour``, ``stops``, ``out_dir_dist``, ``od_dist``,
+      ``num_participants``, ``finalweight``
+    - shared prepared geography/runtime fields when available: ``HGEO``, ``WGEO``
 
     New summary builders should treat this dataclass as their source-of-truth
     interface rather than reaching back to raw, unprepared ActivitySim files.

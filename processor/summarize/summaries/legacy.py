@@ -1,16 +1,15 @@
 import polars as pl
 from runtime.config import Config
 from processor.models import RunData
-from processor.prepare import resolve_source_column
 
 
-def _tour_purpose_column(tours: pl.DataFrame, config: Config) -> str | None:
-    """Return the config-resolved tour-purpose column for prepared summaries."""
-    return resolve_source_column(
-        tours,
-        config.col_tour_purpose,
-        require_non_numeric=True,
-    )
+def _tour_purpose_column(tours: pl.DataFrame) -> str | None:
+    """Return the canonical prepared tour-purpose column when available."""
+    if "tour_purpose" not in tours.columns:
+        return None
+    if tours["tour_purpose"].dtype.is_numeric():
+        return None
+    return "tour_purpose"
 
 
 def geo_flows(rd: RunData, config: Config) -> pl.DataFrame:
@@ -65,7 +64,7 @@ def _combined_nm_tours(
     tours = rd.tours
     if "tour_category" not in tours.columns:
         return pl.DataFrame({"SKIMDIST": [], "finalweight": []})
-    purpose_col = _tour_purpose_column(tours, config)
+    purpose_col = _tour_purpose_column(tours)
 
     indiv = tours.filter(pl.col("tour_category").is_in(["non-mandatory", "atwork"]))
     joint = tours.filter(pl.col("tour_category") == "joint")
@@ -98,7 +97,7 @@ def distance_distribution(rd: RunData, config: Config) -> pl.DataFrame:
     Columns: purpose, distbin, freq
     """
     tours = rd.tours
-    purpose_col = _tour_purpose_column(tours, config)
+    purpose_col = _tour_purpose_column(tours)
     if "tour_category" in tours.columns and purpose_col is not None:
         purposes = sorted(
             tours.filter(
@@ -110,7 +109,13 @@ def distance_distribution(rd: RunData, config: Config) -> pl.DataFrame:
             .to_list()
         )
     else:
-        purposes = []
+        return pl.DataFrame(
+            schema={
+                "purpose": pl.Utf8,
+                "distbin": pl.Int32,
+                "freq": pl.Float64,
+            }
+        )
 
     labels = ["All NM"] + purposes
     bins = list(range(41))
@@ -163,7 +168,7 @@ def average_distance(rd: RunData, config: Config) -> pl.DataFrame:
     }
 
     tours = rd.tours
-    purpose_col = _tour_purpose_column(tours, config)
+    purpose_col = _tour_purpose_column(tours)
     if "tour_category" in tours.columns and purpose_col is not None:
         purposes = sorted(
             tours.filter(
@@ -175,7 +180,12 @@ def average_distance(rd: RunData, config: Config) -> pl.DataFrame:
             .to_list()
         )
     else:
-        purposes = []
+        return pl.DataFrame(
+            schema={
+                "purpose": pl.Utf8,
+                "avg_distance": pl.Float64,
+            }
+        )
 
     rows: list[dict[str, object]] = []
     for purpose in purposes:
@@ -213,7 +223,7 @@ def nm_tour_rates(rd: RunData, config: Config) -> pl.DataFrame:
         "tour_rate": pl.Float64,
     }
     ptype_col = "person_type" if "person_type" in rd.per.columns else None
-    purpose_col = _tour_purpose_column(rd.tours, config)
+    purpose_col = _tour_purpose_column(rd.tours)
     if (
         "tour_category" not in rd.tours.columns
         or purpose_col is None
@@ -403,7 +413,7 @@ def tour_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
 
     # Build purpose group filter pairs: (label, df, filter_expr)
     purpose_groups = []
-    purpose_col = _tour_purpose_column(rd.tours, config)
+    purpose_col = _tour_purpose_column(rd.tours)
     if purpose_col:
         purposes = (
             indiv[purpose_col].drop_nulls().cast(pl.Utf8).unique().sort().to_list()
@@ -419,7 +429,7 @@ def tour_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
                     (f"joint_{p}", joint, pl.col(purpose_col).cast(pl.Utf8) == p)
                 )
     else:
-        purpose_groups.append(("all", rd.tours, pl.lit(True)))
+        return pl.DataFrame(schema=result_schema)
 
     all_modes = rd.tours["tour_mode"].drop_nulls().unique().to_list()
     all_modes = config.ordered_modes(all_modes)

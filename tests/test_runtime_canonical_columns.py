@@ -430,14 +430,6 @@ def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
         SUMMARY_OUTPUT_COLUMNS["trip_mode_by_tour_purpose_and_tour_mode"]
     )
     assert "eatout" in trip_mode_profile["tour_purpose"].to_list()
-    trip_mode_profile = trip.trip_mode(prepared, config)
-    assert trip_mode_profile.columns == [
-        "tour_purpose",
-        "tour_mode",
-        "trip_mode",
-        "trip_count",
-    ]
-    assert trip_mode_profile.is_empty()
 
     stop_purpose = trip.stop_purpose_by_tour_purpose(prepared, config)
     assert stop_purpose.columns == list(
@@ -445,36 +437,25 @@ def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
     )
     assert stop_purpose["tour_purpose"].to_list() == ["eatout"]
     assert stop_purpose["stop_destination_purpose"].to_list() == ["shop"]
-    stop_purpose = trip.stop_purpose_by_tour_purpose(prepared, config)
-    assert stop_purpose.columns == [
-        "stop_destination_purpose",
-        "tour_purpose",
-        "stop_count",
-    ]
-    assert stop_purpose.is_empty()
 
     stop_freq = tour.stop_freq(prepared, config)
-    assert stop_freq.columns == [
-        "tour_purpose",
-        "outbound_stop_count",
-        "inbound_stop_count",
-        "total_stop_count",
-        "tour_count",
-    ]
-    assert stop_freq.is_empty()
+    assert stop_freq.columns == list(
+        SUMMARY_OUTPUT_COLUMNS["tour_stop_frequency_by_tour_purpose"]
+    )
 
     stop_location = trip.stop_ood_distance(prepared, config)
-    assert stop_location.columns == ["distance_bin", "tour_purpose", "stop_count"]
-    assert stop_location["tour_purpose"].unique().to_list() == ["all_tour_purposes"]
+    assert stop_location.columns == list(
+        SUMMARY_OUTPUT_COLUMNS["stop_out_of_direction_distance_by_tour_purpose"]
+    )
+    assert "all_tour_purposes" in stop_location["tour_purpose"].unique().to_list()
+    assert "eatout" in stop_location["tour_purpose"].unique().to_list()
 
     stop_timing = trip.trip_stop_tod(prepared, config)
-    assert stop_timing.columns == [
-        "tour_purpose",
-        "time_bin",
-        "departure_trip_count",
-        "departure_stop_count",
-    ]
-    assert stop_timing["tour_purpose"].unique().to_list() == ["all_tour_purposes"]
+    assert stop_timing.columns == list(
+        SUMMARY_OUTPUT_COLUMNS["trip_departure_time_by_purpose"]
+    )
+    assert "all_tour_purposes" in stop_timing["tour_purpose"].unique().to_list()
+    assert "eatout" in stop_timing["tour_purpose"].unique().to_list()
 
     tour_mode_profile = legacy.tour_mode_profile(prepared, config)
     assert tour_mode_profile.columns == [
@@ -494,12 +475,44 @@ def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
         "arrival_tour_count",
         "duration_tour_count",
     ]
-    assert tour_tod_profiles["tour_purpose"].unique().to_list() == ["all_tour_purposes"]
+    assert "all_tour_purposes" in tour_tod_profiles["tour_purpose"].unique().to_list()
+    assert "eatout" in tour_tod_profiles["tour_purpose"].unique().to_list()
 
     totals_df = legacy.system_totals(prepared, config)
     assert totals_df["employment"].to_list() == [24.0]
 
     distance_df = legacy.distance_distribution(prepared, config)
-    distance_df = legacy.distance_distribution(prepared, config)
     assert "purpose" in distance_df.columns
     assert "All NM" in distance_df["purpose"].to_list()
+
+
+def test_summaries_return_empty_tables_when_canonical_columns_are_missing(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    prepared = prepare_data(_raw_run_with_default_fallback_columns(), config)
+
+    prepared = RunData(
+        label=prepared.label,
+        run_dir=prepared.run_dir,
+        skim_file=prepared.skim_file,
+        hh=prepared.hh,
+        per=prepared.per,
+        tours=prepared.tours.drop("tour_purpose"),
+        trips=prepared.trips.drop(["tour_purpose", "trip_purpose"]),
+        joint_participants=prepared.joint_participants,
+        land_use=prepared.land_use,
+        skim_matrix=prepared.skim_matrix,
+        skim_zone_map=prepared.skim_zone_map,
+        hh_weight_col=prepared.hh_weight_col,
+        person_weight_col=prepared.person_weight_col,
+        trip_weight_col=prepared.trip_weight_col,
+    )
+
+    assert trip.trip_mode(prepared, config).is_empty()
+    assert trip.stop_purpose_by_tour_purpose(prepared, config).is_empty()
+    assert trip.trip_stop_tod(prepared, config).is_empty()
+    assert trip.stop_ood_distance(prepared, config).is_empty()
+    assert tour.stop_freq(prepared, config).is_empty()
+    assert tour.tour_tod(prepared, config).is_empty()
+    assert legacy.distance_distribution(prepared, config).is_empty()
