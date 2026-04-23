@@ -6,7 +6,26 @@ from processor.models import RunData
 
 
 def trip_purpose(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    result_schema = {
+        "trip_purpose": pl.Utf8,
+        "trip_count": pl.Float64,
+    }
+
+    required = {"trip_purpose", "finalweight"}
+    if not required.issubset(set(rd.trips.columns)):
+        return pl.DataFrame(schema=result_schema)
+
+    return (
+        rd.trips.filter(pl.col("trip_purpose").is_not_null())
+        .group_by("trip_purpose")
+        .agg(trip_count=pl.col("finalweight").sum())
+        .with_columns(
+            pl.col("trip_purpose").cast(pl.Utf8),
+            pl.col("trip_count").cast(pl.Float64),
+        )
+        .select("trip_purpose", "trip_count")
+        .sort("trip_purpose")
+    )
 
 
 def stop_purpose_by_tour_purpose(rd: RunData, config: Config) -> pl.DataFrame:
@@ -181,7 +200,72 @@ def trip_stop_tod(rd: RunData, config: Config) -> pl.DataFrame:
 
 
 def trip_distance(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+    result_schema = {
+        "distance_bin": pl.Utf8,
+        "tour_purpose": pl.Utf8,
+        "trip_count": pl.Float64,
+    }
+
+    required = {
+        "tour_purpose",
+        "od_dist",
+        "num_participants",
+        "finalweight",
+    }
+    if not required.issubset(set(rd.trips.columns)):
+        return pl.DataFrame(schema=result_schema)
+
+    base = (
+        rd.trips.filter(
+            pl.col("tour_purpose").is_not_null() & pl.col("od_dist").is_not_null()
+        )
+        .with_columns(
+            pl.col("tour_purpose").cast(pl.Utf8),
+            (
+                pl.col("finalweight")
+                * pl.coalesce(
+                    [pl.col("num_participants").cast(pl.Float64), pl.lit(1.0)]
+                )
+            ).alias("adjusted_weight"),
+            pl.col("od_dist").cast(pl.Float64).round(0).alias("distance_miles_rounded"),
+        )
+        .with_columns(
+            pl.when(pl.col("distance_miles_rounded") >= 40)
+            .then(pl.lit("40+"))
+            .otherwise(
+                pl.col("distance_miles_rounded")
+                .cast(pl.Int64, strict=False)
+                .cast(pl.Utf8)
+            )
+            .alias("distance_bin")
+        )
+    )
+
+    by_purpose = base.group_by(["distance_bin", "tour_purpose"]).agg(
+        trip_count=pl.col("adjusted_weight").sum()
+    )
+
+    all_purposes = (
+        base.with_columns(pl.lit("all_tour_purposes").alias("tour_purpose"))
+        .group_by(["distance_bin", "tour_purpose"])
+        .agg(trip_count=pl.col("adjusted_weight").sum())
+    )
+
+    return (
+        pl.concat([by_purpose, all_purposes], how="vertical")
+        .with_columns(
+            pl.col("distance_bin").cast(pl.Utf8),
+            pl.col("tour_purpose").cast(pl.Utf8),
+            pl.col("trip_count").cast(pl.Float64),
+            pl.when(pl.col("distance_bin") == "40+")
+            .then(999)
+            .otherwise(pl.col("distance_bin").cast(pl.Int64, strict=False))
+            .alias("_sort_distance"),
+        )
+        .select("distance_bin", "tour_purpose", "trip_count", "_sort_distance")
+        .sort(["_sort_distance", "tour_purpose"])
+        .select("distance_bin", "tour_purpose", "trip_count")
+    )
 
 
 def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
@@ -266,5 +350,74 @@ def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def parking_location(rd: RunData, config: Config) -> pl.DataFrame:
-    raise NotImplementedError()
+def parking_locations(rd: RunData, config: Config) -> pl.DataFrame:
+    result_schema = {
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
+        "trip_count": pl.Float64,
+    }
+
+    required = {"parking_zone", "finalweight"}
+    if not required.issubset(set(rd.trips.columns)):
+        return pl.DataFrame(schema=result_schema)
+
+    def aggregate_counts(
+        df: pl.DataFrame,
+        geography_type: str,
+        geography_id_col: str,
+    ) -> pl.DataFrame:
+        return (
+            df.group_by(geography_id_col)
+            .agg(trip_count=pl.col("finalweight").sum())
+            .rename({geography_id_col: "geography_id"})
+            .with_columns(
+                pl.lit(geography_type).alias("geography_type"),
+                pl.col("geography_id").cast(pl.Utf8),
+                pl.col("trip_count").cast(pl.Float64),
+            )
+            .select("geography_type", "geography_id", "trip_count")
+        )
+
+    base = rd.trips.filter(
+        pl.col("parking_zone").is_not_null()
+        & (pl.col("parking_zone").cast(pl.Int64, strict=False) > 0)
+    ).select("parking_zone", "finalweight")
+
+    if base.is_empty():
+        return pl.DataFrame(schema=result_schema)
+
+    outputs = [
+        aggregate_counts(
+            base,
+            geography_type="maz",
+            geography_id_col="parking_zone",
+        )
+    ]
+
+    # TODO: Adapt this block to existing geography lookup helper pattern.
+    # Example expected pattern:
+    #
+    # if config.geography_enabled:
+    #     for geography_type, lookup_df in config.parking_maz_geography_lookups():
+    #         # lookup_df maps parking MAZ -> geography_id
+    #         geo_df = (
+    #             base.join(
+    #                 lookup_df,
+    #                 left_on="parking_zone",
+    #                 right_on="MAZ",
+    #                 how="inner",
+    #             )
+    #             .pipe(aggregate_counts, geography_type, "geography_id")
+    #         )
+    #         outputs.append(geo_df)
+
+    return (
+        pl.concat(outputs, how="vertical")
+        .with_columns(
+            pl.col("geography_type").cast(pl.Utf8),
+            pl.col("geography_id").cast(pl.Utf8),
+            pl.col("trip_count").cast(pl.Float64),
+        )
+        .select("geography_type", "geography_id", "trip_count")
+        .sort(["geography_type", "geography_id"])
+    )

@@ -287,15 +287,19 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
     SummarySpec(
         "internal_external_nonmandatory_tour_frequency_by_home_geography",
         "internal_external_nonmandatory_tour_frequency_by_home_geography",
-        long_term.int_vs_ext_non_mand_tour_freq,
+        tour.int_vs_ext_non_mand_tour_freq,
     ),
     SummarySpec(
         "external_nonmandatory_tour_locations",
         "external_nonmandatory_tour_locations",
-        long_term.external_nonmandatory_tour_locations,
+        tour.ext_non_mand_tour_loc,
     ),
     # TRIP SUMMARIES
-    # trip purpose
+    SummarySpec(
+        "trip_purpose_distribution",
+        "trip_purpose_distribution",
+        trip.trip_purpose,
+    ),
     SummarySpec(
         "stop_destination_purpose_by_tour_purpose",
         "stop_destination_purpose_by_tour_purpose",
@@ -311,13 +315,21 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         "trip_departure_time_by_purpose",
         trip.trip_stop_tod,
     ),
-    # trip distance
+    SummarySpec(
+        "trip_distance_by_purpose",
+        "trip_distance_by_purpose",
+        trip.trip_distance,
+    ),
     SummarySpec(
         "stop_out_of_direction_distance_by_tour_purpose",
         "stop_out_of_direction_distance_by_tour_purpose",
         trip.stop_ood_distance,
     ),
-    # parking location
+    SummarySpec(
+        "parking_locations",
+        "parking_locations",
+        trip.parking_locations,
+    ),
     # VALIDATION SUMMARIES
     # traffic count comparisons
     # screenline flow comparisons
