@@ -767,6 +767,8 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     assert "export-rail" in html
     assert "Unsupported export schema version." in html
     assert "Offline export failed to load" in html
+    assert "This HTML export encountered a runtime rendering error." in html
+    assert "Plotly.react" in html
     assert ">undefined<" not in html
 
     page_defs = {page["id"]: page for page in payload["pages"]}
@@ -1420,7 +1422,7 @@ def test_export_html_save_writes_single_client_side_html_file(tmp_path: Path) ->
     assert "Unweighted" in html
     assert "Count" in html
     assert "activitysim-export-data" in html
-    assert "Plotly.newPlot" in html
+    assert "Plotly.react" in html
     assert "export-layout" in html
     assert "Runs Loaded" in html
     assert "Tour Purpose" in html

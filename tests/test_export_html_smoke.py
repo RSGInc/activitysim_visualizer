@@ -9,6 +9,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from dashboard.export_html import write_export_html_document
+from dashboard.export_runtime_assets import (
+    load_export_css,
+    load_export_runtime_js,
+)
 from dashboard.export_types import EXPORT_SCHEMA_VERSION
 from test_export_html import _full_summary_run, _write_config
 
@@ -43,8 +47,11 @@ def test_export_html_smoke_writes_single_self_contained_file() -> None:
 
     html = out_path.read_text(encoding="utf-8")
     assert "activitysim-export-data" in html
-    assert "Plotly.newPlot" in html
+    assert "Plotly.react" in html
     assert "Offline export failed to load" in html
+    assert "This HTML export encountered a runtime rendering error." in html
+    assert "Unknown export node kind encountered:" in html
+    assert "Missing page state for the active dashboard selection." in html
     assert "Runs Loaded" in html
     assert "Display Options" in html
     assert "Tour Purpose" in html
@@ -88,3 +95,16 @@ def test_export_html_smoke_embeds_versioned_payload_and_runtime() -> None:
     assert payload["states"]["Weighted||Percent"]["trip_mode"]["kind"] == "page_variants"
     assert "Unsupported export schema version." in html
     assert "__EXPORT_SCHEMA_VERSION__" not in html
+
+
+def test_export_runtime_assets_are_loaded_from_source_files() -> None:
+    css = load_export_css()
+    runtime_js = load_export_runtime_js()
+
+    assert ".export-shell" in css
+    assert ".export-error-panel" in css
+    assert "function validatePayloadSchema(candidate)" in runtime_js
+    assert "function renderPlot(node)" in runtime_js
+    assert "function renderNode(node)" in runtime_js
+    assert "Plotly.react" in runtime_js
+    assert "__EXPORT_SCHEMA_VERSION__" not in runtime_js
