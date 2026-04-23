@@ -1,4 +1,4 @@
-"""Dashboard-owned data access models for summaries and optional raw runs."""
+"""Dashboard-owned data access models for summaries and optional prepared runs."""
 
 from __future__ import annotations
 
@@ -7,10 +7,10 @@ from typing import Literal
 
 import polars as pl
 
-from runtime.models import RunData
-from summarize.cache import SummaryRun, strip_weights
+from processor.models import RunData
+from processor.summarize.cache import SummaryRun, strip_weights
 
-RawRunAvailability = Literal["loaded", "unavailable", "not_requested"]
+PreparedRunAvailability = Literal["loaded", "unavailable", "not_requested"]
 
 
 @dataclass(frozen=True)
@@ -50,10 +50,10 @@ class DashboardSummarySeries:
 
 
 @dataclass
-class DashboardRawRunProvider:
-    """Explicit raw-run access for dashboard pages that may need disaggregate data."""
+class DashboardPreparedRunProvider:
+    """Prepared-run access for dashboard pages that need disaggregate data."""
 
-    availability: RawRunAvailability
+    availability: PreparedRunAvailability
     weighted_runs: list[tuple[str, RunData]] = field(default_factory=list)
     _unweighted_runs: list[tuple[str, RunData]] | None = field(
         default=None,
@@ -65,15 +65,15 @@ class DashboardRawRunProvider:
     def loaded(
         cls,
         runs: list[tuple[str, RunData]] | None,
-    ) -> "DashboardRawRunProvider":
+    ) -> "DashboardPreparedRunProvider":
         return cls("loaded", weighted_runs=list(runs or []))
 
     @classmethod
-    def unavailable(cls) -> "DashboardRawRunProvider":
+    def unavailable(cls) -> "DashboardPreparedRunProvider":
         return cls("unavailable")
 
     @classmethod
-    def not_requested(cls) -> "DashboardRawRunProvider":
+    def not_requested(cls) -> "DashboardPreparedRunProvider":
         return cls("not_requested")
 
     @property

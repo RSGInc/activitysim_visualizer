@@ -12,10 +12,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _dashboard_expectations import EXPECTED_DEFAULT_PAGES
-from dashboard.export_html import build_export_html_document, write_export_html_document
+from dashboard.export.html import build_export_html_document, write_export_html_document
+from dashboard.export.types import EXPORT_CLIENT_RUNTIME, EXPORT_SCHEMA_VERSION
+from processor.models import RunData
+from processor.summarize.cache import create_summary_run
 from runtime.config import Config
-from runtime.models import RunData
-from summarize.cache import create_summary_run
 
 
 def _write_config(
@@ -725,6 +726,7 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     )
     payload = _extract_payload(html)
 
+    assert payload["schema_version"] == EXPORT_SCHEMA_VERSION
     assert payload["runs_loaded"] == [{"label": "Base", "color": "#1f77b4"}]
     assert payload["chrome"] == {
         "layout": "left_rail",
@@ -741,6 +743,7 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
         payload["page_export_support"]["client_side_runtime"]
         == "dashboard-and-page-selectors"
     )
+    assert payload["client_runtime"] == EXPORT_CLIENT_RUNTIME
     assert payload["page_export_support"]["enabled_page_selectors"] == [
         {"page_id": "destination", "selector_id": "purpose"},
         {"page_id": "joint_tours", "selector_id": "hh_size"},
@@ -762,6 +765,10 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     ]
     assert "export-layout" in html
     assert "export-rail" in html
+    assert "Unsupported export schema version." in html
+    assert "Offline export failed to load" in html
+    assert "This HTML export encountered a runtime rendering error." in html
+    assert "Plotly.react" in html
     assert ">undefined<" not in html
 
     page_defs = {page["id"]: page for page in payload["pages"]}
@@ -919,7 +926,7 @@ def test_build_export_html_document_defaults_to_registry_order_when_export_pages
     ] == EXPECTED_DEFAULT_PAGES
 
 
-def test_build_export_html_document_renders_raw_demo_page_when_raw_runs_are_loaded(
+def test_build_export_html_document_renders_prepared_trip_demo_page_when_runs_are_loaded(
     tmp_path: Path,
 ) -> None:
     config = _write_config(
@@ -938,14 +945,14 @@ def test_build_export_html_document_renders_raw_demo_page_when_raw_runs_are_load
     raw_demo = payload["states"]["Weighted||Percent"]["raw_trip_demo"]
 
     assert [(page["id"], page["title"]) for page in payload["pages"]] == [
-        ("raw_trip_demo", "Raw Trip Demo")
+        ("raw_trip_demo", "Prepared Trip Demo")
     ]
     assert raw_demo["kind"] == "static_page"
     variant_nodes = _walk_nodes(raw_demo)
     assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 1
 
 
-def test_build_export_html_document_shows_placeholder_for_raw_demo_without_raw_runs(
+def test_build_export_html_document_shows_placeholder_for_prepared_trip_demo_without_runs(
     tmp_path: Path,
 ) -> None:
     config = _write_config(
@@ -1442,7 +1449,7 @@ def test_export_html_save_writes_single_client_side_html_file(tmp_path: Path) ->
     assert "Unweighted" in html
     assert "Count" in html
     assert "activitysim-export-data" in html
-    assert "Plotly.newPlot" in html
+    assert "Plotly.react" in html
     assert "export-layout" in html
     assert "Runs Loaded" in html
     assert "Tour Purpose" in html

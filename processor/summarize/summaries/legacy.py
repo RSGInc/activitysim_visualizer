@@ -1,7 +1,7 @@
 import polars as pl
 from runtime.config import Config
-from runtime.models import RunData
-from runtime.run_data import resolve_source_column
+from processor.models import RunData
+from processor.prepare import resolve_source_column
 
 
 def _tour_purpose_column(tours: pl.DataFrame, config: Config) -> str | None:

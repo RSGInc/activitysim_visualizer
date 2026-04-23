@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from activitysim_viz_logging import configure_logging, get_logger, shutdown_logging
 from dashboard.app import build_dashboard
-from summarize.cache import create_summary_run
+from processor.summarize.cache import create_summary_run
 from test_export_html import _full_summary_run, _write_config
 
 
@@ -62,7 +62,7 @@ def test_warning_paths_are_written_to_log_file(
     shutdown_logging()
 
 
-def test_raw_data_placeholder_warning_is_written_to_log_file(
+def test_prepared_data_placeholder_warning_is_written_to_log_file(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path, dashboard_pages=["raw_trip_demo"])
@@ -71,5 +71,5 @@ def test_raw_data_placeholder_warning_is_written_to_log_file(
     build_dashboard([], config, summary_runs=[_full_summary_run()])
     _flush_logger_handlers()
 
-    assert "requires raw run data" in log_path.read_text(encoding="utf-8")
+    assert "requires prepared run data" in log_path.read_text(encoding="utf-8")
     shutdown_logging()

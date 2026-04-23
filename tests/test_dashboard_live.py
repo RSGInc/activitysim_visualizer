@@ -16,20 +16,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _dashboard_expectations import EXPECTED_DEFAULT_PAGE_IDS, EXPECTED_DEFAULT_PAGE_TITLES
 from test_export_html import _full_summary_run, _write_config
 from dashboard.app import build_dashboard
-from dashboard.data_access import DashboardRawRunProvider
+from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 import dashboard.pages as dashboard_pages_package
 from dashboard.page_registry import (
     all_page_definitions,
+    data_requirements_for_pages,
     default_page_definitions,
-    enabled_raw_data_mode,
+    enabled_prepared_data_mode,
     page_definition_by_id,
     resolve_page_definitions,
 )
 from dashboard.state import DashboardState
-from runtime.models import RunData
-from summarize.cache import SUMMARY_SPEC_BY_ID
+from processor.models import RunData
+from processor.summarize.cache import SUMMARY_SPEC_BY_ID
 
 
 def _raw_trip_run() -> RunData:
@@ -71,7 +72,9 @@ def test_page_registry_exposes_expected_default_definitions() -> None:
     ]
     assert page_definition_by_id("raw_trip_demo") is not None
     assert page_definition_by_id("raw_trip_demo").default_enabled is False
-    assert page_definition_by_id("raw_trip_demo").raw_data_mode == "required"
+    assert page_definition_by_id("raw_trip_demo").title == "Prepared Trip Demo"
+    assert page_definition_by_id("raw_trip_demo").prepared_data_mode == "required"
+    assert page_definition_by_id("raw_trip_demo").required_prepared_tables == ("trips",)
 
 
 def test_discovered_page_modules_export_page_definitions_without_legacy_build_api() -> None:
@@ -96,14 +99,14 @@ def test_page_registry_smoke_checks_ids_titles_and_selector_uniqueness() -> None
     assert all(definition.title for definition in definitions)
     assert len({definition.page_id for definition in definitions}) == len(definitions)
     assert all(
-        definition.required_summary_ids or definition.raw_data_mode != "none"
+        definition.required_summary_ids or definition.prepared_data_mode != "none"
         for definition in definitions
     )
 
     for definition in definitions:
         selector_ids = [selector.selector_id for selector in definition.selectors]
         assert len(selector_ids) == len(set(selector_ids))
-        assert definition.raw_data_mode in {"none", "optional", "required"}
+        assert definition.prepared_data_mode in {"none", "optional", "required"}
         assert len(set(definition.required_summary_ids)) == len(
             definition.required_summary_ids
         )
@@ -140,7 +143,7 @@ def test_resolve_page_definitions_respects_configured_page_order_and_subset(
     ]
 
 
-def test_enabled_raw_data_mode_only_flips_on_for_pages_that_request_it(
+def test_enabled_prepared_data_mode_only_flips_on_for_pages_that_request_it(
     tmp_path: Path,
 ) -> None:
     summary_only_config = _write_config(tmp_path / "summary_only")
@@ -149,8 +152,19 @@ def test_enabled_raw_data_mode_only_flips_on_for_pages_that_request_it(
         dashboard_pages=["overview", "raw_trip_demo"],
     )
 
-    assert enabled_raw_data_mode(summary_only_config) == "none"
-    assert enabled_raw_data_mode(raw_demo_config) == "required"
+    assert enabled_prepared_data_mode(summary_only_config) == "none"
+    assert enabled_prepared_data_mode(raw_demo_config) == "required"
+
+
+def test_data_requirements_for_pages_aggregates_summary_and_prepared_dependencies() -> None:
+    overview = page_definition_by_id("overview")
+    raw_trip_demo = page_definition_by_id("raw_trip_demo")
+
+    requirements = data_requirements_for_pages([overview, raw_trip_demo])
+
+    assert requirements.prepared_data_mode == "required"
+    assert requirements.required_prepared_tables == ("trips",)
+    assert requirements.required_summary_ids == overview.required_summary_ids
 
 
 def test_resolve_page_definitions_rejects_unknown_configured_page_ids(
@@ -220,7 +234,7 @@ def test_build_dashboard_can_refresh_every_default_page_from_precomputed_summari
     assert template._dashboard_pages[10].tmode_sel.options == ["All", "DRIVE", "WALK"]
 
 
-def test_build_dashboard_keeps_raw_runs_out_of_summary_only_default_state(
+def test_build_dashboard_keeps_prepared_runs_out_of_summary_only_default_state(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -230,28 +244,28 @@ def test_build_dashboard_keeps_raw_runs_out_of_summary_only_default_state(
         summary_runs=[_full_summary_run()],
     )
 
-    assert template._dashboard_state.raw_run_availability == "not_requested"
-    assert template._dashboard_state.get_raw_runs_if_loaded(weighted=True) is None
+    assert template._dashboard_state.prepared_run_availability == "not_requested"
+    assert template._dashboard_state.get_prepared_runs_if_loaded(weighted=True) is None
 
 
-def test_build_dashboard_loads_raw_runs_when_demo_page_is_enabled(tmp_path: Path) -> None:
+def test_build_dashboard_loads_prepared_runs_when_demo_page_is_enabled(tmp_path: Path) -> None:
     config = _write_config(tmp_path, dashboard_pages=["raw_trip_demo"])
     template = build_dashboard([("Base", _raw_trip_run())], config)
     page = template._dashboard_pages[0]
 
     assert [page.page_id() for page in template._dashboard_pages] == ["raw_trip_demo"]
-    assert template._dashboard_state.raw_run_availability == "loaded"
+    assert template._dashboard_state.prepared_run_availability == "loaded"
     assert any(isinstance(obj, pn.pane.Plotly) for obj in page.view.objects)
 
 
-def test_build_dashboard_shows_unavailable_card_when_demo_page_has_no_raw_runs(
+def test_build_dashboard_shows_unavailable_card_when_demo_page_has_no_prepared_runs(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path, dashboard_pages=["raw_trip_demo"])
     template = build_dashboard([], config, summary_runs=[_full_summary_run()])
     page = template._dashboard_pages[0]
 
-    assert template._dashboard_state.raw_run_availability == "unavailable"
+    assert template._dashboard_state.prepared_run_availability == "unavailable"
     assert any(getattr(obj, "title", "") == "Data Not Available" for obj in page.view.objects)
 
 
@@ -269,11 +283,11 @@ def test_dashboard_state_exposes_summary_first_accessors(tmp_path: Path) -> None
     assert state.has_summary_table_set("missing_summary", "weighted") is False
     assert totals[0][0] == "Base"
     assert totals[0][1]["person_count"][0] == 100.0
-    assert state.get_raw_runs_if_loaded(weighted=True) is None
-    assert state.raw_run_availability == "not_requested"
+    assert state.get_prepared_runs_if_loaded(weighted=True) is None
+    assert state.prepared_run_availability == "not_requested"
 
 
-def test_dashboard_state_raw_run_provider_supports_loaded_and_unavailable_modes(
+def test_dashboard_state_prepared_run_provider_supports_loaded_and_unavailable_modes(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -292,24 +306,24 @@ def test_dashboard_state_raw_run_provider_supports_loaded_and_unavailable_modes(
     )
     loaded_state = DashboardState(
         weighting_modes=config.weighting_modes,
-        raw_run_provider=DashboardRawRunProvider.loaded([("Base", raw_run)]),
+        prepared_run_provider=DashboardPreparedRunProvider.loaded([("Base", raw_run)]),
     )
     unavailable_state = DashboardState(
         weighting_modes=config.weighting_modes,
-        raw_run_provider=DashboardRawRunProvider.unavailable(),
+        prepared_run_provider=DashboardPreparedRunProvider.unavailable(),
     )
 
-    weighted_runs = loaded_state.get_raw_runs_if_loaded(weighted=True)
-    unweighted_runs = loaded_state.get_raw_runs_if_loaded(weighted=False)
+    weighted_runs = loaded_state.get_prepared_runs_if_loaded(weighted=True)
+    unweighted_runs = loaded_state.get_prepared_runs_if_loaded(weighted=False)
 
-    assert loaded_state.raw_run_availability == "loaded"
+    assert loaded_state.prepared_run_availability == "loaded"
     assert weighted_runs is not None
     assert weighted_runs[0][0] == "Base"
     assert weighted_runs[0][1].hh["finalweight"][0] == 2.0
     assert unweighted_runs is not None
     assert unweighted_runs[0][1].hh["finalweight"][0] == 1.0
-    assert unavailable_state.raw_run_availability == "unavailable"
-    assert unavailable_state.get_raw_runs_if_loaded(weighted=True) is None
+    assert unavailable_state.prepared_run_availability == "unavailable"
+    assert unavailable_state.get_prepared_runs_if_loaded(weighted=True) is None
 
 
 def test_build_dashboard_switches_tabs_and_refreshes_only_the_active_page(

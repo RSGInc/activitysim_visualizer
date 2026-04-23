@@ -8,9 +8,9 @@ from typing import Callable
 import polars as pl
 
 
+from processor.models import RunData
 from runtime.config import Config
-from runtime.models import RunData
-from summarize.summaries import (
+from processor.summarize.summaries import (
     daily_travel,
     demographics,
     joint_travel,
@@ -55,9 +55,21 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         "population_totals", "population_totals", demographics.population_totals
     ),
     ### LONG TERM SUMMARIES
-    # license holding
-    # bicycle comfort
-    # AV Ownership
+    SummarySpec(
+        "license_holding_status_distribution",
+        "license_holding_status_distribution",
+        long_term.license_holding_status,
+    ),
+    SummarySpec(
+        "bicycle_comfort_level_distribution",
+        "bicycle_comfort_level_distribution",
+        long_term.bicycle_comfort_level,
+    ),
+    SummarySpec(
+        "autonomous_vehicle_ownership_totals",
+        "autonomous_vehicle_ownership_totals",
+        long_term.av_ownership,
+    ),
     SummarySpec(
         "auto_ownership_distribution",
         "auto_ownership_distribution",
@@ -68,8 +80,16 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         "work_from_home_rate_by_geography",
         long_term.wfh,
     ),
-    # Internal vs external workers.
-    # External worker workplace location
+    SummarySpec(
+        "internal_external_worker_by_geography",
+        "internal_external_worker_by_geography",
+        long_term.internal_vs_external,
+    ),
+    SummarySpec(
+        "external_worker_workplace_locations",
+        "external_worker_workplace_locations",
+        long_term.external_workplace_loc,
+    ),
     # Workplace location vs land use employment
     # commuting flows
     # school location vs land use

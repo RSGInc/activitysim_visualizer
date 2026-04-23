@@ -7,12 +7,13 @@ from typing import TYPE_CHECKING, Any, Callable, Literal
 
 import panel as pn
 
+from processor.models import PreparedTableName
 from runtime.config import Config
 
 if TYPE_CHECKING:
     from dashboard.page_base import DashboardPage
 
-RawDataMode = Literal["none", "optional", "required"]
+PreparedDataMode = Literal["none", "optional", "required"]
 
 
 @dataclass(frozen=True)
@@ -57,7 +58,17 @@ class DashboardPageDefinition:
     title: str
     order: int = 0
     default_enabled: bool = True
-    raw_data_mode: RawDataMode = "none"
+    prepared_data_mode: PreparedDataMode = "none"
     controller_cls: type["DashboardPage"] | None = None
     selectors: tuple[PageSelectorDefinition, ...] = field(default_factory=tuple)
     required_summary_ids: tuple[str, ...] = field(default_factory=tuple)
+    required_prepared_tables: tuple[PreparedTableName, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class DashboardDataRequirements:
+    """Aggregated summary/prepared-table requirements for a page set."""
+
+    prepared_data_mode: PreparedDataMode = "none"
+    required_summary_ids: tuple[str, ...] = field(default_factory=tuple)
+    required_prepared_tables: tuple[PreparedTableName, ...] = field(default_factory=tuple)

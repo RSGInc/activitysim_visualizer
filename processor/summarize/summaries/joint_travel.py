@@ -3,7 +3,7 @@
 import polars as pl
 
 from runtime.config import Config
-from runtime.models import RunData
+from processor.models import RunData
 
 
 def joint_tour_freq(rd: RunData, config: Config | None = None) -> pl.DataFrame:

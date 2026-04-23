@@ -25,15 +25,20 @@ Activate the environment:
 Then choose one of the common workflows:
 
 ```bash
-# Build or refresh summary caches from raw ActivitySim outputs
-python run.py --write-csvs --no-dashboard
+# Materialize prepared tables only
+python run.py --prepare-only
 
-# Serve the dashboard from prebuilt summary caches
+# Run summarize + dashboard explicitly
+python run.py --summarize --dashboard
+
+# Serve the dashboard from prebuilt summary caches only
 python run.py --from-csvs
 
 # Export a cache-backed dashboard to standalone HTML
 python run.py --from-csvs --export-html output.html
 ```
+
+`python run.py` remains a shortcut for `--summarize --dashboard`.
 
 The live dashboard runs at [http://localhost:5006](http://localhost:5006) by default.
 
@@ -79,11 +84,26 @@ If no explicit weight columns are configured and no `sample_rate` column is pres
 
 ## Main Workflows
 
-This repo supports three distinct workflows:
+This repo supports four explicit workflow stages:
 
-1. Raw outputs -> summary cache
-2. Summary cache plus optional raw runs -> live dashboard
-3. Summary cache -> standalone HTML export
+1. Raw ActivitySim outputs -> prepared cache
+2. Prepared cache -> summary cache
+3. Summary cache plus page-required prepared tables -> live dashboard
+4. Summary cache plus export-required prepared tables -> standalone HTML export
+
+Prepared caches are written under the configured prepared root with one directory per run:
+
+```text
+<prepared_root>/
+  <run_key>/
+    manifest.json
+    households.parquet|csv
+    persons.parquet|csv
+    tours.parquet|csv
+    trips.parquet|csv
+    joint_tour_participants.parquet|csv
+    land_use.parquet|csv
+```
 
 Summary caches are written under `summaries.root` with one directory per run:
 
@@ -95,7 +115,7 @@ Summary caches are written under `summaries.root` with one directory per run:
     unweighted/
 ```
 
-The cache manifest records summary ids, weighting modes, a summary-config digest, and a run fingerprint so the runtime can tell whether an existing cache is still safe to reuse.
+Prepared manifests record the prepare-config digest plus the run fingerprint used to build each prepared run. Summary manifests record summary ids, weighting modes, a summary-config digest, the run fingerprint, and the prepared-manifest identity they were built from.
 
 ## Codebase Map
 
@@ -105,24 +125,25 @@ activitysim_visualizer/
 |-- runtime_workflows.py
 |-- runtime/
 |   |-- config.py
+|-- processor/
 |   |-- models.py
-|   `-- run_data.py
-|-- summarize/
-|   |-- cache.py
-|   |-- schema.py
-|   |-- demographics.py
-|   |-- mandatory.py
-|   |-- tours.py
-|   |-- tour_mode.py
-|   |-- tour_tod.py
-|   |-- stops.py
-|   |-- trips.py
-|   |-- totals.py
-|   `-- destination.py
+|   |-- prepare/
+|   `-- summarize/
+|       |-- cache.py
+|       |-- schema.py
+|       |-- summary_specs.py
+|       |-- writer.py
+|       `-- summaries/
 |-- dashboard/
 |   |-- app.py
 |   |-- components.py
-|   |-- export_html.py
+|   |-- export/
+|   |   |-- html.py
+|   |   |-- payload.py
+|   |   |-- serializer.py
+|   |   |-- runtime_assets.py
+|   |   |-- types.py
+|   |   `-- assets/
 |   |-- page_base.py
 |   |-- page_definitions.py
 |   |-- page_registry.py
@@ -139,6 +160,10 @@ The contributor-oriented docs live under [`docs/`](docs/):
 - [`docs/summary-workflow.md`](docs/summary-workflow.md): cache generation, cache loading, and export/live runtime flow
 - [`docs/adding-summaries.md`](docs/adding-summaries.md): how to add and register new summary tables
 - [`docs/adding-dashboard-pages.md`](docs/adding-dashboard-pages.md): how to add pages, selectors, and shared dashboard components
+- [`docs/plotting-summary-tables.md`](docs/plotting-summary-tables.md): how to turn summary tables into bar, line, and distribution charts
+- [`docs/export_html_schema.md`](docs/export_html_schema.md): the offline export payload/runtime contract
+- [`docs/export_html_contributor_guide.md`](docs/export_html_contributor_guide.md): how to extend export support for pages and selectors
+- [`docs/adr/ADR-custom-export-runtime.md`](docs/adr/ADR-custom-export-runtime.md): why the project keeps the custom offline export runtime
 
 If you are new to the codebase, start with `architecture.md`, then read the specific extension guide for the area you plan to change.
 
@@ -149,6 +174,7 @@ When behavior changes, update the docs in the same change:
 - New config key or config behavior: update this README and any affected workflow guide.
 - New summary contract or registration pattern: update `docs/adding-summaries.md`.
 - New page, selector, or export behavior: update `docs/adding-dashboard-pages.md`.
+- New export payload/runtime behavior: update `docs/export_html_schema.md` and `docs/export_html_contributor_guide.md`.
 - Architecture or runtime-flow changes: update `docs/architecture.md` or `docs/summary-workflow.md`.
 
 Treat this README plus the `docs/` guides as the canonical contributor onboarding set.

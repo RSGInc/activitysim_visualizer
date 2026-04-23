@@ -2,7 +2,7 @@
 
 import polars as pl
 from runtime.config import Config
-from runtime.models import RunData
+from processor.models import RunData
 
 
 def traffic_count_comparison(rd: RunData, config: Config) -> pl.DataFrame:

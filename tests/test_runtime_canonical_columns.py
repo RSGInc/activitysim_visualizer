@@ -8,9 +8,10 @@ import polars as pl
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from runtime.config import Config
-from runtime.models import RunData
-from runtime.run_data import prepare_data
-from summarize.summaries import legacy, tour, trip
+from processor.models import RunData
+from processor.prepare import prepare_data
+from processor.summarize.schema import SUMMARY_OUTPUT_COLUMNS
+from processor.summarize.summaries import legacy, tour, trip
 
 
 def _write_config(tmp_path: Path, *, column_lines: list[str] | None = None) -> Config:
@@ -89,7 +90,9 @@ def _raw_run_with_alternate_columns() -> RunData:
             }
         ),
         joint_participants=pl.DataFrame({"tid": [], "pid": []}),
-        land_use=pl.DataFrame({"zone_id": [10, 20, 30], "TAZ": [10, 20, 30], "jobs": [7, 8, 9]}),
+        land_use=pl.DataFrame(
+            {"zone_id": [10, 20, 30], "TAZ": [10, 20, 30], "jobs": [7, 8, 9]}
+        ),
         skim_matrix=None,
         skim_zone_map=None,
     )
@@ -152,8 +155,13 @@ def _raw_run_with_default_fallback_columns() -> RunData:
                 "destination": [20, 30],
             }
         ),
-        joint_participants=pl.DataFrame({"tour_id": [], "person_id": []}, schema={"tour_id": pl.Int64, "person_id": pl.Int64}),
-        land_use=pl.DataFrame({"zone_id": [10, 20, 30], "TAZ": [10, 20, 30], "EMPLOY_TOT": [7, 8, 9]}),
+        joint_participants=pl.DataFrame(
+            {"tour_id": [], "person_id": []},
+            schema={"tour_id": pl.Int64, "person_id": pl.Int64},
+        ),
+        land_use=pl.DataFrame(
+            {"zone_id": [10, 20, 30], "TAZ": [10, 20, 30], "EMPLOY_TOT": [7, 8, 9]}
+        ),
         skim_matrix=None,
         skim_zone_map=None,
     )
@@ -177,8 +185,13 @@ def _raw_run_with_tour_type_only(*, label: str = "Base") -> RunData:
                 "tour_category": ["non-mandatory"],
             }
         ),
-        trips=pl.DataFrame({"tour_id": [1001], "person_id": [101], "household_id": [1]}),
-        joint_participants=pl.DataFrame({"tour_id": [], "person_id": []}, schema={"tour_id": pl.Int64, "person_id": pl.Int64}),
+        trips=pl.DataFrame(
+            {"tour_id": [1001], "person_id": [101], "household_id": [1]}
+        ),
+        joint_participants=pl.DataFrame(
+            {"tour_id": [], "person_id": []},
+            schema={"tour_id": pl.Int64, "person_id": pl.Int64},
+        ),
         land_use=pl.DataFrame(),
         skim_matrix=None,
         skim_zone_map=None,
@@ -202,8 +215,13 @@ def _raw_run_with_primary_purpose_only(*, label: str = "Build") -> RunData:
                 "tour_category": ["non-mandatory"],
             }
         ),
-        trips=pl.DataFrame({"tour_id": [1001], "person_id": [101], "household_id": [1]}),
-        joint_participants=pl.DataFrame({"tour_id": [], "person_id": []}, schema={"tour_id": pl.Int64, "person_id": pl.Int64}),
+        trips=pl.DataFrame(
+            {"tour_id": [1001], "person_id": [101], "household_id": [1]}
+        ),
+        joint_participants=pl.DataFrame(
+            {"tour_id": [], "person_id": []},
+            schema={"tour_id": pl.Int64, "person_id": pl.Int64},
+        ),
         land_use=pl.DataFrame(),
         skim_matrix=None,
         skim_zone_map=None,
@@ -229,15 +247,22 @@ def _raw_run_with_numeric_tour_purpose_and_string_tour_type() -> RunData:
                 "tour_category": ["non-mandatory"],
             }
         ),
-        trips=pl.DataFrame({"tour_id": [1001], "person_id": [101], "household_id": [1]}),
-        joint_participants=pl.DataFrame({"tour_id": [], "person_id": []}, schema={"tour_id": pl.Int64, "person_id": pl.Int64}),
+        trips=pl.DataFrame(
+            {"tour_id": [1001], "person_id": [101], "household_id": [1]}
+        ),
+        joint_participants=pl.DataFrame(
+            {"tour_id": [], "person_id": []},
+            schema={"tour_id": pl.Int64, "person_id": pl.Int64},
+        ),
         land_use=pl.DataFrame(),
         skim_matrix=None,
         skim_zone_map=None,
     )
 
 
-def test_config_normalizes_column_alias_values_and_preserves_order(tmp_path: Path) -> None:
+def test_config_normalizes_column_alias_values_and_preserves_order(
+    tmp_path: Path,
+) -> None:
     config = _write_config(
         tmp_path,
         column_lines=[
@@ -254,7 +279,9 @@ def test_config_normalizes_column_alias_values_and_preserves_order(tmp_path: Pat
     assert config.col_trip_mode == ["trip_mode_src"]
 
 
-def test_config_summary_signature_changes_when_alias_lists_change(tmp_path: Path) -> None:
+def test_config_summary_signature_changes_when_alias_lists_change(
+    tmp_path: Path,
+) -> None:
     config_a = _write_config(
         tmp_path / "a",
         column_lines=["tour_purpose: [primary_purpose, tour_type]"],
@@ -325,7 +352,9 @@ def test_prepare_data_overwrites_numeric_raw_tour_purpose_with_readable_alias(
 ) -> None:
     config = _write_config(tmp_path)
 
-    prepared = prepare_data(_raw_run_with_numeric_tour_purpose_and_string_tour_type(), config)
+    prepared = prepare_data(
+        _raw_run_with_numeric_tour_purpose_and_string_tour_type(), config
+    )
 
     assert prepared.tours["tour_purpose"].to_list() == ["eatout"]
 
@@ -397,6 +426,11 @@ def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
     prepared = prepare_data(_raw_run_with_alternate_columns(), config)
 
     trip_mode_profile = trip.trip_mode(prepared, config)
+    assert trip_mode_profile.columns == list(
+        SUMMARY_OUTPUT_COLUMNS["trip_mode_by_tour_purpose_and_tour_mode"]
+    )
+    assert "eatout" in trip_mode_profile["tour_purpose"].to_list()
+    trip_mode_profile = trip.trip_mode(prepared, config)
     assert trip_mode_profile.columns == [
         "tour_purpose",
         "tour_mode",
@@ -405,6 +439,12 @@ def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
     ]
     assert trip_mode_profile.is_empty()
 
+    stop_purpose = trip.stop_purpose_by_tour_purpose(prepared, config)
+    assert stop_purpose.columns == list(
+        SUMMARY_OUTPUT_COLUMNS["stop_destination_purpose_by_tour_purpose"]
+    )
+    assert stop_purpose["tour_purpose"].to_list() == ["eatout"]
+    assert stop_purpose["stop_destination_purpose"].to_list() == ["shop"]
     stop_purpose = trip.stop_purpose_by_tour_purpose(prepared, config)
     assert stop_purpose.columns == [
         "stop_destination_purpose",
@@ -454,13 +494,12 @@ def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
         "arrival_tour_count",
         "duration_tour_count",
     ]
-    assert tour_tod_profiles["tour_purpose"].unique().to_list() == [
-        "all_tour_purposes"
-    ]
+    assert tour_tod_profiles["tour_purpose"].unique().to_list() == ["all_tour_purposes"]
 
     totals_df = legacy.system_totals(prepared, config)
     assert totals_df["employment"].to_list() == [24.0]
 
+    distance_df = legacy.distance_distribution(prepared, config)
     distance_df = legacy.distance_distribution(prepared, config)
     assert "purpose" in distance_df.columns
     assert "All NM" in distance_df["purpose"].to_list()

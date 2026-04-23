@@ -8,20 +8,21 @@ from datetime import datetime, timezone
 import json
 import re
 from pathlib import Path
+from typing import Callable
 
 
 import polars as pl
 
+from processor.models import RunData
 from runtime.config import Config
-from runtime.models import RunData
-from summarize.summary_specs import (
+from processor.summarize.summary_specs import (
     DEFAULT_SUMMARY_IDS,
     SUMMARY_SPEC_BY_ID,
     SUMMARY_FILENAME_BY_ID,
 )
-from summarize.writer import write_all
+from processor.summarize.writer import write_all
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 SUPPORTED_WEIGHTING_MODES = ("weighted", "unweighted")
 
 
@@ -219,6 +220,7 @@ def write_summary_run_cache(
     *,
     output_root: str | Path | None = None,
     run_fingerprint: dict[str, object] | None = None,
+    prepared_manifest_identity: dict[str, object] | None = None,
 ) -> Path:
     """Write one run's summary cache directory and manifest."""
     output_root = Path(output_root) if output_root is not None else summary_root(config)
@@ -263,6 +265,7 @@ def write_summary_run_cache(
         "summary_files": summary_file_map(summary_ids),
         "empty_summaries": empty_summaries,
         "run_fingerprint": run_fingerprint or {},
+        "prepared_manifest_identity": prepared_manifest_identity,
     }
     (run_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2), encoding="utf-8"
@@ -291,6 +294,7 @@ def load_summary_run_cache(
     expected_summary_ids: list[str] | None = None,
     expected_summary_config_digest: str | None = None,
     expected_run_fingerprint: dict[str, object] | None = None,
+    expected_prepared_manifest_identity: dict[str, object] | None = None,
     expected_label: str | None = None,
     expected_run_key: str | None = None,
 ) -> SummaryRun:
@@ -298,7 +302,7 @@ def load_summary_run_cache(
     cache_dir = Path(cache_dir)
     manifest = _read_manifest(cache_dir)
     schema_version = int(manifest.get("schema_version", 0))
-    if schema_version not in {SCHEMA_VERSION, 2}:
+    if schema_version not in {SCHEMA_VERSION, 5, 2}:
         raise SummaryCacheError(
             f"Unsupported cache schema_version {schema_version} in {cache_dir}"
         )
@@ -334,6 +338,16 @@ def load_summary_run_cache(
         raise SummaryCacheError(
             f"Cache run fingerprint mismatch in {cache_dir}; summaries were built from different run inputs."
         )
+    if expected_prepared_manifest_identity is not None:
+        manifest_prepared_identity = manifest.get("prepared_manifest_identity")
+        if manifest_prepared_identity is None:
+            raise SummaryCacheError(
+                f"Cache {cache_dir} predates prepared-manifest identity tracking. Rebuild summaries once to migrate to prepared-input-aware caches."
+            )
+        if manifest_prepared_identity != expected_prepared_manifest_identity:
+            raise SummaryCacheError(
+                f"Cache prepared manifest identity mismatch in {cache_dir}; summaries were built from different prepared inputs."
+            )
 
     expected_modes = normalize_weighting_modes(expected_modes or config.weighting_modes)
     manifest_modes = normalize_weighting_modes(

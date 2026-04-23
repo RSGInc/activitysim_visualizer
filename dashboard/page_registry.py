@@ -9,15 +9,24 @@ import pkgutil
 from activitysim_viz_logging import get_logger
 import dashboard.pages as dashboard_pages_package
 from dashboard import DashboardState
-from dashboard.data_access import DashboardRawRunProvider
+from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition, RawDataMode
+from dashboard.page_definitions import (
+    DashboardDataRequirements,
+    DashboardPageDefinition,
+    PreparedDataMode,
+)
+from processor.models import PREPARED_TABLE_NAMES, PreparedTableName
+from processor.models import RunData
 from runtime.config import Config
-from runtime.models import RunData
-from summarize.cache import SUMMARY_SPEC_BY_ID
+from processor.summarize.cache import SUMMARY_SPEC_BY_ID
 
 LOGGER = get_logger("dashboard.page_registry")
-VALID_RAW_DATA_MODES: tuple[RawDataMode, ...] = ("none", "optional", "required")
+VALID_PREPARED_DATA_MODES: tuple[PreparedDataMode, ...] = (
+    "none",
+    "optional",
+    "required",
+)
 
 
 def _load_page_modules():
@@ -79,16 +88,36 @@ def all_page_definitions() -> tuple[DashboardPageDefinition, ...]:
 
 def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
     """Validate one discovered dashboard page definition."""
-    if page_definition.raw_data_mode not in VALID_RAW_DATA_MODES:
+    if page_definition.prepared_data_mode not in VALID_PREPARED_DATA_MODES:
         raise ValueError(
-            f"Dashboard page {page_definition.page_id!r} declares invalid raw_data_mode "
-            f"{page_definition.raw_data_mode!r}."
+            f"Dashboard page {page_definition.page_id!r} declares invalid prepared_data_mode "
+            f"{page_definition.prepared_data_mode!r}."
         )
 
     required_summary_ids = page_definition.required_summary_ids
     if len(set(required_summary_ids)) != len(required_summary_ids):
         raise ValueError(
             f"Dashboard page {page_definition.page_id!r} declares duplicate required_summary_ids."
+        )
+    required_prepared_tables = page_definition.required_prepared_tables
+    if len(set(required_prepared_tables)) != len(required_prepared_tables):
+        raise ValueError(
+            f"Dashboard page {page_definition.page_id!r} declares duplicate required_prepared_tables."
+        )
+    unknown_prepared_tables = [
+        table_name
+        for table_name in required_prepared_tables
+        if table_name not in PREPARED_TABLE_NAMES
+    ]
+    if unknown_prepared_tables:
+        raise ValueError(
+            f"Dashboard page {page_definition.page_id!r} declares unknown prepared tables: "
+            + ", ".join(repr(table_name) for table_name in unknown_prepared_tables)
+        )
+    if page_definition.prepared_data_mode == "none" and required_prepared_tables:
+        raise ValueError(
+            f"Dashboard page {page_definition.page_id!r} declares required_prepared_tables "
+            "but prepared_data_mode is 'none'."
         )
 
     unknown_summary_ids = [
@@ -122,6 +151,32 @@ def page_definition_by_id(page_id: str) -> DashboardPageDefinition | None:
         if page_definition.page_id == page_id:
             return page_definition
     return None
+
+
+def selector_definition_by_id(
+    page_id: str,
+    selector_id: str,
+) -> PageSelectorDefinition | None:
+    """Look up one registered selector definition by page id and selector id."""
+    page_definition = page_definition_by_id(page_id)
+    if page_definition is None:
+        return None
+    for selector in page_definition.selectors:
+        if selector.selector_id == selector_id:
+            return selector
+    return None
+
+
+def exportable_page_selectors() -> list[
+    tuple[DashboardPageDefinition, PageSelectorDefinition]
+]:
+    """Return all exportable page selectors in stable page/selector order."""
+    return [
+        (page_definition, selector)
+        for page_definition in all_page_definitions()
+        for selector in page_definition.selectors
+        if selector.exportable
+    ]
 
 
 def default_page_definitions() -> tuple[DashboardPageDefinition, ...]:
@@ -162,21 +217,36 @@ def _resolve_configured_page_definitions(
     return [available_by_id[page_id] for page_id in configured_page_ids]
 
 
-def resolve_live_page_definitions(config: Config) -> list[DashboardPageDefinition]:
-    """Resolve the live dashboard pages in display order."""
-    if config.dashboard_pages is None:
-        page_definitions = list(default_page_definitions())
-        _validate_selected_page_definitions(page_definitions)
-        return page_definitions
+def _resolve_page_definitions_for_ids(
+    configured_page_ids: list[str] | None,
+    *,
+    default_to_enabled: bool,
+    error_field_name: str,
+) -> list[DashboardPageDefinition]:
+    """Resolve pages for one workflow using shared ordering and validation."""
+    if configured_page_ids is None:
+        if default_to_enabled:
+            page_definitions = list(default_page_definitions())
+            _validate_selected_page_definitions(page_definitions)
+            return page_definitions
+        return []
+
     try:
-        page_definitions = _resolve_configured_page_definitions(config.dashboard_pages)
+        page_definitions = _resolve_configured_page_definitions(configured_page_ids)
     except ValueError as exc:
-        message = str(exc).replace(
-            "configured page ids", "visualizer.dashboard_pages entries"
-        )
+        message = str(exc).replace("configured page ids", error_field_name)
         raise ValueError(message) from exc
     _validate_selected_page_definitions(page_definitions)
     return page_definitions
+
+
+def resolve_live_page_definitions(config: Config) -> list[DashboardPageDefinition]:
+    """Resolve the live dashboard pages in display order."""
+    return _resolve_page_definitions_for_ids(
+        config.dashboard_pages,
+        default_to_enabled=True,
+        error_field_name="visualizer.dashboard_pages entries",
+    )
 
 
 def resolve_page_definitions(config: Config) -> list[DashboardPageDefinition]:
@@ -203,63 +273,101 @@ def resolve_export_page_definitions(config: Config) -> list[DashboardPageDefinit
     return page_definitions
 
 
-def enabled_raw_data_mode_for_pages(
+def enabled_prepared_data_mode_for_pages(
     page_definitions: (
         list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
     ),
-) -> RawDataMode:
-    """Return the strongest raw-data requirement across a page definition set."""
-    mode: RawDataMode = "none"
+) -> PreparedDataMode:
+    """Return the strongest prepared-data requirement across a page definition set."""
+    mode: PreparedDataMode = "none"
     for page_definition in page_definitions:
-        if page_definition.raw_data_mode == "required":
+        if page_definition.prepared_data_mode == "required":
             return "required"
-        if page_definition.raw_data_mode == "optional":
+        if page_definition.prepared_data_mode == "optional":
             mode = "optional"
     return mode
 
 
-def enabled_raw_data_mode(config: Config) -> RawDataMode:
-    """Return the strongest raw-data requirement across the enabled dashboard pages."""
-    return enabled_raw_data_mode_for_pages(resolve_live_page_definitions(config))
+def data_requirements_for_pages(
+    page_definitions: (
+        list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
+    ),
+) -> DashboardDataRequirements:
+    """Return the summary/prepared-table requirements for a page definition set."""
+    required_summary_ids: list[str] = []
+    required_prepared_tables: list[PreparedTableName] = []
+    seen_summary_ids: set[str] = set()
+    seen_prepared_tables: set[PreparedTableName] = set()
+
+    for page_definition in page_definitions:
+        for summary_id in page_definition.required_summary_ids:
+            if summary_id not in seen_summary_ids:
+                required_summary_ids.append(summary_id)
+                seen_summary_ids.add(summary_id)
+        for table_name in page_definition.required_prepared_tables:
+            if table_name not in seen_prepared_tables:
+                required_prepared_tables.append(table_name)
+                seen_prepared_tables.add(table_name)
+
+    return DashboardDataRequirements(
+        prepared_data_mode=enabled_prepared_data_mode_for_pages(page_definitions),
+        required_summary_ids=tuple(required_summary_ids),
+        required_prepared_tables=tuple(required_prepared_tables),
+    )
 
 
-def enabled_export_raw_data_mode(config: Config) -> RawDataMode:
-    """Return the strongest raw-data requirement across the enabled export pages."""
-    return enabled_raw_data_mode_for_pages(resolve_export_page_definitions(config))
+def enabled_prepared_data_mode(config: Config) -> PreparedDataMode:
+    """Return the strongest prepared-data requirement across the enabled dashboard pages."""
+    return enabled_prepared_data_mode_for_pages(resolve_live_page_definitions(config))
 
 
-def build_raw_run_provider_for_page_definitions(
+def enabled_export_prepared_data_mode(config: Config) -> PreparedDataMode:
+    """Return the strongest prepared-data requirement across the enabled export pages."""
+    return enabled_prepared_data_mode_for_pages(resolve_export_page_definitions(config))
+
+
+def live_data_requirements(config: Config) -> DashboardDataRequirements:
+    """Return the aggregated requirements for the enabled live dashboard pages."""
+    return data_requirements_for_pages(resolve_live_page_definitions(config))
+
+
+def export_data_requirements(config: Config) -> DashboardDataRequirements:
+    """Return the aggregated requirements for the enabled export page set."""
+    return data_requirements_for_pages(resolve_export_page_definitions(config))
+
+
+def build_prepared_run_provider_for_page_definitions(
     runs: list[tuple[str, RunData]] | None,
     page_definitions: (
         list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
     ),
-) -> DashboardRawRunProvider:
-    """Return the raw-run provider needed for the given page definition set."""
-    raw_mode = enabled_raw_data_mode_for_pages(page_definitions)
-    if raw_mode == "none":
-        return DashboardRawRunProvider.not_requested()
+) -> DashboardPreparedRunProvider:
+    """Return the prepared-run provider needed for the given page definition set."""
+    prepared_mode = data_requirements_for_pages(page_definitions).prepared_data_mode
+    if prepared_mode == "none":
+        return DashboardPreparedRunProvider.not_requested()
     if runs:
-        return DashboardRawRunProvider.loaded(runs)
-    return DashboardRawRunProvider.unavailable()
+        return DashboardPreparedRunProvider.loaded(runs)
+    return DashboardPreparedRunProvider.unavailable()
 
 
-def build_dashboard_raw_run_provider(
+def build_dashboard_prepared_run_provider(
     runs: list[tuple[str, RunData]] | None,
     config: Config,
-) -> DashboardRawRunProvider:
-    """Return the raw-run provider needed for the enabled dashboard pages."""
-    return build_raw_run_provider_for_page_definitions(
+) -> DashboardPreparedRunProvider:
+    """Return the prepared-run provider needed for the enabled dashboard pages."""
+    return build_prepared_run_provider_for_page_definitions(
         runs,
         resolve_live_page_definitions(config),
     )
 
 
-def build_export_raw_run_provider(
+def build_export_prepared_run_provider(
     runs: list[tuple[str, RunData]] | None,
     config: Config,
-) -> DashboardRawRunProvider:
-    """Return the raw-run provider needed for the export page set."""
-    return build_raw_run_provider_for_page_definitions(
+) -> DashboardPreparedRunProvider:
+    """Return the prepared-run provider needed for the export page set."""
+    return build_prepared_run_provider_for_page_definitions(
         runs,
         resolve_export_page_definitions(config),
     )

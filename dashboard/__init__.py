@@ -1,6 +1,13 @@
 """ActivitySim Panel dashboard."""
 
-from dashboard.data_access import DashboardRawRunProvider, DashboardSummarySeries
+from dashboard.data_access import (
+    DashboardPreparedRunProvider,
+    DashboardSummarySeries,
+)
 from dashboard.state import DashboardState
 
-__all__ = ["DashboardRawRunProvider", "DashboardState", "DashboardSummarySeries"]
+__all__ = [
+    "DashboardPreparedRunProvider",
+    "DashboardState",
+    "DashboardSummarySeries",
+]

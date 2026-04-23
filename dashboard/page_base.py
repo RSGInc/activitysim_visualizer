@@ -21,7 +21,7 @@ LOGGER = get_logger("dashboard.page")
 class DashboardPage:
     """Persistent controller for one dashboard page.
 
-    Pages own widget instances, page-local cached views, and the summary/raw-run
+    Pages own widget instances, page-local cached views, and the summary/prepared-run
     lookups needed to refresh their visible Panel layout.
     """
 
@@ -70,7 +70,7 @@ class DashboardPage:
 
     @property
     def weighting_key(self) -> str:
-        """Return the current weighting key used for raw summary caches."""
+        """Return the current weighting key used for summary-table lookup."""
         return self.state.weighting_key()
 
     @classmethod
@@ -90,10 +90,10 @@ class DashboardPage:
         return self.definition.required_summary_ids
 
     @property
-    def raw_data_mode(self) -> str:
+    def prepared_data_mode(self) -> str:
         if self.definition is None:
             return "none"
-        return self.definition.raw_data_mode
+        return self.definition.prepared_data_mode
 
     def _warn_once(self, key: str, message: str) -> None:
         warnings = self._page_state.setdefault("warnings_emitted", set())
@@ -155,26 +155,26 @@ class DashboardPage:
             for summary_name in summary_names
         }
 
-    def get_raw_runs(self, *, weighted: bool | None = None):
-        """Return raw runs when this dashboard session has loaded them explicitly."""
-        return self.state.get_raw_runs_if_loaded(weighted=weighted)
+    def get_prepared_runs(self, *, weighted: bool | None = None):
+        """Return prepared runs when this dashboard session has loaded them explicitly."""
+        return self.state.get_prepared_runs_if_loaded(weighted=weighted)
 
-    def require_raw_runs(self, *, weighted: bool | None = None):
-        """Return raw runs or warn once when this session does not have them."""
-        raw_runs = self.get_raw_runs(weighted=weighted)
-        if raw_runs is not None:
-            return raw_runs
+    def require_prepared_runs(self, *, weighted: bool | None = None):
+        """Return prepared runs or warn once when this session does not have them."""
+        prepared_runs = self.get_prepared_runs(weighted=weighted)
+        if prepared_runs is not None:
+            return prepared_runs
 
-        availability = self.state.raw_run_availability
+        availability = self.state.prepared_run_availability
         reason = (
-            "raw run data was not requested for this dashboard session"
+            "prepared run data was not requested for this dashboard session"
             if availability == "not_requested"
-            else "raw run data is unavailable"
+            else "prepared run data is unavailable"
         )
         self._warn_once(
-            f"missing-raw-runs:{availability}",
+            f"missing-prepared-runs:{availability}",
             (
-                f"Warning: dashboard page '{self.name}' requires raw run data, "
+                f"Warning: dashboard page '{self.name}' requires prepared run data, "
                 f"but {reason}."
             ),
         )

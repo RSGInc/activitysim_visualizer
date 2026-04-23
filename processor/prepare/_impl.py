@@ -1,9 +1,8 @@
-"""Shared raw-run loading and enrichment helpers.
+"""Processor-owned raw-run loading and enrichment helpers.
 
-This module owns the ActivitySim raw run loading and preparation used by both
-summary generation and raw-data dashboard pages. It is deliberately outside of
-``summarize`` and ``dashboard`` so neither subsystem owns the other's runtime
-primitives.
+This module backs the public ``processor.prepare`` package. It owns the
+ActivitySim raw-run loading and prepared-table enrichment used by both summary
+generation and prepared-table downstream consumers.
 """
 
 from __future__ import annotations
@@ -16,9 +15,9 @@ import numpy as np
 import polars as pl
 
 from runtime.config import Config
-from runtime.models import RunData
+from processor.models import RunData
 
-LOGGER = get_logger("runtime.run_data")
+LOGGER = get_logger("processor.prepare")
 
 
 def _resolve_source_column(

@@ -2,26 +2,22 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from activitysim_viz_logging import get_logger
-from runtime import run_data as runtime_run_data
+from dashboard.page_registry import export_data_requirements, live_data_requirements
+from processor import prepare as processor_prepare
+from processor.models import (
+    PreparedTableName,
+    ProcessorWorkflowResult,
+    RunData,
+    prune_prepared_runs,
+)
 from runtime.config import Config
-from runtime.models import RunData
-from summarize import cache as summary_cache
+from processor.summarize import cache as summary_cache
 
 LOGGER = get_logger("main")
-
-
-@dataclass(frozen=True)
-class SummaryWorkflowResult:
-    """Prepared summary runs plus any raw runs loaded along the way."""
-
-    summary_runs: list[Any]
-    raw_runs: list[tuple[str, RunData]]
-    raw_runs_by_key: dict[str, tuple[str, RunData]]
 
 
 def load_runtime_config(config_path: str | Path) -> Config:
@@ -66,6 +62,14 @@ def resolve_run_entries(
 def summary_cache_root(config: Config, *, create: bool) -> Path:
     """Return the configured summary cache root, creating it when requested."""
     cache_root = summary_cache.summary_root(config)
+    if create:
+        cache_root.mkdir(parents=True, exist_ok=True)
+    return cache_root
+
+
+def prepared_cache_root(config: Config, *, create: bool) -> Path:
+    """Return the configured prepared cache root, creating it when requested."""
+    cache_root = processor_prepare.prepared_root(config)
     if create:
         cache_root.mkdir(parents=True, exist_ok=True)
     return cache_root
@@ -117,10 +121,10 @@ def load_summary_runs_from_cache(
             run_dir = entry.get("dir", "")
             expected_label = entry.get("label", Path(run_dir).name)
             expected_run_key = cache_dir.name
-            expected_run_fingerprint = summary_cache.build_run_fingerprint(
+            expected_run_fingerprint = processor_prepare.build_run_fingerprint(
                 label=expected_label,
                 run_dir=run_dir,
-                skim_file=runtime_run_data.resolve_skim_path(
+                skim_file=processor_prepare.resolve_skim_path(
                     entry.get("skim_file") or None,
                     config.skim_file,
                     run_dir,
@@ -129,6 +133,15 @@ def load_summary_runs_from_cache(
                 person_weight_col=entry.get("person_weight_col") or None,
                 trip_weight_col=entry.get("trip_weight_col") or None,
             )
+            expected_prepared_manifest_identity = (
+                processor_prepare.build_prepared_manifest_identity(
+                    run_key=expected_run_key,
+                    config=config,
+                    run_fingerprint=expected_run_fingerprint,
+                )
+            )
+        else:
+            expected_prepared_manifest_identity = None
         summary_runs.append(
             summary_cache.load_summary_run_cache(
                 cache_dir,
@@ -137,6 +150,7 @@ def load_summary_runs_from_cache(
                 expected_summary_ids=summary_cache.DEFAULT_SUMMARY_IDS,
                 expected_summary_config_digest=config.summary_config_digest,
                 expected_run_fingerprint=expected_run_fingerprint,
+                expected_prepared_manifest_identity=expected_prepared_manifest_identity,
                 expected_label=expected_label,
                 expected_run_key=expected_run_key,
             )
@@ -150,28 +164,239 @@ def run_entries_with_keys(run_entries: list[dict]) -> list[tuple[dict, str]]:
         entry.get("label", Path(entry.get("dir", "")).name or "run")
         for entry in run_entries
     ]
-    run_keys = summary_cache.build_run_keys(run_labels)
+    run_keys = processor_prepare.build_run_keys(run_labels)
     return list(zip(run_entries, run_keys))
 
 
-def load_raw_runs_for_dashboard(
+def prune_summary_runs(
+    summary_runs: list[Any],
+    required_summary_ids: list[str] | tuple[str, ...],
+) -> list[Any]:
+    """Return summary runs containing only the summary ids needed downstream."""
+    if not summary_runs:
+        return []
+
+    required_ids = set(required_summary_ids)
+    return [
+        summary_cache.create_summary_run(
+            label=summary_run.label,
+            run_key=summary_run.run_key,
+            summaries_by_mode={
+                mode: {
+                    summary_id: table
+                    for summary_id, table in mode_tables.items()
+                    if summary_id in required_ids
+                }
+                for mode, mode_tables in summary_run.summaries_by_mode.items()
+            },
+            source_run_dir=summary_run.source_run_dir,
+            manifest=summary_run.manifest,
+        )
+        for summary_run in summary_runs
+    ]
+
+
+def prune_processor_result(
+    result: ProcessorWorkflowResult | None,
+    *,
+    required_summary_ids: list[str] | tuple[str, ...],
+    required_prepared_tables: list[PreparedTableName] | tuple[PreparedTableName, ...],
+) -> ProcessorWorkflowResult | None:
+    """Return a processor result trimmed to the next dashboard/export step."""
+    if result is None:
+        return None
+
+    pruned_prepared_runs_by_key = {
+        run_key: (
+            label,
+            prune_prepared_runs([(label, prepared_run)], required_prepared_tables)[0][1],
+        )
+        for run_key, (label, prepared_run) in result.prepared_runs_by_key.items()
+    }
+    ordered_prepared_runs = [
+        pruned_prepared_runs_by_key[run_key]
+        for run_key in result.run_keys
+        if run_key in pruned_prepared_runs_by_key
+    ]
+    return ProcessorWorkflowResult(
+        summary_runs=prune_summary_runs(result.summary_runs, required_summary_ids),
+        prepared_runs=ordered_prepared_runs,
+        prepared_runs_by_key=pruned_prepared_runs_by_key,
+        run_keys=list(result.run_keys),
+        run_fingerprints_by_key=dict(result.run_fingerprints_by_key),
+    )
+
+
+def _run_cache_metadata(
+    *,
+    entry: dict,
+    run_key: str,
+    config: Config,
+) -> dict[str, object]:
+    """Return the stable cache metadata for one resolved run entry."""
+    run_dir = entry.get("dir", "")
+    label = entry.get("label", Path(run_dir).name)
+    skim = entry.get("skim_file") or None
+    resolved_skim = processor_prepare.resolve_skim_path(skim, config.skim_file, run_dir)
+    run_fingerprint = processor_prepare.build_run_fingerprint(
+        label=label,
+        run_dir=run_dir,
+        skim_file=resolved_skim,
+        hh_weight_col=entry.get("hh_weight_col") or None,
+        person_weight_col=entry.get("person_weight_col") or None,
+        trip_weight_col=entry.get("trip_weight_col") or None,
+    )
+    return {
+        "label": label,
+        "run_dir": run_dir,
+        "skim": skim,
+        "run_fingerprint": run_fingerprint,
+        "prepared_manifest_identity": processor_prepare.build_prepared_manifest_identity(
+            run_key=run_key,
+            config=config,
+            run_fingerprint=run_fingerprint,
+        ),
+    }
+
+
+def _resolve_prepared_run(
+    *,
+    entry: dict,
+    run_key: str,
+    config: Config,
+    prepared_root: Path,
+    existing_prepared_runs_by_key: dict[str, tuple[str, RunData]],
+    prefer_cache: bool,
+    write_cache: bool,
+) -> tuple[str, RunData]:
+    """Reuse in-memory prepared runs, then prepared cache, then raw-run rebuilds."""
+    cached_prepared_run = existing_prepared_runs_by_key.get(run_key)
+    if cached_prepared_run is not None:
+        LOGGER.info("Reusing in-memory prepared run for %r", cached_prepared_run[0])
+        return cached_prepared_run
+
+    metadata = _run_cache_metadata(entry=entry, run_key=run_key, config=config)
+    label = str(metadata["label"])
+    run_dir = str(metadata["run_dir"])
+    run_fingerprint = dict(metadata["run_fingerprint"])
+    prepared_dir = prepared_root / run_key
+
+    if prefer_cache:
+        try:
+            prepared_run = processor_prepare.load_prepared_run_cache(
+                prepared_dir,
+                config,
+                expected_prepare_config_digest=config.prepare_config_digest,
+                expected_run_fingerprint=run_fingerprint,
+                expected_label=label,
+                expected_run_key=run_key,
+            )
+            LOGGER.info("Loaded prepared cache for run: %r", label)
+            loaded = (label, prepared_run)
+            existing_prepared_runs_by_key[run_key] = loaded
+            return loaded
+        except processor_prepare.PreparedCacheError as exc:
+            LOGGER.info("Prepared cache miss for %r: %s", label, exc)
+
+    LOGGER.info("Reading run %r from %s", label, run_dir)
+    prepared_run = processor_prepare.read_run(
+        run_dir,
+        config,
+        label=label,
+        skim_file=metadata["skim"],
+        hh_weight_col=entry.get("hh_weight_col") or None,
+        person_weight_col=entry.get("person_weight_col") or None,
+        trip_weight_col=entry.get("trip_weight_col") or None,
+    )
+    prepared_run = processor_prepare.prepare_data(prepared_run, config)
+    LOGGER.info("Prepared run: %r", label)
+    if write_cache:
+        processor_prepare.write_prepared_run_cache(
+            prepared_run,
+            config,
+            run_key=run_key,
+            output_root=prepared_root,
+            run_fingerprint=run_fingerprint,
+        )
+        LOGGER.info("Wrote prepared cache for run: %r", label)
+    else:
+        LOGGER.info("Skipped prepared cache write for run: %r", label)
+    loaded = (label, prepared_run)
+    existing_prepared_runs_by_key[run_key] = loaded
+    return loaded
+
+
+def run_prepare_workflow(
+    *,
+    config: Config,
+    prepared_root: Path | None,
+    run_entries: list[dict],
+    prefer_cache: bool,
+    write_cache: bool,
+    existing_result: ProcessorWorkflowResult | None = None,
+) -> ProcessorWorkflowResult:
+    """Build or reuse prepared runs for the configured entries."""
+    prepared_root = prepared_root or prepared_cache_root(config, create=write_cache)
+    existing_prepared_runs_by_key = dict(
+        (existing_result.prepared_runs_by_key if existing_result else {}) or {}
+    )
+    prepared_runs_by_key: dict[str, tuple[str, RunData]] = {}
+    run_keys: list[str] = []
+    run_fingerprints_by_key: dict[str, dict[str, object]] = {}
+
+    for entry, run_key in run_entries_with_keys(run_entries):
+        metadata = _run_cache_metadata(entry=entry, run_key=run_key, config=config)
+        prepared_loaded = _resolve_prepared_run(
+            entry=entry,
+            run_key=run_key,
+            config=config,
+            prepared_root=prepared_root,
+            existing_prepared_runs_by_key=existing_prepared_runs_by_key,
+            prefer_cache=prefer_cache,
+            write_cache=write_cache,
+        )
+        prepared_runs_by_key[run_key] = prepared_loaded
+        run_keys.append(run_key)
+        run_fingerprints_by_key[run_key] = dict(metadata["run_fingerprint"])
+
+    if not prepared_runs_by_key:
+        raise ValueError("no runs were loaded.")
+
+    ordered_prepared_runs = [
+        prepared_runs_by_key[run_key]
+        for run_key in run_keys
+        if run_key in prepared_runs_by_key
+    ]
+    return ProcessorWorkflowResult(
+        summary_runs=list(existing_result.summary_runs) if existing_result else [],
+        prepared_runs=ordered_prepared_runs,
+        prepared_runs_by_key=prepared_runs_by_key,
+        run_keys=run_keys,
+        run_fingerprints_by_key=run_fingerprints_by_key,
+    )
+
+
+def load_prepared_runs_for_dashboard(
     *,
     config: Config,
     run_entries: list[dict],
     required_run_keys: list[str],
-    existing_raw_runs_by_key: dict[str, tuple[str, RunData]] | None = None,
+    required_prepared_tables: (
+        list[PreparedTableName] | tuple[PreparedTableName, ...] | None
+    ) = None,
+    existing_prepared_runs_by_key: dict[str, tuple[str, RunData]] | None = None,
 ) -> list[tuple[str, RunData]]:
-    """Load raw runs only when enabled pages require them.
+    """Load prepared runs only when enabled pages require them.
 
     Most pages should stay summary-backed. This loader exists for the smaller
-    set of pages that opt into raw-run access through ``raw_data_mode``.
+    set of pages that opt into prepared-run access through page definitions.
     """
-    existing_raw_runs_by_key = dict(existing_raw_runs_by_key or {})
+    existing_prepared_runs_by_key = dict(existing_prepared_runs_by_key or {})
     if not required_run_keys:
         return []
     if not run_entries:
         LOGGER.warning(
-            "Enabled dashboard pages require raw run data, but no raw run inputs are available."
+            "Enabled dashboard pages require prepared run data, but no raw run inputs are available to build it."
         )
         return []
 
@@ -183,49 +408,48 @@ def load_raw_runs_for_dashboard(
     ]
     if missing_run_keys:
         LOGGER.warning(
-            "Enabled dashboard pages require raw run data, but raw inputs could not be resolved "
+            "Enabled dashboard pages require prepared run data, but raw inputs could not be resolved "
             "for summary runs: %s",
             ", ".join(repr(run_key) for run_key in missing_run_keys),
         )
         return []
 
-    ordered_raw_runs: list[tuple[str, RunData]] = []
-    for run_key in required_run_keys:
-        cached_raw_run = existing_raw_runs_by_key.get(run_key)
-        if cached_raw_run is not None:
-            ordered_raw_runs.append(cached_raw_run)
-            continue
-
-        entry = entries_by_key[run_key]
-        run_dir = entry.get("dir", "")
-        label = entry.get("label", Path(run_dir).name)
-        skim = entry.get("skim_file") or None
-        LOGGER.info("Reading raw runs for dashboard page needs: %r", label)
-        raw_run = runtime_run_data.read_run(
-            run_dir,
-            config,
-            label=label,
-            skim_file=skim,
-            hh_weight_col=entry.get("hh_weight_col") or None,
-            person_weight_col=entry.get("person_weight_col") or None,
-            trip_weight_col=entry.get("trip_weight_col") or None,
-        )
-        raw_run = runtime_run_data.prepare_data(raw_run, config)
-        LOGGER.info("Prepared raw runs for dashboard page needs: %r", label)
-        loaded = (label, raw_run)
-        existing_raw_runs_by_key[run_key] = loaded
-        ordered_raw_runs.append(loaded)
-    return ordered_raw_runs
+    selected_entries = [entries_by_key[run_key] for run_key in required_run_keys]
+    prepare_result = ProcessorWorkflowResult(
+        prepared_runs=[
+            existing_prepared_runs_by_key[run_key]
+            for run_key in required_run_keys
+            if run_key in existing_prepared_runs_by_key
+        ],
+        prepared_runs_by_key=existing_prepared_runs_by_key,
+        run_keys=list(existing_prepared_runs_by_key),
+    )
+    prepare_result = run_prepare_workflow(
+        config=config,
+        prepared_root=prepared_cache_root(config, create=True),
+        run_entries=selected_entries,
+        prefer_cache=True,
+        write_cache=True,
+        existing_result=prepare_result,
+    )
+    ordered_runs = [
+        prepare_result.prepared_runs_by_key[run_key]
+        for run_key in required_run_keys
+        if run_key in prepare_result.prepared_runs_by_key
+    ]
+    return prune_prepared_runs(ordered_runs, required_prepared_tables or ())
 
 
 def run_summary_workflow(
     *,
     config: Config,
     cache_root: Path,
+    prepared_root: Path | None = None,
     run_entries: list[dict],
     prefer_cache: bool,
     write_cache: bool,
-) -> SummaryWorkflowResult:
+    existing_result: ProcessorWorkflowResult | None = None,
+) -> ProcessorWorkflowResult:
     """Build or reuse summaries for the configured runs.
 
     The summary workflow is intentionally cache-aware:
@@ -235,26 +459,24 @@ def run_summary_workflow(
     - optionally write back refreshed cache contents for future runs
     """
     summary_runs: list[Any] = []
-    raw_runs: list[tuple[str, RunData]] = []
-    raw_runs_by_key: dict[str, tuple[str, RunData]] = {}
+    prepared_root = prepared_root or prepared_cache_root(config, create=True)
+    prepare_result = existing_result
+    existing_prepared_runs_by_key = dict(
+        (prepare_result.prepared_runs_by_key if prepare_result else {}) or {}
+    )
+    prepared_runs_by_key: dict[str, tuple[str, RunData]] = {}
+    run_keys: list[str] = []
+    run_fingerprints_by_key: dict[str, dict[str, object]] = {}
     runs_with_keys = run_entries_with_keys(run_entries)
 
     for entry, run_key in runs_with_keys:
-        run_dir = entry.get("dir", "")
-        label = entry.get("label", Path(run_dir).name)
-        skim = entry.get("skim_file") or None
-        resolved_skim = runtime_run_data.resolve_skim_path(
-            skim, config.skim_file, run_dir
-        )
-        run_fingerprint = summary_cache.build_run_fingerprint(
-            label=label,
-            run_dir=run_dir,
-            skim_file=resolved_skim,
-            hh_weight_col=entry.get("hh_weight_col") or None,
-            person_weight_col=entry.get("person_weight_col") or None,
-            trip_weight_col=entry.get("trip_weight_col") or None,
-        )
+        metadata = _run_cache_metadata(entry=entry, run_key=run_key, config=config)
+        label = str(metadata["label"])
+        run_fingerprint = dict(metadata["run_fingerprint"])
+        prepared_manifest_identity = dict(metadata["prepared_manifest_identity"])
         cache_dir = cache_root / run_key
+        run_keys.append(run_key)
+        run_fingerprints_by_key[run_key] = run_fingerprint
 
         if prefer_cache:
             # Cache reuse is intentionally attempted before raw-run loading so
@@ -267,38 +489,38 @@ def run_summary_workflow(
                     expected_summary_ids=summary_cache.DEFAULT_SUMMARY_IDS,
                     expected_summary_config_digest=config.summary_config_digest,
                     expected_run_fingerprint=run_fingerprint,
+                    expected_prepared_manifest_identity=prepared_manifest_identity,
                     expected_label=label,
                     expected_run_key=run_key,
                 )
                 LOGGER.info("Loaded summary cache for run: %r", label)
                 summary_runs.append(cached_run)
+                cached_prepared_run = existing_prepared_runs_by_key.get(run_key)
+                if cached_prepared_run is not None:
+                    prepared_runs_by_key[run_key] = cached_prepared_run
                 continue
             except summary_cache.SummaryCacheError as exc:
                 LOGGER.info("Cache miss for %r: %s", label, exc)
 
-        # Once cache reuse fails, the workflow falls back to the authoritative
-        # raw inputs and rebuilds summaries from prepared runtime tables.
-        LOGGER.info("Reading run %r from %s", label, run_dir)
-        raw_run = runtime_run_data.read_run(
-            run_dir,
-            config,
-            label=label,
-            skim_file=skim,
-            hh_weight_col=entry.get("hh_weight_col") or None,
-            person_weight_col=entry.get("person_weight_col") or None,
-            trip_weight_col=entry.get("trip_weight_col") or None,
+        prepare_result = run_prepare_workflow(
+            config=config,
+            prepared_root=prepared_root,
+            run_entries=[entry],
+            prefer_cache=True,
+            write_cache=True,
+            existing_result=prepare_result,
         )
-        raw_run = runtime_run_data.prepare_data(raw_run, config)
-        LOGGER.info("Prepared run: %r", label)
-        raw_loaded = (label, raw_run)
-        raw_runs.append(raw_loaded)
-        raw_runs_by_key[run_key] = raw_loaded
+        prepared_loaded = prepare_result.prepared_runs_by_key[run_key]
+        existing_prepared_runs_by_key = dict(prepare_result.prepared_runs_by_key)
+        prepared_runs_by_key[run_key] = prepared_loaded
 
         summary_run = summary_cache.create_summary_run(
             label=label,
             run_key=run_key,
-            summaries_by_mode=summary_cache.build_mode_summaries(raw_run, config),
-            source_run_dir=str(raw_run.run_dir),
+            summaries_by_mode=summary_cache.build_mode_summaries(
+                prepared_loaded[1], config
+            ),
+            source_run_dir=str(prepared_loaded[1].run_dir),
         )
         summary_runs.append(summary_run)
 
@@ -308,6 +530,7 @@ def run_summary_workflow(
                 summary_run,
                 config,
                 run_fingerprint=run_fingerprint,
+                prepared_manifest_identity=prepared_manifest_identity,
             )
             LOGGER.info("Wrote summaries: %s", cache_path)
         else:
@@ -315,17 +538,24 @@ def run_summary_workflow(
 
     if not summary_runs:
         raise ValueError("no runs were loaded.")
-    return SummaryWorkflowResult(
+    ordered_prepared_runs = [
+        prepared_runs_by_key[run_key]
+        for run_key in run_keys
+        if run_key in prepared_runs_by_key
+    ]
+    return ProcessorWorkflowResult(
         summary_runs=summary_runs,
-        raw_runs=raw_runs,
-        raw_runs_by_key=raw_runs_by_key,
+        prepared_runs=ordered_prepared_runs,
+        prepared_runs_by_key=prepared_runs_by_key,
+        run_keys=run_keys,
+        run_fingerprints_by_key=run_fingerprints_by_key,
     )
 
 
 def run_dashboard_workflow(
     *,
-    raw_runs: list[tuple[str, RunData]],
     summary_runs: list[Any],
+    prepared_runs: list[tuple[str, RunData]] | None = None,
     config: Config,
     export_html_path: str | None = None,
     port: int = 5006,
@@ -336,19 +566,35 @@ def run_dashboard_workflow(
     This workflow assumes summary computation has already happened. It consumes
     ``summary_runs`` as an input contract rather than triggering a rebuild.
     """
+    if prepared_runs is None:
+        prepared_runs = []
     if not summary_runs:
         raise ValueError(
             "dashboard workflow requires precomputed summary runs and will not build them."
         )
+    requirements = (
+        export_data_requirements(config)
+        if export_html_path
+        else live_data_requirements(config)
+    )
+    summary_runs = prune_summary_runs(
+        summary_runs,
+        requirements.required_summary_ids,
+    )
+    prepared_runs = (
+        prune_prepared_runs(prepared_runs, requirements.required_prepared_tables)
+        if requirements.prepared_data_mode != "none"
+        else []
+    )
 
     if export_html_path:
-        from dashboard.export_html import write_export_html_document
+        from dashboard.export.html import write_export_html_document
 
         LOGGER.info("Building dashboard")
         LOGGER.info("Exporting dashboard to %s ...", export_html_path)
         write_export_html_document(
             export_html_path,
-            raw_runs,
+            prepared_runs,
             config,
             summary_runs=summary_runs,
         )
@@ -360,7 +606,7 @@ def run_dashboard_workflow(
 
     LOGGER.info("Building dashboard")
     dashboard = build_dashboard(
-        raw_runs,
+        prepared_runs,
         config,
         summary_runs=summary_runs,
     )
