@@ -107,12 +107,21 @@ class StopTimingPage(DashboardPage):
         )
 
     def _purpose_options(self) -> list[str]:
-        timing_list = self.state.get_summary_table_set(
-            "trip_departure_time_by_purpose", "weighted"
+        timing_result = self.state.inspect_summary_table(
+            "trip_departure_time_by_purpose",
+            weighting_key="weighted",
+            required_columns=(
+                "tour_purpose",
+                "time_bin",
+                "departure_stop_count",
+                "departure_trip_count",
+            ),
         )
-        if timing_list is None:
+        if not timing_result.has_usable_runs:
             return ["Total"]
-        raw_purposes = purpose_options(timing_list)
+        raw_purposes = purpose_options(
+            [(label, table) for label, table in timing_result.usable_runs]
+        )
         options, _ = purpose_mapping(raw_purposes)
         return options or sorted(
             purpose for purpose in raw_purposes if purpose != "all_tour_purposes"
@@ -123,16 +132,27 @@ class StopTimingPage(DashboardPage):
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        timing_list = self.require_summary("trip_departure_time_by_purpose")
-        if timing_list is None:
+        timing_result = self.resolve_summary_visualization(
+            "stop_timing_profiles",
+            summary_requirements={
+                "trip_departure_time_by_purpose": (
+                    "tour_purpose",
+                    "time_bin",
+                    "departure_stop_count",
+                    "departure_trip_count",
+                )
+            },
+        )
+        if not timing_result.has_usable_runs:
             self._body.objects = [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
+                self.unavailable_visualization(
+                    timing_result,
+                    detail="Stop timing summaries are unavailable.",
                 )
             ]
             return
 
+        timing_list = timing_result.usable_by_input["trip_departure_time_by_purpose"]
         purp = self.purp_sel.value
         raw_purposes = purpose_options(timing_list)
         purp_opts, self._purpose_to_raw = purpose_mapping(raw_purposes)
@@ -150,6 +170,7 @@ class StopTimingPage(DashboardPage):
         stop_dep, trip_dep = self.get_filtered_view(
             "stop_timing",
             raw_purpose,
+            tuple(label for label, _ in timing_list),
             factory=lambda: chart_data(timing_list, str(raw_purpose)),
         )
         x_label = "Clock time (start at 03:00)"

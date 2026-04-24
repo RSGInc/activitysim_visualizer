@@ -55,23 +55,28 @@ class RawTripDemoPage(DashboardPage):
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        prepared_runs = self.require_prepared_runs()
-        if prepared_runs is None:
+        prepared_result = self.resolve_prepared_visualization(
+            "raw_trip_demo_trip_modes",
+            table_requirements={"trips": ("trip_mode",)},
+        )
+        if not prepared_result.has_usable_runs:
             self._body.objects = [
                 pn.pane.Markdown("## Prepared Trip Demo"),
-                self.data_not_available_card(
+                self.unavailable_visualization(
+                    prepared_result,
                     detail=(
                         "This demo page intentionally requires disaggregate prepared trip "
                         "records and does not render from summary tables."
                     ),
-                    missing_items=["prepared_run_data"],
                 ),
             ]
             return
 
+        prepared_runs = prepared_result.usable_by_input["trips"]
         trip_mode_list = self.get_filtered_view(
             "raw_trip_demo_trip_modes",
             self.weighting_key,
+            tuple(label for label, _ in prepared_runs),
             factory=lambda: trip_mode_distribution(prepared_runs),
         )
         self._body.objects = [

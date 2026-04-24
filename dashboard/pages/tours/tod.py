@@ -136,12 +136,22 @@ class TourTODPage(DashboardPage):
         )
 
     def _purpose_options(self) -> list[str]:
-        tod_list = self.state.get_summary_table_set(
-            "tour_time_of_day_by_tour_purpose", "weighted"
+        tod_result = self.state.inspect_summary_table(
+            "tour_time_of_day_by_tour_purpose",
+            weighting_key="weighted",
+            required_columns=(
+                "tour_purpose",
+                "time_bin",
+                "departure_tour_count",
+                "arrival_tour_count",
+                "duration_tour_count",
+            ),
         )
-        if tod_list is None:
+        if not tod_result.has_usable_runs:
             return ["Total"]
-        raw_purposes = purpose_options(tod_list)
+        raw_purposes = purpose_options(
+            [(label, table) for label, table in tod_result.usable_runs]
+        )
         options, _ = purpose_mapping(raw_purposes)
         return options or ["Total"]
 
@@ -150,15 +160,27 @@ class TourTODPage(DashboardPage):
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        tod_list = self.require_summary("tour_time_of_day_by_tour_purpose")
-        if tod_list is None:
+        tod_result = self.resolve_summary_visualization(
+            "tour_tod_profiles",
+            summary_requirements={
+                "tour_time_of_day_by_tour_purpose": (
+                    "tour_purpose",
+                    "time_bin",
+                    "departure_tour_count",
+                    "arrival_tour_count",
+                    "duration_tour_count",
+                )
+            },
+        )
+        if not tod_result.has_usable_runs:
             self._body.objects = [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
+                self.unavailable_visualization(
+                    tod_result,
+                    detail="Tour time-of-day summaries are unavailable.",
                 )
             ]
             return
+        tod_list = tod_result.usable_by_input["tour_time_of_day_by_tour_purpose"]
         raw_purposes = purpose_options(tod_list)
         purp_opts, self._purpose_to_raw = purpose_mapping(raw_purposes)
         if not purp_opts:
@@ -173,6 +195,7 @@ class TourTODPage(DashboardPage):
         dep_data, arr_data, dur_data = self.get_filtered_view(
             "tour_tod",
             raw_purpose,
+            tuple(label for label, _ in tod_list),
             factory=lambda: chart_data(tod_list, raw_purpose),
         )
         x_label = "Clock time (start at 03:00)"

@@ -476,6 +476,7 @@ class Config:
     dashboard_title: str
     dashboard_pages: list[DashboardPageConfigEntry] | None
     run_colors: list[str]
+    missing_data_display: str
     summary_root: str
     weighting_modes: list[str]
     export_html: ExportHTMLSettings
@@ -717,6 +718,13 @@ class Config:
         run_colors = visualizer_cfg.get("run_colors", list(_DEFAULT_RUN_COLORS))
         if not isinstance(run_colors, list):
             raise ValueError("visualizer.run_colors must be a list when provided.")
+        missing_data_display = str(
+            visualizer_cfg.get("missing_data_display", "card")
+        ).strip().lower()
+        if missing_data_display not in {"card", "blank"}:
+            raise ValueError(
+                "visualizer.missing_data_display must be either 'card' or 'blank'."
+            )
 
         person_type_labels = {
             str(k): str(v) for k, v in raw.get("person_types", {}).items()
@@ -732,6 +740,7 @@ class Config:
             dashboard_title=str(dashboard_title),
             dashboard_pages=dashboard_pages,
             run_colors=run_colors,
+            missing_data_display=missing_data_display,
             summary_root=str(summary_root),
             weighting_modes=weighting_modes,
             export_html=export_html,
@@ -965,6 +974,7 @@ class Config:
                 else None
             ),
             "run_colors": list(self.run_colors),
+            "missing_data_display": self.missing_data_display,
             "export_html": {
                 "dashboard": {
                     "weighting": list(self.export_html.dashboard.weighting),

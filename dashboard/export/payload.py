@@ -47,12 +47,12 @@ from runtime.config import Config, ExportSelectorRequest
 LOGGER = get_logger("dashboard.export")
 
 
-def build_export_payload(
+def build_export_artifacts(
     runs: list[tuple[str, RunData]],
     config: Config,
     summary_runs: list[SummaryRun] | None = None,
-) -> ExportPayload:
-    """Build the client-side payload consumed by the export runtime."""
+) -> tuple[ExportPayload, dict[str, Any]]:
+    """Build export payload plus sidecar diagnostics."""
     set_run_colors(config.run_colors)
     validate_page_export_config(config)
     export_weight_values = config.export_html.panel_weighting_values()
@@ -64,6 +64,7 @@ def build_export_payload(
     )
     chrome_state = context.build_dashboard_state()
     state_payloads: dict[str, dict[str, Any]] = {}
+    diagnostics_by_state: dict[str, Any] = {}
 
     page_order: list[PageDescriptorPayload] | None = None
     for weight_mode in export_weight_values:
@@ -73,11 +74,12 @@ def build_export_payload(
                 context,
                 weight_mode=weight_mode,
                 value_mode=value_mode,
+                diagnostics_by_state=diagnostics_by_state,
             )
             if page_order is None:
                 page_order = state_payloads[key]["pages"]
 
-    return {
+    payload: ExportPayload = {
         "schema_version": EXPORT_SCHEMA_VERSION,
         "title": config.dashboard_title,
         "runs_loaded": build_run_legend_entries(chrome_state.run_labels),
@@ -107,6 +109,22 @@ def build_export_payload(
         },
         "client_runtime": EXPORT_CLIENT_RUNTIME,
     }
+    diagnostics = {
+        "schema_version": 1,
+        "title": config.dashboard_title,
+        "states": diagnostics_by_state,
+    }
+    return payload, diagnostics
+
+
+def build_export_payload(
+    runs: list[tuple[str, RunData]],
+    config: Config,
+    summary_runs: list[SummaryRun] | None = None,
+) -> ExportPayload:
+    """Build the client-side payload consumed by the export runtime."""
+    payload, _ = build_export_artifacts(runs, config, summary_runs=summary_runs)
+    return payload
 
 
 def serialize_dashboard_state(
@@ -114,6 +132,7 @@ def serialize_dashboard_state(
     *,
     weight_mode: str,
     value_mode: str,
+    diagnostics_by_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Serialize one dashboard-level weighting/value state combination."""
     state = context.build_dashboard_state()
@@ -124,6 +143,7 @@ def serialize_dashboard_state(
 
     leaf_page_defs: list[PageDescriptorPayload] = []
     content_by_page: dict[str, PageContentPayload] = {}
+    diagnostics_for_state: dict[str, Any] = {}
     page_by_id: dict[str, PageDescriptorPayload] = {}
     for page in pages:
         validate_export_page(page)
@@ -154,6 +174,7 @@ def serialize_dashboard_state(
             page_def=page_def,
             config=context.config,
             widget_metadata=widget_metadata,
+            diagnostics_for_state=diagnostics_for_state,
         )
     grouped_page_defs: list[PageDescriptorPayload] = []
     for navigation_entry in resolve_export_navigation_entries(context.config):
@@ -182,6 +203,8 @@ def serialize_dashboard_state(
                 "default_child_id": default_child_page_id,
             }
         )
+    if diagnostics_by_state is not None:
+        diagnostics_by_state[state_key(weight_mode, value_mode)] = diagnostics_for_state
     return {"pages": grouped_page_defs, "content_by_page": content_by_page}
 
 
@@ -208,14 +231,18 @@ def serialize_page_content(
     page_def: DashboardPageDefinition,
     config: Config,
     widget_metadata: dict[int, tuple[str | None, SelectorMetadataPayload | None]],
+    diagnostics_for_state: dict[str, Any] | None = None,
 ) -> PageContentPayload:
     """Serialize one page, expanding selector variants when export-enabled."""
+    page_diagnostics: dict[str, Any] = {"default": _serialize_page_diagnostics(page)}
     enabled_selectors = [
         selector_meta
         for _, selector_meta in widget_metadata.values()
         if selector_meta is not None and selector_meta["export_enabled"]
     ]
     if not enabled_selectors:
+        if diagnostics_for_state is not None:
+            diagnostics_for_state[page_def.page_id] = page_diagnostics
         return {
             "kind": "static_page",
             "content": serialize_viewable(
@@ -243,6 +270,7 @@ def serialize_page_content(
             if widget is not None:
                 widget.value = selected_value
         page.refresh(force=True)
+        page_diagnostics[variant_key(combination)] = _serialize_page_diagnostics(page)
         variants[variant_key(combination)] = serialize_viewable(
             page.view,
             disable_widgets=False,
@@ -254,6 +282,9 @@ def serialize_page_content(
         if widget is not None:
             widget.value = selected_value
     page.refresh(force=True)
+    page_diagnostics["default"] = _serialize_page_diagnostics(page)
+    if diagnostics_for_state is not None:
+        diagnostics_for_state[page_def.page_id] = page_diagnostics
     return {
         "kind": "page_variants",
         "selector_ids": selector_order,
@@ -474,3 +505,30 @@ def _selector_field_name(
 def state_key(weight_mode: str, value_mode: str) -> str:
     """Return the stable key for one dashboard-level state combination."""
     return f"{weight_mode}||{value_mode}"
+
+
+def _serialize_page_diagnostics(page: Any) -> list[dict[str, Any]]:
+    diagnostics = getattr(page, "visualization_diagnostics", [])
+    serialized: list[dict[str, Any]] = []
+    for diagnostic in diagnostics:
+        serialized.append(
+            {
+                "visualization_id": diagnostic.visualization_id,
+                "render_state": diagnostic.render_state,
+                "input_kind": diagnostic.input_kind,
+                "input_ids": list(diagnostic.input_ids),
+                "usable_run_labels": list(diagnostic.usable_run_labels),
+                "excluded_runs": [
+                    {
+                        "label": issue.label,
+                        "status": issue.status,
+                        "detail": issue.detail,
+                        "source_kind": issue.source_kind,
+                        "source_id": issue.source_id,
+                        "missing_columns": list(issue.missing_columns),
+                    }
+                    for issue in diagnostic.excluded_runs
+                ],
+            }
+        )
+    return serialized

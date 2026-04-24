@@ -119,12 +119,16 @@ class TripModePage(DashboardPage):
         )
 
     def _options(self) -> tuple[list[str], list[str]]:
-        trip_list = self.state.get_summary_table_set(
-            "trip_mode_by_tour_purpose_and_tour_mode", "weighted"
+        trip_result = self.state.inspect_summary_table(
+            "trip_mode_by_tour_purpose_and_tour_mode",
+            weighting_key="weighted",
+            required_columns=("tour_purpose", "tour_mode", "trip_mode", "trip_count"),
         )
-        if trip_list is None:
+        if not trip_result.has_usable_runs:
             return ["Total"], ["All"]
-        raw_purposes, raw_tour_modes = discover_options(trip_list)
+        raw_purposes, raw_tour_modes = discover_options(
+            [(label, table) for label, table in trip_result.usable_runs]
+        )
         purp_opts, _ = purpose_mapping(raw_purposes)
         tmode_opts, _ = tour_mode_mapping(raw_tour_modes)
         return purp_opts or ["Total"], tmode_opts or ["All"]
@@ -134,16 +138,27 @@ class TripModePage(DashboardPage):
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        trip_list = self.require_summary("trip_mode_by_tour_purpose_and_tour_mode")
-        if trip_list is None:
+        trip_result = self.resolve_summary_visualization(
+            "trip_mode_cross_tab",
+            summary_requirements={
+                "trip_mode_by_tour_purpose_and_tour_mode": (
+                    "tour_purpose",
+                    "tour_mode",
+                    "trip_mode",
+                    "trip_count",
+                )
+            },
+        )
+        if not trip_result.has_usable_runs:
             self._body.objects = [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
+                self.unavailable_visualization(
+                    trip_result,
+                    detail="Trip mode summaries are unavailable.",
                 )
             ]
             return
 
+        trip_list = trip_result.usable_by_input["trip_mode_by_tour_purpose_and_tour_mode"]
         purp = self.purp_sel.value
         tmode = self.tmode_sel.value
         raw_purposes, raw_tour_modes = discover_options(trip_list)
@@ -170,6 +185,7 @@ class TripModePage(DashboardPage):
             "trip_mode",
             raw_purpose,
             raw_tour_mode,
+            tuple(label for label, _ in trip_list),
             factory=lambda: chart_data(trip_list, raw_purpose, raw_tour_mode),
         )
 

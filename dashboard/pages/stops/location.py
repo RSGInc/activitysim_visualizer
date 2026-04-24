@@ -102,12 +102,16 @@ class StopLocationPage(DashboardPage):
         )
 
     def _purpose_options(self) -> list[str]:
-        loc_list = self.state.get_summary_table_set(
-            "stop_out_of_direction_distance_by_tour_purpose", "weighted"
+        loc_result = self.state.inspect_summary_table(
+            "stop_out_of_direction_distance_by_tour_purpose",
+            weighting_key="weighted",
+            required_columns=("tour_purpose", "distance_bin", "stop_count"),
         )
-        if loc_list is None:
+        if not loc_result.has_usable_runs:
             return ["Total"]
-        raw_purposes = purpose_options(loc_list)
+        raw_purposes = purpose_options(
+            [(label, table) for label, table in loc_result.usable_runs]
+        )
         options, _ = purpose_mapping(raw_purposes)
         return options or ["Total"]
 
@@ -116,16 +120,28 @@ class StopLocationPage(DashboardPage):
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        loc_list = self.require_summary("stop_out_of_direction_distance_by_tour_purpose")
-        if loc_list is None:
+        loc_result = self.resolve_summary_visualization(
+            "stop_location_distance",
+            summary_requirements={
+                "stop_out_of_direction_distance_by_tour_purpose": (
+                    "tour_purpose",
+                    "distance_bin",
+                    "stop_count",
+                )
+            },
+        )
+        if not loc_result.has_usable_runs:
             self._body.objects = [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
+                self.unavailable_visualization(
+                    loc_result,
+                    detail="Stop location summaries are unavailable.",
                 )
             ]
             return
 
+        loc_list = loc_result.usable_by_input[
+            "stop_out_of_direction_distance_by_tour_purpose"
+        ]
         purp = self.purp_sel.value
         raw_purposes = purpose_options(loc_list)
         purp_opts, self._purpose_to_raw = purpose_mapping(raw_purposes)
@@ -143,6 +159,7 @@ class StopLocationPage(DashboardPage):
                 self.get_filtered_view(
                     "stop_location",
                     raw_purpose,
+                    tuple(label for label, _ in loc_list),
                     factory=lambda: chart_data(loc_list, raw_purpose),
                 ),
                 "distance_bin",

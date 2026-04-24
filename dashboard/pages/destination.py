@@ -86,63 +86,97 @@ class DestinationPage(DashboardPage):
         )
 
     def _purpose_options(self) -> list[str]:
-        dist_list = self.state.get_summary_table_set("destination_distance", "weighted")
-        if dist_list is None:
+        dist_result = self.state.inspect_summary_table(
+            "destination_distance",
+            weighting_key="weighted",
+            required_columns=("purpose", "distbin", "freq"),
+        )
+        if not dist_result.has_usable_runs:
             return ["All NM"]
-        return purpose_options(dist_list)
+        return purpose_options(
+            [(label, table) for label, table in dist_result.usable_runs]
+        )
 
     def _refresh(self) -> None:
         if not self.state.run_labels:
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
-            self._body.objects = [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
-                )
-            ]
-            return
+        dist_result = self.resolve_summary_visualization(
+            "destination_distance_chart",
+            summary_requirements={
+                "destination_distance": ("purpose", "distbin", "freq")
+            },
+        )
+        avg_result = self.resolve_summary_visualization(
+            "destination_average_distance_table",
+            summary_requirements={
+                "destination_average_distance": ("purpose", "avg_distance")
+            },
+        )
 
-        dist_list = summaries["destination_distance"]
-        avg_list = summaries["destination_average_distance"]
-        purp_opts = purpose_options(dist_list)
+        purp_opts = (
+            purpose_options(dist_result.usable_by_input["destination_distance"])
+            if dist_result.has_usable_runs
+            else ["All NM"]
+        )
         self.purp_sel.options = purp_opts
         if self.purp_sel.value not in purp_opts:
             self.purp_sel.value = purp_opts[0]
         purpose = self.purp_sel.value
-        data = self.get_filtered_view(
-            "destination_dist",
-            purpose,
-            factory=lambda: distance_chart_data(dist_list, purpose),
-        )
-        avg_df = self.get_filtered_view(
-            "destination_avg",
-            tuple(self.purp_sel.options[1:]),
-            factory=lambda: average_distance_table(
-                avg_list, list(self.purp_sel.options[1:])
-            ),
-        )
+        objects: list[pn.viewable.Viewable] = []
+        if dist_result.has_usable_runs:
+            dist_list = dist_result.usable_by_input["destination_distance"]
+            data = self.get_filtered_view(
+                "destination_dist",
+                purpose,
+                tuple(label for label, _ in dist_list),
+                factory=lambda: distance_chart_data(dist_list, purpose),
+            )
+            objects.append(
+                density_chart(
+                    data,
+                    "distbin",
+                    "freq",
+                    f"Non-Mandatory Tour Distance Distribution - {purpose}",
+                    "Distance (miles)",
+                    normalize=False,
+                    as_percent=self.as_percent,
+                )
+            )
+        else:
+            objects.append(
+                self.unavailable_visualization(
+                    dist_result,
+                    detail="Destination distance summaries are unavailable.",
+                )
+            )
 
-        self._body.objects = [
-            density_chart(
-                data,
-                "distbin",
-                "freq",
-                f"Non-Mandatory Tour Distance Distribution - {purpose}",
-                "Distance (miles)",
-                normalize=False,
-                as_percent=self.as_percent,
-            ),
-            pn.pane.Markdown("### Average Tour Distances (miles)"),
-            (
+        objects.append(pn.pane.Markdown("### Average Tour Distances (miles)"))
+        if avg_result.has_usable_runs:
+            avg_list = avg_result.usable_by_input["destination_average_distance"]
+            avg_df = self.get_filtered_view(
+                "destination_avg",
+                tuple(self.purp_sel.options[1:]),
+                tuple(label for label, _ in avg_list),
+                factory=lambda: average_distance_table(
+                    avg_list, list(self.purp_sel.options[1:])
+                ),
+            )
+            objects.append(
                 pn.widgets.Tabulator(_to_pandas(avg_df), sizing_mode="stretch_width")
                 if len(avg_df) > 0
                 else pn.pane.Markdown("*(No distance data available)*")
-            ),
-        ]
+            )
+        else:
+            objects.append(
+                self.unavailable_visualization(
+                    avg_result,
+                    detail="Average destination distance summaries are unavailable.",
+                )
+            )
+
+        self._body.objects = objects
 
 
 PAGE = DashboardPageDefinition(

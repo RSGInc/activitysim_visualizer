@@ -174,12 +174,22 @@ class StopFreqPage(DashboardPage):
         )
 
     def _purpose_options(self) -> list[str]:
-        stop_list = self.state.get_summary_table_set(
-            "tour_stop_frequency_by_tour_purpose", "weighted"
+        stop_result = self.state.inspect_summary_table(
+            "tour_stop_frequency_by_tour_purpose",
+            weighting_key="weighted",
+            required_columns=(
+                "tour_purpose",
+                "outbound_stop_count",
+                "inbound_stop_count",
+                "total_stop_count",
+                "tour_count",
+            ),
         )
-        if stop_list is None:
+        if not stop_result.has_usable_runs:
             return ["Total"]
-        raw_purposes = purpose_options(stop_list)
+        raw_purposes = purpose_options(
+            [(label, table) for label, table in stop_result.usable_runs]
+        )
         options, _ = purpose_mapping(raw_purposes)
         return options or ["Total"]
 
@@ -188,20 +198,34 @@ class StopFreqPage(DashboardPage):
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
-            self._body.objects = [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
+        stop_result = self.resolve_summary_visualization(
+            "stop_frequency_counts",
+            summary_requirements={
+                "tour_stop_frequency_by_tour_purpose": (
+                    "tour_purpose",
+                    "outbound_stop_count",
+                    "inbound_stop_count",
+                    "total_stop_count",
+                    "tour_count",
                 )
-            ]
-            return
-
-        stop_list = summaries["tour_stop_frequency_by_tour_purpose"]
-        purp_by_tp = summaries["stop_destination_purpose_by_tour_purpose"]
+            },
+        )
+        purpose_result = self.resolve_summary_visualization(
+            "stop_frequency_purpose",
+            summary_requirements={
+                "stop_destination_purpose_by_tour_purpose": (
+                    "tour_purpose",
+                    "stop_destination_purpose",
+                    "stop_count",
+                )
+            },
+        )
         purp = self.purp_sel.value
-        raw_purposes = purpose_options(stop_list)
+        raw_purposes = (
+            purpose_options(stop_result.usable_by_input["tour_stop_frequency_by_tour_purpose"])
+            if stop_result.has_usable_runs
+            else []
+        )
         purp_opts, self._purpose_to_raw = purpose_mapping(raw_purposes)
         if not purp_opts:
             purp_opts = ["Total"]
@@ -212,30 +236,59 @@ class StopFreqPage(DashboardPage):
             purp = self.purp_sel.value
         raw_purpose = self._purpose_to_raw.get(purp)
 
-        ob_data, ib_data, tot_data, purp_chart = self.get_filtered_view(
-            "stop_freq",
-            raw_purpose,
-            factory=lambda: (
-                *frequency_chart_data(stop_list, raw_purpose),
-                purpose_chart_data(purp_by_tp, raw_purpose),
-            ),
-        )
+        objects: list[pn.viewable.Viewable] = []
+        if stop_result.has_usable_runs:
+            stop_list = stop_result.usable_by_input["tour_stop_frequency_by_tour_purpose"]
+            ob_data, ib_data, tot_data = self.get_filtered_view(
+                "stop_freq_counts",
+                raw_purpose,
+                tuple(label for label, _ in stop_list),
+                factory=lambda: frequency_chart_data(stop_list, raw_purpose),
+            )
+            objects.append(
+                pn.Row(
+                    bar_chart(ob_data, "stops", "freq", f"Outbound Stops - {purp}", "Stops", as_percent=self.as_percent),
+                    bar_chart(ib_data, "stops", "freq", f"Inbound Stops - {purp}", "Stops", as_percent=self.as_percent),
+                    bar_chart(tot_data, "stops", "freq", f"Total Stops - {purp}", "Stops", as_percent=self.as_percent),
+                )
+            )
+        else:
+            objects.append(
+                self.unavailable_visualization(
+                    stop_result,
+                    detail="Stop frequency summaries are unavailable.",
+                )
+            )
 
-        self._body.objects = [
-            pn.Row(
-                bar_chart(ob_data, "stops", "freq", f"Outbound Stops - {purp}", "Stops", as_percent=self.as_percent),
-                bar_chart(ib_data, "stops", "freq", f"Inbound Stops - {purp}", "Stops", as_percent=self.as_percent),
-                bar_chart(tot_data, "stops", "freq", f"Total Stops - {purp}", "Stops", as_percent=self.as_percent),
-            ),
-            bar_chart(
-                purp_chart,
-                "stop_destination_purpose",
-                "stop_count",
-                f"Stop Purpose - tour={purp}",
-                "Stop Purpose",
-                as_percent=self.as_percent,
-            ),
-        ]
+        if purpose_result.has_usable_runs:
+            purp_by_tp = purpose_result.usable_by_input[
+                "stop_destination_purpose_by_tour_purpose"
+            ]
+            purp_chart = self.get_filtered_view(
+                "stop_freq_purpose",
+                raw_purpose,
+                tuple(label for label, _ in purp_by_tp),
+                factory=lambda: purpose_chart_data(purp_by_tp, raw_purpose),
+            )
+            objects.append(
+                bar_chart(
+                    purp_chart,
+                    "stop_destination_purpose",
+                    "stop_count",
+                    f"Stop Purpose - tour={purp}",
+                    "Stop Purpose",
+                    as_percent=self.as_percent,
+                )
+            )
+        else:
+            objects.append(
+                self.unavailable_visualization(
+                    purpose_result,
+                    detail="Stop destination purpose summaries are unavailable.",
+                )
+            )
+
+        self._body.objects = objects
 
 
 PAGE = DashboardPageDefinition(

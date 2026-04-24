@@ -129,6 +129,16 @@ def all_page_definitions() -> tuple[DashboardPageDefinition, ...]:
                 )
             page_definitions.append(page_definition)
 
+    unique_page_definitions: list[DashboardPageDefinition] = []
+    seen_definition_objects: set[int] = set()
+    for page_definition in page_definitions:
+        definition_id = id(page_definition)
+        if definition_id in seen_definition_objects:
+            continue
+        seen_definition_objects.add(definition_id)
+        unique_page_definitions.append(page_definition)
+    page_definitions = unique_page_definitions
+
     seen_page_ids: set[str] = set()
     seen_titles: set[str] = set()
     seen_group_child_ids: set[tuple[str, str]] = set()

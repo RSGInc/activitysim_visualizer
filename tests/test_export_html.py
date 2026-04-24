@@ -27,6 +27,7 @@ def _write_config(
     modes_lines: list[str] | None = None,
     geography_lines: list[str] | None = None,
     export_html_lines: list[str] | None = None,
+    visualizer_lines: list[str] | None = None,
 ) -> Config:
     weighting_modes = weighting_modes or ["weighted", "unweighted"]
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -44,6 +45,8 @@ def _write_config(
             '  dashboard_title: "Test Dashboard"',
         ]
     )
+    if visualizer_lines:
+        lines.extend(f"  {line}" for line in visualizer_lines)
     if dashboard_pages is ...:
         dashboard_pages = [page_id for page_id, _ in EXPECTED_DEFAULT_PAGES]
     if dashboard_pages is not None:
@@ -1503,9 +1506,14 @@ def test_export_html_save_writes_single_client_side_html_file(tmp_path: Path) ->
     )
 
     assert out_path.exists()
-    assert sorted(path.name for path in out_dir.iterdir()) == ["dashboard.html"]
+    diagnostics_path = out_dir / "dashboard.diagnostics.json"
+    assert sorted(path.name for path in out_dir.iterdir()) == [
+        "dashboard.diagnostics.json",
+        "dashboard.html",
+    ]
 
     html = out_path.read_text(encoding="utf-8")
+    diagnostics = json.loads(diagnostics_path.read_text(encoding="utf-8"))
     assert "Weighting" in html
     assert "Unweighted" in html
     assert "Count" in html
@@ -1515,3 +1523,52 @@ def test_export_html_save_writes_single_client_side_html_file(tmp_path: Path) ->
     assert "Runs Loaded" in html
     assert "Tour Purpose" in html
     assert "panel.models.state.State" not in html
+    assert diagnostics["schema_version"] == 1
+    assert "Weighted||Percent" in diagnostics["states"]
+
+
+def test_export_html_config_supports_missing_data_display(tmp_path: Path) -> None:
+    config = _write_config(
+        tmp_path,
+        visualizer_lines=["missing_data_display: blank"],
+    )
+
+    assert config.missing_data_display == "blank"
+
+
+def test_export_html_config_rejects_invalid_missing_data_display(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="visualizer.missing_data_display must be either 'card' or 'blank'",
+    ):
+        _write_config(
+            tmp_path,
+            visualizer_lines=["missing_data_display: loud"],
+        )
+
+
+def test_export_html_save_writes_visualization_diagnostics_sidecar(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        export_html_lines=[
+            "pages:",
+            "  raw_trip_demo: {}",
+        ],
+    )
+    out_path = tmp_path / "dashboard.html"
+
+    write_export_html_document(out_path, [], config, summary_runs=[_full_summary_run()])
+
+    diagnostics = json.loads(
+        (tmp_path / "dashboard.diagnostics.json").read_text(encoding="utf-8")
+    )
+    raw_demo = diagnostics["states"]["Weighted||Percent"]["raw_trip_demo"]["default"]
+
+    assert raw_demo
+    assert raw_demo[0]["visualization_id"] == "raw_trip_demo_trip_modes"
+    assert raw_demo[0]["render_state"] == "skipped"
+    assert raw_demo[0]["input_ids"] == ["trips"]

@@ -40,7 +40,11 @@ from runtime.config import Config
 from processor.summarize.summaries import legacy
 
 
-def _write_config(tmp_path: Path) -> Config:
+def _write_config(
+    tmp_path: Path,
+    *,
+    visualizer_lines: list[str] | None = None,
+) -> Config:
     tmp_path.mkdir(parents=True, exist_ok=True)
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
@@ -59,6 +63,13 @@ def _write_config(tmp_path: Path) -> Config:
         ),
         encoding="utf-8",
     )
+    if visualizer_lines:
+        config_path.write_text(
+            config_path.read_text(encoding="utf-8")
+            + "\n"
+            + "\n".join(f"  {line}" for line in visualizer_lines),
+            encoding="utf-8",
+        )
     return Config.from_yaml(config_path)
 
 
@@ -494,9 +505,34 @@ def test_destination_page_shows_data_unavailable_when_only_prepared_runs_are_loa
     page.refresh(force=True)
 
     assert list(page.purp_sel.options) == ["All NM"]
-    assert len(page._body.objects) == 1
-    assert isinstance(page._body.objects[0], pn.Card)
-    assert page._body.objects[0].title == "Data Not Available"
+    assert len(page._body.objects) == 3
+    assert sum(isinstance(obj, pn.Card) for obj in page._body.objects) == 2
+    assert all(
+        getattr(obj, "title", "") == "Data Not Available"
+        for obj in page._body.objects
+        if isinstance(obj, pn.Card)
+    )
+
+
+def test_destination_page_can_hide_missing_visualizations_when_configured_blank(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        visualizer_lines=["missing_data_display: blank"],
+    )
+    state = DashboardState(
+        weighting_modes=config.weighting_modes,
+        prepared_run_provider=DashboardPreparedRunProvider.loaded(
+            [("Base", _destination_raw_run())]
+        ),
+    )
+
+    page = DestinationPage(state, config)
+    page.refresh(force=True)
+
+    assert any(isinstance(obj, pn.Spacer) for obj in page._body.objects)
+    assert not any(isinstance(obj, pn.Card) for obj in page._body.objects)
 
 
 def test_destination_page_ignores_prepared_runs_and_uses_summary_purpose_discovery(
@@ -983,6 +1019,85 @@ def test_overview_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
     page.refresh(force=True)
 
     assert len(page._body.objects) == 8
+
+
+def test_overview_page_skips_bad_run_for_one_visualization_but_keeps_rendering(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    base_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "population_totals": pl.DataFrame(
+                {
+                    "person_count": [100.0],
+                    "household_count": [40.0],
+                    "tour_count": [55.0],
+                    "trip_count": [120.0],
+                    "stop_count": [35.0],
+                }
+            ),
+            "person_type_distribution": pl.DataFrame(
+                {
+                    "person_type": ["worker", "student"],
+                    "person_type_label": ["worker", "student"],
+                    "person_count": [70.0, 30.0],
+                }
+            ),
+            "household_size_distribution": pl.DataFrame(
+                {
+                    "household_size": [1, 2],
+                    "household_count": [15.0, 25.0],
+                }
+            ),
+            "auto_vmt_totals": pl.DataFrame({"auto_vmt": [180.0]}),
+        },
+    )
+    broken_run = _summary_run_with_tables(
+        label="Build",
+        weighted={
+            "population_totals": pl.DataFrame(
+                {
+                    "person_count": [90.0],
+                    "household_count": [38.0],
+                    "tour_count": [50.0],
+                    "trip_count": [110.0],
+                    "stop_count": [30.0],
+                }
+            ),
+            "person_type_distribution": pl.DataFrame(
+                {
+                    "person_type": ["worker", "student"],
+                    "person_count": [60.0, 30.0],
+                }
+            ),
+            "household_size_distribution": pl.DataFrame(
+                {
+                    "household_size": [1, 2],
+                    "household_count": [14.0, 24.0],
+                }
+            ),
+            "auto_vmt_totals": pl.DataFrame({"auto_vmt": [170.0]}),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[base_run, broken_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = OverviewPage(state, config)
+    page.refresh(force=True)
+
+    assert any(isinstance(obj, pn.Row) for obj in page._body.objects)
+    person_type_diag = next(
+        diagnostic
+        for diagnostic in page.visualization_diagnostics
+        if diagnostic.visualization_id == "overview_person_type_distribution"
+    )
+    assert person_type_diag.render_state == "partial"
+    assert person_type_diag.usable_run_labels == ("Base",)
+    assert person_type_diag.excluded_runs[0].label == "Build"
+    assert person_type_diag.excluded_runs[0].status == "schema_mismatch"
 
 
 def test_tour_mode_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:

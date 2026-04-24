@@ -93,12 +93,23 @@ class TourModePage(DashboardPage):
         )
 
     def _purpose_options(self) -> list[str]:
-        mode_list = self.state.get_summary_table_set(
-            "tour_mode_by_tour_purpose_and_auto_sufficiency", "weighted"
+        mode_result = self.state.inspect_summary_table(
+            "tour_mode_by_tour_purpose_and_auto_sufficiency",
+            weighting_key="weighted",
+            required_columns=(
+                "tour_purpose",
+                "tour_mode",
+                "tour_count_all_households",
+                "tour_count_zero_auto",
+                "tour_count_auto_deficient",
+                "tour_count_auto_sufficient",
+            ),
         )
-        if mode_list is None:
+        if not mode_result.has_usable_runs:
             return ["Total"]
-        raw_purposes = purpose_options(mode_list)
+        raw_purposes = purpose_options(
+            [(label, table) for label, table in mode_result.usable_runs]
+        )
         options, _ = purpose_mapping(raw_purposes)
         return options or ["Total"]
 
@@ -107,17 +118,31 @@ class TourModePage(DashboardPage):
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        mode_result = self.resolve_summary_visualization(
+            "tour_mode_auto_sufficiency",
+            summary_requirements={
+                "tour_mode_by_tour_purpose_and_auto_sufficiency": (
+                    "tour_purpose",
+                    "tour_mode",
+                    "tour_count_all_households",
+                    "tour_count_zero_auto",
+                    "tour_count_auto_deficient",
+                    "tour_count_auto_sufficient",
+                )
+            },
+        )
+        if not mode_result.has_usable_runs:
             self._body.objects = [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
+                self.unavailable_visualization(
+                    mode_result,
+                    detail="Tour mode summaries are unavailable.",
                 )
             ]
             return
 
-        mode_list = summaries["tour_mode_by_tour_purpose_and_auto_sufficiency"]
+        mode_list = mode_result.usable_by_input[
+            "tour_mode_by_tour_purpose_and_auto_sufficiency"
+        ]
         raw_purposes = purpose_options(mode_list)
         purp_opts, self._purpose_to_raw = purpose_mapping(raw_purposes)
         if not purp_opts:
@@ -132,6 +157,7 @@ class TourModePage(DashboardPage):
         charts_by_col = self.get_filtered_view(
             "tour_mode",
             raw_purpose,
+            tuple(label for label, _ in mode_list),
             factory=lambda: charts_by_column(mode_list, raw_purpose),
         )
 
@@ -158,30 +184,38 @@ class TourModePage(DashboardPage):
         ]
 
         if self.config.mode_groups:
-            grouped_list = self.require_summary("grouped_tour_mode_profile")
-            if grouped_list is None:
-                self._body.objects = [
-                    self.data_not_available_card(
-                        detail=(
-                            "This page requires the grouped tour mode summary when mode groups are enabled."
-                        ),
-                        missing_items=["grouped_tour_mode_profile"],
-                    )
-                ]
-                return
-            body.extend(
-                [
-                    pn.pane.Markdown("### Grouped Mode Summary"),
-                    bar_chart(
-                        grouped_list,
-                        x_col="mode_group",
-                        y_col="freq_all",
-                        title="Tour Mode (Grouped)",
-                        xaxis_title="Mode Group",
-                        as_percent=self.as_percent,
-                    ),
-                ]
+            grouped_result = self.resolve_summary_visualization(
+                "tour_mode_grouped_profile",
+                summary_requirements={
+                    "grouped_tour_mode_profile": ("mode_group", "freq_all")
+                },
             )
+            if grouped_result.has_usable_runs:
+                grouped_list = grouped_result.usable_by_input[
+                    "grouped_tour_mode_profile"
+                ]
+                body.extend(
+                    [
+                        pn.pane.Markdown("### Grouped Mode Summary"),
+                        bar_chart(
+                            grouped_list,
+                            x_col="mode_group",
+                            y_col="freq_all",
+                            title="Tour Mode (Grouped)",
+                            xaxis_title="Mode Group",
+                            as_percent=self.as_percent,
+                        ),
+                    ]
+                )
+            else:
+                body.append(
+                    self.unavailable_visualization(
+                        grouped_result,
+                        detail=(
+                            "Grouped tour mode summaries are unavailable while mode groups are enabled."
+                        ),
+                    )
+                )
 
         self._body.objects = body
 

@@ -162,31 +162,60 @@ class TourSummaryPage(DashboardPage):
         )
 
     def _ptype_options(self) -> list[str]:
-        dap_list = self.state.get_summary_table_set(
-            "daily_activity_pattern_by_person_type", "weighted"
+        dap_result = self.state.inspect_summary_table(
+            "daily_activity_pattern_by_person_type",
+            weighting_key="weighted",
+            required_columns=("person_type", "daily_activity_pattern", "person_count"),
         )
-        if dap_list is None or not dap_list:
+        if not dap_result.has_usable_runs:
             return ["all_person_types"]
-        return ptype_options(dap_list)
+        return ptype_options(
+            [(label, table) for label, table in dap_result.usable_runs]
+        )
 
     def _refresh(self) -> None:
         if not self.state.run_labels:
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        summary_result = self.resolve_summary_visualization(
+            "tour_summary_profiles",
+            summary_requirements={
+                "daily_activity_pattern_by_person_type": (
+                    "person_type",
+                    "daily_activity_pattern",
+                    "person_count",
+                ),
+                "mandatory_tour_frequency_by_person_type": (
+                    "person_type",
+                    "mandatory_tour_frequency",
+                    "person_count",
+                ),
+                "nonmandatory_tour_frequency_by_person_type": (
+                    "person_type",
+                    "nonmandatory_tour_frequency",
+                    "person_count",
+                ),
+            },
+        )
+        if not summary_result.has_usable_runs:
             self._body.objects = [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
+                self.unavailable_visualization(
+                    summary_result,
+                    detail="Tour summary tables are unavailable.",
                 )
             ]
             return
 
-        dap_list = summaries["daily_activity_pattern_by_person_type"]
-        mtf_list = summaries["mandatory_tour_frequency_by_person_type"]
-        inm_list = summaries["nonmandatory_tour_frequency_by_person_type"]
+        dap_list = summary_result.usable_by_input[
+            "daily_activity_pattern_by_person_type"
+        ]
+        mtf_list = summary_result.usable_by_input[
+            "mandatory_tour_frequency_by_person_type"
+        ]
+        inm_list = summary_result.usable_by_input[
+            "nonmandatory_tour_frequency_by_person_type"
+        ]
         ptype_opts = ptype_options(dap_list)
         display_opts, self._label_to_ptype = ptype_maps(ptype_opts, self.config)
         self.ptype_sel.options = display_opts
@@ -198,6 +227,7 @@ class TourSummaryPage(DashboardPage):
         dap_data, mtf_data, inm_data = self.get_filtered_view(
             "tour_summary",
             ptype,
+            tuple(label for label, _ in dap_list),
             factory=lambda: chart_data(dap_list, mtf_list, inm_list, ptype),
         )
 
