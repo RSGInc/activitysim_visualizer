@@ -444,6 +444,13 @@ def at_work_sub_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
         .sort("atwork_subtour_frequency_category")
     )
 
+# TODO: fix in specs to match original.
+def atwork_subtour_frequency_distribution(
+    rd: RunData, config: Config
+) -> pl.DataFrame:
+    """Backward-compatible alias used by summary spec registration."""
+    return at_work_sub_tour_freq(rd, config)
+
 
 def tour_tod(rd: RunData, config: Config) -> pl.DataFrame:
     """Departure, arrival, and duration profiles in 48 half-hour bins.

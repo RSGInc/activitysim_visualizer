@@ -268,11 +268,31 @@ def _resolve_prepared_run(
     existing_prepared_runs_by_key: dict[str, tuple[str, RunData]],
     prefer_cache: bool,
     write_cache: bool,
-) -> tuple[str, RunData]:
+) -> tuple[str, RunData] | None:
     """Reuse in-memory prepared runs, then prepared cache, then raw-run rebuilds."""
+    def _log_table_unavailability(run_label: str, prepared_run: RunData) -> None:
+        missing_tables = processor_prepare.unavailable_tables(prepared_run)
+        if not missing_tables:
+            return
+        LOGGER.warning(
+            "Prepared run %r skipped unavailable tables: %s",
+            run_label,
+            "; ".join(
+                f"{table_id} ({reason})"
+                for table_id, reason in sorted(missing_tables.items())
+            ),
+        )
+
     cached_prepared_run = existing_prepared_runs_by_key.get(run_key)
     if cached_prepared_run is not None:
+        if not processor_prepare.has_usable_loaded_tables(cached_prepared_run[1]):
+            LOGGER.warning(
+                "Skipping prepared run %r because no raw prepared tables are available.",
+                cached_prepared_run[0],
+            )
+            return None
         LOGGER.info("Reusing in-memory prepared run for %r", cached_prepared_run[0])
+        _log_table_unavailability(cached_prepared_run[0], cached_prepared_run[1])
         return cached_prepared_run
 
     metadata = _run_cache_metadata(entry=entry, run_key=run_key, config=config)
@@ -293,6 +313,13 @@ def _resolve_prepared_run(
             )
             LOGGER.info("Loaded prepared cache for run: %r", label)
             loaded = (label, prepared_run)
+            if not processor_prepare.has_usable_loaded_tables(prepared_run):
+                LOGGER.warning(
+                    "Skipping prepared cache for %r because no raw prepared tables are available.",
+                    label,
+                )
+                return None
+            _log_table_unavailability(label, prepared_run)
             existing_prepared_runs_by_key[run_key] = loaded
             return loaded
         except processor_prepare.PreparedCacheError as exc:
@@ -309,6 +336,13 @@ def _resolve_prepared_run(
         trip_weight_col=entry.get("trip_weight_col") or None,
     )
     prepared_run = processor_prepare.prepare_data(prepared_run, config)
+    if not processor_prepare.has_usable_loaded_tables(prepared_run):
+        LOGGER.warning(
+            "Skipping run %r because no raw prepared tables could be loaded safely.",
+            label,
+        )
+        return None
+    _log_table_unavailability(label, prepared_run)
     LOGGER.info("Prepared run: %r", label)
     if write_cache:
         processor_prepare.write_prepared_run_cache(
@@ -355,12 +389,11 @@ def run_prepare_workflow(
             prefer_cache=prefer_cache,
             write_cache=write_cache,
         )
+        if prepared_loaded is None:
+            continue
         prepared_runs_by_key[run_key] = prepared_loaded
         run_keys.append(run_key)
         run_fingerprints_by_key[run_key] = dict(metadata["run_fingerprint"])
-
-    if not prepared_runs_by_key:
-        raise ValueError("no runs were loaded.")
 
     ordered_prepared_runs = [
         prepared_runs_by_key[run_key]
@@ -512,6 +545,12 @@ def run_summary_workflow(
             write_cache=True,
             existing_result=prepare_result,
         )
+        if run_key not in prepare_result.prepared_runs_by_key:
+            LOGGER.warning(
+                "Skipping summary build for %r because no prepared tables were available.",
+                label,
+            )
+            continue
         prepared_loaded = prepare_result.prepared_runs_by_key[run_key]
         existing_prepared_runs_by_key = dict(prepare_result.prepared_runs_by_key)
         prepared_runs_by_key[run_key] = prepared_loaded

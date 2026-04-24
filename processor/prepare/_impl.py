@@ -19,6 +19,70 @@ from processor.models import RunData
 
 LOGGER = get_logger("processor.prepare")
 
+PREPARED_TABLE_IDS: tuple[str, ...] = (
+    "households",
+    "persons",
+    "tours",
+    "trips",
+    "joint_tour_participants",
+    "land_use",
+)
+RUN_TABLE_ATTRS: tuple[tuple[str, str], ...] = (
+    ("households", "hh"),
+    ("persons", "per"),
+    ("tours", "tours"),
+    ("trips", "trips"),
+    ("joint_tour_participants", "joint_participants"),
+    ("land_use", "land_use"),
+)
+
+
+def attach_table_availability(
+    rd: RunData,
+    table_states: dict[str, str] | None = None,
+    table_reasons: dict[str, str] | None = None,
+) -> RunData:
+    """Attach internal per-table availability metadata to a RunData instance."""
+    setattr(rd, "_table_availability", dict(table_states or {}))
+    setattr(rd, "_table_unavailable_reasons", dict(table_reasons or {}))
+    return rd
+
+
+def table_availability(rd: RunData) -> dict[str, str]:
+    """Return internal per-table availability metadata for ``rd``."""
+    states = getattr(rd, "_table_availability", None)
+    if isinstance(states, dict):
+        return dict(states)
+
+    inferred: dict[str, str] = {}
+    for table_id, attr_name in RUN_TABLE_ATTRS:
+        table = getattr(rd, attr_name)
+        inferred[table_id] = "empty" if table.width == 0 else "available"
+    return inferred
+
+
+def table_unavailable_reasons(rd: RunData) -> dict[str, str]:
+    """Return internal per-table unavailable-reason metadata for ``rd``."""
+    reasons = getattr(rd, "_table_unavailable_reasons", None)
+    return dict(reasons) if isinstance(reasons, dict) else {}
+
+
+def has_usable_loaded_tables(rd: RunData) -> bool:
+    """Return whether any raw prepared input table was loaded for this run."""
+    states = table_availability(rd)
+    return any(states.get(table_id) != "unavailable" for table_id in PREPARED_TABLE_IDS)
+
+
+def unavailable_tables(rd: RunData) -> dict[str, str]:
+    """Return unavailable-table reasons for logging/diagnostics."""
+    states = table_availability(rd)
+    reasons = table_unavailable_reasons(rd)
+    return {
+        table_id: reasons.get(table_id, "table unavailable")
+        for table_id, state in states.items()
+        if state == "unavailable"
+    }
+
 
 def _resolve_source_column(
     df: pl.DataFrame,
@@ -127,6 +191,10 @@ def _cast_if_present(df: pl.DataFrame, casts: dict[str, pl.DataType]) -> pl.Data
         if col in df.columns
     ]
     return df.with_columns(exprs) if exprs else df
+
+
+def _has_columns(df: pl.DataFrame, *columns: str) -> bool:
+    return all(column in df.columns for column in columns)
 
 
 def _skim_lookup(
@@ -276,7 +344,7 @@ def compute_weights(
         per = per.with_columns(
             pl.col(person_weight_col).cast(pl.Float64).alias("finalweight")
         )
-    else:
+    elif _has_columns(per, "household_id") and _has_columns(hh, "household_id", "finalweight"):
         per = (
             per.join(
                 hh.select(["household_id", pl.col("finalweight").alias("_hw")]),
@@ -286,33 +354,36 @@ def compute_weights(
             .with_columns(pl.col("_hw").fill_null(1.0).alias("finalweight"))
             .drop("_hw")
         )
+    else:
+        per = per.with_columns(pl.lit(1.0).alias("finalweight"))
 
     if trip_weight_col and trip_weight_col in trips.columns:
         LOGGER.info("[compute_weights] Using trip weight column: %s", trip_weight_col)
         trips = trips.with_columns(
             pl.col(trip_weight_col).cast(pl.Float64).alias("finalweight")
         )
+    elif _has_columns(trips, "person_id") and _has_columns(per, "person_id", "finalweight"):
+        trips = (
+            trips.join(
+                per.select(["person_id", pl.col("finalweight").alias("_pw")]),
+                on="person_id",
+                how="left",
+            )
+            .with_columns(pl.col("_pw").fill_null(1.0).alias("finalweight"))
+            .drop("_pw")
+        )
+    elif _has_columns(trips, "household_id") and _has_columns(hh, "household_id", "finalweight"):
+        trips = (
+            trips.join(
+                hh.select(["household_id", pl.col("finalweight").alias("_hw")]),
+                on="household_id",
+                how="left",
+            )
+            .with_columns(pl.col("_hw").fill_null(1.0).alias("finalweight"))
+            .drop("_hw")
+        )
     else:
-        if "person_id" in trips.columns:
-            trips = (
-                trips.join(
-                    per.select(["person_id", pl.col("finalweight").alias("_pw")]),
-                    on="person_id",
-                    how="left",
-                )
-                .with_columns(pl.col("_pw").fill_null(1.0).alias("finalweight"))
-                .drop("_pw")
-            )
-        else:
-            trips = (
-                trips.join(
-                    hh.select(["household_id", pl.col("finalweight").alias("_hw")]),
-                    on="household_id",
-                    how="left",
-                )
-                .with_columns(pl.col("_hw").fill_null(1.0).alias("finalweight"))
-                .drop("_hw")
-            )
+        trips = trips.with_columns(pl.lit(1.0).alias("finalweight"))
 
     if (
         trip_weight_col
@@ -327,7 +398,7 @@ def compute_weights(
             .with_columns(pl.col("_tw").fill_null(1.0).alias("finalweight"))
             .drop("_tw")
         )
-    elif "person_id" in tours.columns:
+    elif _has_columns(tours, "person_id") and _has_columns(per, "person_id", "finalweight"):
         tours = (
             tours.join(
                 per.select(["person_id", pl.col("finalweight").alias("_pw")]),
@@ -337,7 +408,7 @@ def compute_weights(
             .with_columns(pl.col("_pw").fill_null(1.0).alias("finalweight"))
             .drop("_pw")
         )
-    else:
+    elif _has_columns(tours, "household_id") and _has_columns(hh, "household_id", "finalweight"):
         tours = (
             tours.join(
                 hh.select(["household_id", pl.col("finalweight").alias("_hw")]),
@@ -347,6 +418,8 @@ def compute_weights(
             .with_columns(pl.col("_hw").fill_null(1.0).alias("finalweight"))
             .drop("_hw")
         )
+    else:
+        tours = tours.with_columns(pl.lit(1.0).alias("finalweight"))
 
     return hh, per, tours, trips
 
@@ -365,8 +438,26 @@ def read_run(
     if label is None:
         label = run_dir.name
 
+    table_states: dict[str, str] = {}
+    table_reasons: dict[str, str] = {}
+
     def _read(key: str) -> pl.DataFrame:
-        return _find_and_read(run_dir, config.files[key])
+        configured = config.files[key]
+        try:
+            table = _find_and_read(run_dir, configured)
+        except FileNotFoundError as exc:
+            table_states[key] = "unavailable"
+            table_reasons[key] = str(exc)
+            LOGGER.warning(
+                "Prepare input unavailable for run '%s', table '%s': %s",
+                label,
+                key,
+                exc,
+            )
+            return pl.DataFrame()
+
+        table_states[key] = "empty" if table.width == 0 else "available"
+        return table
 
     hh = _read("households")
     per = _read("persons")
@@ -416,7 +507,8 @@ def read_run(
     else:
         LOGGER.info("[read_run] No skim configured for run '%s'.", label)
 
-    return RunData(
+    return attach_table_availability(
+        RunData(
         label=label,
         run_dir=str(run_dir),
         skim_file=resolved_skim,
@@ -431,6 +523,9 @@ def read_run(
         hh_weight_col=hh_weight_col or None,
         person_weight_col=person_weight_col or None,
         trip_weight_col=trip_weight_col or None,
+        ),
+        table_states=table_states,
+        table_reasons=table_reasons,
     )
 
 
@@ -448,6 +543,8 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     trips = rd.trips
     joint_participants = rd.joint_participants
     land_use = rd.land_use
+    initial_table_states = table_availability(rd)
+    initial_table_reasons = table_unavailable_reasons(rd)
 
     hh = _materialize_column(
         hh,
@@ -699,7 +796,11 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     hh = _to_taz(hh, "home_zone_id", "home_taz")
     hh = _add_geo(hh, "home_taz", "HGEO")
 
-    if "home_zone_id" not in per.columns:
+    if (
+        "home_zone_id" not in per.columns
+        and _has_columns(per, "household_id")
+        and _has_columns(hh, "household_id", "home_zone_id")
+    ):
         LOGGER.warning(
             "Warning: 'home_zone_id' column not found in persons for run '%s'. Merging from household_id.",
             rd.label,
@@ -752,7 +853,8 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
         for column in ["household_id", "HHVEH", "WORKERS", "ADULTS"]
         if column in hh.columns
     ]
-    tours = tours.join(hh.select(hh_for_tours), on="household_id", how="left")
+    if "household_id" in tours.columns and "household_id" in hh_for_tours:
+        tours = tours.join(hh.select(hh_for_tours), on="household_id", how="left")
 
     if "HHVEH" in tours.columns and "WORKERS" in tours.columns:
         tours = tours.with_columns(
@@ -834,20 +936,25 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
         ]
         if column in tours.columns
     ]
-    trips = trips.join(
-        tours.select(tour_join_cols).rename({"NUMBER_HH": "num_participants"}),
-        on="tour_id",
-        how="left",
-        suffix="_tour",
-    )
-    for column in ["tour_purpose", "tour_mode", "tour_category"]:
-        tour_col = f"{column}_tour"
-        if tour_col in trips.columns and column in trips.columns:
-            trips = trips.with_columns(
-                pl.coalesce([pl.col(tour_col), pl.col(column)]).alias(column)
-            ).drop(tour_col)
-        elif tour_col in trips.columns:
-            trips = trips.rename({tour_col: column})
+    if (
+        "tour_id" in trips.columns
+        and "tour_id" in tours.columns
+        and "tour_id" in tour_join_cols
+    ):
+        trips = trips.join(
+            tours.select(tour_join_cols).rename({"NUMBER_HH": "num_participants"}),
+            on="tour_id",
+            how="left",
+            suffix="_tour",
+        )
+        for column in ["tour_purpose", "tour_mode", "tour_category"]:
+            tour_col = f"{column}_tour"
+            if tour_col in trips.columns and column in trips.columns:
+                trips = trips.with_columns(
+                    pl.coalesce([pl.col(tour_col), pl.col(column)]).alias(column)
+                ).drop(tour_col)
+            elif tour_col in trips.columns:
+                trips = trips.rename({tour_col: column})
 
     if "HHVEH" not in trips.columns:
         hh_trip_join_cols = [
@@ -855,11 +962,12 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
             for column in ["household_id", "HHVEH", "WORKERS"]
             if column in hh.columns
         ]
-        trips = trips.join(
-            hh.select(hh_trip_join_cols),
-            on="household_id",
-            how="left",
-        )
+        if "household_id" in trips.columns and "household_id" in hh_trip_join_cols:
+            trips = trips.join(
+                hh.select(hh_trip_join_cols),
+                on="household_id",
+                how="left",
+            )
     if (
         "AUTOSUFF" not in trips.columns
         and "HHVEH" in trips.columns
@@ -904,7 +1012,7 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
             .alias("inbound")
         )
 
-    if "trip_num" in trips.columns and "outbound" in trips.columns:
+    if _has_columns(trips, "tour_id", "trip_num", "outbound"):
         max_trip = trips.group_by(["tour_id", "outbound"]).agg(
             pl.col("trip_num").max().alias("max_trip_num")
         )
@@ -921,9 +1029,8 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     if "out_dir_dist" not in trips.columns:
         if (
             skim is not None
-            and "OTAZ" in trips.columns
-            and "DTAZ" in trips.columns
-            and "inbound" in trips.columns
+            and _has_columns(trips, "tour_id", "OTAZ", "DTAZ", "inbound")
+            and _has_columns(tours, "tour_id", "OTAZ", "DTAZ")
         ):
             tour_od = tours.select(["tour_id", "OTAZ", "DTAZ"]).rename(
                 {"OTAZ": "tour_OTAZ", "DTAZ": "tour_DTAZ"}
@@ -1022,7 +1129,8 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     )
 
     LOGGER.info("[prepare_data] Complete: %s", rd.label)
-    return RunData(
+    return attach_table_availability(
+        RunData(
         label=rd.label,
         run_dir=rd.run_dir,
         skim_file=rd.skim_file,
@@ -1037,4 +1145,7 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
         hh_weight_col=rd.hh_weight_col,
         person_weight_col=rd.person_weight_col,
         trip_weight_col=rd.trip_weight_col,
+        ),
+        table_states=initial_table_states,
+        table_reasons=initial_table_reasons,
     )

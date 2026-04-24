@@ -11,10 +11,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from processor.models import RunData
 from processor.prepare import (
     PreparedCacheError,
+    attach_table_availability,
     build_run_fingerprint,
     load_prepared_run_cache,
     prepare_data,
     prepared_root,
+    table_availability,
+    table_unavailable_reasons,
     write_prepared_run_cache,
 )
 from runtime.config import Config
@@ -272,6 +275,85 @@ def test_prepared_cache_detects_run_fingerprint_mismatch(tmp_path: Path) -> None
                 person_weight_col="person_weight",
                 trip_weight_col="trip_weight",
             ),
+            expected_label="Base",
+            expected_run_key="base",
+        )
+
+
+def test_prepared_cache_round_trip_preserves_empty_vs_unavailable_table_states(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    prepared = attach_table_availability(
+        _prepared_run(config),
+        table_states={
+            "households": "available",
+            "persons": "available",
+            "tours": "available",
+            "trips": "available",
+            "joint_tour_participants": "empty",
+            "land_use": "unavailable",
+        },
+        table_reasons={"land_use": "configured file was missing"},
+    )
+    prepared = RunData(
+        label=prepared.label,
+        run_dir=prepared.run_dir,
+        skim_file=prepared.skim_file,
+        hh=prepared.hh,
+        per=prepared.per,
+        tours=prepared.tours,
+        trips=prepared.trips,
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=prepared.skim_matrix,
+        skim_zone_map=prepared.skim_zone_map,
+        hh_weight_col=prepared.hh_weight_col,
+        person_weight_col=prepared.person_weight_col,
+        trip_weight_col=prepared.trip_weight_col,
+    )
+    prepared = attach_table_availability(
+        prepared,
+        table_states={
+            "households": "available",
+            "persons": "available",
+            "tours": "available",
+            "trips": "available",
+            "joint_tour_participants": "empty",
+            "land_use": "unavailable",
+        },
+        table_reasons={"land_use": "configured file was missing"},
+    )
+
+    entry = write_prepared_run_cache(prepared, config, run_key="base")
+    loaded = load_prepared_run_cache(
+        entry.cache_dir,
+        config,
+        expected_prepare_config_digest=config.prepare_config_digest,
+        expected_label="Base",
+        expected_run_key="base",
+    )
+
+    assert table_availability(loaded)["joint_tour_participants"] == "empty"
+    assert table_availability(loaded)["land_use"] == "unavailable"
+    assert table_unavailable_reasons(loaded)["land_use"] == "configured file was missing"
+    assert loaded.joint_participants.is_empty()
+    assert loaded.land_use.is_empty()
+
+
+def test_prepared_cache_rejects_old_schema_version(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    prepared = _prepared_run(config)
+    entry = write_prepared_run_cache(prepared, config, run_key="base")
+    manifest_path = entry.cache_dir / "manifest.json"
+    manifest = manifest_path.read_text(encoding="utf-8")
+    manifest_path.write_text(manifest.replace('"schema_version": 2', '"schema_version": 1'), encoding="utf-8")
+
+    with pytest.raises(PreparedCacheError, match="Unsupported prepared cache schema_version"):
+        load_prepared_run_cache(
+            entry.cache_dir,
+            config,
+            expected_prepare_config_digest=config.prepare_config_digest,
             expected_label="Base",
             expected_run_key="base",
         )
