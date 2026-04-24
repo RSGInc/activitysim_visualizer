@@ -244,6 +244,58 @@ def density_chart(
     return pn.pane.Plotly(fig, sizing_mode="stretch_width")
 
 
+# TODO: Consider changing to a grid of plots
+def scatter_chart(
+    data_list: list[tuple[str, pl.DataFrame]],
+    x_col: str,
+    y_col: str,
+    title: str = "",
+    xaxis_title: str = "",
+    yaxis_title: str = "",
+    height: int = 400,
+) -> pn.pane.Plotly:
+    """Create a scatterplot comparing multiple runs."""
+    fig = go.Figure()
+
+    for i, (label, df) in enumerate(data_list):
+        if df is None or len(df) == 0:
+            continue
+
+        x = df[x_col].to_list()
+        y = df[y_col].to_list()
+
+        hover = [
+            f"{label}<br>{xaxis_title or x_col}: {xi:,.1f}<br>{yaxis_title or y_col}: {yi:,.1f}"
+            for xi, yi in zip(x, y)
+        ]
+
+        fig.add_trace(
+            go.Scatter(
+                name=label,
+                x=x,
+                y=y,
+                mode="markers",
+                marker=dict(
+                    color=run_color(i),
+                    size=8,
+                    line=dict(width=0.4),
+                ),
+                hovertemplate="%{customdata}<extra></extra>",
+                customdata=hover,
+            )
+        )
+
+    _layout(
+        fig,
+        title,
+        xaxis_title,
+        yaxis_title,
+        height,
+    )
+
+    return pn.pane.Plotly(fig, sizing_mode="stretch_width")
+
+
 def kpi_box(
     label: str, values: list[tuple[str, float]], format_fn=None, icon: str = ""
 ) -> pn.viewable.Viewable:
