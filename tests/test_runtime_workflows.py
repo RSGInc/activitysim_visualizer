@@ -8,11 +8,13 @@ import polars as pl
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import runtime_workflows
-from processor import prepare as processor_prepare
 from processor.models import ProcessorWorkflowResult
-from processor.prepare import build_prepared_manifest_identity, write_prepared_run_cache
-from processor.prepare import attach_table_availability
 from processor.models import RunData
+from processor.prepare.availability import attach_table_availability
+from processor.prepare.cache import (
+    build_prepared_manifest_identity,
+    write_prepared_run_cache,
+)
 from runtime.config import Config
 from processor.summarize import cache as summary_cache
 from processor.summarize.cache import (
@@ -136,14 +138,14 @@ def test_run_prepare_workflow_uses_cache_hit_without_raw_read_or_prepare_rebuild
     )
 
     monkeypatch.setattr(
-        processor_prepare,
+        runtime_workflows,
         "read_run",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called on a prepared-cache hit")
         ),
     )
     monkeypatch.setattr(
-        processor_prepare,
+        runtime_workflows,
         "prepare_data",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called on a prepared-cache hit")
@@ -176,7 +178,7 @@ def test_run_prepare_workflow_rebuilds_and_writes_prepared_cache_on_cache_miss(
     prepare_calls: list[str] = []
 
     monkeypatch.setattr(
-        processor_prepare,
+        runtime_workflows,
         "read_run",
         lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
@@ -184,7 +186,7 @@ def test_run_prepare_workflow_rebuilds_and_writes_prepared_cache_on_cache_miss(
         )[1],
     )
     monkeypatch.setattr(
-        processor_prepare,
+        runtime_workflows,
         "prepare_data",
         lambda rd, config: (
             prepare_calls.append(rd.label),
@@ -218,7 +220,7 @@ def test_run_prepare_workflow_skips_run_when_no_raw_tables_are_available(
     prepared_root = runtime_workflows.prepared_cache_root(config, create=True)
 
     monkeypatch.setattr(
-        processor_prepare,
+        runtime_workflows,
         "read_run",
         lambda run_dir, config, label=None, **kwargs: attach_table_availability(
             _fake_run_data(label or Path(run_dir).name, str(run_dir)),
@@ -233,7 +235,7 @@ def test_run_prepare_workflow_skips_run_when_no_raw_tables_are_available(
             table_reasons={"households": "missing"},
         ),
     )
-    monkeypatch.setattr(processor_prepare, "prepare_data", lambda rd, config: rd)
+    monkeypatch.setattr(runtime_workflows, "prepare_data", lambda rd, config: rd)
 
     result = runtime_workflows.run_prepare_workflow(
         config=config,
@@ -259,7 +261,7 @@ def test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_unavailable
     prepared_root = runtime_workflows.prepared_cache_root(config, create=True)
 
     monkeypatch.setattr(
-        processor_prepare,
+        runtime_workflows,
         "read_run",
         lambda run_dir, config, label=None, **kwargs: attach_table_availability(
             RunData(
@@ -286,7 +288,7 @@ def test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_unavailable
             table_reasons={"persons": "missing"},
         ),
     )
-    monkeypatch.setattr(processor_prepare, "prepare_data", lambda rd, config: rd)
+    monkeypatch.setattr(runtime_workflows, "prepare_data", lambda rd, config: rd)
 
     result = runtime_workflows.run_prepare_workflow(
         config=config,
@@ -331,14 +333,14 @@ def test_run_summary_workflow_uses_cache_hit_without_raw_read_or_summary_rebuild
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
     monkeypatch.setattr(
-        processor_prepare,
+        runtime_workflows,
         "read_run",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called on a cache hit")
         ),
     )
     monkeypatch.setattr(
-        processor_prepare,
+        runtime_workflows,
         "prepare_data",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called on a cache hit")
@@ -380,7 +382,7 @@ def test_run_summary_workflow_rebuilds_and_writes_cache_on_cache_miss(
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
     monkeypatch.setattr(
-        processor_prepare,
+        runtime_workflows,
         "read_run",
         lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
@@ -388,7 +390,7 @@ def test_run_summary_workflow_rebuilds_and_writes_cache_on_cache_miss(
         )[1],
     )
     monkeypatch.setattr(
-        processor_prepare,
+        runtime_workflows,
         "prepare_data",
         lambda rd, config: (
             prepare_calls.append(rd.label),
@@ -457,7 +459,7 @@ def test_run_summary_workflow_uses_prepared_cache_before_raw_rebuild(
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
     monkeypatch.setattr(
-        processor_prepare,
+        runtime_workflows,
         "read_run",
         lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
@@ -465,7 +467,7 @@ def test_run_summary_workflow_uses_prepared_cache_before_raw_rebuild(
         )[1],
     )
     monkeypatch.setattr(
-        processor_prepare,
+        runtime_workflows,
         "prepare_data",
         lambda rd, config: (
             prepare_calls.append(rd.label),
@@ -510,21 +512,21 @@ def test_run_summary_workflow_reuses_in_memory_prepared_runs_without_reload(
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
     monkeypatch.setattr(
-        processor_prepare,
+        runtime_workflows,
         "read_run",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called when prepared runs already exist in memory")
         ),
     )
     monkeypatch.setattr(
-        processor_prepare,
+        runtime_workflows,
         "prepare_data",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called when prepared runs already exist in memory")
         ),
     )
     monkeypatch.setattr(
-        processor_prepare,
+        runtime_workflows,
         "load_prepared_run_cache",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("load_prepared_run_cache should not be called when prepared runs already exist in memory")
@@ -586,7 +588,7 @@ def test_load_prepared_runs_for_dashboard_reuses_existing_loaded_runs_by_key(
     prepare_calls: list[str] = []
 
     monkeypatch.setattr(
-        processor_prepare,
+        runtime_workflows,
         "read_run",
         lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
@@ -594,7 +596,7 @@ def test_load_prepared_runs_for_dashboard_reuses_existing_loaded_runs_by_key(
         )[1],
     )
     monkeypatch.setattr(
-        processor_prepare,
+        runtime_workflows,
         "prepare_data",
         lambda rd, config: (
             prepare_calls.append(rd.label),
@@ -626,14 +628,14 @@ def test_load_prepared_runs_for_dashboard_returns_empty_when_required_runs_are_m
     )
 
     monkeypatch.setattr(
-        processor_prepare,
+        runtime_workflows,
         "read_run",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called when required runs are unresolved")
         ),
     )
     monkeypatch.setattr(
-        processor_prepare,
+        runtime_workflows,
         "prepare_data",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called when required runs are unresolved")
@@ -726,14 +728,14 @@ def test_load_prepared_runs_for_dashboard_prunes_existing_runs_to_required_table
     )
 
     monkeypatch.setattr(
-        processor_prepare,
+        runtime_workflows,
         "read_run",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called when the run is already loaded")
         ),
     )
     monkeypatch.setattr(
-        processor_prepare,
+        runtime_workflows,
         "prepare_data",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called when the run is already loaded")

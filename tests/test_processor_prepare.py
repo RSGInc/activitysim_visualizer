@@ -8,13 +8,19 @@ import polars as pl
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from processor.models import RunData as ProcessorRunData
-from processor.prepare import (
-    prepare_data as processor_prepare_data,
-    read_run as processor_read_run,
-    resolve_skim_path as processor_resolve_skim_path,
-    resolve_source_column as processor_resolve_source_column,
+from processor.prepare.availability import (
     table_availability as processor_table_availability,
     table_unavailable_reasons as processor_table_unavailable_reasons,
+)
+from processor.prepare.enrichment.columns import (
+    resolve_source_column as processor_resolve_source_column,
+)
+from processor.prepare.enrichment.pipeline import (
+    prepare_data as processor_prepare_data,
+)
+from processor.prepare.reader import (
+    read_run as processor_read_run,
+    resolve_skim_path as processor_resolve_skim_path,
 )
 from runtime.config import Config
 
@@ -105,7 +111,7 @@ def _raw_run() -> ProcessorRunData:
     )
 
 
-def test_processor_prepare_module_exposes_canonical_prepare_helpers() -> None:
+def test_processor_prepare_feature_modules_expose_canonical_prepare_helpers() -> None:
     assert callable(processor_prepare_data)
     assert callable(processor_read_run)
     assert callable(processor_resolve_skim_path)

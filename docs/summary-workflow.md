@@ -23,8 +23,8 @@ High-level path:
 1. `run.py` parses CLI flags.
 2. `runtime_workflows.resolve_run_entries()` chooses run inputs from CLI or config.
 3. `runtime_workflows.run_prepare_workflow()` tries prepared-cache reuse first.
-4. On a miss, raw runs are read and normalized in `processor.prepare`.
-5. `processor.prepare.write_prepared_run_cache()` writes one prepared cache directory per run.
+4. On a miss, raw runs are read by `processor.prepare.reader` and normalized by `processor.prepare.enrichment.pipeline`.
+5. `processor.prepare.cache.write_prepared_run_cache()` writes one prepared cache directory per run.
 
 Prepared cache layout:
 
@@ -140,12 +140,20 @@ Summary builders should always aggregate `finalweight` rather than switching beh
 
 | Question | Start here |
 |---|---|
-| How are runs loaded and normalized? | `processor/prepare/reader.py`, `processor/prepare/enrichment.py` |
+| How are runs loaded and normalized? | `processor/prepare/reader.py`, `processor/prepare/enrichment/pipeline.py` |
 | Why was a prepared or summary cache reused or rejected? | `runtime_workflows.py`, `processor/prepare/cache.py`, `processor/summarize/cache.py` |
 | Which summary ids exist? | `processor/summarize/cache.py` |
 | Which output columns are considered canonical? | `processor/summarize/schema.py` |
 | How does a page get discovered? | `dashboard/page_registry.py` |
 | How does export know about page-local selectors? | `dashboard/page_definitions.py`, `dashboard/export/payload.py`, `dashboard/export/serializer.py` |
+
+For prepare internals, the enrichment package is now split by responsibility:
+
+- `processor/prepare/enrichment/columns.py` for source-column resolution helpers
+- `processor/prepare/enrichment/canonicalize.py` for raw-to-canonical field materialization
+- `processor/prepare/enrichment/weights.py` for `finalweight` assignment
+- `processor/prepare/enrichment/zones.py` for MAZ/TAZ, geography, and skim helpers
+- `processor/prepare/enrichment/pipeline.py` for the public `prepare_data()` orchestration entrypoint
 
 ## Related Guides
 

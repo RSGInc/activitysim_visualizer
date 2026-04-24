@@ -181,7 +181,8 @@ Test at least:
 
 - `processor/summarize/cache.py` for registration and weighting behavior
 - `processor/models.py` for the prepared `RunData` contract
-- `processor/prepare/enrichment.py` for canonical column preparation
+- `processor/prepare/enrichment/pipeline.py` for the `prepare_data()` entrypoint
+- `processor/prepare/enrichment/canonicalize.py` and `processor/prepare/enrichment/columns.py` for canonical column preparation helpers
 - `processor/summarize/schema.py` for dashboard-facing output contracts
 - `tests/test_runtime_canonical_columns.py` for the expected testing style
 - [adding-dashboard-pages.md](adding-dashboard-pages.md) if the summary will be displayed in the UI

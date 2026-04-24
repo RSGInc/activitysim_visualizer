@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from runtime.config import Config
 from processor.models import RunData
-from processor.prepare import prepare_data
+from processor.prepare.enrichment.pipeline import prepare_data
 from processor.summarize.schema import SUMMARY_OUTPUT_COLUMNS
 from processor.summarize.summaries import legacy, tour, trip
 

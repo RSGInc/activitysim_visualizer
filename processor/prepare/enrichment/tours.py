@@ -1,0 +1,110 @@
+"""Tour enrichment stage for prepared tables."""
+
+from __future__ import annotations
+
+from activitysim_viz_logging import get_logger
+import polars as pl
+
+from processor.prepare.enrichment.types import _PrepareState, _ZoneContext
+from processor.prepare.enrichment.zones import _skim_lookup, _to_taz
+from runtime.config import Config
+
+LOGGER = get_logger("processor.prepare")
+
+
+def _enrich_tours(
+    state: _PrepareState, config: Config, zone_context: _ZoneContext
+) -> _PrepareState:
+    hh_for_tours = [
+        column
+        for column in ["household_id", "HHVEH", "WORKERS", "ADULTS"]
+        if column in state.hh.columns
+    ]
+    if "household_id" in state.tours.columns and "household_id" in hh_for_tours:
+        state.tours = state.tours.join(
+            state.hh.select(hh_for_tours),
+            on="household_id",
+            how="left",
+        )
+
+    if "HHVEH" in state.tours.columns and "WORKERS" in state.tours.columns:
+        state.tours = state.tours.with_columns(
+            pl.when(pl.col("HHVEH") == 0)
+            .then(0)
+            .when((pl.col("HHVEH") > 0) & (pl.col("HHVEH") < pl.col("WORKERS")))
+            .then(1)
+            .when((pl.col("HHVEH") > 0) & (pl.col("HHVEH") >= pl.col("WORKERS")))
+            .then(2)
+            .otherwise(0)
+            .alias("AUTOSUFF")
+        )
+
+    if "stop_frequency" in state.tours.columns:
+        state.tours = state.tours.with_columns(
+            [
+                pl.col("stop_frequency")
+                .cast(pl.Utf8)
+                .str.split("out_")
+                .list.first()
+                .cast(pl.Int32)
+                .alias("num_ob_stops"),
+                pl.col("stop_frequency")
+                .cast(pl.Utf8)
+                .str.split("out_")
+                .list.last()
+                .str.replace("in", "", literal=True)
+                .cast(pl.Int32)
+                .alias("num_ib_stops"),
+            ]
+        ).with_columns(
+            (pl.col("num_ob_stops") + pl.col("num_ib_stops")).alias("num_tot_stops")
+        )
+
+    state.tours = _to_taz(
+        state.tours,
+        "origin",
+        "OTAZ",
+        config=config,
+        zone_context=zone_context,
+    )
+    state.tours = _to_taz(
+        state.tours,
+        "destination",
+        "DTAZ",
+        config=config,
+        zone_context=zone_context,
+    )
+
+    if state.skim is not None and "OTAZ" in state.tours.columns and "DTAZ" in state.tours.columns:
+        LOGGER.info("[prepare_data] Computing tour skim distances for '%s'", state.label)
+        o = state.tours["OTAZ"].fill_null(0).to_numpy()
+        d = state.tours["DTAZ"].fill_null(0).to_numpy()
+        state.tours = state.tours.with_columns(
+            pl.Series("SKIMDIST", _skim_lookup(state.skim, o, d, state.skim_map))
+        )
+    elif "SKIMDIST" not in state.tours.columns:
+        state.tours = state.tours.with_columns(pl.lit(0.0).alias("SKIMDIST"))
+
+    if (
+        "tour_id" in state.tours.columns
+        and "tour_id" in state.joint_participants.columns
+        and state.joint_participants.schema.get("tour_id") != pl.Null
+    ):
+        party_size = state.joint_participants.group_by("tour_id").agg(
+            pl.len().alias("NUMBER_HH")
+        )
+        state.tours = state.tours.join(party_size, on="tour_id", how="left")
+    if "NUMBER_HH" not in state.tours.columns:
+        state.tours = state.tours.with_columns(pl.lit(1).alias("NUMBER_HH"))
+    state.tours = state.tours.with_columns(pl.col("NUMBER_HH").fill_null(1))
+
+    if (
+        "start_hour" in state.tours.columns
+        and "end_hour" in state.tours.columns
+        and "tourdur" not in state.tours.columns
+    ):
+        state.tours = state.tours.with_columns(
+            (pl.col("end_hour") - pl.col("start_hour")).alias("tourdur")
+        )
+
+    return state

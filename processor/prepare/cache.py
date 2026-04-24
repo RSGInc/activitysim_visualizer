@@ -12,7 +12,11 @@ from pathlib import Path
 import polars as pl
 
 from processor.models import RunData
-from processor.prepare._impl import attach_table_availability, table_availability, table_unavailable_reasons
+from processor.prepare.availability import (
+    attach_table_availability,
+    table_availability,
+    table_unavailable_reasons,
+)
 from processor.prepare.writer import write_all
 from runtime.config import Config
 

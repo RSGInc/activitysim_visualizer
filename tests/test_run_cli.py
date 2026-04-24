@@ -12,9 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import run
 import runtime_workflows
 from dashboard import app as dashboard_app
-from processor import prepare as processor_prepare
-from processor.prepare import build_prepared_manifest_identity
 from processor.models import RunData
+from processor.prepare.cache import build_prepared_manifest_identity
 from runtime.config import Config
 from processor.summarize import cache as summary_cache
 from processor.summarize.cache import (
@@ -22,9 +21,6 @@ from processor.summarize.cache import (
     create_summary_run,
     write_summary_run_cache,
 )
-
-summary_reader = processor_prepare
-
 
 def _write_cli_config(
     tmp_path: Path,
@@ -190,12 +186,12 @@ def test_main_loads_dashboard_from_explicit_summary_cache_dirs_without_raw_reads
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
     monkeypatch.setattr(
-        summary_reader,
+        runtime_workflows,
         "read_run",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("read_run should not be called")),
     )
     monkeypatch.setattr(
-        summary_reader,
+        runtime_workflows,
         "prepare_data",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called")
@@ -267,7 +263,7 @@ def test_main_prepare_only_writes_prepared_cache_and_exits(
         ),
     )
     monkeypatch.setattr(
-        summary_reader,
+        runtime_workflows,
         "read_run",
         lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
@@ -275,7 +271,7 @@ def test_main_prepare_only_writes_prepared_cache_and_exits(
         )[1],
     )
     monkeypatch.setattr(
-        summary_reader,
+        runtime_workflows,
         "prepare_data",
         lambda rd, config: (
             prepare_calls.append(rd.label),
@@ -330,14 +326,14 @@ def test_main_write_csvs_no_dashboard_writes_summary_cache_and_exits(
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
     monkeypatch.setattr(
-        summary_reader,
+        runtime_workflows,
         "read_run",
         lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
             _fake_run_data(label or Path(run_dir).name, str(run_dir)),
         )[1],
     )
-    monkeypatch.setattr(summary_reader, "prepare_data", lambda rd, config: rd)
+    monkeypatch.setattr(runtime_workflows, "prepare_data", lambda rd, config: rd)
     monkeypatch.setattr(
         summary_cache,
         "build_mode_summaries",
@@ -396,7 +392,7 @@ def test_main_explicit_prepare_and_summarize_runs_processor_without_dashboard(
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
     monkeypatch.setattr(
-        summary_reader,
+        runtime_workflows,
         "read_run",
         lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
@@ -404,7 +400,7 @@ def test_main_explicit_prepare_and_summarize_runs_processor_without_dashboard(
         )[1],
     )
     monkeypatch.setattr(
-        summary_reader,
+        runtime_workflows,
         "prepare_data",
         lambda rd, config: (
             prepare_calls.append(rd.label),
@@ -493,14 +489,14 @@ def test_main_uses_cache_hit_for_one_run_and_raw_fallback_for_another(
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
     monkeypatch.setattr(
-        summary_reader,
+        runtime_workflows,
         "read_run",
         lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
             _fake_run_data(label or Path(run_dir).name, str(run_dir)),
         )[1],
     )
-    monkeypatch.setattr(summary_reader, "prepare_data", lambda rd, config: rd)
+    monkeypatch.setattr(runtime_workflows, "prepare_data", lambda rd, config: rd)
     monkeypatch.setattr(
         summary_cache,
         "build_mode_summaries",
@@ -602,14 +598,14 @@ def test_main_loads_prepared_runs_for_enabled_live_prepared_data_page_even_on_ca
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
     monkeypatch.setattr(
-        summary_reader,
+        runtime_workflows,
         "read_run",
         lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
             _fake_run_data(label or Path(run_dir).name, str(run_dir)),
         )[1],
     )
-    monkeypatch.setattr(summary_reader, "prepare_data", lambda rd, config: rd)
+    monkeypatch.setattr(runtime_workflows, "prepare_data", lambda rd, config: rd)
 
     def fake_build_dashboard(runs, config, summary_runs=None):
         dashboard_calls.append(
@@ -679,14 +675,14 @@ def test_main_from_csvs_loads_prepared_runs_for_enabled_live_prepared_data_page_
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
     monkeypatch.setattr(
-        summary_reader,
+        runtime_workflows,
         "read_run",
         lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
             _fake_run_data(label or Path(run_dir).name, str(run_dir)),
         )[1],
     )
-    monkeypatch.setattr(summary_reader, "prepare_data", lambda rd, config: rd)
+    monkeypatch.setattr(runtime_workflows, "prepare_data", lambda rd, config: rd)
 
     def fake_build_dashboard(runs, config, summary_runs=None):
         dashboard_calls.append(
@@ -734,14 +730,14 @@ def test_main_from_csvs_keeps_prepared_data_page_unavailable_when_no_inputs_exis
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
     monkeypatch.setattr(
-        summary_reader,
+        runtime_workflows,
         "read_run",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called")
         ),
     )
     monkeypatch.setattr(
-        summary_reader,
+        runtime_workflows,
         "prepare_data",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called")
@@ -815,14 +811,14 @@ def test_main_export_does_not_load_prepared_runs_for_live_only_prepared_data_pag
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
     monkeypatch.setattr(
-        summary_reader,
+        runtime_workflows,
         "read_run",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called")
         ),
     )
     monkeypatch.setattr(
-        summary_reader,
+        runtime_workflows,
         "prepare_data",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called")

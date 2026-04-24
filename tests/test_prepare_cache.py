@@ -9,17 +9,19 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from processor.models import RunData
-from processor.prepare import (
-    PreparedCacheError,
+from processor.prepare.availability import (
     attach_table_availability,
-    build_run_fingerprint,
-    load_prepared_run_cache,
-    prepare_data,
-    prepared_root,
     table_availability,
     table_unavailable_reasons,
+)
+from processor.prepare.cache import (
+    PreparedCacheError,
+    build_run_fingerprint,
+    load_prepared_run_cache,
+    prepared_root,
     write_prepared_run_cache,
 )
+from processor.prepare.enrichment.pipeline import prepare_data
 from runtime.config import Config
 
 

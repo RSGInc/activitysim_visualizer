@@ -22,8 +22,8 @@ from dashboard.pages.trip_mode import TripModePage
 from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.state import DashboardState
 from processor.models import RunData
-from processor.prepare import prepare_data
-from processor.prepare import build_prepared_manifest_identity
+from processor.prepare.cache import build_prepared_manifest_identity
+from processor.prepare.enrichment.pipeline import prepare_data
 from processor.summarize.cache import (
     SummaryCacheError,
     build_run_keys,
