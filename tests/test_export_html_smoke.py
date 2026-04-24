@@ -90,6 +90,8 @@ def test_export_html_smoke_embeds_versioned_payload_and_runtime() -> None:
             "id": "trip_mode",
             "title": "Trip Mode",
             "selectors": payload["pages"][0]["selectors"],
+            "children": [],
+            "default_child_id": None,
         }
     ]
     assert payload["states"]["Weighted||Percent"]["trip_mode"]["kind"] == "page_variants"

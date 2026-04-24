@@ -75,17 +75,11 @@ def chart_data(
     """Build stop- and trip-departure profile datasets."""
     maxbin = max_timebin(timing_list)
     stop_dep = [
-        (
-            label,
-            prep_profile(df, "departure_stop_count", purpose, maxbin),
-        )
+        (label, prep_profile(df, "departure_stop_count", purpose, maxbin))
         for label, df in timing_list
     ]
     trip_dep = [
-        (
-            label,
-            prep_profile(df, "departure_trip_count", purpose, maxbin),
-        )
+        (label, prep_profile(df, "departure_trip_count", purpose, maxbin))
         for label, df in timing_list
     ]
     return stop_dep, trip_dep
@@ -94,9 +88,7 @@ def chart_data(
 class StopTimingPage(DashboardPage):
     def __init__(self, state, config: Config) -> None:
         super().__init__("Stop Timing", state, config)
-        purp_opts = self._purpose_options()
-        if not purp_opts:
-            purp_opts = ["Total"]
+        purp_opts = self._purpose_options() or ["Total"]
         _, self._purpose_to_raw = purpose_mapping(
             [] if purp_opts == ["Total"] else purp_opts
         )
@@ -185,7 +177,9 @@ class StopTimingPage(DashboardPage):
 PAGE = DashboardPageDefinition(
     page_id="stop_timing",
     title="Stop Timing",
-    order=100,
+    group_id="stops",
+    child_id="timing",
+    child_order=30,
     controller_cls=StopTimingPage,
     selectors=(
         PageSelectorDefinition(

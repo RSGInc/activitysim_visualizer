@@ -13,7 +13,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _dashboard_expectations import EXPECTED_DEFAULT_PAGE_IDS, EXPECTED_DEFAULT_PAGE_TITLES
+from _dashboard_expectations import (
+    EXPECTED_DEFAULT_LEAF_PAGE_IDS,
+    EXPECTED_DEFAULT_LEAF_PAGE_TITLES,
+    EXPECTED_DEFAULT_PAGE_IDS,
+    EXPECTED_DEFAULT_PAGE_TITLES,
+)
 from test_export_html import _full_summary_run, _write_config
 from dashboard.app import build_dashboard
 from dashboard.data_access import DashboardPreparedRunProvider
@@ -59,10 +64,12 @@ def _raw_trip_run() -> RunData:
 def test_page_registry_exposes_expected_default_definitions() -> None:
     definitions = default_page_definitions()
 
-    assert [definition.page_id for definition in definitions] == EXPECTED_DEFAULT_PAGE_IDS
-    assert [definition.title for definition in definitions] == EXPECTED_DEFAULT_PAGE_TITLES
+    assert [definition.page_id for definition in definitions] == EXPECTED_DEFAULT_LEAF_PAGE_IDS
+    assert [definition.title for definition in definitions] == EXPECTED_DEFAULT_LEAF_PAGE_TITLES
     assert page_definition_by_id("tour_summary") is not None
     assert page_definition_by_id("tour_summary").title == "Tour Summary"
+    assert page_definition_by_id("tour_summary").group_id == "tours"
+    assert page_definition_by_id("tour_summary").child_id == "summary"
     assert [selector.selector_id for selector in page_definition_by_id("trip_mode").selectors] == [
         "tour_purpose",
         "tour_mode",
@@ -78,15 +85,24 @@ def test_page_registry_exposes_expected_default_definitions() -> None:
 
 
 def test_discovered_page_modules_export_page_definitions_without_legacy_build_api() -> None:
-    discovered_modules = [
-        importlib.import_module(f"{dashboard_pages_package.__name__}.{module_info.name}")
-        for module_info in pkgutil.iter_modules(dashboard_pages_package.__path__)
-        if not module_info.name.startswith("_")
-    ]
+    discovered_modules = []
+    for module_info in pkgutil.iter_modules(dashboard_pages_package.__path__):
+        if module_info.name.startswith("_"):
+            continue
+        module = importlib.import_module(f"{dashboard_pages_package.__name__}.{module_info.name}")
+        discovered_modules.append(module)
+        if module_info.ispkg:
+            discovered_modules.extend(
+                importlib.import_module(f"{module.__name__}.{child_info.name}")
+                for child_info in pkgutil.iter_modules(module.__path__)
+                if not child_info.name.startswith("_")
+            )
 
     assert discovered_modules
+    assert any(hasattr(module, "GROUP") for module in discovered_modules)
     assert all(
         isinstance(getattr(module, "PAGE", None), DashboardPageDefinition)
+        or hasattr(module, "GROUP")
         for module in discovered_modules
     )
     assert all(not hasattr(module, "build") for module in discovered_modules)
@@ -123,7 +139,7 @@ def test_resolve_page_definitions_defaults_to_default_pages_when_unconfigured(
 
     resolved_pages = resolve_page_definitions(config)
 
-    assert [page.title for page in resolved_pages] == EXPECTED_DEFAULT_PAGE_TITLES
+    assert [page.title for page in resolved_pages] == EXPECTED_DEFAULT_LEAF_PAGE_TITLES
 
 
 def test_resolve_page_definitions_respects_configured_page_order_and_subset(
@@ -139,6 +155,24 @@ def test_resolve_page_definitions_respects_configured_page_order_and_subset(
     assert [page.page_id for page in resolved_pages] == [
         "trip_mode",
         "overview",
+        "destination",
+    ]
+
+
+def test_resolve_page_definitions_supports_nested_group_child_selection(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=["overview", {"tours": ["summary", "mode"]}, "destination"],
+    )
+
+    resolved_pages = resolve_page_definitions(config)
+
+    assert [page.page_id for page in resolved_pages] == [
+        "overview",
+        "tour_summary",
+        "tour_mode",
         "destination",
     ]
 
@@ -194,6 +228,7 @@ def test_build_dashboard_uses_expected_default_page_order(tmp_path: Path) -> Non
 
     assert [page.name for page in template._dashboard_pages] == EXPECTED_DEFAULT_PAGE_TITLES
     assert [page.page_id() for page in template._dashboard_pages] == EXPECTED_DEFAULT_PAGE_IDS
+    assert [page.page_id() for page in template._dashboard_leaf_pages] == EXPECTED_DEFAULT_LEAF_PAGE_IDS
 
 
 def test_build_dashboard_sidebar_uses_shared_run_legend_markup(tmp_path: Path) -> None:
@@ -219,19 +254,20 @@ def test_build_dashboard_can_refresh_every_default_page_from_precomputed_summari
     for index, page in enumerate(pages):
         tabs.active = index
         assert page.view is not None
-        assert state.page_state[page.name]["last_rendered_state"] == (
-            state.weighting_key(),
-            state.value_key(),
-        )
+    assert state.page_state["Overview"]["last_rendered_state"] == (
+        state.weighting_key(),
+        state.value_key(),
+    )
 
-    assert template._dashboard_pages[2].ptype_sel.options == ["Total", "worker"]
-    assert template._dashboard_pages[3].hhsize_sel.options == ["Total", "2", "3", "4", "5"]
-    assert template._dashboard_pages[4].purp_sel.options == ["All NM", "eatout", "social"]
-    assert template._dashboard_pages[5].purp_sel.options == ["Total", "work"]
-    assert template._dashboard_pages[6].purp_sel.options == ["Total", "work"]
-    assert template._dashboard_pages[7].purp_sel.options == ["Total", "eatout", "social"]
-    assert template._dashboard_pages[9].purp_sel.options == ["Total", "eatout", "social"]
-    assert template._dashboard_pages[10].tmode_sel.options == ["All", "DRIVE", "WALK"]
+    leaf_pages = {page.page_id(): page for page in template._dashboard_leaf_pages}
+    assert leaf_pages["tour_summary"].ptype_sel.options == ["Total", "worker"]
+    assert leaf_pages["joint_tours"].hhsize_sel.options == ["Total", "2", "3", "4", "5"]
+    assert leaf_pages["destination"].purp_sel.options == ["All NM", "eatout", "social"]
+    assert leaf_pages["tour_tod"].purp_sel.options == ["Total", "work"]
+    assert leaf_pages["tour_mode"].purp_sel.options == ["Total", "work"]
+    assert leaf_pages["stop_frequency"].purp_sel.options == ["Total", "eatout", "social"]
+    assert leaf_pages["stop_timing"].purp_sel.options == ["Total", "eatout", "social"]
+    assert leaf_pages["trip_mode"].tmode_sel.options == ["All", "DRIVE", "WALK"]
 
 
 def test_build_dashboard_keeps_prepared_runs_out_of_summary_only_default_state(
@@ -347,10 +383,7 @@ def test_build_dashboard_switches_tabs_and_refreshes_only_the_active_page(
         "weighted",
         "percent",
     )
-    assert all(
-        state.page_state[page.name].get("last_rendered_state") is None
-        for page in pages[3:]
-    )
+    assert state.page_state["Stop Frequency"].get("last_rendered_state") is None
 
     state.weight_mode = "Unweighted"
 
@@ -359,10 +392,7 @@ def test_build_dashboard_switches_tabs_and_refreshes_only_the_active_page(
         "unweighted",
         "percent",
     )
-    assert all(
-        state.page_state[page.name].get("last_rendered_state") is None
-        for page in pages[3:]
-    )
+    assert state.page_state["Stop Frequency"].get("last_rendered_state") is None
 
     state.value_mode = "Count"
 
@@ -370,10 +400,9 @@ def test_build_dashboard_switches_tabs_and_refreshes_only_the_active_page(
         "unweighted",
         "count",
     )
-    assert all(
-        state.page_state[page.name].get("last_rendered_state") is None
-        for page in [pages[0], pages[1], *pages[3:]]
-    )
+    assert state.page_state["Overview"].get("last_rendered_state") is None
+    assert state.page_state["Long-Term"].get("last_rendered_state") is None
+    assert state.page_state["Stop Frequency"].get("last_rendered_state") is None
 
 
 def test_build_dashboard_preserves_widget_state_across_tab_switches(
@@ -382,7 +411,9 @@ def test_build_dashboard_preserves_widget_state_across_tab_switches(
     config = _write_config(tmp_path)
     template = build_dashboard([], config, summary_runs=[_full_summary_run()])
     tabs = template.main[0]
-    tour_summary_page = template._dashboard_pages[2]
+    tour_summary_page = next(
+        page for page in template._dashboard_leaf_pages if page.page_id() == "tour_summary"
+    )
 
     tabs.active = 2
     assert tour_summary_page.ptype_sel.options == ["Total", "worker"]

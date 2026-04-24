@@ -34,7 +34,9 @@ Page and selector metadata is page-owned.
 That means export support should come from:
 
 - `dashboard/pages/<page>.py`
+- `dashboard/pages/<group>/<child>.py` for grouped child pages
 - the module-level `PAGE = DashboardPageDefinition(...)`
+- `dashboard/pages/<group>/__init__.py` when the page lives inside a top-level group
 - `PAGE.selectors` entries declared with `PageSelectorDefinition(...)`
 
 Do not add a second export-only registry.
@@ -50,14 +52,14 @@ Shared registry helpers in `dashboard/page_registry.py` already provide:
 
 ## How Export Discovers Pages
 
-`dashboard.page_registry.all_page_definitions()` imports all modules in `dashboard/pages/` and looks for a module-level `PAGE`.
+`dashboard.page_registry.all_page_definitions()` imports standalone modules in `dashboard/pages/` plus child modules one level below grouped directories and looks for a module-level `PAGE`.
 
 Export page selection then happens through `resolve_export_page_definitions(config)`.
 
 Rules:
 
 - if `visualizer.export_html.pages` is omitted, export uses the default-enabled pages
-- if `visualizer.export_html.pages` is present, export uses those page ids in config order
+- if `visualizer.export_html.pages` is present, export uses those page/group ids in config order
 - invalid page ids fail before rendering
 - invalid selector ids fail before rendering
 
@@ -133,7 +135,7 @@ PAGE = DashboardPageDefinition(
 
 Selector fields:
 
-- `selector_id`: stable config-facing id under `visualizer.export_html.pages.<page_id>.<selector_id>`
+- `selector_id`: stable config-facing id under `visualizer.export_html.pages.<page_id>.<selector_id>` for standalone pages, or under `visualizer.export_html.pages.<group_id>.children.<child_id>.<selector_id>` for grouped child pages
 - `widget_attr`: attribute on the page instance that resolves to the actual Panel widget
 - `label`: serialized label shown in export
 - `enabled_when`: optional predicate when selector availability depends on page/config state
@@ -164,6 +166,10 @@ visualizer:
         tour_mode:
           - All
           - DRIVE
+      tours:
+        children:
+          summary:
+            person_type: all
 ```
 
 Supported request patterns depend on `runtime.config.ExportSelectorRequest`, but the export builder currently handles:

@@ -1,4 +1,4 @@
-"""Shared page-definition types for dashboard page registration."""
+"""Shared page/group definition types for dashboard page registration."""
 
 from __future__ import annotations
 
@@ -8,12 +8,13 @@ from typing import TYPE_CHECKING, Any, Callable, Literal
 import panel as pn
 
 from processor.models import PreparedTableName
-from runtime.config import Config
 
 if TYPE_CHECKING:
     from dashboard.page_base import DashboardPage
+    from runtime.config import Config
 
 PreparedDataMode = Literal["none", "optional", "required"]
+DashboardPageSelectionMode = Literal["default", "all", "explicit"]
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,9 @@ class DashboardPageDefinition:
     page_id: str
     title: str
     order: int = 0
+    group_id: str | None = None
+    child_id: str | None = None
+    child_order: int = 0
     default_enabled: bool = True
     prepared_data_mode: PreparedDataMode = "none"
     controller_cls: type["DashboardPage"] | None = None
@@ -72,3 +76,32 @@ class DashboardDataRequirements:
     prepared_data_mode: PreparedDataMode = "none"
     required_summary_ids: tuple[str, ...] = field(default_factory=tuple)
     required_prepared_tables: tuple[PreparedTableName, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class DashboardGroupDefinition:
+    """Register one top-level dashboard navigation group."""
+
+    group_id: str
+    title: str
+    order: int = 0
+    default_enabled: bool = True
+    default_child_id: str | None = None
+
+
+@dataclass(frozen=True)
+class DashboardPageConfigEntry:
+    """Normalized dashboard page-selection entry from config."""
+
+    page_id: str
+    mode: DashboardPageSelectionMode = "explicit"
+    child_page_ids: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class ExportPageConfigEntry:
+    """Normalized export page-selection entry from config."""
+
+    page_id: str
+    mode: DashboardPageSelectionMode = "explicit"
+    child_page_ids: tuple[str, ...] = field(default_factory=tuple)

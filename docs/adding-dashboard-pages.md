@@ -29,16 +29,36 @@ Pages own business logic and selector behavior. Shared components own presentati
 
 ## Part 1: Adding a New Dashboard Page
 
+### Standalone Pages vs Grouped Pages
+
+`dashboard/pages/` now supports two layouts:
+
+- standalone top-level pages as single files such as `dashboard/pages/overview.py`
+- grouped pages under subdirectories such as `dashboard/pages/tours/summary.py`
+
+Each grouped directory also declares one top-level group definition in `__init__.py`:
+
+```python
+from dashboard.page_definitions import DashboardGroupDefinition
+
+GROUP = DashboardGroupDefinition(
+    group_id="tours",
+    title="Tours",
+    order=30,
+    default_child_id="summary",
+)
+```
+
 ### What a Page Module Must Contain
 
-A page module in `dashboard/pages/` usually contains:
+A leaf page module usually contains:
 
 - small helper functions for option lists or chart data prep
 - one `DashboardPage` subclass
 - one module-level `PAGE = DashboardPageDefinition(...)`
 - one final line assigning `YourPageClass.definition = PAGE`
 
-The registry imports every module under `dashboard/pages/`, looks for `PAGE`, validates it, and instantiates the controller class from the definition.
+The registry imports standalone modules directly under `dashboard/pages/` plus child modules one level below grouped directories. It validates each `PAGE` and instantiates the controller class from the definition.
 
 ### The Smallest Useful Page
 
@@ -105,9 +125,11 @@ MyNewPage.definition = PAGE
 
 ### Step-by-Step Page Checklist
 
-#### 1. Create a file in `dashboard/pages/`
+#### 1. Create a file in `dashboard/pages/` or under a group directory
 
-Name it after the stable page id you want, for example `dashboard/pages/my_new_page.py`.
+For a standalone page, use a file such as `dashboard/pages/my_new_page.py`.
+
+For a grouped child page, use a file such as `dashboard/pages/tours/summary.py`.
 
 The filename does not register the page directly, but keeping the filename, page id, and class name aligned makes the codebase easier to navigate.
 
@@ -202,6 +224,9 @@ Important fields:
 - `page_id`: stable config-facing identifier
 - `title`: visible tab title
 - `order`: default sort order
+- `group_id`: required for grouped child pages
+- `child_id`: required for grouped child pages and used by nested config
+- `child_order`: order inside the group tab strip
 - `controller_cls`: the page controller class
 - `required_summary_ids`: every summary the page needs
 - `selectors`: optional `PageSelectorDefinition(...)` entries
@@ -220,6 +245,18 @@ visualizer:
     - overview
     - my_new_page
     - trip_mode
+```
+
+Grouped-page example:
+
+```yaml
+visualizer:
+  dashboard_pages:
+    - overview
+    - tours
+    - stops:
+      - frequency
+      - timing
 ```
 
 Prepared-data page example:
@@ -258,7 +295,9 @@ PAGE = DashboardPageDefinition(
 
 Important details:
 
-- `selector_id` is the stable config-facing name used under `visualizer.export_html.pages.<page_id>.<selector_id>`.
+- `selector_id` is the stable config-facing name used under either:
+  `visualizer.export_html.pages.<page_id>.<selector_id>` for standalone pages or
+  `visualizer.export_html.pages.<group_id>.children.<child_id>.<selector_id>` for grouped child pages.
 - `widget_attr` must match the attribute name on the page instance.
 - Export only supports the widget types that `dashboard/export/serializer.py` knows how to serialize.
 

@@ -43,6 +43,8 @@ class PageDescriptorPayload(TypedDict):
     id: str
     title: str
     selectors: list[SelectorMetadataPayload]
+    children: list["PageDescriptorPayload"]
+    default_child_id: str | None
 
 
 class ExportChromeControlsEnabled(TypedDict):

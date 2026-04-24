@@ -165,9 +165,7 @@ class TourSummaryPage(DashboardPage):
         dap_list = self.state.get_summary_table_set(
             "daily_activity_pattern_by_person_type", "weighted"
         )
-        if dap_list is None:
-            return ["all_person_types"]
-        if not dap_list:
+        if dap_list is None or not dap_list:
             return ["all_person_types"]
         return ptype_options(dap_list)
 
@@ -193,9 +191,7 @@ class TourSummaryPage(DashboardPage):
         display_opts, self._label_to_ptype = ptype_maps(ptype_opts, self.config)
         self.ptype_sel.options = display_opts
         if self.ptype_sel.value not in display_opts:
-            self.ptype_sel.value = (
-                "Total" if "Total" in display_opts else display_opts[0]
-            )
+            self.ptype_sel.value = "Total" if "Total" in display_opts else display_opts[0]
         ptype_label = self.ptype_sel.value
         ptype = self._label_to_ptype.get(ptype_label, ptype_label)
 
@@ -205,38 +201,42 @@ class TourSummaryPage(DashboardPage):
             factory=lambda: chart_data(dap_list, mtf_list, inm_list, ptype),
         )
 
-        dap_chart = bar_chart(
-            dap_data,
-            "daily_activity_pattern",
-            "person_count",
-            f"Daily Activity Pattern - {ptype_label}",
-            "Pattern",
-            as_percent=self.as_percent,
-        )
-        mtf_chart = bar_chart(
-            mtf_data,
-            "mandatory_tour_frequency_label",
-            "person_count",
-            f"Mandatory Tour Frequency - {ptype_label}",
-            "Alternative",
-            as_percent=self.as_percent,
-        )
-        inm_chart = bar_chart(
-            inm_data,
-            "nonmandatory_tour_frequency",
-            "person_count",
-            f"Individual Non-Mandatory Tours - {ptype_label}",
-            "# Tours",
-            as_percent=self.as_percent,
-        )
-
-        self._body.objects = [pn.Row(dap_chart, mtf_chart), inm_chart]
+        self._body.objects = [
+            pn.Row(
+                bar_chart(
+                    dap_data,
+                    "daily_activity_pattern",
+                    "person_count",
+                    f"Daily Activity Pattern - {ptype_label}",
+                    "Pattern",
+                    as_percent=self.as_percent,
+                ),
+                bar_chart(
+                    mtf_data,
+                    "mandatory_tour_frequency_label",
+                    "person_count",
+                    f"Mandatory Tour Frequency - {ptype_label}",
+                    "Alternative",
+                    as_percent=self.as_percent,
+                ),
+            ),
+            bar_chart(
+                inm_data,
+                "nonmandatory_tour_frequency",
+                "person_count",
+                f"Individual Non-Mandatory Tours - {ptype_label}",
+                "# Tours",
+                as_percent=self.as_percent,
+            ),
+        ]
 
 
 PAGE = DashboardPageDefinition(
     page_id="tour_summary",
     title="Tour Summary",
-    order=30,
+    group_id="tours",
+    child_id="summary",
+    child_order=10,
     controller_cls=TourSummaryPage,
     selectors=(
         PageSelectorDefinition(

@@ -63,10 +63,7 @@ def charts_by_column(
 
     return {
         col: [
-            (
-                label,
-                filtered_df(df, col),
-            )
+            (label, filtered_df(df, col))
             for label, df in mode_list
             if col in df.columns
         ]
@@ -192,7 +189,9 @@ class TourModePage(DashboardPage):
 PAGE = DashboardPageDefinition(
     page_id="tour_mode",
     title="Tour Mode",
-    order=70,
+    group_id="tours",
+    child_id="mode",
+    child_order=30,
     controller_cls=TourModePage,
     selectors=(
         PageSelectorDefinition(

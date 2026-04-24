@@ -56,9 +56,7 @@ def frequency_chart_data(
                 .group_by("outbound_stop_count")
                 .agg(pl.col("tour_count").sum().alias("freq"))
                 .sort("outbound_stop_count")
-                .with_columns(
-                    pl.col("outbound_stop_count").cast(pl.Utf8).alias("stops")
-                ),
+                .with_columns(pl.col("outbound_stop_count").cast(pl.Utf8).alias("stops")),
             )
             for label, df in stop_list
         ]
@@ -73,9 +71,7 @@ def frequency_chart_data(
                 .group_by("inbound_stop_count")
                 .agg(pl.col("tour_count").sum().alias("freq"))
                 .sort("inbound_stop_count")
-                .with_columns(
-                    pl.col("inbound_stop_count").cast(pl.Utf8).alias("stops")
-                ),
+                .with_columns(pl.col("inbound_stop_count").cast(pl.Utf8).alias("stops")),
             )
             for label, df in stop_list
         ]
@@ -102,9 +98,7 @@ def frequency_chart_data(
                 .group_by("outbound_stop_count")
                 .agg(pl.col("tour_count").sum().alias("freq"))
                 .sort("outbound_stop_count")
-                .with_columns(
-                    pl.col("outbound_stop_count").cast(pl.Utf8).alias("stops")
-                ),
+                .with_columns(pl.col("outbound_stop_count").cast(pl.Utf8).alias("stops")),
             )
             for label, df in stop_list
         ]
@@ -115,9 +109,7 @@ def frequency_chart_data(
                 .group_by("inbound_stop_count")
                 .agg(pl.col("tour_count").sum().alias("freq"))
                 .sort("inbound_stop_count")
-                .with_columns(
-                    pl.col("inbound_stop_count").cast(pl.Utf8).alias("stops")
-                ),
+                .with_columns(pl.col("inbound_stop_count").cast(pl.Utf8).alias("stops")),
             )
             for label, df in stop_list
         ]
@@ -220,7 +212,7 @@ class StopFreqPage(DashboardPage):
             purp = self.purp_sel.value
         raw_purpose = self._purpose_to_raw.get(purp)
 
-        ob_data, ib_data, tot_data, purp_chart_data = self.get_filtered_view(
+        ob_data, ib_data, tot_data, purp_chart = self.get_filtered_view(
             "stop_freq",
             raw_purpose,
             factory=lambda: (
@@ -231,33 +223,12 @@ class StopFreqPage(DashboardPage):
 
         self._body.objects = [
             pn.Row(
-                bar_chart(
-                    ob_data,
-                    "stops",
-                    "freq",
-                    f"Outbound Stops - {purp}",
-                    "Stops",
-                    as_percent=self.as_percent,
-                ),
-                bar_chart(
-                    ib_data,
-                    "stops",
-                    "freq",
-                    f"Inbound Stops - {purp}",
-                    "Stops",
-                    as_percent=self.as_percent,
-                ),
-                bar_chart(
-                    tot_data,
-                    "stops",
-                    "freq",
-                    f"Total Stops - {purp}",
-                    "Stops",
-                    as_percent=self.as_percent,
-                ),
+                bar_chart(ob_data, "stops", "freq", f"Outbound Stops - {purp}", "Stops", as_percent=self.as_percent),
+                bar_chart(ib_data, "stops", "freq", f"Inbound Stops - {purp}", "Stops", as_percent=self.as_percent),
+                bar_chart(tot_data, "stops", "freq", f"Total Stops - {purp}", "Stops", as_percent=self.as_percent),
             ),
             bar_chart(
-                purp_chart_data,
+                purp_chart,
                 "stop_destination_purpose",
                 "stop_count",
                 f"Stop Purpose - tour={purp}",
@@ -270,7 +241,9 @@ class StopFreqPage(DashboardPage):
 PAGE = DashboardPageDefinition(
     page_id="stop_frequency",
     title="Stop Frequency",
-    order=80,
+    group_id="stops",
+    child_id="frequency",
+    child_order=10,
     controller_cls=StopFreqPage,
     selectors=(
         PageSelectorDefinition(

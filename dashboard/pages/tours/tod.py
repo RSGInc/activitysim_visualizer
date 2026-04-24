@@ -56,9 +56,7 @@ def max_timebin(tod_list: list[tuple[str, pl.DataFrame]]) -> int:
     return 48
 
 
-def prep_profile(
-    df: pl.DataFrame, purpose: str | None, val_col: str, maxbin: int
-) -> pl.DataFrame:
+def prep_profile(df: pl.DataFrame, purpose: str | None, val_col: str, maxbin: int) -> pl.DataFrame:
     """Prepare one tour TOD profile for plotting."""
     if purpose is None:
         purpose_col = pl.col("tour_purpose").cast(pl.Utf8)
@@ -212,7 +210,9 @@ class TourTODPage(DashboardPage):
 PAGE = DashboardPageDefinition(
     page_id="tour_tod",
     title="Tour TOD",
-    order=60,
+    group_id="tours",
+    child_id="tod",
+    child_order=20,
     controller_cls=TourTODPage,
     selectors=(
         PageSelectorDefinition(

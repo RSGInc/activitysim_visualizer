@@ -106,6 +106,8 @@ def test_build_export_payload_serializes_representative_page_variants_structure(
                     "export_enabled": True,
                 },
             ],
+            "children": [],
+            "default_child_id": None,
         }
     ]
 
@@ -152,7 +154,15 @@ def test_build_export_payload_keeps_static_pages_when_no_page_selectors_are_enab
 
     payload = build_export_payload([], config, summary_runs=[_full_summary_run()])
 
-    assert payload["pages"] == [{"id": "overview", "title": "Overview", "selectors": []}]
+    assert payload["pages"] == [
+        {
+            "id": "overview",
+            "title": "Overview",
+            "selectors": [],
+            "children": [],
+            "default_child_id": None,
+        }
+    ]
     overview = payload["states"]["Weighted||Percent"]["overview"]
     assert overview["kind"] == "static_page"
     nodes = _walk_nodes(overview)

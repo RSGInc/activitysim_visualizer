@@ -50,9 +50,7 @@ def chart_data(
             )
             if "all_tour_purposes" in raw_purposes:
                 all_df = (
-                    df.filter(
-                        pl.col("tour_purpose").cast(pl.Utf8) == "all_tour_purposes"
-                    )
+                    df.filter(pl.col("tour_purpose").cast(pl.Utf8) == "all_tour_purposes")
                     .select(["distance_bin", "stop_count"])
                     .sort("distance_bin")
                 )
@@ -118,9 +116,7 @@ class StopLocationPage(DashboardPage):
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        loc_list = self.require_summary(
-            "stop_out_of_direction_distance_by_tour_purpose"
-        )
+        loc_list = self.require_summary("stop_out_of_direction_distance_by_tour_purpose")
         if loc_list is None:
             self._body.objects = [
                 self.data_not_available_card(
@@ -162,7 +158,9 @@ class StopLocationPage(DashboardPage):
 PAGE = DashboardPageDefinition(
     page_id="stop_location",
     title="Stop Location",
-    order=90,
+    group_id="stops",
+    child_id="location",
+    child_order=20,
     controller_cls=StopLocationPage,
     selectors=(
         PageSelectorDefinition(

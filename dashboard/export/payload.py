@@ -31,10 +31,13 @@ from dashboard.export.types import (
 )
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
 from dashboard.page_registry import (
+    all_page_definitions,
     build_export_prepared_run_provider,
     build_registered_export_pages,
     exportable_page_selectors,
+    group_definition_by_id,
     page_definition_by_id,
+    resolve_export_navigation_entries,
     selector_definition_by_id,
 )
 from processor.models import RunData
@@ -119,8 +122,9 @@ def serialize_dashboard_state(
     set_percent_mode(value_mode == "Percent")
     pages = build_registered_export_pages(state, context.config)
 
-    page_defs: list[PageDescriptorPayload] = []
+    leaf_page_defs: list[PageDescriptorPayload] = []
     content_by_page: dict[str, PageContentPayload] = {}
+    page_by_id: dict[str, PageDescriptorPayload] = {}
     for page in pages:
         validate_export_page(page)
         page.refresh(force=True)
@@ -132,24 +136,50 @@ def serialize_dashboard_state(
             page,
             context,
         )
-        page_defs.append(
-            {
-                "id": page_def.page_id,
-                "title": page_def.title,
-                "selectors": [
-                    selector_meta
-                    for _, selector_meta in widget_metadata.values()
-                    if selector_meta is not None
-                ],
-            }
-        )
+        descriptor = {
+            "id": page_def.page_id,
+            "title": page_def.title,
+            "selectors": [
+                selector_meta
+                for _, selector_meta in widget_metadata.values()
+                if selector_meta is not None
+            ],
+            "children": [],
+            "default_child_id": None,
+        }
+        leaf_page_defs.append(descriptor)
+        page_by_id[page_def.page_id] = descriptor
         content_by_page[page_def.page_id] = serialize_page_content(
             page,
             page_def=page_def,
             config=context.config,
             widget_metadata=widget_metadata,
         )
-    return {"pages": page_defs, "content_by_page": content_by_page}
+    grouped_page_defs: list[PageDescriptorPayload] = []
+    for navigation_entry in resolve_export_navigation_entries(context.config):
+        if navigation_entry.group_definition is None:
+            page_def = page_by_id.get(navigation_entry.page_definitions[0].page_id)
+            if page_def is not None:
+                grouped_page_defs.append(page_def)
+            continue
+        children = [
+            page_by_id[page_definition.page_id]
+            for page_definition in navigation_entry.page_definitions
+            if page_definition.page_id in page_by_id
+        ]
+        if not children:
+            continue
+        grouped_page_defs.append(
+            {
+                "id": navigation_entry.entry_id,
+                "title": navigation_entry.title,
+                "selectors": [],
+                "children": children,
+                "default_child_id": navigation_entry.group_definition.default_child_id
+                or children[0]["id"],
+            }
+        )
+    return {"pages": grouped_page_defs, "content_by_page": content_by_page}
 
 
 def serialize_page_content(
@@ -242,7 +272,24 @@ def resolve_selector_metadata(
     page_id = page_def.page_id
     selector_id = selector_def.selector_id
     request = context.config.export_html.selector_request(page_id, selector_id)
+    if page_def.group_id and page_def.child_id:
+        nested_request = context.config.export_html.selector_request(
+            page_id,
+            selector_id,
+            group_id=page_def.group_id,
+            child_id=page_def.child_id,
+        )
+        if nested_request != ExportSelectorRequest():
+            request = nested_request
     configured = selector_id in context.config.export_html.pages.get(page_id, {})
+    if page_def.group_id and page_def.child_id:
+        configured = configured or (
+            selector_id
+            in context.config.export_html.grouped_pages.get(page_def.group_id, {}).get(
+                page_def.child_id,
+                {},
+            )
+        )
     widget = selector_def.widget_for(page)
     available = selector_def.available_for(page, context.config)
     export_enabled = bool(selector_def.exportable)
@@ -253,7 +300,7 @@ def resolve_selector_metadata(
             if warning_key not in context.warned_unavailable_selectors:
                 LOGGER.warning(
                     "Warning: "
-                    f"visualizer.export_html.pages.{page_id}.{selector_id} is configured, "
+                    f"{_selector_field_name(page_def, selector_id)} is configured, "
                     "but the selector is unavailable for this export. "
                     "Ignoring the configuration and exporting the page with its fallback layout."
                 )
@@ -276,7 +323,7 @@ def resolve_selector_metadata(
         request=request,
         options=options,
         default_value=default_value,
-        field_name=f"visualizer.export_html.pages.{page_id}.{selector_id}",
+        field_name=_selector_field_name(page_def, selector_id),
     )
     return {
         "id": selector_id,
@@ -329,9 +376,10 @@ def resolve_selector_values(
 def validate_page_export_config(config: Config) -> None:
     """Validate export page and selector ids against the live registry."""
     unknown_pages = sorted(
-        page_id
-        for page_id in config.export_html.pages
-        if page_definition_by_id(page_id) is None
+        entry.page_id
+        for entry in config.export_html.page_entries
+        if page_definition_by_id(entry.page_id) is None
+        and group_definition_by_id(entry.page_id) is None
     )
     if unknown_pages:
         raise ValueError(
@@ -350,6 +398,34 @@ def validate_page_export_config(config: Config) -> None:
                 f"Unsupported visualizer.export_html.pages.{page_id} entries: "
                 + ", ".join(repr(selector_id) for selector_id in unknown_selectors)
             )
+    for group_id, children in config.export_html.grouped_pages.items():
+        if group_definition_by_id(group_id) is None:
+            raise ValueError(
+                "Unsupported visualizer.export_html.pages entries: " + repr(group_id)
+            )
+        for child_id, selectors in children.items():
+            matching_page = next(
+                (
+                    page_definition
+                    for page_definition in all_page_definitions()
+                    if page_definition.group_id == group_id and page_definition.child_id == child_id
+                ),
+                None,
+            )
+            if matching_page is None:
+                raise ValueError(
+                    f"Unsupported visualizer.export_html.pages.{group_id}.children entries: {child_id!r}"
+                )
+            unknown_selectors = sorted(
+                selector_id
+                for selector_id in selectors
+                if selector_definition_by_id(matching_page.page_id, selector_id) is None
+            )
+            if unknown_selectors:
+                raise ValueError(
+                    f"Unsupported visualizer.export_html.pages.{group_id}.children.{child_id} entries: "
+                    + ", ".join(repr(selector_id) for selector_id in unknown_selectors)
+                )
 
 
 def enabled_page_selectors_payload() -> list[PageSelectorReferencePayload]:
@@ -361,6 +437,18 @@ def enabled_page_selectors_payload() -> list[PageSelectorReferencePayload]:
         ],
         key=lambda item: (item["page_id"], item["selector_id"]),
     )
+
+
+def _selector_field_name(
+    page_def: DashboardPageDefinition,
+    selector_id: str,
+) -> str:
+    if page_def.group_id and page_def.child_id:
+        return (
+            f"visualizer.export_html.pages.{page_def.group_id}.children."
+            f"{page_def.child_id}.{selector_id}"
+        )
+    return f"visualizer.export_html.pages.{page_def.page_id}.{selector_id}"
 
 
 def state_key(weight_mode: str, value_mode: str) -> str:

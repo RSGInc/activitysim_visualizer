@@ -6,7 +6,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _dashboard_expectations import EXPECTED_DEFAULT_PAGE_IDS
+from _dashboard_expectations import EXPECTED_DEFAULT_LEAF_PAGE_IDS
 from dashboard.page_registry import (
     resolve_export_page_definitions,
     resolve_live_page_definitions,
@@ -20,8 +20,8 @@ def test_live_and_export_page_resolution_share_default_order(tmp_path: Path) -> 
     live_pages = resolve_live_page_definitions(config)
     export_pages = resolve_export_page_definitions(config)
 
-    assert [page.page_id for page in live_pages] == EXPECTED_DEFAULT_PAGE_IDS
-    assert [page.page_id for page in export_pages] == EXPECTED_DEFAULT_PAGE_IDS
+    assert [page.page_id for page in live_pages] == EXPECTED_DEFAULT_LEAF_PAGE_IDS
+    assert [page.page_id for page in export_pages] == EXPECTED_DEFAULT_LEAF_PAGE_IDS
 
 
 def test_export_page_order_uses_export_page_config_order(tmp_path: Path) -> None:
@@ -57,4 +57,4 @@ def test_export_page_order_falls_back_to_registry_order_when_export_pages_unset(
 
     export_pages = resolve_export_page_definitions(config)
 
-    assert [page.page_id for page in export_pages] == EXPECTED_DEFAULT_PAGE_IDS
+    assert [page.page_id for page in export_pages] == EXPECTED_DEFAULT_LEAF_PAGE_IDS
