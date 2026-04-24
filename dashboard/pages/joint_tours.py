@@ -32,18 +32,36 @@ class JointToursPage(DashboardPage):
             self._presence_section.objects = []
             return
 
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        summary_result = self.resolve_summary_visualization(
+            "joint_tours_summary",
+            summary_requirements={
+                "jtf_distribution": ("jtf_label", "household_count"),
+                "joint_tour_composition_distribution": (
+                    "tour_composition",
+                    "joint_tour_count",
+                ),
+                "joint_tour_party_size_distribution": (
+                    "party_size",
+                    "joint_tour_count",
+                ),
+                "household_jtp_by_household_size_and_jtf": (
+                    "household_size",
+                    "jtf",
+                    "household_percent",
+                ),
+            },
+        )
+        if not summary_result.has_usable_runs:
             self._summary_section.objects = [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
+                self.unavailable_visualization(
+                    summary_result,
+                    detail="Joint-tour summaries are unavailable.",
                 )
             ]
             self._presence_section.objects = []
             return
 
-        jtf_list = summaries["jtf_distribution"]
+        jtf_list = summary_result.usable_by_input["jtf_distribution"]
 
         def _ordered_comp(df: pl.DataFrame) -> pl.DataFrame:
             if len(df) == 0:
@@ -71,16 +89,22 @@ class JointToursPage(DashboardPage):
 
         comp_list = [
             (label, _ordered_comp(df))
-            for label, df in summaries["joint_tour_composition_distribution"]
+            for label, df in summary_result.usable_by_input[
+                "joint_tour_composition_distribution"
+            ]
         ]
         party_list = [
             (
                 label,
                 df.with_columns(pl.col("party_size").cast(pl.Utf8)),
             )
-            for label, df in summaries["joint_tour_party_size_distribution"]
+            for label, df in summary_result.usable_by_input[
+                "joint_tour_party_size_distribution"
+            ]
         ]
-        hhsize_list = summaries["household_jtp_by_household_size_and_jtf"]
+        hhsize_list = summary_result.usable_by_input[
+            "household_jtp_by_household_size_and_jtf"
+        ]
 
         def _ordered_presence(df: pl.DataFrame) -> pl.DataFrame:
             base = pl.DataFrame({"jtf": ["0", "1", "2+"]})

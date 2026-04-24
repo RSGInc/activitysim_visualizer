@@ -3,8 +3,16 @@
 import polars as pl
 from runtime.config import Config
 from processor.models import RunData
+from processor.summarize.contracts import empty_summary_frame, summary_contract
 
 
+@summary_contract(
+    schema={
+        "household_size": pl.Int64,
+        "household_count": pl.Float64,
+    },
+    required_columns={"hh": ("HHSIZE", "finalweight")},
+)
 def hh_size(rd: RunData, config: Config | None = None) -> pl.DataFrame:
     """Returns DataFrame: household_size (1-5+), household_count."""
     return (
@@ -15,15 +23,18 @@ def hh_size(rd: RunData, config: Config | None = None) -> pl.DataFrame:
     )
 
 
-def person_type(rd: RunData, config: Config) -> pl.DataFrame:
-    """Returns DataFrame: person_type, person_type_label, person_count."""
-    result_schema = {
+@summary_contract(
+    schema={
         "person_type": pl.Utf8,
         "person_type_label": pl.Utf8,
         "person_count": pl.Float64,
-    }
+    },
+    required_columns={"per": ("person_type", "finalweight")},
+)
+def person_type(rd: RunData, config: Config) -> pl.DataFrame:
+    """Returns DataFrame: person_type, person_type_label, person_count."""
     if "person_type" not in rd.per.columns:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(person_type)
     return (
         rd.per.select(
             [
@@ -45,6 +56,21 @@ def person_type(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
+@summary_contract(
+    schema={
+        "person_count": pl.Float64,
+        "household_count": pl.Float64,
+        "tour_count": pl.Float64,
+        "trip_count": pl.Float64,
+        "stop_count": pl.Float64,
+    },
+    required_columns={
+        "per": ("finalweight",),
+        "hh": ("finalweight",),
+        "tours": ("finalweight",),
+        "trips": ("finalweight", "stops"),
+    },
+)
 def population_totals(rd: RunData, config: Config | None = None) -> pl.DataFrame:
     return pl.DataFrame(
         [

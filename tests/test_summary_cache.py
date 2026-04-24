@@ -22,20 +22,29 @@ from dashboard.pages.trip_mode import TripModePage
 from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.state import DashboardState
 from processor.models import RunData
-from processor.prepare import prepare_data
-from processor.prepare import build_prepared_manifest_identity
+from processor.prepare.cache import build_prepared_manifest_identity
+from processor.prepare.enrichment.pipeline import prepare_data
+from processor.summarize import cache as summary_cache_module
+from processor.summarize.contracts import empty_summary_frame, summary_contract
 from processor.summarize.cache import (
     SummaryCacheError,
+    build_summaries_with_metadata,
     build_run_keys,
     create_summary_run,
     load_summary_run_cache,
     write_summary_run_cache,
 )
+from processor.summarize.schema import SUMMARY_OUTPUT_COLUMNS
+from processor.summarize.summary_specs import SUMMARY_SPECS, SummarySpec
 from runtime.config import Config
 from processor.summarize.summaries import legacy
 
 
-def _write_config(tmp_path: Path) -> Config:
+def _write_config(
+    tmp_path: Path,
+    *,
+    visualizer_lines: list[str] | None = None,
+) -> Config:
     tmp_path.mkdir(parents=True, exist_ok=True)
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
@@ -54,6 +63,13 @@ def _write_config(tmp_path: Path) -> Config:
         ),
         encoding="utf-8",
     )
+    if visualizer_lines:
+        config_path.write_text(
+            config_path.read_text(encoding="utf-8")
+            + "\n"
+            + "\n".join(f"  {line}" for line in visualizer_lines),
+            encoding="utf-8",
+        )
     return Config.from_yaml(config_path)
 
 
@@ -489,9 +505,34 @@ def test_destination_page_shows_data_unavailable_when_only_prepared_runs_are_loa
     page.refresh(force=True)
 
     assert list(page.purp_sel.options) == ["All NM"]
-    assert len(page._body.objects) == 1
-    assert isinstance(page._body.objects[0], pn.Card)
-    assert page._body.objects[0].title == "Data Not Available"
+    assert len(page._body.objects) == 3
+    assert sum(isinstance(obj, pn.Card) for obj in page._body.objects) == 2
+    assert all(
+        getattr(obj, "title", "") == "Data Not Available"
+        for obj in page._body.objects
+        if isinstance(obj, pn.Card)
+    )
+
+
+def test_destination_page_can_hide_missing_visualizations_when_configured_blank(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        visualizer_lines=["missing_data_display: blank"],
+    )
+    state = DashboardState(
+        weighting_modes=config.weighting_modes,
+        prepared_run_provider=DashboardPreparedRunProvider.loaded(
+            [("Base", _destination_raw_run())]
+        ),
+    )
+
+    page = DestinationPage(state, config)
+    page.refresh(force=True)
+
+    assert any(isinstance(obj, pn.Spacer) for obj in page._body.objects)
+    assert not any(isinstance(obj, pn.Card) for obj in page._body.objects)
 
 
 def test_destination_page_ignores_prepared_runs_and_uses_summary_purpose_discovery(
@@ -569,6 +610,143 @@ def test_prepare_data_overwrites_numeric_tour_purpose_before_destination_summari
 
     assert sorted(distance_df["purpose"].unique().to_list()) == ["All NM", "eatout"]
     assert average_df["purpose"].to_list() == ["eatout"]
+
+
+def test_registered_summary_builders_expose_contract_metadata() -> None:
+    missing = [
+        spec.summary_id
+        for spec in SUMMARY_SPECS
+        if not hasattr(spec.builder, "_summary_contract")
+    ]
+    assert missing == []
+
+
+def test_summary_output_columns_are_derived_from_builder_contracts() -> None:
+    assert SUMMARY_OUTPUT_COLUMNS["trip_mode_by_tour_purpose_and_tour_mode"] == (
+        "tour_purpose",
+        "tour_mode",
+        "trip_mode",
+        "trip_count",
+    )
+    assert SUMMARY_OUTPUT_COLUMNS["destination_distance"] == (
+        "purpose",
+        "distbin",
+        "freq",
+    )
+
+
+def test_build_summaries_with_metadata_marks_missing_inputs_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config = _write_config(tmp_path)
+
+    @summary_contract(
+        schema={"value": pl.Float64},
+        required_columns={"trips": ("needed",)},
+    )
+    def unavailable_summary(rd: RunData, config: Config) -> pl.DataFrame:
+        raise AssertionError("builder should not be called when prerequisites are missing")
+
+    spec = SummarySpec("probe_unavailable", "probe_unavailable", unavailable_summary)
+    monkeypatch.setattr(summary_cache_module, "DEFAULT_SUMMARY_IDS", ["probe_unavailable"])
+    monkeypatch.setitem(summary_cache_module.SUMMARY_SPEC_BY_ID, "probe_unavailable", spec)
+
+    tables, metadata = build_summaries_with_metadata(_destination_raw_run(), config)
+
+    assert tables["probe_unavailable"].schema == empty_summary_frame(
+        unavailable_summary
+    ).schema
+    assert metadata["probe_unavailable"]["state"] == "unavailable"
+    assert "missing required columns" in metadata["probe_unavailable"]["detail"]
+
+
+def test_summary_cache_round_trip_preserves_summary_states_and_diagnostics(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode={
+            "weighted": {
+                "destination_distance": pl.DataFrame(),
+                "destination_average_distance": pl.DataFrame(),
+            },
+            "unweighted": {
+                "destination_distance": pl.DataFrame(),
+                "destination_average_distance": pl.DataFrame(),
+            },
+        },
+        summary_metadata_by_mode={
+            "weighted": {
+                "destination_distance": {
+                    "state": "unavailable",
+                    "detail": "tours (missing required columns: SKIMDIST)",
+                },
+                "destination_average_distance": {
+                    "state": "failed",
+                    "detail": "boom",
+                },
+            },
+            "unweighted": {
+                "destination_distance": {
+                    "state": "unavailable",
+                    "detail": "tours (missing required columns: SKIMDIST)",
+                },
+                "destination_average_distance": {
+                    "state": "failed",
+                    "detail": "boom",
+                },
+            },
+        },
+        source_run_dir="C:/runs/base",
+    )
+    fingerprint = {"label": "Base", "run_dir": "C:/runs/base"}
+
+    cache_dir = write_summary_run_cache(
+        summary_run,
+        config,
+        run_fingerprint=fingerprint,
+        prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="base",
+            fingerprint=fingerprint,
+        ),
+    )
+
+    loaded = load_summary_run_cache(
+        cache_dir,
+        config,
+        expected_modes=config.weighting_modes,
+        expected_summary_ids=[
+            "destination_distance",
+            "destination_average_distance",
+        ],
+        expected_summary_config_digest=config.summary_config_digest,
+        expected_run_fingerprint=fingerprint,
+        expected_prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="base",
+            fingerprint=fingerprint,
+        ),
+        expected_label="Base",
+        expected_run_key="base",
+    )
+
+    assert (
+        loaded.summary_metadata_by_mode["weighted"]["destination_distance"]["state"]
+        == "unavailable"
+    )
+    assert (
+        loaded.summary_metadata_by_mode["weighted"]["destination_average_distance"][
+            "state"
+        ]
+        == "failed"
+    )
+    assert loaded.manifest["failed_summaries"]["weighted"] == [
+        "destination_average_distance"
+    ]
 
 
 def test_stop_frequency_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
@@ -841,6 +1019,85 @@ def test_overview_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
     page.refresh(force=True)
 
     assert len(page._body.objects) == 8
+
+
+def test_overview_page_skips_bad_run_for_one_visualization_but_keeps_rendering(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    base_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "population_totals": pl.DataFrame(
+                {
+                    "person_count": [100.0],
+                    "household_count": [40.0],
+                    "tour_count": [55.0],
+                    "trip_count": [120.0],
+                    "stop_count": [35.0],
+                }
+            ),
+            "person_type_distribution": pl.DataFrame(
+                {
+                    "person_type": ["worker", "student"],
+                    "person_type_label": ["worker", "student"],
+                    "person_count": [70.0, 30.0],
+                }
+            ),
+            "household_size_distribution": pl.DataFrame(
+                {
+                    "household_size": [1, 2],
+                    "household_count": [15.0, 25.0],
+                }
+            ),
+            "auto_vmt_totals": pl.DataFrame({"auto_vmt": [180.0]}),
+        },
+    )
+    broken_run = _summary_run_with_tables(
+        label="Build",
+        weighted={
+            "population_totals": pl.DataFrame(
+                {
+                    "person_count": [90.0],
+                    "household_count": [38.0],
+                    "tour_count": [50.0],
+                    "trip_count": [110.0],
+                    "stop_count": [30.0],
+                }
+            ),
+            "person_type_distribution": pl.DataFrame(
+                {
+                    "person_type": ["worker", "student"],
+                    "person_count": [60.0, 30.0],
+                }
+            ),
+            "household_size_distribution": pl.DataFrame(
+                {
+                    "household_size": [1, 2],
+                    "household_count": [14.0, 24.0],
+                }
+            ),
+            "auto_vmt_totals": pl.DataFrame({"auto_vmt": [170.0]}),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[base_run, broken_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = OverviewPage(state, config)
+    page.refresh(force=True)
+
+    assert any(isinstance(obj, pn.Row) for obj in page._body.objects)
+    person_type_diag = next(
+        diagnostic
+        for diagnostic in page.visualization_diagnostics
+        if diagnostic.visualization_id == "overview_person_type_distribution"
+    )
+    assert person_type_diag.render_state == "partial"
+    assert person_type_diag.usable_run_labels == ("Base",)
+    assert person_type_diag.excluded_runs[0].label == "Build"
+    assert person_type_diag.excluded_runs[0].status == "schema_mismatch"
 
 
 def test_tour_mode_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:

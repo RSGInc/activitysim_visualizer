@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 import polars as pl
 
@@ -11,6 +11,63 @@ from processor.models import RunData
 from processor.summarize.cache import SummaryRun, strip_weights
 
 PreparedRunAvailability = Literal["loaded", "unavailable", "not_requested"]
+VisualizationAvailability = Literal["available", "empty", "missing", "schema_mismatch"]
+VisualizationRenderState = Literal["rendered", "partial", "skipped"]
+
+
+@dataclass(frozen=True)
+class VisualizationRunAvailability:
+    """One run's availability state for one dashboard visualization input."""
+
+    label: str
+    status: VisualizationAvailability
+    detail: str
+    source_kind: Literal["summary", "prepared"]
+    source_id: str
+    missing_columns: tuple[str, ...] = ()
+    run_key: str | None = None
+    source_run_dir: str | None = None
+
+
+@dataclass(frozen=True)
+class DashboardDataSelection:
+    """Resolved usable/excluded dashboard inputs for one source table."""
+
+    source_kind: Literal["summary", "prepared"]
+    source_id: str
+    usable_runs: list[tuple[str, Any]]
+    excluded_runs: list[VisualizationRunAvailability]
+
+    @property
+    def has_usable_runs(self) -> bool:
+        return bool(self.usable_runs)
+
+
+@dataclass(frozen=True)
+class VisualizationInputResult:
+    """Combined run selection for one visualization across one or more inputs."""
+
+    visualization_id: str
+    input_kind: Literal["summary", "prepared", "mixed"]
+    usable_by_input: dict[str, list[tuple[str, Any]]]
+    excluded_runs: list[VisualizationRunAvailability]
+    input_ids: tuple[str, ...]
+
+    @property
+    def has_usable_runs(self) -> bool:
+        return bool(self.usable_by_input) and all(self.usable_by_input.values())
+
+
+@dataclass(frozen=True)
+class VisualizationDiagnostic:
+    """Serialized-ready diagnostic record for one visualization render."""
+
+    visualization_id: str
+    render_state: VisualizationRenderState
+    input_kind: Literal["summary", "prepared", "mixed"]
+    input_ids: tuple[str, ...]
+    usable_run_labels: tuple[str, ...]
+    excluded_runs: tuple[VisualizationRunAvailability, ...]
 
 
 @dataclass(frozen=True)
@@ -19,6 +76,9 @@ class DashboardSummarySeries:
 
     label: str
     summaries_by_mode: dict[str, dict[str, pl.DataFrame]]
+    summary_metadata_by_mode: dict[str, dict[str, dict[str, object]]] = field(
+        default_factory=dict
+    )
     run_key: str | None = None
     source_run_dir: str | None = None
 
@@ -30,6 +90,7 @@ class DashboardSummarySeries:
         return cls(
             label=summary_run.label,
             summaries_by_mode=summary_run.summaries_by_mode,
+            summary_metadata_by_mode=summary_run.summary_metadata_by_mode,
             run_key=summary_run.run_key,
             source_run_dir=summary_run.source_run_dir,
         )
@@ -47,6 +108,17 @@ class DashboardSummarySeries:
         if mode_tables is None:
             return None
         return mode_tables.get(summary_name)
+
+    def get_summary_metadata(
+        self,
+        summary_name: str,
+        weighting_key: str,
+    ) -> dict[str, object] | None:
+        mode_metadata = self.summary_metadata_by_mode.get(weighting_key)
+        if mode_metadata is None:
+            return None
+        metadata = mode_metadata.get(summary_name)
+        return dict(metadata) if metadata is not None else None
 
 
 @dataclass

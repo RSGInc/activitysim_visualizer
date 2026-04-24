@@ -10,6 +10,12 @@ import panel as pn
 from activitysim_viz_logging import get_logger
 from dashboard import DashboardState
 from dashboard.components import data_unavailable_card
+from dashboard.data_access import (
+    DashboardDataSelection,
+    VisualizationDiagnostic,
+    VisualizationInputResult,
+    VisualizationRunAvailability,
+)
 from runtime.config import Config
 
 if TYPE_CHECKING:
@@ -47,6 +53,7 @@ class DashboardPage:
             == self.state.global_state_key()
         ):
             return
+        self._page_state["visualization_diagnostics"] = []
         self._refresh()
         self._page_state["last_rendered_state"] = self.state.global_state_key()
 
@@ -110,6 +117,147 @@ class DashboardPage:
         title: str = "Data Not Available",
     ) -> pn.Card:
         return data_unavailable_card(title, detail, missing_items=missing_items)
+
+    @property
+    def missing_data_display(self) -> str:
+        return self.config.missing_data_display
+
+    @property
+    def visualization_diagnostics(self) -> list[VisualizationDiagnostic]:
+        return list(self._page_state.get("visualization_diagnostics", []))
+
+    def _record_visualization_diagnostic(
+        self,
+        result: VisualizationInputResult,
+    ) -> None:
+        render_state = "rendered"
+        if not result.has_usable_runs:
+            render_state = "skipped"
+        elif result.excluded_runs:
+            render_state = "partial"
+        diagnostics = self._page_state.setdefault("visualization_diagnostics", [])
+        diagnostics.append(
+            VisualizationDiagnostic(
+                visualization_id=result.visualization_id,
+                render_state=render_state,
+                input_kind=result.input_kind,
+                input_ids=result.input_ids,
+                usable_run_labels=tuple(
+                    label
+                    for label, _ in next(iter(result.usable_by_input.values()), [])
+                ),
+                excluded_runs=tuple(result.excluded_runs),
+            )
+        )
+
+    def _combine_selections(
+        self,
+        visualization_id: str,
+        selections: dict[str, DashboardDataSelection],
+    ) -> VisualizationInputResult:
+        usable_labels_by_input = {
+            input_id: {label for label, _ in selection.usable_runs}
+            for input_id, selection in selections.items()
+        }
+        common_labels = (
+            set.intersection(*usable_labels_by_input.values())
+            if usable_labels_by_input
+            else set()
+        )
+        usable_by_input = {
+            input_id: [
+                (label, value)
+                for label, value in selection.usable_runs
+                if label in common_labels
+            ]
+            for input_id, selection in selections.items()
+        }
+        excluded_by_key: dict[tuple[str, str, str], VisualizationRunAvailability] = {}
+        for selection in selections.values():
+            for issue in selection.excluded_runs:
+                excluded_by_key[(issue.label, issue.source_kind, issue.source_id)] = issue
+            for label, _ in selection.usable_runs:
+                if label in common_labels:
+                    continue
+                excluded_by_key[(label, selection.source_kind, selection.source_id)] = (
+                    VisualizationRunAvailability(
+                        label=label,
+                        status="missing",
+                        detail="required alongside another unavailable input for this visualization",
+                        source_kind=selection.source_kind,
+                        source_id=selection.source_id,
+                    )
+                )
+        input_kinds = {selection.source_kind for selection in selections.values()}
+        input_kind = (
+            next(iter(input_kinds)) if len(input_kinds) == 1 else "mixed"
+        )
+        result = VisualizationInputResult(
+            visualization_id=visualization_id,
+            input_kind=input_kind,
+            usable_by_input=usable_by_input,
+            excluded_runs=list(excluded_by_key.values()),
+            input_ids=tuple(selections),
+        )
+        self._record_visualization_diagnostic(result)
+        return result
+
+    def resolve_summary_visualization(
+        self,
+        visualization_id: str,
+        *,
+        summary_requirements: dict[str, tuple[str, ...]],
+        weighting_key: str | None = None,
+    ) -> VisualizationInputResult:
+        selections = {
+            summary_name: self.state.inspect_summary_table(
+                summary_name,
+                weighting_key=weighting_key or self.weighting_key,
+                required_columns=required_columns,
+            )
+            for summary_name, required_columns in summary_requirements.items()
+        }
+        return self._combine_selections(visualization_id, selections)
+
+    def resolve_prepared_visualization(
+        self,
+        visualization_id: str,
+        *,
+        table_requirements: dict[str, tuple[str, ...]],
+        weighted: bool | None = None,
+    ) -> VisualizationInputResult:
+        selections = {
+            table_name: self.state.inspect_prepared_table(
+                table_name,
+                weighted=weighted,
+                required_columns=required_columns,
+            )
+            for table_name, required_columns in table_requirements.items()
+        }
+        return self._combine_selections(visualization_id, selections)
+
+    def unavailable_visualization(
+        self,
+        result: VisualizationInputResult,
+        *,
+        detail: str,
+        title: str = "Data Not Available",
+    ) -> pn.viewable.Viewable:
+        if self.missing_data_display == "blank":
+            return pn.Spacer(height=0)
+        missing_items = list(result.input_ids)
+        if result.excluded_runs:
+            detail_lines = [detail, "", "Excluded runs:"]
+            detail_lines.extend(
+                f"- `{issue.label}`: {issue.source_id} ({issue.detail})"
+                for issue in result.excluded_runs
+            )
+            detail = "\n".join(detail_lines)
+        return self.data_not_available_card(
+            detail=detail,
+            missing_items=missing_items,
+            title=title,
+        )
 
     def get_summary(self, summary_name: str):
         """Return one summary table per run for the current weighting mode."""
@@ -193,3 +341,56 @@ class DashboardPage:
 
     def _refresh(self) -> None:
         raise NotImplementedError
+
+
+class GroupedDashboardPage:
+    """Top-level navigation wrapper that renders child dashboard pages as tabs."""
+
+    def __init__(
+        self,
+        group_id: str,
+        title: str,
+        pages: list[DashboardPage],
+        default_child_page_id: str | None = None,
+    ) -> None:
+        if not pages:
+            raise ValueError("GroupedDashboardPage requires at least one child page.")
+        self._group_id = group_id
+        self.name = title
+        self.pages = pages
+        self.view = pn.Tabs(
+            *[(page.name, page.view) for page in pages],
+            dynamic=False,
+        )
+        self._active_child = self._default_child_index(default_child_page_id)
+        self.view.active = self._active_child
+        self.view.param.watch(self._on_child_tab_change, "active")
+
+    def _default_child_index(self, default_child_page_id: str | None) -> int:
+        if default_child_page_id is None:
+            return 0
+        for index, page in enumerate(self.pages):
+            if page.page_id() == default_child_page_id:
+                return index
+        return 0
+
+    def _on_child_tab_change(self, event) -> None:
+        self._active_child = int(event.new)
+        self.refresh_if_needed()
+
+    def page_id(self) -> str:
+        return self._group_id
+
+    @property
+    def active_child(self) -> DashboardPage:
+        return self.pages[self._active_child]
+
+    def refresh_if_needed(self) -> None:
+        self.active_child.refresh_if_needed()
+
+    def refresh(self, force: bool = False) -> None:
+        self.active_child.refresh(force=force)
+
+    def mark_stale(self) -> None:
+        for page in self.pages:
+            page.mark_stale()

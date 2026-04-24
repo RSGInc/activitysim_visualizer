@@ -57,8 +57,10 @@ Each `PageDescriptorPayload` contains:
 | `id` | `str` | Stable page id from `DashboardPageDefinition.page_id` |
 | `title` | `str` | Display title shown in the export page tabs |
 | `selectors` | `list[SelectorMetadataPayload]` | Export metadata for page-local selectors declared in the page definition |
+| `children` | `list[PageDescriptorPayload]` | Child page descriptors when this entry is a grouped top-level page |
+| `default_child_id` | `str \| None` | Default child page used when a grouped export page first loads |
 
-The page order is resolved through `dashboard.page_registry.resolve_export_page_definitions()`, which keeps export ordering aligned with the shared page registry.
+The top-level page order is resolved through the shared page registry. Grouped pages keep their child pages nested under a single top-level export tab, while serialized page content in `states` remains keyed by leaf page id.
 
 ## Selector Metadata
 
@@ -84,6 +86,18 @@ visualizer:
     pages:
       <page_id>:
         <selector_id>: ...
+```
+
+Grouped child pages may also be configured as:
+
+```yaml
+visualizer:
+  export_html:
+    pages:
+      <group_id>:
+        children:
+          <child_id>:
+            <selector_id>: ...
 ```
 
 Validation comes from the shared page registry:

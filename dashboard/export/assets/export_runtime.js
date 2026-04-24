@@ -90,14 +90,16 @@
   }
 
   function initializeState(candidate) {
+    const firstPage = candidate.pages.length ? candidate.pages[0] : null;
     const initialState = {
       weighting: candidate.default_state.weighting,
       values: candidate.default_state.values,
-      activePage: candidate.pages.length ? candidate.pages[0].id : null,
+      activePage: firstPage ? firstPage.id : null,
+      activeChildPage: {},
       pageSelectors: {},
     };
 
-    (candidate.pages || []).forEach((page) => {
+    function registerLeafPage(page) {
       const selectorState = {};
       (page.selectors || []).forEach((selector) => {
         if (selector.export_enabled) {
@@ -105,6 +107,16 @@
         }
       });
       initialState.pageSelectors[page.id] = selectorState;
+    }
+
+    (candidate.pages || []).forEach((page) => {
+      if (page.children && page.children.length) {
+        const defaultChildId = page.default_child_id || page.children[0].id;
+        initialState.activeChildPage[page.id] = defaultChildId;
+        page.children.forEach(registerLeafPage);
+        return;
+      }
+      registerLeafPage(page);
     });
 
     return initialState;
@@ -150,13 +162,28 @@
     return button;
   }
 
-  function updateActivePageSelector(selectorId, value) {
+  function currentLeafPageId() {
     if (!state.activePage) {
+      return null;
+    }
+    const page = (payload.pages || []).find((item) => item.id === state.activePage);
+    if (!page) {
+      return null;
+    }
+    if (page.children && page.children.length) {
+      return state.activeChildPage[page.id] || page.default_child_id || page.children[0].id;
+    }
+    return page.id;
+  }
+
+  function updateActivePageSelector(selectorId, value) {
+    const leafPageId = currentLeafPageId();
+    if (!leafPageId) {
       fail("Cannot update a page selector because no active page is selected.");
     }
-    const pageState = state.pageSelectors[state.activePage] || {};
+    const pageState = state.pageSelectors[leafPageId] || {};
     pageState[selectorId] = value;
-    state.pageSelectors[state.activePage] = pageState;
+    state.pageSelectors[leafPageId] = pageState;
     renderApp();
   }
 
@@ -506,7 +533,46 @@
     return row;
   }
 
-  function resolvePageContent(pageNode) {
+  function renderChildPageTabs(pageDescriptor) {
+    const row = document.createElement("div");
+    row.className = "local-tab-row";
+    const activeChildId = resolveActiveChildPageId(pageDescriptor);
+    (pageDescriptor.children || []).forEach((childPage) => {
+      row.appendChild(
+        makeButton(
+          childPage.title,
+          childPage.id === activeChildId,
+          () => {
+            state.activeChildPage[pageDescriptor.id] = childPage.id;
+            renderApp();
+          },
+          "local-tab-button"
+        )
+      );
+    });
+    return row;
+  }
+
+  function resolveActiveChildPageId(pageDescriptor) {
+    const childIds = (pageDescriptor.children || []).map((childPage) => childPage.id);
+    if (!childIds.length) {
+      fail("Grouped export page " + pageDescriptor.id + " is missing child pages.");
+    }
+
+    const preferredChildId = state.activeChildPage[pageDescriptor.id];
+    if (preferredChildId && childIds.includes(preferredChildId)) {
+      return preferredChildId;
+    }
+    if (pageDescriptor.default_child_id && childIds.includes(pageDescriptor.default_child_id)) {
+      state.activeChildPage[pageDescriptor.id] = pageDescriptor.default_child_id;
+      return pageDescriptor.default_child_id;
+    }
+
+    state.activeChildPage[pageDescriptor.id] = childIds[0];
+    return childIds[0];
+  }
+
+  function resolvePageContent(pageNode, leafPageId) {
     if (!pageNode || typeof pageNode !== "object") {
       fail("Missing page state for the active dashboard selection.");
     }
@@ -514,7 +580,7 @@
       return pageNode.content;
     }
     if (pageNode.kind === "page_variants") {
-      const pageSelectorState = state.pageSelectors[state.activePage] || {};
+      const pageSelectorState = state.pageSelectors[leafPageId] || {};
       const values = (pageNode.selector_ids || []).map((selectorId) => {
         return pageSelectorState[selectorId];
       });
@@ -538,8 +604,17 @@
     if (!pagesForState) {
       fail("Missing page state for dashboard combination " + stateKey() + ".");
     }
-    const pageNode = pagesForState[state.activePage];
-    panel.appendChild(renderNode(resolvePageContent(pageNode)));
+    const pageDescriptor = (payload.pages || []).find((page) => page.id === state.activePage);
+    if (!pageDescriptor) {
+      fail("Missing page descriptor for active page " + state.activePage + ".");
+    }
+    let leafPageId = pageDescriptor.id;
+    if (pageDescriptor.children && pageDescriptor.children.length) {
+      panel.appendChild(renderChildPageTabs(pageDescriptor));
+      leafPageId = resolveActiveChildPageId(pageDescriptor);
+    }
+    const pageNode = pagesForState[leafPageId];
+    panel.appendChild(renderNode(resolvePageContent(pageNode, leafPageId)));
     return panel;
   }
 

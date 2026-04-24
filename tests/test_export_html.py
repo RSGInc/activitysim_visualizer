@@ -11,7 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from _dashboard_expectations import EXPECTED_DEFAULT_PAGES
+from _dashboard_expectations import EXPECTED_DEFAULT_LEAF_PAGES, EXPECTED_DEFAULT_PAGES
 from dashboard.export.html import build_export_html_document, write_export_html_document
 from dashboard.export.types import EXPORT_CLIENT_RUNTIME, EXPORT_SCHEMA_VERSION
 from processor.models import RunData
@@ -22,11 +22,12 @@ from runtime.config import Config
 def _write_config(
     tmp_path: Path,
     *,
-    dashboard_pages: list[str] | None | object = ...,
+    dashboard_pages: list[object] | None | object = ...,
     weighting_modes: list[str] | None = None,
     modes_lines: list[str] | None = None,
     geography_lines: list[str] | None = None,
     export_html_lines: list[str] | None = None,
+    visualizer_lines: list[str] | None = None,
 ) -> Config:
     weighting_modes = weighting_modes or ["weighted", "unweighted"]
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -44,11 +45,23 @@ def _write_config(
             '  dashboard_title: "Test Dashboard"',
         ]
     )
+    if visualizer_lines:
+        lines.extend(f"  {line}" for line in visualizer_lines)
     if dashboard_pages is ...:
         dashboard_pages = [page_id for page_id, _ in EXPECTED_DEFAULT_PAGES]
     if dashboard_pages is not None:
         lines.append("  dashboard_pages:")
-        lines.extend(f"    - {page_id}" for page_id in dashboard_pages)
+        for entry in dashboard_pages:
+            if isinstance(entry, str):
+                lines.append(f"    - {entry}")
+                continue
+            if isinstance(entry, dict) and len(entry) == 1:
+                page_id, children = next(iter(entry.items()))
+                lines.append(f"    - {page_id}:")
+                for child_id in children:
+                    lines.append(f"      - {child_id}")
+                continue
+            raise ValueError("dashboard_pages test helper only supports strings or single-key child mappings.")
     if export_html_lines:
         lines.append("  export_html:")
         lines.extend(f"    {line}" for line in export_html_lines)
@@ -439,7 +452,7 @@ def test_export_html_config_defaults_to_weighted_percent(tmp_path: Path) -> None
 
     assert config.export_html.weighting == ["weighted"]
     assert config.export_html.values == ["percent"]
-    assert config.dashboard_pages == [page_id for page_id, _ in EXPECTED_DEFAULT_PAGES]
+    assert _configured_page_ids(config) == [page_id for page_id, _ in EXPECTED_DEFAULT_PAGES]
     assert config.export_html.dashboard.weighting == ["weighted"]
     assert config.export_html.dashboard.values == ["percent"]
     assert config.export_html.pages == {}
@@ -464,7 +477,7 @@ def test_export_html_config_supports_new_summaries_and_visualizer_sections(
     )
 
     assert config.summary_root.endswith("summary_cache")
-    assert config.dashboard_pages == ["overview", "trip_mode"]
+    assert _configured_page_ids(config) == ["overview", "trip_mode"]
     assert list(config.export_html.pages) == ["trip_mode", "overview"]
     assert config.export_html.pages_configured is True
 
@@ -533,6 +546,43 @@ def test_export_html_config_resolves_nested_dashboard_and_page_requests(
         "all nm",
         "eatout",
     )
+
+
+def test_export_html_config_supports_nested_group_children_requests(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        export_html_lines=[
+            "pages:",
+            "  tours:",
+            "    children:",
+            "      summary:",
+            "        person_type: all",
+            "      mode:",
+            "        purpose:",
+            "          - total",
+            "          - work",
+        ],
+    )
+
+    assert [entry.page_id for entry in config.export_html.page_entries] == ["tours"]
+    assert config.export_html.page_entries[0].child_page_ids == ("summary", "mode")
+    assert (
+        config.export_html.selector_request(
+            "tour_summary",
+            "person_type",
+            group_id="tours",
+            child_id="summary",
+        ).mode
+        == "all"
+    )
+    assert config.export_html.selector_request(
+        "tour_mode",
+        "purpose",
+        group_id="tours",
+        child_id="mode",
+    ).values == ("total", "work")
 
 
 def test_config_allows_missing_dashboard_pages(tmp_path: Path) -> None:
@@ -692,6 +742,20 @@ def _extract_payload(html: str) -> dict:
     return json.loads(html[start:end])
 
 
+def _configured_page_ids(config: Config) -> list[str] | None:
+    if config.dashboard_pages is None:
+        return None
+    return [entry.page_id for entry in config.dashboard_pages]
+
+
+def _flatten_page_descriptors(pages: list[dict]) -> dict[str, dict]:
+    by_id: dict[str, dict] = {}
+    for page in pages:
+        by_id[page["id"]] = page
+        by_id.update(_flatten_page_descriptors(page.get("children", [])))
+    return by_id
+
+
 def _walk_nodes(node: dict) -> list[dict]:
     if node.get("kind") == "static_page":
         return _walk_nodes(node["content"])
@@ -771,7 +835,7 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     assert "Plotly.react" in html
     assert ">undefined<" not in html
 
-    page_defs = {page["id"]: page for page in payload["pages"]}
+    page_defs = _flatten_page_descriptors(payload["pages"])
     assert page_defs["long_term"]["selectors"] == []
     assert page_defs["tour_summary"]["selectors"][0]["id"] == "person_type"
     assert page_defs["tour_summary"]["selectors"][0]["request_mode"] == "default"
@@ -1013,7 +1077,7 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
 
     html = build_export_html_document([], config, summary_runs=[_full_summary_run()])
     payload = _extract_payload(html)
-    page_defs = {page["id"]: page for page in payload["pages"]}
+    page_defs = _flatten_page_descriptors(payload["pages"])
 
     assert page_defs["tour_summary"]["selectors"][0]["request_mode"] == "explicit"
     assert page_defs["tour_summary"]["selectors"][0]["resolved_values"] == [
@@ -1213,7 +1277,7 @@ def test_build_export_html_document_serializes_long_term_geography_variants(
 
     html = build_export_html_document([], config, summary_runs=[_full_summary_run()])
     payload = _extract_payload(html)
-    page_defs = {page["id"]: page for page in payload["pages"]}
+    page_defs = _flatten_page_descriptors(payload["pages"])
 
     assert page_defs["long_term"]["selectors"][0]["id"] == "geography"
     assert page_defs["long_term"]["selectors"][0]["request_mode"] == "all"
@@ -1251,7 +1315,7 @@ def test_build_export_html_document_warns_and_falls_back_when_long_term_geograph
     )
     html = build_export_html_document([], config, summary_runs=[_full_summary_run()])
     payload = _extract_payload(html)
-    page_defs = {page["id"]: page for page in payload["pages"]}
+    page_defs = _flatten_page_descriptors(payload["pages"])
 
     assert page_defs["long_term"]["selectors"] == []
     assert payload["states"]["Weighted||Percent"]["long_term"]["kind"] == "static_page"
@@ -1442,9 +1506,14 @@ def test_export_html_save_writes_single_client_side_html_file(tmp_path: Path) ->
     )
 
     assert out_path.exists()
-    assert sorted(path.name for path in out_dir.iterdir()) == ["dashboard.html"]
+    diagnostics_path = out_dir / "dashboard.diagnostics.json"
+    assert sorted(path.name for path in out_dir.iterdir()) == [
+        "dashboard.diagnostics.json",
+        "dashboard.html",
+    ]
 
     html = out_path.read_text(encoding="utf-8")
+    diagnostics = json.loads(diagnostics_path.read_text(encoding="utf-8"))
     assert "Weighting" in html
     assert "Unweighted" in html
     assert "Count" in html
@@ -1454,3 +1523,52 @@ def test_export_html_save_writes_single_client_side_html_file(tmp_path: Path) ->
     assert "Runs Loaded" in html
     assert "Tour Purpose" in html
     assert "panel.models.state.State" not in html
+    assert diagnostics["schema_version"] == 1
+    assert "Weighted||Percent" in diagnostics["states"]
+
+
+def test_export_html_config_supports_missing_data_display(tmp_path: Path) -> None:
+    config = _write_config(
+        tmp_path,
+        visualizer_lines=["missing_data_display: blank"],
+    )
+
+    assert config.missing_data_display == "blank"
+
+
+def test_export_html_config_rejects_invalid_missing_data_display(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="visualizer.missing_data_display must be either 'card' or 'blank'",
+    ):
+        _write_config(
+            tmp_path,
+            visualizer_lines=["missing_data_display: loud"],
+        )
+
+
+def test_export_html_save_writes_visualization_diagnostics_sidecar(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        export_html_lines=[
+            "pages:",
+            "  raw_trip_demo: {}",
+        ],
+    )
+    out_path = tmp_path / "dashboard.html"
+
+    write_export_html_document(out_path, [], config, summary_runs=[_full_summary_run()])
+
+    diagnostics = json.loads(
+        (tmp_path / "dashboard.diagnostics.json").read_text(encoding="utf-8")
+    )
+    raw_demo = diagnostics["states"]["Weighted||Percent"]["raw_trip_demo"]["default"]
+
+    assert raw_demo
+    assert raw_demo[0]["visualization_id"] == "raw_trip_demo_trip_modes"
+    assert raw_demo[0]["render_state"] == "skipped"
+    assert raw_demo[0]["input_ids"] == ["trips"]

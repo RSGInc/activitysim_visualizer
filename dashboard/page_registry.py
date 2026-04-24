@@ -1,7 +1,8 @@
-"""Central registry helpers for dashboard page definitions."""
+"""Central registry helpers for dashboard page and group definitions."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from functools import lru_cache
 import importlib
 import pkgutil
@@ -13,56 +14,134 @@ from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import (
     DashboardDataRequirements,
+    DashboardGroupDefinition,
+    DashboardPageConfigEntry,
     DashboardPageDefinition,
+    ExportPageConfigEntry,
+    PageSelectorDefinition,
     PreparedDataMode,
 )
-from processor.models import PREPARED_TABLE_NAMES, PreparedTableName
-from processor.models import RunData
-from runtime.config import Config
+from processor.models import PREPARED_TABLE_NAMES, PreparedTableName, RunData
 from processor.summarize.cache import SUMMARY_SPEC_BY_ID
+from runtime.config import Config
 
 LOGGER = get_logger("dashboard.page_registry")
-VALID_PREPARED_DATA_MODES: tuple[PreparedDataMode, ...] = (
-    "none",
-    "optional",
-    "required",
-)
+VALID_PREPARED_DATA_MODES: tuple[PreparedDataMode, ...] = ("none", "optional", "required")
 
 
-def _load_page_modules():
-    """Yield imported dashboard page modules discovered from `dashboard/pages/`."""
+@dataclass(frozen=True)
+class DashboardNavigationEntry:
+    """Resolved top-level dashboard navigation item."""
+
+    entry_id: str
+    title: str
+    page_definitions: tuple[DashboardPageDefinition, ...]
+    group_definition: DashboardGroupDefinition | None = None
+
+
+def _load_discovered_modules() -> tuple[
+    tuple[object, ...],
+    tuple[tuple[DashboardGroupDefinition, tuple[object, ...]], ...],
+]:
+    """Return discovered standalone modules and grouped child modules."""
     package_name = dashboard_pages_package.__name__
+    standalone_modules: list[object] = []
+    grouped_modules: list[tuple[DashboardGroupDefinition, tuple[object, ...]]] = []
+
     for module_info in pkgutil.iter_modules(dashboard_pages_package.__path__):
         if module_info.name.startswith("_"):
             continue
-        yield importlib.import_module(f"{package_name}.{module_info.name}")
+        module_name = f"{package_name}.{module_info.name}"
+        if not module_info.ispkg:
+            standalone_modules.append(importlib.import_module(module_name))
+            continue
+
+        package_module = importlib.import_module(module_name)
+        group_definition = getattr(package_module, "GROUP", None)
+        if not isinstance(group_definition, DashboardGroupDefinition):
+            raise TypeError(
+                f"{module_name}.GROUP must be a DashboardGroupDefinition instance."
+            )
+        child_modules: list[object] = []
+        for child_info in pkgutil.iter_modules(package_module.__path__):
+            if child_info.name.startswith("_"):
+                continue
+            child_modules.append(importlib.import_module(f"{module_name}.{child_info.name}"))
+        if not child_modules:
+            raise ValueError(
+                f"Dashboard page group {group_definition.group_id!r} does not contain any child page modules."
+            )
+        grouped_modules.append((group_definition, tuple(child_modules)))
+
+    return tuple(standalone_modules), tuple(grouped_modules)
+
+
+@lru_cache(maxsize=1)
+def all_group_definitions() -> tuple[DashboardGroupDefinition, ...]:
+    """Return all registered top-level dashboard page groups."""
+    _, grouped_modules = _load_discovered_modules()
+    group_definitions = [group_definition for group_definition, _ in grouped_modules]
+    seen_group_ids: set[str] = set()
+    seen_titles: set[str] = set()
+    for group_definition in group_definitions:
+        if group_definition.group_id in seen_group_ids:
+            raise ValueError(
+                f"Duplicate dashboard page group id discovered: {group_definition.group_id!r}."
+            )
+        if group_definition.title in seen_titles:
+            raise ValueError(
+                f"Duplicate dashboard page group title discovered: {group_definition.title!r}."
+            )
+        seen_group_ids.add(group_definition.group_id)
+        seen_titles.add(group_definition.title)
+    return tuple(
+        sorted(group_definitions, key=lambda group_definition: (group_definition.order, group_definition.group_id))
+    )
 
 
 @lru_cache(maxsize=1)
 def all_page_definitions() -> tuple[DashboardPageDefinition, ...]:
-    """Return all registered dashboard pages in the current default order."""
+    """Return all registered dashboard leaf pages in the current default order."""
+    standalone_modules, grouped_modules = _load_discovered_modules()
     page_definitions: list[DashboardPageDefinition] = []
-    for module in _load_page_modules():
-        page_definition = getattr(module, "PAGE", None)
-        if page_definition is None:
-            continue
-        if not isinstance(page_definition, DashboardPageDefinition):
-            raise TypeError(
-                f"{module.__name__}.PAGE must be a DashboardPageDefinition instance."
-            )
-        controller_cls = page_definition.controller_cls
-        if controller_cls is None:
-            raise ValueError(
-                f"Dashboard page {page_definition.page_id!r} does not declare a controller."
-            )
+
+    for module in standalone_modules:
+        page_definition = _page_definition_from_module(module)
         _validate_page_definition(page_definition)
-        # Mirror the module-level PAGE object onto the controller class so
-        # instantiated pages can recover their registration contract later.
-        controller_cls.definition = page_definition
         page_definitions.append(page_definition)
+
+    group_lookup = {group_definition.group_id: group_definition for group_definition in all_group_definitions()}
+    for group_definition, child_modules in grouped_modules:
+        for module in child_modules:
+            page_definition = _page_definition_from_module(module)
+            if page_definition.group_id != group_definition.group_id:
+                raise ValueError(
+                    f"Dashboard page {page_definition.page_id!r} must declare group_id={group_definition.group_id!r}."
+                )
+            if not page_definition.child_id:
+                raise ValueError(
+                    f"Dashboard page {page_definition.page_id!r} must declare a child_id because it belongs to group {group_definition.group_id!r}."
+                )
+            _validate_page_definition(page_definition)
+            if page_definition.group_id not in group_lookup:
+                raise ValueError(
+                    f"Dashboard page {page_definition.page_id!r} declares unknown group_id {page_definition.group_id!r}."
+                )
+            page_definitions.append(page_definition)
+
+    unique_page_definitions: list[DashboardPageDefinition] = []
+    seen_definition_objects: set[int] = set()
+    for page_definition in page_definitions:
+        definition_id = id(page_definition)
+        if definition_id in seen_definition_objects:
+            continue
+        seen_definition_objects.add(definition_id)
+        unique_page_definitions.append(page_definition)
+    page_definitions = unique_page_definitions
 
     seen_page_ids: set[str] = set()
     seen_titles: set[str] = set()
+    seen_group_child_ids: set[tuple[str, str]] = set()
     for page_definition in page_definitions:
         if page_definition.page_id in seen_page_ids:
             raise ValueError(
@@ -72,6 +151,13 @@ def all_page_definitions() -> tuple[DashboardPageDefinition, ...]:
             raise ValueError(
                 f"Duplicate dashboard page title discovered: {page_definition.title!r}."
             )
+        if page_definition.group_id and page_definition.child_id:
+            group_child_key = (page_definition.group_id, page_definition.child_id)
+            if group_child_key in seen_group_child_ids:
+                raise ValueError(
+                    f"Duplicate dashboard child id discovered for group {page_definition.group_id!r}: {page_definition.child_id!r}."
+                )
+            seen_group_child_ids.add(group_child_key)
         seen_page_ids.add(page_definition.page_id)
         seen_titles.add(page_definition.title)
 
@@ -79,11 +165,38 @@ def all_page_definitions() -> tuple[DashboardPageDefinition, ...]:
         sorted(
             page_definitions,
             key=lambda page_definition: (
-                page_definition.order,
+                _page_sort_order(page_definition),
+                page_definition.child_order if page_definition.group_id else page_definition.order,
                 page_definition.page_id,
             ),
         )
     )
+
+
+def _page_definition_from_module(module: object) -> DashboardPageDefinition:
+    page_definition = getattr(module, "PAGE", None)
+    if page_definition is None:
+        raise ValueError(f"{module.__name__} must declare a module-level PAGE definition.")
+    if not isinstance(page_definition, DashboardPageDefinition):
+        raise TypeError(
+            f"{module.__name__}.PAGE must be a DashboardPageDefinition instance."
+        )
+    controller_cls = page_definition.controller_cls
+    if controller_cls is None:
+        raise ValueError(
+            f"Dashboard page {page_definition.page_id!r} does not declare a controller."
+        )
+    controller_cls.definition = page_definition
+    return page_definition
+
+
+def _page_sort_order(page_definition: DashboardPageDefinition) -> int:
+    if not page_definition.group_id:
+        return page_definition.order
+    group_definition = group_definition_by_id(page_definition.group_id)
+    if group_definition is None:
+        return page_definition.order
+    return group_definition.order
 
 
 def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
@@ -119,6 +232,10 @@ def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
             f"Dashboard page {page_definition.page_id!r} declares required_prepared_tables "
             "but prepared_data_mode is 'none'."
         )
+    if page_definition.group_id is None and page_definition.child_id is not None:
+        raise ValueError(
+            f"Dashboard page {page_definition.page_id!r} declares child_id without a group_id."
+        )
 
     unknown_summary_ids = [
         summary_id
@@ -126,8 +243,6 @@ def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
         if summary_id not in SUMMARY_SPEC_BY_ID
     ]
     if unknown_summary_ids:
-        # Pages reference summaries by stable id. Validating here catches
-        # dashboard/summarize registration drift before any render happens.
         raise ValueError(
             f"Dashboard page {page_definition.page_id!r} declares unknown summary ids: "
             + ", ".join(repr(summary_id) for summary_id in unknown_summary_ids)
@@ -135,28 +250,38 @@ def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
 
 
 def _validate_selected_page_definitions(
-    page_definitions: (
-        list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
-    ),
+    page_definitions: list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...],
 ) -> None:
-    """Validate only the page definitions enabled for the active workflow."""
-
     for page_definition in page_definitions:
         _validate_page_definition(page_definition)
 
 
 def page_definition_by_id(page_id: str) -> DashboardPageDefinition | None:
-    """Look up a registered page definition by stable page id."""
+    """Look up a registered leaf page definition by stable page id."""
     for page_definition in all_page_definitions():
         if page_definition.page_id == page_id:
             return page_definition
     return None
 
 
-def selector_definition_by_id(
-    page_id: str,
-    selector_id: str,
-) -> PageSelectorDefinition | None:
+def group_definition_by_id(group_id: str) -> DashboardGroupDefinition | None:
+    """Look up a registered page-group definition by stable group id."""
+    for group_definition in all_group_definitions():
+        if group_definition.group_id == group_id:
+            return group_definition
+    return None
+
+
+def page_definitions_for_group(group_id: str) -> tuple[DashboardPageDefinition, ...]:
+    """Return the leaf pages that belong to one group."""
+    return tuple(
+        page_definition
+        for page_definition in all_page_definitions()
+        if page_definition.group_id == group_id
+    )
+
+
+def selector_definition_by_id(page_id: str, selector_id: str) -> PageSelectorDefinition | None:
     """Look up one registered selector definition by page id and selector id."""
     page_definition = page_definition_by_id(page_id)
     if page_definition is None:
@@ -167,9 +292,7 @@ def selector_definition_by_id(
     return None
 
 
-def exportable_page_selectors() -> list[
-    tuple[DashboardPageDefinition, PageSelectorDefinition]
-]:
+def exportable_page_selectors() -> list[tuple[DashboardPageDefinition, PageSelectorDefinition]]:
     """Return all exportable page selectors in stable page/selector order."""
     return [
         (page_definition, selector)
@@ -180,73 +303,190 @@ def exportable_page_selectors() -> list[
 
 
 def default_page_definitions() -> tuple[DashboardPageDefinition, ...]:
-    """Return the default dashboard page set used when config omits `dashboard_pages`."""
-    return tuple(
-        page_definition
-        for page_definition in all_page_definitions()
-        if page_definition.default_enabled
-    )
+    """Return the default dashboard leaf page set used when config omits `dashboard_pages`."""
+    default_pages: list[DashboardPageDefinition] = []
+    included_group_ids: set[str] = set()
+    for page_definition in all_page_definitions():
+        if page_definition.group_id:
+            group_definition = group_definition_by_id(page_definition.group_id)
+            if group_definition is None or not group_definition.default_enabled:
+                continue
+            if not page_definition.default_enabled:
+                continue
+            included_group_ids.add(page_definition.group_id)
+            default_pages.append(page_definition)
+        elif page_definition.default_enabled:
+            default_pages.append(page_definition)
+    return tuple(default_pages)
 
 
-def _resolve_configured_page_definitions(
-    configured_page_ids: list[str],
-) -> list[DashboardPageDefinition]:
-    """Resolve config-facing page ids to registered page definitions."""
-    available_pages = list(all_page_definitions())
-    available_by_id = {
-        page_definition.page_id: page_definition for page_definition in available_pages
-    }
-    unknown_page_ids = [
-        page_id for page_id in configured_page_ids if page_id not in available_by_id
-    ]
-    if unknown_page_ids:
-        raise ValueError(
-            "Unsupported configured page ids: "
-            + ", ".join(repr(page_id) for page_id in unknown_page_ids)
+def default_navigation_entries() -> tuple[DashboardNavigationEntry, ...]:
+    """Return the default top-level dashboard navigation entries."""
+    return navigation_entries_for_pages(default_page_definitions())
+
+
+def navigation_entries_for_pages(
+    page_definitions: list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
+) -> tuple[DashboardNavigationEntry, ...]:
+    """Group leaf pages into top-level navigation entries."""
+    grouped: list[DashboardNavigationEntry] = []
+    seen_entry_ids: set[str] = set()
+
+    for page_definition in page_definitions:
+        if not page_definition.group_id:
+            grouped.append(
+                DashboardNavigationEntry(
+                    entry_id=page_definition.page_id,
+                    title=page_definition.title,
+                    page_definitions=(page_definition,),
+                )
+            )
+            continue
+
+        group_definition = group_definition_by_id(page_definition.group_id)
+        if group_definition is None:
+            raise ValueError(
+                f"Dashboard page {page_definition.page_id!r} declares unknown group_id {page_definition.group_id!r}."
+            )
+        if group_definition.group_id in seen_entry_ids:
+            for index, entry in enumerate(grouped):
+                if entry.entry_id == group_definition.group_id:
+                    grouped[index] = DashboardNavigationEntry(
+                        entry_id=entry.entry_id,
+                        title=entry.title,
+                        page_definitions=entry.page_definitions + (page_definition,),
+                        group_definition=entry.group_definition,
+                    )
+                    break
+            continue
+
+        grouped.append(
+            DashboardNavigationEntry(
+                entry_id=group_definition.group_id,
+                title=group_definition.title,
+                page_definitions=(page_definition,),
+                group_definition=group_definition,
+            )
         )
-    duplicate_page_ids = [
-        page_id
-        for page_id in dict.fromkeys(configured_page_ids)
-        if configured_page_ids.count(page_id) > 1
-    ]
-    if duplicate_page_ids:
-        raise ValueError(
-            "Duplicate configured page ids are not allowed: "
-            + ", ".join(repr(page_id) for page_id in duplicate_page_ids)
-        )
-    return [available_by_id[page_id] for page_id in configured_page_ids]
+        seen_entry_ids.add(group_definition.group_id)
+
+    return tuple(grouped)
 
 
-def _resolve_page_definitions_for_ids(
-    configured_page_ids: list[str] | None,
+def _resolve_group_children(
+    group_definition: DashboardGroupDefinition,
+    entry,
     *,
-    default_to_enabled: bool,
     error_field_name: str,
 ) -> list[DashboardPageDefinition]:
-    """Resolve pages for one workflow using shared ordering and validation."""
-    if configured_page_ids is None:
-        if default_to_enabled:
-            page_definitions = list(default_page_definitions())
-            _validate_selected_page_definitions(page_definitions)
-            return page_definitions
-        return []
+    available_children = list(page_definitions_for_group(group_definition.group_id))
+    if not available_children:
+        raise ValueError(
+            f"Dashboard page group {group_definition.group_id!r} does not contain any leaf pages."
+        )
+    child_by_local_id = {
+        page_definition.child_id: page_definition
+        for page_definition in available_children
+        if page_definition.child_id is not None
+    }
+    child_by_page_id = {
+        page_definition.page_id: page_definition for page_definition in available_children
+    }
 
-    try:
-        page_definitions = _resolve_configured_page_definitions(configured_page_ids)
-    except ValueError as exc:
-        message = str(exc).replace("configured page ids", error_field_name)
-        raise ValueError(message) from exc
-    _validate_selected_page_definitions(page_definitions)
-    return page_definitions
+    if entry.mode == "all":
+        return available_children
+    if entry.mode == "default":
+        default_children = [
+            page_definition
+            for page_definition in available_children
+            if page_definition.default_enabled
+        ]
+        if default_children:
+            return default_children
+        if group_definition.default_child_id:
+            default_child = child_by_local_id.get(group_definition.default_child_id)
+            if default_child is None:
+                raise ValueError(
+                    f"Dashboard page group {group_definition.group_id!r} declares unknown default_child_id {group_definition.default_child_id!r}."
+                )
+            return [default_child]
+        return [available_children[0]]
+
+    if not entry.child_page_ids:
+        default_children = [
+            page_definition
+            for page_definition in available_children
+            if page_definition.default_enabled
+        ]
+        return default_children or [available_children[0]]
+
+    selected_children: list[DashboardPageDefinition] = []
+    unknown_child_ids: list[str] = []
+    for child_id in entry.child_page_ids:
+        child_definition = child_by_local_id.get(child_id) or child_by_page_id.get(child_id)
+        if child_definition is None:
+            unknown_child_ids.append(child_id)
+            continue
+        if child_definition not in selected_children:
+            selected_children.append(child_definition)
+    if unknown_child_ids:
+        raise ValueError(
+            f"Unsupported {error_field_name}.{group_definition.group_id} child entries: "
+            + ", ".join(repr(child_id) for child_id in unknown_child_ids)
+        )
+    return selected_children
+
+
+def _resolve_page_definitions_from_entries(
+    entries: list[DashboardPageConfigEntry] | list[ExportPageConfigEntry],
+    *,
+    error_field_name: str,
+) -> list[DashboardPageDefinition]:
+    resolved_pages: list[DashboardPageDefinition] = []
+    seen_page_ids: set[str] = set()
+
+    for entry in entries:
+        leaf_page = page_definition_by_id(entry.page_id)
+        if leaf_page is not None:
+            if leaf_page.page_id not in seen_page_ids:
+                resolved_pages.append(leaf_page)
+                seen_page_ids.add(leaf_page.page_id)
+            continue
+
+        group_definition = group_definition_by_id(entry.page_id)
+        if group_definition is None:
+            raise ValueError(
+                f"Unsupported {error_field_name}: {entry.page_id!r}"
+            )
+        for child_page in _resolve_group_children(
+            group_definition,
+            entry,
+            error_field_name=error_field_name,
+        ):
+            if child_page.page_id in seen_page_ids:
+                continue
+            resolved_pages.append(child_page)
+            seen_page_ids.add(child_page.page_id)
+
+    _validate_selected_page_definitions(resolved_pages)
+    return resolved_pages
 
 
 def resolve_live_page_definitions(config: Config) -> list[DashboardPageDefinition]:
-    """Resolve the live dashboard pages in display order."""
-    return _resolve_page_definitions_for_ids(
+    """Resolve the live dashboard leaf pages in display order."""
+    if config.dashboard_pages is None:
+        page_definitions = list(default_page_definitions())
+        _validate_selected_page_definitions(page_definitions)
+        return page_definitions
+    return _resolve_page_definitions_from_entries(
         config.dashboard_pages,
-        default_to_enabled=True,
         error_field_name="visualizer.dashboard_pages entries",
     )
+
+
+def resolve_live_navigation_entries(config: Config) -> list[DashboardNavigationEntry]:
+    """Resolve the live dashboard top-level navigation entries."""
+    return list(navigation_entries_for_pages(resolve_live_page_definitions(config)))
 
 
 def resolve_page_definitions(config: Config) -> list[DashboardPageDefinition]:
@@ -255,28 +495,24 @@ def resolve_page_definitions(config: Config) -> list[DashboardPageDefinition]:
 
 
 def resolve_export_page_definitions(config: Config) -> list[DashboardPageDefinition]:
-    """Resolve the export HTML pages in display order."""
+    """Resolve the export HTML leaf pages in display order."""
     if not config.export_html.pages_configured:
         page_definitions = list(default_page_definitions())
         _validate_selected_page_definitions(page_definitions)
         return page_definitions
-    try:
-        page_definitions = _resolve_configured_page_definitions(
-            list(config.export_html.pages.keys())
-        )
-    except ValueError as exc:
-        message = str(exc).replace(
-            "configured page ids", "visualizer.export_html.pages entries"
-        )
-        raise ValueError(message) from exc
-    _validate_selected_page_definitions(page_definitions)
-    return page_definitions
+    return _resolve_page_definitions_from_entries(
+        config.export_html.page_entries,
+        error_field_name="visualizer.export_html.pages entries",
+    )
+
+
+def resolve_export_navigation_entries(config: Config) -> list[DashboardNavigationEntry]:
+    """Resolve the export top-level navigation entries."""
+    return list(navigation_entries_for_pages(resolve_export_page_definitions(config)))
 
 
 def enabled_prepared_data_mode_for_pages(
-    page_definitions: (
-        list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
-    ),
+    page_definitions: list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
 ) -> PreparedDataMode:
     """Return the strongest prepared-data requirement across a page definition set."""
     mode: PreparedDataMode = "none"
@@ -289,9 +525,7 @@ def enabled_prepared_data_mode_for_pages(
 
 
 def data_requirements_for_pages(
-    page_definitions: (
-        list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
-    ),
+    page_definitions: list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
 ) -> DashboardDataRequirements:
     """Return the summary/prepared-table requirements for a page definition set."""
     required_summary_ids: list[str] = []
@@ -317,32 +551,25 @@ def data_requirements_for_pages(
 
 
 def enabled_prepared_data_mode(config: Config) -> PreparedDataMode:
-    """Return the strongest prepared-data requirement across the enabled dashboard pages."""
     return enabled_prepared_data_mode_for_pages(resolve_live_page_definitions(config))
 
 
 def enabled_export_prepared_data_mode(config: Config) -> PreparedDataMode:
-    """Return the strongest prepared-data requirement across the enabled export pages."""
     return enabled_prepared_data_mode_for_pages(resolve_export_page_definitions(config))
 
 
 def live_data_requirements(config: Config) -> DashboardDataRequirements:
-    """Return the aggregated requirements for the enabled live dashboard pages."""
     return data_requirements_for_pages(resolve_live_page_definitions(config))
 
 
 def export_data_requirements(config: Config) -> DashboardDataRequirements:
-    """Return the aggregated requirements for the enabled export page set."""
     return data_requirements_for_pages(resolve_export_page_definitions(config))
 
 
 def build_prepared_run_provider_for_page_definitions(
     runs: list[tuple[str, RunData]] | None,
-    page_definitions: (
-        list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
-    ),
+    page_definitions: list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...],
 ) -> DashboardPreparedRunProvider:
-    """Return the prepared-run provider needed for the given page definition set."""
     prepared_mode = data_requirements_for_pages(page_definitions).prepared_data_mode
     if prepared_mode == "none":
         return DashboardPreparedRunProvider.not_requested()
@@ -355,7 +582,6 @@ def build_dashboard_prepared_run_provider(
     runs: list[tuple[str, RunData]] | None,
     config: Config,
 ) -> DashboardPreparedRunProvider:
-    """Return the prepared-run provider needed for the enabled dashboard pages."""
     return build_prepared_run_provider_for_page_definitions(
         runs,
         resolve_live_page_definitions(config),
@@ -366,7 +592,6 @@ def build_export_prepared_run_provider(
     runs: list[tuple[str, RunData]] | None,
     config: Config,
 ) -> DashboardPreparedRunProvider:
-    """Return the prepared-run provider needed for the export page set."""
     return build_prepared_run_provider_for_page_definitions(
         runs,
         resolve_export_page_definitions(config),
@@ -376,11 +601,8 @@ def build_export_prepared_run_provider(
 def _build_registered_pages(
     state: DashboardState,
     config: Config,
-    page_definitions: (
-        list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
-    ),
+    page_definitions: list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...],
 ) -> list[DashboardPage]:
-    """Instantiate page controllers for an already-resolved definition list."""
     pages: list[DashboardPage] = []
     for page_definition in page_definitions:
         controller_cls = page_definition.controller_cls
@@ -392,21 +614,9 @@ def _build_registered_pages(
     return pages
 
 
-def build_registered_live_pages(
-    state: DashboardState,
-    config: Config,
-) -> list[DashboardPage]:
-    """Instantiate the registered live dashboard page controllers."""
+def build_registered_live_pages(state: DashboardState, config: Config) -> list[DashboardPage]:
     return _build_registered_pages(state, config, resolve_live_page_definitions(config))
 
 
-def build_registered_export_pages(
-    state: DashboardState,
-    config: Config,
-) -> list[DashboardPage]:
-    """Instantiate the registered export page controllers."""
-    return _build_registered_pages(
-        state,
-        config,
-        resolve_export_page_definitions(config),
-    )
+def build_registered_export_pages(state: DashboardState, config: Config) -> list[DashboardPage]:
+    return _build_registered_pages(state, config, resolve_export_page_definitions(config))

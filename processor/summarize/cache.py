@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
 import re
 from pathlib import Path
 from typing import Callable
 
-
 import polars as pl
 
+from activitysim_viz_logging import get_logger
 from processor.models import RunData
 from runtime.config import Config
+from processor.summarize.contracts import empty_summary_frame, missing_summary_inputs
 from processor.summarize.summary_specs import (
     DEFAULT_SUMMARY_IDS,
     SUMMARY_SPEC_BY_ID,
@@ -22,7 +23,8 @@ from processor.summarize.summary_specs import (
 )
 from processor.summarize.writer import write_all
 
-SCHEMA_VERSION = 6
+LOGGER = get_logger("processor.summarize.cache")
+SCHEMA_VERSION = 7
 SUPPORTED_WEIGHTING_MODES = ("weighted", "unweighted")
 
 
@@ -53,6 +55,9 @@ class SummaryRun:
     label: str
     run_key: str
     summaries_by_mode: dict[str, dict[str, pl.DataFrame]]
+    summary_metadata_by_mode: dict[str, dict[str, dict[str, object]]] = field(
+        default_factory=dict
+    )
     source_run_dir: str | None = None
     manifest: dict[str, object] | None = None
 
@@ -117,6 +122,62 @@ def build_summaries(
     return tables
 
 
+def build_summaries_with_metadata(
+    rd: RunData,
+    config: Config,
+    summary_ids: list[str] | None = None,
+) -> tuple[dict[str, pl.DataFrame], dict[str, dict[str, object]]]:
+    """Build summaries plus per-summary execution metadata."""
+    summary_ids = summary_ids or DEFAULT_SUMMARY_IDS
+    tables: dict[str, pl.DataFrame] = {}
+    metadata: dict[str, dict[str, object]] = {}
+    for summary_id in summary_ids:
+        spec = SUMMARY_SPEC_BY_ID.get(summary_id)
+        if spec is None:
+            raise KeyError(f"Unknown summary id: {summary_id}")
+
+        missing_inputs = missing_summary_inputs(spec.builder, rd)
+        if missing_inputs:
+            detail = "; ".join(
+                f"{table_name} ({reason})"
+                for table_name, reason in sorted(missing_inputs.items())
+            )
+            LOGGER.warning(
+                "Skipping summary %r for run %r because required prepared inputs are unavailable: %s",
+                summary_id,
+                rd.label,
+                detail,
+            )
+            tables[summary_id] = empty_summary_frame(spec.builder)
+            metadata[summary_id] = {
+                "state": "unavailable",
+                "detail": detail,
+            }
+            continue
+
+        try:
+            table = spec.builder(rd, config)
+        except Exception as exc:
+            LOGGER.warning(
+                "Summary %r failed for run %r: %s",
+                summary_id,
+                rd.label,
+                exc,
+            )
+            tables[summary_id] = empty_summary_frame(spec.builder)
+            metadata[summary_id] = {
+                "state": "failed",
+                "detail": str(exc),
+            }
+            continue
+
+        state = "empty" if table.is_empty() else "available"
+        tables[summary_id] = table
+        metadata[summary_id] = {"state": state}
+
+    return tables, metadata
+
+
 def build_mode_summaries(
     rd: RunData,
     config: Config,
@@ -142,6 +203,35 @@ def build_mode_summaries(
             mode_rd, config, summary_ids=summary_ids
         )
     return summaries_by_mode
+
+
+def build_mode_summaries_with_metadata(
+    rd: RunData,
+    config: Config,
+    weighting_modes: list[str] | None = None,
+    summary_ids: list[str] | None = None,
+) -> tuple[
+    dict[str, dict[str, pl.DataFrame]],
+    dict[str, dict[str, dict[str, object]]],
+]:
+    """Build requested summaries plus per-mode execution metadata."""
+    weighting_modes = normalize_weighting_modes(
+        weighting_modes or config.weighting_modes
+    )
+    mode_runs: dict[str, RunData] = {"weighted": rd}
+    if "unweighted" in weighting_modes:
+        mode_runs["unweighted"] = strip_weights(rd)
+
+    summaries_by_mode: dict[str, dict[str, pl.DataFrame]] = {}
+    metadata_by_mode: dict[str, dict[str, dict[str, object]]] = {}
+    for mode in weighting_modes:
+        mode_rd = mode_runs["weighted"] if mode == "weighted" else mode_runs[mode]
+        mode_tables, mode_metadata = build_summaries_with_metadata(
+            mode_rd, config, summary_ids=summary_ids
+        )
+        summaries_by_mode[mode] = mode_tables
+        metadata_by_mode[mode] = mode_metadata
+    return summaries_by_mode, metadata_by_mode
 
 
 def summary_root(config: Config) -> Path:
@@ -201,6 +291,7 @@ def create_summary_run(
     label: str,
     run_key: str,
     summaries_by_mode: dict[str, dict[str, pl.DataFrame]],
+    summary_metadata_by_mode: dict[str, dict[str, dict[str, object]]] | None = None,
     source_run_dir: str | None = None,
     manifest: dict[str, object] | None = None,
 ) -> SummaryRun:
@@ -209,6 +300,7 @@ def create_summary_run(
         label=label,
         run_key=run_key,
         summaries_by_mode=summaries_by_mode,
+        summary_metadata_by_mode=dict(summary_metadata_by_mode or {}),
         source_run_dir=source_run_dir,
         manifest=manifest,
     )
@@ -232,14 +324,33 @@ def write_summary_run_cache(
     weighting_modes = list(summary_run.summaries_by_mode.keys())
     summary_ids: list[str] = []
     empty_summaries: dict[str, list[str]] = {}
+    summary_states: dict[str, dict[str, str]] = {}
+    unavailable_summaries: dict[str, list[str]] = {}
+    failed_summaries: dict[str, list[str]] = {}
+    summary_diagnostics: dict[str, dict[str, str]] = {}
     for mode in weighting_modes:
         mode_tables = summary_run.summaries_by_mode[mode]
         summary_ids = list(mode_tables.keys())
         file_tables = {}
         empty_summaries[mode] = []
+        summary_states[mode] = {}
+        unavailable_summaries[mode] = []
+        failed_summaries[mode] = []
+        summary_diagnostics[mode] = {}
+        mode_metadata = summary_run.summary_metadata_by_mode.get(mode, {})
         for summary_id, table in mode_tables.items():
             filename = Path(summary_file_map([summary_id])[summary_id]).stem
-            if table.width == 0:
+            metadata = mode_metadata.get(summary_id, {})
+            state = str(metadata.get("state", "empty" if table.is_empty() else "available"))
+            summary_states[mode][summary_id] = state
+            detail = str(metadata.get("detail", "")).strip()
+            if detail:
+                summary_diagnostics[mode][summary_id] = detail
+            if state == "unavailable":
+                unavailable_summaries[mode].append(summary_id)
+            if state == "failed":
+                failed_summaries[mode].append(summary_id)
+            if state in {"empty", "unavailable", "failed"} or table.width == 0:
                 # Persist empty summaries with a sentinel file so cache loading
                 # can distinguish "empty but expected" from "missing".
                 file_tables[filename] = pl.DataFrame({"__empty__": []})
@@ -264,6 +375,10 @@ def write_summary_run_cache(
         "summary_ids": summary_ids,
         "summary_files": summary_file_map(summary_ids),
         "empty_summaries": empty_summaries,
+        "summary_states": summary_states,
+        "unavailable_summaries": unavailable_summaries,
+        "failed_summaries": failed_summaries,
+        "summary_diagnostics": summary_diagnostics,
         "run_fingerprint": run_fingerprint or {},
         "prepared_manifest_identity": prepared_manifest_identity,
     }
@@ -302,7 +417,7 @@ def load_summary_run_cache(
     cache_dir = Path(cache_dir)
     manifest = _read_manifest(cache_dir)
     schema_version = int(manifest.get("schema_version", 0))
-    if schema_version not in {SCHEMA_VERSION, 5, 2}:
+    if schema_version not in {SCHEMA_VERSION, 6, 5, 2}:
         raise SummaryCacheError(
             f"Unsupported cache schema_version {schema_version} in {cache_dir}"
         )
@@ -379,31 +494,61 @@ def load_summary_run_cache(
         str(mode): [str(summary_id) for summary_id in summary_ids]
         for mode, summary_ids in dict(manifest.get("empty_summaries", {})).items()
     }
+    manifest_summary_states = {
+        str(mode): {
+            str(summary_id): str(state)
+            for summary_id, state in dict(mode_states).items()
+        }
+        for mode, mode_states in dict(manifest.get("summary_states", {})).items()
+    }
+    manifest_summary_diagnostics = {
+        str(mode): {
+            str(summary_id): str(detail)
+            for summary_id, detail in dict(mode_details).items()
+        }
+        for mode, mode_details in dict(manifest.get("summary_diagnostics", {})).items()
+    }
     summaries_by_mode: dict[str, dict[str, pl.DataFrame]] = {}
+    summary_metadata_by_mode: dict[str, dict[str, dict[str, object]]] = {}
     for mode in expected_modes:
         mode_dir = cache_dir / mode
         if not mode_dir.exists():
             raise SummaryCacheError(f"Missing mode directory: {mode_dir}")
         mode_tables: dict[str, pl.DataFrame] = {}
+        mode_metadata: dict[str, dict[str, object]] = {}
         for summary_id in expected_summary_ids:
             filename = summary_files.get(summary_id, f"{summary_id}.csv")
             path = mode_dir / filename
             if not path.exists():
                 raise SummaryCacheError(f"Missing summary CSV: {path}")
             table = pl.read_csv(path, infer_schema_length=10000)
+            state = manifest_summary_states.get(mode, {}).get(summary_id)
+            if state is None:
+                state = "empty" if summary_id in empty_summaries.get(mode, []) else "available"
             if summary_id in empty_summaries.get(mode, []) and table.columns == [
                 "__empty__"
             ]:
                 # Restore the sentinel representation back to a real empty frame
                 # before handing summary tables to the rest of the app.
-                table = pl.DataFrame()
+                spec = SUMMARY_SPEC_BY_ID.get(summary_id)
+                table = (
+                    empty_summary_frame(spec.builder)
+                    if spec is not None
+                    else pl.DataFrame()
+                )
             mode_tables[summary_id] = table
+            mode_metadata[summary_id] = {"state": state}
+            detail = manifest_summary_diagnostics.get(mode, {}).get(summary_id)
+            if detail:
+                mode_metadata[summary_id]["detail"] = detail
         summaries_by_mode[mode] = mode_tables
+        summary_metadata_by_mode[mode] = mode_metadata
 
     return SummaryRun(
         label=str(manifest.get("label", cache_dir.name)),
         run_key=str(manifest.get("run_key", cache_dir.name)),
         summaries_by_mode=summaries_by_mode,
+        summary_metadata_by_mode=summary_metadata_by_mode,
         source_run_dir=manifest.get("source_run_dir"),
         manifest=manifest,
     )

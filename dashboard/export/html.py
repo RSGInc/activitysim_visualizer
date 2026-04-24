@@ -8,7 +8,7 @@ from pathlib import Path
 
 from plotly.offline import get_plotlyjs
 
-from dashboard.export.payload import build_export_payload
+from dashboard.export.payload import build_export_artifacts, build_export_payload
 from dashboard.export.runtime_assets import build_export_html_shell
 from dashboard.export.serializer import json_default, sanitize_export_payload
 from runtime.config import Config
@@ -46,8 +46,28 @@ def write_export_html_document(
     """Write the standalone export HTML document to disk."""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    payload, diagnostics = build_export_artifacts(runs, config, summary_runs=summary_runs)
+    payload = sanitize_export_payload(payload)
     output_path.write_text(
-        build_export_html_document(runs, config, summary_runs=summary_runs),
+        build_export_html_shell(
+            title=html.escape(config.dashboard_title),
+            payload_json=json.dumps(
+                payload,
+                default=json_default,
+                allow_nan=False,
+            ).replace("</", "<\\/"),
+            plotly_js=get_plotlyjs(),
+        ),
+        encoding="utf-8",
+    )
+    diagnostics_path = output_path.with_name(f"{output_path.stem}.diagnostics.json")
+    diagnostics_path.write_text(
+        json.dumps(
+            sanitize_export_payload(diagnostics),
+            default=json_default,
+            allow_nan=False,
+            indent=2,
+        ),
         encoding="utf-8",
     )
     return output_path

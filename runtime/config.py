@@ -21,6 +21,24 @@ LOGGER = get_logger("runtime.config")
 
 
 @dataclass(frozen=True)
+class DashboardPageConfigEntry:
+    """Normalized dashboard page-selection entry from config."""
+
+    page_id: str
+    mode: str = "explicit"
+    child_page_ids: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class ExportPageConfigEntry:
+    """Normalized export page-selection entry from config."""
+
+    page_id: str
+    mode: str = "explicit"
+    child_page_ids: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
 class ExportSelectorRequest:
     """Requested export values for one page-level selector.
 
@@ -63,7 +81,11 @@ class ExportHTMLSettings:
     """
 
     dashboard: ExportDashboardSettings = field(default_factory=ExportDashboardSettings)
+    page_entries: list[ExportPageConfigEntry] = field(default_factory=list)
     pages: dict[str, dict[str, ExportSelectorRequest]] = field(default_factory=dict)
+    grouped_pages: dict[str, dict[str, dict[str, ExportSelectorRequest]]] = field(
+        default_factory=dict
+    )
     pages_configured: bool = False
 
     @property
@@ -84,8 +106,22 @@ class ExportHTMLSettings:
         self,
         page_id: str,
         selector_id: str,
+        *,
+        group_id: str | None = None,
+        child_id: str | None = None,
     ) -> ExportSelectorRequest:
-        return self.pages.get(page_id, {}).get(selector_id, ExportSelectorRequest())
+        request = self.pages.get(page_id, {}).get(selector_id)
+        if request is not None:
+            return request
+        if group_id is not None and child_id is not None:
+            request = (
+                self.grouped_pages.get(group_id, {})
+                .get(child_id, {})
+                .get(selector_id)
+            )
+            if request is not None:
+                return request
+        return ExportSelectorRequest()
 
 
 def _normalize_export_html_selection(
@@ -176,6 +212,184 @@ def _normalize_export_selector_request(
     return ExportSelectorRequest(mode="explicit", values=tuple(normalized))
 
 
+def _normalize_dashboard_page_entries(
+    raw_value,
+    *,
+    field_name: str,
+) -> list[DashboardPageConfigEntry]:
+    """Normalize live dashboard page config to ordered page/group entries."""
+    if not isinstance(raw_value, list):
+        raise ValueError(f"{field_name} must be a list when provided.")
+
+    entries: list[DashboardPageConfigEntry] = []
+    seen_page_ids: set[str] = set()
+    for raw_entry in raw_value:
+        if isinstance(raw_entry, str):
+            page_id = raw_entry.strip().lower()
+            if not page_id:
+                raise ValueError(f"{field_name} contains an empty page id.")
+            if page_id in seen_page_ids:
+                raise ValueError(
+                    f"{field_name} contains duplicate page id {page_id!r}."
+                )
+            entries.append(DashboardPageConfigEntry(page_id=page_id))
+            seen_page_ids.add(page_id)
+            continue
+
+        if not isinstance(raw_entry, dict) or len(raw_entry) != 1:
+            raise ValueError(
+                f"{field_name} entries must be strings or single-key mappings."
+            )
+        raw_group_id, raw_children = next(iter(raw_entry.items()))
+        page_id = str(raw_group_id).strip().lower()
+        if not page_id:
+            raise ValueError(f"{field_name} contains an empty page id.")
+        if page_id in seen_page_ids:
+            raise ValueError(f"{field_name} contains duplicate page id {page_id!r}.")
+
+        if isinstance(raw_children, str):
+            token = raw_children.strip().lower()
+            if token not in {"default", "all"}:
+                raise ValueError(
+                    f"{field_name}.{page_id} must be 'default', 'all', or a list of child ids."
+                )
+            entries.append(DashboardPageConfigEntry(page_id=page_id, mode=token))
+        elif isinstance(raw_children, list):
+            child_ids: list[str] = []
+            for raw_child_id in raw_children:
+                if not isinstance(raw_child_id, str):
+                    raise ValueError(
+                        f"{field_name}.{page_id} entries must be strings."
+                    )
+                child_id = raw_child_id.strip().lower()
+                if not child_id or child_id in child_ids:
+                    continue
+                child_ids.append(child_id)
+            if not child_ids:
+                raise ValueError(f"{field_name}.{page_id} resolved to no child ids.")
+            entries.append(
+                DashboardPageConfigEntry(
+                    page_id=page_id,
+                    mode="explicit",
+                    child_page_ids=tuple(child_ids),
+                )
+            )
+        else:
+            raise ValueError(
+                f"{field_name}.{page_id} must be 'default', 'all', or a list of child ids."
+            )
+        seen_page_ids.add(page_id)
+
+    return entries
+
+
+def _normalize_export_page_entries(
+    raw_value,
+    *,
+    field_name: str,
+) -> tuple[
+    list[ExportPageConfigEntry],
+    dict[str, dict[str, ExportSelectorRequest]],
+    dict[str, dict[str, dict[str, ExportSelectorRequest]]],
+]:
+    """Normalize export page config into page entries plus flat/group selector maps."""
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{field_name} must be a mapping.")
+
+    entries: list[ExportPageConfigEntry] = []
+    flat_selectors: dict[str, dict[str, ExportSelectorRequest]] = {}
+    grouped_selectors: dict[str, dict[str, dict[str, ExportSelectorRequest]]] = {}
+
+    for raw_page_id, raw_page_cfg in raw_value.items():
+        page_id = str(raw_page_id).strip().lower()
+        if not page_id:
+            raise ValueError(f"{field_name} contains an empty page id.")
+        if not isinstance(raw_page_cfg, dict):
+            raise ValueError(f"{field_name}.{page_id} must be a mapping.")
+
+        if "children" not in raw_page_cfg and "selection" not in raw_page_cfg:
+            normalized_selector_cfg: dict[str, ExportSelectorRequest] = {}
+            for raw_selector_id, raw_selector_cfg in raw_page_cfg.items():
+                selector_id = str(raw_selector_id).strip().lower()
+                if not selector_id:
+                    raise ValueError(
+                        f"{field_name}.{page_id} contains an empty selector id."
+                    )
+                normalized_selector_cfg[selector_id] = _normalize_export_selector_request(
+                    raw_selector_cfg,
+                    field_name=f"{field_name}.{page_id}.{selector_id}",
+                )
+            entries.append(ExportPageConfigEntry(page_id=page_id))
+            flat_selectors[page_id] = normalized_selector_cfg
+            continue
+
+        if set(raw_page_cfg) - {"children", "selection"}:
+            invalid_keys = ", ".join(
+                repr(str(key)) for key in sorted(set(raw_page_cfg) - {"children", "selection"})
+            )
+            raise ValueError(
+                f"{field_name}.{page_id} only supports 'selection' and 'children' for grouped pages. Invalid keys: {invalid_keys}"
+            )
+
+        selection = raw_page_cfg.get("selection", "explicit")
+        mode = "explicit"
+        child_page_ids: list[str] = []
+        if isinstance(selection, str):
+            token = selection.strip().lower()
+            if token in {"default", "all"}:
+                mode = token
+            elif token not in {"", "explicit"}:
+                raise ValueError(
+                    f"{field_name}.{page_id}.selection must be 'default', 'all', or omitted."
+                )
+        elif selection is not None:
+            raise ValueError(
+                f"{field_name}.{page_id}.selection must be 'default', 'all', or omitted."
+            )
+
+        raw_children_cfg = raw_page_cfg.get("children", {})
+        if raw_children_cfg is None:
+            raw_children_cfg = {}
+        if not isinstance(raw_children_cfg, dict):
+            raise ValueError(f"{field_name}.{page_id}.children must be a mapping.")
+
+        normalized_child_selector_cfg: dict[str, dict[str, ExportSelectorRequest]] = {}
+        for raw_child_id, raw_child_cfg in raw_children_cfg.items():
+            child_id = str(raw_child_id).strip().lower()
+            if not child_id:
+                raise ValueError(
+                    f"{field_name}.{page_id}.children contains an empty child id."
+                )
+            if not isinstance(raw_child_cfg, dict):
+                raise ValueError(
+                    f"{field_name}.{page_id}.children.{child_id} must be a mapping."
+                )
+            child_page_ids.append(child_id)
+            normalized_selector_cfg = {}
+            for raw_selector_id, raw_selector_cfg in raw_child_cfg.items():
+                selector_id = str(raw_selector_id).strip().lower()
+                if not selector_id:
+                    raise ValueError(
+                        f"{field_name}.{page_id}.children.{child_id} contains an empty selector id."
+                    )
+                normalized_selector_cfg[selector_id] = _normalize_export_selector_request(
+                    raw_selector_cfg,
+                    field_name=f"{field_name}.{page_id}.children.{child_id}.{selector_id}",
+                )
+            normalized_child_selector_cfg[child_id] = normalized_selector_cfg
+
+        entries.append(
+            ExportPageConfigEntry(
+                page_id=page_id,
+                mode=mode,
+                child_page_ids=tuple(child_page_ids),
+            )
+        )
+        grouped_selectors[page_id] = normalized_child_selector_cfg
+
+    return entries, flat_selectors, grouped_selectors
+
+
 def _normalize_column_aliases(
     raw_value,
     *,
@@ -260,8 +474,9 @@ class Config:
     presentation_config_digest: str
     name: str
     dashboard_title: str
-    dashboard_pages: list[str] | None
+    dashboard_pages: list[DashboardPageConfigEntry] | None
     run_colors: list[str]
+    missing_data_display: str
     summary_root: str
     weighting_modes: list[str]
     export_html: ExportHTMLSettings
@@ -406,26 +621,10 @@ class Config:
         if dashboard_pages_cfg is None:
             dashboard_pages = None
         else:
-            if not isinstance(dashboard_pages_cfg, list):
-                raise ValueError(
-                    "visualizer.dashboard_pages must be a list of page ids when provided."
-                )
-            dashboard_pages = []
-            for raw_page_id in dashboard_pages_cfg:
-                if not isinstance(raw_page_id, str):
-                    raise ValueError(
-                        "visualizer.dashboard_pages entries must be strings."
-                    )
-                page_id = raw_page_id.strip().lower()
-                if not page_id:
-                    raise ValueError(
-                        "visualizer.dashboard_pages contains an empty page id."
-                    )
-                if page_id in dashboard_pages:
-                    raise ValueError(
-                        f"visualizer.dashboard_pages contains duplicate page id {page_id!r}."
-                    )
-                dashboard_pages.append(page_id)
+            dashboard_pages = _normalize_dashboard_page_entries(
+                dashboard_pages_cfg,
+                field_name="visualizer.dashboard_pages",
+            )
 
         summary_root_raw = summaries_cfg.get("root", "artifacts/summary_cache")
         summary_root = Path(summary_root_raw)
@@ -483,33 +682,14 @@ class Config:
         pages_configured = pages_cfg is not None
         if pages_cfg is None:
             pages_cfg = {}
-        elif not isinstance(pages_cfg, dict):
-            raise ValueError("visualizer.export_html.pages must be a mapping.")
-        normalized_pages: dict[str, dict[str, ExportSelectorRequest]] = {}
-        for raw_page_id, raw_page_cfg in pages_cfg.items():
-            page_id = str(raw_page_id).strip().lower()
-            if not page_id:
-                raise ValueError(
-                    "visualizer.export_html.pages contains an empty page id."
-                )
-            if not isinstance(raw_page_cfg, dict):
-                raise ValueError(
-                    f"visualizer.export_html.pages.{page_id} must be a mapping."
-                )
-            normalized_selector_cfg: dict[str, ExportSelectorRequest] = {}
-            for raw_selector_id, raw_selector_cfg in raw_page_cfg.items():
-                selector_id = str(raw_selector_id).strip().lower()
-                if not selector_id:
-                    raise ValueError(
-                        f"visualizer.export_html.pages.{page_id} contains an empty selector id."
-                    )
-                normalized_selector_cfg[selector_id] = (
-                    _normalize_export_selector_request(
-                        raw_selector_cfg,
-                        field_name=f"visualizer.export_html.pages.{page_id}.{selector_id}",
-                    )
-                )
-            normalized_pages[page_id] = normalized_selector_cfg
+        (
+            normalized_page_entries,
+            normalized_pages,
+            normalized_grouped_pages,
+        ) = _normalize_export_page_entries(
+            pages_cfg,
+            field_name="visualizer.export_html.pages",
+        )
 
         export_html = ExportHTMLSettings(
             dashboard=ExportDashboardSettings(
@@ -526,7 +706,9 @@ class Config:
                     allowed=["percent", "count"],
                 ),
             ),
+            page_entries=normalized_page_entries,
             pages=normalized_pages,
+            grouped_pages=normalized_grouped_pages,
             pages_configured=pages_configured,
         )
 
@@ -536,6 +718,13 @@ class Config:
         run_colors = visualizer_cfg.get("run_colors", list(_DEFAULT_RUN_COLORS))
         if not isinstance(run_colors, list):
             raise ValueError("visualizer.run_colors must be a list when provided.")
+        missing_data_display = str(
+            visualizer_cfg.get("missing_data_display", "card")
+        ).strip().lower()
+        if missing_data_display not in {"card", "blank"}:
+            raise ValueError(
+                "visualizer.missing_data_display must be either 'card' or 'blank'."
+            )
 
         person_type_labels = {
             str(k): str(v) for k, v in raw.get("person_types", {}).items()
@@ -551,6 +740,7 @@ class Config:
             dashboard_title=str(dashboard_title),
             dashboard_pages=dashboard_pages,
             run_colors=run_colors,
+            missing_data_display=missing_data_display,
             summary_root=str(summary_root),
             weighting_modes=weighting_modes,
             export_html=export_html,
@@ -772,15 +962,33 @@ class Config:
         return {
             "dashboard_title": self.dashboard_title,
             "dashboard_pages": (
-                list(self.dashboard_pages) if self.dashboard_pages is not None else None
+                [
+                    {
+                        "page_id": entry.page_id,
+                        "mode": entry.mode,
+                        "child_page_ids": list(entry.child_page_ids),
+                    }
+                    for entry in self.dashboard_pages
+                ]
+                if self.dashboard_pages is not None
+                else None
             ),
             "run_colors": list(self.run_colors),
+            "missing_data_display": self.missing_data_display,
             "export_html": {
                 "dashboard": {
                     "weighting": list(self.export_html.dashboard.weighting),
                     "values": list(self.export_html.dashboard.values),
                 },
                 "pages_configured": self.export_html.pages_configured,
+                "page_entries": [
+                    {
+                        "page_id": entry.page_id,
+                        "mode": entry.mode,
+                        "child_page_ids": list(entry.child_page_ids),
+                    }
+                    for entry in self.export_html.page_entries
+                ],
                 "pages": [
                     {
                         "page_id": page_id,
@@ -793,6 +1001,22 @@ class Config:
                         },
                     }
                     for page_id, selectors in self.export_html.pages.items()
+                ],
+                "grouped_pages": [
+                    {
+                        "page_id": page_id,
+                        "children": {
+                            child_id: {
+                                selector_id: {
+                                    "mode": request.mode,
+                                    "values": list(request.values),
+                                }
+                                for selector_id, request in selectors.items()
+                            }
+                            for child_id, selectors in children.items()
+                        },
+                    }
+                    for page_id, children in self.export_html.grouped_pages.items()
                 ],
             },
         }

@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from runtime.config import Config
 from processor.models import RunData
-from processor.prepare import prepare_data
+from processor.prepare.enrichment.pipeline import prepare_data
 from processor.summarize.schema import SUMMARY_OUTPUT_COLUMNS
 from processor.summarize.summaries import legacy, tour, trip
 
@@ -516,3 +516,37 @@ def test_summaries_return_empty_tables_when_canonical_columns_are_missing(
     assert tour.stop_freq(prepared, config).is_empty()
     assert tour.tour_tod(prepared, config).is_empty()
     assert legacy.distance_distribution(prepared, config).is_empty()
+
+
+def test_prepare_data_skips_fragile_joins_when_dependency_keys_are_missing(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    raw = _raw_run_with_default_fallback_columns()
+    raw = RunData(
+        label=raw.label,
+        run_dir=raw.run_dir,
+        skim_file=raw.skim_file,
+        hh=raw.hh,
+        per=raw.per.drop("household_id"),
+        tours=raw.tours.drop("person_id"),
+        trips=raw.trips.drop("tour_id"),
+        joint_participants=raw.joint_participants.drop("tour_id"),
+        land_use=pl.DataFrame(),
+        skim_matrix=raw.skim_matrix,
+        skim_zone_map=raw.skim_zone_map,
+        hh_weight_col=raw.hh_weight_col,
+        person_weight_col=raw.person_weight_col,
+        trip_weight_col=raw.trip_weight_col,
+    )
+
+    prepared = prepare_data(raw, config)
+
+    assert "finalweight" in prepared.per.columns
+    assert prepared.per["finalweight"].to_list() == [1.0]
+    assert "finalweight" in prepared.tours.columns
+    assert prepared.tours["finalweight"].to_list() == [1.0]
+    assert "finalweight" in prepared.trips.columns
+    assert prepared.trips["finalweight"].to_list() == [1.0, 1.0]
+    assert "NUMBER_HH" in prepared.tours.columns
+    assert prepared.tours["NUMBER_HH"].to_list() == [1]

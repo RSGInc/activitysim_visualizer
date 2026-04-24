@@ -8,10 +8,13 @@ import param
 import polars as pl
 
 from dashboard.data_access import (
+    DashboardDataSelection,
     DashboardPreparedRunProvider,
     DashboardSummarySeries,
+    VisualizationRunAvailability,
 )
 from processor.models import RunData
+from processor.prepare.availability import table_availability, table_diagnostics
 from processor.summarize.cache import SummaryRun, normalize_weighting_modes
 
 
@@ -112,17 +115,13 @@ class DashboardState(param.Parameterized):
         summary_name: str,
         weighting_key: str | None = None,
     ) -> list[tuple[str, pl.DataFrame]] | None:
-        """Return one summary table per run for the requested weighting mode."""
+        """Return usable summary tables for the requested weighting mode."""
         if not self._summary_runs:
             return None
-        mode = weighting_key or self.weighting_key()
-        summary_list: list[tuple[str, pl.DataFrame]] = []
-        for run in self._summary_runs:
-            table = run.get_table(summary_name, mode)
-            if table is None:
-                return None
-            summary_list.append((run.label, table))
-        return summary_list
+        selection = self.inspect_summary_table(summary_name, weighting_key=weighting_key)
+        if not selection.has_usable_runs:
+            return None
+        return [(label, table) for label, table in selection.usable_runs]
 
     def has_summary_table_set(
         self,
@@ -130,6 +129,166 @@ class DashboardState(param.Parameterized):
         weighting_key: str | None = None,
     ) -> bool:
         return self.get_summary_table_set(summary_name, weighting_key) is not None
+
+    def inspect_summary_table(
+        self,
+        summary_name: str,
+        *,
+        weighting_key: str | None = None,
+        required_columns: tuple[str, ...] = (),
+    ) -> DashboardDataSelection:
+        """Return usable and excluded runs for one summary table."""
+        mode = weighting_key or self.weighting_key()
+        usable_runs: list[tuple[str, pl.DataFrame]] = []
+        excluded_runs: list[VisualizationRunAvailability] = []
+        for run in self._summary_runs:
+            table = run.get_table(summary_name, mode)
+            metadata = run.get_summary_metadata(summary_name, mode) or {}
+            if table is None:
+                detail = str(metadata.get("detail", "")).strip() or "summary table is missing"
+                excluded_runs.append(
+                    VisualizationRunAvailability(
+                        label=run.label,
+                        run_key=run.run_key,
+                        source_run_dir=run.source_run_dir,
+                        status="missing",
+                        detail=detail,
+                        source_kind="summary",
+                        source_id=summary_name,
+                    )
+                )
+                continue
+            if table.is_empty():
+                detail = str(metadata.get("detail", "")).strip() or "summary table is empty"
+                excluded_runs.append(
+                    VisualizationRunAvailability(
+                        label=run.label,
+                        run_key=run.run_key,
+                        source_run_dir=run.source_run_dir,
+                        status="empty",
+                        detail=detail,
+                        source_kind="summary",
+                        source_id=summary_name,
+                    )
+                )
+                continue
+            missing_columns = tuple(
+                column for column in required_columns if column not in table.columns
+            )
+            if missing_columns:
+                excluded_runs.append(
+                    VisualizationRunAvailability(
+                        label=run.label,
+                        run_key=run.run_key,
+                        source_run_dir=run.source_run_dir,
+                        status="schema_mismatch",
+                        detail=(
+                            "missing required columns: "
+                            + ", ".join(sorted(missing_columns))
+                        ),
+                        source_kind="summary",
+                        source_id=summary_name,
+                        missing_columns=missing_columns,
+                    )
+                )
+                continue
+            usable_runs.append((run.label, table))
+
+        return DashboardDataSelection(
+            source_kind="summary",
+            source_id=summary_name,
+            usable_runs=usable_runs,
+            excluded_runs=excluded_runs,
+        )
+
+    def inspect_prepared_table(
+        self,
+        table_name: str,
+        *,
+        weighted: bool | None = None,
+        required_columns: tuple[str, ...] = (),
+    ) -> DashboardDataSelection:
+        """Return usable and excluded runs for one prepared table."""
+        usable_runs: list[tuple[str, RunData]] = []
+        excluded_runs: list[VisualizationRunAvailability] = []
+        prepared_runs = self.get_prepared_runs_if_loaded(weighted=weighted)
+        if prepared_runs is None:
+            detail = (
+                "prepared run data was not requested for this dashboard session"
+                if self.prepared_run_availability == "not_requested"
+                else "prepared run data is unavailable"
+            )
+            return DashboardDataSelection(
+                source_kind="prepared",
+                source_id=table_name,
+                usable_runs=[],
+                excluded_runs=[
+                    VisualizationRunAvailability(
+                        label=label,
+                        status="missing",
+                        detail=detail,
+                        source_kind="prepared",
+                        source_id=table_name,
+                    )
+                    for label in self.run_labels
+                ],
+            )
+
+        for label, run in prepared_runs:
+            states = table_availability(run)
+            diagnostics = table_diagnostics(run)
+            table = getattr(run, table_name, None)
+            state = states.get(table_name)
+            if table is None or state in {"unavailable", "failed"}:
+                excluded_runs.append(
+                    VisualizationRunAvailability(
+                        label=label,
+                        status="missing",
+                        detail=diagnostics.get(
+                            table_name, "prepared table is unavailable"
+                        ),
+                        source_kind="prepared",
+                        source_id=table_name,
+                    )
+                )
+                continue
+            if isinstance(table, pl.DataFrame) and table.is_empty():
+                excluded_runs.append(
+                    VisualizationRunAvailability(
+                        label=label,
+                        status="empty",
+                        detail=diagnostics.get(table_name, "prepared table is empty"),
+                        source_kind="prepared",
+                        source_id=table_name,
+                    )
+                )
+                continue
+            missing_columns = tuple(
+                column for column in required_columns if column not in table.columns
+            )
+            if missing_columns:
+                excluded_runs.append(
+                    VisualizationRunAvailability(
+                        label=label,
+                        status="schema_mismatch",
+                        detail=(
+                            "missing required columns: "
+                            + ", ".join(sorted(missing_columns))
+                        ),
+                        source_kind="prepared",
+                        source_id=table_name,
+                        missing_columns=missing_columns,
+                    )
+                )
+                continue
+            usable_runs.append((label, run))
+
+        return DashboardDataSelection(
+            source_kind="prepared",
+            source_id=table_name,
+            usable_runs=usable_runs,
+            excluded_runs=excluded_runs,
+        )
 
     def get_page_state(self, page_name: str) -> dict[str, Any]:
         """Return mutable page-local state for a page, creating it if needed."""

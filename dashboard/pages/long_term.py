@@ -151,39 +151,84 @@ class LongTermPage(DashboardPage):
         self.view = pn.Column(*header, self._body, sizing_mode="stretch_width")
 
     def _geo_options(self) -> list[str]:
-        tlfd_list = self.state.get_summary_table_set(
-            "work_location_distance_distribution_by_geography", "weighted"
+        tlfd_result = self.state.inspect_summary_table(
+            "work_location_distance_distribution_by_geography",
+            weighting_key="weighted",
+            required_columns=("distance_bin", "geography", "person_count"),
         )
-        if tlfd_list is None:
+        if not tlfd_result.has_usable_runs:
             return ["Total"]
-        return geo_options(tlfd_list)
+        return geo_options([(label, table) for label, table in tlfd_result.usable_runs])
 
     def _refresh(self) -> None:
         if not self.state.run_labels:
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        summary_result = self.resolve_summary_visualization(
+            "long_term_core",
+            summary_requirements={
+                "auto_ownership_distribution": (
+                    "household_vehicle_count",
+                    "household_count",
+                ),
+                "work_location_distance_distribution_by_geography": (
+                    "distance_bin",
+                    "geography",
+                    "person_count",
+                ),
+                "university_location_distance_distribution_by_geography": (
+                    "distance_bin",
+                    "geography",
+                    "person_count",
+                ),
+                "school_location_distance_distribution_by_geography": (
+                    "distance_bin",
+                    "geography",
+                    "person_count",
+                ),
+                "work_from_home_rate_by_geography": (
+                    "geography",
+                    "worker_count",
+                    "work_from_home_worker_count",
+                ),
+                "telecommute_frequency_distribution": (
+                    "telecommute_frequency",
+                    "person_count",
+                ),
+                "average_mandatory_tour_distance_by_purpose_and_geography": (
+                    "mandatory_tour_purpose",
+                    "geography",
+                    "average_tour_distance",
+                ),
+            },
+        )
+        if not summary_result.has_usable_runs:
             self._body.objects = [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
+                self.unavailable_visualization(
+                    summary_result,
+                    detail="Long-term summary tables are unavailable.",
                 )
             ]
             return
 
         auto_own_list = auto_ownership_chart_data(
-            summaries["auto_ownership_distribution"]
+            summary_result.usable_by_input["auto_ownership_distribution"]
         )
-        work_tlfd_list = summaries["work_location_distance_distribution_by_geography"]
-        univ_tlfd_list = summaries[
+        work_tlfd_list = summary_result.usable_by_input[
+            "work_location_distance_distribution_by_geography"
+        ]
+        univ_tlfd_list = summary_result.usable_by_input[
             "university_location_distance_distribution_by_geography"
         ]
-        schl_tlfd_list = summaries["school_location_distance_distribution_by_geography"]
-        wfh_list = summaries["work_from_home_rate_by_geography"]
-        tc_list = summaries["telecommute_frequency_distribution"]
-        mand_len_list = summaries[
+        schl_tlfd_list = summary_result.usable_by_input[
+            "school_location_distance_distribution_by_geography"
+        ]
+        wfh_list = summary_result.usable_by_input["work_from_home_rate_by_geography"]
+        tc_list = summary_result.usable_by_input[
+            "telecommute_frequency_distribution"
+        ]
+        mand_len_list = summary_result.usable_by_input[
             "average_mandatory_tour_distance_by_purpose_and_geography"
         ]
         auto_chart = bar_chart(
@@ -224,6 +269,7 @@ class LongTermPage(DashboardPage):
             work_data, univ_data, schl_data = self.get_filtered_view(
                 "long_term_tlfd",
                 geo,
+                tuple(label for label, _ in work_tlfd_list),
                 factory=lambda: tlfd_chart_data(
                     work_tlfd_list, univ_tlfd_list, schl_tlfd_list, geo
                 ),
@@ -260,29 +306,34 @@ class LongTermPage(DashboardPage):
                     ),
                 ),
             )
-            flow_list = self.require_summary("geo_flows")
-            if flow_list is None:
-                self._body.objects = [
-                    self.data_not_available_card(
-                        detail=(
-                            "This page requires the geography flow summary when geography is enabled."
-                        ),
-                        missing_items=["geo_flows"],
-                    )
-                ]
-                return
-            flow_widget = data_table(
-                [
-                    (label, df)
-                    for label, df in flow_list
-                    if df is not None and len(df) > 0
-                ],
-                "Home-Work Geography Flows",
+            flow_result = self.resolve_summary_visualization(
+                "long_term_geo_flows",
+                summary_requirements={
+                    "geo_flows": ("Home Geography", "Work Geography", "Workers")
+                },
+            )
+            flow_widget = (
+                data_table(
+                    [
+                        (label, df)
+                        for label, df in flow_result.usable_by_input["geo_flows"]
+                        if df is not None and len(df) > 0
+                    ],
+                    "Home-Work Geography Flows",
+                )
+                if flow_result.has_usable_runs
+                else self.unavailable_visualization(
+                    flow_result,
+                    detail=(
+                        "This page requires the geography flow summary when geography is enabled."
+                    ),
+                )
             )
         else:
             work_data, univ_data, schl_data = self.get_filtered_view(
                 "long_term_tlfd",
                 "Total",
+                tuple(label for label, _ in work_tlfd_list),
                 factory=lambda: tlfd_chart_data(
                     work_tlfd_list, univ_tlfd_list, schl_tlfd_list, "Total"
                 ),

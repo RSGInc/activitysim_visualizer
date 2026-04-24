@@ -27,10 +27,10 @@ run.py
   -> runtime_workflows.resolve_run_entries()
   -> zero or more explicit steps:
        A. run_prepare_workflow()
-          -> processor.prepare.load_prepared_run_cache()
-          -> processor.prepare.read_run()
-          -> processor.prepare.prepare_data()
-          -> processor.prepare.write_prepared_run_cache()
+          -> processor.prepare.cache.load_prepared_run_cache()
+          -> processor.prepare.reader.read_run()
+          -> processor.prepare.enrichment.pipeline.prepare_data()
+          -> processor.prepare.cache.write_prepared_run_cache()
        B. run_summary_workflow()
           -> processor.summarize.cache.load_summary_run_cache()
           -> run_prepare_workflow() on summary-cache miss
@@ -91,9 +91,21 @@ activitysim_visualizer/
 |   |-- models.py
 |   |-- prepare/
 |   |   |-- __init__.py
-|   |   |-- reader.py
-|   |   |-- enrichment.py
+|   |   |-- availability.py
 |   |   |-- cache.py
+|   |   |-- enrichment/
+|   |   |   |-- __init__.py
+|   |   |   |-- canonicalize.py
+|   |   |   |-- columns.py
+|   |   |   |-- finalize.py
+|   |   |   |-- households_persons.py
+|   |   |   |-- pipeline.py
+|   |   |   |-- tours.py
+|   |   |   |-- trips.py
+|   |   |   |-- types.py
+|   |   |   |-- weights.py
+|   |   |   `-- zones.py
+|   |   |-- reader.py
 |   |   `-- writer.py
 |   `-- summarize/
 |       |-- __init__.py

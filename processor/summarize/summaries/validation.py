@@ -3,6 +3,7 @@
 import polars as pl
 from runtime.config import Config
 from processor.models import RunData
+from processor.summarize.contracts import summary_contract
 
 
 # TODO: Update with actual fields from Visum outputs/traffic count inputs
@@ -341,11 +342,14 @@ def transit_transfer_rate(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
+@summary_contract(
+    schema={
+        "auto_vmt": pl.Float64,
+    },
+    required_columns={"trips": ("trip_mode", "od_dist", "finalweight")},
+)
 def auto_vmt_totals(rd: RunData, config: Config) -> pl.DataFrame:
     """Returns single-row DataFrame with column: auto_vmt."""
-    result_schema = {
-        "auto_vmt": pl.Float64,
-    }
     trips_df = rd.trips
 
     if (
@@ -353,7 +357,7 @@ def auto_vmt_totals(rd: RunData, config: Config) -> pl.DataFrame:
         or "od_dist" not in trips_df.columns
         or "finalweight" not in trips_df.columns
     ):
-        return pl.DataFrame([{"auto_vmt": 0.0}], schema=result_schema)
+        return pl.DataFrame([{"auto_vmt": 0.0}], schema={"auto_vmt": pl.Float64})
 
     auto_modes: list[str] | None = None
     if config is not None and config.mode_groups and "Auto" in config.mode_groups:
@@ -382,7 +386,8 @@ def auto_vmt_totals(rd: RunData, config: Config) -> pl.DataFrame:
     )["auto_vmt_w"].sum()
 
     return pl.DataFrame(
-        [{"auto_vmt": float(auto_vmt) if auto_vmt else 0.0}], schema=result_schema
+        [{"auto_vmt": float(auto_vmt) if auto_vmt else 0.0}],
+        schema={"auto_vmt": pl.Float64},
     )
 
 

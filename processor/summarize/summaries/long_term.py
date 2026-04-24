@@ -4,19 +4,22 @@ import polars as pl
 
 from runtime.config import Config
 from processor.models import RunData
+from processor.summarize.contracts import empty_summary_frame, summary_contract
 
 
-def license_holding_status(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
+@summary_contract(
+    schema={
         "person_type": pl.Utf8,
         "license_holding_status": pl.Utf8,
         "person_type_label": pl.Utf8,
         "person_count": pl.Float64,
-    }
-
+    },
+    required_columns={"per": ("person_type", "has_license", "finalweight")},
+)
+def license_holding_status(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"person_type", "has_license", "finalweight"}
     if not required.issubset(set(rd.per.columns)):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(license_holding_status)
 
     base = rd.per.filter(
         pl.col("person_type").is_not_null() & pl.col("has_license").is_not_null()
@@ -65,17 +68,19 @@ def license_holding_status(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def bicycle_comfort_level(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
+@summary_contract(
+    schema={
         "person_type": pl.Utf8,
         "bicycle_comfort_level": pl.Utf8,
         "person_type_label": pl.Utf8,
         "person_count": pl.Float64,
-    }
-
+    },
+    required_columns={"per": ("person_type", "bike_comfort", "finalweight")},
+)
+def bicycle_comfort_level(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"person_type", "bike_comfort", "finalweight"}
     if not required.issubset(set(rd.per.columns)):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(bicycle_comfort_level)
 
     base = rd.per.filter(
         pl.col("person_type").is_not_null() & pl.col("bike_comfort").is_not_null()
@@ -121,14 +126,14 @@ def bicycle_comfort_level(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
+@summary_contract(
+    schema={"household_with_autonomous_vehicle_count": pl.Float64},
+    required_columns={"hh": ("av_ownership", "finalweight")},
+)
 def av_ownership(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
-        "household_with_autonomous_vehicle_count": pl.Float64,
-    }
-
     required = {"av_ownership", "finalweight"}
     if not required.issubset(set(rd.hh.columns)):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(av_ownership)
 
     return rd.hh.filter(pl.col("av_ownership") == True).select(
         pl.col("finalweight")
@@ -138,6 +143,13 @@ def av_ownership(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
+@summary_contract(
+    schema={
+        "household_vehicle_count": pl.Int64,
+        "household_count": pl.Float64,
+    },
+    required_columns={"hh": ("HHVEH", "finalweight")},
+)
 def auto_ownership(rd: RunData, config: Config) -> pl.DataFrame:
     """Returns DataFrame: household_vehicle_count (0-4), household_count."""
     return (
@@ -148,16 +160,19 @@ def auto_ownership(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
+@summary_contract(
+    schema={
+        "geography": pl.Utf8,
+        "worker_count": pl.Float64,
+        "work_from_home_worker_count": pl.Float64,
+    },
+    required_columns={"per": ("is_worker", "finalweight")},
+)
 def wfh(rd: RunData, config: Config) -> pl.DataFrame:
     """Work-from-home summary by geography group + all_geographies.
     Returns DataFrame: geography, worker_count, work_from_home_worker_count.
     If geography disabled, returns a single all_geographies row."""
 
-    RESULT_SCHEMA = {
-        "geography": pl.Utf8,
-        "worker_count": pl.Float64,
-        "work_from_home_worker_count": pl.Float64,
-    }
     if "is_worker" not in rd.per.columns:
         return pl.DataFrame(
             {
@@ -197,7 +212,7 @@ def wfh(rd: RunData, config: Config) -> pl.DataFrame:
             .with_columns(pl.col("geography").cast(pl.Utf8))
         )
     else:
-        by_geo = pl.DataFrame(schema=RESULT_SCHEMA)
+        by_geo = empty_summary_frame(wfh)
 
     total = workers.select(
         geography=pl.lit("all_geographies"),
@@ -211,24 +226,11 @@ def wfh(rd: RunData, config: Config) -> pl.DataFrame:
 
 
 def _empty_internal_external_worker_by_geography() -> pl.DataFrame:
-    return pl.DataFrame(
-        schema={
-            "geography_type": pl.Utf8,
-            "geography_id": pl.Utf8,
-            "internal_worker_count": pl.Float64,
-            "external_worker_count": pl.Float64,
-        }
-    )
+    return empty_summary_frame(internal_vs_external)
 
 
 def _empty_external_worker_workplace_locations() -> pl.DataFrame:
-    return pl.DataFrame(
-        schema={
-            "geography_type": pl.Utf8,
-            "geography_id": pl.Utf8,
-            "external_worker_count": pl.Float64,
-        }
-    )
+    return empty_summary_frame(external_workplace_loc)
 
 
 def _worker_filter_expr() -> pl.Expr:
@@ -293,6 +295,17 @@ def _aggregate_external_worker_counts(
     )
 
 
+@summary_contract(
+    schema={
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
+        "internal_worker_count": pl.Float64,
+        "external_worker_count": pl.Float64,
+    },
+    required_columns={
+        "per": ("is_worker", "is_external_worker", "home_zone_id", "finalweight")
+    },
+)
 def internal_vs_external(rd: RunData, config: Config) -> pl.DataFrame:
     """
     Always emits MAZ/home_zone_id rows.
@@ -353,6 +366,16 @@ def internal_vs_external(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
+@summary_contract(
+    schema={
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
+        "external_worker_count": pl.Float64,
+    },
+    required_columns={
+        "per": ("is_external_worker", "external_workplace_zone_id", "finalweight")
+    },
+)
 def external_workplace_loc(rd: RunData, config: Config) -> pl.DataFrame:
     """
     Always emits MAZ/external_workplace_zone_id rows.
@@ -407,14 +430,7 @@ def external_workplace_loc(rd: RunData, config: Config) -> pl.DataFrame:
 
 
 def _empty_workplace_location_employment_comparison() -> pl.DataFrame:
-    return pl.DataFrame(
-        schema={
-            "geography_type": pl.Utf8,
-            "geography_id": pl.Utf8,
-            "employment_count": pl.Float64,
-            "worker_count": pl.Float64,
-        }
-    )
+    return empty_summary_frame(workplace_vs_land_use_employment)
 
 
 def _worker_filter_expr() -> pl.Expr:
@@ -427,6 +443,18 @@ def _worker_filter_expr() -> pl.Expr:
 
 
 # TODO verify prepared land_use canonical column names
+@summary_contract(
+    schema={
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
+        "employment_count": pl.Float64,
+        "worker_count": pl.Float64,
+    },
+    required_columns={
+        "land_use": ("MAZ", "employment_count"),
+        "per": ("workplace_zone_id", "is_worker", "finalweight"),
+    },
+)
 def workplace_vs_land_use_employment(rd: RunData, config: Config) -> pl.DataFrame:
     """
     Assumes rd.land_use contains:
@@ -539,15 +567,19 @@ def workplace_vs_land_use_employment(rd: RunData, config: Config) -> pl.DataFram
     )
 
 
-def commuting_flows(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
+@summary_contract(
+    schema={
         "origin_geography_type": pl.Utf8,
         "origin_geography_id": pl.Utf8,
         "destination_geography_type": pl.Utf8,
         "destination_geography_id": pl.Utf8,
         "commuter_count": pl.Float64,
-    }
-
+    },
+    required_columns={
+        "per": ("home_zone_id", "workplace_zone_id", "is_worker", "finalweight")
+    },
+)
+def commuting_flows(rd: RunData, config: Config) -> pl.DataFrame:
     required = {
         "home_zone_id",
         "workplace_zone_id",
@@ -555,7 +587,7 @@ def commuting_flows(rd: RunData, config: Config) -> pl.DataFrame:
         "finalweight",
     }
     if not required.issubset(set(rd.per.columns)):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(commuting_flows)
 
     def worker_filter_expr() -> pl.Expr:
         # Defensive because the uploaded schema shows is_worker as large_string.
@@ -605,7 +637,7 @@ def commuting_flows(rd: RunData, config: Config) -> pl.DataFrame:
     ).select("home_zone_id", "workplace_zone_id", "finalweight")
 
     if base.is_empty():
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(commuting_flows)
 
     outputs = [
         aggregate_flows(
@@ -726,15 +758,7 @@ def commuting_flows(rd: RunData, config: Config) -> pl.DataFrame:
 
 
 def _empty_school_location_enrollment_comparison() -> pl.DataFrame:
-    return pl.DataFrame(
-        schema={
-            "geography_type": pl.Utf8,
-            "geography_id": pl.Utf8,
-            "student_type": pl.Utf8,
-            "enrollment_count": pl.Float64,
-            "student_count": pl.Float64,
-        }
-    )
+    return empty_summary_frame(school_loc_vs_land_use_enrollment)
 
 
 def _student_filter_expr() -> pl.Expr:
@@ -746,6 +770,19 @@ def _student_filter_expr() -> pl.Expr:
     )
 
 
+@summary_contract(
+    schema={
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
+        "student_type": pl.Utf8,
+        "enrollment_count": pl.Float64,
+        "student_count": pl.Float64,
+    },
+    required_columns={
+        "land_use": ("MAZ", "enrollment_count", "student_type"),
+        "per": ("school_zone_id", "is_student", "finalweight"),
+    },
+)
 def school_loc_vs_land_use_enrollment(rd: RunData, config: Config) -> pl.DataFrame:
     """
     Assumes rd.land_use contains:
@@ -887,6 +924,13 @@ def school_loc_vs_land_use_enrollment(rd: RunData, config: Config) -> pl.DataFra
     )
 
 
+@summary_contract(
+    schema={
+        "distance_bin": pl.Int32,
+        "geography": pl.Utf8,
+        "person_count": pl.Float64,
+    }
+)
 def tlfd(rd: RunData, config: Config) -> dict[str, pl.DataFrame]:
     """Returns long-form distance distribution tables with columns:
     distance_bin, geography, person_count.
@@ -902,12 +946,7 @@ def tlfd(rd: RunData, config: Config) -> dict[str, pl.DataFrame]:
         )
 
     def _make_tlfd(persons: pl.DataFrame, dist_col: str) -> pl.DataFrame:
-        result_schema = {
-            "distance_bin": pl.Int32,
-            "geography": pl.Utf8,
-            "person_count": pl.Float64,
-        }
-        empty = pl.DataFrame(schema=result_schema)
+        empty = empty_summary_frame(work_tlfd)
 
         if dist_col not in persons.columns:
             return empty
@@ -1029,6 +1068,42 @@ def tlfd(rd: RunData, config: Config) -> dict[str, pl.DataFrame]:
     }
 
 
+@summary_contract(
+    schema={
+        "distance_bin": pl.Int32,
+        "geography": pl.Utf8,
+        "person_count": pl.Float64,
+    },
+    required_columns={"per": ("distance_to_work", "finalweight")},
+)
+def work_tlfd(rd: RunData, config: Config) -> pl.DataFrame:
+    return tlfd(rd, config)["work"]
+
+
+@summary_contract(
+    schema={
+        "distance_bin": pl.Int32,
+        "geography": pl.Utf8,
+        "person_count": pl.Float64,
+    },
+    required_columns={"per": ("distance_to_school", "finalweight")},
+)
+def univ_tlfd(rd: RunData, config: Config) -> pl.DataFrame:
+    return tlfd(rd, config)["univ"]
+
+
+@summary_contract(
+    schema={
+        "distance_bin": pl.Int32,
+        "geography": pl.Utf8,
+        "person_count": pl.Float64,
+    },
+    required_columns={"per": ("distance_to_school", "finalweight")},
+)
+def schl_tlfd(rd: RunData, config: Config) -> pl.DataFrame:
+    return tlfd(rd, config)["schl"]
+
+
 def _prepare_vehicle_table(rd: RunData) -> pl.DataFrame:
     """
     Expects rd.vehicles with at least:
@@ -1071,17 +1146,19 @@ def _prepare_vehicle_table(rd: RunData) -> pl.DataFrame:
     )
 
 
-def vehicle_char_age(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
+@summary_contract(
+    schema={
         "age": pl.Utf8,
         "vehicle_count": pl.Float64,
-    }
-
+    },
+    required_columns={"vehicles": ("vehicle_age", "finalweight")},
+)
+def vehicle_char_age(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"vehicle_age", "finalweight"}
     if not hasattr(rd, "vehicles"):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(vehicle_char_age)
     if not required.issubset(set(rd.vehicles.columns)):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(vehicle_char_age)
 
     return (
         rd.vehicles.filter(pl.col("vehicle_age").is_not_null())
@@ -1106,17 +1183,19 @@ def vehicle_char_age(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def vehicle_char_fuel(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
+@summary_contract(
+    schema={
         "fuel_type": pl.Utf8,
         "vehicle_count": pl.Float64,
-    }
-
+    },
+    required_columns={"vehicles": ("fuel_type", "finalweight")},
+)
+def vehicle_char_fuel(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"fuel_type", "finalweight"}
     if not hasattr(rd, "vehicles"):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(vehicle_char_fuel)
     if not required.issubset(set(rd.vehicles.columns)):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(vehicle_char_fuel)
 
     return (
         rd.vehicles.filter(pl.col("fuel_type").is_not_null())
@@ -1131,17 +1210,19 @@ def vehicle_char_fuel(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def vehicle_char_body(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
+@summary_contract(
+    schema={
         "body_type": pl.Utf8,
         "vehicle_count": pl.Float64,
-    }
-
+    },
+    required_columns={"vehicles": ("body_type", "finalweight")},
+)
+def vehicle_char_body(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"body_type", "finalweight"}
     if not hasattr(rd, "vehicles"):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(vehicle_char_body)
     if not required.issubset(set(rd.vehicles.columns)):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(vehicle_char_body)
 
     return (
         rd.vehicles.filter(pl.col("body_type").is_not_null())
@@ -1156,17 +1237,19 @@ def vehicle_char_body(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def transit_pass(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
+@summary_contract(
+    schema={
         "person_type": pl.Utf8,
         "transit_pass_ownership_status": pl.Utf8,
         "person_type_label": pl.Utf8,
         "person_count": pl.Float64,
-    }
-
+    },
+    required_columns={"per": ("person_type", "transit_pass_ownership", "finalweight")},
+)
+def transit_pass(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"person_type", "transit_pass_ownership", "finalweight"}
     if not required.issubset(set(rd.per.columns)):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(transit_pass)
 
     base = rd.per.filter(
         pl.col("person_type").is_not_null()
@@ -1216,14 +1299,24 @@ def transit_pass(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def transit_subsidy(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
+@summary_contract(
+    schema={
         "person_type": pl.Utf8,
         "transit_subsidy_status": pl.Utf8,
         "person_type_label": pl.Utf8,
         "person_count": pl.Float64,
-    }
-
+    },
+    required_columns={
+        "per": (
+            "person_type",
+            "transit_pass_subsidy",
+            "is_worker",
+            "is_student",
+            "finalweight",
+        )
+    },
+)
+def transit_subsidy(rd: RunData, config: Config) -> pl.DataFrame:
     required = {
         "person_type",
         "transit_pass_subsidy",
@@ -1232,7 +1325,7 @@ def transit_subsidy(rd: RunData, config: Config) -> pl.DataFrame:
         "finalweight",
     }
     if not required.issubset(set(rd.per.columns)):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(transit_subsidy)
 
     base = rd.per.filter(
         pl.col("person_type").is_not_null()
@@ -1296,14 +1389,23 @@ def transit_subsidy(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def free_parking(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
+@summary_contract(
+    schema={
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
         "workers_without_free_parking_count": pl.Float64,
         "workers_with_free_parking_count": pl.Float64,
-    }
-
+    },
+    required_columns={
+        "per": (
+            "is_worker",
+            "free_parking_at_work",
+            "workplace_zone_id",
+            "finalweight",
+        )
+    },
+)
+def free_parking(rd: RunData, config: Config) -> pl.DataFrame:
     required = {
         "is_worker",
         "free_parking_at_work",
@@ -1311,7 +1413,7 @@ def free_parking(rd: RunData, config: Config) -> pl.DataFrame:
         "finalweight",
     }
     if not required.issubset(set(rd.per.columns)):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(free_parking)
 
     def worker_filter_expr() -> pl.Expr:
         # Defensive because prepared schemas can mix bool-like/string-like fields.
@@ -1363,7 +1465,7 @@ def free_parking(rd: RunData, config: Config) -> pl.DataFrame:
     ).select("workplace_zone_id", "free_parking_at_work", "finalweight")
 
     if base.is_empty():
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(free_parking)
 
     outputs = [
         aggregate_counts(
@@ -1410,14 +1512,17 @@ def free_parking(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def telecommute(rd: RunData, config: Config | None = None) -> pl.DataFrame:
-    """Telecommute frequency distribution. Columns: telecommute_frequency, person_count."""
-    result_schema = {
+@summary_contract(
+    schema={
         "telecommute_frequency": pl.Utf8,
         "person_count": pl.Float64,
-    }
+    },
+    required_columns={"per": ("telecommute_frequency", "finalweight")},
+)
+def telecommute(rd: RunData, config: Config | None = None) -> pl.DataFrame:
+    """Telecommute frequency distribution. Columns: telecommute_frequency, person_count."""
     if "telecommute_frequency" not in rd.per.columns:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(telecommute)
 
     return (
         rd.per.filter(

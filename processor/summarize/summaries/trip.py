@@ -3,17 +3,20 @@
 import polars as pl
 from runtime.config import Config
 from processor.models import RunData
+from processor.summarize.contracts import empty_summary_frame, summary_contract
 
 
-def trip_purpose(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
+@summary_contract(
+    schema={
         "trip_purpose": pl.Utf8,
         "trip_count": pl.Float64,
-    }
-
+    },
+    required_columns={"trips": ("trip_purpose", "finalweight")},
+)
+def trip_purpose(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"trip_purpose", "finalweight"}
     if not required.issubset(set(rd.trips.columns)):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(trip_purpose)
 
     return (
         rd.trips.filter(pl.col("trip_purpose").is_not_null())
@@ -28,19 +31,24 @@ def trip_purpose(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
+@summary_contract(
+    schema={
+        "stop_destination_purpose": pl.Utf8,
+        "tour_purpose": pl.Utf8,
+        "stop_count": pl.Float64,
+    },
+    required_columns={
+        "trips": ("stops", "tour_purpose", "trip_purpose", "finalweight")
+    },
+)
 def stop_purpose_by_tour_purpose(rd: RunData, config: Config) -> pl.DataFrame:
     """Stop destination purpose by tour purpose.
 
     Returns DataFrame: stop_destination_purpose, tour_purpose, stop_count.
     """
-    result_schema = {
-        "stop_destination_purpose": pl.Utf8,
-        "tour_purpose": pl.Utf8,
-        "stop_count": pl.Float64,
-    }
     required = {"stops", "tour_purpose", "trip_purpose", "finalweight"}
     if not required.issubset(rd.trips.columns):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(stop_purpose_by_tour_purpose)
 
     return (
         rd.trips.filter(pl.col("stops") == 1)
@@ -59,20 +67,25 @@ def stop_purpose_by_tour_purpose(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def trip_mode(rd: RunData, config: Config) -> pl.DataFrame:
-    """Returns DataFrame: tour_purpose, tour_mode, trip_mode, trip_count."""
-    result_schema = {
+@summary_contract(
+    schema={
         "tour_purpose": pl.Utf8,
         "tour_mode": pl.Utf8,
         "trip_mode": pl.Utf8,
         "trip_count": pl.Float64,
-    }
+    },
+    required_columns={
+        "trips": ("tour_purpose", "tour_mode", "trip_mode", "finalweight")
+    },
+)
+def trip_mode(rd: RunData, config: Config) -> pl.DataFrame:
+    """Returns DataFrame: tour_purpose, tour_mode, trip_mode, trip_count."""
     needed = {"tour_mode", "trip_mode"}
     if not needed.issubset(rd.trips.columns):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(trip_mode)
 
     if "tour_purpose" not in rd.trips.columns:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(trip_mode)
 
     base = (
         rd.trips.filter(
@@ -121,17 +134,20 @@ def trip_mode(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
+@summary_contract(
+    schema={
+        "tour_purpose": pl.Utf8,
+        "time_bin": pl.Int32,
+        "departure_trip_count": pl.Float64,
+        "departure_stop_count": pl.Float64,
+    },
+    required_columns={"trips": ("tour_purpose", "stops", "finalweight")},
+)
 def trip_stop_tod(rd: RunData, config: Config) -> pl.DataFrame:
     """Stop and trip departure timing profiles.
 
     Returns DataFrame: tour_purpose, time_bin, departure_trip_count, departure_stop_count.
     """
-    result_schema = {
-        "tour_purpose": pl.Utf8,
-        "time_bin": pl.Int32,
-        "departure_trip_count": pl.Float64,
-        "departure_stop_count": pl.Float64,
-    }
     # Prefer "depart", fallback to "depart_hour"
     dep_col = None
     if "depart" in rd.trips.columns:
@@ -139,10 +155,10 @@ def trip_stop_tod(rd: RunData, config: Config) -> pl.DataFrame:
     elif "depart_hour" in rd.trips.columns:
         dep_col = "depart_hour"
     else:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(trip_stop_tod)
 
     if "stops" not in rd.trips.columns:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(trip_stop_tod)
 
     stops = rd.trips.filter(pl.col("stops") == 1)
     all_trips = rd.trips
@@ -156,7 +172,7 @@ def trip_stop_tod(rd: RunData, config: Config) -> pl.DataFrame:
     bins = list(range(1, 25 if max_period <= 24 else 49))
 
     if "tour_purpose" not in rd.trips.columns:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(trip_stop_tod)
 
     purpose_list = rd.trips["tour_purpose"].drop_nulls().unique().sort().to_list()
     purposes = {p: pl.col("tour_purpose") == p for p in purpose_list}
@@ -188,7 +204,15 @@ def trip_stop_tod(rd: RunData, config: Config) -> pl.DataFrame:
             )
 
     return (
-        pl.DataFrame(rows, schema=result_schema)
+        pl.DataFrame(
+            rows,
+            schema={
+                "tour_purpose": pl.Utf8,
+                "time_bin": pl.Int32,
+                "departure_trip_count": pl.Float64,
+                "departure_stop_count": pl.Float64,
+            },
+        )
         .select(
             "tour_purpose",
             "time_bin",
@@ -199,13 +223,17 @@ def trip_stop_tod(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def trip_distance(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
+@summary_contract(
+    schema={
         "distance_bin": pl.Utf8,
         "tour_purpose": pl.Utf8,
         "trip_count": pl.Float64,
-    }
-
+    },
+    required_columns={
+        "trips": ("tour_purpose", "od_dist", "num_participants", "finalweight")
+    },
+)
+def trip_distance(rd: RunData, config: Config) -> pl.DataFrame:
     required = {
         "tour_purpose",
         "od_dist",
@@ -213,7 +241,7 @@ def trip_distance(rd: RunData, config: Config) -> pl.DataFrame:
         "finalweight",
     }
     if not required.issubset(set(rd.trips.columns)):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(trip_distance)
 
     base = (
         rd.trips.filter(
@@ -268,23 +296,26 @@ def trip_distance(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
+@summary_contract(
+    schema={
+        "distance_bin": pl.Int32,
+        "tour_purpose": pl.Utf8,
+        "stop_count": pl.Float64,
+    },
+    required_columns={"trips": ("stops", "out_dir_dist", "tour_purpose", "finalweight")},
+)
 def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
     """Out-of-direction distance for stops, in 41 bins (0–40 miles).
 
     Returns DataFrame: distance_bin, tour_purpose, stop_count.
     """
-    result_schema = {
-        "distance_bin": pl.Int32,
-        "tour_purpose": pl.Utf8,
-        "stop_count": pl.Float64,
-    }
     if "stops" not in rd.trips.columns:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(stop_ood_distance)
 
     stops = rd.trips.filter(pl.col("stops") == 1)
 
     if "out_dir_dist" not in stops.columns:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(stop_ood_distance)
 
     stops2 = stops.with_columns(
         pl.col("out_dir_dist").fill_null(0).clip(0, 999).alias("ood")
@@ -295,7 +326,7 @@ def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
     if "tour_purpose" not in stops2.columns:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(stop_ood_distance)
 
     by_purpose = (
         stops2.filter(pl.col("tour_purpose").is_not_null())
@@ -350,16 +381,18 @@ def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def parking_locations(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
+@summary_contract(
+    schema={
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
         "trip_count": pl.Float64,
-    }
-
+    },
+    required_columns={"trips": ("parking_zone", "finalweight")},
+)
+def parking_locations(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"parking_zone", "finalweight"}
     if not required.issubset(set(rd.trips.columns)):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(parking_locations)
 
     def aggregate_counts(
         df: pl.DataFrame,
@@ -384,7 +417,7 @@ def parking_locations(rd: RunData, config: Config) -> pl.DataFrame:
     ).select("parking_zone", "finalweight")
 
     if base.is_empty():
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(parking_locations)
 
     outputs = [
         aggregate_counts(

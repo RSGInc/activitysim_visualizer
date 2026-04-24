@@ -51,7 +51,7 @@ Copy `config.yaml` and edit it for your deployment. The most important sections 
 | `runs` | Run directories, labels, and optional per-run skim/weight overrides |
 | `summaries` | Cache root and enabled weighting modes |
 | `visualizer.dashboard_title` | Dashboard title shown in the UI and export |
-| `visualizer.dashboard_pages` | Ordered list of live page ids |
+| `visualizer.dashboard_pages` | Ordered live page/group selection list |
 | `visualizer.export_html` | Export-only dashboard controls and page selector requests |
 | `columns` | Raw-column aliases when ActivitySim outputs differ from expected names |
 | `skim` | Global skim file and matrix defaults |
@@ -60,8 +60,8 @@ Copy `config.yaml` and edit it for your deployment. The most important sections 
 
 Rules worth knowing up front:
 
-- `visualizer.dashboard_pages` controls live page inclusion and order only.
-- `visualizer.export_html.pages` controls export page inclusion and export selector values.
+- `visualizer.dashboard_pages` controls live page/group inclusion and order only.
+- `visualizer.export_html.pages` controls export page/group inclusion and export selector values.
 - If `summaries` or `visualizer` is omitted, the app falls back to built-in defaults.
 - Older top-level and `outputs.*` aliases are ignored in favor of `summaries.*` and `visualizer.*`.
 
@@ -79,6 +79,36 @@ runs:
   - dir: /path/to/run2
     label: Build
 ```
+
+Example grouped dashboard/export configuration:
+
+```yaml
+visualizer:
+  dashboard_pages:
+    - overview
+    - tours
+    - stops:
+      - frequency
+      - timing
+    - trip_mode
+  export_html:
+    pages:
+      tours:
+        children:
+          summary:
+            person_type: all
+          mode:
+            purpose: all
+      trip_mode:
+        tour_purpose: all
+        tour_mode: all
+```
+
+`dashboard/pages/` now supports a mixed structure:
+
+- standalone top-level pages remain as single files like `dashboard/pages/overview.py`
+- grouped pages live under subdirectories like `dashboard/pages/tours/` and `dashboard/pages/stops/`
+- each group directory declares one top-level group plus one or more child page modules
 
 If no explicit weight columns are configured and no `sample_rate` column is present, weights default to `1`.
 
@@ -115,7 +145,11 @@ Summary caches are written under `summaries.root` with one directory per run:
     unweighted/
 ```
 
-Prepared manifests record the prepare-config digest plus the run fingerprint used to build each prepared run. Summary manifests record summary ids, weighting modes, a summary-config digest, the run fingerprint, and the prepared-manifest identity they were built from.
+Prepared manifests record the prepare-config digest plus the run fingerprint used to build each prepared run, along with per-table state/diagnostic metadata for prepared tables that were empty, unavailable, or failed. Summary manifests record summary ids, weighting modes, a summary-config digest, the run fingerprint, the prepared-manifest identity they were built from, and per-summary state/diagnostic metadata for summaries that were empty, unavailable, or failed.
+
+Within `processor/prepare/`, raw inputs are loaded in `reader.py`, cache and manifest handling lives in `cache.py`, and prepared-table enrichment is split into focused modules under `processor/prepare/enrichment/`. The public enrichment entrypoint is `processor.prepare.enrichment.pipeline.prepare_data`.
+
+Within `processor/summarize/`, the registry in `summary_specs.py` stays intentionally small while builder contracts supply typed empty fallback schemas and optional prerequisite metadata. `processor/summarize/cache.py` uses those contracts to keep summarize best-effort per summary instead of failing the whole run when one summary cannot be built safely.
 
 ## Codebase Map
 
@@ -128,6 +162,19 @@ activitysim_visualizer/
 |-- processor/
 |   |-- models.py
 |   |-- prepare/
+|   |   |-- availability.py
+|   |   |-- cache.py
+|   |   |-- enrichment/
+|   |   |   |-- pipeline.py
+|   |   |   |-- columns.py
+|   |   |   |-- canonicalize.py
+|   |   |   |-- weights.py
+|   |   |   |-- zones.py
+|   |   |   |-- households_persons.py
+|   |   |   |-- tours.py
+|   |   |   |-- trips.py
+|   |   |   `-- finalize.py
+|   |   |-- reader.py
 |   `-- summarize/
 |       |-- cache.py
 |       |-- schema.py

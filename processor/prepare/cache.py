@@ -12,10 +12,17 @@ from pathlib import Path
 import polars as pl
 
 from processor.models import RunData
+from processor.prepare.availability import (
+    attach_table_availability,
+    table_availability,
+    table_diagnostics,
+    table_unavailable_reasons,
+)
 from processor.prepare.writer import write_all
 from runtime.config import Config
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
+SUPPORTED_SCHEMA_VERSIONS = {2, 3}
 SUPPORTED_FILE_FORMATS = ("parquet", "csv")
 PREPARED_TABLE_ATTRS: tuple[tuple[str, str, str], ...] = (
     ("hh", "households", "households"),
@@ -102,8 +109,7 @@ def build_prepared_manifest_identity(
 
 def _table_file_map(file_format: str) -> dict[str, str]:
     return {
-        table_id: f"{stem}.{file_format}"
-        for _, table_id, stem in PREPARED_TABLE_ATTRS
+        table_id: f"{stem}.{file_format}" for _, table_id, stem in PREPARED_TABLE_ATTRS
     }
 
 
@@ -151,12 +157,16 @@ def write_prepared_run_cache(
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     tables_to_write: dict[str, pl.DataFrame] = {}
-    empty_tables: list[str] = []
+    table_states = table_availability(rd)
+    diagnostics = table_diagnostics(rd)
+    unavailable_reasons = table_unavailable_reasons(rd)
     for attr_name, table_id, stem in PREPARED_TABLE_ATTRS:
         table = getattr(rd, attr_name)
-        if table.width == 0:
+        state = table_states.get(table_id)
+        if state is None:
+            state = "empty" if table.width == 0 else "available"
+        if state in {"empty", "unavailable", "failed"}:
             tables_to_write[stem] = pl.DataFrame({"__empty__": []})
-            empty_tables.append(table_id)
         else:
             tables_to_write[stem] = table
 
@@ -173,7 +183,30 @@ def write_prepared_run_cache(
         "prepare_config_digest": config.prepare_config_digest,
         "table_format": file_format,
         "table_files": _table_file_map(file_format),
-        "empty_tables": empty_tables,
+        "table_states": {
+            table_id: table_states.get(
+                table_id,
+                "empty" if getattr(rd, attr_name).width == 0 else "available",
+            )
+            for attr_name, table_id, _ in PREPARED_TABLE_ATTRS
+        },
+        "table_diagnostics": {
+            table_id: diagnostics[table_id]
+            for _, table_id, _ in PREPARED_TABLE_ATTRS
+            if table_states.get(table_id) in {"unavailable", "failed"}
+            and table_id in diagnostics
+        },
+        "unavailable_tables": {
+            table_id: unavailable_reasons[table_id]
+            for _, table_id, _ in PREPARED_TABLE_ATTRS
+            if table_states.get(table_id) == "unavailable"
+            and table_id in unavailable_reasons
+        },
+        "failed_tables": {
+            table_id: diagnostics[table_id]
+            for _, table_id, _ in PREPARED_TABLE_ATTRS
+            if table_states.get(table_id) == "failed" and table_id in diagnostics
+        },
         "skim_file": rd.skim_file,
         "hh_weight_col": rd.hh_weight_col,
         "person_weight_col": rd.person_weight_col,
@@ -204,7 +237,7 @@ def load_prepared_run_cache(
     cache_dir = Path(cache_dir)
     manifest = _read_manifest(cache_dir)
     schema_version = int(manifest.get("schema_version", 0))
-    if schema_version != SCHEMA_VERSION:
+    if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
         raise PreparedCacheError(
             f"Unsupported prepared cache schema_version {schema_version} in {cache_dir}"
         )
@@ -239,7 +272,27 @@ def load_prepared_run_cache(
         )
 
     table_files = _manifest_table_map(manifest)
-    empty_tables = {str(table_id) for table_id in manifest.get("empty_tables", [])}
+    manifest_table_states = {
+        str(table_id): str(state)
+        for table_id, state in dict(manifest.get("table_states", {})).items()
+    }
+    manifest_table_diagnostics = {
+        str(table_id): str(reason)
+        for table_id, reason in dict(manifest.get("table_diagnostics", {})).items()
+    }
+    unavailable_table_reasons = {
+        str(table_id): str(reason)
+        for table_id, reason in dict(manifest.get("unavailable_tables", {})).items()
+    }
+    failed_table_reasons = {
+        str(table_id): str(reason)
+        for table_id, reason in dict(manifest.get("failed_tables", {})).items()
+    }
+    if not manifest_table_diagnostics:
+        manifest_table_diagnostics = {
+            **unavailable_table_reasons,
+            **failed_table_reasons,
+        }
     loaded_tables: dict[str, pl.DataFrame] = {}
     for attr_name, table_id, stem in PREPARED_TABLE_ATTRS:
         filename = table_files.get(table_id, f"{stem}.{file_format}")
@@ -250,25 +303,33 @@ def load_prepared_run_cache(
             table = pl.read_parquet(path)
         else:
             table = pl.read_csv(path, infer_schema_length=10000)
-        if table_id in empty_tables and table.columns == ["__empty__"]:
+        if manifest_table_states.get(table_id) in {
+            "empty",
+            "unavailable",
+            "failed",
+        } and table.columns == ["__empty__"]:
             table = pl.DataFrame()
         loaded_tables[attr_name] = table
 
-    return RunData(
-        label=str(manifest.get("label", cache_dir.name)),
-        run_dir=str(manifest.get("source_run_dir", "")),
-        skim_file=manifest.get("skim_file"),
-        hh=loaded_tables["hh"],
-        per=loaded_tables["per"],
-        tours=loaded_tables["tours"],
-        trips=loaded_tables["trips"],
-        joint_participants=loaded_tables["joint_participants"],
-        land_use=loaded_tables["land_use"],
-        skim_matrix=None,
-        skim_zone_map=None,
-        hh_weight_col=manifest.get("hh_weight_col"),
-        person_weight_col=manifest.get("person_weight_col"),
-        trip_weight_col=manifest.get("trip_weight_col"),
+    return attach_table_availability(
+        RunData(
+            label=str(manifest.get("label", cache_dir.name)),
+            run_dir=str(manifest.get("source_run_dir", "")),
+            skim_file=manifest.get("skim_file"),
+            hh=loaded_tables["hh"],
+            per=loaded_tables["per"],
+            tours=loaded_tables["tours"],
+            trips=loaded_tables["trips"],
+            joint_participants=loaded_tables["joint_participants"],
+            land_use=loaded_tables["land_use"],
+            skim_matrix=None,
+            skim_zone_map=None,
+            hh_weight_col=manifest.get("hh_weight_col"),
+            person_weight_col=manifest.get("person_weight_col"),
+            trip_weight_col=manifest.get("trip_weight_col"),
+        ),
+        table_states=manifest_table_states,
+        table_reasons=manifest_table_diagnostics,
     )
 
 
