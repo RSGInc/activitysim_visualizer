@@ -75,6 +75,17 @@ def _simple_summary_run(label: str, run_key: str) -> object:
     )
 
 
+def _simple_summary_mode_build(label: str, run_key: str) -> tuple[dict, dict]:
+    summary_run = _simple_summary_run(label, run_key)
+    return (
+        summary_run.summaries_by_mode,
+        {
+            mode: {"totals": {"state": "available"}}
+            for mode in summary_run.summaries_by_mode
+        },
+    )
+
+
 def _fake_run_data(label: str, run_dir: str) -> RunData:
     return RunData(
         label=label,
@@ -257,7 +268,7 @@ def test_main_prepare_only_writes_prepared_cache_and_exits(
 
     monkeypatch.setattr(
         summary_cache,
-        "build_mode_summaries",
+        "build_mode_summaries_with_metadata",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("summaries should not be built during prepare-only runs")
         ),
@@ -336,10 +347,10 @@ def test_main_write_csvs_no_dashboard_writes_summary_cache_and_exits(
     monkeypatch.setattr(runtime_workflows, "prepare_data", lambda rd, config: rd)
     monkeypatch.setattr(
         summary_cache,
-        "build_mode_summaries",
+        "build_mode_summaries_with_metadata",
         lambda rd, config: (
             built_summaries.append(rd.label),
-            _simple_summary_run(rd.label, Path(rd.run_dir).name).summaries_by_mode,
+            _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
         )[1],
     )
     monkeypatch.setattr(
@@ -409,10 +420,10 @@ def test_main_explicit_prepare_and_summarize_runs_processor_without_dashboard(
     )
     monkeypatch.setattr(
         summary_cache,
-        "build_mode_summaries",
+        "build_mode_summaries_with_metadata",
         lambda rd, config: (
             built_summaries.append(rd.label),
-            _simple_summary_run(rd.label, Path(rd.run_dir).name).summaries_by_mode,
+            _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
         )[1],
     )
     monkeypatch.setattr(
@@ -499,10 +510,10 @@ def test_main_uses_cache_hit_for_one_run_and_raw_fallback_for_another(
     monkeypatch.setattr(runtime_workflows, "prepare_data", lambda rd, config: rd)
     monkeypatch.setattr(
         summary_cache,
-        "build_mode_summaries",
+        "build_mode_summaries_with_metadata",
         lambda rd, config: (
             built_summaries.append(rd.label),
-            _simple_summary_run(rd.label, Path(rd.run_dir).name).summaries_by_mode,
+            _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
         )[1],
     )
 

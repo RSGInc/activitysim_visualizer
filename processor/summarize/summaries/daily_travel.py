@@ -4,17 +4,21 @@ import polars as pl
 
 from runtime.config import Config
 from processor.models import RunData
+from processor.summarize.contracts import empty_summary_frame, summary_contract
 
 
-def dap_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    """DAP by person type. Columns: person_type, daily_activity_pattern, person_count"""
-    result_schema = {
+@summary_contract(
+    schema={
         "person_type": pl.Utf8,
         "daily_activity_pattern": pl.Utf8,
         "person_count": pl.Float64,
-    }
+    },
+    required_columns={"per": ("person_type", "cdap_activity", "finalweight")},
+)
+def dap_summary(rd: RunData, config: Config) -> pl.DataFrame:
+    """DAP by person type. Columns: person_type, daily_activity_pattern, person_count"""
     if "person_type" not in rd.per.columns or "cdap_activity" not in rd.per.columns:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(dap_summary)
 
     df = (
         rd.per.filter(pl.col("cdap_activity").is_not_null())
@@ -40,15 +44,18 @@ def dap_summary(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def mandatory_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
-    """Returns DataFrame: person_type, mandatory_tour_frequency, person_count."""
-    result_schema = {
+@summary_contract(
+    schema={
         "person_type": pl.Utf8,
         "mandatory_tour_frequency": pl.Int32,
         "person_count": pl.Float64,
-    }
+    },
+    required_columns={"per": ("person_type", "imf_choice", "finalweight")},
+)
+def mandatory_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
+    """Returns DataFrame: person_type, mandatory_tour_frequency, person_count."""
     if "person_type" not in rd.per.columns or "imf_choice" not in rd.per.columns:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(mandatory_tour_freq)
 
     df = (
         rd.per.filter(pl.col("imf_choice") > 0)
@@ -71,16 +78,19 @@ def mandatory_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def indiv_nm_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    """Returns DataFrame: person_type, nonmandatory_tour_frequency, person_count."""
-    result_schema = {
+@summary_contract(
+    schema={
         "person_type": pl.Utf8,
         "nonmandatory_tour_frequency": pl.Utf8,
         "person_count": pl.Float64,
-    }
+    },
+    required_columns={"per": ("person_id", "person_type", "finalweight")},
+)
+def indiv_nm_summary(rd: RunData, config: Config) -> pl.DataFrame:
+    """Returns DataFrame: person_type, nonmandatory_tour_frequency, person_count."""
     per = rd.per
     if "person_type" not in per.columns:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(indiv_nm_summary)
 
     if "tour_category" in rd.tours.columns:
         inm_counts = (
@@ -139,14 +149,21 @@ def indiv_nm_summary(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def total_escorted_tours(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
+@summary_contract(
+    schema={
         "tour_count": pl.Float64,
-    }
-
+    },
+    required_columns={
+        "tours": ("school_esc_outbound", "school_esc_inbound", "finalweight")
+    },
+)
+def total_escorted_tours(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"school_esc_outbound", "school_esc_inbound", "finalweight"}
     if not required.issubset(set(rd.tours.columns)):
-        return pl.DataFrame(schema=result_schema)
+        return pl.DataFrame(
+            {"tour_count": [0.0]},
+            schema={"tour_count": pl.Float64},
+        )
 
     escorted = rd.tours.filter(
         pl.col("school_esc_outbound").is_not_null()
@@ -159,7 +176,7 @@ def total_escorted_tours(rd: RunData, config: Config) -> pl.DataFrame:
     if escorted.is_empty():
         return pl.DataFrame(
             {"tour_count": [0.0]},
-            schema=result_schema,
+            schema={"tour_count": pl.Float64},
         )
 
     return escorted.select(
@@ -168,13 +185,22 @@ def total_escorted_tours(rd: RunData, config: Config) -> pl.DataFrame:
 
 
 # TODO: Verify how unescorted tours are tracked in tables
-def escorted_tours_to_from_school(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
+@summary_contract(
+    schema={
         "escort_type": pl.Utf8,
         "direction": pl.Utf8,
         "tour_count": pl.Float64,
-    }
-
+    },
+    required_columns={
+        "tours": (
+            "tour_purpose",
+            "school_esc_outbound",
+            "school_esc_inbound",
+            "finalweight",
+        )
+    },
+)
+def escorted_tours_to_from_school(rd: RunData, config: Config) -> pl.DataFrame:
     required = {
         "tour_purpose",
         "school_esc_outbound",
@@ -182,14 +208,14 @@ def escorted_tours_to_from_school(rd: RunData, config: Config) -> pl.DataFrame:
         "finalweight",
     }
     if not required.issubset(set(rd.tours.columns)):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(escorted_tours_to_from_school)
 
     school_tours = rd.tours.filter(
         pl.col("tour_purpose").cast(pl.Utf8).str.to_lowercase() == "school"
     )
 
     if school_tours.is_empty():
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(escorted_tours_to_from_school)
 
     outbound = (
         school_tours.filter(
@@ -250,20 +276,25 @@ def escorted_tours_to_from_school(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def tour_rate_per_person(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
+@summary_contract(
+    schema={
         "person_type": pl.Utf8,
         "tour_purpose": pl.Utf8,
         "tour_rate": pl.Float64,
-    }
-
+    },
+    required_columns={
+        "per": ("person_id", "person_type", "finalweight"),
+        "tours": ("person_id", "tour_purpose", "finalweight"),
+    },
+)
+def tour_rate_per_person(rd: RunData, config: Config) -> pl.DataFrame:
     person_required = {"person_id", "person_type", "finalweight"}
     tour_required = {"person_id", "tour_purpose", "finalweight"}
 
     if not person_required.issubset(set(rd.per.columns)) or not tour_required.issubset(
         set(rd.tours.columns)
     ):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(tour_rate_per_person)
 
     person_totals = (
         rd.per.filter(pl.col("person_type").is_not_null())
@@ -308,20 +339,25 @@ def tour_rate_per_person(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def trip_rate_per_person(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
+@summary_contract(
+    schema={
         "person_type": pl.Utf8,
         "trip_purpose": pl.Utf8,
         "trip_rate": pl.Float64,
-    }
-
+    },
+    required_columns={
+        "per": ("person_id", "person_type", "finalweight"),
+        "trips": ("person_id", "trip_purpose", "finalweight"),
+    },
+)
+def trip_rate_per_person(rd: RunData, config: Config) -> pl.DataFrame:
     person_required = {"person_id", "person_type", "finalweight"}
     trip_required = {"person_id", "trip_purpose", "finalweight"}
 
     if not person_required.issubset(set(rd.per.columns)) or not trip_required.issubset(
         set(rd.trips.columns)
     ):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(trip_rate_per_person)
 
     person_totals = (
         rd.per.filter(pl.col("person_type").is_not_null())

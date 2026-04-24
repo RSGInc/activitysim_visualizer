@@ -2,11 +2,9 @@ from __future__ import annotations
 
 
 from dataclasses import dataclass
-
 from typing import Callable
 
 import polars as pl
-
 
 from processor.models import RunData
 from runtime.config import Config
@@ -27,18 +25,6 @@ class SummarySpec:
     summary_id: str
     filename: str
     builder: Callable[[RunData, Config], pl.DataFrame]
-
-
-def _build_tlfd_work(rd: RunData, config: Config) -> pl.DataFrame:
-    return long_term.tlfd(rd, config)["work"]
-
-
-def _build_tlfd_univ(rd: RunData, config: Config) -> pl.DataFrame:
-    return long_term.tlfd(rd, config)["univ"]
-
-
-def _build_tlfd_schl(rd: RunData, config: Config) -> pl.DataFrame:
-    return long_term.tlfd(rd, config)["schl"]
 
 
 SUMMARY_SPECS: tuple[SummarySpec, ...] = (
@@ -108,17 +94,17 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
     SummarySpec(
         "work_location_distance_distribution_by_geography",
         "work_location_distance_distribution_by_geography",
-        _build_tlfd_work,
+        long_term.work_tlfd,
     ),
     SummarySpec(
         "university_location_distance_distribution_by_geography",
         "university_location_distance_distribution_by_geography",
-        _build_tlfd_univ,
+        long_term.univ_tlfd,
     ),
     SummarySpec(
         "school_location_distance_distribution_by_geography",
         "school_location_distance_distribution_by_geography",
-        _build_tlfd_schl,
+        long_term.schl_tlfd,
     ),
     SummarySpec(
         "vehicle_age_distribution",
@@ -262,7 +248,7 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
     SummarySpec(
         "atwork_subtour_frequency_distribution",
         "atwork_subtour_frequency_distribution",
-        tour.atwork_subtour_frequency_distribution,
+        tour.at_work_sub_tour_freq,
     ),
     SummarySpec(
         "tour_time_of_day_by_tour_purpose",

@@ -3,17 +3,17 @@
 import polars as pl
 from runtime.config import Config
 from processor.models import RunData
+from processor.summarize.contracts import empty_summary_frame, summary_contract
 
 
+@summary_contract(
+    schema={"tour_category": pl.Utf8, "tour_count": pl.Float64},
+    required_columns={"tours": ("tour_category", "finalweight")},
+)
 def tour_category(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
-        "tour_category": pl.Utf8,
-        "tour_count": pl.Float64,
-    }
-
     required = {"tour_category", "finalweight"}
     if not required.issubset(set(rd.tours.columns)):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(tour_category)
 
     return (
         rd.tours.filter(pl.col("tour_category").is_not_null())
@@ -28,15 +28,14 @@ def tour_category(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
+@summary_contract(
+    schema={"tour_purpose": pl.Utf8, "tour_count": pl.Float64},
+    required_columns={"tours": ("tour_purpose", "finalweight")},
+)
 def tour_purpose(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
-        "tour_purpose": pl.Utf8,
-        "tour_count": pl.Float64,
-    }
-
     required = {"tour_purpose", "finalweight"}
     if not required.issubset(set(rd.tours.columns)):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(tour_purpose)
 
     return (
         rd.tours.filter(pl.col("tour_purpose").is_not_null())
@@ -120,16 +119,21 @@ def _prepared_allocated_vehicles_from_tours(rd: RunData) -> pl.DataFrame:
     )
 
 
+@summary_contract(
+    schema={"age": pl.Utf8, "occupancy": pl.Utf8, "vehicle_count": pl.Float64},
+    required_columns={
+        "tours": (
+            "vehicle_occup_1",
+            "vehicle_occup_2",
+            "vehicle_occup_3.5",
+            "finalweight",
+        )
+    },
+)
 def allocated_vehicle_age(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
-        "age": pl.Utf8,
-        "occupancy": pl.Utf8,
-        "vehicle_count": pl.Float64,
-    }
-
     vehicles = _prepared_allocated_vehicles_from_tours(rd)
     if vehicles.is_empty():
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(allocated_vehicle_age)
 
     return (
         vehicles.group_by(["age", "occupancy"])
@@ -148,16 +152,21 @@ def allocated_vehicle_age(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
+@summary_contract(
+    schema={"fuel_type": pl.Utf8, "occupancy": pl.Utf8, "vehicle_count": pl.Float64},
+    required_columns={
+        "tours": (
+            "vehicle_occup_1",
+            "vehicle_occup_2",
+            "vehicle_occup_3.5",
+            "finalweight",
+        )
+    },
+)
 def allocated_vehicle_fuel(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
-        "fuel_type": pl.Utf8,
-        "occupancy": pl.Utf8,
-        "vehicle_count": pl.Float64,
-    }
-
     vehicles = _prepared_allocated_vehicles_from_tours(rd)
     if vehicles.is_empty():
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(allocated_vehicle_fuel)
 
     return (
         vehicles.group_by(["fuel_type", "occupancy"])
@@ -172,16 +181,21 @@ def allocated_vehicle_fuel(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
+@summary_contract(
+    schema={"body_type": pl.Utf8, "occupancy": pl.Utf8, "vehicle_count": pl.Float64},
+    required_columns={
+        "tours": (
+            "vehicle_occup_1",
+            "vehicle_occup_2",
+            "vehicle_occup_3.5",
+            "finalweight",
+        )
+    },
+)
 def allocated_vehicle_body(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
-        "body_type": pl.Utf8,
-        "occupancy": pl.Utf8,
-        "vehicle_count": pl.Float64,
-    }
-
     vehicles = _prepared_allocated_vehicles_from_tours(rd)
     if vehicles.is_empty():
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(allocated_vehicle_body)
 
     return (
         vehicles.group_by(["body_type", "occupancy"])
@@ -196,6 +210,17 @@ def allocated_vehicle_body(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
+@summary_contract(
+    schema={
+        "tour_mode": pl.Utf8,
+        "tour_purpose": pl.Utf8,
+        "tour_count_zero_auto": pl.Float64,
+        "tour_count_auto_deficient": pl.Float64,
+        "tour_count_auto_sufficient": pl.Float64,
+        "tour_count_all_households": pl.Float64,
+    },
+    required_columns={"tours": ("tour_mode", "tour_purpose", "finalweight")},
+)
 def tour_mode(rd: RunData, config: Config) -> pl.DataFrame:
     """Tour mode by auto sufficiency level and total, by tour purpose/category.
 
@@ -204,16 +229,8 @@ def tour_mode(rd: RunData, config: Config) -> pl.DataFrame:
     tour_count_zero_auto, tour_count_auto_deficient,
     tour_count_auto_sufficient, tour_count_all_households.
     """
-    result_schema = {
-        "tour_mode": pl.Utf8,
-        "tour_purpose": pl.Utf8,
-        "tour_count_zero_auto": pl.Float64,
-        "tour_count_auto_deficient": pl.Float64,
-        "tour_count_auto_sufficient": pl.Float64,
-        "tour_count_all_households": pl.Float64,
-    }
     if "tour_mode" not in rd.tours.columns:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(tour_mode)
 
     indiv = (
         rd.tours.filter(
@@ -253,7 +270,7 @@ def tour_mode(rd: RunData, config: Config) -> pl.DataFrame:
                     (f"joint_{p}", joint, pl.col("tour_purpose").cast(pl.Utf8) == p)
                 )
     else:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(tour_mode)
 
     all_modes = rd.tours["tour_mode"].drop_nulls().unique().to_list()
     all_modes = config.ordered_modes(all_modes)
@@ -367,20 +384,32 @@ def tour_mode(rd: RunData, config: Config) -> pl.DataFrame:
     return pl.concat([pivot, total], how="vertical")
 
 
-def stop_freq(rd: RunData, config: Config) -> pl.DataFrame:
-    """Stop frequency by tour purpose (outbound, inbound, total).
-    Returns DataFrame:
-    tour_purpose, outbound_stop_count (0-3+), inbound_stop_count (0-3+), total_stop_count (0-6+), tour_count.
-    """
-    result_schema = {
+@summary_contract(
+    schema={
         "tour_purpose": pl.Utf8,
         "outbound_stop_count": pl.Int32,
         "inbound_stop_count": pl.Int32,
         "total_stop_count": pl.Int32,
         "tour_count": pl.Float64,
-    }
+    },
+    required_columns={
+        "tours": (
+            "tour_purpose",
+            "tour_category",
+            "num_ob_stops",
+            "num_ib_stops",
+            "num_tot_stops",
+            "finalweight",
+        )
+    },
+)
+def stop_freq(rd: RunData, config: Config) -> pl.DataFrame:
+    """Stop frequency by tour purpose (outbound, inbound, total).
+    Returns DataFrame:
+    tour_purpose, outbound_stop_count (0-3+), inbound_stop_count (0-3+), total_stop_count (0-6+), tour_count.
+    """
     if "tour_purpose" not in rd.tours.columns:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(stop_freq)
 
     return (
         rd.tours.filter(pl.col("tour_category").is_not_null())
@@ -418,15 +447,19 @@ def stop_freq(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def at_work_sub_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
+@summary_contract(
+    schema={
         "atwork_subtour_frequency_category": pl.Utf8,
         "atwork_subtour_count": pl.Float64,
-    }
-
+    },
+    required_columns={
+        "tours": ("tour_purpose", "atwork_subtour_frequency", "finalweight")
+    },
+)
+def at_work_sub_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"tour_purpose", "atwork_subtour_frequency", "finalweight"}
     if not required.issubset(set(rd.tours.columns)):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(at_work_sub_tour_freq)
 
     return (
         rd.tours.filter(
@@ -452,21 +485,24 @@ def atwork_subtour_frequency_distribution(
     return at_work_sub_tour_freq(rd, config)
 
 
+@summary_contract(
+    schema={
+        "time_bin": pl.Int32,
+        "tour_purpose": pl.Utf8,
+        "departure_tour_count": pl.Float64,
+        "arrival_tour_count": pl.Float64,
+        "duration_tour_count": pl.Float64,
+    },
+    required_columns={"tours": ("tour_category", "tour_purpose", "finalweight")},
+)
 def tour_tod(rd: RunData, config: Config) -> pl.DataFrame:
     """Departure, arrival, and duration profiles in 48 half-hour bins.
 
     Returns DataFrame: time_bin (1-48), tour_purpose, departure_tour_count,
     arrival_tour_count, duration_tour_count.
     """
-    result_schema = {
-        "time_bin": pl.Int32,
-        "tour_purpose": pl.Utf8,
-        "departure_tour_count": pl.Float64,
-        "arrival_tour_count": pl.Float64,
-        "duration_tour_count": pl.Float64,
-    }
     if "tour_category" not in rd.tours.columns:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(tour_tod)
 
     indiv = rd.tours.filter(
         pl.col("tour_category").is_in(["mandatory", "non-mandatory", "atwork"])
@@ -489,7 +525,7 @@ def tour_tod(rd: RunData, config: Config) -> pl.DataFrame:
                     (f"joint_{p}", joint, pl.col("tour_purpose") == p)
                 )
     else:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(tour_tod)
 
     max_period = 48
     if "start_hour" in rd.tours.columns:
@@ -535,7 +571,7 @@ def tour_tod(rd: RunData, config: Config) -> pl.DataFrame:
             )
 
     if not all_rows:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(tour_tod)
 
     df_long = pl.DataFrame(all_rows, infer_schema_length=None)
 
@@ -563,13 +599,23 @@ def tour_tod(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
+@summary_contract(
+    schema={
         "distance_bin": pl.Utf8,
         "tour_purpose": pl.Utf8,
         "tour_count": pl.Float64,
-    }
-
+    },
+    required_columns={
+        "tours": (
+            "tour_purpose",
+            "tour_category",
+            "number_of_participants",
+            "SKIMDIST",
+            "finalweight",
+        )
+    },
+)
+def tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     required = {
         "tour_purpose",
         "tour_category",
@@ -578,7 +624,7 @@ def tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
         "finalweight",
     }
     if not required.issubset(set(rd.tours.columns)):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(tour_distance)
 
     base = (
         rd.tours.filter(
@@ -640,16 +686,19 @@ def tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
 
 
 # TODO: Check if should use SKIMDIST instead of distance_to_school / distance_to_work
+@summary_contract(
+    schema={
+        "mandatory_tour_purpose": pl.Utf8,
+        "geography": pl.Utf8,
+        "average_tour_distance": pl.Float64,
+    },
+    required_columns={"per": ("finalweight",)},
+)
 def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     """Average mandatory tour distances.
 
     Returns DataFrame: mandatory_tour_purpose, geography, average_tour_distance.
     """
-    result_schema = {
-        "mandatory_tour_purpose": pl.Utf8,
-        "geography": pl.Utf8,
-        "average_tour_distance": pl.Float64,
-    }
     ptype_col = "person_type" if "person_type" in rd.per.columns else None
 
     workers = (
@@ -737,7 +786,14 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
             }
         )
 
-        return pl.DataFrame(rows, result_schema)
+        return pl.DataFrame(
+            rows,
+            schema={
+                "mandatory_tour_purpose": pl.Utf8,
+                "geography": pl.Utf8,
+                "average_tour_distance": pl.Float64,
+            },
+        )
 
     result = pl.concat(
         [
@@ -755,21 +811,23 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     ).sort(["mandatory_tour_purpose", "geography"])
 
 
+@summary_contract(
+    schema={
+        "nonmandatory_tour_purpose": pl.Utf8,
+        "geography": pl.Utf8,
+        "average_tour_distance": pl.Float64,
+    },
+    required_columns={"tours": ("tour_category", "tour_purpose", "SKIMDIST", "finalweight")},
+)
 def avg_non_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     """Average non-mandatory tour distance by purpose and geography.
 
     Returns DataFrame:
         nonmandatory_tour_purpose, geography, average_tour_distance
     """
-    result_schema = {
-        "nonmandatory_tour_purpose": pl.Utf8,
-        "geography": pl.Utf8,
-        "average_tour_distance": pl.Float64,
-    }
-
     required = {"tour_category", "tour_purpose", "SKIMDIST", "finalweight"}
     if not required.issubset(set(rd.tours.columns)):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(avg_non_mand_tour_distance)
 
     tours = rd.tours.filter(
         (pl.col("tour_category").cast(pl.Utf8).str.to_lowercase() == "non_mandatory")
@@ -779,7 +837,7 @@ def avg_non_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
     if tours.is_empty():
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(avg_non_mand_tour_distance)
 
     def _weighted_avg_by_geo(
         df: pl.DataFrame,
@@ -823,7 +881,14 @@ def avg_non_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
             }
         )
 
-        return pl.DataFrame(rows, schema=result_schema)
+        return pl.DataFrame(
+            rows,
+            schema={
+                "nonmandatory_tour_purpose": pl.Utf8,
+                "geography": pl.Utf8,
+                "average_tour_distance": pl.Float64,
+            },
+        )
 
     purposes = (
         tours.select("tour_purpose")
@@ -860,21 +925,26 @@ def avg_non_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def int_vs_ext_non_mand_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
+@summary_contract(
+    schema={
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
         "internal_nonmandatory_tour_count": pl.Float64,
         "external_nonmandatory_tour_count": pl.Float64,
-    }
-
+    },
+    required_columns={
+        "per": ("person_id", "home_zone_id"),
+        "tours": ("person_id", "tour_category", "is_external_tour", "finalweight"),
+    },
+)
+def int_vs_ext_non_mand_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
     person_required = {"person_id", "home_zone_id"}
     tour_required = {"person_id", "tour_category", "is_external_tour", "finalweight"}
 
     if not person_required.issubset(set(rd.per.columns)) or not tour_required.issubset(
         set(rd.tours.columns)
     ):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(int_vs_ext_non_mand_tour_freq)
 
     def aggregate_counts(
         df: pl.DataFrame,
@@ -927,7 +997,7 @@ def int_vs_ext_non_mand_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
     if base.is_empty():
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(int_vs_ext_non_mand_tour_freq)
 
     outputs = [
         aggregate_counts(
@@ -974,13 +1044,17 @@ def int_vs_ext_non_mand_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def ext_non_mand_tour_loc(rd: RunData, config: Config) -> pl.DataFrame:
-    result_schema = {
+@summary_contract(
+    schema={
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
         "external_nonmandatory_tour_count": pl.Float64,
-    }
-
+    },
+    required_columns={
+        "tours": ("tour_category", "is_external_tour", "destination", "finalweight")
+    },
+)
+def ext_non_mand_tour_loc(rd: RunData, config: Config) -> pl.DataFrame:
     required = {
         "tour_category",
         "is_external_tour",
@@ -988,7 +1062,7 @@ def ext_non_mand_tour_loc(rd: RunData, config: Config) -> pl.DataFrame:
         "finalweight",
     }
     if not required.issubset(set(rd.tours.columns)):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(ext_non_mand_tour_loc)
 
     def aggregate_counts(
         df: pl.DataFrame,
@@ -1018,7 +1092,7 @@ def ext_non_mand_tour_loc(rd: RunData, config: Config) -> pl.DataFrame:
     ).select("destination", "finalweight")
 
     if base.is_empty():
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(ext_non_mand_tour_loc)
 
     outputs = [
         aggregate_counts(

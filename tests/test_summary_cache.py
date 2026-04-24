@@ -24,13 +24,18 @@ from dashboard.state import DashboardState
 from processor.models import RunData
 from processor.prepare.cache import build_prepared_manifest_identity
 from processor.prepare.enrichment.pipeline import prepare_data
+from processor.summarize import cache as summary_cache_module
+from processor.summarize.contracts import empty_summary_frame, summary_contract
 from processor.summarize.cache import (
     SummaryCacheError,
+    build_summaries_with_metadata,
     build_run_keys,
     create_summary_run,
     load_summary_run_cache,
     write_summary_run_cache,
 )
+from processor.summarize.schema import SUMMARY_OUTPUT_COLUMNS
+from processor.summarize.summary_specs import SUMMARY_SPECS, SummarySpec
 from runtime.config import Config
 from processor.summarize.summaries import legacy
 
@@ -569,6 +574,143 @@ def test_prepare_data_overwrites_numeric_tour_purpose_before_destination_summari
 
     assert sorted(distance_df["purpose"].unique().to_list()) == ["All NM", "eatout"]
     assert average_df["purpose"].to_list() == ["eatout"]
+
+
+def test_registered_summary_builders_expose_contract_metadata() -> None:
+    missing = [
+        spec.summary_id
+        for spec in SUMMARY_SPECS
+        if not hasattr(spec.builder, "_summary_contract")
+    ]
+    assert missing == []
+
+
+def test_summary_output_columns_are_derived_from_builder_contracts() -> None:
+    assert SUMMARY_OUTPUT_COLUMNS["trip_mode_by_tour_purpose_and_tour_mode"] == (
+        "tour_purpose",
+        "tour_mode",
+        "trip_mode",
+        "trip_count",
+    )
+    assert SUMMARY_OUTPUT_COLUMNS["destination_distance"] == (
+        "purpose",
+        "distbin",
+        "freq",
+    )
+
+
+def test_build_summaries_with_metadata_marks_missing_inputs_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config = _write_config(tmp_path)
+
+    @summary_contract(
+        schema={"value": pl.Float64},
+        required_columns={"trips": ("needed",)},
+    )
+    def unavailable_summary(rd: RunData, config: Config) -> pl.DataFrame:
+        raise AssertionError("builder should not be called when prerequisites are missing")
+
+    spec = SummarySpec("probe_unavailable", "probe_unavailable", unavailable_summary)
+    monkeypatch.setattr(summary_cache_module, "DEFAULT_SUMMARY_IDS", ["probe_unavailable"])
+    monkeypatch.setitem(summary_cache_module.SUMMARY_SPEC_BY_ID, "probe_unavailable", spec)
+
+    tables, metadata = build_summaries_with_metadata(_destination_raw_run(), config)
+
+    assert tables["probe_unavailable"].schema == empty_summary_frame(
+        unavailable_summary
+    ).schema
+    assert metadata["probe_unavailable"]["state"] == "unavailable"
+    assert "missing required columns" in metadata["probe_unavailable"]["detail"]
+
+
+def test_summary_cache_round_trip_preserves_summary_states_and_diagnostics(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode={
+            "weighted": {
+                "destination_distance": pl.DataFrame(),
+                "destination_average_distance": pl.DataFrame(),
+            },
+            "unweighted": {
+                "destination_distance": pl.DataFrame(),
+                "destination_average_distance": pl.DataFrame(),
+            },
+        },
+        summary_metadata_by_mode={
+            "weighted": {
+                "destination_distance": {
+                    "state": "unavailable",
+                    "detail": "tours (missing required columns: SKIMDIST)",
+                },
+                "destination_average_distance": {
+                    "state": "failed",
+                    "detail": "boom",
+                },
+            },
+            "unweighted": {
+                "destination_distance": {
+                    "state": "unavailable",
+                    "detail": "tours (missing required columns: SKIMDIST)",
+                },
+                "destination_average_distance": {
+                    "state": "failed",
+                    "detail": "boom",
+                },
+            },
+        },
+        source_run_dir="C:/runs/base",
+    )
+    fingerprint = {"label": "Base", "run_dir": "C:/runs/base"}
+
+    cache_dir = write_summary_run_cache(
+        summary_run,
+        config,
+        run_fingerprint=fingerprint,
+        prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="base",
+            fingerprint=fingerprint,
+        ),
+    )
+
+    loaded = load_summary_run_cache(
+        cache_dir,
+        config,
+        expected_modes=config.weighting_modes,
+        expected_summary_ids=[
+            "destination_distance",
+            "destination_average_distance",
+        ],
+        expected_summary_config_digest=config.summary_config_digest,
+        expected_run_fingerprint=fingerprint,
+        expected_prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="base",
+            fingerprint=fingerprint,
+        ),
+        expected_label="Base",
+        expected_run_key="base",
+    )
+
+    assert (
+        loaded.summary_metadata_by_mode["weighted"]["destination_distance"]["state"]
+        == "unavailable"
+    )
+    assert (
+        loaded.summary_metadata_by_mode["weighted"]["destination_average_distance"][
+            "state"
+        ]
+        == "failed"
+    )
+    assert loaded.manifest["failed_summaries"]["weighted"] == [
+        "destination_average_distance"
+    ]
 
 
 def test_stop_frequency_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:

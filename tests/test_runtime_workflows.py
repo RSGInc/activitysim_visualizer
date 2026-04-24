@@ -16,12 +16,14 @@ from processor.prepare.cache import (
     write_prepared_run_cache,
 )
 from runtime.config import Config
+from processor.summarize.contracts import summary_contract
 from processor.summarize import cache as summary_cache
 from processor.summarize.cache import (
     build_run_fingerprint,
     create_summary_run,
     write_summary_run_cache,
 )
+from processor.summarize.summary_specs import SummarySpec
 
 
 def _write_config(
@@ -71,6 +73,17 @@ def _simple_summary_run(label: str, run_key: str) -> object:
             "unweighted": {"totals": pl.DataFrame({"population": [50.0]})},
         },
         source_run_dir=f"C:/runs/{run_key}",
+    )
+
+
+def _simple_summary_mode_build(label: str, run_key: str) -> tuple[dict, dict]:
+    summary_run = _simple_summary_run(label, run_key)
+    return (
+        summary_run.summaries_by_mode,
+        {
+            mode: {"totals": {"state": "available"}}
+            for mode in summary_run.summaries_by_mode
+        },
     )
 
 
@@ -348,9 +361,11 @@ def test_run_summary_workflow_uses_cache_hit_without_raw_read_or_summary_rebuild
     )
     monkeypatch.setattr(
         summary_cache,
-        "build_mode_summaries",
+        "build_mode_summaries_with_metadata",
         lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("build_mode_summaries should not be called on a cache hit")
+            AssertionError(
+                "build_mode_summaries_with_metadata should not be called on a cache hit"
+            )
         ),
     )
 
@@ -399,10 +414,10 @@ def test_run_summary_workflow_rebuilds_and_writes_cache_on_cache_miss(
     )
     monkeypatch.setattr(
         summary_cache,
-        "build_mode_summaries",
+        "build_mode_summaries_with_metadata",
         lambda rd, config: (
             summary_build_calls.append(rd.label),
-            _simple_summary_run(rd.label, Path(rd.run_dir).name).summaries_by_mode,
+            _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
         )[1],
     )
 
@@ -476,10 +491,10 @@ def test_run_summary_workflow_uses_prepared_cache_before_raw_rebuild(
     )
     monkeypatch.setattr(
         summary_cache,
-        "build_mode_summaries",
+        "build_mode_summaries_with_metadata",
         lambda rd, config: (
             summary_build_calls.append(rd.label),
-            _simple_summary_run(rd.label, Path(rd.run_dir).name).summaries_by_mode,
+            _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
         )[1],
     )
 
@@ -534,10 +549,10 @@ def test_run_summary_workflow_reuses_in_memory_prepared_runs_without_reload(
     )
     monkeypatch.setattr(
         summary_cache,
-        "build_mode_summaries",
+        "build_mode_summaries_with_metadata",
         lambda rd, config: (
             summary_build_calls.append(rd.label),
-            _simple_summary_run(rd.label, Path(rd.run_dir).name).summaries_by_mode,
+            _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
         )[1],
     )
 
@@ -568,6 +583,55 @@ def test_run_summary_workflow_reuses_in_memory_prepared_runs_without_reload(
 
     assert summary_build_calls == ["Run A"]
     assert result.prepared_runs_by_key["run-a"][1] is prepared_run
+
+
+def test_run_summary_workflow_continues_when_one_summary_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+    )
+
+    @summary_contract(schema={"value": pl.Float64})
+    def good_summary(rd: RunData, config: Config) -> pl.DataFrame:
+        return pl.DataFrame({"value": [1.0]})
+
+    @summary_contract(schema={"value": pl.Float64})
+    def bad_summary(rd: RunData, config: Config) -> pl.DataFrame:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["good", "bad"])
+    monkeypatch.setitem(summary_cache.SUMMARY_SPEC_BY_ID, "good", SummarySpec("good", "good", good_summary))
+    monkeypatch.setitem(summary_cache.SUMMARY_SPEC_BY_ID, "bad", SummarySpec("bad", "bad", bad_summary))
+    monkeypatch.setitem(summary_cache.SUMMARY_FILENAME_BY_ID, "good", "good.csv")
+    monkeypatch.setitem(summary_cache.SUMMARY_FILENAME_BY_ID, "bad", "bad.csv")
+    monkeypatch.setattr(
+        runtime_workflows,
+        "read_run",
+        lambda run_dir, config, label=None, **kwargs: _fake_run_data(
+            label or Path(run_dir).name,
+            str(run_dir),
+        ),
+    )
+    monkeypatch.setattr(runtime_workflows, "prepare_data", lambda rd, config: rd)
+
+    result = runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=False,
+    )
+
+    weighted = result.summary_runs[0].summaries_by_mode["weighted"]
+    metadata = result.summary_runs[0].summary_metadata_by_mode["weighted"]
+    assert weighted["good"].to_dicts() == [{"value": 1.0}]
+    assert weighted["bad"].is_empty()
+    assert metadata["good"]["state"] == "available"
+    assert metadata["bad"]["state"] == "failed"
 
 
 def test_load_prepared_runs_for_dashboard_reuses_existing_loaded_runs_by_key(

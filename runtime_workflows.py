@@ -7,13 +7,24 @@ from typing import Any
 
 from activitysim_viz_logging import get_logger
 from dashboard.page_registry import export_data_requirements, live_data_requirements
-from processor import prepare as processor_prepare
 from processor.models import (
     PreparedTableName,
     ProcessorWorkflowResult,
     RunData,
     prune_prepared_runs,
 )
+from processor.prepare.availability import has_usable_loaded_tables, unavailable_tables
+from processor.prepare.cache import (
+    PreparedCacheError,
+    build_prepared_manifest_identity,
+    build_run_fingerprint,
+    build_run_keys,
+    load_prepared_run_cache,
+    prepared_root,
+    write_prepared_run_cache,
+)
+from processor.prepare.enrichment.pipeline import prepare_data
+from processor.prepare.reader import read_run, resolve_skim_path
 from runtime.config import Config
 from processor.summarize import cache as summary_cache
 
@@ -69,7 +80,7 @@ def summary_cache_root(config: Config, *, create: bool) -> Path:
 
 def prepared_cache_root(config: Config, *, create: bool) -> Path:
     """Return the configured prepared cache root, creating it when requested."""
-    cache_root = processor_prepare.prepared_root(config)
+    cache_root = prepared_root(config)
     if create:
         cache_root.mkdir(parents=True, exist_ok=True)
     return cache_root
@@ -121,10 +132,10 @@ def load_summary_runs_from_cache(
             run_dir = entry.get("dir", "")
             expected_label = entry.get("label", Path(run_dir).name)
             expected_run_key = cache_dir.name
-            expected_run_fingerprint = processor_prepare.build_run_fingerprint(
+            expected_run_fingerprint = build_run_fingerprint(
                 label=expected_label,
                 run_dir=run_dir,
-                skim_file=processor_prepare.resolve_skim_path(
+                skim_file=resolve_skim_path(
                     entry.get("skim_file") or None,
                     config.skim_file,
                     run_dir,
@@ -134,7 +145,7 @@ def load_summary_runs_from_cache(
                 trip_weight_col=entry.get("trip_weight_col") or None,
             )
             expected_prepared_manifest_identity = (
-                processor_prepare.build_prepared_manifest_identity(
+                build_prepared_manifest_identity(
                     run_key=expected_run_key,
                     config=config,
                     run_fingerprint=expected_run_fingerprint,
@@ -164,7 +175,7 @@ def run_entries_with_keys(run_entries: list[dict]) -> list[tuple[dict, str]]:
         entry.get("label", Path(entry.get("dir", "")).name or "run")
         for entry in run_entries
     ]
-    run_keys = processor_prepare.build_run_keys(run_labels)
+    run_keys = build_run_keys(run_labels)
     return list(zip(run_entries, run_keys))
 
 
@@ -188,6 +199,16 @@ def prune_summary_runs(
                     if summary_id in required_ids
                 }
                 for mode, mode_tables in summary_run.summaries_by_mode.items()
+            },
+            summary_metadata_by_mode={
+                mode: {
+                    summary_id: metadata
+                    for summary_id, metadata in summary_run.summary_metadata_by_mode.get(
+                        mode, {}
+                    ).items()
+                    if summary_id in required_ids
+                }
+                for mode in summary_run.summaries_by_mode
             },
             source_run_dir=summary_run.source_run_dir,
             manifest=summary_run.manifest,
@@ -237,8 +258,8 @@ def _run_cache_metadata(
     run_dir = entry.get("dir", "")
     label = entry.get("label", Path(run_dir).name)
     skim = entry.get("skim_file") or None
-    resolved_skim = processor_prepare.resolve_skim_path(skim, config.skim_file, run_dir)
-    run_fingerprint = processor_prepare.build_run_fingerprint(
+    resolved_skim = resolve_skim_path(skim, config.skim_file, run_dir)
+    run_fingerprint = build_run_fingerprint(
         label=label,
         run_dir=run_dir,
         skim_file=resolved_skim,
@@ -251,7 +272,7 @@ def _run_cache_metadata(
         "run_dir": run_dir,
         "skim": skim,
         "run_fingerprint": run_fingerprint,
-        "prepared_manifest_identity": processor_prepare.build_prepared_manifest_identity(
+        "prepared_manifest_identity": build_prepared_manifest_identity(
             run_key=run_key,
             config=config,
             run_fingerprint=run_fingerprint,
@@ -271,7 +292,7 @@ def _resolve_prepared_run(
 ) -> tuple[str, RunData] | None:
     """Reuse in-memory prepared runs, then prepared cache, then raw-run rebuilds."""
     def _log_table_unavailability(run_label: str, prepared_run: RunData) -> None:
-        missing_tables = processor_prepare.unavailable_tables(prepared_run)
+        missing_tables = unavailable_tables(prepared_run)
         if not missing_tables:
             return
         LOGGER.warning(
@@ -285,7 +306,7 @@ def _resolve_prepared_run(
 
     cached_prepared_run = existing_prepared_runs_by_key.get(run_key)
     if cached_prepared_run is not None:
-        if not processor_prepare.has_usable_loaded_tables(cached_prepared_run[1]):
+        if not has_usable_loaded_tables(cached_prepared_run[1]):
             LOGGER.warning(
                 "Skipping prepared run %r because no raw prepared tables are available.",
                 cached_prepared_run[0],
@@ -303,7 +324,7 @@ def _resolve_prepared_run(
 
     if prefer_cache:
         try:
-            prepared_run = processor_prepare.load_prepared_run_cache(
+            prepared_run = load_prepared_run_cache(
                 prepared_dir,
                 config,
                 expected_prepare_config_digest=config.prepare_config_digest,
@@ -313,7 +334,7 @@ def _resolve_prepared_run(
             )
             LOGGER.info("Loaded prepared cache for run: %r", label)
             loaded = (label, prepared_run)
-            if not processor_prepare.has_usable_loaded_tables(prepared_run):
+            if not has_usable_loaded_tables(prepared_run):
                 LOGGER.warning(
                     "Skipping prepared cache for %r because no raw prepared tables are available.",
                     label,
@@ -322,11 +343,11 @@ def _resolve_prepared_run(
             _log_table_unavailability(label, prepared_run)
             existing_prepared_runs_by_key[run_key] = loaded
             return loaded
-        except processor_prepare.PreparedCacheError as exc:
+        except PreparedCacheError as exc:
             LOGGER.info("Prepared cache miss for %r: %s", label, exc)
 
     LOGGER.info("Reading run %r from %s", label, run_dir)
-    prepared_run = processor_prepare.read_run(
+    prepared_run = read_run(
         run_dir,
         config,
         label=label,
@@ -335,8 +356,8 @@ def _resolve_prepared_run(
         person_weight_col=entry.get("person_weight_col") or None,
         trip_weight_col=entry.get("trip_weight_col") or None,
     )
-    prepared_run = processor_prepare.prepare_data(prepared_run, config)
-    if not processor_prepare.has_usable_loaded_tables(prepared_run):
+    prepared_run = prepare_data(prepared_run, config)
+    if not has_usable_loaded_tables(prepared_run):
         LOGGER.warning(
             "Skipping run %r because no raw prepared tables could be loaded safely.",
             label,
@@ -345,7 +366,7 @@ def _resolve_prepared_run(
     _log_table_unavailability(label, prepared_run)
     LOGGER.info("Prepared run: %r", label)
     if write_cache:
-        processor_prepare.write_prepared_run_cache(
+        write_prepared_run_cache(
             prepared_run,
             config,
             run_key=run_key,
@@ -555,12 +576,16 @@ def run_summary_workflow(
         existing_prepared_runs_by_key = dict(prepare_result.prepared_runs_by_key)
         prepared_runs_by_key[run_key] = prepared_loaded
 
+        summaries_by_mode, summary_metadata_by_mode = (
+            summary_cache.build_mode_summaries_with_metadata(
+                prepared_loaded[1], config
+            )
+        )
         summary_run = summary_cache.create_summary_run(
             label=label,
             run_key=run_key,
-            summaries_by_mode=summary_cache.build_mode_summaries(
-                prepared_loaded[1], config
-            ),
+            summaries_by_mode=summaries_by_mode,
+            summary_metadata_by_mode=summary_metadata_by_mode,
             source_run_dir=str(prepared_loaded[1].run_dir),
         )
         summary_runs.append(summary_run)

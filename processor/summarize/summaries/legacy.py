@@ -1,6 +1,7 @@
 import polars as pl
 from runtime.config import Config
 from processor.models import RunData
+from processor.summarize.contracts import empty_summary_frame, summary_contract
 
 
 def _tour_purpose_column(tours: pl.DataFrame) -> str | None:
@@ -12,6 +13,10 @@ def _tour_purpose_column(tours: pl.DataFrame) -> str | None:
     return "tour_purpose"
 
 
+@summary_contract(
+    schema={},
+    required_columns={"per": ("HGEO", "WGEO", "finalweight")},
+)
 def geo_flows(rd: RunData, config: Config) -> pl.DataFrame:
     """Home-to-work geography flow matrix.
 
@@ -91,6 +96,14 @@ def _combined_nm_tours(
     return pl.concat(parts)
 
 
+@summary_contract(
+    schema={
+        "purpose": pl.Utf8,
+        "distbin": pl.Int32,
+        "freq": pl.Float64,
+    },
+    required_columns={"tours": ("tour_category", "tour_purpose", "SKIMDIST", "finalweight")},
+)
 def distance_distribution(rd: RunData, config: Config) -> pl.DataFrame:
     """NM destination distance distribution by purpose.
 
@@ -109,13 +122,7 @@ def distance_distribution(rd: RunData, config: Config) -> pl.DataFrame:
             .to_list()
         )
     else:
-        return pl.DataFrame(
-            schema={
-                "purpose": pl.Utf8,
-                "distbin": pl.Int32,
-                "freq": pl.Float64,
-            }
-        )
+        return empty_summary_frame(distance_distribution)
 
     labels = ["All NM"] + purposes
     bins = list(range(41))
@@ -157,16 +164,18 @@ def distance_distribution(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
+@summary_contract(
+    schema={
+        "purpose": pl.Utf8,
+        "avg_distance": pl.Float64,
+    },
+    required_columns={"tours": ("tour_category", "tour_purpose", "SKIMDIST", "finalweight")},
+)
 def average_distance(rd: RunData, config: Config) -> pl.DataFrame:
     """Average NM tour distance by purpose.
 
     Columns: purpose, avg_distance
     """
-    result_schema = {
-        "purpose": pl.Utf8,
-        "avg_distance": pl.Float64,
-    }
-
     tours = rd.tours
     purpose_col = _tour_purpose_column(tours)
     if "tour_category" in tours.columns and purpose_col is not None:
@@ -180,12 +189,7 @@ def average_distance(rd: RunData, config: Config) -> pl.DataFrame:
             .to_list()
         )
     else:
-        return pl.DataFrame(
-            schema={
-                "purpose": pl.Utf8,
-                "avg_distance": pl.Float64,
-            }
-        )
+        return empty_summary_frame(average_distance)
 
     rows: list[dict[str, object]] = []
     for purpose in purposes:
@@ -209,19 +213,25 @@ def average_distance(rd: RunData, config: Config) -> pl.DataFrame:
                 )
         rows.append({"purpose": purpose, "avg_distance": avg_distance})
 
-    return pl.DataFrame(rows, schema=result_schema)
+    return pl.DataFrame(
+        rows,
+        schema={"purpose": pl.Utf8, "avg_distance": pl.Float64},
+    )
 
 
+@summary_contract(
+    schema={
+        "ptype": pl.Utf8,
+        "tour_purp": pl.Utf8,
+        "tour_rate": pl.Float64,
+    },
+    required_columns={"per": ("finalweight",), "tours": ("tour_category", "finalweight")},
+)
 def nm_tour_rates(rd: RunData, config: Config) -> pl.DataFrame:
     """NM tour rates per person by person type and purpose.
 
     Columns: ptype, tour_purp, tour_rate.
     """
-    result_schema = {
-        "ptype": pl.Utf8,
-        "tour_purp": pl.Utf8,
-        "tour_rate": pl.Float64,
-    }
     ptype_col = "person_type" if "person_type" in rd.per.columns else None
     purpose_col = _tour_purpose_column(rd.tours)
     if (
@@ -230,7 +240,7 @@ def nm_tour_rates(rd: RunData, config: Config) -> pl.DataFrame:
         or ptype_col is None
         or ptype_col not in rd.tours.columns
     ):
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(nm_tour_rates)
 
     nm_tours = rd.tours.filter(pl.col("tour_category") == "non-mandatory")
     purposes = (
@@ -278,16 +288,14 @@ def nm_tour_rates(rd: RunData, config: Config) -> pl.DataFrame:
             }
         )
 
-    return pl.DataFrame(result, schema=result_schema)
+    return pl.DataFrame(
+        result,
+        schema={"ptype": pl.Utf8, "tour_purp": pl.Utf8, "tour_rate": pl.Float64},
+    )
 
 
-def system_totals(rd: RunData, config: Config | None = None) -> pl.DataFrame:
-    """
-    System-wide KPIs. Returns single-row DataFrame with columns:
-    population, households, employment, tours, trips, stops,
-    pmt, vmt, vehicle_trips.
-    """
-    result_schema = {
+@summary_contract(
+    schema={
         "population": pl.Float64,
         "households": pl.Float64,
         "employment": pl.Float64,
@@ -297,7 +305,20 @@ def system_totals(rd: RunData, config: Config | None = None) -> pl.DataFrame:
         "pmt": pl.Float64,
         "vmt": pl.Float64,
         "vehicle_trips": pl.Float64,
-    }
+    },
+    required_columns={
+        "per": ("finalweight",),
+        "hh": ("finalweight",),
+        "tours": ("finalweight",),
+        "trips": ("finalweight", "stops", "od_dist", "num_participants"),
+    },
+)
+def system_totals(rd: RunData, config: Config | None = None) -> pl.DataFrame:
+    """
+    System-wide KPIs. Returns single-row DataFrame with columns:
+    population, households, employment, tours, trips, stops,
+    pmt, vmt, vehicle_trips.
+    """
     pop = rd.per["finalweight"].sum()
     hh = rd.hh["finalweight"].sum()
     emp_col = next(
@@ -373,7 +394,17 @@ def system_totals(rd: RunData, config: Config | None = None) -> pl.DataFrame:
                 ),
             }
         ],
-        schema=result_schema,
+        schema={
+            "population": pl.Float64,
+            "households": pl.Float64,
+            "employment": pl.Float64,
+            "tours": pl.Float64,
+            "trips": pl.Float64,
+            "stops": pl.Float64,
+            "pmt": pl.Float64,
+            "vmt": pl.Float64,
+            "vehicle_trips": pl.Float64,
+        },
     )
 
 
@@ -383,16 +414,8 @@ def tour_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
     Returns DataFrame: tour_mode, purpose_group, freq_as0, freq_as1, freq_as2, freq_all.
     Purpose groups are derived from the config-resolved tour purpose column.
     """
-    result_schema = {
-        "tour_mode": pl.Utf8,
-        "purpose": pl.Utf8,
-        "freq_as0": pl.Float64,
-        "freq_as1": pl.Float64,
-        "freq_as2": pl.Float64,
-        "freq_all": pl.Float64,
-    }
     if "tour_mode" not in rd.tours.columns:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(grouped_tour_mode_profile)
 
     indiv = (
         rd.tours.filter(
@@ -429,7 +452,7 @@ def tour_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
                     (f"joint_{p}", joint, pl.col(purpose_col).cast(pl.Utf8) == p)
                 )
     else:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(grouped_tour_mode_profile)
 
     all_modes = rd.tours["tour_mode"].drop_nulls().unique().to_list()
     all_modes = config.ordered_modes(all_modes)
@@ -507,27 +530,29 @@ def tour_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
     return pl.concat([pivot, total], how="vertical")
 
 
-def grouped_tour_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
-    """Tour mode grouped by config.mode_groups, by auto sufficiency and purpose.
-
-    Returns DataFrame: mode_group, purpose, freq_as0, freq_as1, freq_as2, freq_all.
-    Returns empty DataFrame if mode_groups not configured.
-    """
-    result_schema = {
+@summary_contract(
+    schema={
         "mode_group": pl.Utf8,
         "purpose": pl.Utf8,
         "freq_as0": pl.Float64,
         "freq_as1": pl.Float64,
         "freq_as2": pl.Float64,
         "freq_all": pl.Float64,
-    }
+    },
+    required_columns={"tours": ("tour_mode",)},
+)
+def grouped_tour_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
+    """Tour mode grouped by config.mode_groups, by auto sufficiency and purpose.
 
+    Returns DataFrame: mode_group, purpose, freq_as0, freq_as1, freq_as2, freq_all.
+    Returns empty DataFrame if mode_groups not configured.
+    """
     if not config.mode_groups:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(grouped_tour_mode_profile)
 
     detail = tour_mode_profile(rd, config)
     if len(detail) == 0:
-        return pl.DataFrame(schema=result_schema)
+        return empty_summary_frame(grouped_tour_mode_profile)
 
     mode_to_group = {}
     for grp, modes in config.mode_groups.items():
