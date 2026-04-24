@@ -31,7 +31,7 @@ def attach_table_availability(
 ) -> RunData:
     """Attach internal per-table availability metadata to a RunData instance."""
     setattr(rd, "_table_availability", dict(table_states or {}))
-    setattr(rd, "_table_unavailable_reasons", dict(table_reasons or {}))
+    setattr(rd, "_table_diagnostics", dict(table_reasons or {}))
     return rd
 
 
@@ -50,14 +50,43 @@ def table_availability(rd: RunData) -> dict[str, str]:
 
 def table_unavailable_reasons(rd: RunData) -> dict[str, str]:
     """Return internal per-table unavailable-reason metadata for ``rd``."""
-    reasons = getattr(rd, "_table_unavailable_reasons", None)
+    states = table_availability(rd)
+    reasons = getattr(rd, "_table_diagnostics", None)
+    if not isinstance(reasons, dict):
+        return {}
+    return {
+        table_id: str(reason)
+        for table_id, reason in reasons.items()
+        if states.get(table_id) == "unavailable"
+    }
+
+
+def table_failure_reasons(rd: RunData) -> dict[str, str]:
+    """Return internal per-table failure diagnostics for ``rd``."""
+    states = table_availability(rd)
+    reasons = getattr(rd, "_table_diagnostics", None)
+    if not isinstance(reasons, dict):
+        return {}
+    return {
+        table_id: str(reason)
+        for table_id, reason in reasons.items()
+        if states.get(table_id) == "failed"
+    }
+
+
+def table_diagnostics(rd: RunData) -> dict[str, str]:
+    """Return internal per-table diagnostics for unavailable or failed tables."""
+    reasons = getattr(rd, "_table_diagnostics", None)
     return dict(reasons) if isinstance(reasons, dict) else {}
 
 
 def has_usable_loaded_tables(rd: RunData) -> bool:
     """Return whether any raw prepared input table was loaded for this run."""
     states = table_availability(rd)
-    return any(states.get(table_id) != "unavailable" for table_id in PREPARED_TABLE_IDS)
+    return any(
+        states.get(table_id) not in {"unavailable", "failed"}
+        for table_id in PREPARED_TABLE_IDS
+    )
 
 
 def unavailable_tables(rd: RunData) -> dict[str, str]:
@@ -70,3 +99,13 @@ def unavailable_tables(rd: RunData) -> dict[str, str]:
         if state == "unavailable"
     }
 
+
+def failed_tables(rd: RunData) -> dict[str, str]:
+    """Return failed-table reasons for logging/diagnostics."""
+    states = table_availability(rd)
+    reasons = table_failure_reasons(rd)
+    return {
+        table_id: reasons.get(table_id, "table failed")
+        for table_id, state in states.items()
+        if state == "failed"
+    }

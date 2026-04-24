@@ -115,7 +115,7 @@ Summary caches are written under `summaries.root` with one directory per run:
     unweighted/
 ```
 
-Prepared manifests record the prepare-config digest plus the run fingerprint used to build each prepared run. Summary manifests record summary ids, weighting modes, a summary-config digest, the run fingerprint, the prepared-manifest identity they were built from, and per-summary state/diagnostic metadata for summaries that were empty, unavailable, or failed.
+Prepared manifests record the prepare-config digest plus the run fingerprint used to build each prepared run, along with per-table state/diagnostic metadata for prepared tables that were empty, unavailable, or failed. Summary manifests record summary ids, weighting modes, a summary-config digest, the run fingerprint, the prepared-manifest identity they were built from, and per-summary state/diagnostic metadata for summaries that were empty, unavailable, or failed.
 
 Within `processor/prepare/`, raw inputs are loaded in `reader.py`, cache and manifest handling lives in `cache.py`, and prepared-table enrichment is split into focused modules under `processor/prepare/enrichment/`. The public enrichment entrypoint is `processor.prepare.enrichment.pipeline.prepare_data`.
 

@@ -315,6 +315,64 @@ def test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_unavailable
     assert list(result.prepared_runs_by_key) == ["run-a"]
 
 
+def test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_failed(
+    tmp_path: Path,
+    monkeypatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+    )
+    prepared_root = runtime_workflows.prepared_cache_root(config, create=True)
+
+    monkeypatch.setattr(
+        runtime_workflows,
+        "read_run",
+        lambda run_dir, config, label=None, **kwargs: attach_table_availability(
+            RunData(
+                label=label or Path(run_dir).name,
+                run_dir=str(run_dir),
+                skim_file=None,
+                hh=pl.DataFrame({"household_id": [1]}),
+                per=pl.DataFrame({"person_id": [1]}),
+                tours=pl.DataFrame(),
+                trips=pl.DataFrame(),
+                joint_participants=pl.DataFrame(),
+                land_use=pl.DataFrame(),
+                skim_matrix=None,
+                skim_zone_map=None,
+            ),
+            table_states={
+                "households": "available",
+                "persons": "available",
+                "tours": "failed",
+                "trips": "unavailable",
+                "joint_tour_participants": "unavailable",
+                "land_use": "unavailable",
+            },
+            table_reasons={
+                "tours": "tour enrichment failed",
+                "trips": "missing",
+            },
+        ),
+    )
+    monkeypatch.setattr(runtime_workflows, "prepare_data", lambda rd, config: rd)
+
+    result = runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=prepared_root,
+        run_entries=config.runs,
+        prefer_cache=True,
+        write_cache=False,
+    )
+
+    assert [label for label, _ in result.prepared_runs] == ["Run A"]
+    assert list(result.prepared_runs_by_key) == ["run-a"]
+    assert "recorded failed tables" in caplog.text
+
+
 def test_run_summary_workflow_uses_cache_hit_without_raw_read_or_summary_rebuild(
     tmp_path: Path,
     monkeypatch,

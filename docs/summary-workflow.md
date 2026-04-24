@@ -68,7 +68,7 @@ Cache layout:
       <summary_file>.csv
 ```
 
-`manifest.json` is important. It records the schema version, summary ids, weighting modes, summary file mapping, run fingerprint, summary-config digest, and per-summary state/diagnostic metadata used to validate whether a cache is still safe to reuse.
+`manifest.json` is important. Prepared manifests record the schema version, prepare-config digest, run fingerprint, table file mapping, and per-table state/diagnostic metadata. Summary manifests record the schema version, summary ids, weighting modes, summary file mapping, run fingerprint, summary-config digest, and per-summary state/diagnostic metadata used to validate whether a cache is still safe to reuse.
 
 The summarize step also records the prepared-manifest identity it was built from, so summary caches are explicitly layered on top of prepared inputs rather than raw-run assumptions.
 

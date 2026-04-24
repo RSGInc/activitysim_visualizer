@@ -12,6 +12,7 @@ from processor.models import RunData
 from processor.prepare.availability import (
     attach_table_availability,
     table_availability,
+    table_failure_reasons,
     table_unavailable_reasons,
 )
 from processor.prepare.cache import (
@@ -343,13 +344,107 @@ def test_prepared_cache_round_trip_preserves_empty_vs_unavailable_table_states(
     assert loaded.land_use.is_empty()
 
 
+def test_prepared_cache_round_trip_preserves_failed_table_state_and_diagnostic(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    prepared = attach_table_availability(
+        _prepared_run(config),
+        table_states={
+            "households": "available",
+            "persons": "available",
+            "tours": "failed",
+            "trips": "available",
+            "joint_tour_participants": "available",
+            "land_use": "available",
+        },
+        table_reasons={"tours": "tour enrichment failed: missing required identifier"},
+    )
+    prepared = RunData(
+        label=prepared.label,
+        run_dir=prepared.run_dir,
+        skim_file=prepared.skim_file,
+        hh=prepared.hh,
+        per=prepared.per,
+        tours=pl.DataFrame(),
+        trips=prepared.trips,
+        joint_participants=prepared.joint_participants,
+        land_use=prepared.land_use,
+        skim_matrix=prepared.skim_matrix,
+        skim_zone_map=prepared.skim_zone_map,
+        hh_weight_col=prepared.hh_weight_col,
+        person_weight_col=prepared.person_weight_col,
+        trip_weight_col=prepared.trip_weight_col,
+    )
+    prepared = attach_table_availability(
+        prepared,
+        table_states={
+            "households": "available",
+            "persons": "available",
+            "tours": "failed",
+            "trips": "available",
+            "joint_tour_participants": "available",
+            "land_use": "available",
+        },
+        table_reasons={"tours": "tour enrichment failed: missing required identifier"},
+    )
+
+    entry = write_prepared_run_cache(prepared, config, run_key="base")
+    manifest = entry.manifest
+    assert manifest["table_states"]["tours"] == "failed"
+    assert manifest["failed_tables"]["tours"] == (
+        "tour enrichment failed: missing required identifier"
+    )
+    assert manifest["table_diagnostics"]["tours"] == (
+        "tour enrichment failed: missing required identifier"
+    )
+
+    loaded = load_prepared_run_cache(
+        entry.cache_dir,
+        config,
+        expected_prepare_config_digest=config.prepare_config_digest,
+        expected_label="Base",
+        expected_run_key="base",
+    )
+
+    assert table_availability(loaded)["tours"] == "failed"
+    assert table_failure_reasons(loaded)["tours"] == (
+        "tour enrichment failed: missing required identifier"
+    )
+    assert loaded.tours.is_empty()
+
+
+def test_prepared_cache_loads_schema_version_2_manifest_without_failed_metadata(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    prepared = _prepared_run(config)
+    entry = write_prepared_run_cache(prepared, config, run_key="base")
+    manifest_path = entry.cache_dir / "manifest.json"
+    manifest = manifest_path.read_text(encoding="utf-8")
+    manifest = manifest.replace('"schema_version": 3', '"schema_version": 2')
+    manifest = manifest.replace('\n  "table_diagnostics": {},', "")
+    manifest = manifest.replace('\n  "failed_tables": {},', "")
+    manifest_path.write_text(manifest, encoding="utf-8")
+
+    loaded = load_prepared_run_cache(
+        entry.cache_dir,
+        config,
+        expected_prepare_config_digest=config.prepare_config_digest,
+        expected_label="Base",
+        expected_run_key="base",
+    )
+
+    assert table_availability(loaded)["households"] == "available"
+
+
 def test_prepared_cache_rejects_old_schema_version(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
     prepared = _prepared_run(config)
     entry = write_prepared_run_cache(prepared, config, run_key="base")
     manifest_path = entry.cache_dir / "manifest.json"
     manifest = manifest_path.read_text(encoding="utf-8")
-    manifest_path.write_text(manifest.replace('"schema_version": 2', '"schema_version": 1'), encoding="utf-8")
+    manifest_path.write_text(manifest.replace('"schema_version": 3', '"schema_version": 1'), encoding="utf-8")
 
     with pytest.raises(PreparedCacheError, match="Unsupported prepared cache schema_version"):
         load_prepared_run_cache(

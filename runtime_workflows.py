@@ -13,7 +13,11 @@ from processor.models import (
     RunData,
     prune_prepared_runs,
 )
-from processor.prepare.availability import has_usable_loaded_tables, unavailable_tables
+from processor.prepare.availability import (
+    failed_tables,
+    has_usable_loaded_tables,
+    unavailable_tables,
+)
 from processor.prepare.cache import (
     PreparedCacheError,
     build_prepared_manifest_identity,
@@ -291,18 +295,27 @@ def _resolve_prepared_run(
     write_cache: bool,
 ) -> tuple[str, RunData] | None:
     """Reuse in-memory prepared runs, then prepared cache, then raw-run rebuilds."""
-    def _log_table_unavailability(run_label: str, prepared_run: RunData) -> None:
+    def _log_prepare_table_diagnostics(run_label: str, prepared_run: RunData) -> None:
         missing_tables = unavailable_tables(prepared_run)
-        if not missing_tables:
-            return
-        LOGGER.warning(
-            "Prepared run %r skipped unavailable tables: %s",
-            run_label,
-            "; ".join(
-                f"{table_id} ({reason})"
-                for table_id, reason in sorted(missing_tables.items())
-            ),
-        )
+        failed_prepare_tables = failed_tables(prepared_run)
+        if missing_tables:
+            LOGGER.warning(
+                "Prepared run %r skipped unavailable tables: %s",
+                run_label,
+                "; ".join(
+                    f"{table_id} ({reason})"
+                    for table_id, reason in sorted(missing_tables.items())
+                ),
+            )
+        if failed_prepare_tables:
+            LOGGER.warning(
+                "Prepared run %r recorded failed tables: %s",
+                run_label,
+                "; ".join(
+                    f"{table_id} ({reason})"
+                    for table_id, reason in sorted(failed_prepare_tables.items())
+                ),
+            )
 
     cached_prepared_run = existing_prepared_runs_by_key.get(run_key)
     if cached_prepared_run is not None:
@@ -313,7 +326,7 @@ def _resolve_prepared_run(
             )
             return None
         LOGGER.info("Reusing in-memory prepared run for %r", cached_prepared_run[0])
-        _log_table_unavailability(cached_prepared_run[0], cached_prepared_run[1])
+        _log_prepare_table_diagnostics(cached_prepared_run[0], cached_prepared_run[1])
         return cached_prepared_run
 
     metadata = _run_cache_metadata(entry=entry, run_key=run_key, config=config)
@@ -340,7 +353,7 @@ def _resolve_prepared_run(
                     label,
                 )
                 return None
-            _log_table_unavailability(label, prepared_run)
+            _log_prepare_table_diagnostics(label, prepared_run)
             existing_prepared_runs_by_key[run_key] = loaded
             return loaded
         except PreparedCacheError as exc:
@@ -363,7 +376,7 @@ def _resolve_prepared_run(
             label,
         )
         return None
-    _log_table_unavailability(label, prepared_run)
+    _log_prepare_table_diagnostics(label, prepared_run)
     LOGGER.info("Prepared run: %r", label)
     if write_cache:
         write_prepared_run_cache(

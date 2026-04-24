@@ -15,12 +15,14 @@ from processor.models import RunData
 from processor.prepare.availability import (
     attach_table_availability,
     table_availability,
+    table_diagnostics,
     table_unavailable_reasons,
 )
 from processor.prepare.writer import write_all
 from runtime.config import Config
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+SUPPORTED_SCHEMA_VERSIONS = {2, 3}
 SUPPORTED_FILE_FORMATS = ("parquet", "csv")
 PREPARED_TABLE_ATTRS: tuple[tuple[str, str, str], ...] = (
     ("hh", "households", "households"),
@@ -107,8 +109,7 @@ def build_prepared_manifest_identity(
 
 def _table_file_map(file_format: str) -> dict[str, str]:
     return {
-        table_id: f"{stem}.{file_format}"
-        for _, table_id, stem in PREPARED_TABLE_ATTRS
+        table_id: f"{stem}.{file_format}" for _, table_id, stem in PREPARED_TABLE_ATTRS
     }
 
 
@@ -157,13 +158,14 @@ def write_prepared_run_cache(
 
     tables_to_write: dict[str, pl.DataFrame] = {}
     table_states = table_availability(rd)
+    diagnostics = table_diagnostics(rd)
     unavailable_reasons = table_unavailable_reasons(rd)
     for attr_name, table_id, stem in PREPARED_TABLE_ATTRS:
         table = getattr(rd, attr_name)
         state = table_states.get(table_id)
         if state is None:
             state = "empty" if table.width == 0 else "available"
-        if state in {"empty", "unavailable"}:
+        if state in {"empty", "unavailable", "failed"}:
             tables_to_write[stem] = pl.DataFrame({"__empty__": []})
         else:
             tables_to_write[stem] = table
@@ -188,11 +190,22 @@ def write_prepared_run_cache(
             )
             for attr_name, table_id, _ in PREPARED_TABLE_ATTRS
         },
+        "table_diagnostics": {
+            table_id: diagnostics[table_id]
+            for _, table_id, _ in PREPARED_TABLE_ATTRS
+            if table_states.get(table_id) in {"unavailable", "failed"}
+            and table_id in diagnostics
+        },
         "unavailable_tables": {
             table_id: unavailable_reasons[table_id]
             for _, table_id, _ in PREPARED_TABLE_ATTRS
             if table_states.get(table_id) == "unavailable"
             and table_id in unavailable_reasons
+        },
+        "failed_tables": {
+            table_id: diagnostics[table_id]
+            for _, table_id, _ in PREPARED_TABLE_ATTRS
+            if table_states.get(table_id) == "failed" and table_id in diagnostics
         },
         "skim_file": rd.skim_file,
         "hh_weight_col": rd.hh_weight_col,
@@ -224,7 +237,7 @@ def load_prepared_run_cache(
     cache_dir = Path(cache_dir)
     manifest = _read_manifest(cache_dir)
     schema_version = int(manifest.get("schema_version", 0))
-    if schema_version != SCHEMA_VERSION:
+    if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
         raise PreparedCacheError(
             f"Unsupported prepared cache schema_version {schema_version} in {cache_dir}"
         )
@@ -263,10 +276,23 @@ def load_prepared_run_cache(
         str(table_id): str(state)
         for table_id, state in dict(manifest.get("table_states", {})).items()
     }
+    manifest_table_diagnostics = {
+        str(table_id): str(reason)
+        for table_id, reason in dict(manifest.get("table_diagnostics", {})).items()
+    }
     unavailable_table_reasons = {
         str(table_id): str(reason)
         for table_id, reason in dict(manifest.get("unavailable_tables", {})).items()
     }
+    failed_table_reasons = {
+        str(table_id): str(reason)
+        for table_id, reason in dict(manifest.get("failed_tables", {})).items()
+    }
+    if not manifest_table_diagnostics:
+        manifest_table_diagnostics = {
+            **unavailable_table_reasons,
+            **failed_table_reasons,
+        }
     loaded_tables: dict[str, pl.DataFrame] = {}
     for attr_name, table_id, stem in PREPARED_TABLE_ATTRS:
         filename = table_files.get(table_id, f"{stem}.{file_format}")
@@ -277,10 +303,11 @@ def load_prepared_run_cache(
             table = pl.read_parquet(path)
         else:
             table = pl.read_csv(path, infer_schema_length=10000)
-        if (
-            manifest_table_states.get(table_id) in {"empty", "unavailable"}
-            and table.columns == ["__empty__"]
-        ):
+        if manifest_table_states.get(table_id) in {
+            "empty",
+            "unavailable",
+            "failed",
+        } and table.columns == ["__empty__"]:
             table = pl.DataFrame()
         loaded_tables[attr_name] = table
 
@@ -302,7 +329,7 @@ def load_prepared_run_cache(
             trip_weight_col=manifest.get("trip_weight_col"),
         ),
         table_states=manifest_table_states,
-        table_reasons=unavailable_table_reasons,
+        table_reasons=manifest_table_diagnostics,
     )
 
 
