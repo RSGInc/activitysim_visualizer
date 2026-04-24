@@ -265,6 +265,8 @@ class TourDistancePage(DashboardPage):
 PAGE = DashboardPageDefinition(
     page_id="tour_distance",
     title="Tour Distance",
+    group_id="tour_summaries",
+    child_id="tour_distance",
     order=44,
     controller_cls=TourDistancePage,
     selectors=(

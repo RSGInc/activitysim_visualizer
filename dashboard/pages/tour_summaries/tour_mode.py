@@ -251,8 +251,10 @@ class TourModePage(DashboardPage):
 
 
 PAGE = DashboardPageDefinition(
-    page_id="tour_mode",
-    title="Tour Mode",
+    page_id="tr_mode",
+    title="Old Tour Mode",
+    group_id="tour_summaries",
+    child_id="tr_mode",
     order=42,
     controller_cls=TourModePage,
     selectors=(

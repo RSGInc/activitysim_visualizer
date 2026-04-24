@@ -185,6 +185,8 @@ class TransitValidationPage(DashboardPage):
 PAGE = DashboardPageDefinition(
     page_id="transit",
     title="Transit Validation",
+    group_id="validation",
+    child_id="transit",
     order=53,
     controller_cls=TransitValidationPage,
     selectors=(

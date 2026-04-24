@@ -146,6 +146,8 @@ class EscortedToursPage(DashboardPage):
 PAGE = DashboardPageDefinition(
     page_id="escorted_tours",
     title="Escorted Tours",
+    group_id="daily_travel",
+    child_id="escorted_tours",
     order=29,
     controller_cls=EscortedToursPage,
     selectors=(

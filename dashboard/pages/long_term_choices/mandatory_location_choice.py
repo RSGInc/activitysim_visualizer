@@ -337,6 +337,8 @@ class MandatoryLocationChoicePage(DashboardPage):
 PAGE = DashboardPageDefinition(
     page_id="mandatory_location_choice",
     title="Mandatory Location Choice",
+    group_id="long_term_choices",
+    child_id="mandatory_location_choice",
     order=27,
     controller_cls=MandatoryLocationChoicePage,
     selectors=(

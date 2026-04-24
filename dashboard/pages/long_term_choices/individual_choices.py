@@ -122,6 +122,8 @@ class IndividualChoicesPage(DashboardPage):
 PAGE = DashboardPageDefinition(
     page_id="individual_choices",
     title="Individual Choices",
+    group_id="long_term_choices",
+    child_id="individual_choices",
     order=25,
     controller_cls=IndividualChoicesPage,
     required_summary_ids=(

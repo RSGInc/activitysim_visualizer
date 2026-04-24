@@ -56,7 +56,9 @@ def frequency_chart_data(
                 .group_by("outbound_stop_count")
                 .agg(pl.col("tour_count").sum().alias("freq"))
                 .sort("outbound_stop_count")
-                .with_columns(pl.col("outbound_stop_count").cast(pl.Utf8).alias("stops")),
+                .with_columns(
+                    pl.col("outbound_stop_count").cast(pl.Utf8).alias("stops")
+                ),
             )
             for label, df in stop_list
         ]
@@ -71,7 +73,9 @@ def frequency_chart_data(
                 .group_by("inbound_stop_count")
                 .agg(pl.col("tour_count").sum().alias("freq"))
                 .sort("inbound_stop_count")
-                .with_columns(pl.col("inbound_stop_count").cast(pl.Utf8).alias("stops")),
+                .with_columns(
+                    pl.col("inbound_stop_count").cast(pl.Utf8).alias("stops")
+                ),
             )
             for label, df in stop_list
         ]
@@ -98,7 +102,9 @@ def frequency_chart_data(
                 .group_by("outbound_stop_count")
                 .agg(pl.col("tour_count").sum().alias("freq"))
                 .sort("outbound_stop_count")
-                .with_columns(pl.col("outbound_stop_count").cast(pl.Utf8).alias("stops")),
+                .with_columns(
+                    pl.col("outbound_stop_count").cast(pl.Utf8).alias("stops")
+                ),
             )
             for label, df in stop_list
         ]
@@ -109,7 +115,9 @@ def frequency_chart_data(
                 .group_by("inbound_stop_count")
                 .agg(pl.col("tour_count").sum().alias("freq"))
                 .sort("inbound_stop_count")
-                .with_columns(pl.col("inbound_stop_count").cast(pl.Utf8).alias("stops")),
+                .with_columns(
+                    pl.col("inbound_stop_count").cast(pl.Utf8).alias("stops")
+                ),
             )
             for label, df in stop_list
         ]
@@ -222,7 +230,9 @@ class StopFreqPage(DashboardPage):
         )
         purp = self.purp_sel.value
         raw_purposes = (
-            purpose_options(stop_result.usable_by_input["tour_stop_frequency_by_tour_purpose"])
+            purpose_options(
+                stop_result.usable_by_input["tour_stop_frequency_by_tour_purpose"]
+            )
             if stop_result.has_usable_runs
             else []
         )
@@ -238,7 +248,9 @@ class StopFreqPage(DashboardPage):
 
         objects: list[pn.viewable.Viewable] = []
         if stop_result.has_usable_runs:
-            stop_list = stop_result.usable_by_input["tour_stop_frequency_by_tour_purpose"]
+            stop_list = stop_result.usable_by_input[
+                "tour_stop_frequency_by_tour_purpose"
+            ]
             ob_data, ib_data, tot_data = self.get_filtered_view(
                 "stop_freq_counts",
                 raw_purpose,
@@ -247,9 +259,30 @@ class StopFreqPage(DashboardPage):
             )
             objects.append(
                 pn.Row(
-                    bar_chart(ob_data, "stops", "freq", f"Outbound Stops - {purp}", "Stops", as_percent=self.as_percent),
-                    bar_chart(ib_data, "stops", "freq", f"Inbound Stops - {purp}", "Stops", as_percent=self.as_percent),
-                    bar_chart(tot_data, "stops", "freq", f"Total Stops - {purp}", "Stops", as_percent=self.as_percent),
+                    bar_chart(
+                        ob_data,
+                        "stops",
+                        "freq",
+                        f"Outbound Stops - {purp}",
+                        "Stops",
+                        as_percent=self.as_percent,
+                    ),
+                    bar_chart(
+                        ib_data,
+                        "stops",
+                        "freq",
+                        f"Inbound Stops - {purp}",
+                        "Stops",
+                        as_percent=self.as_percent,
+                    ),
+                    bar_chart(
+                        tot_data,
+                        "stops",
+                        "freq",
+                        f"Total Stops - {purp}",
+                        "Stops",
+                        as_percent=self.as_percent,
+                    ),
                 )
             )
         else:

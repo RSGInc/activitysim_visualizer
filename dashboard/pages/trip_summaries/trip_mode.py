@@ -151,8 +151,10 @@ class TripModePage(DashboardPage):
 
 
 PAGE = DashboardPageDefinition(
-    page_id="trip_mode",
-    title="Trip Mode",
+    page_id="tp_mode",
+    title="Old Trip Mode",
+    group_id="trip_summaries",
+    child_id="tp_mode",
     order=48,
     controller_cls=TripModePage,
     selectors=(

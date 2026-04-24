@@ -175,6 +175,8 @@ class TrafficValidationPage(DashboardPage):
 PAGE = DashboardPageDefinition(
     page_id="traffic",
     title="Traffic Validation",
+    group_id="validation",
+    child_id="traffic",
     order=52,
     controller_cls=TrafficValidationPage,
     selectors=(

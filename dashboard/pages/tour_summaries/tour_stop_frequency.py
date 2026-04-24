@@ -165,6 +165,8 @@ class TourStopFrequencyPage(DashboardPage):
 PAGE = DashboardPageDefinition(
     page_id="tour_stop_frequency",
     title="Tour Stop Frequency",
+    group_id="tour_summaries",
+    child_id="tour_stop_frequency",
     order=45,
     controller_cls=TourStopFrequencyPage,
     selectors=(

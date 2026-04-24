@@ -143,6 +143,8 @@ class VMTValidationPage(DashboardPage):
 PAGE = DashboardPageDefinition(
     page_id="vmt",
     title="VMT Validation",
+    group_id="validation",
+    child_id="vmt",
     order=54,
     controller_cls=VMTValidationPage,
     selectors=(

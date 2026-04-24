@@ -163,6 +163,8 @@ class TripStopDistancePage(DashboardPage):
 PAGE = DashboardPageDefinition(
     page_id="trip_stop_distance",
     title="Trip and Stop Distance",
+    group_id="trip_summaries",
+    child_id="trip_stop_distance",
     order=50,
     controller_cls=TripStopDistancePage,
     selectors=(

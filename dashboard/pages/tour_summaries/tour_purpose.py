@@ -76,6 +76,8 @@ class TourPurposePage(DashboardPage):
 PAGE = DashboardPageDefinition(
     page_id="tour_purpose",
     title="Tour Purpose",
+    group_id="tour_summaries",
+    child_id="tour_purpose",
     order=41,
     controller_cls=TourPurposePage,
     required_summary_ids=(

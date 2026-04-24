@@ -205,6 +205,8 @@ class DailyActivityPatternPage(DashboardPage):
 PAGE = DashboardPageDefinition(
     page_id="daily_activity_pattern",
     title="Daily Activity Pattern",
+    group_id="daily_travel",
+    child_id="daily_activity_pattern",
     order=28,
     controller_cls=DailyActivityPatternPage,
     selectors=(

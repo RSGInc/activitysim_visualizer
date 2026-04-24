@@ -115,6 +115,8 @@ class ParkingLocationPage(DashboardPage):
 PAGE = DashboardPageDefinition(
     page_id="parking_location",
     title="Parking Location",
+    group_id="trip_summaries",
+    child_id="parking_location",
     order=51,
     controller_cls=ParkingLocationPage,
     selectors=(

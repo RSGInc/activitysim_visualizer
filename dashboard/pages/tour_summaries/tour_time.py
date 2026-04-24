@@ -55,8 +55,8 @@ def tour_time_chart_data(
             (
                 label,
                 df.select(
-                    pl.col("departure_time_bin").alias("time_bin"),
-                    pl.col("departure_tour_count").alias("tour_count"),
+                    pl.col("time_bin"),
+                    pl.col("departure_tour_count"),
                 ).sort("time_bin"),
             )
         )
@@ -65,8 +65,8 @@ def tour_time_chart_data(
             (
                 label,
                 df.select(
-                    pl.col("arrival_time_bin").alias("time_bin"),
-                    pl.col("arrival_tour_count").alias("tour_count"),
+                    pl.col("time_bin"),
+                    pl.col("arrival_tour_count"),
                 ).sort("time_bin"),
             )
         )
@@ -75,9 +75,9 @@ def tour_time_chart_data(
             (
                 label,
                 df.select(
-                    pl.col("duration_bin"),
-                    pl.col("duration_tour_count").alias("tour_count"),
-                ).sort("duration_bin"),
+                    pl.col("time_bin"),
+                    pl.col("duration_tour_count"),
+                ).sort("time_bin"),
             )
         )
 
@@ -147,7 +147,7 @@ class TourTimePage(DashboardPage):
         dep_chart = density_chart(
             dep_data,
             x_col="time_bin",
-            y_col="tour_count",
+            y_col="departure_tour_count",
             title=f"Tour Departure Time Distribution - {purpose}",
             xaxis_title="Time of Day",
             normalize=False,
@@ -157,7 +157,7 @@ class TourTimePage(DashboardPage):
         arr_chart = density_chart(
             arr_data,
             x_col="time_bin",
-            y_col="tour_count",
+            y_col="arrival_tour_count",
             title=f"Tour Arrival Time Distribution - {purpose}",
             xaxis_title="Time of Day",
             normalize=False,
@@ -166,8 +166,8 @@ class TourTimePage(DashboardPage):
 
         dur_chart = density_chart(
             dur_data,
-            x_col="duration_bin",
-            y_col="tour_count",
+            x_col="time_bin",
+            y_col="duration_tour_count",
             title=f"Tour Duration Distribution - {purpose}",
             xaxis_title="Tour Duration (hours)",
             normalize=False,
@@ -184,6 +184,8 @@ class TourTimePage(DashboardPage):
 PAGE = DashboardPageDefinition(
     page_id="tour_time",
     title="Tour Time",
+    group_id="tour_summaries",
+    child_id="tour_time",
     order=43,
     controller_cls=TourTimePage,
     selectors=(
