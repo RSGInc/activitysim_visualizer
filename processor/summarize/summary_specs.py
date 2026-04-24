@@ -331,13 +331,37 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         trip.parking_locations,
     ),
     # VALIDATION SUMMARIES
-    # traffic count comparisons
-    # screenline flow comparisons
-    # total transit boardings
-    # transit transfer rates
+    SummarySpec(
+        "traffic_count_comparisons",
+        "traffic_count_comparisons",
+        validation.traffic_count_comparisons,
+    ),
+    SummarySpec(
+        "screenline_flow_comparisons",
+        "screenline_flow_comparisons",
+        validation.screenline_flow_comparisons,
+    ),
+    SummarySpec(
+        "transit_boardings_by_operator_and_technology",
+        "transit_boardings_by_operator_and_technology",
+        validation.total_transit_boardings,
+    ),
+    SummarySpec(
+        "transit_transfer_rate",
+        "transit_transfer_rate",
+        validation.transit_transfer_rate,
+    ),
     SummarySpec("auto_vmt_totals", "auto_vmt_totals", validation.auto_vmt_totals),
-    # commercial vehicle vmt
-    # bicycle vmt by facility type
+    SummarySpec(
+        "commercial_vmt_totals",
+        "commercial_vmt_totals",
+        validation.commercial_vehicle_vmt,
+    ),
+    SummarySpec(
+        "bicycle_vmt_by_facility_type",
+        "bicycle_vmt_by_facility_type",
+        validation.bicycle_vmt_by_facility,
+    ),
     # TEMPORARY LEGACY SUMMARIES
     SummarySpec("geo_flows", "geoFlows", legacy.geo_flows),
     SummarySpec("nm_tour_rates", "nm_tour_rates", legacy.nm_tour_rates),
