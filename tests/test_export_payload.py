@@ -167,3 +167,29 @@ def test_build_export_payload_keeps_static_pages_when_no_page_selectors_are_enab
     assert overview["kind"] == "static_page"
     nodes = _walk_nodes(overview)
     assert any(node.get("kind") == "card" for node in nodes)
+
+
+def test_build_export_payload_normalizes_group_default_child_ids_to_leaf_page_ids() -> None:
+    tmp_path = _workspace_tmp_dir("payload_group_defaults")
+    config = _write_config(
+        tmp_path,
+        export_html_lines=[
+            "dashboard:",
+            "  weighting: all",
+            "  values: all",
+        ],
+    )
+
+    payload = build_export_payload([], config, summary_runs=[_full_summary_run()])
+    page_by_id = {page["id"]: page for page in payload["pages"]}
+
+    assert page_by_id["tours"]["default_child_id"] == "tour_summary"
+    assert page_by_id["stops"]["default_child_id"] == "stop_frequency"
+    assert page_by_id["tours"]["default_child_id"] in [
+        child["id"] for child in page_by_id["tours"]["children"]
+    ]
+    assert page_by_id["stops"]["default_child_id"] in [
+        child["id"] for child in page_by_id["stops"]["children"]
+    ]
+    assert page_by_id["tours"]["default_child_id"] != "summary"
+    assert page_by_id["stops"]["default_child_id"] != "frequency"

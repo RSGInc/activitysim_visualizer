@@ -108,5 +108,42 @@ def test_export_runtime_assets_are_loaded_from_source_files() -> None:
     assert "function validatePayloadSchema(candidate)" in runtime_js
     assert "function renderPlot(node)" in runtime_js
     assert "function renderNode(node)" in runtime_js
+    assert "function resolveActiveChildPageId(pageDescriptor)" in runtime_js
     assert "Plotly.react" in runtime_js
     assert "__EXPORT_SCHEMA_VERSION__" not in runtime_js
+
+
+def test_export_html_smoke_serializes_grouped_default_child_as_leaf_page_id() -> None:
+    tmp_path = _workspace_tmp_dir("html_smoke_grouped_defaults")
+    config = _write_config(
+        tmp_path,
+        export_html_lines=[
+            "dashboard:",
+            "  weighting: all",
+            "  values: all",
+        ],
+    )
+    out_path = tmp_path / "smoke" / "grouped_dashboard.html"
+
+    write_export_html_document(
+        out_path,
+        [],
+        config,
+        summary_runs=[_full_summary_run()],
+    )
+
+    html = out_path.read_text(encoding="utf-8")
+    start_token = '<script id="activitysim-export-data" type="application/json">'
+    start = html.index(start_token) + len(start_token)
+    end = html.index("</script>", start)
+    payload = json.loads(html[start:end])
+    page_by_id = {page["id"]: page for page in payload["pages"]}
+
+    assert page_by_id["tours"]["default_child_id"] == "tour_summary"
+    assert page_by_id["stops"]["default_child_id"] == "stop_frequency"
+    assert page_by_id["tours"]["default_child_id"] in [
+        child["id"] for child in page_by_id["tours"]["children"]
+    ]
+    assert page_by_id["stops"]["default_child_id"] in [
+        child["id"] for child in page_by_id["stops"]["children"]
+    ]

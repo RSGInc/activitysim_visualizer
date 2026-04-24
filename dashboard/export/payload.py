@@ -169,17 +169,37 @@ def serialize_dashboard_state(
         ]
         if not children:
             continue
+        default_child_page_id = _resolve_group_default_child_page_id(
+            navigation_entry.page_definitions,
+            default_child_local_id=navigation_entry.group_definition.default_child_id,
+        )
         grouped_page_defs.append(
             {
                 "id": navigation_entry.entry_id,
                 "title": navigation_entry.title,
                 "selectors": [],
                 "children": children,
-                "default_child_id": navigation_entry.group_definition.default_child_id
-                or children[0]["id"],
+                "default_child_id": default_child_page_id,
             }
         )
     return {"pages": grouped_page_defs, "content_by_page": content_by_page}
+
+
+def _resolve_group_default_child_page_id(
+    page_definitions: list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...],
+    *,
+    default_child_local_id: str | None,
+) -> str:
+    """Return the serialized default child page id for one grouped export page."""
+    if not page_definitions:
+        raise ValueError("Grouped export pages must include at least one child page.")
+
+    if default_child_local_id:
+        for page_definition in page_definitions:
+            if page_definition.child_id == default_child_local_id:
+                return page_definition.page_id
+
+    return page_definitions[0].page_id
 
 
 def serialize_page_content(

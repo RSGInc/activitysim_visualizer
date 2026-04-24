@@ -536,10 +536,7 @@
   function renderChildPageTabs(pageDescriptor) {
     const row = document.createElement("div");
     row.className = "local-tab-row";
-    const activeChildId =
-      state.activeChildPage[pageDescriptor.id]
-      || pageDescriptor.default_child_id
-      || (pageDescriptor.children[0] && pageDescriptor.children[0].id);
+    const activeChildId = resolveActiveChildPageId(pageDescriptor);
     (pageDescriptor.children || []).forEach((childPage) => {
       row.appendChild(
         makeButton(
@@ -554,6 +551,25 @@
       );
     });
     return row;
+  }
+
+  function resolveActiveChildPageId(pageDescriptor) {
+    const childIds = (pageDescriptor.children || []).map((childPage) => childPage.id);
+    if (!childIds.length) {
+      fail("Grouped export page " + pageDescriptor.id + " is missing child pages.");
+    }
+
+    const preferredChildId = state.activeChildPage[pageDescriptor.id];
+    if (preferredChildId && childIds.includes(preferredChildId)) {
+      return preferredChildId;
+    }
+    if (pageDescriptor.default_child_id && childIds.includes(pageDescriptor.default_child_id)) {
+      state.activeChildPage[pageDescriptor.id] = pageDescriptor.default_child_id;
+      return pageDescriptor.default_child_id;
+    }
+
+    state.activeChildPage[pageDescriptor.id] = childIds[0];
+    return childIds[0];
   }
 
   function resolvePageContent(pageNode, leafPageId) {
@@ -595,10 +611,7 @@
     let leafPageId = pageDescriptor.id;
     if (pageDescriptor.children && pageDescriptor.children.length) {
       panel.appendChild(renderChildPageTabs(pageDescriptor));
-      leafPageId =
-        state.activeChildPage[pageDescriptor.id]
-        || pageDescriptor.default_child_id
-        || pageDescriptor.children[0].id;
+      leafPageId = resolveActiveChildPageId(pageDescriptor);
     }
     const pageNode = pagesForState[leafPageId];
     panel.appendChild(renderNode(resolvePageContent(pageNode, leafPageId)));
