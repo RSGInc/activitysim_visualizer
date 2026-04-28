@@ -32,7 +32,31 @@ def _options(
     vals = (
         first_df.select(col).drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
     )
+    if col == "tour_purpose":
+        options = []
+        if "all_tour_purposes" in vals:
+            options.append("Total")
+        options.extend(
+            sorted(
+                v
+                for v in vals
+                if v not in {total_label, "Total", "all_tour_purposes"}
+            )
+        )
+        return options or ["Total"]
     return [total_label] + sorted(v for v in vals if v != total_label)
+
+
+def _raw_tour_purpose(value: str) -> str:
+    return "all_tour_purposes" if value == "Total" else value
+
+
+def _distance_sort_expr(column: str) -> pl.Expr:
+    return (
+        pl.when(pl.col(column).cast(pl.Utf8) == "40+")
+        .then(999)
+        .otherwise(pl.col(column).cast(pl.Int64, strict=False))
+    )
 
 
 def tour_distance_chart_data(
@@ -42,9 +66,7 @@ def tour_distance_chart_data(
     out = []
     for label, df in _nonempty(data_list):
         df = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
-
-        if purpose != "All":
-            df = df.filter(pl.col("tour_purpose") == purpose)
+        df = df.filter(pl.col("tour_purpose") == purpose)
 
         out.append(
             (
@@ -52,7 +74,10 @@ def tour_distance_chart_data(
                 df.select(
                     pl.col("distance_bin"),
                     pl.col("tour_count"),
-                ).sort("distance_bin"),
+                )
+                .with_columns(_distance_sort_expr("distance_bin").alias("_sort_distance"))
+                .sort("_sort_distance")
+                .drop("_sort_distance"),
             )
         )
     return out
@@ -182,11 +207,12 @@ class TourDistancePage(DashboardPage):
         geo_level = self.geo_level_sel.value
         mand_purpose = self.mand_purpose_sel.value
         nonmand_purpose = self.nonmand_purpose_sel.value
+        raw_tour_purpose = _raw_tour_purpose(tour_purpose)
 
         distance_data = self.get_filtered_view(
             "tour_distance",
-            tour_purpose,
-            factory=lambda: tour_distance_chart_data(dist_list, tour_purpose),
+            raw_tour_purpose,
+            factory=lambda: tour_distance_chart_data(dist_list, raw_tour_purpose),
         )
 
         mand_avg_data = self.get_filtered_view(

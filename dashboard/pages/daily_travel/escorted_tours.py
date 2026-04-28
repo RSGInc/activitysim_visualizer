@@ -33,7 +33,15 @@ def direction_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
         .cast(pl.Utf8)
         .to_list()
     )
-    return ["Both"] + sorted(v for v in vals if v != "Both")
+    options = []
+    if "all_directions" in vals:
+        options.append("Both")
+    options.extend(sorted(v for v in vals if v not in {"Both", "all_directions"}))
+    return options or ["Both"]
+
+
+def _raw_direction(value: str) -> str:
+    return "all_directions" if value == "Both" else value
 
 
 def escort_school_chart_data(
@@ -43,9 +51,7 @@ def escort_school_chart_data(
     out = []
     for label, df in _nonempty(data_list):
         df = df.with_columns(pl.col(DIRECTION_COL).cast(pl.Utf8))
-
-        if direction != "Both" and DIRECTION_COL in df.columns:
-            df = df.filter(pl.col(DIRECTION_COL) == direction)
+        df = df.filter(pl.col(DIRECTION_COL) == direction)
 
         out.append((label, df))
 
@@ -103,13 +109,14 @@ class EscortedToursPage(DashboardPage):
         if self.direction_sel.value not in direction_opts:
             self.direction_sel.value = direction_opts[0]
         direction = self.direction_sel.value
+        raw_direction = _raw_direction(direction)
 
         school_escort_data = self.get_filtered_view(
             "school_escorted_tours",
-            direction,
+            raw_direction,
             factory=lambda: escort_school_chart_data(
                 summaries["school_escorted_tours_by_escort_type_and_direction"],
-                direction,
+                raw_direction,
             ),
         )
 

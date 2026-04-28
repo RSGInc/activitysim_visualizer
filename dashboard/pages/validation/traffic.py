@@ -50,6 +50,21 @@ def validation_chart_data(
             if count_period != "All":
                 df = df.filter(pl.col("count_period") == count_period)
 
+        id_col = None
+        if "count_location_id" in df.columns:
+            id_col = "count_location_id"
+        elif "screenline_id" in df.columns:
+            id_col = "screenline_id"
+        if id_col is not None:
+            df = (
+                df.group_by(id_col)
+                .agg(
+                    observed_volume=pl.col("observed_volume").sum(),
+                    modeled_volume=pl.col("modeled_volume").sum(),
+                )
+                .sort(id_col)
+            )
+
         out.append((label, df))
 
     return out
@@ -99,8 +114,16 @@ class TrafficValidationPage(DashboardPage):
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        traffic_list = self.state.get_summary_table_set(
+            "traffic_count_comparisons",
+            self.weighting_key,
+        )
+        screenline_list = self.state.get_summary_table_set(
+            "screenline_flow_comparisons",
+            self.weighting_key,
+        )
+
+        if traffic_list is None and screenline_list is None:
             self._body.objects = [
                 self.data_not_available_card(
                     detail="This page only renders from precomputed summary tables.",
@@ -109,15 +132,12 @@ class TrafficValidationPage(DashboardPage):
             ]
             return
 
-        traffic_list = summaries["traffic_count_comparisons"]
-        screenline_list = summaries["screenline_flow_comparisons"]
-
-        direction_opts = _options(traffic_list, "direction")
+        direction_opts = _options(traffic_list or screenline_list or [], "direction")
         self.direction_sel.options = direction_opts
         if self.direction_sel.value not in direction_opts:
             self.direction_sel.value = direction_opts[0]
 
-        period_opts = _options(traffic_list, "count_period")
+        period_opts = _options(traffic_list or screenline_list or [], "count_period")
         self.count_period_sel.options = period_opts
         if self.count_period_sel.value not in period_opts:
             self.count_period_sel.value = period_opts[0]
@@ -125,43 +145,53 @@ class TrafficValidationPage(DashboardPage):
         direction = self.direction_sel.value
         count_period = self.count_period_sel.value
 
-        traffic_data = self.get_filtered_view(
-            "traffic_count_comparisons",
-            (direction, count_period),
-            factory=lambda: validation_chart_data(
-                traffic_list,
-                direction,
-                count_period,
-            ),
-        )
+        if traffic_list is not None:
+            traffic_data = self.get_filtered_view(
+                "traffic_count_comparisons",
+                (direction, count_period),
+                factory=lambda: validation_chart_data(
+                    traffic_list,
+                    direction,
+                    count_period,
+                ),
+            )
+            traffic_chart: pn.viewable.Viewable = scatter_chart(
+                traffic_data,
+                x_col="observed_volume",
+                y_col="modeled_volume",
+                title="Traffic Count Comparisons",
+                xaxis_title="Observed Traffic Volume",
+                yaxis_title="Modeled Traffic Volume",
+            )
+        else:
+            traffic_chart = self.data_not_available_card(
+                detail="Traffic count comparisons are unavailable.",
+                missing_items=["traffic_count_comparisons"],
+            )
 
-        screenline_data = self.get_filtered_view(
-            "screenline_flow_comparisons",
-            (direction, count_period),
-            factory=lambda: validation_chart_data(
-                screenline_list,
-                direction,
-                count_period,
-            ),
-        )
-
-        traffic_chart = scatter_chart(
-            traffic_data,
-            x_col="observed_volume",
-            y_col="modeled_volume",
-            title="Traffic Count Comparisons",
-            xaxis_title="Observed Traffic Volume",
-            yaxis_title="Modeled Traffic Volume",
-        )
-
-        screenline_chart = scatter_chart(
-            screenline_data,
-            x_col="observed_volume",
-            y_col="modeled_volume",
-            title="Screenline Flow Comparisons",
-            xaxis_title="Observed Traffic Volume",
-            yaxis_title="Modeled Traffic Volume",
-        )
+        if screenline_list is not None:
+            screenline_data = self.get_filtered_view(
+                "screenline_flow_comparisons",
+                (direction, count_period),
+                factory=lambda: validation_chart_data(
+                    screenline_list,
+                    direction,
+                    count_period,
+                ),
+            )
+            screenline_chart: pn.viewable.Viewable = scatter_chart(
+                screenline_data,
+                x_col="observed_volume",
+                y_col="modeled_volume",
+                title="Screenline Flow Comparisons",
+                xaxis_title="Observed Traffic Volume",
+                yaxis_title="Modeled Traffic Volume",
+            )
+        else:
+            screenline_chart = self.data_not_available_card(
+                detail="Screenline flow comparisons are unavailable.",
+                missing_items=["screenline_flow_comparisons"],
+            )
 
         self._body.objects = [
             pn.Row(

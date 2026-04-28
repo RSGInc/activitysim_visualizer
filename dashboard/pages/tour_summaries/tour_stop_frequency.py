@@ -22,6 +22,8 @@ def _options(
     col: str,
     total_label: str = "All",
 ) -> list[str]:
+    if col == "direction":
+        return ["Both", "Outbound", "Inbound"]
     first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
     if first_df is None or col not in first_df.columns:
         return [total_label]
@@ -29,6 +31,20 @@ def _options(
     vals = (
         first_df.select(col).drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
     )
+    if col == "tour_purpose":
+        options = []
+        if "all_tour_purposes" in vals:
+            options.append("All")
+        options.extend(
+            sorted(
+                v
+                for v in vals
+                if v not in {total_label, "Total", "all_tour_purposes"}
+            )
+        )
+        if "All" not in options:
+            options.insert(0, "All")
+        return options
     return [total_label] + sorted(v for v in vals if v != total_label)
 
 
@@ -37,20 +53,37 @@ def stop_frequency_chart_data(
     purpose: str,
     direction: str,
 ) -> list[tuple[str, pl.DataFrame]]:
+    stop_col_map = {
+        "Both": "total_stop_count",
+        "Outbound": "outbound_stop_count",
+        "Inbound": "inbound_stop_count",
+    }
+    stop_col = stop_col_map[direction]
     out = []
 
     for label, df in _nonempty(data_list):
-        df = df.with_columns(
-            pl.col("tour_purpose").cast(pl.Utf8),
-            pl.col("direction").cast(pl.Utf8),
-            pl.col("stop_frequency").cast(pl.Utf8),
-        )
-
-        if purpose != "All":
+        df = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
+        if purpose == "All":
+            if "all_tour_purposes" in df["tour_purpose"].cast(pl.Utf8).unique().to_list():
+                df = df.filter(pl.col("tour_purpose") == "all_tour_purposes")
+            else:
+                df = df.group_by(stop_col).agg(tour_count=pl.col("tour_count").sum())
+                df = (
+                    df.with_columns(pl.col(stop_col).cast(pl.Utf8).alias("stop_frequency"))
+                    .select("stop_frequency", "tour_count")
+                    .sort("stop_frequency")
+                )
+                out.append((label, df))
+                continue
+        else:
             df = df.filter(pl.col("tour_purpose") == purpose)
-        if direction != "All":
-            df = df.filter(pl.col("direction") == direction)
 
+        df = df.group_by(stop_col).agg(tour_count=pl.col("tour_count").sum())
+        df = (
+            df.with_columns(pl.col(stop_col).cast(pl.Utf8).alias("stop_frequency"))
+            .select("stop_frequency", "tour_count")
+            .sort("stop_frequency")
+        )
         out.append((label, df))
 
     return out
@@ -139,8 +172,8 @@ class TourStopFrequencyPage(DashboardPage):
 
         atwork_chart = bar_chart(
             atwork_list,
-            x_col="atwork_subtour_frequency",
-            y_col="tour_count",
+            x_col="atwork_subtour_frequency_category",
+            y_col="atwork_subtour_count",
             title="At-Work Sub-Tour Frequency",
             xaxis_title="At-Work Sub-Tour Frequency",
             yaxis_title="Work Tours",

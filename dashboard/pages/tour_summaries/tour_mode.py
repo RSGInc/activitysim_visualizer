@@ -22,6 +22,8 @@ def _options(
     col: str,
     total_label: str = "All",
 ) -> list[str]:
+    if col == "auto_sufficiency":
+        return ["All", "Zero Auto", "Auto Deficient", "Auto Sufficient"]
     first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
     if first_df is None or col not in first_df.columns:
         return [total_label]
@@ -29,6 +31,18 @@ def _options(
     vals = (
         first_df.select(col).drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
     )
+    if col == "tour_purpose":
+        options = []
+        if "all_tour_purposes" in vals:
+            options.append("Total")
+        options.extend(
+            sorted(
+                v
+                for v in vals
+                if v not in {total_label, "Total", "all_tour_purposes"}
+            )
+        )
+        return options or ["Total"]
     return [total_label] + sorted(v for v in vals if v != total_label)
 
 
@@ -40,8 +54,29 @@ def _filter_col(
 ) -> list[tuple[str, pl.DataFrame]]:
     out = []
     for label, df in _nonempty(data_list):
-        if col in df.columns and value != total_label:
-            df = df.with_columns(pl.col(col).cast(pl.Utf8)).filter(pl.col(col) == value)
+        if col in df.columns:
+            df = df.with_columns(pl.col(col).cast(pl.Utf8))
+            if value == total_label:
+                if "vehicle_count" in df.columns:
+                    group_cols = [name for name in df.columns if name not in {col, "vehicle_count"}]
+                    if len(group_cols) == 1:
+                        group_col = group_cols[0]
+                        df = (
+                            df.group_by(group_col)
+                            .agg(vehicle_count=pl.col("vehicle_count").sum())
+                            .sort(group_col)
+                        )
+                else:
+                    value_cols = [name for name in df.columns if name != col]
+                    if len(value_cols) == 1:
+                        value_col = value_cols[0]
+                        df = (
+                            df.group_by(col)
+                            .agg(pl.col(value_col).sum().alias(value_col))
+                            .sort(col)
+                        )
+            else:
+                df = df.filter(pl.col(col) == value)
         out.append((label, df))
     return out
 
@@ -51,19 +86,29 @@ def tour_mode_chart_data(
     purpose: str,
     auto_sufficiency: str,
 ) -> list[tuple[str, pl.DataFrame]]:
+    value_col_map = {
+        "All": "tour_count_all_households",
+        "Zero Auto": "tour_count_zero_auto",
+        "Auto Deficient": "tour_count_auto_deficient",
+        "Auto Sufficient": "tour_count_auto_sufficient",
+    }
+    value_col = value_col_map[auto_sufficiency]
     out = []
     for label, df in _nonempty(data_list):
-        df = df.with_columns(
-            pl.col("tour_purpose").cast(pl.Utf8),
-            pl.col("auto_sufficiency").cast(pl.Utf8),
-        )
-
-        if purpose != "All":
+        df = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
+        if purpose == "Total":
+            df = df.filter(pl.col("tour_purpose") == "all_tour_purposes")
+        else:
             df = df.filter(pl.col("tour_purpose") == purpose)
-        if auto_sufficiency != "All":
-            df = df.filter(pl.col("auto_sufficiency") == auto_sufficiency)
-
-        out.append((label, df))
+        out.append(
+            (
+                label,
+                df.select(
+                    pl.col("tour_mode"),
+                    pl.col(value_col).alias("tour_count"),
+                ).sort("tour_mode"),
+            )
+        )
     return out
 
 
@@ -198,7 +243,7 @@ class TourModePage(DashboardPage):
 
         age_chart = bar_chart(
             vehicle_age_data,
-            x_col="vehicle_age",
+            x_col="age",
             y_col="vehicle_count",
             title="Allocated Vehicle Age by Occupancy Level",
             xaxis_title="Vehicle Age",
@@ -209,7 +254,7 @@ class TourModePage(DashboardPage):
 
         fuel_chart = bar_chart(
             vehicle_fuel_data,
-            x_col="vehicle_fuel_type",
+            x_col="fuel_type",
             y_col="vehicle_count",
             title="Allocated Vehicle Fuel Type by Occupancy Level",
             xaxis_title="Vehicle Fuel Type",
@@ -220,7 +265,7 @@ class TourModePage(DashboardPage):
 
         body_chart = bar_chart(
             vehicle_body_data,
-            x_col="vehicle_body_type",
+            x_col="body_type",
             y_col="vehicle_count",
             title="Allocated Vehicle Body Type by Occupancy Level",
             xaxis_title="Vehicle Body Type",

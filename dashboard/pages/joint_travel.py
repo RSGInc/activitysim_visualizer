@@ -82,7 +82,14 @@ def composition_by_party_size_data(
     out = []
     for label, df in _nonempty(data_list):
         df = df.with_columns(pl.col("party_size").cast(pl.Utf8))
-        if party_size != "All":
+        if party_size == "All":
+            df = (
+                df.group_by("tour_composition")
+                .agg(joint_tour_count=pl.col("joint_tour_count").sum())
+                .with_columns(pl.col("tour_composition").cast(pl.Utf8))
+                .sort("tour_composition")
+            )
+        else:
             df = df.filter(pl.col("party_size") == party_size)
         out.append((label, _ordered_composition(df)))
     return out
@@ -99,7 +106,14 @@ def household_participation_data(
             pl.col("jtf").cast(pl.Utf8),
         )
 
-        if household_size != "All":
+        if household_size == "All":
+            df = (
+                df.group_by("jtf")
+                .agg(household_percent=pl.col("household_percent").mean())
+                .with_columns(pl.col("jtf").cast(pl.Utf8))
+                .sort("jtf")
+            )
+        else:
             df = df.filter(pl.col("household_size") == household_size)
 
         out.append((label, df))

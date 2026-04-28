@@ -9,6 +9,7 @@ from dashboard.components import (
     build_run_legend_panes,
     set_percent_mode,
     set_run_colors,
+    set_run_label_order,
 )
 from dashboard.page_registry import (
     build_dashboard_prepared_run_provider,
@@ -46,6 +47,7 @@ def build_dashboard(
         prepared_run_provider=prepared_run_provider,
     )
     run_labels = state.run_labels
+    set_run_label_order(run_labels)
 
     weight_mode = pn.widgets.RadioButtonGroup(
         name="Weighting",

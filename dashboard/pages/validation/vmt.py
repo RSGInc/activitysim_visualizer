@@ -81,8 +81,16 @@ class VMTValidationPage(DashboardPage):
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        commercial_vmt = self.state.get_summary_table_set(
+            "commercial_vmt_totals",
+            self.weighting_key,
+        )
+        bicycle_vmt = self.state.get_summary_table_set(
+            "bicycle_vmt_by_facility_type",
+            self.weighting_key,
+        )
+
+        if commercial_vmt is None and bicycle_vmt is None:
             self._body.objects = [
                 self.data_not_available_card(
                     detail="This page only renders from precomputed summary tables.",
@@ -93,37 +101,46 @@ class VMTValidationPage(DashboardPage):
 
         vmt_view = self.vmt_view_sel.value
 
-        commercial_vmt_data = self.get_filtered_view(
-            "commercial_vmt",
-            vmt_view,
-            factory=lambda: commercial_vmt_chart_data(
-                summaries["commercial_vmt_totals"],
+        if commercial_vmt is not None:
+            commercial_vmt_data = self.get_filtered_view(
+                "commercial_vmt",
                 vmt_view,
-            ),
-        )
+                factory=lambda: commercial_vmt_chart_data(
+                    commercial_vmt,
+                    vmt_view,
+                ),
+            )
+            commercial_vmt_chart: pn.viewable.Viewable = bar_chart(
+                commercial_vmt_data,
+                x_col="commercial_vehicle_type",
+                y_col="vmt",
+                title=f"External vs. Internal Commercial Vehicle VMT - {vmt_view}",
+                xaxis_title="Commercial Vehicle Type",
+                yaxis_title="Vehicle Miles Traveled",
+                as_percent=self.as_percent,
+            )
+        else:
+            commercial_vmt_chart = self.data_not_available_card(
+                detail="Commercial VMT summaries are unavailable.",
+                missing_items=["commercial_vmt_totals"],
+            )
 
-        bicycle_vmt_data = _nonempty(summaries["bicycle_vmt_by_facility_type"])
-
-        commercial_vmt_chart = bar_chart(
-            commercial_vmt_data,
-            x_col="commercial_vehicle_type",
-            y_col="vmt",
-            title=f"External vs. Internal Commercial Vehicle VMT - {vmt_view}",
-            xaxis_title="Commercial Vehicle Type",
-            yaxis_title="Vehicle Miles Traveled",
-            as_percent=self.as_percent,
-        )
-
-        bicycle_vmt_chart = bar_chart(
-            bicycle_vmt_data,
-            x_col="facility_type",
-            y_col="bicycle_vmt",
-            title="Bicycle VMT by Facility Type",
-            xaxis_title="Bicycle Facility Type",
-            yaxis_title="Bicycle VMT",
-            pct_col="pct",
-            as_percent=self.as_percent,
-        )
+        if bicycle_vmt is not None:
+            bicycle_vmt_chart: pn.viewable.Viewable = bar_chart(
+                _nonempty(bicycle_vmt),
+                x_col="facility_type",
+                y_col="bicycle_vmt",
+                title="Bicycle VMT by Facility Type",
+                xaxis_title="Bicycle Facility Type",
+                yaxis_title="Bicycle VMT",
+                pct_col="pct",
+                as_percent=self.as_percent,
+            )
+        else:
+            bicycle_vmt_chart = self.data_not_available_card(
+                detail="Bicycle VMT summaries are unavailable.",
+                missing_items=["bicycle_vmt_by_facility_type"],
+            )
 
         self._body.objects = [
             pn.Row(

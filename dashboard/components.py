@@ -19,6 +19,7 @@ _DEFAULT_RUN_COLORS = [
     "#9C755F",
 ]
 RUN_COLORS = list(_DEFAULT_RUN_COLORS)
+RUN_LABEL_ORDER: list[str] = []
 _DISPLAY_PERCENT_MODE = False
 
 
@@ -30,9 +31,21 @@ def run_color(idx: int) -> str:
     return RUN_COLORS[idx % len(RUN_COLORS)]
 
 
+def run_color_for_label(label: str, fallback_idx: int) -> str:
+    label_str = str(label)
+    if label_str in RUN_LABEL_ORDER:
+        return run_color(RUN_LABEL_ORDER.index(label_str))
+    return run_color(fallback_idx)
+
+
 def set_run_colors(colors: list[str] | None) -> None:
     global RUN_COLORS
     RUN_COLORS = list(colors) if colors else list(_DEFAULT_RUN_COLORS)
+
+
+def set_run_label_order(labels: list[str] | None) -> None:
+    global RUN_LABEL_ORDER
+    RUN_LABEL_ORDER = [str(label) for label in (labels or [])]
 
 
 def set_percent_mode(enabled: bool) -> None:
@@ -127,6 +140,7 @@ def bar_chart(
     for i, (label, df) in enumerate(data_list):
         if df is None or len(df) == 0:
             continue
+        color = run_color_for_label(label, i)
         x = df[x_col].to_list()
         y = np.array(df[y_col].to_list(), dtype=float)
         if percent_mode and y.sum() > 0:
@@ -145,7 +159,7 @@ def bar_chart(
                 name=label,
                 x=x,
                 y=y_list,
-                marker_color=run_color(i),
+                marker_color=color,
                 hovertemplate="%{customdata}<extra></extra>",
                 customdata=hover,
             )
@@ -177,6 +191,7 @@ def line_chart(
     for i, (label, df) in enumerate(data_list):
         if df is None or len(df) == 0:
             continue
+        color = run_color_for_label(label, i)
         y = np.array(df[y_col].to_list(), dtype=float)
         if percent_mode and y.sum() > 0:
             y = y / y.sum() * 100.0
@@ -186,7 +201,7 @@ def line_chart(
                 x=df[x_col].to_list(),
                 y=y.tolist(),
                 mode="lines",
-                line=dict(color=run_color(i), width=2),
+                line=dict(color=color, width=2),
             )
         )
     _layout(
@@ -215,6 +230,7 @@ def density_chart(
     for i, (label, df) in enumerate(data_list):
         if df is None or len(df) == 0:
             continue
+        color = run_color_for_label(label, i)
         x = df[x_col].to_list()
         y = np.array(df[y_col].to_list(), dtype=float)
         if (percent_mode or normalize) and y.sum() > 0:
@@ -225,11 +241,11 @@ def density_chart(
                 x=x,
                 y=y.tolist(),
                 mode="lines",
-                line=dict(color=run_color(i), width=2),
+                line=dict(color=color, width=2),
                 fill="tozeroy",
                 fillcolor=(
-                    run_color(i).replace(")", ",0.1)").replace("rgb", "rgba")
-                    if "rgb" in run_color(i)
+                    color.replace(")", ",0.1)").replace("rgb", "rgba")
+                    if "rgb" in color
                     else None
                 ),
             )
@@ -260,6 +276,7 @@ def scatter_chart(
     for i, (label, df) in enumerate(data_list):
         if df is None or len(df) == 0:
             continue
+        color = run_color_for_label(label, i)
 
         x = df[x_col].to_list()
         y = df[y_col].to_list()
@@ -276,7 +293,7 @@ def scatter_chart(
                 y=y,
                 mode="markers",
                 marker=dict(
-                    color=run_color(i),
+                    color=color,
                     size=8,
                     line=dict(width=0.4),
                 ),
@@ -313,7 +330,7 @@ def kpi_box(
 
     items = []
     for i, (run_label, val) in enumerate(values):
-        color = run_color(i)
+        color = run_color_for_label(run_label, i)
         mini = int((float(val) / max_v) * 100)
         items.append(
             pn.pane.HTML(

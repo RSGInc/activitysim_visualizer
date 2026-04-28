@@ -11,6 +11,7 @@ from dashboard.components import (
     build_run_legend_entries,
     set_percent_mode,
     set_run_colors,
+    set_run_label_order,
 )
 from dashboard.export.context import ExportBuildContext
 from dashboard.export.protocols import validate_export_page
@@ -63,6 +64,7 @@ def build_export_artifacts(
         prepared_run_provider=build_export_prepared_run_provider(runs, config),
     )
     chrome_state = context.build_dashboard_state()
+    set_run_label_order(chrome_state.run_labels)
     state_payloads: dict[str, dict[str, Any]] = {}
     diagnostics_by_state: dict[str, Any] = {}
 

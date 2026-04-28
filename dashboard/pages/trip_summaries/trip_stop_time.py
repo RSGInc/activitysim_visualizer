@@ -38,10 +38,26 @@ def purpose_mapping(raw_purposes: list[str]) -> tuple[list[str], dict[str, str]]
     return list(mapping), mapping
 
 
+def _time_label(timebin: int, maxbin: int) -> str:
+    step = 30 if maxbin == 48 else 60
+    total_minutes = ((int(timebin) - 1) * step + 3 * 60) % (24 * 60)
+    hh = total_minutes // 60
+    mm = total_minutes % 60
+    return f"{hh:02d}:{mm:02d}"
+
+
+def _max_timebin(data_list: list[tuple[str, pl.DataFrame]]) -> int:
+    for _, df in _nonempty(data_list):
+        if "time_bin" in df.columns:
+            return int(df["time_bin"].max())
+    return 48
+
+
 def _profile(
     df: pl.DataFrame,
     val_col: str,
     purpose: str,
+    maxbin: int,
 ) -> pl.DataFrame:
     return (
         df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
@@ -51,6 +67,14 @@ def _profile(
             pl.col(val_col),
         )
         .sort("time_bin")
+        .with_columns(
+            pl.col("time_bin")
+            .map_elements(
+                lambda tb: _time_label(int(tb), maxbin),
+                return_dtype=pl.Utf8,
+            )
+            .alias("clock_time")
+        )
     )
 
 
@@ -58,12 +82,17 @@ def trip_stop_time_chart_data(
     data_list: list[tuple[str, pl.DataFrame]],
     tour_purpose: str,
 ) -> tuple[list[tuple[str, pl.DataFrame]], list[tuple[str, pl.DataFrame]]]:
+    maxbin = _max_timebin(data_list)
     trip_data = []
     stop_data = []
 
     for label, df in _nonempty(data_list):
-        trip_data.append((label, _profile(df, "departure_trip_count", tour_purpose)))
-        stop_data.append((label, _profile(df, "departure_stop_count", tour_purpose)))
+        trip_data.append(
+            (label, _profile(df, "departure_trip_count", tour_purpose, maxbin))
+        )
+        stop_data.append(
+            (label, _profile(df, "departure_stop_count", tour_purpose, maxbin))
+        )
 
     return trip_data, stop_data
 
@@ -143,20 +172,20 @@ class TripStopTimePage(DashboardPage):
 
         trip_chart = density_chart(
             trip_data,
-            x_col="time_bin",
+            x_col="clock_time",
             y_col="departure_trip_count",
             title=f"Trip Departure Time Distribution - {tour_purpose}",
-            xaxis_title="Time of Day",
+            xaxis_title="Clock Time (start at 03:00)",
             normalize=False,
             as_percent=self.as_percent,
         )
 
         stop_chart = density_chart(
             stop_data,
-            x_col="time_bin",
+            x_col="clock_time",
             y_col="departure_stop_count",
             title=f"Stop Departure Time Distribution - {tour_purpose}",
-            xaxis_title="Time of Day",
+            xaxis_title="Clock Time (start at 03:00)",
             normalize=False,
             as_percent=self.as_percent,
         )

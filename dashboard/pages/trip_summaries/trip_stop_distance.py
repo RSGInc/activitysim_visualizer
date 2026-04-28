@@ -20,7 +20,7 @@ def _nonempty(
 def purpose_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
     first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
     if first_df is None or "tour_purpose" not in first_df.columns:
-        return ["All"]
+        return ["Total"]
 
     vals = (
         first_df.select("tour_purpose")
@@ -30,7 +30,29 @@ def purpose_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
         .cast(pl.Utf8)
         .to_list()
     )
-    return ["All"] + sorted(v for v in vals if v != "All")
+    options = []
+    if "all_tour_purposes" in vals:
+        options.append("Total")
+    options.extend(
+        sorted(
+            v
+            for v in vals
+            if v not in {"All", "Total", "all_tour_purposes"}
+        )
+    )
+    return options or ["Total"]
+
+
+def _raw_tour_purpose(display_value: str) -> str:
+    return "all_tour_purposes" if display_value == "Total" else display_value
+
+
+def _distance_sort_expr(column: str) -> pl.Expr:
+    return (
+        pl.when(pl.col(column).cast(pl.Utf8) == "40+")
+        .then(999)
+        .otherwise(pl.col(column).cast(pl.Int64, strict=False))
+    )
 
 
 def distance_chart_data(
@@ -43,9 +65,7 @@ def distance_chart_data(
 
     for label, df in _nonempty(data_list):
         df = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
-
-        if tour_purpose != "All":
-            df = df.filter(pl.col("tour_purpose") == tour_purpose)
+        df = df.filter(pl.col("tour_purpose") == tour_purpose)
 
         out.append(
             (
@@ -53,7 +73,10 @@ def distance_chart_data(
                 df.select(
                     pl.col(x_col).alias("distance_bin"),
                     pl.col(y_col).alias("freq"),
-                ).sort("distance_bin"),
+                )
+                .with_columns(_distance_sort_expr("distance_bin").alias("_sort_distance"))
+                .sort("_sort_distance")
+                .drop("_sort_distance"),
             )
         )
 
@@ -111,13 +134,14 @@ class TripStopDistancePage(DashboardPage):
         if self.tour_purpose_sel.value not in purpose_opts:
             self.tour_purpose_sel.value = purpose_opts[0]
         tour_purpose = self.tour_purpose_sel.value
+        raw_tour_purpose = _raw_tour_purpose(tour_purpose)
 
         trip_distance_data = self.get_filtered_view(
             "trip_distance",
-            tour_purpose,
+            raw_tour_purpose,
             factory=lambda: distance_chart_data(
                 trip_dist_list,
-                tour_purpose,
+                raw_tour_purpose,
                 x_col="distance_bin",
                 y_col="trip_count",
             ),
@@ -125,10 +149,10 @@ class TripStopDistancePage(DashboardPage):
 
         stop_ood_data = self.get_filtered_view(
             "stop_out_of_direction_distance",
-            tour_purpose,
+            raw_tour_purpose,
             factory=lambda: distance_chart_data(
                 stop_ood_list,
-                tour_purpose,
+                raw_tour_purpose,
                 x_col="distance_bin",
                 y_col="stop_count",
             ),

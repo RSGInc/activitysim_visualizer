@@ -41,7 +41,14 @@ def stop_purpose_chart_data(
     for label, df in _nonempty(data_list):
         df = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
 
-        if tour_purpose != "All":
+        if tour_purpose == "All":
+            df = (
+                df.group_by("stop_destination_purpose")
+                .agg(stop_count=pl.col("stop_count").sum())
+                .with_columns(pl.col("stop_destination_purpose").cast(pl.Utf8))
+                .sort("stop_destination_purpose")
+            )
+        else:
             df = df.filter(pl.col("tour_purpose") == tour_purpose)
 
         out.append((label, df))

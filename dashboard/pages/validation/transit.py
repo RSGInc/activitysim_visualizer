@@ -50,6 +50,21 @@ def _filter_transit(
             if access_mode != "All":
                 df = df.filter(pl.col("access_mode") == access_mode)
 
+        if {"operator", "boardings"}.issubset(df.columns):
+            df = (
+                df.group_by("operator")
+                .agg(boardings=pl.col("boardings").sum())
+                .with_columns(pl.col("operator").cast(pl.Utf8))
+                .sort("operator")
+            )
+        elif {"operator", "transfer_rate"}.issubset(df.columns):
+            df = (
+                df.group_by("operator")
+                .agg(transfer_rate=pl.col("transfer_rate").mean())
+                .with_columns(pl.col("operator").cast(pl.Utf8))
+                .sort("operator")
+            )
+
         out.append((label, df))
 
     return out
@@ -101,8 +116,16 @@ class TransitValidationPage(DashboardPage):
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        boarding_list = self.state.get_summary_table_set(
+            "transit_boardings_by_operator_and_technology",
+            self.weighting_key,
+        )
+        transfer_list = self.state.get_summary_table_set(
+            "transit_transfer_rate",
+            self.weighting_key,
+        )
+
+        if boarding_list is None and transfer_list is None:
             self._body.objects = [
                 self.data_not_available_card(
                     detail="This page only renders from precomputed summary tables.",
@@ -111,15 +134,12 @@ class TransitValidationPage(DashboardPage):
             ]
             return
 
-        boarding_list = summaries["transit_boardings_by_operator_and_technology"]
-        transfer_list = summaries["transit_transfer_rate"]
-
-        tech_opts = _options(boarding_list, "technology")
+        tech_opts = _options(boarding_list or transfer_list or [], "technology")
         self.technology_sel.options = tech_opts
         if self.technology_sel.value not in tech_opts:
             self.technology_sel.value = tech_opts[0]
 
-        access_opts = _options(transfer_list, "access_mode")
+        access_opts = _options(transfer_list or [], "access_mode")
         self.access_mode_sel.options = access_opts
         if self.access_mode_sel.value not in access_opts:
             self.access_mode_sel.value = access_opts[0]
@@ -127,45 +147,55 @@ class TransitValidationPage(DashboardPage):
         technology = self.technology_sel.value
         access_mode = self.access_mode_sel.value
 
-        boarding_data = self.get_filtered_view(
-            "transit_boardings",
-            technology,
-            factory=lambda: _filter_transit(
-                boarding_list,
+        if boarding_list is not None:
+            boarding_data = self.get_filtered_view(
+                "transit_boardings",
                 technology,
-            ),
-        )
+                factory=lambda: _filter_transit(
+                    boarding_list,
+                    technology,
+                ),
+            )
+            boarding_chart: pn.viewable.Viewable = bar_chart(
+                boarding_data,
+                x_col="operator",
+                y_col="boardings",
+                title=f"Total Transit Boardings by Operator - {technology}",
+                xaxis_title="Operator",
+                yaxis_title="Transit Boardings",
+                pct_col="pct",
+                as_percent=self.as_percent,
+            )
+        else:
+            boarding_chart = self.data_not_available_card(
+                detail="Transit boarding summaries are unavailable.",
+                missing_items=["transit_boardings_by_operator_and_technology"],
+            )
 
-        transfer_data = self.get_filtered_view(
-            "transit_transfer_rate",
-            (technology, access_mode),
-            factory=lambda: _filter_transit(
-                transfer_list,
-                technology,
-                access_mode,
-            ),
-        )
-
-        boarding_chart = bar_chart(
-            boarding_data,
-            x_col="operator",
-            y_col="boarding_count",
-            title=f"Total Transit Boardings by Operator - {technology}",
-            xaxis_title="Operator",
-            yaxis_title="Transit Boardings",
-            pct_col="pct",
-            as_percent=self.as_percent,
-        )
-
-        transfer_chart = bar_chart(
-            transfer_data,
-            x_col="operator",
-            y_col="transfer_rate",
-            title=f"Transit Transfer Rate - {technology}, {access_mode}",
-            xaxis_title="Operator",
-            yaxis_title="Boardings per Linked Trip",
-            as_percent=False,
-        )
+        if transfer_list is not None:
+            transfer_data = self.get_filtered_view(
+                "transit_transfer_rate",
+                (technology, access_mode),
+                factory=lambda: _filter_transit(
+                    transfer_list,
+                    technology,
+                    access_mode,
+                ),
+            )
+            transfer_chart: pn.viewable.Viewable = bar_chart(
+                transfer_data,
+                x_col="operator",
+                y_col="transfer_rate",
+                title=f"Transit Transfer Rate - {technology}, {access_mode}",
+                xaxis_title="Operator",
+                yaxis_title="Boardings per Linked Trip",
+                as_percent=False,
+            )
+        else:
+            transfer_chart = self.data_not_available_card(
+                detail="Transit transfer summaries are unavailable.",
+                missing_items=["transit_transfer_rate"],
+            )
 
         self._body.objects = [
             pn.Row(

@@ -12,12 +12,19 @@ from runtime.config import Config
 
 
 GEO_LEVEL_COL = "geography_level"
+GEO_TYPE_COL = "geography_type"
 
 
 def _nonempty(
     data_list: list[tuple[str, pl.DataFrame]],
 ) -> list[tuple[str, pl.DataFrame]]:
     return [(label, df) for label, df in data_list if df is not None and len(df) > 0]
+
+
+def _normalize_geography_columns(df: pl.DataFrame) -> pl.DataFrame:
+    if GEO_TYPE_COL in df.columns and GEO_LEVEL_COL not in df.columns:
+        return df.rename({GEO_TYPE_COL: GEO_LEVEL_COL})
+    return df
 
 
 def geo_level_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
@@ -57,7 +64,12 @@ class ParkingLocationPage(DashboardPage):
         super().__init__("Parking Location", state, config)
 
         parking_data = self.state.get_summary_table_set("parking_locations", "weighted")
-        geo_opts = geo_level_options(parking_data or [])
+        normalized = (
+            [(label, _normalize_geography_columns(df)) for label, df in parking_data]
+            if parking_data
+            else []
+        )
+        geo_opts = geo_level_options(normalized)
 
         self.geo_level_sel = pn.widgets.Select(
             name="Geography Level",
@@ -92,7 +104,10 @@ class ParkingLocationPage(DashboardPage):
             ]
             return
 
-        parking_list = summaries["parking_locations"]
+        parking_list = [
+            (label, _normalize_geography_columns(df))
+            for label, df in summaries["parking_locations"]
+        ]
 
         geo_opts = geo_level_options(parking_list)
         self.geo_level_sel.options = geo_opts

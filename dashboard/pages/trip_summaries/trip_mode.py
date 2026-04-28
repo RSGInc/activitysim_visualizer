@@ -29,7 +29,20 @@ def _options(
     vals = (
         first_df.select(col).drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
     )
-    return [total_label] + sorted(v for v in vals if v != total_label)
+    aggregate_label = f"all_{col}s"
+    options = [total_label]
+    options.extend(
+        sorted(
+            v for v in vals if v not in {total_label, aggregate_label}
+        )
+    )
+    return options
+
+
+def _raw_selector_value(column: str, value: str) -> str:
+    if value == "All":
+        return f"all_{column}s"
+    return value
 
 
 def trip_mode_chart_data(
@@ -45,10 +58,8 @@ def trip_mode_chart_data(
             pl.col("tour_mode").cast(pl.Utf8),
         )
 
-        if tour_purpose != "All":
-            df = df.filter(pl.col("tour_purpose") == tour_purpose)
-        if tour_mode != "All":
-            df = df.filter(pl.col("tour_mode") == tour_mode)
+        df = df.filter(pl.col("tour_purpose") == tour_purpose)
+        df = df.filter(pl.col("tour_mode") == tour_mode)
 
         out.append((label, df))
 
@@ -123,14 +134,16 @@ class TripModePage(DashboardPage):
 
         tour_purpose = self.tour_purpose_sel.value
         tour_mode = self.tour_mode_sel.value
+        raw_tour_purpose = _raw_selector_value("tour_purpose", tour_purpose)
+        raw_tour_mode = _raw_selector_value("tour_mode", tour_mode)
 
         trip_mode_data = self.get_filtered_view(
             "trip_mode",
-            (tour_purpose, tour_mode),
+            (raw_tour_purpose, raw_tour_mode),
             factory=lambda: trip_mode_chart_data(
                 trip_mode_list,
-                tour_purpose,
-                tour_mode,
+                raw_tour_purpose,
+                raw_tour_mode,
             ),
         )
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, data_table
+from dashboard.components import bar_chart, kpi_box
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 from runtime.config import Config
@@ -27,6 +27,22 @@ def _cast_category(
     ]
 
 
+def _av_kpi_values(
+    data_list: list[tuple[str, pl.DataFrame]],
+) -> list[tuple[str, float]]:
+    values: list[tuple[str, float]] = []
+    for label, df in _nonempty(data_list):
+        if "household_with_autonomous_vehicle_count" not in df.columns or len(df) == 0:
+            continue
+        values.append(
+            (
+                label,
+                float(df["household_with_autonomous_vehicle_count"][0]),
+            )
+        )
+    return values
+
+
 class VehicleOwnershipTypePage(DashboardPage):
     def __init__(self, state, config: Config) -> None:
         super().__init__("Vehicle Ownership and Type", state, config)
@@ -42,8 +58,37 @@ class VehicleOwnershipTypePage(DashboardPage):
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        auto_ownership = self.state.get_summary_table_set(
+            "auto_ownership_distribution",
+            self.weighting_key,
+        )
+        av_ownership = self.state.get_summary_table_set(
+            "autonomous_vehicle_ownership_totals",
+            self.weighting_key,
+        )
+        vehicle_age = self.state.get_summary_table_set(
+            "vehicle_age_distribution",
+            self.weighting_key,
+        )
+        vehicle_fuel = self.state.get_summary_table_set(
+            "vehicle_fuel_type_distribution",
+            self.weighting_key,
+        )
+        vehicle_body = self.state.get_summary_table_set(
+            "vehicle_body_type_distribution",
+            self.weighting_key,
+        )
+
+        if not any(
+            summary is not None
+            for summary in (
+                auto_ownership,
+                av_ownership,
+                vehicle_age,
+                vehicle_fuel,
+                vehicle_body,
+            )
+        ):
             self._body.objects = [
                 self.data_not_available_card(
                     detail="This page only renders from precomputed summary tables.",
@@ -52,81 +97,124 @@ class VehicleOwnershipTypePage(DashboardPage):
             ]
             return
 
-        auto_own_list = _cast_category(
-            summaries["auto_ownership_distribution"],
-            "household_vehicle_count",
-        )
-        av_own_list = _nonempty(summaries["autonomous_vehicle_ownership_totals"])
-        vehicle_age_list = _cast_category(
-            summaries["vehicle_age_distribution"],
-            "vehicle_age",
-        )
-        vehicle_fuel_list = _cast_category(
-            summaries["vehicle_fuel_type_distribution"],
-            "vehicle_fuel_type",
-        )
-        vehicle_body_list = _cast_category(
-            summaries["vehicle_body_type_distribution"],
-            "vehicle_body_type",
-        )
+        top_row: list[pn.viewable.Viewable] = []
+        if auto_ownership is not None:
+            auto_own_list = _cast_category(
+                auto_ownership,
+                "household_vehicle_count",
+            )
+            top_row.append(
+                bar_chart(
+                    auto_own_list,
+                    x_col="household_vehicle_count",
+                    y_col="household_count",
+                    title="Auto Ownership by Household Size",
+                    xaxis_title="Household Vehicles",
+                    yaxis_title="Households",
+                    pct_col="pct",
+                    as_percent=self.as_percent,
+                )
+            )
+        else:
+            top_row.append(
+                self.data_not_available_card(
+                    detail="The auto ownership summary is unavailable.",
+                    missing_items=["auto_ownership_distribution"],
+                )
+            )
 
-        auto_ownership_chart = bar_chart(
-            auto_own_list,
-            x_col="household_vehicle_count",
-            y_col="household_count",
-            title="Auto Ownership by Household Size",
-            xaxis_title="Household Vehicles",
-            yaxis_title="Households",
-            pct_col="pct",
-            as_percent=self.as_percent,
-        )
+        if av_ownership is not None:
+            av_values = _av_kpi_values(av_ownership)
+            if av_values:
+                top_row.append(
+                    kpi_box(
+                        "Autonomous Vehicle Ownership",
+                        av_values,
+                        format_fn=lambda value: f"{value:,.0f}",
+                    )
+                )
+            else:
+                top_row.append(
+                    self.data_not_available_card(
+                        detail="The autonomous vehicle ownership summary is empty.",
+                        missing_items=["autonomous_vehicle_ownership_totals"],
+                    )
+                )
+        else:
+            top_row.append(
+                self.data_not_available_card(
+                    detail="The autonomous vehicle ownership summary is unavailable.",
+                    missing_items=["autonomous_vehicle_ownership_totals"],
+                )
+            )
 
-        av_kpi = data_table(
-            av_own_list,
-            "Autonomous Vehicle Ownership",
-        )
+        vehicle_views: list[pn.viewable.Viewable] = []
+        if vehicle_age is not None:
+            vehicle_views.append(
+                bar_chart(
+                    _cast_category(vehicle_age, "vehicle_age"),
+                    x_col="vehicle_age",
+                    y_col="vehicle_count",
+                    title="Vehicle Age",
+                    xaxis_title="Vehicle Age",
+                    yaxis_title="Vehicles",
+                    pct_col="pct",
+                    as_percent=self.as_percent,
+                )
+            )
+        else:
+            vehicle_views.append(
+                self.data_not_available_card(
+                    detail="The vehicle age summary is unavailable.",
+                    missing_items=["vehicle_age_distribution"],
+                )
+            )
 
-        vehicle_age_chart = bar_chart(
-            vehicle_age_list,
-            x_col="vehicle_age",
-            y_col="vehicle_count",
-            title="Vehicle Age",
-            xaxis_title="Vehicle Age",
-            yaxis_title="Vehicles",
-            pct_col="pct",
-            as_percent=self.as_percent,
-        )
+        if vehicle_fuel is not None:
+            vehicle_views.append(
+                bar_chart(
+                    _cast_category(vehicle_fuel, "vehicle_fuel_type"),
+                    x_col="vehicle_fuel_type",
+                    y_col="vehicle_count",
+                    title="Vehicle Fuel Type",
+                    xaxis_title="Fuel Type",
+                    yaxis_title="Vehicles",
+                    pct_col="pct",
+                    as_percent=self.as_percent,
+                )
+            )
+        else:
+            vehicle_views.append(
+                self.data_not_available_card(
+                    detail="The vehicle fuel summary is unavailable.",
+                    missing_items=["vehicle_fuel_type_distribution"],
+                )
+            )
 
-        vehicle_fuel_chart = bar_chart(
-            vehicle_fuel_list,
-            x_col="vehicle_fuel_type",
-            y_col="vehicle_count",
-            title="Vehicle Fuel Type",
-            xaxis_title="Fuel Type",
-            yaxis_title="Vehicles",
-            pct_col="pct",
-            as_percent=self.as_percent,
-        )
-
-        vehicle_body_chart = bar_chart(
-            vehicle_body_list,
-            x_col="vehicle_body_type",
-            y_col="vehicle_count",
-            title="Vehicle Body Type",
-            xaxis_title="Body Type",
-            yaxis_title="Vehicles",
-            pct_col="pct",
-            as_percent=self.as_percent,
-        )
+        if vehicle_body is not None:
+            vehicle_views.append(
+                bar_chart(
+                    _cast_category(vehicle_body, "vehicle_body_type"),
+                    x_col="vehicle_body_type",
+                    y_col="vehicle_count",
+                    title="Vehicle Body Type",
+                    xaxis_title="Body Type",
+                    yaxis_title="Vehicles",
+                    pct_col="pct",
+                    as_percent=self.as_percent,
+                )
+            )
+        else:
+            vehicle_views.append(
+                self.data_not_available_card(
+                    detail="The vehicle body summary is unavailable.",
+                    missing_items=["vehicle_body_type_distribution"],
+                )
+            )
 
         self._body.objects = [
-            pn.Row(auto_ownership_chart, av_kpi, sizing_mode="stretch_width"),
-            pn.Row(
-                vehicle_age_chart,
-                vehicle_fuel_chart,
-                vehicle_body_chart,
-                sizing_mode="stretch_width",
-            ),
+            pn.Row(*top_row, sizing_mode="stretch_width"),
+            pn.Row(*vehicle_views, sizing_mode="stretch_width"),
         ]
 
 
