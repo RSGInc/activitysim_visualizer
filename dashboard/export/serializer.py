@@ -40,6 +40,7 @@ def serialize_viewable(
         return {
             "kind": "container",
             "layout": "column",
+            "child_count": len(obj.objects),
             "children": [
                 serialize_viewable(
                     child,
@@ -53,6 +54,7 @@ def serialize_viewable(
         return {
             "kind": "container",
             "layout": "row",
+            "child_count": len(obj.objects),
             "children": [
                 serialize_viewable(
                     child,
@@ -78,7 +80,10 @@ def serialize_viewable(
             ],
         }
     if isinstance(obj, pn.pane.Plotly):
-        return {"kind": "plotly", "figure": obj.object.to_plotly_json()}
+        figure = obj.object.to_plotly_json()
+        layout = figure.get("layout", {}) if isinstance(figure, dict) else {}
+        height = layout.get("height") if isinstance(layout, dict) else None
+        return {"kind": "plotly", "figure": figure, "height": height}
     if isinstance(obj, pn.widgets.Tabulator):
         frame = obj.value
         return {
@@ -134,7 +139,9 @@ def serialize_viewable(
     if isinstance(obj, pn.pane.HTML):
         return {"kind": "html", "html": obj.object or ""}
     if isinstance(obj, pn.Spacer):
-        return {"kind": "spacer"}
+        height = getattr(obj, "height", None)
+        width = getattr(obj, "width", None)
+        return {"kind": "spacer", "height": height, "width": width}
     if isinstance(obj, str):
         return {"kind": "html", "html": html.escape(obj)}
     return {

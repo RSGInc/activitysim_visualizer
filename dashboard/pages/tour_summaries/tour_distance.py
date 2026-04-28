@@ -38,9 +38,7 @@ def _options(
             options.append("Total")
         options.extend(
             sorted(
-                v
-                for v in vals
-                if v not in {total_label, "Total", "all_tour_purposes"}
+                v for v in vals if v not in {total_label, "Total", "all_tour_purposes"}
             )
         )
         return options or ["Total"]
@@ -75,7 +73,9 @@ def tour_distance_chart_data(
                     pl.col("distance_bin"),
                     pl.col("tour_count"),
                 )
-                .with_columns(_distance_sort_expr("distance_bin").alias("_sort_distance"))
+                .with_columns(
+                    _distance_sort_expr("distance_bin").alias("_sort_distance")
+                )
                 .sort("_sort_distance")
                 .drop("_sort_distance"),
             )
@@ -254,7 +254,6 @@ class TourDistancePage(DashboardPage):
                 self.tour_purpose_sel,
             ),
             distance_chart,
-            data_table(distance_data, "Tour Distance"),
         ]
 
         self._average_section.objects = [

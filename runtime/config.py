@@ -507,6 +507,141 @@ def _digest_payload(payload: dict[str, Any]) -> str:
     ).hexdigest()
 
 
+@dataclass(frozen=True)
+class StudentTypePersonSelector:
+    """Optional person-side selector for one configured student type."""
+
+    is_university: bool | None = None
+    school_segment: tuple[str, ...] = ()
+    SCHG: tuple[str, ...] = ()
+    pstudent: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class StudentTypeConfig:
+    """Prepared student-type configuration shared by prepare and summaries."""
+
+    label: str
+    land_use_columns: tuple[str, ...]
+    person: StudentTypePersonSelector | None = None
+
+
+def _student_type_defaults_to_university(
+    label: str,
+    land_use_columns: tuple[str, ...],
+) -> bool:
+    text = f"{label} {' '.join(land_use_columns)}".lower()
+    return "univ" in text or "college" in text
+
+
+def _normalize_student_selector_values(
+    raw_value,
+    *,
+    field_name: str,
+) -> tuple[str, ...]:
+    if isinstance(raw_value, (str, int, float, bool)):
+        values = [raw_value]
+    elif isinstance(raw_value, list):
+        values = raw_value
+    else:
+        raise ValueError(f"{field_name} must be a scalar or list.")
+
+    normalized: list[str] = []
+    for value in values:
+        token = str(value).strip()
+        if not token or token in normalized:
+            continue
+        normalized.append(token)
+    if not normalized:
+        raise ValueError(f"{field_name} resolved to no values.")
+    return tuple(normalized)
+
+
+def _normalize_student_types(
+    raw_value,
+    *,
+    field_name: str,
+) -> list[StudentTypeConfig]:
+    if raw_value is None:
+        return []
+    if not isinstance(raw_value, list):
+        raise ValueError(f"{field_name} must be a list when provided.")
+
+    normalized: list[StudentTypeConfig] = []
+    for idx, raw_entry in enumerate(raw_value):
+        entry_name = f"{field_name}[{idx}]"
+        if not isinstance(raw_entry, dict):
+            raise ValueError(f"{entry_name} must be a mapping.")
+
+        label = str(raw_entry.get("label", "")).strip()
+        if not label:
+            raise ValueError(f"{entry_name}.label is required.")
+
+        land_use_columns = _normalize_column_aliases(
+            raw_entry.get("land_use_columns"),
+            field_name=f"{entry_name}.land_use_columns",
+            default=[],
+        )
+
+        person_raw = raw_entry.get("person")
+        person_selector: StudentTypePersonSelector | None = None
+        if person_raw is not None:
+            if not isinstance(person_raw, dict):
+                raise ValueError(f"{entry_name}.person must be a mapping.")
+            allowed_keys = {"is_university", "school_segment", "SCHG", "pstudent"}
+            unknown_keys = sorted(set(person_raw) - allowed_keys)
+            if unknown_keys:
+                raise ValueError(
+                    f"{entry_name}.person contains unsupported keys: "
+                    + ", ".join(unknown_keys)
+                )
+
+            is_university = person_raw.get("is_university")
+            if is_university is not None and not isinstance(is_university, bool):
+                raise ValueError(
+                    f"{entry_name}.person.is_university must be true or false."
+                )
+            person_selector = StudentTypePersonSelector(
+                is_university=is_university,
+                school_segment=_normalize_student_selector_values(
+                    person_raw["school_segment"],
+                    field_name=f"{entry_name}.person.school_segment",
+                )
+                if "school_segment" in person_raw
+                else (),
+                SCHG=_normalize_student_selector_values(
+                    person_raw["SCHG"],
+                    field_name=f"{entry_name}.person.SCHG",
+                )
+                if "SCHG" in person_raw
+                else (),
+                pstudent=_normalize_student_selector_values(
+                    person_raw["pstudent"],
+                    field_name=f"{entry_name}.person.pstudent",
+                )
+                if "pstudent" in person_raw
+                else (),
+            )
+
+        normalized.append(
+            StudentTypeConfig(
+                label=label,
+                land_use_columns=tuple(land_use_columns),
+                person=person_selector,
+            )
+        )
+
+    if len(normalized) > 2:
+        for idx, entry in enumerate(normalized):
+            if entry.person is None and not _student_type_defaults_to_university(
+                entry.label, entry.land_use_columns
+            ):
+                raise ValueError(
+                    f"{field_name}[{idx}].person is required for custom multi-school segmentation."
+                )
+    return normalized
+
+
 @dataclass
 class Config:
     """Normalized runtime configuration shared by summarize and dashboard code.
@@ -553,6 +688,7 @@ class Config:
     col_trip_depart: list[str]
     col_total_employment: list[str]
     person_type_labels: Optional[dict[str, str]]
+    student_types: list[StudentTypeConfig]
 
     use_maz: bool
     maz_col: str
@@ -778,6 +914,10 @@ class Config:
         person_type_labels = {
             str(k): str(v) for k, v in raw.get("person_types", {}).items()
         } or None
+        student_types = _normalize_student_types(
+            raw.get("student_types"),
+            field_name="student_types",
+        )
 
         config = cls(
             config_path=str(config_path),
@@ -868,9 +1008,16 @@ class Config:
             col_total_employment=_normalize_column_aliases(
                 cols.get("total_employment"),
                 field_name="columns.total_employment",
-                default=["EMPLOY_TOT", "TOTEMP", "total_employment", "employment"],
+                default=[
+                    "EMP_TOTAL",
+                    "EMPLOY_TOT",
+                    "TOTEMP",
+                    "total_employment",
+                    "employment",
+                ],
             ),
             person_type_labels=person_type_labels,
+            student_types=student_types,
             use_maz=bool(zones.get("use_maz", True)),
             maz_col=zones.get("maz_col", "zone_id"),
             taz_col=zones.get("taz_col", "TAZ"),
@@ -931,6 +1078,23 @@ class Config:
                 "trip_depart": list(self.col_trip_depart),
                 "total_employment": list(self.col_total_employment),
             },
+            "student_types": [
+                {
+                    "label": entry.label,
+                    "land_use_columns": list(entry.land_use_columns),
+                    "person": (
+                        {
+                            "is_university": entry.person.is_university,
+                            "school_segment": list(entry.person.school_segment),
+                            "SCHG": list(entry.person.SCHG),
+                            "pstudent": list(entry.person.pstudent),
+                        }
+                        if entry.person is not None
+                        else None
+                    ),
+                }
+                for entry in self.student_types
+            ],
             "zones": {
                 "use_maz": self.use_maz,
                 "maz_col": self.maz_col,
@@ -986,6 +1150,23 @@ class Config:
                 if self.person_type_labels
                 else None
             ),
+            "student_types": [
+                {
+                    "label": entry.label,
+                    "land_use_columns": list(entry.land_use_columns),
+                    "person": (
+                        {
+                            "is_university": entry.person.is_university,
+                            "school_segment": list(entry.person.school_segment),
+                            "SCHG": list(entry.person.SCHG),
+                            "pstudent": list(entry.person.pstudent),
+                        }
+                        if entry.person is not None
+                        else None
+                    ),
+                }
+                for entry in self.student_types
+            ],
             "zones": {
                 "use_maz": self.use_maz,
                 "maz_col": self.maz_col,

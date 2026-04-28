@@ -37,9 +37,7 @@ def _options(
             options.append("Total")
         options.extend(
             sorted(
-                v
-                for v in vals
-                if v not in {total_label, "Total", "all_tour_purposes"}
+                v for v in vals if v not in {total_label, "Total", "all_tour_purposes"}
             )
         )
         return options or ["Total"]
@@ -52,20 +50,38 @@ def _filter_col(
     value: str,
     total_label: str = "All",
 ) -> list[tuple[str, pl.DataFrame]]:
+    def _sort_filtered(df: pl.DataFrame) -> pl.DataFrame:
+        if "age" in df.columns:
+            return (
+                df.with_columns(
+                    pl.when(pl.col("age").cast(pl.Utf8) == "20+")
+                    .then(999)
+                    .otherwise(pl.col("age").cast(pl.Int64, strict=False))
+                    .alias("_sort_age")
+                )
+                .sort("_sort_age")
+                .drop("_sort_age")
+            )
+        return df
+
     out = []
     for label, df in _nonempty(data_list):
         if col in df.columns:
             df = df.with_columns(pl.col(col).cast(pl.Utf8))
             if value == total_label:
                 if "vehicle_count" in df.columns:
-                    group_cols = [name for name in df.columns if name not in {col, "vehicle_count"}]
+                    group_cols = [
+                        name
+                        for name in df.columns
+                        if name not in {col, "vehicle_count"}
+                    ]
                     if len(group_cols) == 1:
                         group_col = group_cols[0]
                         df = (
                             df.group_by(group_col)
                             .agg(vehicle_count=pl.col("vehicle_count").sum())
-                            .sort(group_col)
                         )
+                        df = _sort_filtered(df)
                 else:
                     value_cols = [name for name in df.columns if name != col]
                     if len(value_cols) == 1:
@@ -77,6 +93,7 @@ def _filter_col(
                         )
             else:
                 df = df.filter(pl.col(col) == value)
+                df = _sort_filtered(df)
         out.append((label, df))
     return out
 
@@ -296,10 +313,10 @@ class TourModePage(DashboardPage):
 
 
 PAGE = DashboardPageDefinition(
-    page_id="tr_mode",
-    title="Old Tour Mode",
+    page_id="tour_mode",
+    title="Tour Mode",
     group_id="tour_summaries",
-    child_id="tr_mode",
+    child_id="tour_mode",
     order=42,
     controller_cls=TourModePage,
     selectors=(

@@ -231,6 +231,38 @@ def test_prepared_cache_invalidates_when_prepare_affecting_config_changes(
         )
 
 
+def test_prepared_cache_invalidates_when_student_type_config_changes(
+    tmp_path: Path,
+) -> None:
+    config_a = _write_config(
+        tmp_path / "a",
+        column_lines=["total_employment: EMP_TOTAL"],
+    )
+    config_b = _write_config(
+        tmp_path / "b",
+        column_lines=["total_employment: EMP_TOTAL"],
+        visualizer_lines=None,
+    )
+    config_path = Path(config_b.config_path)
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8")
+        + "\n"
+        + "\n".join(
+            [
+                "student_types:",
+                "  - label: School",
+                "    land_use_columns: [ENROLLGRADEKto8, ENROLLGRADE9to12]",
+                "  - label: University",
+                "    land_use_columns: [COLLEGEENROLL]",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config_b = Config.from_yaml(config_path)
+
+    assert config_a.prepare_config_digest != config_b.prepare_config_digest
+
+
 def test_prepared_cache_detects_missing_table_file(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
     prepared = _prepared_run(config)

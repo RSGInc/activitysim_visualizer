@@ -16,6 +16,9 @@ from processor.prepare.enrichment.finalize import (
 from processor.prepare.enrichment.households_persons import (
     _enrich_households_and_persons,
 )
+from processor.prepare.enrichment.student_enrollment import (
+    _derive_student_enrollment,
+)
 from processor.prepare.enrichment.tours import _enrich_tours
 from processor.prepare.enrichment.trips import _enrich_trips
 from processor.prepare.enrichment.types import _PrepareState
@@ -56,6 +59,7 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     state = _apply_weights(state, config)
     zone_context = _build_zone_context(state, config)
     state = _enrich_households_and_persons(state, config, zone_context)
+    state = _derive_student_enrollment(state, config)
     state = _enrich_tours(state, config, zone_context)
     state = _enrich_trips(state, config, zone_context)
     state = _cast_prepared_tables(state)

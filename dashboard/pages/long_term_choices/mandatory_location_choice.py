@@ -11,6 +11,7 @@ from dashboard.components import (
     control_row_spacer,
     data_table,
     density_chart,
+    scatter_chart,
 )
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
@@ -385,15 +386,20 @@ class MandatoryLocationChoicePage(DashboardPage):
             pn.pane.Markdown("### Location Choice Validation")
         ]
         if workplace_lu is not None:
-            workplace_lu_table = self.get_filtered_view(
+            workplace_lu_data = self.get_filtered_view(
                 "mandatory_workplace_lu",
                 geo_level,
                 factory=lambda: filter_geo_level(workplace_lu, geo_level),
             )
             location_views.append(
-                data_table(
-                    workplace_lu_table,
-                    "Workplace Location vs Land Use Employment",
+                scatter_chart(
+                    workplace_lu_data,
+                    x_col="employment_count",
+                    y_col="worker_count",
+                    title="Workplace Location vs Land Use Employment",
+                    xaxis_title="Land Use Employment",
+                    yaxis_title="Workers",
+                    drop_zero_y=True,
                 )
             )
         else:
@@ -411,7 +417,7 @@ class MandatoryLocationChoicePage(DashboardPage):
             )
         )
         if school_lu is not None:
-            school_lu_table = self.get_filtered_view(
+            school_lu_data = self.get_filtered_view(
                 "mandatory_school_lu",
                 (geo_level, student_type),
                 factory=lambda: school_location_table_data(
@@ -421,9 +427,14 @@ class MandatoryLocationChoicePage(DashboardPage):
                 ),
             )
             location_views.append(
-                data_table(
-                    school_lu_table,
-                    "School Location vs Land Use Enrollment",
+                scatter_chart(
+                    school_lu_data,
+                    x_col="enrollment_count",
+                    y_col="student_count",
+                    title="School Location vs Land Use Enrollment",
+                    xaxis_title="Land Use Enrollment",
+                    yaxis_title="Students",
+                    drop_zero_y=True,
                 )
             )
         else:
@@ -476,7 +487,7 @@ class MandatoryLocationChoicePage(DashboardPage):
 
         flows_views.append(
             pn.Row(
-                commuting_widget,
+                pn.Column(control_row_spacer(), commuting_widget),
                 pn.Column(
                     control_row(
                         pn.pane.Markdown("**Distance Location Type:**"),

@@ -35,6 +35,7 @@ def _cast_persons(per: pl.DataFrame) -> pl.DataFrame:
             "HGEO": pl.Utf8,
             "WGEO": pl.Utf8,
             "is_worker": pl.Utf8,
+            "student_type": pl.Utf8,
             "work_from_home": pl.Utf8,
             "mandatory_tour_frequency": pl.Utf8,
             "distance_to_work": pl.Float64,
@@ -94,11 +95,24 @@ def _cast_trips(trips: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def _cast_land_use(land_use: pl.DataFrame) -> pl.DataFrame:
+    return _cast_if_present(
+        land_use,
+        {
+            "EMPLOYMENT": pl.Float64,
+            "employment_count": pl.Float64,
+            "student_type": pl.Utf8,
+            "enrollment_count": pl.Float64,
+        },
+    )
+
+
 def _cast_prepared_tables(state: _PrepareState) -> _PrepareState:
     state.hh = _cast_households(state.hh)
     state.per = _cast_persons(state.per)
     state.tours = _cast_tours(state.tours)
     state.trips = _cast_trips(state.trips)
+    state.land_use = _cast_land_use(state.land_use)
     return state
 
 

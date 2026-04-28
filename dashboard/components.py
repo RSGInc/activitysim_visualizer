@@ -269,6 +269,7 @@ def scatter_chart(
     xaxis_title: str = "",
     yaxis_title: str = "",
     height: int = 400,
+    drop_zero_y: bool = False,
 ) -> pn.pane.Plotly:
     """Create a scatterplot comparing multiple runs."""
     fig = go.Figure()
@@ -276,6 +277,10 @@ def scatter_chart(
     for i, (label, df) in enumerate(data_list):
         if df is None or len(df) == 0:
             continue
+        if drop_zero_y and y_col in df.columns:
+            df = df.filter(pl.col(y_col).fill_null(0) != 0)
+            if len(df) == 0:
+                continue
         color = run_color_for_label(label, i)
 
         x = df[x_col].to_list()

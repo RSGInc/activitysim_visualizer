@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, data_table
+from dashboard.components import bar_chart, control_row, control_row_spacer, data_table
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
 from runtime.config import Config
@@ -315,10 +315,10 @@ class JointTravelPage(DashboardPage):
         self._joint_tour_detail_section.objects = [
             pn.pane.Markdown("### Joint Tour Characteristics"),
             pn.Row(
-                joint_tours_hhsize_chart,
-                party_size_chart,
+                pn.Column(control_row_spacer(), joint_tours_hhsize_chart),
+                pn.Column(control_row_spacer(), party_size_chart),
                 pn.Column(
-                    pn.Row(
+                    control_row(
                         pn.pane.Markdown("**Party Size:**"),
                         self.party_size_sel,
                     ),
@@ -330,9 +330,9 @@ class JointTravelPage(DashboardPage):
         self._participation_section.objects = [
             pn.pane.Markdown("### Joint Tour Participation"),
             pn.Row(
-                person_participation_chart,
+                pn.Column(control_row_spacer(), person_participation_chart),
                 pn.Column(
-                    pn.Row(
+                    control_row(
                         pn.pane.Markdown("**Household Size:**"),
                         self.hhsize_sel,
                     ),

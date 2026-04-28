@@ -3,6 +3,17 @@
   const dataElement = document.getElementById("activitysim-export-data");
   const app = document.getElementById("app");
   let payload = null;
+  let resizeObserver = null;
+  let resizeTimer = null;
+
+  function debounce(fn, delay) {
+    return () => {
+      if (resizeTimer) {
+        clearTimeout(resizeTimer);
+      }
+      resizeTimer = setTimeout(fn, delay);
+    };
+  }
 
   function schedulePlotResize() {
     if (typeof Plotly === "undefined" || !Plotly.Plots || typeof Plotly.Plots.resize !== "function") {
@@ -23,6 +34,30 @@
       resizePlots();
       setTimeout(resizePlots, 60);
       setTimeout(resizePlots, 180);
+      setTimeout(resizePlots, 320);
+    });
+  }
+
+  const debouncedPlotResize = debounce(schedulePlotResize, 40);
+
+  function initializePlots(root) {
+    if (typeof Plotly === "undefined" || typeof Plotly.react !== "function") {
+      fail("Plotly.react is unavailable in the embedded export runtime.");
+    }
+
+    const scope = root || document;
+    scope.querySelectorAll('.plot-shell[data-plot-pending="true"]').forEach((div) => {
+      const figure = div.__plotFigure || { data: [], layout: {} };
+      delete div.__plotFigure;
+      div.removeAttribute("data-plot-pending");
+      Promise.resolve(
+        Plotly.react(div, figure.data || [], figure.layout || {}, {
+          responsive: true,
+          displayModeBar: false,
+        })
+      ).catch((error) => {
+        renderRuntimeError("Plot rendering failed while loading this export.", error);
+      });
     });
   }
 
@@ -328,6 +363,10 @@
       if (node.tabs && node.tabs[activeIndex]) {
         panel.appendChild(renderNode(node.tabs[activeIndex].content));
       }
+      requestAnimationFrame(() => {
+        initializePlots(panel);
+        schedulePlotResize();
+      });
     }
 
     paint();
@@ -337,12 +376,12 @@
   }
 
   function renderPlot(node) {
-    if (typeof Plotly === "undefined" || typeof Plotly.react !== "function") {
-      fail("Plotly.react is unavailable in the embedded export runtime.");
-    }
-
     const div = document.createElement("div");
     div.className = "plot-shell";
+    div.setAttribute("data-plot-pending", "true");
+    if (node.height) {
+      div.style.minHeight = String(node.height) + "px";
+    }
     const baseFigure = node.figure || { data: [], layout: {} };
     const figure = {
       data: baseFigure.data || [],
@@ -351,15 +390,36 @@
         width: null,
       }),
     };
-    Promise.resolve(
-      Plotly.react(div, figure.data || [], figure.layout || {}, {
-        responsive: true,
-        displayModeBar: false,
-      })
-    ).catch((error) => {
-      renderRuntimeError("Plot rendering failed while loading this export.", error);
-    });
+    div.__plotFigure = figure;
     return div;
+  }
+
+  function nodeRole(node) {
+    if (!node || typeof node !== "object") {
+      return "unknown";
+    }
+    if (node.kind === "plotly") {
+      return "plot";
+    }
+    if (node.kind === "table") {
+      return "table";
+    }
+    if (node.kind === "card") {
+      return "card";
+    }
+    if (node.kind === "widget") {
+      return "widget";
+    }
+    if (node.kind === "tabs") {
+      return "tabs";
+    }
+    if (node.kind === "spacer") {
+      return "spacer";
+    }
+    if (node.kind === "container") {
+      return node.layout === "row" ? "row" : "column";
+    }
+    return "html";
   }
 
   function renderNode(node) {
@@ -369,10 +429,16 @@
 
     if (node.kind === "container") {
       const container = document.createElement("div");
+      const layoutClass = node.layout === "row" ? "container-row" : "container-column";
+      const childCount = Number(node.child_count || (node.children || []).length || 0);
       container.className =
-        node.layout === "row" ? "container-row" : "container-column";
+        layoutClass + " child-count-" + String(childCount);
       (node.children || []).forEach((child) => {
-        container.appendChild(renderNode(child));
+        const wrapper = document.createElement("div");
+        wrapper.className =
+          "container-item container-item--" + nodeRole(child);
+        wrapper.appendChild(renderNode(child));
+        container.appendChild(wrapper);
       });
       return container;
     }
@@ -415,7 +481,15 @@
     }
 
     if (node.kind === "spacer") {
-      return document.createElement("div");
+      const spacer = document.createElement("div");
+      spacer.className = "export-spacer";
+      if (node.height != null) {
+        spacer.style.height = String(node.height) + "px";
+      }
+      if (node.width != null) {
+        spacer.style.width = String(node.width) + "px";
+      }
+      return spacer;
     }
 
     fail("Unknown export node kind encountered:", node.kind);
@@ -682,6 +756,18 @@
     try {
       clearElement(app);
       app.appendChild(renderShell());
+      initializePlots(app);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+      if (typeof ResizeObserver !== "undefined") {
+        resizeObserver = new ResizeObserver(() => {
+          debouncedPlotResize();
+        });
+        document.querySelectorAll(".page-panel, .container-row, .container-column, .plot-shell").forEach((element) => {
+          resizeObserver.observe(element);
+        });
+      }
       schedulePlotResize();
     } catch (error) {
       renderRuntimeError(
@@ -691,6 +777,6 @@
     }
   }
 
-  window.addEventListener("resize", schedulePlotResize);
+  window.addEventListener("resize", debouncedPlotResize);
   renderApp();
 })();

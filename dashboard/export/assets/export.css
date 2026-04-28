@@ -173,14 +173,19 @@ body {
 .page-panel {
   padding: 22px;
   min-width: 0;
+  overflow: visible;
 }
 
 .container-row {
   display: grid;
   gap: 16px;
   align-items: start;
-  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
   min-width: 0;
+}
+
+.container-row.child-count-3 {
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
 }
 
 .container-column {
@@ -190,7 +195,23 @@ body {
   min-width: 0;
 }
 
-.container-row > * {
+.container-item {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.container-item--plot,
+.container-item--table,
+.container-item--card,
+.container-item--column,
+.container-item--tabs {
+  align-self: stretch;
+}
+
+.container-item--plot > *,
+.container-item--table > *,
+.container-item--card > *,
+.container-item--column > * {
   min-width: 0;
   max-width: 100%;
 }
@@ -314,7 +335,8 @@ table.export-table thead th {
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  overflow: visible;
+  overflow: hidden;
+  background: var(--surface);
 }
 
 .plot-shell > div,
@@ -323,6 +345,15 @@ table.export-table thead th {
 .plot-shell .svg-container {
   width: 100% !important;
   max-width: 100% !important;
+}
+
+.plot-shell .main-svg,
+.plot-shell .svg-container svg {
+  max-width: 100% !important;
+}
+
+.export-spacer {
+  min-width: 0;
 }
 
 @media (max-width: 900px) {
