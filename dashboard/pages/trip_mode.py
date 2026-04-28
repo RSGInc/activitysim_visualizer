@@ -158,7 +158,9 @@ class TripModePage(DashboardPage):
             ]
             return
 
-        trip_list = trip_result.usable_by_input["trip_mode_by_tour_purpose_and_tour_mode"]
+        trip_list = trip_result.usable_by_input[
+            "trip_mode_by_tour_purpose_and_tour_mode"
+        ]
         purp = self.purp_sel.value
         tmode = self.tmode_sel.value
         raw_purposes, raw_tour_modes = discover_options(trip_list)
@@ -202,8 +204,8 @@ class TripModePage(DashboardPage):
 
 
 PAGE = DashboardPageDefinition(
-    page_id="trip_mode",
-    title="Trip Mode",
+    page_id="tp_mode",
+    title="Old Trip Mode",
     order=110,
     controller_cls=TripModePage,
     selectors=(

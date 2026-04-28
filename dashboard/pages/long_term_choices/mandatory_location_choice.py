@@ -5,7 +5,13 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, data_table, density_chart
+from dashboard.components import (
+    bar_chart,
+    control_row,
+    control_row_spacer,
+    data_table,
+    density_chart,
+)
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
 from runtime.config import Config
@@ -472,7 +478,7 @@ class MandatoryLocationChoicePage(DashboardPage):
             pn.Row(
                 commuting_widget,
                 pn.Column(
-                    pn.Row(
+                    control_row(
                         pn.pane.Markdown("**Distance Location Type:**"),
                         self.location_type_sel,
                     ),

@@ -172,23 +172,27 @@ body {
 
 .page-panel {
   padding: 22px;
+  min-width: 0;
 }
 
 .container-row {
-  display: flex;
+  display: grid;
   gap: 16px;
-  flex-wrap: wrap;
-  align-items: stretch;
+  align-items: start;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  min-width: 0;
 }
 
 .container-column {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
 }
 
 .container-row > * {
-  flex: 1 1 320px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .card {
@@ -243,7 +247,12 @@ body {
 }
 
 .table-wrap {
+  max-height: 520px;
   overflow-x: auto;
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: var(--surface);
 }
 
 table.export-table {
@@ -262,6 +271,9 @@ table.export-table td {
 
 table.export-table thead th {
   background: #f8fafc;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 .local-tab-panel {
@@ -299,6 +311,18 @@ table.export-table thead th {
 
 .plot-shell {
   min-height: 240px;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow: visible;
+}
+
+.plot-shell > div,
+.plot-shell .js-plotly-plot,
+.plot-shell .plot-container,
+.plot-shell .svg-container {
+  width: 100% !important;
+  max-width: 100% !important;
 }
 
 @media (max-width: 900px) {

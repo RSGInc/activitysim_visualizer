@@ -11,7 +11,14 @@ from processor.models import RunData
 from processor.summarize.cache import SummaryRun, strip_weights
 
 PreparedRunAvailability = Literal["loaded", "unavailable", "not_requested"]
-VisualizationAvailability = Literal["available", "empty", "missing", "schema_mismatch"]
+VisualizationAvailability = Literal[
+    "available",
+    "empty",
+    "missing",
+    "schema_mismatch",
+    "unavailable",
+    "failed",
+]
 VisualizationRenderState = Literal["rendered", "partial", "skipped"]
 
 

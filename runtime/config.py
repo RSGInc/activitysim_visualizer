@@ -308,6 +308,55 @@ def _normalize_export_page_entries(
             raise ValueError(f"{field_name}.{page_id} must be a mapping.")
 
         if "children" not in raw_page_cfg and "selection" not in raw_page_cfg:
+            # Support a shorthand grouped-page form where child page ids map
+            # directly to selector mappings, e.g.:
+            #   long_term_choices:
+            #     individual_choices: {}
+            #     mandatory_location_choice:
+            #       geography_level: all
+            #
+            # This is unambiguous because flat page selector requests are
+            # strings/lists, not nested mappings.
+            if raw_page_cfg and all(
+                isinstance(raw_child_cfg, dict)
+                for raw_child_cfg in raw_page_cfg.values()
+            ):
+                child_page_ids: list[str] = []
+                normalized_child_selector_cfg: dict[
+                    str, dict[str, ExportSelectorRequest]
+                ] = {}
+                for raw_child_id, raw_child_cfg in raw_page_cfg.items():
+                    child_id = str(raw_child_id).strip().lower()
+                    if not child_id:
+                        raise ValueError(
+                            f"{field_name}.{page_id} contains an empty child id."
+                        )
+                    child_page_ids.append(child_id)
+                    normalized_selector_cfg: dict[str, ExportSelectorRequest] = {}
+                    for raw_selector_id, raw_selector_cfg in raw_child_cfg.items():
+                        selector_id = str(raw_selector_id).strip().lower()
+                        if not selector_id:
+                            raise ValueError(
+                                f"{field_name}.{page_id}.{child_id} contains an empty selector id."
+                            )
+                        normalized_selector_cfg[selector_id] = (
+                            _normalize_export_selector_request(
+                                raw_selector_cfg,
+                                field_name=f"{field_name}.{page_id}.{child_id}.{selector_id}",
+                            )
+                        )
+                    normalized_child_selector_cfg[child_id] = normalized_selector_cfg
+
+                entries.append(
+                    ExportPageConfigEntry(
+                        page_id=page_id,
+                        mode="explicit",
+                        child_page_ids=tuple(child_page_ids),
+                    )
+                )
+                grouped_selectors[page_id] = normalized_child_selector_cfg
+                continue
+
             normalized_selector_cfg: dict[str, ExportSelectorRequest] = {}
             for raw_selector_id, raw_selector_cfg in raw_page_cfg.items():
                 selector_id = str(raw_selector_id).strip().lower()

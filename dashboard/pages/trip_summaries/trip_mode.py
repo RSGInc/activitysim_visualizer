@@ -31,11 +31,7 @@ def _options(
     )
     aggregate_label = f"all_{col}s"
     options = [total_label]
-    options.extend(
-        sorted(
-            v for v in vals if v not in {total_label, aggregate_label}
-        )
-    )
+    options.extend(sorted(v for v in vals if v not in {total_label, aggregate_label}))
     return options
 
 
@@ -164,10 +160,10 @@ class TripModePage(DashboardPage):
 
 
 PAGE = DashboardPageDefinition(
-    page_id="tp_mode",
-    title="Old Trip Mode",
+    page_id="trip_mode",
+    title="Trip Mode",
     group_id="trip_summaries",
-    child_id="tp_mode",
+    child_id="trip_mode",
     order=48,
     controller_cls=TripModePage,
     selectors=(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Any
 from typing import TYPE_CHECKING
 
@@ -116,7 +117,23 @@ class DashboardPage:
         missing_items: list[str] | tuple[str, ...] | None = None,
         title: str = "Data Not Available",
     ) -> pn.Card:
-        return data_unavailable_card(title, detail, missing_items=missing_items)
+        effective_title = title
+        effective_detail = detail
+        if missing_items:
+            effective_detail = self._augment_missing_data_detail(detail, missing_items)
+            if title == "Data Not Available":
+                statuses = self._missing_item_statuses(missing_items)
+                if statuses and statuses == {"empty"}:
+                    effective_title = "Data Empty"
+                elif statuses and statuses == {"schema_mismatch"}:
+                    effective_title = "Schema Mismatch"
+                elif statuses and statuses == {"failed"}:
+                    effective_title = "Data Failed"
+        return data_unavailable_card(
+            effective_title,
+            effective_detail,
+            missing_items=missing_items,
+        )
 
     @property
     def missing_data_display(self) -> str:
@@ -247,12 +264,7 @@ class DashboardPage:
             return pn.Spacer(height=0)
         missing_items = list(result.input_ids)
         if result.excluded_runs:
-            detail_lines = [detail, "", "Excluded runs:"]
-            detail_lines.extend(
-                f"- `{issue.label}`: {issue.source_id} ({issue.detail})"
-                for issue in result.excluded_runs
-            )
-            detail = "\n".join(detail_lines)
+            detail = self._format_issue_detail(detail, result.excluded_runs)
         return self.data_not_available_card(
             detail=detail,
             missing_items=missing_items,
@@ -268,24 +280,39 @@ class DashboardPage:
 
     def require_summary(self, summary_name: str):
         """Return one summary table per run, warning once when unavailable."""
-        summary = self.get_summary(summary_name)
-        if summary is None:
+        selection = self.state.inspect_summary_table(
+            summary_name,
+            weighting_key=self.weighting_key,
+        )
+        self._page_state.setdefault("required_summary_selections", {})[summary_name] = (
+            selection
+        )
+        if not selection.has_usable_runs:
             self._warn_once(
                 f"missing-summary:{summary_name}",
                 (
                     f"Warning: dashboard page '{self.name}' requires summary "
                     f"'{summary_name}' for weighting mode '{self.weighting_key}', "
-                    "but it is unavailable."
+                    "but no usable data was available."
                 ),
             )
-        return summary
+            return None
+        return [(label, table) for label, table in selection.usable_runs]
 
     def require_summaries(self, *summary_names: str) -> dict[str, Any] | None:
         """Return multiple summary tables or ``None`` when any are missing."""
+        selections = {
+            summary_name: self.state.inspect_summary_table(
+                summary_name,
+                weighting_key=self.weighting_key,
+            )
+            for summary_name in summary_names
+        }
+        self._page_state["required_summary_selections"] = selections
         missing = [
             summary_name
             for summary_name in summary_names
-            if not self.has_summary(summary_name)
+            if not selections[summary_name].has_usable_runs
         ]
         if missing:
             for summary_name in missing:
@@ -294,14 +321,82 @@ class DashboardPage:
                     (
                         f"Warning: dashboard page '{self.name}' requires summary "
                         f"'{summary_name}' for weighting mode '{self.weighting_key}', "
-                        "but it is unavailable."
+                        "but no usable data was available."
                     ),
                 )
             return None
         return {
-            summary_name: self.get_summary(summary_name)
+            summary_name: [
+                (label, table)
+                for label, table in selections[summary_name].usable_runs
+            ]
             for summary_name in summary_names
         }
+
+    def _missing_item_statuses(
+        self,
+        missing_items: list[str] | tuple[str, ...],
+    ) -> set[str]:
+        selections = self._page_state.get("required_summary_selections", {})
+        statuses: set[str] = set()
+        for item in missing_items:
+            selection = selections.get(item)
+            if selection is None:
+                continue
+            statuses.update(issue.status for issue in selection.excluded_runs)
+        return statuses
+
+    def _augment_missing_data_detail(
+        self,
+        detail: str,
+        missing_items: list[str] | tuple[str, ...],
+    ) -> str:
+        selections = self._page_state.get("required_summary_selections", {})
+        excluded_runs: list[VisualizationRunAvailability] = []
+        for item in missing_items:
+            selection = selections.get(item)
+            if selection is None:
+                continue
+            excluded_runs.extend(selection.excluded_runs)
+        if not excluded_runs:
+            return detail
+        return self._format_issue_detail(detail, excluded_runs)
+
+    def _format_issue_detail(
+        self,
+        detail: str,
+        issues: list[VisualizationRunAvailability] | tuple[VisualizationRunAvailability, ...],
+    ) -> str:
+        lines = [detail, "", "Availability details:"]
+        by_source: dict[str, list[VisualizationRunAvailability]] = defaultdict(list)
+        for issue in issues:
+            by_source[issue.source_id].append(issue)
+
+        status_order = {
+            "empty": 0,
+            "schema_mismatch": 1,
+            "unavailable": 2,
+            "failed": 3,
+            "missing": 4,
+        }
+        for source_id in sorted(by_source):
+            source_issues = by_source[source_id]
+            grouped: dict[tuple[str, str], list[str]] = defaultdict(list)
+            for issue in source_issues:
+                grouped[(issue.status, issue.detail)].append(issue.label)
+            for (status, issue_detail), labels in sorted(
+                grouped.items(),
+                key=lambda item: (
+                    status_order.get(item[0][0], 99),
+                    item[0][0],
+                    item[0][1],
+                ),
+            ):
+                label_list = ", ".join(f"`{label}`" for label in sorted(labels))
+                lines.append(
+                    f"- `{source_id}` is {status.replace('_', ' ')} for {label_list}: {issue_detail}"
+                )
+        return "\n".join(lines)
 
     def get_prepared_runs(self, *, weighted: bool | None = None):
         """Return prepared runs when this dashboard session has loaded them explicitly."""

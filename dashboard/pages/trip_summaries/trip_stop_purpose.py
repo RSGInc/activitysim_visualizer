@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, data_table
+from dashboard.components import bar_chart, control_row, control_row_spacer, data_table
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
 from runtime.config import Config
@@ -137,9 +137,9 @@ class TripStopPurposePage(DashboardPage):
 
         self._body.objects = [
             pn.Row(
-                trip_purpose_chart,
+                pn.Column(control_row_spacer(), trip_purpose_chart),
                 pn.Column(
-                    pn.Row(
+                    control_row(
                         pn.pane.Markdown("**Tour Purpose:**"),
                         self.tour_purpose_sel,
                     ),

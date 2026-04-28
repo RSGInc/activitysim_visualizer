@@ -439,11 +439,31 @@ def data_unavailable_card(
     detail_lines = [detail]
     if missing_items:
         detail_lines.append("")
-        detail_lines.append("Missing data:")
+        detail_lines.append("Required inputs:")
         detail_lines.extend(f"- `{item}`" for item in missing_items)
     return pn.Card(
         pn.pane.Markdown("\n".join(detail_lines)),
         title=title,
         sizing_mode="stretch_width",
         styles={"border-radius": "10px"},
+    )
+
+
+def control_row(*objects, height: int = 56) -> pn.Row:
+    """Return a standard fixed-height control row for chart alignment."""
+    return pn.Row(
+        *objects,
+        sizing_mode="stretch_width",
+        min_height=height,
+        height=height,
+        margin=(0, 0, 8, 0),
+    )
+
+
+def control_row_spacer(height: int = 56) -> pn.pane.HTML:
+    """Return a blank fixed-height row used to align sibling plots."""
+    return pn.pane.HTML(
+        f"<div style='height:{int(height)}px'></div>",
+        sizing_mode="stretch_width",
+        margin=(0, 0, 8, 0),
     )

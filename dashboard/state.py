@@ -144,6 +144,7 @@ class DashboardState(param.Parameterized):
         for run in self._summary_runs:
             table = run.get_table(summary_name, mode)
             metadata = run.get_summary_metadata(summary_name, mode) or {}
+            state = str(metadata.get("state", "")).strip().lower()
             if table is None:
                 detail = str(metadata.get("detail", "")).strip() or "summary table is missing"
                 excluded_runs.append(
@@ -152,6 +153,40 @@ class DashboardState(param.Parameterized):
                         run_key=run.run_key,
                         source_run_dir=run.source_run_dir,
                         status="missing",
+                        detail=detail,
+                        source_kind="summary",
+                        source_id=summary_name,
+                    )
+                )
+                continue
+            if state == "unavailable":
+                detail = (
+                    str(metadata.get("detail", "")).strip()
+                    or "required inputs for this summary are unavailable"
+                )
+                excluded_runs.append(
+                    VisualizationRunAvailability(
+                        label=run.label,
+                        run_key=run.run_key,
+                        source_run_dir=run.source_run_dir,
+                        status="unavailable",
+                        detail=detail,
+                        source_kind="summary",
+                        source_id=summary_name,
+                    )
+                )
+                continue
+            if state == "failed":
+                detail = (
+                    str(metadata.get("detail", "")).strip()
+                    or "summary generation failed"
+                )
+                excluded_runs.append(
+                    VisualizationRunAvailability(
+                        label=run.label,
+                        run_key=run.run_key,
+                        source_run_dir=run.source_run_dir,
+                        status="failed",
                         detail=detail,
                         source_kind="summary",
                         source_id=summary_name,
@@ -239,14 +274,25 @@ class DashboardState(param.Parameterized):
             diagnostics = table_diagnostics(run)
             table = getattr(run, table_name, None)
             state = states.get(table_name)
-            if table is None or state in {"unavailable", "failed"}:
+            if table is None or state == "unavailable":
                 excluded_runs.append(
                     VisualizationRunAvailability(
                         label=label,
-                        status="missing",
+                        status="unavailable",
                         detail=diagnostics.get(
                             table_name, "prepared table is unavailable"
                         ),
+                        source_kind="prepared",
+                        source_id=table_name,
+                    )
+                )
+                continue
+            if state == "failed":
+                excluded_runs.append(
+                    VisualizationRunAvailability(
+                        label=label,
+                        status="failed",
+                        detail=diagnostics.get(table_name, "prepared table failed"),
                         source_kind="prepared",
                         source_id=table_name,
                     )

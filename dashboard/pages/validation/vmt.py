@@ -5,7 +5,12 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, data_table
+from dashboard.components import (
+    bar_chart,
+    control_row,
+    control_row_spacer,
+    data_table,
+)
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
 from runtime.config import Config
@@ -145,13 +150,13 @@ class VMTValidationPage(DashboardPage):
         self._body.objects = [
             pn.Row(
                 pn.Column(
-                    pn.Row(
+                    control_row(
                         pn.pane.Markdown("**Commercial VMT View:**"),
                         self.vmt_view_sel,
                     ),
                     commercial_vmt_chart,
                 ),
-                bicycle_vmt_chart,
+                pn.Column(control_row_spacer(), bicycle_vmt_chart),
                 sizing_mode="stretch_width",
             ),
         ]

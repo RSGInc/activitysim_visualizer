@@ -4,6 +4,28 @@
   const app = document.getElementById("app");
   let payload = null;
 
+  function schedulePlotResize() {
+    if (typeof Plotly === "undefined" || !Plotly.Plots || typeof Plotly.Plots.resize !== "function") {
+      return;
+    }
+
+    const resizePlots = () => {
+      document.querySelectorAll(".plot-shell .js-plotly-plot").forEach((plot) => {
+        try {
+          Plotly.Plots.resize(plot);
+        } catch (error) {
+          console.warn("[activitysim-export] Plot resize failed", error);
+        }
+      });
+    };
+
+    requestAnimationFrame(() => {
+      resizePlots();
+      setTimeout(resizePlots, 60);
+      setTimeout(resizePlots, 180);
+    });
+  }
+
   function clearElement(element) {
     while (element && element.firstChild) {
       element.removeChild(element.firstChild);
@@ -321,7 +343,14 @@
 
     const div = document.createElement("div");
     div.className = "plot-shell";
-    const figure = node.figure || { data: [], layout: {} };
+    const baseFigure = node.figure || { data: [], layout: {} };
+    const figure = {
+      data: baseFigure.data || [],
+      layout: Object.assign({}, baseFigure.layout || {}, {
+        autosize: true,
+        width: null,
+      }),
+    };
     Promise.resolve(
       Plotly.react(div, figure.data || [], figure.layout || {}, {
         responsive: true,
@@ -653,6 +682,7 @@
     try {
       clearElement(app);
       app.appendChild(renderShell());
+      schedulePlotResize();
     } catch (error) {
       renderRuntimeError(
         "This HTML export encountered a runtime rendering error.",
@@ -661,5 +691,6 @@
     }
   }
 
+  window.addEventListener("resize", schedulePlotResize);
   renderApp();
 })();
