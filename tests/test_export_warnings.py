@@ -40,8 +40,16 @@ def test_export_logs_selector_unavailable_warning_once_and_falls_back(caplog: py
     payload = _extract_payload(html)
     warning_messages = [record.getMessage() for record in caplog.records]
 
-    assert payload["pages"] == [{"id": "long_term", "title": "Long-Term", "selectors": []}]
-    assert payload["states"]["Weighted||Percent"]["long_term"]["kind"] == "static_page"
+    assert payload["pages"] == [
+        {
+            "id": "long_term",
+            "title": "Long-Term",
+            "selectors": [],
+            "children": [],
+            "default_child_id": None,
+        }
+    ]
+    assert payload["states"]["Weighted||Percent"]["long_term"]["kind"] == "page"
     assert warning_messages == [
         "Warning: visualizer.export_html.pages.long_term.geography is configured, but the selector is unavailable for this export. Ignoring the configuration and exporting the page with its fallback layout."
     ]

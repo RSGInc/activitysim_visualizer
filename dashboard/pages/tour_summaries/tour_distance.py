@@ -7,7 +7,11 @@ import polars as pl
 
 from dashboard.components import data_table, density_chart
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
+from dashboard.page_definitions import (
+    DashboardPageDefinition,
+    PageExportRegionDefinition,
+    PageSelectorDefinition,
+)
 from runtime.config import Config
 
 
@@ -314,6 +318,18 @@ PAGE = DashboardPageDefinition(
             selector_id="nonmandatory_tour_purpose",
             widget_attr="nonmand_purpose_sel",
             label="Non-Mandatory Tour Purpose",
+        ),
+    ),
+    export_regions=(
+        PageExportRegionDefinition(
+            region_id="tour_distance_distribution",
+            view_attr="_distance_section",
+            selector_ids=("tour_purpose", "geography_level"),
+        ),
+        PageExportRegionDefinition(
+            region_id="tour_distance_averages",
+            view_attr="_average_section",
+            selector_ids=("mandatory_tour_purpose", "nonmandatory_tour_purpose"),
         ),
     ),
     required_summary_ids=(

@@ -7,7 +7,11 @@ import polars as pl
 
 from dashboard.components import bar_chart, control_row, control_row_spacer, data_table
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
+from dashboard.page_definitions import (
+    DashboardPageDefinition,
+    PageExportRegionDefinition,
+    PageSelectorDefinition,
+)
 from runtime.config import Config
 
 
@@ -374,6 +378,18 @@ PAGE = DashboardPageDefinition(
             selector_id="household_size",
             widget_attr="hhsize_sel",
             label="Household Size",
+        ),
+    ),
+    export_regions=(
+        PageExportRegionDefinition(
+            region_id="joint_travel_detail",
+            view_attr="_joint_tour_detail_section",
+            selector_ids=("party_size",),
+        ),
+        PageExportRegionDefinition(
+            region_id="joint_travel_participation",
+            view_attr="_participation_section",
+            selector_ids=("household_size",),
         ),
     ),
     required_summary_ids=(

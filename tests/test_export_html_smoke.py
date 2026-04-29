@@ -43,7 +43,10 @@ def test_export_html_smoke_writes_single_self_contained_file() -> None:
     )
 
     assert out_path.exists()
-    assert sorted(path.name for path in out_path.parent.iterdir()) == ["dashboard.html"]
+    assert sorted(path.name for path in out_path.parent.iterdir()) == [
+        "dashboard.diagnostics.json",
+        "dashboard.html",
+    ]
 
     html = out_path.read_text(encoding="utf-8")
     assert "activitysim-export-data" in html
@@ -87,14 +90,22 @@ def test_export_html_smoke_embeds_versioned_payload_and_runtime() -> None:
     assert payload["schema_version"] == EXPORT_SCHEMA_VERSION
     assert payload["pages"] == [
         {
-            "id": "trip_mode",
-            "title": "Trip Mode",
-            "selectors": payload["pages"][0]["selectors"],
-            "children": [],
-            "default_child_id": None,
+            "id": "trip_summaries",
+            "title": "Trip Summaries",
+            "selectors": [],
+            "children": [
+                {
+                    "id": "trip_mode",
+                    "title": "Trip Mode",
+                    "selectors": payload["pages"][0]["children"][0]["selectors"],
+                    "children": [],
+                    "default_child_id": None,
+                }
+            ],
+            "default_child_id": "trip_mode",
         }
     ]
-    assert payload["states"]["Weighted||Percent"]["trip_mode"]["kind"] == "page_variants"
+    assert payload["states"]["Weighted||Percent"]["trip_mode"]["kind"] == "page"
     assert "Unsupported export schema version." in html
     assert "__EXPORT_SCHEMA_VERSION__" not in html
 
@@ -107,7 +118,8 @@ def test_export_runtime_assets_are_loaded_from_source_files() -> None:
     assert ".export-error-panel" in css
     assert "function validatePayloadSchema(candidate)" in runtime_js
     assert "function renderPlot(node)" in runtime_js
-    assert "function renderNode(node)" in runtime_js
+    assert "function renderNode(node, leafPageId)" in runtime_js
+    assert "function renderRegion(node, leafPageId)" in runtime_js
     assert "function resolveActiveChildPageId(pageDescriptor)" in runtime_js
     assert "Plotly.react" in runtime_js
     assert "__EXPORT_SCHEMA_VERSION__" not in runtime_js

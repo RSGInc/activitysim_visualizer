@@ -14,7 +14,7 @@ from dashboard.export.types import (
     EXPORT_PAGE_SELECTOR_RUNTIME,
     EXPORT_SCHEMA_VERSION,
 )
-from test_export_html import _full_summary_run, _walk_nodes, _write_config
+from test_export_html import _full_summary_run, _region_nodes, _walk_nodes, _write_config
 
 
 def _workspace_tmp_dir(label: str) -> Path:
@@ -63,7 +63,7 @@ def test_build_export_payload_has_stable_top_level_contract() -> None:
     ]
 
 
-def test_build_export_payload_serializes_representative_page_variants_structure(
+def test_build_export_payload_serializes_representative_page_region_structure(
 ) -> None:
     tmp_path = _workspace_tmp_dir("payload_variants")
     config = _write_config(
@@ -80,45 +80,56 @@ def test_build_export_payload_serializes_representative_page_variants_structure(
 
     assert payload["pages"] == [
         {
-            "id": "trip_mode",
-            "title": "Trip Mode",
-            "selectors": [
+            "id": "trip_summaries",
+            "title": "Trip Summaries",
+            "selectors": [],
+            "children": [
                 {
-                    "id": "tour_purpose",
-                    "label": "Tour Purpose",
-                    "available": True,
-                    "request_mode": "all",
-                    "requested_values": [],
-                    "resolved_values": ["Total", "eatout", "social"],
-                    "default_value": "Total",
-                    "options": ["Total", "eatout", "social"],
-                    "export_enabled": True,
-                },
-                {
-                    "id": "tour_mode",
-                    "label": "Tour Mode",
-                    "available": True,
-                    "request_mode": "all",
-                    "requested_values": [],
-                    "resolved_values": ["All", "DRIVE", "WALK"],
-                    "default_value": "All",
-                    "options": ["All", "DRIVE", "WALK"],
-                    "export_enabled": True,
-                },
+                    "id": "trip_mode",
+                    "title": "Trip Mode",
+                    "selectors": [
+                        {
+                            "id": "tour_purpose",
+                            "label": "Tour Purpose",
+                            "available": True,
+                            "request_mode": "all",
+                            "requested_values": [],
+                            "resolved_values": ["All", "eatout", "social"],
+                            "default_value": "All",
+                            "options": ["All", "eatout", "social"],
+                            "export_enabled": True,
+                        },
+                        {
+                            "id": "tour_mode",
+                            "label": "Tour Mode",
+                            "available": True,
+                            "request_mode": "all",
+                            "requested_values": [],
+                            "resolved_values": ["All", "DRIVE", "WALK"],
+                            "default_value": "All",
+                            "options": ["All", "DRIVE", "WALK"],
+                            "export_enabled": True,
+                        },
+                    ],
+                    "children": [],
+                    "default_child_id": None,
+                }
             ],
-            "children": [],
-            "default_child_id": None,
+            "default_child_id": "trip_mode",
         }
     ]
 
     trip_mode = payload["states"]["Weighted||Percent"]["trip_mode"]
-    assert trip_mode["kind"] == "page_variants"
-    assert trip_mode["selector_ids"] == ["tour_purpose", "tour_mode"]
-    assert trip_mode["default_key"] == '["Total","All"]'
-    assert sorted(trip_mode["variants"]) == [
-        '["Total","All"]',
-        '["Total","DRIVE"]',
-        '["Total","WALK"]',
+    assert trip_mode["kind"] == "page"
+    regions = _region_nodes(trip_mode)
+    assert sorted(regions) == ["trip_summary_mode_body"]
+    trip_mode_region = regions["trip_summary_mode_body"]
+    assert trip_mode_region["selector_ids"] == ["tour_purpose", "tour_mode"]
+    assert trip_mode_region["default_key"] == '["All","All"]'
+    assert sorted(trip_mode_region["variants"]) == [
+        '["All","All"]',
+        '["All","DRIVE"]',
+        '["All","WALK"]',
         '["eatout","All"]',
         '["eatout","DRIVE"]',
         '["eatout","WALK"]',
@@ -126,20 +137,21 @@ def test_build_export_payload_serializes_representative_page_variants_structure(
         '["social","DRIVE"]',
         '["social","WALK"]',
     ]
-    variant_nodes = _walk_nodes(trip_mode["variants"]['["eatout","DRIVE"]'])
-    assert any(node.get("kind") == "plotly" for node in variant_nodes)
+    page_nodes = _walk_nodes(trip_mode)
     assert any(
         node.get("kind") == "widget"
         and node.get("selector_id") == "tour_purpose"
         and node.get("export_enabled")
-        for node in variant_nodes
+        for node in page_nodes
     )
     assert any(
         node.get("kind") == "widget"
         and node.get("selector_id") == "tour_mode"
         and node.get("export_enabled")
-        for node in variant_nodes
+        for node in page_nodes
     )
+    variant_nodes = _walk_nodes(trip_mode_region["variants"]['["eatout","DRIVE"]'])
+    assert any(node.get("kind") == "plotly" for node in variant_nodes)
 
 
 def test_build_export_payload_keeps_static_pages_when_no_page_selectors_are_enabled() -> None:
@@ -164,7 +176,7 @@ def test_build_export_payload_keeps_static_pages_when_no_page_selectors_are_enab
         }
     ]
     overview = payload["states"]["Weighted||Percent"]["overview"]
-    assert overview["kind"] == "static_page"
+    assert overview["kind"] == "page"
     nodes = _walk_nodes(overview)
     assert any(node.get("kind") == "card" for node in nodes)
 

@@ -14,6 +14,7 @@ from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import (
     DashboardDataRequirements,
+    PageExportRegionDefinition,
     DashboardGroupDefinition,
     DashboardPageConfigEntry,
     DashboardPageDefinition,
@@ -246,6 +247,46 @@ def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
         raise ValueError(
             f"Dashboard page {page_definition.page_id!r} declares unknown summary ids: "
             + ", ".join(repr(summary_id) for summary_id in unknown_summary_ids)
+        )
+
+    selector_ids = [selector.selector_id for selector in page_definition.selectors]
+    if len(selector_ids) != len(set(selector_ids)):
+        raise ValueError(
+            f"Dashboard page {page_definition.page_id!r} declares duplicate selector ids."
+        )
+
+    region_ids = [region.region_id for region in page_definition.export_regions]
+    if len(region_ids) != len(set(region_ids)):
+        raise ValueError(
+            f"Dashboard page {page_definition.page_id!r} declares duplicate export region ids."
+        )
+
+    selector_id_set = set(selector_ids)
+    exportable_selector_ids = {
+        selector.selector_id
+        for selector in page_definition.selectors
+        if selector.exportable
+    }
+    referenced_selector_ids: set[str] = set()
+    for region in page_definition.export_regions:
+        unknown_region_selectors = [
+            selector_id
+            for selector_id in region.selector_ids
+            if selector_id not in selector_id_set
+        ]
+        if unknown_region_selectors:
+            raise ValueError(
+                f"Dashboard page {page_definition.page_id!r} export region {region.region_id!r} "
+                "references unknown selector ids: "
+                + ", ".join(repr(selector_id) for selector_id in unknown_region_selectors)
+            )
+        referenced_selector_ids.update(region.selector_ids)
+    missing_region_selectors = sorted(exportable_selector_ids - referenced_selector_ids)
+    if exportable_selector_ids and missing_region_selectors:
+        raise ValueError(
+            f"Dashboard page {page_definition.page_id!r} does not assign export regions to "
+            "selector ids: "
+            + ", ".join(repr(selector_id) for selector_id in missing_region_selectors)
         )
 
 

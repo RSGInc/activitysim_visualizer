@@ -7,7 +7,11 @@ import polars as pl
 
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
+from dashboard.page_definitions import (
+    DashboardPageDefinition,
+    PageExportRegionDefinition,
+    PageSelectorDefinition,
+)
 from runtime.config import Config
 
 
@@ -273,6 +277,13 @@ PAGE = DashboardPageDefinition(
             selector_id="person_type",
             widget_attr="ptype_sel",
             label="Person Type",
+        ),
+    ),
+    export_regions=(
+        PageExportRegionDefinition(
+            region_id="tour_summary_body",
+            view_attr="_body",
+            selector_ids=("person_type",),
         ),
     ),
     required_summary_ids=(

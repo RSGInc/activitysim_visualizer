@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Literal, TypedDict
 
-EXPORT_SCHEMA_VERSION = "1.0"
-EXPORT_CLIENT_RUNTIME = "figure-swap-v1"
+EXPORT_SCHEMA_VERSION = "2.0"
+EXPORT_CLIENT_RUNTIME = "region-swap-v1"
 EXPORT_PAGE_SELECTOR_RUNTIME = "dashboard-and-page-selectors"
 
 NodeKind = Literal[
@@ -17,9 +17,11 @@ NodeKind = Literal[
     "widget",
     "html",
     "spacer",
+    "region",
 ]
 ContainerLayout = Literal["row", "column"]
 WidgetType = Literal["radio_button_group", "select"]
+RegionContentMode = Literal["snapshot"]
 
 
 class SelectorMetadataPayload(TypedDict):
@@ -121,6 +123,16 @@ class SpacerNode(TypedDict):
     kind: Literal["spacer"]
 
 
+class RegionNode(TypedDict):
+    kind: Literal["region"]
+    region_id: str
+    selector_ids: list[str]
+    content_mode: RegionContentMode
+    default_key: str
+    default_content: "ExportNode"
+    variants: dict[str, "ExportNode"]
+
+
 ExportNode = (
     ContainerNode
     | CardNode
@@ -130,22 +142,16 @@ ExportNode = (
     | WidgetNode
     | HtmlNode
     | SpacerNode
+    | RegionNode
 )
 
 
-class StaticPagePayload(TypedDict):
-    kind: Literal["static_page"]
+class PagePayload(TypedDict):
+    kind: Literal["page"]
     content: ExportNode
 
 
-class PageVariantsPayload(TypedDict):
-    kind: Literal["page_variants"]
-    selector_ids: list[str]
-    default_key: str
-    variants: dict[str, ExportNode]
-
-
-PageContentPayload = StaticPagePayload | PageVariantsPayload
+PageContentPayload = PagePayload
 
 
 class PageExportSupportPayload(TypedDict):

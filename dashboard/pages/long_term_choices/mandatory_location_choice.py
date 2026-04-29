@@ -14,7 +14,11 @@ from dashboard.components import (
     scatter_chart,
 )
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
+from dashboard.page_definitions import (
+    DashboardPageDefinition,
+    PageExportRegionDefinition,
+    PageSelectorDefinition,
+)
 from runtime.config import Config
 
 
@@ -214,9 +218,22 @@ class MandatoryLocationChoicePage(DashboardPage):
         self._watch_widget(self.location_type_sel)
 
         self._worker_section = self.new_section()
-        self._location_validation_section = self.new_section()
-        self._flows_distance_section = self.new_section()
+        self._workplace_validation_section = self.new_section()
+        self._school_validation_section = self.new_section()
+        self._commuting_flows_section = self.new_section()
+        self._distance_section = self.new_section()
         self._remote_work_section = self.new_section()
+        self._flows_distance_row = pn.Row(
+            pn.Column(control_row_spacer(), self._commuting_flows_section),
+            pn.Column(
+                control_row(
+                    pn.pane.Markdown("**Distance Location Type:**"),
+                    self.location_type_sel,
+                ),
+                self._distance_section,
+            ),
+            sizing_mode="stretch_width",
+        )
 
         self.view = self.new_section(
             pn.pane.Markdown("## Mandatory Location Choice"),
@@ -225,8 +242,15 @@ class MandatoryLocationChoicePage(DashboardPage):
                 self.geo_level_sel,
             ),
             self._worker_section,
-            self._location_validation_section,
-            self._flows_distance_section,
+            pn.pane.Markdown("### Location Choice Validation"),
+            self._workplace_validation_section,
+            pn.Row(
+                pn.pane.Markdown("**Student Type:**"),
+                self.student_type_sel,
+            ),
+            self._school_validation_section,
+            pn.pane.Markdown("### Commuting Flows and Location Distance"),
+            self._flows_distance_row,
             self._remote_work_section,
         )
 
@@ -249,8 +273,10 @@ class MandatoryLocationChoicePage(DashboardPage):
     def _refresh(self) -> None:
         if not self.state.run_labels:
             self._worker_section.objects = [pn.pane.Markdown("No runs loaded.")]
-            self._location_validation_section.objects = []
-            self._flows_distance_section.objects = []
+            self._workplace_validation_section.objects = []
+            self._school_validation_section.objects = []
+            self._commuting_flows_section.objects = []
+            self._distance_section.objects = []
             self._remote_work_section.objects = []
             return
 
@@ -312,8 +338,10 @@ class MandatoryLocationChoicePage(DashboardPage):
                     missing_items=list(self.required_summary_ids),
                 )
             ]
-            self._location_validation_section.objects = []
-            self._flows_distance_section.objects = []
+            self._workplace_validation_section.objects = []
+            self._school_validation_section.objects = []
+            self._commuting_flows_section.objects = []
+            self._distance_section.objects = []
             self._remote_work_section.objects = []
             return
 
@@ -382,16 +410,13 @@ class MandatoryLocationChoicePage(DashboardPage):
             )
         self._worker_section.objects = worker_views
 
-        location_views: list[pn.viewable.Viewable] = [
-            pn.pane.Markdown("### Location Choice Validation")
-        ]
         if workplace_lu is not None:
             workplace_lu_data = self.get_filtered_view(
                 "mandatory_workplace_lu",
                 geo_level,
                 factory=lambda: filter_geo_level(workplace_lu, geo_level),
             )
-            location_views.append(
+            workplace_views = [
                 scatter_chart(
                     workplace_lu_data,
                     x_col="employment_count",
@@ -401,21 +426,16 @@ class MandatoryLocationChoicePage(DashboardPage):
                     yaxis_title="Workers",
                     drop_zero_y=True,
                 )
-            )
+            ]
         else:
-            location_views.append(
+            workplace_views = [
                 self.data_not_available_card(
                     detail="The workplace employment comparison summary is unavailable.",
                     missing_items=["workplace_location_employment_comparison"],
                 )
-            )
+            ]
+        self._workplace_validation_section.objects = workplace_views
 
-        location_views.append(
-            pn.Row(
-                pn.pane.Markdown("**Student Type:**"),
-                self.student_type_sel,
-            )
-        )
         if school_lu is not None:
             school_lu_data = self.get_filtered_view(
                 "mandatory_school_lu",
@@ -426,7 +446,7 @@ class MandatoryLocationChoicePage(DashboardPage):
                     student_type,
                 ),
             )
-            location_views.append(
+            school_views = [
                 scatter_chart(
                     school_lu_data,
                     x_col="enrollment_count",
@@ -436,19 +456,16 @@ class MandatoryLocationChoicePage(DashboardPage):
                     yaxis_title="Students",
                     drop_zero_y=True,
                 )
-            )
+            ]
         else:
-            location_views.append(
+            school_views = [
                 self.data_not_available_card(
                     detail="The school enrollment comparison summary is unavailable.",
                     missing_items=["school_location_enrollment_comparison"],
                 )
-            )
-        self._location_validation_section.objects = location_views
+            ]
+        self._school_validation_section.objects = school_views
 
-        flows_views: list[pn.viewable.Viewable] = [
-            pn.pane.Markdown("### Commuting Flows and Location Distance")
-        ]
         commuting_widget: pn.viewable.Viewable
         if commuting_flows is not None:
             commuting_flows_table = self.get_filtered_view(
@@ -462,6 +479,7 @@ class MandatoryLocationChoicePage(DashboardPage):
                 detail="The commuting flows summary is unavailable.",
                 missing_items=["commuting_flows"],
             )
+        self._commuting_flows_section.objects = [commuting_widget]
 
         distance_widget: pn.viewable.Viewable
         if distance_summary is not None:
@@ -484,20 +502,7 @@ class MandatoryLocationChoicePage(DashboardPage):
                 detail="The selected distance distribution summary is unavailable.",
                 missing_items=[dist_summary_id],
             )
-
-        flows_views.append(
-            pn.Row(
-                pn.Column(control_row_spacer(), commuting_widget),
-                pn.Column(
-                    control_row(
-                        pn.pane.Markdown("**Distance Location Type:**"),
-                        self.location_type_sel,
-                    ),
-                    distance_widget,
-                ),
-            )
-        )
-        self._flows_distance_section.objects = flows_views
+        self._distance_section.objects = [distance_widget]
 
         remote_views: list[pn.viewable.Viewable] = [pn.pane.Markdown("### Remote Work")]
         remote_row: list[pn.viewable.Viewable] = []
@@ -571,6 +576,38 @@ PAGE = DashboardPageDefinition(
             selector_id="distance_location_type",
             widget_attr="location_type_sel",
             label="Distance Location Type",
+        ),
+    ),
+    export_regions=(
+        PageExportRegionDefinition(
+            region_id="worker_geography",
+            view_attr="_worker_section",
+            selector_ids=("geography_level",),
+        ),
+        PageExportRegionDefinition(
+            region_id="workplace_validation",
+            view_attr="_workplace_validation_section",
+            selector_ids=("geography_level",),
+        ),
+        PageExportRegionDefinition(
+            region_id="school_validation",
+            view_attr="_school_validation_section",
+            selector_ids=("geography_level", "student_type"),
+        ),
+        PageExportRegionDefinition(
+            region_id="commuting_flows",
+            view_attr="_commuting_flows_section",
+            selector_ids=("geography_level",),
+        ),
+        PageExportRegionDefinition(
+            region_id="distance_distribution",
+            view_attr="_distance_section",
+            selector_ids=("distance_location_type",),
+        ),
+        PageExportRegionDefinition(
+            region_id="remote_work",
+            view_attr="_remote_work_section",
+            selector_ids=("geography_level",),
         ),
     ),
     required_summary_ids=(

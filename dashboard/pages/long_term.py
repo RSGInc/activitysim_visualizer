@@ -7,7 +7,11 @@ import polars as pl
 
 from dashboard.components import bar_chart, data_table, density_chart
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
+from dashboard.page_definitions import (
+    DashboardPageDefinition,
+    PageExportRegionDefinition,
+    PageSelectorDefinition,
+)
 from runtime.config import Config
 
 
@@ -395,6 +399,13 @@ PAGE = DashboardPageDefinition(
             widget_attr="geo_sel",
             label="Geography",
             enabled_when=lambda page, config: config.geography_enabled,
+        ),
+    ),
+    export_regions=(
+        PageExportRegionDefinition(
+            region_id="long_term_body",
+            view_attr="_body",
+            selector_ids=("geography",),
         ),
     ),
     required_summary_ids=(

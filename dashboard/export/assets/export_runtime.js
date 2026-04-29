@@ -241,7 +241,9 @@
     const pageState = state.pageSelectors[leafPageId] || {};
     pageState[selectorId] = value;
     state.pageSelectors[leafPageId] = pageState;
-    renderApp();
+    if (!updateRenderedRegions(leafPageId, selectorId)) {
+      renderApp();
+    }
   }
 
   function renderWidget(node) {
@@ -336,7 +338,7 @@
     return wrap;
   }
 
-  function renderTabs(node) {
+  function renderTabs(node, leafPageId) {
     const root = document.createElement("div");
     let activeIndex = 0;
     const tabRow = document.createElement("div");
@@ -361,7 +363,7 @@
         );
       });
       if (node.tabs && node.tabs[activeIndex]) {
-        panel.appendChild(renderNode(node.tabs[activeIndex].content));
+        panel.appendChild(renderNode(node.tabs[activeIndex].content, leafPageId));
       }
       requestAnimationFrame(() => {
         initializePlots(panel);
@@ -394,6 +396,28 @@
     return div;
   }
 
+  function resolveRegionContent(node, leafPageId) {
+    const pageSelectorState = state.pageSelectors[leafPageId] || {};
+    const values = (node.selector_ids || []).map((selectorId) => {
+      return pageSelectorState[selectorId];
+    });
+    const variantKey = JSON.stringify(values);
+    return (
+      (node.variants && node.variants[variantKey]) ||
+      node.default_content
+    );
+  }
+
+  function renderRegion(node, leafPageId) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "export-region";
+    wrapper.setAttribute("data-region-id", node.region_id || "");
+    wrapper.setAttribute("data-leaf-page-id", leafPageId || "");
+    wrapper.setAttribute("data-selector-ids", JSON.stringify(node.selector_ids || []));
+    wrapper.appendChild(renderNode(resolveRegionContent(node, leafPageId), leafPageId));
+    return wrapper;
+  }
+
   function nodeRole(node) {
     if (!node || typeof node !== "object") {
       return "unknown";
@@ -419,10 +443,13 @@
     if (node.kind === "container") {
       return node.layout === "row" ? "row" : "column";
     }
+    if (node.kind === "region") {
+      return "region";
+    }
     return "html";
   }
 
-  function renderNode(node) {
+  function renderNode(node, leafPageId) {
     if (!node || typeof node !== "object") {
       fail("Encountered malformed export node content.");
     }
@@ -437,7 +464,7 @@
         const wrapper = document.createElement("div");
         wrapper.className =
           "container-item container-item--" + nodeRole(child);
-        wrapper.appendChild(renderNode(child));
+        wrapper.appendChild(renderNode(child, leafPageId));
         container.appendChild(wrapper);
       });
       return container;
@@ -453,7 +480,7 @@
         card.appendChild(title);
       }
       (node.children || []).forEach((child) => {
-        card.appendChild(renderNode(child));
+        card.appendChild(renderNode(child, leafPageId));
       });
       return card;
     }
@@ -477,7 +504,7 @@
     }
 
     if (node.kind === "tabs") {
-      return renderTabs(node);
+      return renderTabs(node, leafPageId);
     }
 
     if (node.kind === "spacer") {
@@ -490,6 +517,10 @@
         spacer.style.width = String(node.width) + "px";
       }
       return spacer;
+    }
+
+    if (node.kind === "region") {
+      return renderRegion(node, leafPageId);
     }
 
     fail("Unknown export node kind encountered:", node.kind);
@@ -675,26 +706,12 @@
     return childIds[0];
   }
 
-  function resolvePageContent(pageNode, leafPageId) {
+  function resolvePageContent(pageNode) {
     if (!pageNode || typeof pageNode !== "object") {
       fail("Missing page state for the active dashboard selection.");
     }
-    if (pageNode.kind === "static_page") {
+    if (pageNode.kind === "page") {
       return pageNode.content;
-    }
-    if (pageNode.kind === "page_variants") {
-      const pageSelectorState = state.pageSelectors[leafPageId] || {};
-      const values = (pageNode.selector_ids || []).map((selectorId) => {
-        return pageSelectorState[selectorId];
-      });
-      const variantKey = JSON.stringify(values);
-      const resolvedNode =
-        (pageNode.variants && pageNode.variants[variantKey]) ||
-        (pageNode.variants && pageNode.variants[pageNode.default_key]);
-      if (!resolvedNode) {
-        fail("Missing page state for the active selector combination.");
-      }
-      return resolvedNode;
     }
     fail("Unknown page content kind encountered:", pageNode.kind);
   }
@@ -717,8 +734,57 @@
       leafPageId = resolveActiveChildPageId(pageDescriptor);
     }
     const pageNode = pagesForState[leafPageId];
-    panel.appendChild(renderNode(resolvePageContent(pageNode, leafPageId)));
+    panel.appendChild(renderNode(resolvePageContent(pageNode), leafPageId));
     return panel;
+  }
+
+  function collectRegionNodes(node, regions) {
+    if (!node || typeof node !== "object") {
+      return regions;
+    }
+    if (node.kind === "region") {
+      regions.push(node);
+      return regions;
+    }
+    if (node.kind === "container" || node.kind === "card") {
+      (node.children || []).forEach((child) => collectRegionNodes(child, regions));
+      return regions;
+    }
+    if (node.kind === "tabs") {
+      (node.tabs || []).forEach((tab) => collectRegionNodes(tab.content, regions));
+      return regions;
+    }
+    return regions;
+  }
+
+  function updateRenderedRegions(leafPageId, changedSelectorId) {
+    const pagesForState = payload.states[stateKey()];
+    if (!pagesForState) {
+      return false;
+    }
+    const pageNode = pagesForState[leafPageId];
+    if (!pageNode || pageNode.kind !== "page") {
+      return false;
+    }
+    const regionNodes = collectRegionNodes(pageNode.content, []).filter((regionNode) => {
+      return (regionNode.selector_ids || []).includes(changedSelectorId);
+    });
+    if (!regionNodes.length) {
+      return false;
+    }
+    regionNodes.forEach((regionNode) => {
+      const wrapper = document.querySelector(
+        '.export-region[data-leaf-page-id="' + leafPageId + '"][data-region-id="' + regionNode.region_id + '"]'
+      );
+      if (!wrapper) {
+        return;
+      }
+      clearElement(wrapper);
+      wrapper.appendChild(renderNode(resolveRegionContent(regionNode, leafPageId), leafPageId));
+      initializePlots(wrapper);
+    });
+    schedulePlotResize();
+    return true;
   }
 
   function renderShell() {

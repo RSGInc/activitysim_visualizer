@@ -52,6 +52,20 @@ class PageSelectorDefinition:
 
 
 @dataclass(frozen=True)
+class PageExportRegionDefinition:
+    """Describe one explicit page-owned export region."""
+
+    region_id: str
+    view_attr: str
+    selector_ids: tuple[str, ...] = field(default_factory=tuple)
+
+    def view_for(self, page: Any) -> pn.viewable.Viewable | None:
+        """Return the stable region root viewable from a page instance when present."""
+        view = getattr(page, self.view_attr, None)
+        return view if isinstance(view, pn.viewable.Viewable) else None
+
+
+@dataclass(frozen=True)
 class DashboardPageDefinition:
     """Register one dashboard page for live mode and HTML export."""
 
@@ -65,6 +79,7 @@ class DashboardPageDefinition:
     prepared_data_mode: PreparedDataMode = "none"
     controller_cls: type["DashboardPage"] | None = None
     selectors: tuple[PageSelectorDefinition, ...] = field(default_factory=tuple)
+    export_regions: tuple[PageExportRegionDefinition, ...] = field(default_factory=tuple)
     required_summary_ids: tuple[str, ...] = field(default_factory=tuple)
     required_prepared_tables: tuple[PreparedTableName, ...] = field(default_factory=tuple)
 

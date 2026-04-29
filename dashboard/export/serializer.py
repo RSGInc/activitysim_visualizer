@@ -20,9 +20,13 @@ def serialize_viewable(
     *,
     disable_widgets: bool,
     widget_metadata: dict[int, tuple[str | None, dict[str, Any] | None]] | None = None,
+    region_nodes_by_id: dict[int, dict[str, Any]] | None = None,
 ) -> ExportNode:
     """Serialize a supported Panel viewable into the export JSON tree."""
     widget_metadata = widget_metadata or {}
+    region_nodes_by_id = region_nodes_by_id or {}
+    if id(obj) in region_nodes_by_id:
+        return region_nodes_by_id[id(obj)]
     if isinstance(obj, pn.Card):
         return {
             "kind": "card",
@@ -32,6 +36,7 @@ def serialize_viewable(
                     child,
                     disable_widgets=disable_widgets,
                     widget_metadata=widget_metadata,
+                    region_nodes_by_id=region_nodes_by_id,
                 )
                 for child in obj.objects
             ],
@@ -46,6 +51,7 @@ def serialize_viewable(
                     child,
                     disable_widgets=disable_widgets,
                     widget_metadata=widget_metadata,
+                    region_nodes_by_id=region_nodes_by_id,
                 )
                 for child in obj.objects
             ],
@@ -60,6 +66,7 @@ def serialize_viewable(
                     child,
                     disable_widgets=disable_widgets,
                     widget_metadata=widget_metadata,
+                    region_nodes_by_id=region_nodes_by_id,
                 )
                 for child in obj.objects
             ],
@@ -74,6 +81,7 @@ def serialize_viewable(
                         child,
                         disable_widgets=disable_widgets,
                         widget_metadata=widget_metadata,
+                        region_nodes_by_id=region_nodes_by_id,
                     ),
                 }
                 for title, child in iter_tabs(obj)

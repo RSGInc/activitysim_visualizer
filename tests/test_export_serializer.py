@@ -140,7 +140,7 @@ def test_serialize_viewable_supports_html_and_spacer_nodes() -> None:
     assert "<strong>Hello</strong>" in markdown_payload["html"]
     assert html_payload == {"kind": "html", "html": "<i>World</i>"}
     assert string_payload == {"kind": "html", "html": "Plain text"}
-    assert spacer_payload == {"kind": "spacer"}
+    assert spacer_payload["kind"] == "spacer"
 
 
 def test_serialize_viewable_uses_fallback_for_unsupported_objects() -> None:

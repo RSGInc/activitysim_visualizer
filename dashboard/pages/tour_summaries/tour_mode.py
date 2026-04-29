@@ -7,7 +7,11 @@ import polars as pl
 
 from dashboard.components import bar_chart, data_table
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
+from dashboard.page_definitions import (
+    DashboardPageDefinition,
+    PageExportRegionDefinition,
+    PageSelectorDefinition,
+)
 from runtime.config import Config
 
 
@@ -334,6 +338,18 @@ PAGE = DashboardPageDefinition(
             selector_id="vehicle_occupancy",
             widget_attr="occupancy_sel",
             label="Vehicle Occupancy",
+        ),
+    ),
+    export_regions=(
+        PageExportRegionDefinition(
+            region_id="tour_mode_modes",
+            view_attr="_mode_section",
+            selector_ids=("tour_purpose", "auto_sufficiency"),
+        ),
+        PageExportRegionDefinition(
+            region_id="tour_mode_vehicles",
+            view_attr="_vehicle_section",
+            selector_ids=("vehicle_occupancy",),
         ),
     ),
     required_summary_ids=(

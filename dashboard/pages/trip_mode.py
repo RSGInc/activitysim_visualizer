@@ -7,7 +7,11 @@ import polars as pl
 
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
+from dashboard.page_definitions import (
+    DashboardPageDefinition,
+    PageExportRegionDefinition,
+    PageSelectorDefinition,
+)
 from runtime.config import Config
 
 
@@ -218,6 +222,13 @@ PAGE = DashboardPageDefinition(
             selector_id="tour_mode",
             widget_attr="tmode_sel",
             label="Tour Mode",
+        ),
+    ),
+    export_regions=(
+        PageExportRegionDefinition(
+            region_id="legacy_trip_mode_body",
+            view_attr="_body",
+            selector_ids=("tour_purpose", "tour_mode"),
         ),
     ),
     required_summary_ids=("trip_mode_by_tour_purpose_and_tour_mode",),

@@ -6,6 +6,7 @@ from itertools import product
 from typing import Any
 
 from activitysim_viz_logging import get_logger
+import panel as pn
 
 from dashboard.components import (
     build_run_legend_entries,
@@ -30,7 +31,11 @@ from dashboard.export.types import (
     PageSelectorReferencePayload,
     SelectorMetadataPayload,
 )
-from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
+from dashboard.page_definitions import (
+    DashboardPageDefinition,
+    PageExportRegionDefinition,
+    PageSelectorDefinition,
+)
 from dashboard.page_registry import (
     all_page_definitions,
     build_export_prepared_run_provider,
@@ -153,18 +158,27 @@ def serialize_dashboard_state(
         if page.view is None:
             continue
         page_def = page_definition_for_page(page)
+        selector_metadata_by_id = {
+            selector_def.selector_id: resolve_selector_metadata(
+                page_def,
+                selector_def,
+                page,
+                context,
+            )
+            for selector_def in page_def.selectors
+        }
         widget_metadata = build_widget_metadata(
             page_def,
             page,
-            context,
+            selector_metadata_by_id=selector_metadata_by_id,
         )
         descriptor = {
             "id": page_def.page_id,
             "title": page_def.title,
             "selectors": [
-                selector_meta
-                for _, selector_meta in widget_metadata.values()
-                if selector_meta is not None
+                selector_metadata_by_id[selector_def.selector_id]
+                for selector_def in page_def.selectors
+                if selector_def.widget_for(page) is not None
             ],
             "children": [],
             "default_child_id": None,
@@ -174,8 +188,8 @@ def serialize_dashboard_state(
         content_by_page[page_def.page_id] = serialize_page_content(
             page,
             page_def=page_def,
-            config=context.config,
             widget_metadata=widget_metadata,
+            selector_metadata_by_id=selector_metadata_by_id,
             diagnostics_for_state=diagnostics_for_state,
         )
     grouped_page_defs: list[PageDescriptorPayload] = []
@@ -231,88 +245,239 @@ def serialize_page_content(
     page: Any,
     *,
     page_def: DashboardPageDefinition,
-    config: Config,
     widget_metadata: dict[int, tuple[str | None, SelectorMetadataPayload | None]],
+    selector_metadata_by_id: dict[str, SelectorMetadataPayload],
     diagnostics_for_state: dict[str, Any] | None = None,
 ) -> PageContentPayload:
-    """Serialize one page, expanding selector variants when export-enabled."""
+    """Serialize one page shell with explicit region nodes."""
     page_diagnostics: dict[str, Any] = {"default": _serialize_page_diagnostics(page)}
-    enabled_selectors = [
+    interactive_selectors = [
         selector_meta
-        for _, selector_meta in widget_metadata.values()
-        if selector_meta is not None and selector_meta["export_enabled"]
+        for selector_meta in selector_metadata_by_id.values()
+        if selector_meta["export_enabled"]
     ]
-    if not enabled_selectors:
-        if diagnostics_for_state is not None:
-            diagnostics_for_state[page_def.page_id] = page_diagnostics
-        return {
-            "kind": "static_page",
-            "content": serialize_viewable(
-                page.view,
-                disable_widgets=True,
-                widget_metadata=widget_metadata,
-            ),
-        }
-
-    selector_order = [selector_meta["id"] for selector_meta in enabled_selectors]
-    selector_values = [
-        selector_meta["resolved_values"] for selector_meta in enabled_selectors
-    ]
-    selector_widgets = {
-        selector_def.selector_id: selector_def.widget_for(page)
-        for selector_def in page_def.selectors
-    }
-    variants = {}
-    default_values = [
-        selector_meta["default_value"] for selector_meta in enabled_selectors
-    ]
-    for combination in product(*selector_values):
-        for selector_id, selected_value in zip(selector_order, combination):
-            widget = selector_widgets.get(selector_id)
-            if widget is not None:
-                widget.value = selected_value
-        page.refresh(force=True)
-        page_diagnostics[variant_key(combination)] = _serialize_page_diagnostics(page)
-        variants[variant_key(combination)] = serialize_viewable(
-            page.view,
-            disable_widgets=False,
-            widget_metadata=widget_metadata,
+    if interactive_selectors and not page_def.export_regions:
+        raise ValueError(
+            f"Dashboard page {page_def.page_id!r} declares exportable selectors but no export_regions."
         )
 
-    for selector_id, selected_value in zip(selector_order, default_values):
-        widget = selector_widgets.get(selector_id)
-        if widget is not None:
-            widget.value = selected_value
-    page.refresh(force=True)
-    page_diagnostics["default"] = _serialize_page_diagnostics(page)
+    region_nodes_by_id = build_region_nodes(
+        page,
+        page_def=page_def,
+        widget_metadata=widget_metadata,
+        selector_metadata_by_id=selector_metadata_by_id,
+        page_diagnostics=page_diagnostics,
+    )
+    content = serialize_viewable(
+        page.view,
+        disable_widgets=False,
+        widget_metadata=widget_metadata,
+        region_nodes_by_id=region_nodes_by_id,
+    )
     if diagnostics_for_state is not None:
         diagnostics_for_state[page_def.page_id] = page_diagnostics
-    return {
-        "kind": "page_variants",
-        "selector_ids": selector_order,
-        "default_key": variant_key(default_values),
-        "variants": variants,
-    }
+    return {"kind": "page", "content": content}
 
 
 def build_widget_metadata(
     page_def: DashboardPageDefinition,
     page: Any,
-    context: ExportBuildContext,
+    *,
+    selector_metadata_by_id: dict[str, SelectorMetadataPayload],
 ) -> dict[int, tuple[str | None, SelectorMetadataPayload | None]]:
     """Build selector metadata keyed by widget identity for serialization."""
     metadata: dict[int, tuple[str | None, SelectorMetadataPayload | None]] = {}
     for selector_def in page_def.selectors:
-        selector_meta = resolve_selector_metadata(
-            page_def,
-            selector_def,
-            page,
-            context,
-        )
+        selector_meta = selector_metadata_by_id[selector_def.selector_id]
         widget = selector_def.widget_for(page)
         if widget is not None:
             metadata[id(widget)] = (selector_def.selector_id, selector_meta)
     return metadata
+
+
+def build_region_nodes(
+    page: Any,
+    *,
+    page_def: DashboardPageDefinition,
+    widget_metadata: dict[int, tuple[str | None, SelectorMetadataPayload | None]],
+    selector_metadata_by_id: dict[str, SelectorMetadataPayload],
+    page_diagnostics: dict[str, Any],
+) -> dict[int, dict[str, Any]]:
+    """Build serialized region nodes keyed by region-root object id."""
+    if page.view is None:
+        return {}
+
+    resolved_regions = resolve_page_regions(page, page_def=page_def)
+    if not resolved_regions:
+        return {}
+
+    interactive_selector_ids = {
+        selector_id
+        for selector_id, selector_meta in selector_metadata_by_id.items()
+        if selector_meta["export_enabled"]
+    }
+    referenced_selector_ids = {
+        selector_id
+        for region_def, _ in resolved_regions
+        for selector_id in region_def.selector_ids
+    }
+    missing_selector_ids = sorted(interactive_selector_ids - referenced_selector_ids)
+    if missing_selector_ids:
+        raise ValueError(
+            f"Dashboard page {page_def.page_id!r} does not assign export regions to selector ids: "
+            + ", ".join(repr(selector_id) for selector_id in missing_selector_ids)
+        )
+
+    selector_widgets = {
+        selector_def.selector_id: selector_def.widget_for(page)
+        for selector_def in page_def.selectors
+    }
+    region_nodes: dict[int, dict[str, Any]] = {}
+    for region_def, region_view in resolved_regions:
+        active_selector_ids = [
+            selector_id
+            for selector_id in region_def.selector_ids
+            if selector_metadata_by_id.get(selector_id, {}).get("export_enabled")
+        ]
+        default_values = [
+            selector_metadata_by_id[selector_id]["default_value"]
+            for selector_id in active_selector_ids
+        ]
+        default_key = variant_key(default_values)
+        variants: dict[str, Any] = {}
+
+        if active_selector_ids:
+            selector_values = [
+                selector_metadata_by_id[selector_id]["resolved_values"]
+                for selector_id in active_selector_ids
+            ]
+            for combination in product(*selector_values):
+                for selector_id, selected_value in zip(active_selector_ids, combination):
+                    widget = selector_widgets.get(selector_id)
+                    if widget is not None:
+                        widget.value = selected_value
+                page.refresh(force=True)
+                refreshed_region_view = region_def.view_for(page)
+                if refreshed_region_view is None:
+                    raise ValueError(
+                        f"Dashboard page {page_def.page_id!r} export region {region_def.region_id!r} "
+                        "resolved to no view during variant serialization."
+                    )
+                page_diagnostics[
+                    f"region:{region_def.region_id}:{variant_key(combination)}"
+                ] = _serialize_page_diagnostics(page)
+                variants[variant_key(combination)] = serialize_viewable(
+                    refreshed_region_view,
+                    disable_widgets=False,
+                    widget_metadata=widget_metadata,
+                )
+
+        for selector_id, selected_value in zip(active_selector_ids, default_values):
+            widget = selector_widgets.get(selector_id)
+            if widget is not None and selected_value is not None:
+                widget.value = selected_value
+        page.refresh(force=True)
+        refreshed_region_view = region_def.view_for(page)
+        if refreshed_region_view is None:
+            raise ValueError(
+                f"Dashboard page {page_def.page_id!r} export region {region_def.region_id!r} "
+                "resolved to no view after restoring defaults."
+            )
+        default_content = serialize_viewable(
+            refreshed_region_view,
+            disable_widgets=False,
+            widget_metadata=widget_metadata,
+        )
+        region_nodes[id(region_view)] = {
+            "kind": "region",
+            "region_id": region_def.region_id,
+            "selector_ids": active_selector_ids,
+            "content_mode": "snapshot",
+            "default_key": default_key,
+            "default_content": default_content,
+            "variants": variants,
+        }
+
+    return region_nodes
+
+
+def resolve_page_regions(
+    page: Any,
+    *,
+    page_def: DashboardPageDefinition,
+) -> list[tuple[PageExportRegionDefinition, pn.viewable.Viewable]]:
+    """Resolve and validate explicit export regions for one page instance."""
+    if page.view is None or not page_def.export_regions:
+        return []
+
+    root_paths = _view_paths_by_id(page.view)
+    resolved: list[tuple[PageExportRegionDefinition, pn.viewable.Viewable]] = []
+    for region_def in page_def.export_regions:
+        region_view = region_def.view_for(page)
+        if region_view is None:
+            raise ValueError(
+                f"Dashboard page {page_def.page_id!r} export region {region_def.region_id!r} "
+                f"could not resolve view_attr {region_def.view_attr!r}."
+            )
+        region_path = root_paths.get(id(region_view))
+        if region_path is None:
+            raise ValueError(
+                f"Dashboard page {page_def.page_id!r} export region {region_def.region_id!r} "
+                "does not belong to the page view tree."
+            )
+        resolved.append((region_def, region_view))
+
+    for index, (region_def, region_view) in enumerate(resolved):
+        region_path = root_paths[id(region_view)]
+        for other_def, other_view in resolved[index + 1 :]:
+            other_path = root_paths[id(other_view)]
+            if region_path == other_path:
+                raise ValueError(
+                    f"Dashboard page {page_def.page_id!r} export regions {region_def.region_id!r} "
+                    f"and {other_def.region_id!r} resolve to the same subtree."
+                )
+            if _is_prefix(region_path, other_path) or _is_prefix(other_path, region_path):
+                raise ValueError(
+                    f"Dashboard page {page_def.page_id!r} export regions {region_def.region_id!r} "
+                    f"and {other_def.region_id!r} must not overlap or nest."
+                )
+
+    return resolved
+
+
+def _view_paths_by_id(
+    root: pn.viewable.Viewable,
+    path: tuple[int, ...] = (),
+    result: dict[int, tuple[int, ...]] | None = None,
+) -> dict[int, tuple[int, ...]]:
+    """Return stable DFS paths for supported viewables in one page tree."""
+    result = result or {}
+    result[id(root)] = path
+    for index, child in enumerate(_child_viewables(root)):
+        _view_paths_by_id(child, path + (index,), result)
+    return result
+
+
+def _child_viewables(view: pn.viewable.Viewable) -> list[pn.viewable.Viewable]:
+    """Return supported child viewables for export-region path validation."""
+    if isinstance(view, (pn.Column, pn.Row, pn.Card)):
+        return [
+            child
+            for child in view.objects
+            if isinstance(child, pn.viewable.Viewable)
+        ]
+    if isinstance(view, pn.Tabs):
+        return [
+            child
+            for child in view.objects
+            if isinstance(child, pn.viewable.Viewable)
+        ]
+    return []
+
+
+def _is_prefix(left: tuple[int, ...], right: tuple[int, ...]) -> bool:
+    """Return whether one view path is an ancestor-prefix of another."""
+    return len(left) < len(right) and right[: len(left)] == left
 
 
 def resolve_selector_metadata(

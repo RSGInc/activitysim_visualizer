@@ -7,7 +7,11 @@ import polars as pl
 
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
+from dashboard.page_definitions import (
+    DashboardPageDefinition,
+    PageExportRegionDefinition,
+    PageSelectorDefinition,
+)
 from runtime.config import Config
 
 
@@ -207,6 +211,13 @@ PAGE = DashboardPageDefinition(
             selector_id="hh_size",
             widget_attr="hhsize_sel",
             label="Household Size",
+        ),
+    ),
+    export_regions=(
+        PageExportRegionDefinition(
+            region_id="joint_tours_presence",
+            view_attr="_presence_section",
+            selector_ids=("hh_size",),
         ),
     ),
     required_summary_ids=(

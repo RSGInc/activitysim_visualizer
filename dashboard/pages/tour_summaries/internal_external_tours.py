@@ -7,7 +7,11 @@ import polars as pl
 
 from dashboard.components import data_table
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition, PageSelectorDefinition
+from dashboard.page_definitions import (
+    DashboardPageDefinition,
+    PageExportRegionDefinition,
+    PageSelectorDefinition,
+)
 from runtime.config import Config
 
 
@@ -144,6 +148,13 @@ PAGE = DashboardPageDefinition(
             selector_id="geography_level",
             widget_attr="geo_level_sel",
             label="Geography Level",
+        ),
+    ),
+    export_regions=(
+        PageExportRegionDefinition(
+            region_id="internal_external_tours_body",
+            view_attr="_body",
+            selector_ids=("geography_level",),
         ),
     ),
     required_summary_ids=(
