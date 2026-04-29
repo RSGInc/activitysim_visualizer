@@ -314,30 +314,47 @@ class JointTravelPage(DashboardPage):
 
         self._joint_tour_detail_section.objects = [
             pn.pane.Markdown("### Joint Tour Characteristics"),
-            pn.Row(
-                pn.Column(control_row_spacer(), joint_tours_hhsize_chart),
-                pn.Column(control_row_spacer(), party_size_chart),
-                pn.Column(
-                    control_row(
-                        pn.pane.Markdown("**Party Size:**"),
-                        self.party_size_sel,
+            pn.Column(
+                pn.Row(
+                    pn.Column(control_row_spacer()),
+                    pn.Column(control_row_spacer()),
+                    pn.Column(
+                        control_row(
+                            pn.pane.Markdown("**Party Size:**"),
+                            self.party_size_sel,
+                        )
                     ),
-                    comp_party_chart,
+                    sizing_mode="stretch_width",
                 ),
+                pn.Row(
+                    joint_tours_hhsize_chart,
+                    party_size_chart,
+                    comp_party_chart,
+                    sizing_mode="stretch_width",
+                ),
+                sizing_mode="stretch_width",
             ),
         ]
 
         self._participation_section.objects = [
             pn.pane.Markdown("### Joint Tour Participation"),
-            pn.Row(
-                pn.Column(control_row_spacer(), person_participation_chart),
-                pn.Column(
-                    control_row(
-                        pn.pane.Markdown("**Household Size:**"),
-                        self.hhsize_sel,
+            pn.Column(
+                pn.Row(
+                    pn.Column(control_row_spacer()),
+                    pn.Column(
+                        control_row(
+                            pn.pane.Markdown("**Household Size:**"),
+                            self.hhsize_sel,
+                        )
                     ),
-                    household_participation_chart,
+                    sizing_mode="stretch_width",
                 ),
+                pn.Row(
+                    person_participation_chart,
+                    household_participation_chart,
+                    sizing_mode="stretch_width",
+                ),
+                sizing_mode="stretch_width",
             ),
         ]
 

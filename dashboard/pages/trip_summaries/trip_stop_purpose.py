@@ -136,14 +136,21 @@ class TripStopPurposePage(DashboardPage):
         )
 
         self._body.objects = [
-            pn.Row(
-                pn.Column(control_row_spacer(), trip_purpose_chart),
-                pn.Column(
-                    control_row(
-                        pn.pane.Markdown("**Tour Purpose:**"),
-                        self.tour_purpose_sel,
+            pn.Column(
+                pn.Row(
+                    pn.Column(control_row_spacer()),
+                    pn.Column(
+                        control_row(
+                            pn.pane.Markdown("**Tour Purpose:**"),
+                            self.tour_purpose_sel,
+                        )
                     ),
+                    sizing_mode="stretch_width",
+                ),
+                pn.Row(
+                    trip_purpose_chart,
                     stop_purpose_chart,
+                    sizing_mode="stretch_width",
                 ),
                 sizing_mode="stretch_width",
             ),
