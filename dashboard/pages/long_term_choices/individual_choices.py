@@ -211,9 +211,8 @@ PAGE = DashboardPageDefinition(
     page_id="individual_choices",
     title="Individual Choices",
     group_id="long_term_choices",
-    child_id="individual_choices",
     order=25,
-    controller_cls=IndividualChoicesPage,
+    page_cls=IndividualChoicesPage,
     required_summary_ids=(
         "license_holding_status_distribution",
         "bicycle_comfort_level_distribution",
@@ -223,3 +222,4 @@ PAGE = DashboardPageDefinition(
 )
 
 IndividualChoicesPage.definition = PAGE
+

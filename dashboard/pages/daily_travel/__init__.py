@@ -5,6 +5,7 @@ from dashboard.page_definitions import DashboardGroupDefinition
 GROUP = DashboardGroupDefinition(
     group_id="daily_travel",
     title="Daily Travel",
-    order=80,
-    default_child_id="daily_activity_pattern",
+    order=40,
+    default_page_id="daily_activity_pattern",
 )
+

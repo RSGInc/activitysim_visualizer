@@ -93,13 +93,12 @@ def test_export_html_smoke_embeds_versioned_payload_and_runtime() -> None:
         ("trip_summaries", "Trip Summaries")
     ]
     trip_summaries = payload["pages"][0]
-    assert trip_summaries["default_child_id"] == "trip_stop_purpose"
+    assert trip_summaries["default_page_id"] == "trip_stop_purpose"
     assert [(child["id"], child["title"]) for child in trip_summaries["children"]] == [
-        ("parking_location", "Parking Location"),
-        ("trip_mode", "Trip Mode"),
-        ("trip_stop_distance", "Trip and Stop Distance"),
         ("trip_stop_purpose", "Trip and Stop Purpose"),
+        ("trip_mode", "Trip Mode"),
         ("trip_stop_time", "Trip and Stop Time"),
+        ("trip_stop_distance", "Trip and Stop Distance"),
     ]
     trip_mode = next(child for child in trip_summaries["children"] if child["id"] == "trip_mode")
     assert trip_mode["selectors"] == [
@@ -135,7 +134,7 @@ def test_export_runtime_assets_are_loaded_from_source_files() -> None:
     assert "__EXPORT_SCHEMA_VERSION__" not in runtime_js
 
 
-def test_export_html_smoke_serializes_grouped_default_child_as_leaf_page_id() -> None:
+def test_export_html_smoke_serializes_grouped_default_page_as_leaf_page_id() -> None:
     tmp_path = _workspace_tmp_dir("html_smoke_grouped_defaults")
     config = _write_config(
         tmp_path,
@@ -161,11 +160,11 @@ def test_export_html_smoke_serializes_grouped_default_child_as_leaf_page_id() ->
     payload = json.loads(html[start:end])
     page_by_id = {page["id"]: page for page in payload["pages"]}
 
-    assert page_by_id["tours"]["default_child_id"] == "tour_summary"
-    assert page_by_id["stops"]["default_child_id"] == "stop_frequency"
-    assert page_by_id["tours"]["default_child_id"] in [
+    assert page_by_id["tours"]["default_page_id"] == "tour_summary"
+    assert page_by_id["stops"]["default_page_id"] == "stop_frequency"
+    assert page_by_id["tours"]["default_page_id"] in [
         child["id"] for child in page_by_id["tours"]["children"]
     ]
-    assert page_by_id["stops"]["default_child_id"] in [
+    assert page_by_id["stops"]["default_page_id"] in [
         child["id"] for child in page_by_id["stops"]["children"]
     ]

@@ -131,8 +131,8 @@ High-level path:
 Important behavior:
 
 - Export never computes missing summaries.
-- Export only supports widget behavior that has been explicitly declared through `PageSelectorDefinition`.
-- A live page can render correctly and still be only partially exportable if its selectors are not declared in `PAGE.selectors`.
+- Export only supports page-local widget behavior that has been registered through `DashboardPage.selector(...)`.
+- A live page can render correctly and still be only partially exportable if its selectors or sections are not registered with the public `DashboardPage` authoring API.
 
 ## Weighted vs Unweighted
 

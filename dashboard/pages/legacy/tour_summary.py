@@ -3,3 +3,4 @@
 from dashboard.pages.tours.summary import PAGE, TourSummaryPage
 
 __all__ = ["PAGE", "TourSummaryPage"]
+

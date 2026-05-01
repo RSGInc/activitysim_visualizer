@@ -6,5 +6,6 @@ GROUP = DashboardGroupDefinition(
     group_id="validation",
     title="Validation Summaries",
     order=80,
-    default_child_id="traffic",
+    default_page_id="traffic",
 )
+

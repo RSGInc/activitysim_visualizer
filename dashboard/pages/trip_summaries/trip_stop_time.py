@@ -204,9 +204,8 @@ PAGE = DashboardPageDefinition(
     page_id="trip_stop_time",
     title="Trip and Stop Time",
     group_id="trip_summaries",
-    child_id="trip_stop_time",
     order=49,
-    controller_cls=TripStopTimePage,
+    page_cls=TripStopTimePage,
     selectors=(
         PageSelectorDefinition(
             selector_id="tour_purpose",
@@ -225,3 +224,4 @@ PAGE = DashboardPageDefinition(
 )
 
 TripStopTimePage.definition = PAGE
+

@@ -104,7 +104,8 @@ PAGE = DashboardPageDefinition(
     default_enabled=False,
     prepared_data_mode="required",
     required_prepared_tables=("trips",),
-    controller_cls=RawTripDemoPage,
+    page_cls=RawTripDemoPage,
 )
 
 RawTripDemoPage.definition = PAGE
+

@@ -192,9 +192,8 @@ PAGE = DashboardPageDefinition(
     page_id="trip_mode",
     title="Trip Mode",
     group_id="trip_summaries",
-    child_id="trip_mode",
     order=48,
-    controller_cls=TripModePage,
+    page_cls=TripModePage,
     selectors=(
         PageSelectorDefinition(
             selector_id="tour_purpose",
@@ -213,3 +212,4 @@ PAGE = DashboardPageDefinition(
 )
 
 TripModePage.definition = PAGE
+

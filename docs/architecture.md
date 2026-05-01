@@ -72,11 +72,30 @@ If a new feature adds a config key or changes config behavior, the README and an
 
 Adding a summary is not complete until it is registered there.
 
-### `DashboardPageDefinition` and `PageSelectorDefinition`
+### `DashboardPageDefinition` and `DashboardPage`
 
-Dashboard pages are registered through module-level `PAGE = DashboardPageDefinition(...)` objects in `dashboard/pages/`. Export-capable page-local controls are declared in `PAGE.selectors` using `PageSelectorDefinition`. Pages also declare their data contract there through `required_summary_ids`, `prepared_data_mode`, and, when needed, `required_prepared_tables`.
+Dashboard pages are registered through module-level `PAGE = DashboardPageDefinition(...)` objects in `dashboard/pages/`. `PAGE` is now intentionally narrow: it holds identity, navigation grouping, ordering, and the page's summary/prepared-data contract through `required_summary_ids`, `prepared_data_mode`, and, when needed, `required_prepared_tables`.
 
-These definitions are consumed by both the live dashboard and the HTML export path, so they are the supported page extension API.
+The public page authoring API lives on `dashboard.page_base.DashboardPage`.
+
+Page authors are expected to:
+
+- implement `build_page()` to create widgets and stable layout once
+- optionally implement `sync_controls()` to reconcile selector options and values
+- register page-local controls with `self.selector(...)`
+- register refreshable/exportable regions with `self.section(...)`
+- return section content from section render functions
+
+The framework now owns:
+
+- widget watchers
+- section containers
+- section-aware refresh
+- stale tracking
+- export selector metadata
+- export region metadata
+
+That means live refresh behavior and export behavior both derive from the same selector/section registration graph rather than from separate page metadata declarations.
 
 ## Repository Map
 

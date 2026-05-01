@@ -6,5 +6,6 @@ GROUP = DashboardGroupDefinition(
     group_id="tours",
     title="Tours",
     order=30,
-    default_child_id="summary",
+    default_page_id="tour_summary",
 )
+

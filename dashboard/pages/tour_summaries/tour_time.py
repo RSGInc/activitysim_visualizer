@@ -250,9 +250,8 @@ PAGE = DashboardPageDefinition(
     page_id="tour_time",
     title="Tour Time",
     group_id="tour_summaries",
-    child_id="tour_time",
     order=43,
-    controller_cls=TourTimePage,
+    page_cls=TourTimePage,
     selectors=(
         PageSelectorDefinition(
             selector_id="tour_purpose",
@@ -271,3 +270,4 @@ PAGE = DashboardPageDefinition(
 )
 
 TourTimePage.definition = PAGE
+

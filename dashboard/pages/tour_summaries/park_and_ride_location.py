@@ -39,9 +39,8 @@ PAGE = DashboardPageDefinition(
     page_id="park_and_ride_location",
     title="Park-and-Ride Location",
     group_id="tour_summaries",
-    child_id="park_and_ride_location",
     order=47,
-    controller_cls=ParkAndRideLocationPage,
+    page_cls=ParkAndRideLocationPage,
     export_regions=(
         PageExportRegionDefinition(
             region_id="park_and_ride_location_body",
@@ -51,3 +50,4 @@ PAGE = DashboardPageDefinition(
 )
 
 ParkAndRideLocationPage.definition = PAGE
+

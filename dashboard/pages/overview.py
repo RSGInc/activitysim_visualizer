@@ -6,7 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import _to_pandas, bar_chart, kpi_box
-from dashboard.page_base import DashboardPage
+from dashboard.page_base import DashboardPage, SectionContent
 from dashboard.page_definitions import DashboardPageDefinition
 from runtime.config import Config
 
@@ -81,15 +81,13 @@ def hh_size_chart_data(
 
 
 class OverviewPage(DashboardPage):
-    def __init__(self, state, config: Config) -> None:
-        super().__init__("Overview", state, config)
-        self._body = pn.Column(sizing_mode="stretch_width")
-        self.view = self._body
+    def build_page(self) -> pn.viewable.Viewable:
+        self._body = self.section("body", render=self.render_body)
+        return self._body
 
-    def _refresh(self) -> None:
+    def render_body(self) -> SectionContent:
         if not self.state.run_labels:
-            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
-            return
+            return [pn.pane.Markdown("No runs loaded.")]
 
         objects: list[pn.viewable.Viewable] = [pn.pane.Markdown("## Overview")]
 
@@ -216,14 +214,14 @@ class OverviewPage(DashboardPage):
             )
         )
         objects.append(pn.Row(ptype_widget, hhsize_widget))
-        self._body.objects = objects
+        return objects
 
 
 PAGE = DashboardPageDefinition(
     page_id="overview",
     title="Overview",
     order=10,
-    controller_cls=OverviewPage,
+    page_cls=OverviewPage,
     required_summary_ids=(
         "population_totals",
         "person_type_distribution",
@@ -233,3 +231,4 @@ PAGE = DashboardPageDefinition(
 )
 
 OverviewPage.definition = PAGE
+

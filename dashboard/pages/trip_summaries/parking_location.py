@@ -138,9 +138,9 @@ PAGE = DashboardPageDefinition(
     page_id="parking_location",
     title="Parking Location",
     group_id="trip_summaries",
-    child_id="parking_location",
     order=51,
-    controller_cls=ParkingLocationPage,
+    default_enabled=False,
+    page_cls=ParkingLocationPage,
     prepared_data_mode="required",
     required_summary_ids=("parking_locations",),
     required_prepared_tables=("land_use",),
@@ -153,3 +153,4 @@ PAGE = DashboardPageDefinition(
 )
 
 ParkingLocationPage.definition = PAGE
+

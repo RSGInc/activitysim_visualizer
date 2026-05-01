@@ -216,9 +216,8 @@ PAGE = DashboardPageDefinition(
     page_id="transit",
     title="Transit Validation",
     group_id="validation",
-    child_id="transit",
     order=53,
-    controller_cls=TransitValidationPage,
+    page_cls=TransitValidationPage,
     selectors=(
         PageSelectorDefinition(
             selector_id="technology",
@@ -245,3 +244,4 @@ PAGE = DashboardPageDefinition(
 )
 
 TransitValidationPage.definition = PAGE
+

@@ -203,9 +203,8 @@ PAGE = DashboardPageDefinition(
     page_id="tour_stop_frequency",
     title="Tour Stop Frequency",
     group_id="tour_summaries",
-    child_id="tour_stop_frequency",
     order=45,
-    controller_cls=TourStopFrequencyPage,
+    page_cls=TourStopFrequencyPage,
     selectors=(
         PageSelectorDefinition(
             selector_id="tour_purpose",
@@ -232,3 +231,4 @@ PAGE = DashboardPageDefinition(
 )
 
 TourStopFrequencyPage.definition = PAGE
+

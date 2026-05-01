@@ -611,7 +611,6 @@ def test_export_html_config_resolves_nested_dashboard_and_page_requests(
             "daily_activity_pattern",
             "person_type",
             group_id="daily_travel",
-            child_id="daily_activity_pattern",
         ).mode
         == "all"
     )
@@ -630,7 +629,6 @@ def test_export_html_config_resolves_nested_dashboard_and_page_requests(
             "trip_mode",
             "tour_purpose",
             group_id="trip_summaries",
-            child_id="trip_mode",
         ).mode
         == "explicit"
     )
@@ -638,7 +636,6 @@ def test_export_html_config_resolves_nested_dashboard_and_page_requests(
         "trip_mode",
         "tour_purpose",
         group_id="trip_summaries",
-        child_id="trip_mode",
     ).values == (
         "all",
         "eatout",
@@ -653,11 +650,12 @@ def test_export_html_config_supports_nested_group_children_requests(
         export_html_lines=[
             "pages:",
             "  tours:",
-            "    summary: {}",
-            "    mode:",
-            "      purpose:",
-            "        - total",
-            "        - work",
+            "    children:",
+            "      tour_summary: {}",
+            "      tr_mode:",
+            "        purpose:",
+            "          - total",
+            "          - work",
         ],
     )
 
@@ -666,7 +664,6 @@ def test_export_html_config_supports_nested_group_children_requests(
             "tr_mode",
             "purpose",
             group_id="tours",
-            child_id="mode",
         ).values
         == ("total", "work")
     )
@@ -810,7 +807,7 @@ def test_config_rejects_duplicate_dashboard_pages(tmp_path: Path) -> None:
 
     with pytest.raises(
         ValueError,
-        match="visualizer.export_html.pages.trip_summaries.trip_mode.tour_purpose resolved to no values",
+        match="visualizer.export_html.pages.trip_summaries.children.trip_mode.tour_purpose resolved to no values",
     ):
         _write_config(
             tmp_path / "empty_page_values",
@@ -1103,21 +1100,19 @@ def test_build_export_html_document_respects_configured_dashboard_page_subset_an
         ("overview", "Overview"),
         ("trip_summaries", "Trip Summaries"),
     ]
-    assert payload["pages"][1]["default_child_id"] == "trip_stop_purpose"
+    assert payload["pages"][1]["default_page_id"] == "trip_stop_purpose"
     assert [(child["id"], child["title"]) for child in payload["pages"][1]["children"]] == [
-        ("parking_location", "Parking Location"),
-        ("trip_mode", "Trip Mode"),
-        ("trip_stop_distance", "Trip and Stop Distance"),
         ("trip_stop_purpose", "Trip and Stop Purpose"),
+        ("trip_mode", "Trip Mode"),
         ("trip_stop_time", "Trip and Stop Time"),
+        ("trip_stop_distance", "Trip and Stop Distance"),
     ]
     assert list(payload["states"]["Weighted||Percent"]) == [
         "overview",
-        "parking_location",
-        "trip_mode",
-        "trip_stop_distance",
         "trip_stop_purpose",
+        "trip_mode",
         "trip_stop_time",
+        "trip_stop_distance",
     ]
 
 
@@ -1209,29 +1204,34 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
             "  values: all",
             "pages:",
             "  tours:",
-            "    summary:",
-            "      person_type:",
-            "        - total",
-            "        - worker",
-            "    tod:",
-            "      purpose: all",
+            "    children:",
+            "      tour_summary:",
+            "        person_type:",
+            "          - total",
+            "          - worker",
+            "      tour_tod:",
+            "        purpose: all",
             "  daily_travel:",
-            "    daily_activity_pattern:",
-            "      person_type: all",
+            "    children:",
+            "      daily_activity_pattern:",
+            "        person_type: all",
             "  tour_summaries:",
-            "    tour_mode:",
-            "      tour_purpose: all",
-            "      auto_sufficiency: all",
+            "    children:",
+            "      tour_mode:",
+            "        tour_purpose: all",
+            "        auto_sufficiency: all",
             "  stops:",
-            "    frequency:",
-            "      tour_purpose: all",
-            "    location:",
-            "      purpose: all",
-            "    timing:",
-            "      purpose: all",
+            "    children:",
+            "      stop_frequency:",
+            "        tour_purpose: all",
+            "      stop_location:",
+            "        purpose: all",
+            "      stop_timing:",
+            "        purpose: all",
             "  trip_summaries:",
-            "    trip_mode:",
-            "      tour_purpose: all",
+            "    children:",
+            "      trip_mode:",
+            "        tour_purpose: all",
         ],
     )
 

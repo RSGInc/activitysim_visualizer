@@ -91,12 +91,12 @@ def build_dashboard(
             pages.append(child_pages[0])
             continue
         pages.append(
-            GroupedDashboardPage(
-                entry.group_definition.group_id,
-                entry.title,
-                child_pages,
-                default_child_page_id=entry.group_definition.default_child_id,
-            )
+                GroupedDashboardPage(
+                    entry.group_definition.group_id,
+                    entry.title,
+                    child_pages,
+                    default_child_page_id=entry.group_definition.default_page_id,
+                )
         )
     tabs = pn.Tabs(
         *[(page.name, page.view) for page in pages],

@@ -26,7 +26,7 @@ class DashboardPageConfigEntry:
 
     page_id: str
     mode: str = "explicit"
-    child_page_ids: tuple[str, ...] = field(default_factory=tuple)
+    page_ids: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -117,12 +117,10 @@ class ExportHTMLSettings:
         selector_id: str,
         *,
         group_id: str | None = None,
-        child_id: str | None = None,
     ) -> ExportSelectorRequest:
         request = self.page_override(
             page_id,
             group_id=group_id,
-            child_id=child_id,
         ).selector_requests.get(selector_id)
         if request is not None:
             return request
@@ -133,13 +131,12 @@ class ExportHTMLSettings:
         page_id: str,
         *,
         group_id: str | None = None,
-        child_id: str | None = None,
     ) -> ExportPageOverride:
         override = self.pages.get(page_id)
         if override is not None:
             return override
-        if group_id is not None and child_id is not None:
-            override = self.pages.get(f"{group_id}.{child_id}")
+        if group_id is not None:
+            override = self.pages.get(f"{group_id}.{page_id}")
             if override is not None:
                 return override
         return ExportPageOverride()
@@ -355,32 +352,32 @@ def _normalize_dashboard_page_entries(
             token = raw_children.strip().lower()
             if token not in {"default", "all"}:
                 raise ValueError(
-                    f"{field_name}.{page_id} must be 'default', 'all', or a list of child ids."
+                    f"{field_name}.{page_id} must be 'default', 'all', or a list of page ids."
                 )
             entries.append(DashboardPageConfigEntry(page_id=page_id, mode=token))
         elif isinstance(raw_children, list):
-            child_ids: list[str] = []
-            for raw_child_id in raw_children:
-                if not isinstance(raw_child_id, str):
+            child_page_ids: list[str] = []
+            for raw_child_page_id in raw_children:
+                if not isinstance(raw_child_page_id, str):
                     raise ValueError(
                         f"{field_name}.{page_id} entries must be strings."
                     )
-                child_id = raw_child_id.strip().lower()
-                if not child_id or child_id in child_ids:
+                child_page_id = raw_child_page_id.strip().lower()
+                if not child_page_id or child_page_id in child_page_ids:
                     continue
-                child_ids.append(child_id)
-            if not child_ids:
-                raise ValueError(f"{field_name}.{page_id} resolved to no child ids.")
+                child_page_ids.append(child_page_id)
+            if not child_page_ids:
+                raise ValueError(f"{field_name}.{page_id} resolved to no page ids.")
             entries.append(
                 DashboardPageConfigEntry(
                     page_id=page_id,
                     mode="explicit",
-                    child_page_ids=tuple(child_ids),
+                    page_ids=tuple(child_page_ids),
                 )
             )
         else:
             raise ValueError(
-                f"{field_name}.{page_id} must be 'default', 'all', or a list of child ids."
+                f"{field_name}.{page_id} must be 'default', 'all', or a list of page ids."
             )
         seen_page_ids.add(page_id)
 
@@ -415,13 +412,20 @@ def _normalize_export_page_entries(
             )
             continue
 
-        for raw_child_id, raw_child_cfg in raw_page_cfg.items():
-            child_id = str(raw_child_id).strip().lower()
-            if not child_id:
-                raise ValueError(f"{field_name}.{page_id} contains an empty child id.")
-            normalized[f"{page_id}.{child_id}"] = _normalize_export_page_override(
+        child_entries = raw_page_cfg
+        if set(raw_page_cfg) == {"children"}:
+            raw_children = raw_page_cfg["children"]
+            if not isinstance(raw_children, dict):
+                raise ValueError(f"{field_name}.{page_id}.children must be a mapping.")
+            child_entries = raw_children
+
+        for raw_child_page_id, raw_child_cfg in child_entries.items():
+            child_page_id = str(raw_child_page_id).strip().lower()
+            if not child_page_id:
+                raise ValueError(f"{field_name}.{page_id} contains an empty page id.")
+            normalized[f"{page_id}.{child_page_id}"] = _normalize_export_page_override(
                 raw_child_cfg,
-                field_name=f"{field_name}.{page_id}.{child_id}",
+                field_name=f"{field_name}.{page_id}.children.{child_page_id}",
             )
     return normalized
 
@@ -1197,7 +1201,7 @@ class Config:
                     {
                         "page_id": entry.page_id,
                         "mode": entry.mode,
-                        "child_page_ids": list(entry.child_page_ids),
+                        "page_ids": list(entry.page_ids),
                     }
                     for entry in self.dashboard_pages
                 ]

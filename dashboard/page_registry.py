@@ -119,10 +119,6 @@ def all_page_definitions() -> tuple[DashboardPageDefinition, ...]:
                 raise ValueError(
                     f"Dashboard page {page_definition.page_id!r} must declare group_id={group_definition.group_id!r}."
                 )
-            if not page_definition.child_id:
-                raise ValueError(
-                    f"Dashboard page {page_definition.page_id!r} must declare a child_id because it belongs to group {group_definition.group_id!r}."
-                )
             _validate_page_definition(page_definition)
             if page_definition.group_id not in group_lookup:
                 raise ValueError(
@@ -142,7 +138,6 @@ def all_page_definitions() -> tuple[DashboardPageDefinition, ...]:
 
     seen_page_ids: set[str] = set()
     seen_titles: set[str] = set()
-    seen_group_child_ids: set[tuple[str, str]] = set()
     for page_definition in page_definitions:
         if page_definition.page_id in seen_page_ids:
             raise ValueError(
@@ -152,13 +147,6 @@ def all_page_definitions() -> tuple[DashboardPageDefinition, ...]:
             raise ValueError(
                 f"Duplicate dashboard page title discovered: {page_definition.title!r}."
             )
-        if page_definition.group_id and page_definition.child_id:
-            group_child_key = (page_definition.group_id, page_definition.child_id)
-            if group_child_key in seen_group_child_ids:
-                raise ValueError(
-                    f"Duplicate dashboard child id discovered for group {page_definition.group_id!r}: {page_definition.child_id!r}."
-                )
-            seen_group_child_ids.add(group_child_key)
         seen_page_ids.add(page_definition.page_id)
         seen_titles.add(page_definition.title)
 
@@ -167,7 +155,7 @@ def all_page_definitions() -> tuple[DashboardPageDefinition, ...]:
             page_definitions,
             key=lambda page_definition: (
                 _page_sort_order(page_definition),
-                page_definition.child_order if page_definition.group_id else page_definition.order,
+                page_definition.order,
                 page_definition.page_id,
             ),
         )
@@ -182,12 +170,12 @@ def _page_definition_from_module(module: object) -> DashboardPageDefinition:
         raise TypeError(
             f"{module.__name__}.PAGE must be a DashboardPageDefinition instance."
         )
-    controller_cls = page_definition.controller_cls
-    if controller_cls is None:
+    page_cls = page_definition.page_cls
+    if page_cls is None:
         raise ValueError(
-            f"Dashboard page {page_definition.page_id!r} does not declare a controller."
+            f"Dashboard page {page_definition.page_id!r} does not declare a page class."
         )
-    controller_cls.definition = page_definition
+    page_cls.definition = page_definition
     return page_definition
 
 
@@ -233,11 +221,6 @@ def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
             f"Dashboard page {page_definition.page_id!r} declares required_prepared_tables "
             "but prepared_data_mode is 'none'."
         )
-    if page_definition.group_id is None and page_definition.child_id is not None:
-        raise ValueError(
-            f"Dashboard page {page_definition.page_id!r} declares child_id without a group_id."
-        )
-
     unknown_summary_ids = [
         summary_id
         for summary_id in required_summary_ids
@@ -338,17 +321,6 @@ def selector_definition_by_id(page_id: str, selector_id: str) -> PageSelectorDef
     for selector in page_definition.selectors:
         if selector.selector_id == selector_id:
             return selector
-    return None
-
-
-def page_definition_by_group_child(
-    group_id: str,
-    child_id: str,
-) -> DashboardPageDefinition | None:
-    """Look up a grouped leaf page definition by group id and child id."""
-    for page_definition in all_page_definitions():
-        if page_definition.group_id == group_id and page_definition.child_id == child_id:
-            return page_definition
     return None
 
 
@@ -474,11 +446,6 @@ def _resolve_group_children(
         raise ValueError(
             f"Dashboard page group {group_definition.group_id!r} does not contain any leaf pages."
         )
-    child_by_local_id = {
-        page_definition.child_id: page_definition
-        for page_definition in available_children
-        if page_definition.child_id is not None
-    }
     child_by_page_id = {
         page_definition.page_id: page_definition for page_definition in available_children
     }
@@ -493,16 +460,16 @@ def _resolve_group_children(
         ]
         if default_children:
             return default_children
-        if group_definition.default_child_id:
-            default_child = child_by_local_id.get(group_definition.default_child_id)
+        if group_definition.default_page_id:
+            default_child = child_by_page_id.get(group_definition.default_page_id)
             if default_child is None:
                 raise ValueError(
-                    f"Dashboard page group {group_definition.group_id!r} declares unknown default_child_id {group_definition.default_child_id!r}."
+                    f"Dashboard page group {group_definition.group_id!r} declares unknown default_page_id {group_definition.default_page_id!r}."
                 )
             return [default_child]
         return [available_children[0]]
 
-    if not entry.child_page_ids:
+    if not entry.page_ids:
         default_children = [
             page_definition
             for page_definition in available_children
@@ -511,18 +478,18 @@ def _resolve_group_children(
         return default_children or [available_children[0]]
 
     selected_children: list[DashboardPageDefinition] = []
-    unknown_child_ids: list[str] = []
-    for child_id in entry.child_page_ids:
-        child_definition = child_by_local_id.get(child_id) or child_by_page_id.get(child_id)
+    unknown_page_ids: list[str] = []
+    for child_page_id in entry.page_ids:
+        child_definition = child_by_page_id.get(child_page_id)
         if child_definition is None:
-            unknown_child_ids.append(child_id)
+            unknown_page_ids.append(child_page_id)
             continue
         if child_definition not in selected_children:
             selected_children.append(child_definition)
-    if unknown_child_ids:
+    if unknown_page_ids:
         raise ValueError(
-            f"Unsupported {error_field_name}.{group_definition.group_id} child entries: "
-            + ", ".join(repr(child_id) for child_id in unknown_child_ids)
+            f"Unsupported {error_field_name}.{group_definition.group_id} page entries: "
+            + ", ".join(repr(page_id) for page_id in unknown_page_ids)
         )
     return selected_children
 
@@ -604,7 +571,6 @@ def resolve_export_page_definitions(config: Config) -> list[DashboardPageDefinit
         override = config.export_html.page_override(
             page_definition.page_id,
             group_id=page_definition.group_id,
-            child_id=page_definition.child_id,
         )
         if override.enabled is False:
             continue
@@ -711,12 +677,12 @@ def _build_registered_pages(
 ) -> list[DashboardPage]:
     pages: list[DashboardPage] = []
     for page_definition in page_definitions:
-        controller_cls = page_definition.controller_cls
-        if controller_cls is None:
+        page_cls = page_definition.page_cls
+        if page_cls is None:
             raise ValueError(
-                f"Dashboard page {page_definition.page_id!r} has no controller class."
+                f"Dashboard page {page_definition.page_id!r} has no page class."
             )
-        pages.append(controller_cls(state, config))
+        pages.append(page_cls(state, config))
     return pages
 
 

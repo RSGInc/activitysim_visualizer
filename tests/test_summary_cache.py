@@ -10,8 +10,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from dashboard.components import bar_chart
-from dashboard.pages.destination import DestinationPage
-from dashboard.pages.long_term import LongTermPage
+from dashboard.pages.legacy.destination import DestinationPage
+from dashboard.pages.legacy.long_term import LongTermPage
 from dashboard.pages.long_term_choices.individual_choices import (
     IndividualChoicesPage,
 )
@@ -19,15 +19,17 @@ from dashboard.pages.long_term_choices.mandatory_location_choice import (
     MandatoryLocationChoicePage,
 )
 from dashboard.pages.overview import OverviewPage
-from dashboard.pages.stop_freq import StopFreqPage
-from dashboard.pages.stop_location import StopLocationPage
-from dashboard.pages.stop_timing import StopTimingPage
-from dashboard.pages.tour_mode import TourModePage
-from dashboard.pages.tour_summaries.tour_mode import TourModePage as TourSummariesTourModePage
+from dashboard.pages.legacy.stop_freq import StopFreqPage
+from dashboard.pages.legacy.stop_location import StopLocationPage
+from dashboard.pages.legacy.stop_timing import StopTimingPage
+from dashboard.pages.legacy.tour_mode import TourModePage
+from dashboard.pages.tour_summaries.tour_mode import (
+    TourModePage as TourSummariesTourModePage,
+)
 from dashboard.pages.tour_summaries.tour_mode import _filter_col
-from dashboard.pages.tour_summary import TourSummaryPage
-from dashboard.pages.tour_tod import TourTODPage
-from dashboard.pages.trip_mode import TripModePage
+from dashboard.pages.legacy.tour_summary import TourSummaryPage
+from dashboard.pages.legacy.tour_tod import TourTODPage
+from dashboard.pages.legacy.trip_mode import TripModePage
 from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.state import DashboardState
 from processor.models import RunData
@@ -656,17 +658,24 @@ def test_build_summaries_with_metadata_marks_missing_inputs_unavailable(
         required_columns={"trips": ("needed",)},
     )
     def unavailable_summary(rd: RunData, config: Config) -> pl.DataFrame:
-        raise AssertionError("builder should not be called when prerequisites are missing")
+        raise AssertionError(
+            "builder should not be called when prerequisites are missing"
+        )
 
     spec = SummarySpec("probe_unavailable", "probe_unavailable", unavailable_summary)
-    monkeypatch.setattr(summary_cache_module, "DEFAULT_SUMMARY_IDS", ["probe_unavailable"])
-    monkeypatch.setitem(summary_cache_module.SUMMARY_SPEC_BY_ID, "probe_unavailable", spec)
+    monkeypatch.setattr(
+        summary_cache_module, "DEFAULT_SUMMARY_IDS", ["probe_unavailable"]
+    )
+    monkeypatch.setitem(
+        summary_cache_module.SUMMARY_SPEC_BY_ID, "probe_unavailable", spec
+    )
 
     tables, metadata = build_summaries_with_metadata(_destination_raw_run(), config)
 
-    assert tables["probe_unavailable"].schema == empty_summary_frame(
-        unavailable_summary
-    ).schema
+    assert (
+        tables["probe_unavailable"].schema
+        == empty_summary_frame(unavailable_summary).schema
+    )
     assert metadata["probe_unavailable"]["state"] == "unavailable"
     assert "missing required columns" in metadata["probe_unavailable"]["detail"]
 

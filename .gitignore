@@ -214,7 +214,8 @@ quarto/dashboard.html
 quarto/dashboard_files/
 
 .pytest_tmp
+.pytest*
 .uv_cache
 
-.pytest_*
+.pytest_*/
 local_config.yaml

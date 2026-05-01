@@ -180,9 +180,8 @@ PAGE = DashboardPageDefinition(
     page_id="stop_location",
     title="Stop Location",
     group_id="stops",
-    child_id="location",
     child_order=20,
-    controller_cls=StopLocationPage,
+    page_cls=StopLocationPage,
     selectors=(
         PageSelectorDefinition(
             selector_id="purpose",
@@ -201,3 +200,4 @@ PAGE = DashboardPageDefinition(
 )
 
 StopLocationPage.definition = PAGE
+

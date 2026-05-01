@@ -222,9 +222,8 @@ PAGE = DashboardPageDefinition(
     page_id="vehicle_ownership_type",
     title="Vehicle Ownership and Type",
     group_id="long_term_choices",
-    child_id="vehicle_ownership_type",
     order=26,
-    controller_cls=VehicleOwnershipTypePage,
+    page_cls=VehicleOwnershipTypePage,
     required_summary_ids=(
         "auto_ownership_distribution",
         "autonomous_vehicle_ownership_totals",
@@ -235,3 +234,4 @@ PAGE = DashboardPageDefinition(
 )
 
 VehicleOwnershipTypePage.definition = PAGE
+

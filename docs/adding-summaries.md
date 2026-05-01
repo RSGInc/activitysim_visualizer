@@ -130,7 +130,7 @@ Skip it when the table is private, transitional, or not yet used as a stable das
 If a page should consume the summary:
 
 1. Add the summary id to the page's `PAGE.required_summary_ids`.
-2. Use `require_summary(...)` or `require_summaries(...)` in `_refresh()`.
+2. Use `require_summary(...)` or `require_summaries(...)` in a section render function.
 3. Keep page-specific filtering and chart shaping in the page module.
 
 Example:
@@ -139,7 +139,7 @@ Example:
 PAGE = DashboardPageDefinition(
     page_id="trip_distance",
     title="Trip Distance",
-    controller_cls=TripDistancePage,
+    page_cls=TripDistancePage,
     required_summary_ids=("trip_distance_by_mode",),
 )
 ```

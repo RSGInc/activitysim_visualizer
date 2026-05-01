@@ -1,400 +1,258 @@
-# Adding Dashboard Pages and Shared Components
+# Adding Dashboard Pages
 
-This guide is for the common case where the summary table you need already exists and the remaining work is dashboard wiring.
+This guide covers the new public dashboard page authoring API.
 
-There are two related jobs:
+Use it when the summary table you need already exists and you want to add or refactor a page under `dashboard/pages/`.
 
-1. Add a new page under `dashboard/pages/`.
-2. Add a new reusable chart helper in `dashboard/components.py` when multiple pages need the same plotting behavior.
-
-If the summary table does not exist yet, start with [adding-summaries.md](adding-summaries.md).
+If the summary does not exist yet, start with [adding-summaries.md](adding-summaries.md).
 
 ## Mental Model
 
-Each dashboard page follows the same flow:
+A dashboard page now has one source of truth for page-local interactivity:
 
-1. Pull one or more summary tables from `DashboardState`.
-2. Optionally filter or reshape them into chart-ready data.
-3. Build Panel objects from that data.
-4. Replace the contents of stable containers inside `_refresh()`.
+1. register selectors once
+2. register sections once
+3. render section content from pure-ish render functions
 
-Each reusable chart helper follows this flow:
+The framework takes care of:
 
-1. Accept already-prepared data.
-2. Build a Plotly figure.
-3. Apply consistent layout and run colors.
-4. Return a `pn.pane.Plotly`.
+- widget watchers
+- stable section containers
+- rerendering only the affected sections when a selector changes
+- rerendering all sections when the global dashboard state changes
+- deriving export selector and export region metadata from those same registrations
 
-Pages own business logic and selector behavior. Shared components own presentation and repeated chart behavior.
+## Registration Objects
 
-## Part 1: Adding a New Dashboard Page
+Each page module still exports a module-level `PAGE = DashboardPageDefinition(...)`.
 
-### Standalone Pages vs Grouped Pages
+`DashboardPageDefinition` is intentionally narrow:
 
-`dashboard/pages/` now supports two layouts:
+- `page_id`
+- `title`
+- `page_cls`
+- `order`
+- `group_id`
+- `default_enabled`
+- `prepared_data_mode`
+- `required_summary_ids`
+- `required_prepared_tables`
 
-- standalone top-level pages as single files such as `dashboard/pages/overview.py`
-- grouped pages under subdirectories such as `dashboard/pages/tours/summary.py`
+Grouped navigation is declared in a sibling `GROUP = DashboardGroupDefinition(...)` inside the package `__init__.py`.
 
-Each grouped directory also declares one top-level group definition in `__init__.py`:
+`DashboardGroupDefinition` now uses `default_page_id`, not `default_child_id`.
+
+There is no `child_id`.
+
+## Page Lifecycle
+
+Page authors subclass `DashboardPage`.
+
+The public lifecycle hooks are:
+
+- `build_page(self) -> pn.viewable.Viewable`
+- `sync_controls(self) -> None`
+- `on_global_state_changed(self) -> None`
+
+`build_page()` is required. It should:
+
+- create widgets
+- register selectors
+- register sections
+- return one stable root view
+
+`sync_controls()` is optional. It runs before every refresh pass and is the right place to:
+
+- populate selector options from current data availability
+- reset invalid widget values to safe defaults
+
+`on_global_state_changed()` is optional. Use it for page-local cache invalidation when weighting mode, value mode, or available runs change.
+
+## Public Helpers
+
+The core authoring helpers are:
 
 ```python
-from dashboard.page_definitions import DashboardGroupDefinition
-
-GROUP = DashboardGroupDefinition(
-    group_id="tours",
-    title="Tours",
-    order=30,
-    default_child_id="summary",
+self.selector(
+    selector_id,
+    widget=...,
+    label="...",
+    exportable=True,
 )
+
+self.section(
+    section_id,
+    selectors=("selector_a", "selector_b"),
+    export=True,
+    render=self.render_section_name,
+)
+
+self.section_view("section_id")
+self.mark_section_stale("section_id")
 ```
 
-### What a Page Module Must Contain
+The most commonly used data helpers remain available on `DashboardPage`:
 
-A leaf page module usually contains:
+- `resolve_summary_visualization(...)`
+- `resolve_prepared_visualization(...)`
+- `require_summary(...)`
+- `require_summaries(...)`
+- `optional_summary(...)`
+- `unavailable_visualization(...)`
+- `data_not_available_card(...)`
+- `get_filtered_view(...)`
+- `clear_filtered_view_cache(...)`
+- `as_percent`
+- `weighting_key`
 
-- small helper functions for option lists or chart data prep
-- one `DashboardPage` subclass
-- one module-level `PAGE = DashboardPageDefinition(...)`
-- one final line assigning `YourPageClass.definition = PAGE`
-
-The registry imports standalone modules directly under `dashboard/pages/` plus child modules one level below grouped directories. It validates each `PAGE` and instantiates the controller class from the definition.
-
-### The Smallest Useful Page
+## Minimal Example
 
 ```python
 from __future__ import annotations
 
 import panel as pn
 
-from dashboard.components import bar_chart
-from dashboard.page_base import DashboardPage
+from dashboard.page_base import DashboardPage, SectionContent
 from dashboard.page_definitions import DashboardPageDefinition
-from runtime.config import Config
 
 
 class MyNewPage(DashboardPage):
-    def __init__(self, state, config: Config) -> None:
-        super().__init__("My New Page", state, config)
-        self._body = pn.Column(sizing_mode="stretch_width")
-        self.view = pn.Column(
+    def build_page(self) -> pn.viewable.Viewable:
+        self.purpose_sel = self.selector(
+            "purpose",
+            widget=pn.widgets.Select(name="Purpose", options=["Total"], value="Total"),
+            label="Purpose",
+        )
+
+        summary_section = self.section(
+            "summary",
+            selectors=("purpose",),
+            render=self.render_summary,
+        )
+
+        return pn.Column(
             pn.pane.Markdown("## My New Page"),
-            self._body,
+            pn.Row(pn.pane.Markdown("**Purpose:**"), self.purpose_sel),
+            summary_section,
             sizing_mode="stretch_width",
         )
 
-    def _refresh(self) -> None:
-        if not self.state.run_labels:
-            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
-            return
+    def sync_controls(self) -> None:
+        options = self._purpose_options()
+        self.purpose_sel.options = options
+        if self.purpose_sel.value not in options:
+            self.purpose_sel.value = options[0]
 
+    def render_summary(self) -> SectionContent:
         summaries = self.require_summaries(*self.required_summary_ids)
         if summaries is None:
-            self._body.objects = [
+            return [
                 self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
+                    detail="This page depends on precomputed summaries.",
                     missing_items=list(self.required_summary_ids),
                 )
             ]
-            return
-
-        chart_data = summaries["my_summary_table"]
-        self._body.objects = [
-            bar_chart(
-                chart_data,
-                x_col="category",
-                y_col="freq",
-                title="My Chart",
-                xaxis_title="Category",
-                yaxis_title="Count",
-                as_percent=self.as_percent,
-            )
-        ]
+        return [pn.pane.Markdown(f"Current purpose: {self.purpose_sel.value}")]
 
 
 PAGE = DashboardPageDefinition(
     page_id="my_new_page",
     title="My New Page",
     order=120,
-    controller_cls=MyNewPage,
+    page_cls=MyNewPage,
     required_summary_ids=("my_summary_table",),
 )
 
 MyNewPage.definition = PAGE
 ```
 
-### Step-by-Step Page Checklist
+## Authoring Rules
 
-#### 1. Create a file in `dashboard/pages/` or under a group directory
+Do:
 
-For a standalone page, use a file such as `dashboard/pages/my_new_page.py`.
+- create widgets in `build_page()`
+- register every page-local interactive control with `selector(...)`
+- register every refreshable content area with `section(...)`
+- return content from section render functions
+- keep expensive reshaping work behind `get_filtered_view(...)`
 
-For a grouped child page, use a file such as `dashboard/pages/tours/summary.py`.
+Do not:
 
-The filename does not register the page directly, but keeping the filename, page id, and class name aligned makes the codebase easier to navigate.
+- call `_watch_widget(...)` on newly authored pages
+- assign `section.objects = ...` directly from page code
+- declare page-local selector metadata in `PAGE`
+- declare export regions in `PAGE`
+- use `child_id`
 
-#### 2. Subclass `DashboardPage`
+## Refresh Semantics
 
-Useful base-class features:
+The runtime now refreshes at section granularity.
 
-- `self.state`
-- `self.config`
-- `self.as_percent`
-- `self.weighting_key`
-- `require_summary(...)` and `require_summaries(...)`
-- `get_filtered_view(...)`
-- `_watch_widget(...)`
-- `data_not_available_card(...)`
+Selector change:
 
-#### 3. Create stable containers in `__init__`
+- only sections that depend on that selector rerender
 
-Create widgets and containers once in `__init__`, then replace only `.objects` in `_refresh()`.
+Global state change:
 
-That keeps widget instances stable while the user changes tabs, weighting mode, or percent/count mode.
+- all sections rerender
 
-Good examples in the repo:
+Sections declared with `selectors=()` only rerender on global refresh unless you explicitly call `mark_section_stale(...)`.
 
-- `dashboard/pages/overview.py`
-- `dashboard/pages/destination.py`
-- `dashboard/pages/joint_tours.py`
+## Grouped Pages
 
-#### 4. Fetch summaries in `_refresh()`
+Grouped pages are identified only by leaf `page_id`.
 
-For summary-backed pages, start with:
-
-```python
-summaries = self.require_summaries(*self.required_summary_ids)
-if summaries is None:
-    ...
-```
-
-Why this is preferred:
-
-- missing-data behavior stays consistent
-- warnings are logged once per missing summary
-- the dependency contract stays visible in `PAGE.required_summary_ids`
-
-#### 5. Transform summary tables into chart-ready data
-
-Most pages do not pass raw summary tables straight into chart helpers. They first reshape them into the exact form the chart wants.
-
-Common patterns:
-
-- filter by selector value
-- rename one of several measure columns to a common plotting column
-- sort categories into a deliberate order
-- fill missing categories with zero
-
-If the transformation is expensive or depends on selector values, cache it with `get_filtered_view(...)`.
-
-#### 6. Build the visible layout from Panel objects
-
-The export path already handles these view types well:
-
-- `pn.Column`
-- `pn.Row`
-- `pn.Card`
-- `pn.Tabs`
-- `pn.pane.Markdown`
-- `pn.pane.HTML`
-- `pn.widgets.Select`
-- `pn.widgets.RadioButtonGroup`
-- `pn.widgets.Tabulator`
-- `pn.pane.Plotly`
-
-The clean pattern is:
-
-1. prepare data
-2. build charts/tables
-3. assign `self._body.objects = [...]` last
-
-#### 7. Add selectors only when the page genuinely needs them
-
-If the page needs a local selector such as Purpose or Person Type:
-
-- create it in `__init__`
-- call `self._watch_widget(widget)`
-- recompute available options in `_refresh()`
-- reset invalid current values to a safe default
-
-#### 8. Declare the page with `DashboardPageDefinition`
-
-Important fields:
-
-- `page_id`: stable config-facing identifier
-- `title`: visible tab title
-- `order`: default sort order
-- `group_id`: required for grouped child pages
-- `child_id`: required for grouped child pages and used by nested config
-- `child_order`: order inside the group tab strip
-- `controller_cls`: the page controller class
-- `required_summary_ids`: every summary the page needs
-- `selectors`: optional `PageSelectorDefinition(...)` entries
-- `prepared_data_mode`: usually `"none"` for summary-backed pages
-- `required_prepared_tables`: required when `prepared_data_mode` is not `"none"`
-
-#### 9. Add the page to config if you want it enabled
-
-The module is auto-discoverable once it exists, but it only appears live if it is enabled by config or included in the default-enabled set.
-
-Example:
+Live config uses leaf page ids inside a group:
 
 ```yaml
 visualizer:
   dashboard_pages:
     - overview
-    - my_new_page
-    - trip_mode
+    - tours:
+      - tour_summary
+      - tour_mode
 ```
 
-Grouped-page example:
+The group package defines:
+
+```python
+GROUP = DashboardGroupDefinition(
+    group_id="tours",
+    title="Tours",
+    order=30,
+    default_page_id="tour_summary",
+)
+```
+
+## Export
+
+Export metadata is derived from runtime selector and section registration.
+
+That means:
+
+- registered selectors become export selector metadata
+- registered exportable sections become export regions
+- section selector dependencies define which selector combinations need pre-rendered variants
+
+Grouped export config uses leaf page ids:
 
 ```yaml
 visualizer:
-  dashboard_pages:
-    - overview
-    - tours
-    - stops:
-      - frequency
-      - timing
+  export_html:
+    pages:
+      trip_summaries:
+        children:
+          trip_mode:
+            tour_purpose: all
 ```
 
-Prepared-data page example:
+## Checklist
 
-```python
-PAGE = DashboardPageDefinition(
-    page_id="raw_trip_demo",
-    title="Prepared Trip Demo",
-    order=900,
-    controller_cls=PreparedTripDemoPage,
-    prepared_data_mode="required",
-    required_prepared_tables=("trips",),
-)
-```
-
-## Selector Support in HTML Export
-
-If a page-local selector should work in exported HTML, declare it in `PAGE.selectors`.
-
-Example:
-
-```python
-from dashboard.page_definitions import PageSelectorDefinition
-
-PAGE = DashboardPageDefinition(
-    ...,
-    selectors=(
-        PageSelectorDefinition(
-            selector_id="purpose",
-            widget_attr="purp_sel",
-            label="Purpose",
-        ),
-    ),
-)
-```
-
-Important details:
-
-- `selector_id` is the stable config-facing name used under either:
-  `visualizer.export_html.pages.<page_id>.<selector_id>` for standalone pages or
-  `visualizer.export_html.pages.<group_id>.children.<child_id>.<selector_id>` for grouped child pages.
-- `widget_attr` must match the attribute name on the page instance.
-- Export only supports the widget types that `dashboard/export/serializer.py` knows how to serialize.
-
-If you add a widget but do not declare it in `PAGE.selectors`, the live dashboard can still work, but the HTML export will treat it as a static control.
-
-## Part 2: Adding a New Shared Chart Helper
-
-Create a helper in `dashboard/components.py` when:
-
-- multiple pages need the same chart behavior
-- the chart needs shared layout, color, hover, or normalization logic
-- you want one place to maintain a plotting style
-
-Do not create a shared helper just because two pages both use Plotly. If the only repeated logic is page-specific data prep, keep that logic in the page module.
-
-### What a Shared Helper Should Accept
-
-Follow the pattern used by `bar_chart`, `line_chart`, and `density_chart`:
-
-- input is already chart-ready
-- input is passed as `list[tuple[str, pl.DataFrame]]`
-- output is `pn.pane.Plotly`
-
-That format matches the rest of the dashboard, which almost always compares multiple runs side by side.
-
-### Example Skeleton
-
-```python
-def scatter_chart(
-    data_list: list[tuple[str, pl.DataFrame]],
-    x_col: str,
-    y_col: str,
-    title: str = "",
-    xaxis_title: str = "",
-    yaxis_title: str = "",
-    height: int = 350,
-) -> pn.pane.Plotly:
-    fig = go.Figure()
-    for i, (label, df) in enumerate(data_list):
-        if df is None or len(df) == 0:
-            continue
-        fig.add_trace(
-            go.Scatter(
-                name=label,
-                x=df[x_col].to_list(),
-                y=df[y_col].to_list(),
-                mode="markers",
-                marker=dict(color=run_color(i), size=8),
-            )
-        )
-    _layout(fig, title, xaxis_title, yaxis_title, height)
-    return pn.pane.Plotly(fig, sizing_mode="stretch_width")
-```
-
-### Percent Mode
-
-If the chart has a meaningful percent interpretation:
-
-- add `as_percent: bool | None = None`
-- call `_percent_mode(as_percent)`
-- normalize y-values before plotting
-- update the y-axis title accordingly
-
-If the chart does not have a meaningful percent interpretation, leave percent support out.
-
-### Export-Safe Rules
-
-If you want the chart to export cleanly:
-
-- return `pn.pane.Plotly`
-- keep trace shapes stable for the same chart when selector values change, when practical
-- avoid custom widgets or custom client-side JavaScript
-
-## Common Mistakes
-
-- forgetting to include the summary id in `required_summary_ids`
-- creating widgets inside `_refresh()` instead of in `__init__`
-- forgetting to call `_watch_widget(...)`
-- passing raw summary tables into a chart helper when reshaping is still needed
-- returning a Panel object type that `dashboard/export/serializer.py` does not serialize
-- writing page-specific logic into `dashboard/components.py`
-
-## How to Sanity-Check Your Work
-
-After adding a page or shared component, check:
-
-- the page appears under the expected tab title
-- weighted/unweighted still works
-- percent/count still works where it should
-- selector changes refresh the page cleanly
-- missing summaries show a friendly fallback
-- `--export-html` still works if the page is part of export
-
-## Good Files to Copy From
-
-- `dashboard/pages/overview.py` for a simple summary-backed page
-- `dashboard/pages/destination.py` for a selector plus one chart and one table
-- `dashboard/pages/stop_timing.py` for selector-driven cached transformed views
-- `dashboard/pages/joint_tours.py` for custom category ordering across multiple sections
-- `dashboard/components.py` for the expected style of reusable chart helpers
+1. Add or update the page module under `dashboard/pages/`.
+2. Add or update the module-level `PAGE`.
+3. If the page belongs to a group, set `group_id` on `PAGE` and keep the package `GROUP` aligned with `default_page_id`.
+4. Implement `build_page()`.
+5. Register selectors and sections.
+6. Declare the summary/prepared-data contract in `PAGE`.
+7. Add or update tests covering selector refresh and missing-data behavior.
+8. If the page should export interactively, add an export-focused test slice too.

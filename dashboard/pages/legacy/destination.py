@@ -187,7 +187,7 @@ PAGE = DashboardPageDefinition(
     page_id="destination",
     title="Destination",
     order=50,
-    controller_cls=DestinationPage,
+    page_cls=DestinationPage,
     selectors=(
         PageSelectorDefinition(
             selector_id="purpose",
@@ -206,3 +206,4 @@ PAGE = DashboardPageDefinition(
 )
 
 DestinationPage.definition = PAGE
+

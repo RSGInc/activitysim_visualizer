@@ -69,11 +69,8 @@ def test_page_registry_exposes_expected_default_definitions() -> None:
     assert page_definition_by_id("tour_summary") is not None
     assert page_definition_by_id("tour_summary").title == "Tour Summary"
     assert page_definition_by_id("tour_summary").group_id == "tours"
-    assert page_definition_by_id("tour_summary").child_id == "summary"
-    assert [selector.selector_id for selector in page_definition_by_id("trip_mode").selectors] == [
-        "tour_purpose",
-        "tour_mode",
-    ]
+    assert not hasattr(page_definition_by_id("tour_summary"), "child_id")
+    assert page_definition_by_id("trip_mode").page_cls is not None
     assert [selector.selector_id for selector in page_definition_by_id("stop_location").selectors] == [
         "purpose",
     ]
@@ -114,10 +111,7 @@ def test_page_registry_smoke_checks_ids_titles_and_selector_uniqueness() -> None
     assert all(definition.page_id for definition in definitions)
     assert all(definition.title for definition in definitions)
     assert len({definition.page_id for definition in definitions}) == len(definitions)
-    assert all(
-        definition.required_summary_ids or definition.prepared_data_mode != "none"
-        for definition in definitions
-    )
+    assert all(definition.page_cls is not None for definition in definitions)
 
     for definition in definitions:
         selector_ids = [selector.selector_id for selector in definition.selectors]
@@ -147,7 +141,7 @@ def test_resolve_page_definitions_respects_configured_page_order_and_subset(
 ) -> None:
     config = _write_config(
         tmp_path,
-        dashboard_pages=["trip_mode", "overview", "destination"],
+        dashboard_pages=["trip_mode", "overview", "joint_travel"],
     )
 
     resolved_pages = resolve_page_definitions(config)
@@ -155,7 +149,7 @@ def test_resolve_page_definitions_respects_configured_page_order_and_subset(
     assert [page.page_id for page in resolved_pages] == [
         "trip_mode",
         "overview",
-        "destination",
+        "joint_travel",
     ]
 
 
@@ -164,7 +158,11 @@ def test_resolve_page_definitions_supports_nested_group_child_selection(
 ) -> None:
     config = _write_config(
         tmp_path,
-        dashboard_pages=["overview", {"tours": ["summary", "mode"]}, "destination"],
+        dashboard_pages=[
+            "overview",
+            {"tours": ["tour_summary", "tr_mode"]},
+            "joint_travel",
+        ],
     )
 
     resolved_pages = resolve_page_definitions(config)
@@ -172,8 +170,8 @@ def test_resolve_page_definitions_supports_nested_group_child_selection(
     assert [page.page_id for page in resolved_pages] == [
         "overview",
         "tour_summary",
-        "tour_mode",
-        "destination",
+        "tr_mode",
+        "joint_travel",
     ]
 
 
@@ -261,13 +259,12 @@ def test_build_dashboard_can_refresh_every_default_page_from_precomputed_summari
 
     leaf_pages = {page.page_id(): page for page in template._dashboard_leaf_pages}
     assert leaf_pages["tour_summary"].ptype_sel.options == ["Total", "worker"]
-    assert leaf_pages["joint_tours"].hhsize_sel.options == ["Total", "2", "3", "4", "5"]
-    assert leaf_pages["destination"].purp_sel.options == ["All NM", "eatout", "social"]
+    assert leaf_pages["joint_travel"].hhsize_sel.options == ["All", "2", "3"]
     assert leaf_pages["tour_tod"].purp_sel.options == ["Total", "work"]
-    assert leaf_pages["tour_mode"].purp_sel.options == ["Total", "work"]
+    assert leaf_pages["tour_mode"].purpose_sel.options == ["Total", "work"]
     assert leaf_pages["stop_frequency"].purp_sel.options == ["Total", "eatout", "social"]
     assert leaf_pages["stop_timing"].purp_sel.options == ["Total", "eatout", "social"]
-    assert leaf_pages["trip_mode"].tmode_sel.options == ["All", "DRIVE", "WALK"]
+    assert leaf_pages["trip_mode"].tour_purpose_sel.options == ["All", "eatout", "social"]
 
 
 def test_build_dashboard_keeps_prepared_runs_out_of_summary_only_default_state(
@@ -375,9 +372,9 @@ def test_build_dashboard_switches_tabs_and_refreshes_only_the_active_page(
     assert state.page_state["Overview"]["last_rendered_state"] == ("weighted", "percent")
     assert state.page_state["Tour Summary"].get("last_rendered_state") is None
 
-    tabs.active = 2
+    tabs.active = 1
 
-    assert state.active_tab == 2
+    assert state.active_tab == 1
     assert state.page_state["Overview"]["last_rendered_state"] == ("weighted", "percent")
     assert state.page_state["Tour Summary"]["last_rendered_state"] == (
         "weighted",
@@ -401,7 +398,7 @@ def test_build_dashboard_switches_tabs_and_refreshes_only_the_active_page(
         "count",
     )
     assert state.page_state["Overview"].get("last_rendered_state") is None
-    assert state.page_state["Long-Term"].get("last_rendered_state") is None
+    assert state.page_state["Mandatory Location Choice"].get("last_rendered_state") is None
     assert state.page_state["Stop Frequency"].get("last_rendered_state") is None
 
 
@@ -415,12 +412,12 @@ def test_build_dashboard_preserves_widget_state_across_tab_switches(
         page for page in template._dashboard_leaf_pages if page.page_id() == "tour_summary"
     )
 
-    tabs.active = 2
+    tabs.active = 1
     assert tour_summary_page.ptype_sel.options == ["Total", "worker"]
 
     tour_summary_page.ptype_sel.value = "worker"
     tabs.active = 0
-    tabs.active = 2
+    tabs.active = 1
 
     assert tour_summary_page.ptype_sel.value == "worker"
 

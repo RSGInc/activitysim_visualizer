@@ -56,9 +56,9 @@ Each `PageDescriptorPayload` contains:
 |---|---|---|
 | `id` | `str` | Stable page id from `DashboardPageDefinition.page_id` |
 | `title` | `str` | Display title shown in the export page tabs |
-| `selectors` | `list[SelectorMetadataPayload]` | Export metadata for page-local selectors declared in the page definition |
+| `selectors` | `list[SelectorMetadataPayload]` | Export metadata for page-local selectors registered on the page instance |
 | `children` | `list[PageDescriptorPayload]` | Child page descriptors when this entry is a grouped top-level page |
-| `default_child_id` | `str \| None` | Default child page used when a grouped export page first loads |
+| `default_page_id` | `str \| None` | Default leaf page used when a grouped export page first loads |
 
 The top-level page order is resolved through the shared page registry. Grouped pages keep their child pages nested under a single top-level export tab, while serialized page content in `states` remains keyed by leaf page id.
 
@@ -68,7 +68,7 @@ Each `SelectorMetadataPayload` contains:
 
 | Field | Type | Purpose |
 |---|---|---|
-| `id` | `str` | Stable selector id from `PageSelectorDefinition.selector_id` |
+| `id` | `str` | Stable selector id registered with `DashboardPage.selector(...)` |
 | `label` | `str` | Human-readable label used in exported widget chrome |
 | `available` | `bool` | Whether the selector existed and was available for the current page/config state |
 | `request_mode` | `str` | Config request mode such as `default`, `all`, or explicit values |
@@ -96,7 +96,7 @@ visualizer:
     pages:
       <group_id>:
         children:
-          <child_id>:
+          <page_id>:
             <selector_id>: ...
 ```
 
@@ -154,7 +154,7 @@ The browser runtime only supports the node kinds declared in `dashboard/export/t
 | `container` | `pn.Column`, `pn.Row` | `layout`, `children` |
 | `card` | `pn.Card` | `title`, `children` |
 | `tabs` | `pn.Tabs` | `tabs` |
-| `region` | explicit `DashboardPageDefinition.export_regions` entries | `region_id`, `selector_ids`, `default_content`, `variants` |
+| `region` | exportable `DashboardPage.section(...)` registrations | `region_id`, `selector_ids`, `default_content`, `variants` |
 | `plotly` | `pn.pane.Plotly` | `figure` |
 | `table` | `pn.widgets.Tabulator` | `columns`, `rows` |
 | `widget` | `pn.widgets.Select`, `pn.widgets.RadioButtonGroup` | `widget_type`, `value`, `options`, `selector_id`, `export_enabled` |

@@ -164,9 +164,8 @@ PAGE = DashboardPageDefinition(
     page_id="internal_external_tours",
     title="Internal vs. External Tours",
     group_id="tour_summaries",
-    child_id="internal_external_tours",
     order=46,
-    controller_cls=InternalExternalToursPage,
+    page_cls=InternalExternalToursPage,
     selectors=(
         PageSelectorDefinition(
             selector_id="geography_level",
@@ -188,3 +187,4 @@ PAGE = DashboardPageDefinition(
 )
 
 InternalExternalToursPage.definition = PAGE
+

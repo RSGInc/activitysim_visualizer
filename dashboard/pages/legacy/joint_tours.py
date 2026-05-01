@@ -205,7 +205,7 @@ PAGE = DashboardPageDefinition(
     page_id="joint_tours",
     title="Joint Tours",
     order=40,
-    controller_cls=JointToursPage,
+    page_cls=JointToursPage,
     selectors=(
         PageSelectorDefinition(
             selector_id="hh_size",
@@ -229,3 +229,4 @@ PAGE = DashboardPageDefinition(
 )
 
 JointToursPage.definition = PAGE
+

@@ -161,9 +161,8 @@ PAGE = DashboardPageDefinition(
     page_id="vmt",
     title="VMT Validation",
     group_id="validation",
-    child_id="vmt",
     order=54,
-    controller_cls=VMTValidationPage,
+    page_cls=VMTValidationPage,
     selectors=(
         PageSelectorDefinition(
             selector_id="commercial_vmt_view",
@@ -185,3 +184,4 @@ PAGE = DashboardPageDefinition(
 )
 
 VMTValidationPage.definition = PAGE
+

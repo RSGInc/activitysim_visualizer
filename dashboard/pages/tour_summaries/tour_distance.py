@@ -295,9 +295,8 @@ PAGE = DashboardPageDefinition(
     page_id="tour_distance",
     title="Tour Distance",
     group_id="tour_summaries",
-    child_id="tour_distance",
     order=44,
-    controller_cls=TourDistancePage,
+    page_cls=TourDistancePage,
     selectors=(
         PageSelectorDefinition(
             selector_id="tour_purpose",
@@ -340,3 +339,4 @@ PAGE = DashboardPageDefinition(
 )
 
 TourDistancePage.definition = PAGE
+

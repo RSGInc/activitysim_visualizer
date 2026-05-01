@@ -85,13 +85,14 @@ class DashboardPageDefinition:
 
     page_id: str
     title: str
+    page_cls: type["DashboardPage"] | None = None
     order: int = 0
     group_id: str | None = None
-    child_id: str | None = None
     child_order: int = 0
     default_enabled: bool = True
     prepared_data_mode: PreparedDataMode = "none"
-    controller_cls: type["DashboardPage"] | None = None
+    # Legacy metadata remains temporarily supported for pages that have not yet
+    # migrated to runtime selector/section registration.
     selectors: tuple[PageSelectorDefinition, ...] = field(default_factory=tuple)
     export_regions: tuple[PageExportRegionDefinition, ...] = field(default_factory=tuple)
     export_parts: tuple[PageExportPartDefinition, ...] = field(default_factory=tuple)
@@ -116,7 +117,7 @@ class DashboardGroupDefinition:
     title: str
     order: int = 0
     default_enabled: bool = True
-    default_child_id: str | None = None
+    default_page_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -125,6 +126,6 @@ class DashboardPageConfigEntry:
 
     page_id: str
     mode: DashboardPageSelectionMode = "explicit"
-    child_page_ids: tuple[str, ...] = field(default_factory=tuple)
+    page_ids: tuple[str, ...] = field(default_factory=tuple)
 
 

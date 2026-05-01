@@ -168,7 +168,7 @@
 
     (candidate.pages || []).forEach((page) => {
       if (page.children && page.children.length) {
-        const defaultChildId = page.default_child_id || page.children[0].id;
+        const defaultChildId = page.default_page_id || page.children[0].id;
         initialState.activeChildPage[page.id] = defaultChildId;
         page.children.forEach(registerLeafPage);
         return;
@@ -228,7 +228,7 @@
       return null;
     }
     if (page.children && page.children.length) {
-      return state.activeChildPage[page.id] || page.default_child_id || page.children[0].id;
+      return state.activeChildPage[page.id] || page.default_page_id || page.children[0].id;
     }
     return page.id;
   }
@@ -695,9 +695,9 @@
     if (preferredChildId && childIds.includes(preferredChildId)) {
       return preferredChildId;
     }
-    if (pageDescriptor.default_child_id && childIds.includes(pageDescriptor.default_child_id)) {
-      state.activeChildPage[pageDescriptor.id] = pageDescriptor.default_child_id;
-      return pageDescriptor.default_child_id;
+    if (pageDescriptor.default_page_id && childIds.includes(pageDescriptor.default_page_id)) {
+      state.activeChildPage[pageDescriptor.id] = pageDescriptor.default_page_id;
+      return pageDescriptor.default_page_id;
     }
 
     state.activeChildPage[pageDescriptor.id] = childIds[0];
@@ -844,3 +844,4 @@
   window.addEventListener("resize", debouncedPlotResize);
   renderApp();
 })();
+

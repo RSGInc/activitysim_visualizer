@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import Any, Callable, TYPE_CHECKING
 
 import panel as pn
 
@@ -24,6 +24,30 @@ if TYPE_CHECKING:
 
 LOGGER = get_logger("dashboard.page")
 
+SectionContent = (
+    pn.viewable.Viewable
+    | list[pn.viewable.Viewable]
+    | tuple[pn.viewable.Viewable, ...]
+)
+
+
+@dataclass(frozen=True)
+class RegisteredPageSelector:
+    selector_id: str
+    widget: pn.widgets.Widget
+    label: str
+    exportable: bool = True
+
+
+@dataclass
+class RegisteredPageSection:
+    section_id: str
+    container: pn.Column
+    selector_ids: tuple[str, ...]
+    export: bool
+    render: Callable[[], SectionContent]
+    dirty: bool = True
+
 
 class DashboardPage:
     """Persistent controller for one dashboard page.
@@ -34,12 +58,38 @@ class DashboardPage:
 
     definition: DashboardPageDefinition | None = None
 
-    def __init__(self, name: str, state: DashboardState, config: Config) -> None:
+    def __init__(self, *args) -> None:
+        if len(args) == 2:
+            state, config = args
+            definition = self.definition
+            derived_name = definition.title if definition is not None else type(self).__name__
+        elif len(args) == 3:
+            derived_name, state, config = args
+        else:
+            raise TypeError(
+                "DashboardPage expects (state, config) or legacy (name, state, config)."
+            )
+        if not isinstance(state, DashboardState):
+            raise TypeError("DashboardPage requires a DashboardState instance.")
+        if not isinstance(config, Config):
+            raise TypeError("DashboardPage requires a Config instance.")
+
+        name = str(derived_name)
         self.name = name
         self.state = state
         self.config = config
         self._page_state = state.get_page_state(name)
         self.view: pn.viewable.Viewable | None = None
+        self._registered_selectors: dict[str, RegisteredPageSelector] = {}
+        self._registered_sections: dict[str, RegisteredPageSection] = {}
+        self._selector_ids_by_widget_id: dict[int, str] = {}
+        self._is_refreshing = False
+        self._queued_selector_ids: set[str] = set()
+        self._active_section_id: str | None = None
+
+        if type(self).build_page is not DashboardPage.build_page:
+            self.view = self.build_page()
+            self._validate_registered_components()
 
     def refresh_if_needed(self) -> None:
         """Refresh the page when its rendered global state is stale."""
@@ -48,22 +98,182 @@ class DashboardPage:
 
     def refresh(self, force: bool = False) -> None:
         """Refresh the page content."""
-        if (
-            not force
-            and self._page_state.get("last_rendered_state")
-            == self.state.global_state_key()
-        ):
+        current_state_key = self.state.global_state_key()
+        last_state_key = self._page_state.get("last_rendered_state")
+        global_state_changed = force or last_state_key != current_state_key
+        if not force and not global_state_changed and not self._dirty_sections():
             return
         self._page_state["visualization_diagnostics"] = []
-        self._refresh()
-        self._page_state["last_rendered_state"] = self.state.global_state_key()
+        if self._registered_sections:
+            if global_state_changed:
+                self.on_global_state_changed()
+                for section in self._registered_sections.values():
+                    section.dirty = True
+            self._refresh_registered_sections()
+        else:
+            self._active_section_id = None
+            self._refresh()
+        self._page_state["last_rendered_state"] = current_state_key
 
     def mark_stale(self) -> None:
         """Mark the page stale so the next activation refreshes it."""
         self._page_state["last_rendered_state"] = None
+        for section in self._registered_sections.values():
+            section.dirty = True
+
+    def mark_section_stale(self, *section_ids: str) -> None:
+        """Mark one or more registered sections stale."""
+        for section_id in section_ids:
+            section = self._registered_sections.get(section_id)
+            if section is None:
+                raise KeyError(f"Unknown section id {section_id!r} on page {self.name!r}.")
+            section.dirty = True
+
+    def build_page(self) -> pn.viewable.Viewable:
+        raise NotImplementedError
+
+    def sync_controls(self) -> None:
+        """Update selector options/values before rendering dirty sections."""
+
+    def on_global_state_changed(self) -> None:
+        """Hook for page-local cache invalidation on global dashboard state changes."""
+
+    def selector(
+        self,
+        selector_id: str,
+        *,
+        widget: pn.widgets.Widget,
+        label: str,
+        exportable: bool = True,
+    ) -> pn.widgets.Widget:
+        """Register one page-local selector widget."""
+        if selector_id in self._registered_selectors:
+            raise ValueError(
+                f"Dashboard page {self.name!r} declares duplicate selector id {selector_id!r}."
+            )
+        selector = RegisteredPageSelector(
+            selector_id=selector_id,
+            widget=widget,
+            label=label,
+            exportable=exportable,
+        )
+        self._registered_selectors[selector_id] = selector
+        self._selector_ids_by_widget_id[id(widget)] = selector_id
+        widget.param.watch(
+            lambda event, sid=selector_id: self._handle_selector_change(sid),
+            "value",
+        )
+        return widget
+
+    def section(
+        self,
+        section_id: str,
+        *,
+        selectors: tuple[str, ...] = (),
+        export: bool = True,
+        render: Callable[[], SectionContent],
+    ) -> pn.Column:
+        """Register one stable page section."""
+        if section_id in self._registered_sections:
+            raise ValueError(
+                f"Dashboard page {self.name!r} declares duplicate section id {section_id!r}."
+            )
+        unknown_selectors = [
+            selector_id
+            for selector_id in selectors
+            if selector_id not in self._registered_selectors
+        ]
+        if unknown_selectors:
+            raise ValueError(
+                f"Dashboard page {self.name!r} section {section_id!r} references unknown selectors: "
+                + ", ".join(repr(selector_id) for selector_id in unknown_selectors)
+            )
+        container = self.new_section()
+        self._registered_sections[section_id] = RegisteredPageSection(
+            section_id=section_id,
+            container=container,
+            selector_ids=tuple(selectors),
+            export=export,
+            render=render,
+        )
+        return container
+
+    def section_view(self, section_id: str) -> pn.Column:
+        section = self._registered_sections.get(section_id)
+        if section is None:
+            raise KeyError(f"Unknown section id {section_id!r} on page {self.name!r}.")
+        return section.container
+
+    @property
+    def registered_selectors(self) -> tuple[RegisteredPageSelector, ...]:
+        return tuple(self._registered_selectors.values())
+
+    @property
+    def registered_sections(self) -> tuple[RegisteredPageSection, ...]:
+        return tuple(self._registered_sections.values())
+
+    def _dirty_sections(self) -> tuple[RegisteredPageSection, ...]:
+        return tuple(
+            section for section in self._registered_sections.values() if section.dirty
+        )
+
+    def _handle_selector_change(self, selector_id: str) -> None:
+        if self._is_refreshing:
+            self._queued_selector_ids.add(selector_id)
+            return
+        self._mark_sections_for_selectors({selector_id})
+        self.refresh(force=False)
+
+    def _mark_sections_for_selectors(self, selector_ids: set[str]) -> None:
+        for section in self._registered_sections.values():
+            if selector_ids.intersection(section.selector_ids):
+                section.dirty = True
+
+    def _refresh_registered_sections(self) -> None:
+        self._is_refreshing = True
+        try:
+            rerun_requested = False
+            for _ in range(2):
+                self._queued_selector_ids.clear()
+                self.sync_controls()
+                dirty_sections = list(self._dirty_sections())
+                if not dirty_sections and not self._queued_selector_ids:
+                    break
+                for section in dirty_sections:
+                    self._render_section(section)
+                    section.dirty = False
+                if not self._queued_selector_ids:
+                    break
+                self._mark_sections_for_selectors(set(self._queued_selector_ids))
+                rerun_requested = True
+            if rerun_requested:
+                self._queued_selector_ids.clear()
+        finally:
+            self._is_refreshing = False
+
+    def _render_section(self, section: RegisteredPageSection) -> None:
+        previous_section_id = self._active_section_id
+        self._active_section_id = section.section_id
+        try:
+            rendered = section.render()
+        finally:
+            self._active_section_id = previous_section_id
+        if isinstance(rendered, pn.viewable.Viewable):
+            objects = [rendered]
+        else:
+            objects = list(rendered)
+        section.container.objects = objects
+
+    def _validate_registered_components(self) -> None:
+        if self.view is None:
+            raise ValueError(f"Dashboard page {self.name!r} build_page() returned no view.")
+        if not isinstance(self.view, pn.viewable.Viewable):
+            raise TypeError(
+                f"Dashboard page {self.name!r} build_page() must return a Panel viewable."
+            )
 
     def _watch_widget(self, widget: pn.widgets.Widget) -> None:
-        """Refresh the page when a page-local widget value changes."""
+        """Legacy helper for pages that have not migrated to selector()."""
         widget.param.watch(lambda event: self.refresh(force=True), "value")
 
     def new_section(self, *objects, **kwargs) -> pn.Column:
@@ -461,6 +671,7 @@ class DashboardPage:
         return self.state.get_or_create_cached(
             "filtered_view",
             page_cache_id,
+            self._active_section_id or "*",
             self.weighting_key,
             view_name,
             *filters,
@@ -472,7 +683,7 @@ class DashboardPage:
         page_cache_id = self.page_id() or self.name
         cache = self.state.get_cache("filtered_view")
         prefix = (page_cache_id, self.weighting_key)
-        stale_keys = [key for key in cache if key[:2] == prefix]
+        stale_keys = [key for key in cache if key[0] == page_cache_id and key[2] == self.weighting_key]
         for key in stale_keys:
             cache.pop(key, None)
 

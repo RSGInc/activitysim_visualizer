@@ -268,7 +268,7 @@ dep_data, arr_data, dur_data = self.get_filtered_view(
 )
 ```
 
-Use this whenever selector-driven reshaping would otherwise be repeated several times inside `_refresh()`.
+Use this whenever selector-driven reshaping would otherwise be repeated several times across section render functions.
 
 ## Common Reshaping Patterns
 

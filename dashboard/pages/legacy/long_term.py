@@ -392,7 +392,7 @@ PAGE = DashboardPageDefinition(
     page_id="long_term",
     title="Long-Term",
     order=20,
-    controller_cls=LongTermPage,
+    page_cls=LongTermPage,
     selectors=(
         PageSelectorDefinition(
             selector_id="geography",
@@ -420,3 +420,4 @@ PAGE = DashboardPageDefinition(
 )
 
 LongTermPage.definition = PAGE
+

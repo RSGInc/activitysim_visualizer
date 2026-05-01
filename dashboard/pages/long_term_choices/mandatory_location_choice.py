@@ -13,11 +13,8 @@ from dashboard.components import (
     density_chart,
 )
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import (
-    DashboardPageDefinition,
-    PageExportRegionDefinition,
-    PageSelectorDefinition,
-)
+from dashboard.page_base import SectionContent
+from dashboard.page_definitions import DashboardPageDefinition
 from runtime.config import Config
 
 
@@ -183,28 +180,47 @@ def distance_chart_data(
 
 
 class MandatoryLocationChoicePage(DashboardPage):
-    def __init__(self, state, config: Config) -> None:
-        super().__init__("Mandatory Location Choice", state, config)
-
-        geo_opts = self._geo_level_options()
-        self.geo_level_sel = pn.widgets.Select(
-            name="Geography Level",
-            options=geo_opts,
-            value=geo_opts[0],
+    def build_page(self) -> pn.viewable.Viewable:
+        self._current_data: dict[str, object] = {}
+        self.geo_level_sel = self.selector(
+            "geography_level",
+            widget=pn.widgets.Select(
+                name="Geography Level",
+                options=["Total"],
+                value="Total",
+            ),
+            label="Geography Level",
         )
-        self._watch_widget(self.geo_level_sel)
-
-        self.location_type_sel = pn.widgets.Select(
-            name="Distance Location Type",
-            options=["Workplace", "School", "University"],
-            value="Workplace",
+        self.location_type_sel = self.selector(
+            "distance_location_type",
+            widget=pn.widgets.Select(
+                name="Distance Location Type",
+                options=["Workplace", "School", "University"],
+                value="Workplace",
+            ),
+            label="Distance Location Type",
         )
-        self._watch_widget(self.location_type_sel)
 
-        self._worker_section = self.new_section()
-        self._commuting_flows_section = self.new_section()
-        self._distance_section = self.new_section()
-        self._remote_work_section = self.new_section()
+        self._worker_section = self.section(
+            "worker_geography",
+            selectors=("geography_level",),
+            render=self.render_worker_geography,
+        )
+        self._commuting_flows_section = self.section(
+            "commuting_flows",
+            selectors=("geography_level",),
+            render=self.render_commuting_flows,
+        )
+        self._distance_section = self.section(
+            "distance_distribution",
+            selectors=("distance_location_type",),
+            render=self.render_distance_distribution,
+        )
+        self._remote_work_section = self.section(
+            "remote_work",
+            selectors=("geography_level",),
+            render=self.render_remote_work,
+        )
         self._flows_distance_row = pn.Row(
             pn.Column(control_row_spacer(), self._commuting_flows_section),
             pn.Column(
@@ -217,7 +233,7 @@ class MandatoryLocationChoicePage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-        self.view = self.new_section(
+        return self.new_section(
             pn.pane.Markdown("## Mandatory Location Choice"),
             pn.Row(
                 pn.pane.Markdown("**Geography Level:**"),
@@ -240,14 +256,19 @@ class MandatoryLocationChoicePage(DashboardPage):
             return geo_level_options(_adapt_commuting_flows(commuting))
         return ["Total"]
 
-    def _refresh(self) -> None:
-        if not self.state.run_labels:
-            self._worker_section.objects = [pn.pane.Markdown("No runs loaded.")]
-            self._commuting_flows_section.objects = []
-            self._distance_section.objects = []
-            self._remote_work_section.objects = []
-            return
+    def sync_controls(self) -> None:
+        self._current_data = self._collect_data()
+        geo_opts = self._current_data["geo_opts"]
+        self.geo_level_sel.options = geo_opts
+        if self.geo_level_sel.value not in geo_opts:
+            self.geo_level_sel.value = geo_opts[0]
 
+    def _collect_data(self) -> dict[str, object]:
+        if not self.state.run_labels:
+            return {
+                "mode": "no_runs",
+                "geo_opts": ["Total"],
+            }
         internal_external = self.state.get_summary_table_set(
             "internal_external_worker_by_geography",
             self.weighting_key,
@@ -292,16 +313,10 @@ class MandatoryLocationChoicePage(DashboardPage):
                 distance_summary,
             )
         ):
-            self._worker_section.objects = [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
-                )
-            ]
-            self._commuting_flows_section.objects = []
-            self._distance_section.objects = []
-            self._remote_work_section.objects = []
-            return
+            return {
+                "mode": "unavailable",
+                "geo_opts": ["Total"],
+            }
 
         internal_external = (
             _adapt_internal_external(internal_external) if internal_external else None
@@ -318,11 +333,31 @@ class MandatoryLocationChoicePage(DashboardPage):
         )
 
         geo_opts = geo_level_options(internal_external or commuting_flows or [])
-        self.geo_level_sel.options = geo_opts
-        if self.geo_level_sel.value not in geo_opts:
-            self.geo_level_sel.value = geo_opts[0]
-        geo_level = self.geo_level_sel.value
+        return {
+            "mode": "ready",
+            "geo_opts": geo_opts,
+            "internal_external": internal_external,
+            "external_workplace": external_workplace,
+            "commuting_flows": commuting_flows,
+            "wfh_summary": wfh_summary,
+            "telecommute": telecommute,
+            "distance_summary": distance_summary,
+            "dist_summary_id": dist_summary_id,
+        }
 
+    def render_worker_geography(self) -> SectionContent:
+        if self._current_data["mode"] == "no_runs":
+            return [pn.pane.Markdown("No runs loaded.")]
+        if self._current_data["mode"] == "unavailable":
+            return [
+                self.data_not_available_card(
+                    detail="This page only renders from precomputed summary tables.",
+                    missing_items=list(self.required_summary_ids),
+                )
+            ]
+        geo_level = str(self.geo_level_sel.value)
+        internal_external = self._current_data["internal_external"]
+        external_workplace = self._current_data["external_workplace"]
         worker_views: list[pn.viewable.Viewable] = [
             pn.pane.Markdown("### Worker Geography")
         ]
@@ -362,8 +397,13 @@ class MandatoryLocationChoicePage(DashboardPage):
                     missing_items=["external_worker_workplace_locations"],
                 )
             )
-        self._worker_section.objects = worker_views
+        return worker_views
 
+    def render_commuting_flows(self) -> SectionContent:
+        if self._current_data["mode"] != "ready":
+            return []
+        geo_level = str(self.geo_level_sel.value)
+        commuting_flows = self._current_data["commuting_flows"]
         commuting_widget: pn.viewable.Viewable
         if commuting_flows is not None:
             commuting_flows_table = self.get_filtered_view(
@@ -377,8 +417,13 @@ class MandatoryLocationChoicePage(DashboardPage):
                 detail="The commuting flows summary is unavailable.",
                 missing_items=["commuting_flows"],
             )
-        self._commuting_flows_section.objects = [commuting_widget]
+        return [commuting_widget]
 
+    def render_distance_distribution(self) -> SectionContent:
+        if self._current_data["mode"] != "ready":
+            return []
+        distance_summary = self._current_data["distance_summary"]
+        dist_summary_id = self._current_data["dist_summary_id"]
         distance_widget: pn.viewable.Viewable
         if distance_summary is not None:
             distance_data = self.get_filtered_view(
@@ -400,8 +445,14 @@ class MandatoryLocationChoicePage(DashboardPage):
                 detail="The selected distance distribution summary is unavailable.",
                 missing_items=[dist_summary_id],
             )
-        self._distance_section.objects = [distance_widget]
+        return [distance_widget]
 
+    def render_remote_work(self) -> SectionContent:
+        if self._current_data["mode"] != "ready":
+            return []
+        geo_level = str(self.geo_level_sel.value)
+        wfh_summary = self._current_data["wfh_summary"]
+        telecommute = self._current_data["telecommute"]
         remote_views: list[pn.viewable.Viewable] = [pn.pane.Markdown("### Remote Work")]
         remote_row: list[pn.viewable.Viewable] = []
         if wfh_summary is not None:
@@ -449,50 +500,15 @@ class MandatoryLocationChoicePage(DashboardPage):
                 )
             )
         remote_views.append(pn.Row(*remote_row))
-        self._remote_work_section.objects = remote_views
+        return remote_views
 
 
 PAGE = DashboardPageDefinition(
     page_id="mandatory_location_choice",
     title="Mandatory Location Choice",
     group_id="long_term_choices",
-    child_id="mandatory_location_choice",
     order=27,
-    controller_cls=MandatoryLocationChoicePage,
-    selectors=(
-        PageSelectorDefinition(
-            selector_id="geography_level",
-            widget_attr="geo_level_sel",
-            label="Geography Level",
-        ),
-        PageSelectorDefinition(
-            selector_id="distance_location_type",
-            widget_attr="location_type_sel",
-            label="Distance Location Type",
-        ),
-    ),
-    export_regions=(
-        PageExportRegionDefinition(
-            region_id="worker_geography",
-            view_attr="_worker_section",
-            selector_ids=("geography_level",),
-        ),
-        PageExportRegionDefinition(
-            region_id="commuting_flows",
-            view_attr="_commuting_flows_section",
-            selector_ids=("geography_level",),
-        ),
-        PageExportRegionDefinition(
-            region_id="distance_distribution",
-            view_attr="_distance_section",
-            selector_ids=("distance_location_type",),
-        ),
-        PageExportRegionDefinition(
-            region_id="remote_work",
-            view_attr="_remote_work_section",
-            selector_ids=("geography_level",),
-        ),
-    ),
+    page_cls=MandatoryLocationChoicePage,
     required_summary_ids=(
         "internal_external_worker_by_geography",
         "external_worker_workplace_locations",
@@ -506,3 +522,4 @@ PAGE = DashboardPageDefinition(
 )
 
 MandatoryLocationChoicePage.definition = PAGE
+

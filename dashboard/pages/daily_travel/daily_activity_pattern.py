@@ -321,9 +321,8 @@ PAGE = DashboardPageDefinition(
     page_id="daily_activity_pattern",
     title="Daily Activity Pattern",
     group_id="daily_travel",
-    child_id="daily_activity_pattern",
     order=28,
-    controller_cls=DailyActivityPatternPage,
+    page_cls=DailyActivityPatternPage,
     selectors=(
         PageSelectorDefinition(
             selector_id="person_type",
@@ -348,3 +347,4 @@ PAGE = DashboardPageDefinition(
 )
 
 DailyActivityPatternPage.definition = PAGE
+

@@ -201,9 +201,8 @@ PAGE = DashboardPageDefinition(
     page_id="traffic",
     title="Traffic Validation",
     group_id="validation",
-    child_id="traffic",
     order=52,
-    controller_cls=TrafficValidationPage,
+    page_cls=TrafficValidationPage,
     selectors=(
         PageSelectorDefinition(
             selector_id="direction",
@@ -230,3 +229,4 @@ PAGE = DashboardPageDefinition(
 )
 
 TrafficValidationPage.definition = PAGE
+

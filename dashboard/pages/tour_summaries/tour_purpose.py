@@ -77,9 +77,8 @@ PAGE = DashboardPageDefinition(
     page_id="tour_purpose",
     title="Tour Purpose",
     group_id="tour_summaries",
-    child_id="tour_purpose",
     order=41,
-    controller_cls=TourPurposePage,
+    page_cls=TourPurposePage,
     required_summary_ids=(
         "tour_category_distribution",
         "tour_purpose_distribution",
@@ -87,3 +86,4 @@ PAGE = DashboardPageDefinition(
 )
 
 TourPurposePage.definition = PAGE
+
