@@ -241,9 +241,7 @@
     const pageState = state.pageSelectors[leafPageId] || {};
     pageState[selectorId] = value;
     state.pageSelectors[leafPageId] = pageState;
-    if (!updateRenderedRegions(leafPageId, selectorId)) {
-      renderApp();
-    }
+    renderApp();
   }
 
   function renderWidget(node) {

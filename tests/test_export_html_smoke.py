@@ -65,11 +65,12 @@ def test_export_html_smoke_embeds_versioned_payload_and_runtime() -> None:
     tmp_path = _workspace_tmp_dir("html_smoke_payload")
     config = _write_config(
         tmp_path,
+        dashboard_pages=["trip_summaries"],
         export_html_lines=[
             "pages:",
-            "  trip_mode:",
-            "    tour_purpose: all",
-            "    tour_mode: all",
+            "  trip_summaries:",
+            "    trip_mode:",
+            "      tour_purpose: all",
         ],
     )
     out_path = tmp_path / "smoke" / "trip_mode.html"
@@ -88,21 +89,30 @@ def test_export_html_smoke_embeds_versioned_payload_and_runtime() -> None:
     payload = json.loads(html[start:end])
 
     assert payload["schema_version"] == EXPORT_SCHEMA_VERSION
-    assert payload["pages"] == [
+    assert [(page["id"], page["title"]) for page in payload["pages"]] == [
+        ("trip_summaries", "Trip Summaries")
+    ]
+    trip_summaries = payload["pages"][0]
+    assert trip_summaries["default_child_id"] == "trip_stop_purpose"
+    assert [(child["id"], child["title"]) for child in trip_summaries["children"]] == [
+        ("parking_location", "Parking Location"),
+        ("trip_mode", "Trip Mode"),
+        ("trip_stop_distance", "Trip and Stop Distance"),
+        ("trip_stop_purpose", "Trip and Stop Purpose"),
+        ("trip_stop_time", "Trip and Stop Time"),
+    ]
+    trip_mode = next(child for child in trip_summaries["children"] if child["id"] == "trip_mode")
+    assert trip_mode["selectors"] == [
         {
-            "id": "trip_summaries",
-            "title": "Trip Summaries",
-            "selectors": [],
-            "children": [
-                {
-                    "id": "trip_mode",
-                    "title": "Trip Mode",
-                    "selectors": payload["pages"][0]["children"][0]["selectors"],
-                    "children": [],
-                    "default_child_id": None,
-                }
-            ],
-            "default_child_id": "trip_mode",
+            "id": "tour_purpose",
+            "label": "Tour Purpose",
+            "available": True,
+            "request_mode": "all",
+            "requested_values": [],
+            "resolved_values": ["All", "eatout", "social"],
+            "default_value": "All",
+            "options": ["All", "eatout", "social"],
+            "export_enabled": True,
         }
     ]
     assert payload["states"]["Weighted||Percent"]["trip_mode"]["kind"] == "page"

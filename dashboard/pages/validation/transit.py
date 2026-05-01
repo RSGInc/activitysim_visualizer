@@ -134,15 +134,6 @@ class TransitValidationPage(DashboardPage):
             self.weighting_key,
         )
 
-        if boarding_list is None and transfer_list is None:
-            self._body.objects = [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
-                )
-            ]
-            return
-
         tech_opts = _options(boarding_list or transfer_list or [], "technology")
         self.technology_sel.options = tech_opts
         if self.technology_sel.value not in tech_opts:

@@ -5,90 +5,74 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import data_table
+from dashboard.components import data_table, scatter_chart
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import (
-    DashboardPageDefinition,
-    PageExportRegionDefinition,
-    PageSelectorDefinition,
-)
+from dashboard.page_definitions import DashboardPageDefinition, PageExportRegionDefinition
+from processor.models import RunData
 from runtime.config import Config
 
 
-GEO_LEVEL_COL = "geography_level"
-GEO_TYPE_COL = "geography_type"
+PARKING_CAPACITY_COLUMNS = (
+    "PRKSPACES",
+    "parking_spaces",
+    "parking_capacity",
+    "PARKING_SPACES",
+)
 
 
-def _nonempty(
-    data_list: list[tuple[str, pl.DataFrame]],
+def _parking_capacity_col(land_use: pl.DataFrame) -> str | None:
+    for column in PARKING_CAPACITY_COLUMNS:
+        if column in land_use.columns:
+            return column
+    return None
+
+
+def parking_scatter_data(
+    parking_summary: list[tuple[str, pl.DataFrame]],
+    prepared_runs: list[tuple[str, RunData]],
 ) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, df) for label, df in data_list if df is not None and len(df) > 0]
-
-
-def _normalize_geography_columns(df: pl.DataFrame) -> pl.DataFrame:
-    if GEO_TYPE_COL in df.columns and GEO_LEVEL_COL not in df.columns:
-        return df.rename({GEO_TYPE_COL: GEO_LEVEL_COL})
-    return df
-
-
-def geo_level_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
-    first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
-    if first_df is None or GEO_LEVEL_COL not in first_df.columns:
-        return ["All"]
-
-    vals = (
-        first_df.select(GEO_LEVEL_COL)
-        .drop_nulls()
-        .unique()
-        .to_series()
-        .cast(pl.Utf8)
-        .to_list()
-    )
-    return ["All"] + sorted(v for v in vals if v != "All")
-
-
-def filter_geo_level(
-    data_list: list[tuple[str, pl.DataFrame]],
-    geo_level: str,
-) -> list[tuple[str, pl.DataFrame]]:
-    out = []
-
-    for label, df in _nonempty(data_list):
-        if GEO_LEVEL_COL in df.columns and geo_level != "All":
-            df = df.with_columns(pl.col(GEO_LEVEL_COL).cast(pl.Utf8)).filter(
-                pl.col(GEO_LEVEL_COL) == geo_level
+    prepared_by_label = {label: run for label, run in prepared_runs}
+    out: list[tuple[str, pl.DataFrame]] = []
+    for label, summary_df in parking_summary:
+        run = prepared_by_label.get(label)
+        if run is None:
+            continue
+        capacity_col = _parking_capacity_col(run.land_use)
+        if capacity_col is None:
+            continue
+        land_use = (
+            run.land_use.select(
+                pl.col("MAZ").cast(pl.Utf8).alias("geography_id"),
+                pl.col(capacity_col).cast(pl.Float64).alias("parking_capacity"),
             )
-        out.append((label, df))
-
+            .group_by("geography_id")
+            .agg(parking_capacity=pl.col("parking_capacity").sum())
+        )
+        parking_counts = (
+            summary_df.filter(pl.col("geography_type").cast(pl.Utf8) == "maz")
+            .select(
+                pl.col("geography_id").cast(pl.Utf8),
+                pl.col("trip_count").cast(pl.Float64),
+            )
+        )
+        joined = (
+            land_use.join(parking_counts, on="geography_id", how="full", coalesce=True)
+            .with_columns(
+                pl.col("parking_capacity").fill_null(0.0),
+                pl.col("trip_count").fill_null(0.0),
+            )
+            .sort("geography_id")
+        )
+        out.append((label, joined))
     return out
 
 
 class ParkingLocationPage(DashboardPage):
     def __init__(self, state, config: Config) -> None:
         super().__init__("Parking Location", state, config)
-
-        parking_data = self.state.get_summary_table_set("parking_locations", "weighted")
-        normalized = (
-            [(label, _normalize_geography_columns(df)) for label, df in parking_data]
-            if parking_data
-            else []
-        )
-        geo_opts = geo_level_options(normalized)
-
-        self.geo_level_sel = pn.widgets.Select(
-            name="Geography Level",
-            options=geo_opts,
-            value=geo_opts[0],
-        )
-        self._watch_widget(self.geo_level_sel)
-
         self._body = pn.Column(sizing_mode="stretch_width")
         self.view = pn.Column(
             pn.pane.Markdown("## Parking Location"),
-            pn.Row(
-                pn.pane.Markdown("**Geography Level:**"),
-                self.geo_level_sel,
-            ),
             self._body,
             sizing_mode="stretch_width",
         )
@@ -98,36 +82,55 @@ class ParkingLocationPage(DashboardPage):
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        parking_result = self.resolve_summary_visualization(
+            "parking_location_scatter",
+            summary_requirements={"parking_locations": ("geography_type", "geography_id", "trip_count")},
+        )
+        prepared_result = self.resolve_prepared_visualization(
+            "parking_location_land_use",
+            table_requirements={"land_use": ("MAZ",)},
+            weighted=self.weighting_key == "weighted",
+        )
+        if not parking_result.has_usable_runs or not prepared_result.has_usable_runs:
+            detail = (
+                "Parking location scatterplots require parking trip summaries and prepared "
+                "land use tables with parking capacity columns."
+            )
+            result = parking_result if not parking_result.has_usable_runs else prepared_result
+            self._body.objects = [self.unavailable_visualization(result, detail=detail)]
+            return
+
+        scatter_data = self.get_filtered_view(
+            "parking_location_scatter",
+            tuple(label for label, _ in parking_result.usable_by_input["parking_locations"]),
+            factory=lambda: parking_scatter_data(
+                parking_result.usable_by_input["parking_locations"],
+                prepared_result.usable_by_input["land_use"],
+            ),
+        )
+        if not scatter_data:
             self._body.objects = [
                 self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
+                    detail=(
+                        "Prepared land use tables do not expose a recognized parking "
+                        "capacity column for this run set."
+                    ),
+                    missing_items=list(PARKING_CAPACITY_COLUMNS),
                 )
             ]
             return
 
-        parking_list = [
-            (label, _normalize_geography_columns(df))
-            for label, df in summaries["parking_locations"]
-        ]
-
-        geo_opts = geo_level_options(parking_list)
-        self.geo_level_sel.options = geo_opts
-        if self.geo_level_sel.value not in geo_opts:
-            self.geo_level_sel.value = geo_opts[0]
-
-        geo_level = self.geo_level_sel.value
-
-        parking_data = self.get_filtered_view(
-            "parking_locations",
-            geo_level,
-            factory=lambda: filter_geo_level(parking_list, geo_level),
-        )
-
         self._body.objects = [
-            data_table(parking_data, "Parking Location"),
+            scatter_chart(
+                scatter_data,
+                x_col="parking_capacity",
+                y_col="trip_count",
+                title="Parking Capacity vs Trips Parked by Zone",
+                xaxis_title="Parking Capacity",
+                yaxis_title="Trips Parked",
+                drop_zero_y=False,
+            ),
+            data_table(scatter_data, "Parking Capacity vs Trips Parked"),
         ]
 
 
@@ -138,21 +141,15 @@ PAGE = DashboardPageDefinition(
     child_id="parking_location",
     order=51,
     controller_cls=ParkingLocationPage,
-    selectors=(
-        PageSelectorDefinition(
-            selector_id="geography_level",
-            widget_attr="geo_level_sel",
-            label="Geography Level",
-        ),
-    ),
+    prepared_data_mode="required",
+    required_summary_ids=("parking_locations",),
+    required_prepared_tables=("land_use",),
     export_regions=(
         PageExportRegionDefinition(
             region_id="parking_location_body",
             view_attr="_body",
-            selector_ids=("geography_level",),
         ),
     ),
-    required_summary_ids=("parking_locations",),
 )
 
 ParkingLocationPage.definition = PAGE

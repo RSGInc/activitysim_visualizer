@@ -178,6 +178,11 @@ def _canonicalize_joint_participants(
 def _canonicalize_land_use(land_use: pl.DataFrame, config: Config) -> pl.DataFrame:
     land_use = _materialize_column(
         land_use,
+        "MAZ",
+        _resolve_source_column(land_use, [config.maz_col, "MAZ"]),
+    )
+    land_use = _materialize_column(
+        land_use,
         "EMPLOYMENT",
         _resolve_source_column(land_use, config.col_total_employment),
     )

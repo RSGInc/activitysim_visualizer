@@ -137,11 +137,15 @@ def bar_chart(
     """
     fig = go.Figure()
     percent_mode = _percent_mode(as_percent)
+    category_order: list[object] = []
     for i, (label, df) in enumerate(data_list):
         if df is None or len(df) == 0:
             continue
         color = run_color_for_label(label, i)
         x = df[x_col].to_list()
+        for value in x:
+            if value not in category_order:
+                category_order.append(value)
         y = np.array(df[y_col].to_list(), dtype=float)
         if percent_mode and y.sum() > 0:
             y = y / y.sum() * 100.0
@@ -172,6 +176,12 @@ def bar_chart(
         height,
         barmode=barmode,
     )
+    if category_order:
+        fig.update_xaxes(
+            type="category",
+            categoryorder="array",
+            categoryarray=category_order,
+        )
     return pn.pane.Plotly(fig, sizing_mode="stretch_width")
 
 

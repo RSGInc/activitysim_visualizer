@@ -14,11 +14,11 @@ from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import (
     DashboardDataRequirements,
+    PageExportPartDefinition,
     PageExportRegionDefinition,
     DashboardGroupDefinition,
     DashboardPageConfigEntry,
     DashboardPageDefinition,
-    ExportPageConfigEntry,
     PageSelectorDefinition,
     PreparedDataMode,
 )
@@ -260,6 +260,15 @@ def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
         raise ValueError(
             f"Dashboard page {page_definition.page_id!r} declares duplicate export region ids."
         )
+    part_ids = [part.part_id for part in page_definition.export_parts]
+    if len(part_ids) != len(set(part_ids)):
+        raise ValueError(
+            f"Dashboard page {page_definition.page_id!r} declares duplicate export part ids."
+        )
+    if page_definition.export_regions and page_definition.export_parts:
+        raise ValueError(
+            f"Dashboard page {page_definition.page_id!r} must not declare both export_regions and export_parts."
+        )
 
     selector_id_set = set(selector_ids)
     exportable_selector_ids = {
@@ -268,19 +277,18 @@ def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
         if selector.exportable
     }
     referenced_selector_ids: set[str] = set()
-    for region in page_definition.export_regions:
-        unknown_region_selectors = [
-            selector_id
-            for selector_id in region.selector_ids
-            if selector_id not in selector_id_set
+    export_parts = effective_export_parts(page_definition)
+    for part in export_parts:
+        unknown_part_selectors = [
+            selector_id for selector_id in part.selector_ids if selector_id not in selector_id_set
         ]
-        if unknown_region_selectors:
+        if unknown_part_selectors:
             raise ValueError(
-                f"Dashboard page {page_definition.page_id!r} export region {region.region_id!r} "
+                f"Dashboard page {page_definition.page_id!r} export part {part.part_id!r} "
                 "references unknown selector ids: "
-                + ", ".join(repr(selector_id) for selector_id in unknown_region_selectors)
+                + ", ".join(repr(selector_id) for selector_id in unknown_part_selectors)
             )
-        referenced_selector_ids.update(region.selector_ids)
+        referenced_selector_ids.update(part.selector_ids)
     missing_region_selectors = sorted(exportable_selector_ids - referenced_selector_ids)
     if exportable_selector_ids and missing_region_selectors:
         raise ValueError(
@@ -331,6 +339,47 @@ def selector_definition_by_id(page_id: str, selector_id: str) -> PageSelectorDef
         if selector.selector_id == selector_id:
             return selector
     return None
+
+
+def page_definition_by_group_child(
+    group_id: str,
+    child_id: str,
+) -> DashboardPageDefinition | None:
+    """Look up a grouped leaf page definition by group id and child id."""
+    for page_definition in all_page_definitions():
+        if page_definition.group_id == group_id and page_definition.child_id == child_id:
+            return page_definition
+    return None
+
+
+def export_part_definition_by_id(
+    page_id: str,
+    part_id: str,
+) -> PageExportPartDefinition | None:
+    """Look up one registered export part definition by page id and part id."""
+    page_definition = page_definition_by_id(page_id)
+    if page_definition is None:
+        return None
+    for part in effective_export_parts(page_definition):
+        if part.part_id == part_id:
+            return part
+    return None
+
+
+def effective_export_parts(
+    page_definition: DashboardPageDefinition,
+) -> tuple[PageExportPartDefinition, ...]:
+    """Return the effective export parts for one page definition."""
+    if page_definition.export_parts:
+        return page_definition.export_parts
+    return tuple(
+        PageExportPartDefinition(
+            part_id=region.region_id,
+            view_attr=region.view_attr,
+            selector_ids=region.selector_ids,
+        )
+        for region in page_definition.export_regions
+    )
 
 
 def exportable_page_selectors() -> list[tuple[DashboardPageDefinition, PageSelectorDefinition]]:
@@ -479,7 +528,7 @@ def _resolve_group_children(
 
 
 def _resolve_page_definitions_from_entries(
-    entries: list[DashboardPageConfigEntry] | list[ExportPageConfigEntry],
+    entries: list[DashboardPageConfigEntry],
     *,
     error_field_name: str,
 ) -> list[DashboardPageDefinition]:
@@ -537,14 +586,30 @@ def resolve_page_definitions(config: Config) -> list[DashboardPageDefinition]:
 
 def resolve_export_page_definitions(config: Config) -> list[DashboardPageDefinition]:
     """Resolve the export HTML leaf pages in display order."""
-    if not config.export_html.pages_configured:
-        page_definitions = list(default_page_definitions())
-        _validate_selected_page_definitions(page_definitions)
-        return page_definitions
-    return _resolve_page_definitions_from_entries(
-        config.export_html.page_entries,
-        error_field_name="visualizer.export_html.pages entries",
-    )
+    resolved_pages = list(resolve_live_page_definitions(config))
+    if not (
+        config.export_html.pages_configured
+        or config.export_html.exclude_groups
+        or config.export_html.exclude_pages
+    ):
+        return resolved_pages
+    export_pages: list[DashboardPageDefinition] = []
+    excluded_groups = set(config.export_html.exclude_groups)
+    excluded_pages = set(config.export_html.exclude_pages)
+    for page_definition in resolved_pages:
+        if page_definition.group_id and page_definition.group_id in excluded_groups:
+            continue
+        if page_definition.page_id in excluded_pages:
+            continue
+        override = config.export_html.page_override(
+            page_definition.page_id,
+            group_id=page_definition.group_id,
+            child_id=page_definition.child_id,
+        )
+        if override.enabled is False:
+            continue
+        export_pages.append(page_definition)
+    return export_pages
 
 
 def resolve_export_navigation_entries(config: Config) -> list[DashboardNavigationEntry]:

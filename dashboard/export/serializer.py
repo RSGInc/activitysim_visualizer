@@ -21,55 +21,74 @@ def serialize_viewable(
     disable_widgets: bool,
     widget_metadata: dict[int, tuple[str | None, dict[str, Any] | None]] | None = None,
     region_nodes_by_id: dict[int, dict[str, Any]] | None = None,
+    hidden_widget_ids: set[int] | None = None,
+    hidden_view_ids: set[int] | None = None,
 ) -> ExportNode:
     """Serialize a supported Panel viewable into the export JSON tree."""
     widget_metadata = widget_metadata or {}
     region_nodes_by_id = region_nodes_by_id or {}
+    hidden_widget_ids = hidden_widget_ids or set()
+    hidden_view_ids = hidden_view_ids or set()
     if id(obj) in region_nodes_by_id:
         return region_nodes_by_id[id(obj)]
     if isinstance(obj, pn.Card):
+        children = [
+            serialize_viewable(
+                child,
+                disable_widgets=disable_widgets,
+                widget_metadata=widget_metadata,
+                region_nodes_by_id=region_nodes_by_id,
+                hidden_widget_ids=hidden_widget_ids,
+                hidden_view_ids=hidden_view_ids,
+            )
+            for child in obj.objects
+            if id(child) not in hidden_view_ids
+            and not (isinstance(child, pn.widgets.Widget) and id(child) in hidden_widget_ids)
+        ]
         return {
             "kind": "card",
             "title": obj.title or "",
-            "children": [
-                serialize_viewable(
-                    child,
-                    disable_widgets=disable_widgets,
-                    widget_metadata=widget_metadata,
-                    region_nodes_by_id=region_nodes_by_id,
-                )
-                for child in obj.objects
-            ],
+            "children": children,
         }
     if isinstance(obj, pn.Column):
+        children = [
+            serialize_viewable(
+                child,
+                disable_widgets=disable_widgets,
+                widget_metadata=widget_metadata,
+                region_nodes_by_id=region_nodes_by_id,
+                hidden_widget_ids=hidden_widget_ids,
+                hidden_view_ids=hidden_view_ids,
+            )
+            for child in obj.objects
+            if id(child) not in hidden_view_ids
+            and not (isinstance(child, pn.widgets.Widget) and id(child) in hidden_widget_ids)
+        ]
         return {
             "kind": "container",
             "layout": "column",
-            "child_count": len(obj.objects),
-            "children": [
-                serialize_viewable(
-                    child,
-                    disable_widgets=disable_widgets,
-                    widget_metadata=widget_metadata,
-                    region_nodes_by_id=region_nodes_by_id,
-                )
-                for child in obj.objects
-            ],
+            "child_count": len(children),
+            "children": children,
         }
     if isinstance(obj, pn.Row):
+        children = [
+            serialize_viewable(
+                child,
+                disable_widgets=disable_widgets,
+                widget_metadata=widget_metadata,
+                region_nodes_by_id=region_nodes_by_id,
+                hidden_widget_ids=hidden_widget_ids,
+                hidden_view_ids=hidden_view_ids,
+            )
+            for child in obj.objects
+            if id(child) not in hidden_view_ids
+            and not (isinstance(child, pn.widgets.Widget) and id(child) in hidden_widget_ids)
+        ]
         return {
             "kind": "container",
             "layout": "row",
-            "child_count": len(obj.objects),
-            "children": [
-                serialize_viewable(
-                    child,
-                    disable_widgets=disable_widgets,
-                    widget_metadata=widget_metadata,
-                    region_nodes_by_id=region_nodes_by_id,
-                )
-                for child in obj.objects
-            ],
+            "child_count": len(children),
+            "children": children,
         }
     if isinstance(obj, pn.Tabs):
         return {
@@ -82,9 +101,12 @@ def serialize_viewable(
                         disable_widgets=disable_widgets,
                         widget_metadata=widget_metadata,
                         region_nodes_by_id=region_nodes_by_id,
+                        hidden_widget_ids=hidden_widget_ids,
+                        hidden_view_ids=hidden_view_ids,
                     ),
                 }
                 for title, child in iter_tabs(obj)
+                if id(child) not in hidden_view_ids
             ],
         }
     if isinstance(obj, pn.pane.Plotly):
@@ -100,6 +122,8 @@ def serialize_viewable(
             "rows": frame.to_dict(orient="records"),
         }
     if isinstance(obj, pn.widgets.RadioButtonGroup):
+        if id(obj) in hidden_widget_ids:
+            return {"kind": "spacer", "height": 0, "width": 0}
         selector_id, selector_meta = widget_metadata.get(id(obj), (None, None))
         options = list(obj.options)
         disabled = True if disable_widgets else bool(obj.disabled)
@@ -120,6 +144,8 @@ def serialize_viewable(
             "export_enabled": bool(selector_meta and selector_meta["export_enabled"]),
         }
     if isinstance(obj, pn.widgets.Select):
+        if id(obj) in hidden_widget_ids:
+            return {"kind": "spacer", "height": 0, "width": 0}
         selector_id, selector_meta = widget_metadata.get(id(obj), (None, None))
         options = list(obj.options)
         disabled = True if disable_widgets else bool(obj.disabled)

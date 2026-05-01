@@ -9,13 +9,22 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from dashboard.components import bar_chart
 from dashboard.pages.destination import DestinationPage
 from dashboard.pages.long_term import LongTermPage
+from dashboard.pages.long_term_choices.individual_choices import (
+    IndividualChoicesPage,
+)
+from dashboard.pages.long_term_choices.mandatory_location_choice import (
+    MandatoryLocationChoicePage,
+)
 from dashboard.pages.overview import OverviewPage
 from dashboard.pages.stop_freq import StopFreqPage
 from dashboard.pages.stop_location import StopLocationPage
 from dashboard.pages.stop_timing import StopTimingPage
 from dashboard.pages.tour_mode import TourModePage
+from dashboard.pages.tour_summaries.tour_mode import TourModePage as TourSummariesTourModePage
+from dashboard.pages.tour_summaries.tour_mode import _filter_col
 from dashboard.pages.tour_summary import TourSummaryPage
 from dashboard.pages.tour_tod import TourTODPage
 from dashboard.pages.trip_mode import TripModePage
@@ -36,6 +45,7 @@ from processor.summarize.cache import (
 )
 from processor.summarize.schema import SUMMARY_OUTPUT_COLUMNS
 from processor.summarize.summary_specs import SUMMARY_SPECS, SummarySpec
+from processor.summarize.summary_specs import SUMMARY_SPEC_BY_ID
 from runtime.config import Config
 from processor.summarize.summaries import legacy
 
@@ -1134,6 +1144,193 @@ def test_tour_mode_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None
     page.purp_sel.value = "work"
     page.refresh(force=True)
     assert page._body.objects
+
+
+def test_individual_choices_page_renders_partial_content_when_some_summaries_missing(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "license_holding_status_distribution": empty_summary_frame(
+                SUMMARY_SPEC_BY_ID["license_holding_status_distribution"].builder
+            ),
+            "bicycle_comfort_level_distribution": empty_summary_frame(
+                SUMMARY_SPEC_BY_ID["bicycle_comfort_level_distribution"].builder
+            ),
+            "transit_pass_ownership_by_person_type": pl.DataFrame(
+                {
+                    "person_type": ["all_person_types", "all_person_types"],
+                    "transit_pass_ownership_status": [
+                        "has_transit_pass",
+                        "no_transit_pass",
+                    ],
+                    "person_type_label": ["All Person Types", "All Person Types"],
+                    "person_count": [6.0, 4.0],
+                }
+            ),
+            "transit_subsidy_by_person_type": pl.DataFrame(
+                {
+                    "person_type": ["all_person_types", "all_person_types"],
+                    "transit_subsidy_status": [
+                        "has_transit_subsidy",
+                        "no_transit_subsidy",
+                    ],
+                    "person_type_label": ["All Person Types", "All Person Types"],
+                    "person_count": [3.0, 7.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = IndividualChoicesPage(state, config)
+    page.refresh(force=True)
+
+    cards = [
+        obj
+        for row in page._body.objects
+        if isinstance(row, pn.Row)
+        for obj in row.objects
+        if isinstance(obj, pn.Card)
+    ]
+    assert len(cards) == 2
+    assert any(isinstance(obj, pn.Row) for obj in page._body.objects)
+
+
+def test_tour_summaries_tour_mode_page_renders_main_chart_without_vehicle_summaries(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "tour_mode_by_tour_purpose_and_auto_sufficiency": pl.DataFrame(
+                {
+                    "tour_purpose": [
+                        "all_tour_purposes",
+                        "all_tour_purposes",
+                        "work",
+                        "work",
+                    ],
+                    "tour_mode": ["DRIVE", "WALK", "DRIVE", "WALK"],
+                    "tour_count_all_households": [10.0, 5.0, 7.0, 3.0],
+                    "tour_count_zero_auto": [2.0, 4.0, 1.0, 2.0],
+                    "tour_count_auto_deficient": [3.0, 1.0, 2.0, 1.0],
+                    "tour_count_auto_sufficient": [5.0, 0.0, 4.0, 0.0],
+                }
+            ),
+            "allocated_vehicle_age_by_occupancy": empty_summary_frame(
+                SUMMARY_SPEC_BY_ID["allocated_vehicle_age_by_occupancy"].builder
+            ),
+            "allocated_vehicle_fuel_type_by_occupancy": empty_summary_frame(
+                SUMMARY_SPEC_BY_ID["allocated_vehicle_fuel_type_by_occupancy"].builder
+            ),
+            "allocated_vehicle_body_type_by_occupancy": empty_summary_frame(
+                SUMMARY_SPEC_BY_ID["allocated_vehicle_body_type_by_occupancy"].builder
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = TourSummariesTourModePage(state, config)
+    page.refresh(force=True)
+
+    assert list(page.purpose_sel.options) == ["Total", "work"]
+    assert len(page._mode_section.objects) == 3
+    vehicle_cards = [
+        obj
+        for obj in page._vehicle_section.objects[-1].objects
+        if isinstance(obj, pn.Card)
+    ]
+    assert len(vehicle_cards) == 3
+
+
+def test_mandatory_location_choice_uses_commuting_flows_when_worker_geography_missing(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "internal_external_worker_by_geography": empty_summary_frame(
+                SUMMARY_SPEC_BY_ID["internal_external_worker_by_geography"].builder
+            ),
+            "commuting_flows": pl.DataFrame(
+                {
+                    "origin_geography_type": ["maz", "maz"],
+                    "origin_geography_id": ["10", "20"],
+                    "destination_geography_type": ["maz", "maz"],
+                    "destination_geography_id": ["30", "40"],
+                    "commuter_count": [5.0, 7.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = MandatoryLocationChoicePage(state, config)
+    page.refresh(force=True)
+
+    assert list(page.geo_level_sel.options) == ["maz"]
+    commuting_widget = page._commuting_flows_section.objects[0]
+    assert not isinstance(commuting_widget, pn.Card)
+
+
+def test_tour_mode_vehicle_filters_sort_categories_stably() -> None:
+    filtered = _filter_col(
+        [
+            (
+                "Base",
+                pl.DataFrame(
+                    {
+                        "occupancy": ["All", "All", "All"],
+                        "fuel_type": ["Hybrid", "Battery EV", "Gasoline"],
+                        "vehicle_count": [3.0, 1.0, 2.0],
+                    }
+                ),
+            )
+        ],
+        "occupancy",
+        "All",
+    )
+
+    assert filtered[0][1]["fuel_type"].to_list() == [
+        "Battery EV",
+        "Gasoline",
+        "Hybrid",
+    ]
+
+
+def test_bar_chart_pins_category_order_from_input_sequence() -> None:
+    chart = bar_chart(
+        [
+            (
+                "Base",
+                pl.DataFrame(
+                    {
+                        "fuel_type": ["Hybrid", "Battery EV", "Gasoline"],
+                        "vehicle_count": [3.0, 1.0, 2.0],
+                    }
+                ),
+            )
+        ],
+        x_col="fuel_type",
+        y_col="vehicle_count",
+    )
+
+    category_array = list(chart.object.layout.xaxis.categoryarray)
+    assert category_array == ["Hybrid", "Battery EV", "Gasoline"]
 
 
 def test_tour_tod_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:

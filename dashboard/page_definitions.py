@@ -66,6 +66,20 @@ class PageExportRegionDefinition:
 
 
 @dataclass(frozen=True)
+class PageExportPartDefinition:
+    """Describe one explicit page-owned export part."""
+
+    part_id: str
+    view_attr: str
+    selector_ids: tuple[str, ...] = field(default_factory=tuple)
+
+    def view_for(self, page: Any) -> pn.viewable.Viewable | None:
+        """Return the stable part root viewable from a page instance when present."""
+        view = getattr(page, self.view_attr, None)
+        return view if isinstance(view, pn.viewable.Viewable) else None
+
+
+@dataclass(frozen=True)
 class DashboardPageDefinition:
     """Register one dashboard page for live mode and HTML export."""
 
@@ -80,6 +94,7 @@ class DashboardPageDefinition:
     controller_cls: type["DashboardPage"] | None = None
     selectors: tuple[PageSelectorDefinition, ...] = field(default_factory=tuple)
     export_regions: tuple[PageExportRegionDefinition, ...] = field(default_factory=tuple)
+    export_parts: tuple[PageExportPartDefinition, ...] = field(default_factory=tuple)
     required_summary_ids: tuple[str, ...] = field(default_factory=tuple)
     required_prepared_tables: tuple[PreparedTableName, ...] = field(default_factory=tuple)
 
@@ -113,10 +128,3 @@ class DashboardPageConfigEntry:
     child_page_ids: tuple[str, ...] = field(default_factory=tuple)
 
 
-@dataclass(frozen=True)
-class ExportPageConfigEntry:
-    """Normalized export page-selection entry from config."""
-
-    page_id: str
-    mode: DashboardPageSelectionMode = "explicit"
-    child_page_ids: tuple[str, ...] = field(default_factory=tuple)

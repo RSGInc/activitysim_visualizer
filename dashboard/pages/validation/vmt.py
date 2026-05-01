@@ -99,15 +99,6 @@ class VMTValidationPage(DashboardPage):
             self.weighting_key,
         )
 
-        if commercial_vmt is None and bicycle_vmt is None:
-            self._body.objects = [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
-                )
-            ]
-            return
-
         vmt_view = self.vmt_view_sel.value
 
         if commercial_vmt is not None:

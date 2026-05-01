@@ -299,6 +299,38 @@ class DashboardPage:
             return None
         return [(label, table) for label, table in selection.usable_runs]
 
+    def inspect_summary(
+        self,
+        summary_name: str,
+        *,
+        required_columns: tuple[str, ...] = (),
+    ):
+        """Inspect one summary table and store its availability for page diagnostics."""
+        selection = self.state.inspect_summary_table(
+            summary_name,
+            weighting_key=self.weighting_key,
+            required_columns=required_columns,
+        )
+        self._page_state.setdefault("required_summary_selections", {})[summary_name] = (
+            selection
+        )
+        return selection
+
+    def optional_summary(
+        self,
+        summary_name: str,
+        *,
+        required_columns: tuple[str, ...] = (),
+    ):
+        """Return usable rows for one summary or ``None`` when unavailable."""
+        selection = self.inspect_summary(
+            summary_name,
+            required_columns=required_columns,
+        )
+        if not selection.has_usable_runs:
+            return None
+        return [(label, table) for label, table in selection.usable_runs]
+
     def require_summaries(self, *summary_names: str) -> dict[str, Any] | None:
         """Return multiple summary tables or ``None`` when any are missing."""
         selections = {
@@ -425,14 +457,24 @@ class DashboardPage:
 
     def get_filtered_view(self, view_name: str, *filters: Any, factory):
         """Return a cached chart-ready filtered view for the current page state."""
+        page_cache_id = self.page_id() or self.name
         return self.state.get_or_create_cached(
             "filtered_view",
-            self.name,
+            page_cache_id,
             self.weighting_key,
             view_name,
             *filters,
             factory=factory,
         )
+
+    def clear_filtered_view_cache(self) -> None:
+        """Clear cached filtered views for this page and weighting mode."""
+        page_cache_id = self.page_id() or self.name
+        cache = self.state.get_cache("filtered_view")
+        prefix = (page_cache_id, self.weighting_key)
+        stale_keys = [key for key in cache if key[:2] == prefix]
+        for key in stale_keys:
+            cache.pop(key, None)
 
     def _refresh(self) -> None:
         raise NotImplementedError

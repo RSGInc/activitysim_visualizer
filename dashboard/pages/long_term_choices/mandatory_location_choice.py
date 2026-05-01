@@ -11,7 +11,6 @@ from dashboard.components import (
     control_row_spacer,
     data_table,
     density_chart,
-    scatter_chart,
 )
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import (
@@ -55,7 +54,9 @@ def _normalize_geography_columns(df: pl.DataFrame) -> pl.DataFrame:
 def _adapt_internal_external(
     data_list: list[tuple[str, pl.DataFrame]],
 ) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, _normalize_geography_columns(df)) for label, df in _nonempty(data_list)]
+    return [
+        (label, _normalize_geography_columns(df)) for label, df in _nonempty(data_list)
+    ]
 
 
 def _adapt_external_workplace(
@@ -78,13 +79,17 @@ def _adapt_external_workplace(
 def _adapt_workplace_lu(
     data_list: list[tuple[str, pl.DataFrame]],
 ) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, _normalize_geography_columns(df)) for label, df in _nonempty(data_list)]
+    return [
+        (label, _normalize_geography_columns(df)) for label, df in _nonempty(data_list)
+    ]
 
 
 def _adapt_school_lu(
     data_list: list[tuple[str, pl.DataFrame]],
 ) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, _normalize_geography_columns(df)) for label, df in _nonempty(data_list)]
+    return [
+        (label, _normalize_geography_columns(df)) for label, df in _nonempty(data_list)
+    ]
 
 
 def _adapt_commuting_flows(
@@ -105,34 +110,36 @@ def _adapt_commuting_flows(
 
 def geo_level_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
     first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
-    if first_df is None or GEO_LEVEL_COL not in first_df.columns:
+    if first_df is None:
         return ["Total"]
 
-    vals = (
-        first_df.select(GEO_LEVEL_COL)
-        .drop_nulls()
-        .unique()
-        .to_series()
-        .cast(pl.Utf8)
-        .to_list()
-    )
+    if GEO_LEVEL_COL in first_df.columns:
+        vals = (
+            first_df.select(GEO_LEVEL_COL)
+            .drop_nulls()
+            .unique()
+            .to_series()
+            .cast(pl.Utf8)
+            .to_list()
+        )
+    elif {
+        "origin_geography_level",
+        "destination_geography_level",
+    }.issubset(first_df.columns):
+        vals = (
+            pl.concat(
+                [
+                    first_df["origin_geography_level"].cast(pl.Utf8),
+                    first_df["destination_geography_level"].cast(pl.Utf8),
+                ]
+            )
+            .drop_nulls()
+            .unique()
+            .to_list()
+        )
+    else:
+        return ["Total"]
     return sorted(vals) if vals else ["Total"]
-
-
-def student_type_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
-    first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
-    if first_df is None or "student_type" not in first_df.columns:
-        return ["All"]
-
-    vals = (
-        first_df.select("student_type")
-        .drop_nulls()
-        .unique()
-        .to_series()
-        .cast(pl.Utf8)
-        .to_list()
-    )
-    return sorted(vals) if vals else ["All"]
 
 
 def filter_geo_level(
@@ -141,35 +148,20 @@ def filter_geo_level(
 ) -> list[tuple[str, pl.DataFrame]]:
     out = []
     for label, df in _nonempty(data_list):
-        if GEO_LEVEL_COL in df.columns:
+        if GEO_LEVEL_COL in df.columns and geo_level not in {"Total", "All"}:
             df = df.with_columns(pl.col(GEO_LEVEL_COL).cast(pl.Utf8)).filter(
                 pl.col(GEO_LEVEL_COL) == geo_level
             )
         elif {
             "origin_geography_level",
             "destination_geography_level",
-        }.issubset(df.columns):
+        }.issubset(df.columns) and geo_level not in {"Total", "All"}:
             df = df.with_columns(
                 pl.col("origin_geography_level").cast(pl.Utf8),
                 pl.col("destination_geography_level").cast(pl.Utf8),
             ).filter(
                 (pl.col("origin_geography_level") == geo_level)
                 & (pl.col("destination_geography_level") == geo_level)
-            )
-        out.append((label, df))
-    return out
-
-
-def school_location_table_data(
-    data_list: list[tuple[str, pl.DataFrame]],
-    geo_level: str,
-    student_type: str,
-) -> list[tuple[str, pl.DataFrame]]:
-    out = []
-    for label, df in filter_geo_level(data_list, geo_level):
-        if "student_type" in df.columns and student_type != "All":
-            df = df.with_columns(pl.col("student_type").cast(pl.Utf8)).filter(
-                pl.col("student_type") == student_type
             )
         out.append((label, df))
     return out
@@ -202,14 +194,6 @@ class MandatoryLocationChoicePage(DashboardPage):
         )
         self._watch_widget(self.geo_level_sel)
 
-        student_opts = self._student_type_options()
-        self.student_type_sel = pn.widgets.Select(
-            name="Student Type",
-            options=student_opts,
-            value=student_opts[0],
-        )
-        self._watch_widget(self.student_type_sel)
-
         self.location_type_sel = pn.widgets.Select(
             name="Distance Location Type",
             options=["Workplace", "School", "University"],
@@ -218,8 +202,6 @@ class MandatoryLocationChoicePage(DashboardPage):
         self._watch_widget(self.location_type_sel)
 
         self._worker_section = self.new_section()
-        self._workplace_validation_section = self.new_section()
-        self._school_validation_section = self.new_section()
         self._commuting_flows_section = self.new_section()
         self._distance_section = self.new_section()
         self._remote_work_section = self.new_section()
@@ -242,13 +224,6 @@ class MandatoryLocationChoicePage(DashboardPage):
                 self.geo_level_sel,
             ),
             self._worker_section,
-            pn.pane.Markdown("### Location Choice Validation"),
-            self._workplace_validation_section,
-            pn.Row(
-                pn.pane.Markdown("**Student Type:**"),
-                self.student_type_sel,
-            ),
-            self._school_validation_section,
             pn.pane.Markdown("### Commuting Flows and Location Distance"),
             self._flows_distance_row,
             self._remote_work_section,
@@ -258,23 +233,16 @@ class MandatoryLocationChoicePage(DashboardPage):
         data = self.state.get_summary_table_set(
             "internal_external_worker_by_geography", "weighted"
         )
-        if data is None:
-            return ["Total"]
-        return geo_level_options(_adapt_internal_external(data))
-
-    def _student_type_options(self) -> list[str]:
-        data = self.state.get_summary_table_set(
-            "school_location_enrollment_comparison", "weighted"
-        )
-        if data is None:
-            return ["All"]
-        return student_type_options(_adapt_school_lu(data))
+        if data is not None:
+            return geo_level_options(_adapt_internal_external(data))
+        commuting = self.state.get_summary_table_set("commuting_flows", "weighted")
+        if commuting is not None:
+            return geo_level_options(_adapt_commuting_flows(commuting))
+        return ["Total"]
 
     def _refresh(self) -> None:
         if not self.state.run_labels:
             self._worker_section.objects = [pn.pane.Markdown("No runs loaded.")]
-            self._workplace_validation_section.objects = []
-            self._school_validation_section.objects = []
             self._commuting_flows_section.objects = []
             self._distance_section.objects = []
             self._remote_work_section.objects = []
@@ -286,14 +254,6 @@ class MandatoryLocationChoicePage(DashboardPage):
         )
         external_workplace = self.state.get_summary_table_set(
             "external_worker_workplace_locations",
-            self.weighting_key,
-        )
-        workplace_lu = self.state.get_summary_table_set(
-            "workplace_location_employment_comparison",
-            self.weighting_key,
-        )
-        school_lu = self.state.get_summary_table_set(
-            "school_location_enrollment_comparison",
             self.weighting_key,
         )
         commuting_flows = self.state.get_summary_table_set(
@@ -324,8 +284,8 @@ class MandatoryLocationChoicePage(DashboardPage):
             for summary in (
                 internal_external,
                 external_workplace,
-                workplace_lu,
-                school_lu,
+                # workplace_lu,
+                # school_lu,
                 commuting_flows,
                 wfh_summary,
                 telecommute,
@@ -338,8 +298,6 @@ class MandatoryLocationChoicePage(DashboardPage):
                     missing_items=list(self.required_summary_ids),
                 )
             ]
-            self._workplace_validation_section.objects = []
-            self._school_validation_section.objects = []
             self._commuting_flows_section.objects = []
             self._distance_section.objects = []
             self._remote_work_section.objects = []
@@ -353,25 +311,21 @@ class MandatoryLocationChoicePage(DashboardPage):
             if external_workplace
             else None
         )
-        workplace_lu = _adapt_workplace_lu(workplace_lu) if workplace_lu else None
-        school_lu = _adapt_school_lu(school_lu) if school_lu else None
+        # workplace_lu = _adapt_workplace_lu(workplace_lu) if workplace_lu else None
+        # school_lu = _adapt_school_lu(school_lu) if school_lu else None
         commuting_flows = (
             _adapt_commuting_flows(commuting_flows) if commuting_flows else None
         )
 
-        geo_opts = geo_level_options(internal_external or [])
+        geo_opts = geo_level_options(internal_external or commuting_flows or [])
         self.geo_level_sel.options = geo_opts
         if self.geo_level_sel.value not in geo_opts:
             self.geo_level_sel.value = geo_opts[0]
         geo_level = self.geo_level_sel.value
 
-        student_opts = student_type_options(school_lu or [])
-        self.student_type_sel.options = student_opts
-        if self.student_type_sel.value not in student_opts:
-            self.student_type_sel.value = student_opts[0]
-        student_type = self.student_type_sel.value
-
-        worker_views: list[pn.viewable.Viewable] = [pn.pane.Markdown("### Worker Geography")]
+        worker_views: list[pn.viewable.Viewable] = [
+            pn.pane.Markdown("### Worker Geography")
+        ]
         if internal_external is not None:
             internal_external_table = self.get_filtered_view(
                 "mandatory_internal_external",
@@ -409,62 +363,6 @@ class MandatoryLocationChoicePage(DashboardPage):
                 )
             )
         self._worker_section.objects = worker_views
-
-        if workplace_lu is not None:
-            workplace_lu_data = self.get_filtered_view(
-                "mandatory_workplace_lu",
-                geo_level,
-                factory=lambda: filter_geo_level(workplace_lu, geo_level),
-            )
-            workplace_views = [
-                scatter_chart(
-                    workplace_lu_data,
-                    x_col="employment_count",
-                    y_col="worker_count",
-                    title="Workplace Location vs Land Use Employment",
-                    xaxis_title="Land Use Employment",
-                    yaxis_title="Workers",
-                    drop_zero_y=True,
-                )
-            ]
-        else:
-            workplace_views = [
-                self.data_not_available_card(
-                    detail="The workplace employment comparison summary is unavailable.",
-                    missing_items=["workplace_location_employment_comparison"],
-                )
-            ]
-        self._workplace_validation_section.objects = workplace_views
-
-        if school_lu is not None:
-            school_lu_data = self.get_filtered_view(
-                "mandatory_school_lu",
-                (geo_level, student_type),
-                factory=lambda: school_location_table_data(
-                    school_lu,
-                    geo_level,
-                    student_type,
-                ),
-            )
-            school_views = [
-                scatter_chart(
-                    school_lu_data,
-                    x_col="enrollment_count",
-                    y_col="student_count",
-                    title="School Location vs Land Use Enrollment",
-                    xaxis_title="Land Use Enrollment",
-                    yaxis_title="Students",
-                    drop_zero_y=True,
-                )
-            ]
-        else:
-            school_views = [
-                self.data_not_available_card(
-                    detail="The school enrollment comparison summary is unavailable.",
-                    missing_items=["school_location_enrollment_comparison"],
-                )
-            ]
-        self._school_validation_section.objects = school_views
 
         commuting_widget: pn.viewable.Viewable
         if commuting_flows is not None:
@@ -568,11 +466,6 @@ PAGE = DashboardPageDefinition(
             label="Geography Level",
         ),
         PageSelectorDefinition(
-            selector_id="student_type",
-            widget_attr="student_type_sel",
-            label="Student Type",
-        ),
-        PageSelectorDefinition(
             selector_id="distance_location_type",
             widget_attr="location_type_sel",
             label="Distance Location Type",
@@ -583,16 +476,6 @@ PAGE = DashboardPageDefinition(
             region_id="worker_geography",
             view_attr="_worker_section",
             selector_ids=("geography_level",),
-        ),
-        PageExportRegionDefinition(
-            region_id="workplace_validation",
-            view_attr="_workplace_validation_section",
-            selector_ids=("geography_level",),
-        ),
-        PageExportRegionDefinition(
-            region_id="school_validation",
-            view_attr="_school_validation_section",
-            selector_ids=("geography_level", "student_type"),
         ),
         PageExportRegionDefinition(
             region_id="commuting_flows",
@@ -613,8 +496,6 @@ PAGE = DashboardPageDefinition(
     required_summary_ids=(
         "internal_external_worker_by_geography",
         "external_worker_workplace_locations",
-        "workplace_location_employment_comparison",
-        "school_location_enrollment_comparison",
         "commuting_flows",
         "work_location_distance_distribution_by_geography",
         "school_location_distance_distribution_by_geography",

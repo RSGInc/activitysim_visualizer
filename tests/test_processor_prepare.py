@@ -201,6 +201,7 @@ def test_processor_prepare_data_exposes_the_same_prepared_contract(
     assert prepared.tours["tour_purpose"].to_list() == ["eatout"]
     assert prepared.tours["start_hour"].to_list() == [8]
     assert prepared.trips["trip_purpose"].to_list() == ["shop"]
+    assert prepared.land_use["MAZ"].to_list() == [10, 20]
     assert prepared.land_use["EMPLOYMENT"].to_list() == [7, 8]
     assert prepared.land_use["employment_count"].to_list() == [7.0, 8.0]
 
@@ -360,6 +361,56 @@ def test_student_type_config_supports_custom_person_segmentation(
         "Elementary/Middle School",
         "University",
     ]
+
+
+def test_student_type_config_supports_local_config_enrollment_columns(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "student_types:",
+            "  - label: School",
+            "    land_use_columns: [Elementary_Enrolment, Secondary_Enrolment]",
+            "  - label: University",
+            "    land_use_columns: [PostSecFTE]",
+        ],
+    )
+
+    run = _raw_run_with_student_enrollment_inputs()
+    run = ProcessorRunData(
+        label=run.label,
+        run_dir=run.run_dir,
+        skim_file=run.skim_file,
+        hh=run.hh,
+        per=run.per,
+        tours=run.tours,
+        trips=run.trips,
+        joint_participants=run.joint_participants,
+        land_use=pl.DataFrame(
+            {
+                "zone_id": [10, 20, 30],
+                "TAZ": [10, 20, 30],
+                "EMP_Total": [7, 8, 9],
+                "Elementary_Enrolment": [0, 50, 0],
+                "Secondary_Enrolment": [0, 25, 0],
+                "PostSecFTE": [0, 0, 100],
+            }
+        ),
+        skim_matrix=run.skim_matrix,
+        skim_zone_map=run.skim_zone_map,
+    )
+
+    prepared = processor_prepare_data(run, config)
+    school = school_loc_vs_land_use_enrollment(prepared, config)
+    workplace = workplace_vs_land_use_employment(prepared, config)
+
+    base_land_use = prepared.land_use.filter(pl.col("student_type").is_null())
+
+    assert base_land_use["MAZ"].to_list() == [10, 20, 30]
+    assert base_land_use["employment_count"].to_list() == [7.0, 8.0, 9.0]
+    assert set(school["student_type"].unique().to_list()) == {"School", "University"}
+    assert workplace.is_empty() is False
 
 
 def test_student_type_config_rejects_custom_multi_school_segmentation_without_person_rules(

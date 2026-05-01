@@ -29,8 +29,14 @@ def test_export_logs_selector_unavailable_warning_once_and_falls_back(caplog: py
             "  weighting: all",
             "  values: all",
             "pages:",
-            "  long_term:",
-            "    geography: all",
+            "  long_term_choices:",
+            "    shadow_pricing:",
+            "      student_type: all",
+            "      parts:",
+            "        school_plot:",
+            "          enabled: false",
+            "        school_table:",
+            "          enabled: false",
         ],
     )
 
@@ -38,20 +44,16 @@ def test_export_logs_selector_unavailable_warning_once_and_falls_back(caplog: py
         html = build_export_html_document([], config, summary_runs=[_full_summary_run()])
 
     payload = _extract_payload(html)
-    warning_messages = [record.getMessage() for record in caplog.records]
-
-    assert payload["pages"] == [
-        {
-            "id": "long_term",
-            "title": "Long-Term",
-            "selectors": [],
-            "children": [],
-            "default_child_id": None,
-        }
+    warning_messages = [
+        record.getMessage()
+        for record in caplog.records
+        if "visualizer.export_html.pages.long_term_choices.shadow_pricing.student_type"
+        in record.getMessage()
     ]
-    assert payload["states"]["Weighted||Percent"]["long_term"]["kind"] == "page"
+
+    assert payload["states"]["Weighted||Percent"]["shadow_pricing"]["kind"] == "page"
     assert warning_messages == [
-        "Warning: visualizer.export_html.pages.long_term.geography is configured, but the selector is unavailable for this export. Ignoring the configuration and exporting the page with its fallback layout."
+        "Warning: visualizer.export_html.pages.long_term_choices.shadow_pricing.student_type is configured, but no enabled export part uses this selector. Ignoring the configuration."
     ]
 
 
@@ -61,16 +63,17 @@ def test_export_raises_readable_error_for_invalid_selector_values() -> None:
         tmp_path,
         export_html_lines=[
             "pages:",
-            "  destination:",
-            "    purpose:",
-            "      - all nm",
+            "  trip_summaries:",
+            "    trip_mode:",
+            "      tour_purpose:",
+            "      - all",
             "      - invalid-purpose",
         ],
     )
 
     with pytest.raises(
         ValueError,
-        match="Unsupported visualizer.export_html.pages.destination.purpose values: 'invalid-purpose'",
+        match="Unsupported visualizer.export_html.pages.trip_summaries.trip_mode.tour_purpose values: 'invalid-purpose'",
     ):
         build_export_html_document([], config, summary_runs=[_full_summary_run()])
 
@@ -89,8 +92,9 @@ def test_export_rejects_unknown_page_and_selector_configuration_entries() -> Non
         tmp_path / "bad_selector",
         export_html_lines=[
             "pages:",
-            "  destination:",
-            "    unknown_selector: all",
+            "  trip_summaries:",
+            "    trip_mode:",
+            "      unknown_selector: all",
         ],
     )
 
@@ -101,7 +105,7 @@ def test_export_rejects_unknown_page_and_selector_configuration_entries() -> Non
 
     with pytest.raises(
         ValueError,
-        match="Unsupported visualizer.export_html.pages.destination entries",
+        match="Unsupported visualizer.export_html.pages.trip_summaries.trip_mode entries",
     ):
         build_export_html_document(
             [],

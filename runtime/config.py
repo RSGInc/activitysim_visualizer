@@ -30,15 +30,6 @@ class DashboardPageConfigEntry:
 
 
 @dataclass(frozen=True)
-class ExportPageConfigEntry:
-    """Normalized export page-selection entry from config."""
-
-    page_id: str
-    mode: str = "explicit"
-    child_page_ids: tuple[str, ...] = field(default_factory=tuple)
-
-
-@dataclass(frozen=True)
 class ExportSelectorRequest:
     """Requested export values for one page-level selector.
 
@@ -52,6 +43,22 @@ class ExportSelectorRequest:
 
     mode: str = "default"
     values: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ExportPartOverride:
+    """Requested export behavior for one named page part."""
+
+    enabled: bool | None = None
+
+
+@dataclass(frozen=True)
+class ExportPageOverride:
+    """Resolved export overrides for one leaf page."""
+
+    enabled: bool | None = None
+    selector_requests: dict[str, ExportSelectorRequest] = field(default_factory=dict)
+    parts: dict[str, ExportPartOverride] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -80,13 +87,15 @@ class ExportHTMLSettings:
     - page-level selector requests keyed by ``page_id`` and ``selector_id``
     """
 
+    enabled: bool = False
     dashboard: ExportDashboardSettings = field(default_factory=ExportDashboardSettings)
-    page_entries: list[ExportPageConfigEntry] = field(default_factory=list)
-    pages: dict[str, dict[str, ExportSelectorRequest]] = field(default_factory=dict)
-    grouped_pages: dict[str, dict[str, dict[str, ExportSelectorRequest]]] = field(
-        default_factory=dict
-    )
+    pages: dict[str, ExportPageOverride] = field(default_factory=dict)
+    exclude_pages: tuple[str, ...] = ()
+    exclude_groups: tuple[str, ...] = ()
     pages_configured: bool = False
+    default_selector_request: ExportSelectorRequest = field(
+        default_factory=lambda: ExportSelectorRequest(mode="all")
+    )
 
     @property
     def weighting(self) -> list[str]:
@@ -110,18 +119,30 @@ class ExportHTMLSettings:
         group_id: str | None = None,
         child_id: str | None = None,
     ) -> ExportSelectorRequest:
-        request = self.pages.get(page_id, {}).get(selector_id)
+        request = self.page_override(
+            page_id,
+            group_id=group_id,
+            child_id=child_id,
+        ).selector_requests.get(selector_id)
         if request is not None:
             return request
+        return self.default_selector_request
+
+    def page_override(
+        self,
+        page_id: str,
+        *,
+        group_id: str | None = None,
+        child_id: str | None = None,
+    ) -> ExportPageOverride:
+        override = self.pages.get(page_id)
+        if override is not None:
+            return override
         if group_id is not None and child_id is not None:
-            request = (
-                self.grouped_pages.get(group_id, {})
-                .get(child_id, {})
-                .get(selector_id)
-            )
-            if request is not None:
-                return request
-        return ExportSelectorRequest()
+            override = self.pages.get(f"{group_id}.{child_id}")
+            if override is not None:
+                return override
+        return ExportPageOverride()
 
 
 def _normalize_export_html_selection(
@@ -212,6 +233,89 @@ def _normalize_export_selector_request(
     return ExportSelectorRequest(mode="explicit", values=tuple(normalized))
 
 
+def _normalize_optional_bool(raw_value, *, field_name: str) -> bool | None:
+    """Normalize an optional boolean config field."""
+    if raw_value is None:
+        return None
+    if isinstance(raw_value, bool):
+        return raw_value
+    raise ValueError(f"{field_name} must be true or false when provided.")
+
+
+def _normalize_excluded_ids(
+    raw_value,
+    *,
+    field_name: str,
+) -> tuple[str, ...]:
+    """Normalize a page/group exclusion list."""
+    if raw_value is None:
+        return ()
+    if not isinstance(raw_value, list):
+        raise ValueError(f"{field_name} must be a list of ids when provided.")
+    normalized: list[str] = []
+    for item in raw_value:
+        if not isinstance(item, str):
+            raise ValueError(f"{field_name} entries must be strings.")
+        token = item.strip().lower()
+        if token and token not in normalized:
+            normalized.append(token)
+    return tuple(normalized)
+
+
+def _normalize_export_page_override(
+    raw_value,
+    *,
+    field_name: str,
+) -> ExportPageOverride:
+    """Normalize one leaf page export override."""
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{field_name} must be a mapping.")
+
+    enabled = _normalize_optional_bool(raw_value.get("enabled"), field_name=f"{field_name}.enabled")
+
+    selector_requests: dict[str, ExportSelectorRequest] = {}
+    parts: dict[str, ExportPartOverride] = {}
+    for raw_key, raw_item in raw_value.items():
+        key = str(raw_key).strip().lower()
+        if not key:
+            raise ValueError(f"{field_name} contains an empty key.")
+        if key == "enabled":
+            continue
+        if key == "parts":
+            if not isinstance(raw_item, dict):
+                raise ValueError(f"{field_name}.parts must be a mapping.")
+            for raw_part_id, raw_part_cfg in raw_item.items():
+                part_id = str(raw_part_id).strip().lower()
+                if not part_id:
+                    raise ValueError(f"{field_name}.parts contains an empty part id.")
+                if not isinstance(raw_part_cfg, dict):
+                    raise ValueError(f"{field_name}.parts.{part_id} must be a mapping.")
+                if set(raw_part_cfg) - {"enabled"}:
+                    invalid_keys = ", ".join(
+                        repr(str(item)) for item in sorted(set(raw_part_cfg) - {"enabled"})
+                    )
+                    raise ValueError(
+                        f"{field_name}.parts.{part_id} only supports 'enabled'. Invalid keys: {invalid_keys}"
+                    )
+                parts[part_id] = ExportPartOverride(
+                    enabled=_normalize_optional_bool(
+                        raw_part_cfg.get("enabled"),
+                        field_name=f"{field_name}.parts.{part_id}.enabled",
+                    )
+                )
+            continue
+        selector_requests[key] = _normalize_export_selector_request(
+            raw_item,
+            field_name=f"{field_name}.{key}",
+        )
+
+    return ExportPageOverride(
+        enabled=enabled,
+        selector_requests=selector_requests,
+        parts=parts,
+    )
+
+
 def _normalize_dashboard_page_entries(
     raw_value,
     *,
@@ -287,19 +391,12 @@ def _normalize_export_page_entries(
     raw_value,
     *,
     field_name: str,
-) -> tuple[
-    list[ExportPageConfigEntry],
-    dict[str, dict[str, ExportSelectorRequest]],
-    dict[str, dict[str, dict[str, ExportSelectorRequest]]],
-]:
-    """Normalize export page config into page entries plus flat/group selector maps."""
+) -> dict[str, ExportPageOverride]:
+    """Normalize nested export page overrides keyed by leaf page id or group/child ids."""
     if not isinstance(raw_value, dict):
         raise ValueError(f"{field_name} must be a mapping.")
 
-    entries: list[ExportPageConfigEntry] = []
-    flat_selectors: dict[str, dict[str, ExportSelectorRequest]] = {}
-    grouped_selectors: dict[str, dict[str, dict[str, ExportSelectorRequest]]] = {}
-
+    normalized: dict[str, ExportPageOverride] = {}
     for raw_page_id, raw_page_cfg in raw_value.items():
         page_id = str(raw_page_id).strip().lower()
         if not page_id:
@@ -307,136 +404,26 @@ def _normalize_export_page_entries(
         if not isinstance(raw_page_cfg, dict):
             raise ValueError(f"{field_name}.{page_id} must be a mapping.")
 
-        if "children" not in raw_page_cfg and "selection" not in raw_page_cfg:
-            # Support a shorthand grouped-page form where child page ids map
-            # directly to selector mappings, e.g.:
-            #   long_term_choices:
-            #     individual_choices: {}
-            #     mandatory_location_choice:
-            #       geography_level: all
-            #
-            # This is unambiguous because flat page selector requests are
-            # strings/lists, not nested mappings.
-            if raw_page_cfg and all(
-                isinstance(raw_child_cfg, dict)
-                for raw_child_cfg in raw_page_cfg.values()
-            ):
-                child_page_ids: list[str] = []
-                normalized_child_selector_cfg: dict[
-                    str, dict[str, ExportSelectorRequest]
-                ] = {}
-                for raw_child_id, raw_child_cfg in raw_page_cfg.items():
-                    child_id = str(raw_child_id).strip().lower()
-                    if not child_id:
-                        raise ValueError(
-                            f"{field_name}.{page_id} contains an empty child id."
-                        )
-                    child_page_ids.append(child_id)
-                    normalized_selector_cfg: dict[str, ExportSelectorRequest] = {}
-                    for raw_selector_id, raw_selector_cfg in raw_child_cfg.items():
-                        selector_id = str(raw_selector_id).strip().lower()
-                        if not selector_id:
-                            raise ValueError(
-                                f"{field_name}.{page_id}.{child_id} contains an empty selector id."
-                            )
-                        normalized_selector_cfg[selector_id] = (
-                            _normalize_export_selector_request(
-                                raw_selector_cfg,
-                                field_name=f"{field_name}.{page_id}.{child_id}.{selector_id}",
-                            )
-                        )
-                    normalized_child_selector_cfg[child_id] = normalized_selector_cfg
-
-                entries.append(
-                    ExportPageConfigEntry(
-                        page_id=page_id,
-                        mode="explicit",
-                        child_page_ids=tuple(child_page_ids),
-                    )
-                )
-                grouped_selectors[page_id] = normalized_child_selector_cfg
-                continue
-
-            normalized_selector_cfg: dict[str, ExportSelectorRequest] = {}
-            for raw_selector_id, raw_selector_cfg in raw_page_cfg.items():
-                selector_id = str(raw_selector_id).strip().lower()
-                if not selector_id:
-                    raise ValueError(
-                        f"{field_name}.{page_id} contains an empty selector id."
-                    )
-                normalized_selector_cfg[selector_id] = _normalize_export_selector_request(
-                    raw_selector_cfg,
-                    field_name=f"{field_name}.{page_id}.{selector_id}",
-                )
-            entries.append(ExportPageConfigEntry(page_id=page_id))
-            flat_selectors[page_id] = normalized_selector_cfg
+        is_leaf_override = any(
+            str(key).strip().lower() in {"enabled", "parts"} or not isinstance(value, dict)
+            for key, value in raw_page_cfg.items()
+        )
+        if is_leaf_override:
+            normalized[page_id] = _normalize_export_page_override(
+                raw_page_cfg,
+                field_name=f"{field_name}.{page_id}",
+            )
             continue
 
-        if set(raw_page_cfg) - {"children", "selection"}:
-            invalid_keys = ", ".join(
-                repr(str(key)) for key in sorted(set(raw_page_cfg) - {"children", "selection"})
-            )
-            raise ValueError(
-                f"{field_name}.{page_id} only supports 'selection' and 'children' for grouped pages. Invalid keys: {invalid_keys}"
-            )
-
-        selection = raw_page_cfg.get("selection", "explicit")
-        mode = "explicit"
-        child_page_ids: list[str] = []
-        if isinstance(selection, str):
-            token = selection.strip().lower()
-            if token in {"default", "all"}:
-                mode = token
-            elif token not in {"", "explicit"}:
-                raise ValueError(
-                    f"{field_name}.{page_id}.selection must be 'default', 'all', or omitted."
-                )
-        elif selection is not None:
-            raise ValueError(
-                f"{field_name}.{page_id}.selection must be 'default', 'all', or omitted."
-            )
-
-        raw_children_cfg = raw_page_cfg.get("children", {})
-        if raw_children_cfg is None:
-            raw_children_cfg = {}
-        if not isinstance(raw_children_cfg, dict):
-            raise ValueError(f"{field_name}.{page_id}.children must be a mapping.")
-
-        normalized_child_selector_cfg: dict[str, dict[str, ExportSelectorRequest]] = {}
-        for raw_child_id, raw_child_cfg in raw_children_cfg.items():
+        for raw_child_id, raw_child_cfg in raw_page_cfg.items():
             child_id = str(raw_child_id).strip().lower()
             if not child_id:
-                raise ValueError(
-                    f"{field_name}.{page_id}.children contains an empty child id."
-                )
-            if not isinstance(raw_child_cfg, dict):
-                raise ValueError(
-                    f"{field_name}.{page_id}.children.{child_id} must be a mapping."
-                )
-            child_page_ids.append(child_id)
-            normalized_selector_cfg = {}
-            for raw_selector_id, raw_selector_cfg in raw_child_cfg.items():
-                selector_id = str(raw_selector_id).strip().lower()
-                if not selector_id:
-                    raise ValueError(
-                        f"{field_name}.{page_id}.children.{child_id} contains an empty selector id."
-                    )
-                normalized_selector_cfg[selector_id] = _normalize_export_selector_request(
-                    raw_selector_cfg,
-                    field_name=f"{field_name}.{page_id}.children.{child_id}.{selector_id}",
-                )
-            normalized_child_selector_cfg[child_id] = normalized_selector_cfg
-
-        entries.append(
-            ExportPageConfigEntry(
-                page_id=page_id,
-                mode=mode,
-                child_page_ids=tuple(child_page_ids),
+                raise ValueError(f"{field_name}.{page_id} contains an empty child id.")
+            normalized[f"{page_id}.{child_id}"] = _normalize_export_page_override(
+                raw_child_cfg,
+                field_name=f"{field_name}.{page_id}.{child_id}",
             )
-        )
-        grouped_selectors[page_id] = normalized_child_selector_cfg
-
-    return entries, flat_selectors, grouped_selectors
+    return normalized
 
 
 def _normalize_column_aliases(
@@ -841,7 +828,9 @@ class Config:
         if not weighting_modes:
             weighting_modes = ["weighted", "unweighted"]
 
-        export_html_cfg = visualizer_cfg.get("export_html") or {}
+        raw_export_html_cfg = visualizer_cfg.get("export_html")
+        export_html_present = raw_export_html_cfg is not None
+        export_html_cfg = raw_export_html_cfg or {}
         if not isinstance(export_html_cfg, dict):
             raise ValueError("visualizer.export_html must be a mapping when provided.")
         _warn_ignored_legacy_key(
@@ -856,6 +845,13 @@ class Config:
             legacy_field_name="visualizer.export_html.values",
             replacement_field_name="visualizer.export_html.dashboard.values",
         )
+        export_enabled_raw = export_html_cfg.get("enabled")
+        if export_enabled_raw is None:
+            export_enabled = export_html_present
+        elif isinstance(export_enabled_raw, bool):
+            export_enabled = export_enabled_raw
+        else:
+            raise ValueError("visualizer.export_html.enabled must be true or false.")
 
         dashboard_cfg = export_html_cfg.get("dashboard")
         if dashboard_cfg is None:
@@ -867,34 +863,38 @@ class Config:
         pages_configured = pages_cfg is not None
         if pages_cfg is None:
             pages_cfg = {}
-        (
-            normalized_page_entries,
-            normalized_pages,
-            normalized_grouped_pages,
-        ) = _normalize_export_page_entries(
+        normalized_pages = _normalize_export_page_entries(
             pages_cfg,
             field_name="visualizer.export_html.pages",
         )
 
         export_html = ExportHTMLSettings(
+            enabled=export_enabled,
             dashboard=ExportDashboardSettings(
                 weighting=_normalize_export_html_selection(
                     dashboard_cfg.get("weighting"),
                     field_name="visualizer.export_html.dashboard.weighting",
-                    default=[weighting_modes[0]],
+                    default=weighting_modes,
                     allowed=weighting_modes,
                 ),
                 values=_normalize_export_html_selection(
                     dashboard_cfg.get("values"),
                     field_name="visualizer.export_html.dashboard.values",
-                    default=["percent"],
+                    default=["percent", "count"],
                     allowed=["percent", "count"],
                 ),
             ),
-            page_entries=normalized_page_entries,
             pages=normalized_pages,
-            grouped_pages=normalized_grouped_pages,
+            exclude_pages=_normalize_excluded_ids(
+                export_html_cfg.get("exclude_pages"),
+                field_name="visualizer.export_html.exclude_pages",
+            ),
+            exclude_groups=_normalize_excluded_ids(
+                export_html_cfg.get("exclude_groups"),
+                field_name="visualizer.export_html.exclude_groups",
+            ),
             pages_configured=pages_configured,
+            default_selector_request=ExportSelectorRequest(mode="all"),
         )
 
         dashboard_title = visualizer_cfg.get("dashboard_title")
@@ -1010,6 +1010,7 @@ class Config:
                 field_name="columns.total_employment",
                 default=[
                     "EMP_TOTAL",
+                    "EMP_Total",
                     "EMPLOY_TOT",
                     "TOTEMP",
                     "total_employment",
@@ -1206,47 +1207,31 @@ class Config:
             "run_colors": list(self.run_colors),
             "missing_data_display": self.missing_data_display,
             "export_html": {
+                "enabled": self.export_html.enabled,
                 "dashboard": {
                     "weighting": list(self.export_html.dashboard.weighting),
                     "values": list(self.export_html.dashboard.values),
                 },
                 "pages_configured": self.export_html.pages_configured,
-                "page_entries": [
-                    {
-                        "page_id": entry.page_id,
-                        "mode": entry.mode,
-                        "child_page_ids": list(entry.child_page_ids),
-                    }
-                    for entry in self.export_html.page_entries
-                ],
+                "exclude_pages": list(self.export_html.exclude_pages),
+                "exclude_groups": list(self.export_html.exclude_groups),
                 "pages": [
                     {
                         "page_id": page_id,
+                        "enabled": override.enabled,
                         "selectors": {
                             selector_id: {
                                 "mode": request.mode,
                                 "values": list(request.values),
                             }
-                            for selector_id, request in selectors.items()
+                            for selector_id, request in override.selector_requests.items()
+                        },
+                        "parts": {
+                            part_id: {"enabled": part.enabled}
+                            for part_id, part in override.parts.items()
                         },
                     }
-                    for page_id, selectors in self.export_html.pages.items()
-                ],
-                "grouped_pages": [
-                    {
-                        "page_id": page_id,
-                        "children": {
-                            child_id: {
-                                selector_id: {
-                                    "mode": request.mode,
-                                    "values": list(request.values),
-                                }
-                                for selector_id, request in selectors.items()
-                            }
-                            for child_id, selectors in children.items()
-                        },
-                    }
-                    for page_id, children in self.export_html.grouped_pages.items()
+                    for page_id, override in self.export_html.pages.items()
                 ],
             },
         }

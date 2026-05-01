@@ -66,6 +66,11 @@ def _filter_col(
                 .sort("_sort_age")
                 .drop("_sort_age")
             )
+        sort_cols = [
+            name for name in df.columns if name not in {"vehicle_count", "pct", col}
+        ]
+        if sort_cols:
+            return df.sort(sort_cols[0])
         return df
 
     out = []
@@ -180,33 +185,25 @@ class TourModePage(DashboardPage):
             self._vehicle_section.objects = []
             return
 
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
-            self._mode_section.objects = [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
-                )
-            ]
-            self._vehicle_section.objects = []
-            return
+        mode_summary = self.optional_summary(
+            "tour_mode_by_tour_purpose_and_auto_sufficiency"
+        )
+        age_summary = self.optional_summary("allocated_vehicle_age_by_occupancy")
+        fuel_summary = self.optional_summary("allocated_vehicle_fuel_type_by_occupancy")
+        body_summary = self.optional_summary("allocated_vehicle_body_type_by_occupancy")
 
-        mode_summary = summaries["tour_mode_by_tour_purpose_and_auto_sufficiency"]
-
-        purpose_opts = _options(mode_summary, "tour_purpose")
+        purpose_opts = _options(mode_summary or [], "tour_purpose")
         self.purpose_sel.options = purpose_opts
         if self.purpose_sel.value not in purpose_opts:
             self.purpose_sel.value = purpose_opts[0]
 
-        auto_opts = _options(mode_summary, "auto_sufficiency")
+        auto_opts = _options(mode_summary or [], "auto_sufficiency")
         self.auto_suff_sel.options = auto_opts
         if self.auto_suff_sel.value not in auto_opts:
             self.auto_suff_sel.value = auto_opts[0]
 
-        occupancy_opts = _options(
-            summaries["allocated_vehicle_age_by_occupancy"],
-            "occupancy",
-        )
+        occupancy_source = age_summary or fuel_summary or body_summary or []
+        occupancy_opts = _options(occupancy_source, "occupancy")
         self.occupancy_sel.options = occupancy_opts
         if self.occupancy_sel.value not in occupancy_opts:
             self.occupancy_sel.value = occupancy_opts[0]
@@ -215,85 +212,118 @@ class TourModePage(DashboardPage):
         auto_suff = self.auto_suff_sel.value
         occupancy = self.occupancy_sel.value
 
-        mode_data = self.get_filtered_view(
-            "tour_mode",
-            (purpose, auto_suff),
-            factory=lambda: tour_mode_chart_data(mode_summary, purpose, auto_suff),
-        )
+        if mode_summary is not None:
+            mode_data = self.get_filtered_view(
+                "tour_mode",
+                (purpose, auto_suff),
+                factory=lambda: tour_mode_chart_data(mode_summary, purpose, auto_suff),
+            )
+            mode_widget: pn.viewable.Viewable = bar_chart(
+                mode_data,
+                x_col="tour_mode",
+                y_col="tour_count",
+                title="Tour Mode by Tour Purpose and Household Auto Sufficiency",
+                xaxis_title="Tour Mode",
+                yaxis_title="Tours",
+                pct_col="pct",
+                as_percent=self.as_percent,
+            )
+        else:
+            mode_widget = self.data_not_available_card(
+                detail="The tour mode summary is unavailable.",
+                missing_items=["tour_mode_by_tour_purpose_and_auto_sufficiency"],
+            )
 
-        vehicle_age_data = self.get_filtered_view(
-            "allocated_vehicle_age",
-            occupancy,
-            factory=lambda: _filter_col(
-                summaries["allocated_vehicle_age_by_occupancy"],
-                "occupancy",
+        vehicle_widgets: list[pn.viewable.Viewable] = []
+        if age_summary is not None:
+            vehicle_age_data = self.get_filtered_view(
+                "allocated_vehicle_age",
                 occupancy,
-            ),
-        )
+                factory=lambda: _filter_col(
+                    age_summary,
+                    "occupancy",
+                    occupancy,
+                ),
+            )
+            vehicle_widgets.append(
+                bar_chart(
+                    vehicle_age_data,
+                    x_col="age",
+                    y_col="vehicle_count",
+                    title="Allocated Vehicle Age by Occupancy Level",
+                    xaxis_title="Vehicle Age",
+                    yaxis_title="Allocated Vehicles",
+                    pct_col="pct",
+                    as_percent=self.as_percent,
+                )
+            )
+        else:
+            vehicle_widgets.append(
+                self.data_not_available_card(
+                    detail="The allocated vehicle age summary is unavailable.",
+                    missing_items=["allocated_vehicle_age_by_occupancy"],
+                )
+            )
 
-        vehicle_fuel_data = self.get_filtered_view(
-            "allocated_vehicle_fuel",
-            occupancy,
-            factory=lambda: _filter_col(
-                summaries["allocated_vehicle_fuel_type_by_occupancy"],
-                "occupancy",
+        if fuel_summary is not None:
+            vehicle_fuel_data = self.get_filtered_view(
+                "allocated_vehicle_fuel",
                 occupancy,
-            ),
-        )
+                factory=lambda: _filter_col(
+                    fuel_summary,
+                    "occupancy",
+                    occupancy,
+                ),
+            )
+            vehicle_widgets.append(
+                bar_chart(
+                    vehicle_fuel_data,
+                    x_col="fuel_type",
+                    y_col="vehicle_count",
+                    title="Allocated Vehicle Fuel Type by Occupancy Level",
+                    xaxis_title="Vehicle Fuel Type",
+                    yaxis_title="Allocated Vehicles",
+                    pct_col="pct",
+                    as_percent=self.as_percent,
+                )
+            )
+        else:
+            vehicle_widgets.append(
+                self.data_not_available_card(
+                    detail="The allocated vehicle fuel summary is unavailable.",
+                    missing_items=["allocated_vehicle_fuel_type_by_occupancy"],
+                )
+            )
 
-        vehicle_body_data = self.get_filtered_view(
-            "allocated_vehicle_body",
-            occupancy,
-            factory=lambda: _filter_col(
-                summaries["allocated_vehicle_body_type_by_occupancy"],
-                "occupancy",
+        if body_summary is not None:
+            vehicle_body_data = self.get_filtered_view(
+                "allocated_vehicle_body",
                 occupancy,
-            ),
-        )
-
-        mode_chart = bar_chart(
-            mode_data,
-            x_col="tour_mode",
-            y_col="tour_count",
-            title="Tour Mode by Tour Purpose and Household Auto Sufficiency",
-            xaxis_title="Tour Mode",
-            yaxis_title="Tours",
-            pct_col="pct",
-            as_percent=self.as_percent,
-        )
-
-        age_chart = bar_chart(
-            vehicle_age_data,
-            x_col="age",
-            y_col="vehicle_count",
-            title="Allocated Vehicle Age by Occupancy Level",
-            xaxis_title="Vehicle Age",
-            yaxis_title="Allocated Vehicles",
-            pct_col="pct",
-            as_percent=self.as_percent,
-        )
-
-        fuel_chart = bar_chart(
-            vehicle_fuel_data,
-            x_col="fuel_type",
-            y_col="vehicle_count",
-            title="Allocated Vehicle Fuel Type by Occupancy Level",
-            xaxis_title="Vehicle Fuel Type",
-            yaxis_title="Allocated Vehicles",
-            pct_col="pct",
-            as_percent=self.as_percent,
-        )
-
-        body_chart = bar_chart(
-            vehicle_body_data,
-            x_col="body_type",
-            y_col="vehicle_count",
-            title="Allocated Vehicle Body Type by Occupancy Level",
-            xaxis_title="Vehicle Body Type",
-            yaxis_title="Allocated Vehicles",
-            pct_col="pct",
-            as_percent=self.as_percent,
-        )
+                factory=lambda: _filter_col(
+                    body_summary,
+                    "occupancy",
+                    occupancy,
+                ),
+            )
+            vehicle_widgets.append(
+                bar_chart(
+                    vehicle_body_data,
+                    x_col="body_type",
+                    y_col="vehicle_count",
+                    title="Allocated Vehicle Body Type by Occupancy Level",
+                    xaxis_title="Vehicle Body Type",
+                    yaxis_title="Allocated Vehicles",
+                    pct_col="pct",
+                    as_percent=self.as_percent,
+                )
+            )
+        else:
+            vehicle_widgets.append(
+                self.data_not_available_card(
+                    detail="The allocated vehicle body summary is unavailable.",
+                    missing_items=["allocated_vehicle_body_type_by_occupancy"],
+                )
+            )
 
         self._mode_section.objects = [
             pn.pane.Markdown("### Tour Mode"),
@@ -303,7 +333,7 @@ class TourModePage(DashboardPage):
                 pn.pane.Markdown("**Household Auto Sufficiency:**"),
                 self.auto_suff_sel,
             ),
-            mode_chart,
+            mode_widget,
         ]
 
         self._vehicle_section.objects = [
@@ -312,7 +342,7 @@ class TourModePage(DashboardPage):
                 pn.pane.Markdown("**Vehicle Occupancy:**"),
                 self.occupancy_sel,
             ),
-            pn.Row(age_chart, fuel_chart, body_chart),
+            pn.Row(*vehicle_widgets),
         ]
 
 

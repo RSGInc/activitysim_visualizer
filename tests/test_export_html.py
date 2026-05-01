@@ -184,6 +184,29 @@ def _full_summary_run():
                 "Workers": [7.0, 4.0],
             }
         ),
+        "internal_external_worker_by_geography": pl.DataFrame(
+            {
+                "geography_level": ["Urban", "Suburban"],
+                "geography": ["Internal", "External"],
+                "person_count": [12.0, 8.0],
+            }
+        ),
+        "external_worker_workplace_locations": pl.DataFrame(
+            {
+                "geography_level": ["Urban", "Suburban"],
+                "geography": ["Downtown", "Campus"],
+                "external_worker_count": [5.0, 3.0],
+            }
+        ),
+        "commuting_flows": pl.DataFrame(
+            {
+                "origin_geography_level": ["Urban", "Suburban"],
+                "destination_geography_level": ["Urban", "Suburban"],
+                "Home Geography": ["Urban", "Suburban"],
+                "Work Geography": ["Urban", "Suburban"],
+                "Workers": [7.0, 4.0],
+            }
+        ),
         "work_from_home_rate_by_geography": pl.DataFrame(
             {
                 "geography": ["all_geographies", "Urban", "Suburban"],
@@ -424,6 +447,42 @@ def _full_summary_run():
     )
 
 
+def _full_summary_run_with_vehicle_allocations():
+    base_run = _full_summary_run()
+    weighted = dict(base_run.summaries_by_mode["weighted"])
+    weighted["allocated_vehicle_age_by_occupancy"] = pl.DataFrame(
+        {
+            "occupancy": ["All", "All", "Low", "Low", "High", "High"],
+            "age": ["0", "20+", "0", "20+", "0", "20+"],
+            "vehicle_count": [10.0, 20.0, 3.0, 7.0, 7.0, 13.0],
+        }
+    )
+    weighted["allocated_vehicle_fuel_type_by_occupancy"] = pl.DataFrame(
+        {
+            "occupancy": ["All", "All", "Low", "Low", "High", "High"],
+            "fuel_type": ["Gas", "EV", "Gas", "EV", "Gas", "EV"],
+            "vehicle_count": [21.0, 9.0, 8.0, 2.0, 13.0, 7.0],
+        }
+    )
+    weighted["allocated_vehicle_body_type_by_occupancy"] = pl.DataFrame(
+        {
+            "occupancy": ["All", "All", "Low", "Low", "High", "High"],
+            "body_type": ["Sedan", "SUV", "Sedan", "SUV", "Sedan", "SUV"],
+            "vehicle_count": [11.0, 19.0, 2.0, 8.0, 9.0, 11.0],
+        }
+    )
+    unweighted = {name: _scale_table(df, 0.5) for name, df in weighted.items()}
+    return create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode={
+            "weighted": weighted,
+            "unweighted": unweighted,
+        },
+        source_run_dir=base_run.source_run_dir,
+    )
+
+
 def _raw_trip_run() -> RunData:
     return RunData(
         label="Base",
@@ -447,17 +506,21 @@ def _raw_trip_run() -> RunData:
     )
 
 
-def test_export_html_config_defaults_to_weighted_percent(tmp_path: Path) -> None:
+def test_export_html_config_defaults_to_all_dashboard_states_and_selector_values(
+    tmp_path: Path,
+) -> None:
     config = _write_config(tmp_path)
 
-    assert config.export_html.weighting == ["weighted"]
-    assert config.export_html.values == ["percent"]
+    assert config.export_html.enabled is False
+    assert config.export_html.weighting == ["weighted", "unweighted"]
+    assert config.export_html.values == ["percent", "count"]
     assert _configured_page_ids(config) == [page_id for page_id, _ in EXPECTED_DEFAULT_PAGES]
-    assert config.export_html.dashboard.weighting == ["weighted"]
-    assert config.export_html.dashboard.values == ["percent"]
+    assert config.export_html.dashboard.weighting == ["weighted", "unweighted"]
+    assert config.export_html.dashboard.values == ["percent", "count"]
     assert config.export_html.pages == {}
-    assert config.export_html.panel_weighting_values() == ["Weighted"]
-    assert config.export_html.panel_value_values() == ["Percent"]
+    assert config.export_html.selector_request("tour_mode", "tour_purpose").mode == "all"
+    assert config.export_html.panel_weighting_values() == ["Weighted", "Unweighted"]
+    assert config.export_html.panel_value_values() == ["Percent", "Count"]
 
 
 def test_export_html_config_supports_new_summaries_and_visualizer_sections(
@@ -478,8 +541,27 @@ def test_export_html_config_supports_new_summaries_and_visualizer_sections(
 
     assert config.summary_root.endswith("summary_cache")
     assert _configured_page_ids(config) == ["overview", "trip_mode"]
-    assert list(config.export_html.pages) == ["trip_mode", "overview"]
+    assert config.export_html.enabled is True
+    assert list(config.export_html.pages) == ["trip_mode"]
     assert config.export_html.pages_configured is True
+
+
+def test_export_html_enabled_without_pages_uses_all_dashboard_states_and_all_selectors(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=["overview", "trip_mode"],
+        export_html_lines=[
+            "enabled: true",
+        ],
+    )
+
+    assert config.export_html.enabled is True
+    assert config.export_html.pages_configured is False
+    assert config.export_html.weighting == ["weighted", "unweighted"]
+    assert config.export_html.values == ["percent", "count"]
+    assert config.export_html.selector_request("trip_mode", "tour_mode").mode == "all"
 
 
 def test_export_html_config_resolves_nested_dashboard_and_page_requests(
@@ -492,12 +574,13 @@ def test_export_html_config_resolves_nested_dashboard_and_page_requests(
             "  weighting: all",
             "  values: all",
             "pages:",
-            "  tour_summary:",
-            "    person_type: all",
+            "  daily_travel:",
+            "    daily_activity_pattern:",
+            "      person_type: all",
             "  trip_mode:",
-            "    tour_mode:",
+            "    tour_purpose:",
             "      - all",
-            "      - drive",
+            "      - eatout",
         ],
     )
     config_list = _write_config(
@@ -513,9 +596,10 @@ def test_export_html_config_resolves_nested_dashboard_and_page_requests(
             "    - percent",
             "    - count",
             "pages:",
-            "  destination:",
-            "    purpose:",
-            "      - all nm",
+            "  trip_summaries:",
+            "    trip_mode:",
+            "      tour_purpose:",
+            "      - all",
             "      - eatout",
         ],
     )
@@ -523,27 +607,40 @@ def test_export_html_config_resolves_nested_dashboard_and_page_requests(
     assert config_all.export_html.weighting == ["weighted", "unweighted"]
     assert config_all.export_html.values == ["percent", "count"]
     assert (
-        config_all.export_html.selector_request("tour_summary", "person_type").mode
+        config_all.export_html.selector_request(
+            "daily_activity_pattern",
+            "person_type",
+            group_id="daily_travel",
+            child_id="daily_activity_pattern",
+        ).mode
         == "all"
     )
     assert (
-        config_all.export_html.selector_request("trip_mode", "tour_mode").mode
+        config_all.export_html.selector_request("trip_mode", "tour_purpose").mode
         == "explicit"
     )
-    assert config_all.export_html.selector_request("trip_mode", "tour_mode").values == (
+    assert config_all.export_html.selector_request("trip_mode", "tour_purpose").values == (
         "all",
-        "drive",
+        "eatout",
     )
     assert config_list.export_html.weighting == ["unweighted", "weighted"]
     assert config_list.export_html.values == ["count", "percent"]
     assert (
-        config_list.export_html.selector_request("destination", "purpose").mode
+        config_list.export_html.selector_request(
+            "trip_mode",
+            "tour_purpose",
+            group_id="trip_summaries",
+            child_id="trip_mode",
+        ).mode
         == "explicit"
     )
     assert config_list.export_html.selector_request(
-        "destination", "purpose"
+        "trip_mode",
+        "tour_purpose",
+        group_id="trip_summaries",
+        child_id="trip_mode",
     ).values == (
-        "all nm",
+        "all",
         "eatout",
     )
 
@@ -556,33 +653,23 @@ def test_export_html_config_supports_nested_group_children_requests(
         export_html_lines=[
             "pages:",
             "  tours:",
-            "    children:",
-            "      summary:",
-            "        person_type: all",
-            "      mode:",
-            "        purpose:",
-            "          - total",
-            "          - work",
+            "    summary: {}",
+            "    mode:",
+            "      purpose:",
+            "        - total",
+            "        - work",
         ],
     )
 
-    assert [entry.page_id for entry in config.export_html.page_entries] == ["tours"]
-    assert config.export_html.page_entries[0].child_page_ids == ("summary", "mode")
     assert (
         config.export_html.selector_request(
-            "tour_summary",
-            "person_type",
+            "tr_mode",
+            "purpose",
             group_id="tours",
-            child_id="summary",
-        ).mode
-        == "all"
+            child_id="mode",
+        ).values
+        == ("total", "work")
     )
-    assert config.export_html.selector_request(
-        "tour_mode",
-        "purpose",
-        group_id="tours",
-        child_id="mode",
-    ).values == ("total", "work")
 
 
 def test_config_allows_missing_dashboard_pages(tmp_path: Path) -> None:
@@ -635,8 +722,8 @@ def test_config_defaults_when_summaries_and_visualizer_sections_are_absent(
         "#e377c2",
         "#7f7f7f",
     ]
-    assert config.export_html.dashboard.weighting == ["weighted"]
-    assert config.export_html.dashboard.values == ["percent"]
+    assert config.export_html.dashboard.weighting == ["weighted", "unweighted"]
+    assert config.export_html.dashboard.values == ["percent", "count"]
     assert config.export_html.pages == {}
 
 
@@ -680,8 +767,8 @@ def test_config_ignores_flat_export_html_dashboard_aliases(tmp_path: Path) -> No
 
     config = Config.from_yaml(config_path)
 
-    assert config.export_html.dashboard.weighting == ["weighted"]
-    assert config.export_html.dashboard.values == ["percent"]
+    assert config.export_html.dashboard.weighting == ["weighted", "unweighted"]
+    assert config.export_html.dashboard.values == ["percent", "count"]
 
 
 def test_export_html_config_rejects_invalid_or_empty_values(tmp_path: Path) -> None:
@@ -723,14 +810,15 @@ def test_config_rejects_duplicate_dashboard_pages(tmp_path: Path) -> None:
 
     with pytest.raises(
         ValueError,
-        match="visualizer.export_html.pages.destination.purpose resolved to no values",
+        match="visualizer.export_html.pages.trip_summaries.trip_mode.tour_purpose resolved to no values",
     ):
         _write_config(
             tmp_path / "empty_page_values",
             export_html_lines=[
                 "pages:",
-                "  destination:",
-                "    purpose: []",
+                "  trip_summaries:",
+                "    trip_mode:",
+                "      tour_purpose: []",
             ],
         )
 
@@ -781,17 +869,19 @@ def _region_nodes(node: dict) -> dict[str, dict]:
     }
 
 
+def _plot_node_by_title(node: dict, title: str) -> dict:
+    return next(
+        plot
+        for plot in _walk_nodes(node)
+        if plot.get("kind") == "plotly"
+        and plot.get("figure", {}).get("layout", {}).get("title", {}).get("text") == title
+    )
+
+
 def test_build_export_html_document_serializes_dashboard_states_and_pages(
     tmp_path: Path,
 ) -> None:
-    config = _write_config(
-        tmp_path,
-        export_html_lines=[
-            "dashboard:",
-            "  weighting: all",
-            "  values: all",
-        ],
-    )
+    config = _write_config(tmp_path)
     html = build_export_html_document(
         [],
         config,
@@ -818,10 +908,9 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     )
     assert payload["client_runtime"] == EXPORT_CLIENT_RUNTIME
     enabled_selectors = payload["page_export_support"]["enabled_page_selectors"]
-    assert {"page_id": "destination", "selector_id": "purpose"} in enabled_selectors
-    assert {"page_id": "joint_tours", "selector_id": "hh_size"} in enabled_selectors
+    assert {"page_id": "daily_activity_pattern", "selector_id": "person_type"} in enabled_selectors
+    assert {"page_id": "joint_travel", "selector_id": "household_size"} in enabled_selectors
     assert {"page_id": "stop_frequency", "selector_id": "tour_purpose"} in enabled_selectors
-    assert {"page_id": "trip_mode", "selector_id": "tour_mode"} in enabled_selectors
     assert {"page_id": "trip_mode", "selector_id": "tour_purpose"} in enabled_selectors
     assert sorted(payload["states"]) == [
         "Unweighted||Count",
@@ -838,93 +927,145 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     assert ">undefined<" not in html
 
     page_defs = _flatten_page_descriptors(payload["pages"])
-    assert page_defs["long_term"]["selectors"] == []
+    assert page_defs["overview"]["selectors"] == []
     assert page_defs["tour_summary"]["selectors"][0]["id"] == "person_type"
-    assert page_defs["tour_summary"]["selectors"][0]["request_mode"] == "default"
-    assert page_defs["tour_summary"]["selectors"][0]["resolved_values"] == ["Total"]
+    assert page_defs["tour_summary"]["selectors"][0]["request_mode"] == "all"
+    assert page_defs["tour_summary"]["selectors"][0]["resolved_values"] == [
+        "Total",
+        "worker",
+    ]
     assert page_defs["tour_summary"]["selectors"][0]["export_enabled"] is True
-    assert page_defs["joint_tours"]["selectors"][0]["id"] == "hh_size"
-    assert page_defs["joint_tours"]["selectors"][0]["request_mode"] == "default"
-    assert page_defs["joint_tours"]["selectors"][0]["resolved_values"] == ["Total"]
-    assert page_defs["joint_tours"]["selectors"][0]["export_enabled"] is True
-    assert page_defs["destination"]["selectors"][0]["id"] == "purpose"
-    assert page_defs["destination"]["selectors"][0]["request_mode"] == "default"
-    assert page_defs["destination"]["selectors"][0]["resolved_values"] == ["All NM"]
-    assert page_defs["destination"]["selectors"][0]["export_enabled"] is True
+    assert page_defs["daily_activity_pattern"]["selectors"][0]["id"] == "person_type"
+    assert page_defs["daily_activity_pattern"]["selectors"][0]["request_mode"] == "all"
+    assert page_defs["daily_activity_pattern"]["selectors"][0]["resolved_values"] == [
+        "Total",
+        "worker",
+    ]
+    assert page_defs["daily_activity_pattern"]["selectors"][0]["export_enabled"] is True
     assert page_defs["tour_tod"]["selectors"][0]["id"] == "purpose"
-    assert page_defs["tour_tod"]["selectors"][0]["request_mode"] == "default"
-    assert page_defs["tour_tod"]["selectors"][0]["resolved_values"] == ["Total"]
+    assert page_defs["tour_tod"]["selectors"][0]["request_mode"] == "all"
+    assert page_defs["tour_tod"]["selectors"][0]["resolved_values"] == [
+        "Total",
+        "work",
+    ]
     assert page_defs["tour_tod"]["selectors"][0]["export_enabled"] is True
     assert page_defs["tour_mode"]["selectors"][0]["id"] == "tour_purpose"
-    assert page_defs["tour_mode"]["selectors"][0]["request_mode"] == "default"
-    assert page_defs["tour_mode"]["selectors"][0]["resolved_values"] == ["Total"]
+    assert page_defs["tour_mode"]["selectors"][0]["request_mode"] == "all"
+    assert page_defs["tour_mode"]["selectors"][0]["resolved_values"] == [
+        "Total",
+        "work",
+    ]
     assert page_defs["tour_mode"]["selectors"][0]["export_enabled"] is True
     assert page_defs["stop_frequency"]["selectors"][0]["id"] == "tour_purpose"
-    assert page_defs["stop_frequency"]["selectors"][0]["request_mode"] == "default"
-    assert page_defs["stop_frequency"]["selectors"][0]["resolved_values"] == ["Total"]
+    assert page_defs["stop_frequency"]["selectors"][0]["request_mode"] == "all"
+    assert page_defs["stop_frequency"]["selectors"][0]["resolved_values"] == [
+        "Total",
+        "eatout",
+        "social",
+    ]
     assert page_defs["stop_frequency"]["selectors"][0]["export_enabled"] is True
     assert page_defs["stop_location"]["selectors"][0]["id"] == "purpose"
-    assert page_defs["stop_location"]["selectors"][0]["request_mode"] == "default"
-    assert page_defs["stop_location"]["selectors"][0]["resolved_values"] == ["Total"]
+    assert page_defs["stop_location"]["selectors"][0]["request_mode"] == "all"
+    assert page_defs["stop_location"]["selectors"][0]["resolved_values"] == [
+        "Total",
+        "eatout",
+        "social",
+    ]
     assert page_defs["stop_location"]["selectors"][0]["export_enabled"] is True
     assert page_defs["stop_timing"]["selectors"][0]["id"] == "purpose"
-    assert page_defs["stop_timing"]["selectors"][0]["request_mode"] == "default"
-    assert page_defs["stop_timing"]["selectors"][0]["resolved_values"] == ["Total"]
+    assert page_defs["stop_timing"]["selectors"][0]["request_mode"] == "all"
+    assert page_defs["stop_timing"]["selectors"][0]["resolved_values"] == [
+        "Total",
+        "eatout",
+        "social",
+    ]
     assert page_defs["stop_timing"]["selectors"][0]["export_enabled"] is True
     assert page_defs["trip_mode"]["selectors"][0]["id"] == "tour_purpose"
-    assert page_defs["trip_mode"]["selectors"][0]["request_mode"] == "default"
-    assert page_defs["trip_mode"]["selectors"][0]["resolved_values"] == ["All"]
+    assert page_defs["trip_mode"]["selectors"][0]["request_mode"] == "all"
+    assert page_defs["trip_mode"]["selectors"][0]["resolved_values"] == [
+        "All",
+        "eatout",
+        "social",
+    ]
     assert page_defs["trip_mode"]["selectors"][0]["export_enabled"] is True
-    assert page_defs["trip_mode"]["selectors"][1]["id"] == "tour_mode"
-    assert page_defs["trip_mode"]["selectors"][1]["request_mode"] == "default"
-    assert page_defs["trip_mode"]["selectors"][1]["resolved_values"] == ["All"]
-    assert page_defs["trip_mode"]["selectors"][1]["export_enabled"] is True
-
     weighted_percent = payload["states"]["Weighted||Percent"]
-    long_term = weighted_percent["long_term"]
-    assert long_term["kind"] == "page"
+    overview = weighted_percent["overview"]
+    assert overview["kind"] == "page"
     tour_summary = weighted_percent["tour_summary"]
     assert tour_summary["kind"] == "page"
     assert _region_nodes(tour_summary)["tour_summary_body"]["selector_ids"] == ["person_type"]
-    assert sorted(_region_nodes(tour_summary)["tour_summary_body"]["variants"]) == ['["Total"]']
-    joint_tours = weighted_percent["joint_tours"]
-    assert joint_tours["kind"] == "page"
-    assert _region_nodes(joint_tours)["joint_tours_presence"]["selector_ids"] == ["hh_size"]
-    assert sorted(_region_nodes(joint_tours)["joint_tours_presence"]["variants"]) == ['["Total"]']
-    destination = weighted_percent["destination"]
-    assert destination["kind"] == "page"
-    assert _region_nodes(destination)["destination_body"]["selector_ids"] == ["purpose"]
-    assert sorted(_region_nodes(destination)["destination_body"]["variants"]) == ['["All NM"]']
+    assert sorted(_region_nodes(tour_summary)["tour_summary_body"]["variants"]) == [
+        '["Total"]',
+        '["worker"]',
+    ]
+    daily_activity_pattern = weighted_percent["daily_activity_pattern"]
+    assert daily_activity_pattern["kind"] == "page"
+    assert _region_nodes(daily_activity_pattern)["activity_pattern_body"]["selector_ids"] == ["person_type"]
+    assert sorted(_region_nodes(daily_activity_pattern)["activity_pattern_body"]["variants"]) == [
+        '["Total"]',
+        '["worker"]',
+    ]
     tour_tod = weighted_percent["tour_tod"]
     assert tour_tod["kind"] == "page"
     assert _region_nodes(tour_tod)["tour_tod_body"]["selector_ids"] == ["purpose"]
-    assert sorted(_region_nodes(tour_tod)["tour_tod_body"]["variants"]) == ['["Total"]']
+    assert sorted(_region_nodes(tour_tod)["tour_tod_body"]["variants"]) == [
+        '["Total"]',
+        '["work"]',
+    ]
     tour_mode = weighted_percent["tour_mode"]
     assert tour_mode["kind"] == "page"
     assert _region_nodes(tour_mode)["tour_mode_modes"]["selector_ids"] == [
         "tour_purpose",
         "auto_sufficiency",
     ]
-    assert sorted(_region_nodes(tour_mode)["tour_mode_modes"]["variants"]) == ['["Total","All"]']
+    assert sorted(_region_nodes(tour_mode)["tour_mode_modes"]["variants"]) == [
+        '["Total","All"]',
+        '["Total","Auto Deficient"]',
+        '["Total","Auto Sufficient"]',
+        '["Total","Zero Auto"]',
+        '["work","All"]',
+        '["work","Auto Deficient"]',
+        '["work","Auto Sufficient"]',
+        '["work","Zero Auto"]',
+    ]
     stop_frequency = weighted_percent["stop_frequency"]
     assert stop_frequency["kind"] == "page"
-    assert _region_nodes(stop_frequency)["stop_frequency_body"]["selector_ids"] == ["tour_purpose"]
-    assert sorted(_region_nodes(stop_frequency)["stop_frequency_body"]["variants"]) == ['["Total"]']
+    assert _region_nodes(stop_frequency)["stop_frequency_body"]["selector_ids"] == [
+        "tour_purpose"
+    ]
+    assert sorted(_region_nodes(stop_frequency)["stop_frequency_body"]["variants"]) == [
+        '["Total"]',
+        '["eatout"]',
+        '["social"]',
+    ]
     stop_location = weighted_percent["stop_location"]
     assert stop_location["kind"] == "page"
-    assert _region_nodes(stop_location)["stop_location_body"]["selector_ids"] == ["purpose"]
-    assert sorted(_region_nodes(stop_location)["stop_location_body"]["variants"]) == ['["Total"]']
+    assert _region_nodes(stop_location)["stop_location_body"]["selector_ids"] == [
+        "purpose"
+    ]
+    assert sorted(_region_nodes(stop_location)["stop_location_body"]["variants"]) == [
+        '["Total"]',
+        '["eatout"]',
+        '["social"]',
+    ]
     stop_timing = weighted_percent["stop_timing"]
     assert stop_timing["kind"] == "page"
-    assert _region_nodes(stop_timing)["stop_timing_body"]["selector_ids"] == ["purpose"]
-    assert sorted(_region_nodes(stop_timing)["stop_timing_body"]["variants"]) == ['["Total"]']
+    assert _region_nodes(stop_timing)["stop_timing_body"]["selector_ids"] == [
+        "purpose"
+    ]
+    assert sorted(_region_nodes(stop_timing)["stop_timing_body"]["variants"]) == [
+        '["Total"]',
+        '["eatout"]',
+        '["social"]',
+    ]
     trip_mode = weighted_percent["trip_mode"]
     assert trip_mode["kind"] == "page"
-    assert _region_nodes(trip_mode)["trip_summary_mode_body"]["selector_ids"] == [
-        "tour_purpose",
-        "tour_mode",
+    assert _region_nodes(trip_mode)["trip_summary_mode_body"]["selector_ids"] == ["tour_purpose"]
+    assert sorted(_region_nodes(trip_mode)["trip_summary_mode_body"]["variants"]) == [
+        '["All"]',
+        '["eatout"]',
+        '["social"]',
     ]
-    assert sorted(_region_nodes(trip_mode)["trip_summary_mode_body"]["variants"]) == ['["All","All"]']
     widget_nodes = [
         node for node in _walk_nodes(tour_summary) if node.get("kind") == "widget"
     ]
@@ -942,14 +1083,16 @@ def test_build_export_html_document_respects_configured_dashboard_page_subset_an
 ) -> None:
     config = _write_config(
         tmp_path,
+        dashboard_pages=["overview", "trip_summaries"],
         export_html_lines=[
             "dashboard:",
             "  weighting: all",
             "  values: all",
             "pages:",
-            "  trip_mode: {}",
+            "  trip_summaries:",
+            "    trip_mode:",
+            "      tour_purpose: all",
             "  overview: {}",
-            "  destination: {}",
         ],
     )
 
@@ -957,27 +1100,33 @@ def test_build_export_html_document_respects_configured_dashboard_page_subset_an
     payload = _extract_payload(html)
 
     assert [(page["id"], page["title"]) for page in payload["pages"]] == [
-        ("trip_summaries", "Trip Summaries"),
         ("overview", "Overview"),
-        ("destination", "Destination"),
+        ("trip_summaries", "Trip Summaries"),
     ]
-    assert payload["pages"][0]["default_child_id"] == "trip_mode"
-    assert [(child["id"], child["title"]) for child in payload["pages"][0]["children"]] == [
-        ("trip_mode", "Trip Mode")
+    assert payload["pages"][1]["default_child_id"] == "trip_stop_purpose"
+    assert [(child["id"], child["title"]) for child in payload["pages"][1]["children"]] == [
+        ("parking_location", "Parking Location"),
+        ("trip_mode", "Trip Mode"),
+        ("trip_stop_distance", "Trip and Stop Distance"),
+        ("trip_stop_purpose", "Trip and Stop Purpose"),
+        ("trip_stop_time", "Trip and Stop Time"),
     ]
     assert list(payload["states"]["Weighted||Percent"]) == [
-        "trip_mode",
         "overview",
-        "destination",
+        "parking_location",
+        "trip_mode",
+        "trip_stop_distance",
+        "trip_stop_purpose",
+        "trip_stop_time",
     ]
 
 
-def test_build_export_html_document_defaults_to_registry_order_when_export_pages_are_unset(
+def test_build_export_html_document_inherits_live_page_order_when_export_pages_are_unset(
     tmp_path: Path,
 ) -> None:
     config = _write_config(
         tmp_path,
-        dashboard_pages=["trip_mode", "overview", "destination"],
+        dashboard_pages=["trip_summaries", "overview"],
         export_html_lines=[
             "dashboard:",
             "  weighting: all",
@@ -990,7 +1139,10 @@ def test_build_export_html_document_defaults_to_registry_order_when_export_pages
 
     assert [
         (page["id"], page["title"]) for page in payload["pages"]
-    ] == EXPECTED_DEFAULT_PAGES
+    ] == [
+        ("trip_summaries", "Trip Summaries"),
+        ("overview", "Overview"),
+    ]
 
 
 def test_build_export_html_document_renders_prepared_trip_demo_page_when_runs_are_loaded(
@@ -998,6 +1150,7 @@ def test_build_export_html_document_renders_prepared_trip_demo_page_when_runs_ar
 ) -> None:
     config = _write_config(
         tmp_path,
+        dashboard_pages=["raw_trip_demo"],
         export_html_lines=[
             "dashboard:",
             "  weighting: all",
@@ -1024,6 +1177,7 @@ def test_build_export_html_document_shows_placeholder_for_prepared_trip_demo_wit
 ) -> None:
     config = _write_config(
         tmp_path,
+        dashboard_pages=["raw_trip_demo"],
         export_html_lines=[
             "dashboard:",
             "  weighting: weighted",
@@ -1054,27 +1208,30 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
             "  weighting: all",
             "  values: all",
             "pages:",
-            "  tour_summary:",
-            "    person_type:",
-            "      - total",
-            "      - worker",
-            "  joint_tours:",
-            "    hh_size: all",
-            "  destination:",
-            "    purpose: all",
-            "  stop_frequency:",
-            "    tour_purpose: all",
-            "  stop_location:",
-            "    purpose: all",
-            "  stop_timing:",
-            "    purpose: all",
-            "  tour_tod:",
-            "    purpose: all",
-            "  tour_mode:",
-            "    tour_purpose: all",
-            "  trip_mode:",
-            "    tour_purpose: all",
-            "    tour_mode: all",
+            "  tours:",
+            "    summary:",
+            "      person_type:",
+            "        - total",
+            "        - worker",
+            "    tod:",
+            "      purpose: all",
+            "  daily_travel:",
+            "    daily_activity_pattern:",
+            "      person_type: all",
+            "  tour_summaries:",
+            "    tour_mode:",
+            "      tour_purpose: all",
+            "      auto_sufficiency: all",
+            "  stops:",
+            "    frequency:",
+            "      tour_purpose: all",
+            "    location:",
+            "      purpose: all",
+            "    timing:",
+            "      purpose: all",
+            "  trip_summaries:",
+            "    trip_mode:",
+            "      tour_purpose: all",
         ],
     )
 
@@ -1088,22 +1245,12 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
         "worker",
     ]
     assert page_defs["tour_summary"]["selectors"][0]["export_enabled"] is True
-    assert page_defs["joint_tours"]["selectors"][0]["request_mode"] == "all"
-    assert page_defs["joint_tours"]["selectors"][0]["resolved_values"] == [
+    assert page_defs["daily_activity_pattern"]["selectors"][0]["request_mode"] == "all"
+    assert page_defs["daily_activity_pattern"]["selectors"][0]["resolved_values"] == [
         "Total",
-        "2",
-        "3",
-        "4",
-        "5",
+        "worker",
     ]
-    assert page_defs["joint_tours"]["selectors"][0]["export_enabled"] is True
-    assert page_defs["destination"]["selectors"][0]["request_mode"] == "all"
-    assert page_defs["destination"]["selectors"][0]["resolved_values"] == [
-        "All NM",
-        "eatout",
-        "social",
-    ]
-    assert page_defs["destination"]["selectors"][0]["export_enabled"] is True
+    assert page_defs["daily_activity_pattern"]["selectors"][0]["export_enabled"] is True
     assert page_defs["stop_frequency"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["stop_frequency"]["selectors"][0]["resolved_values"] == [
         "Total",
@@ -1144,13 +1291,6 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
         "social",
     ]
     assert page_defs["trip_mode"]["selectors"][0]["export_enabled"] is True
-    assert page_defs["trip_mode"]["selectors"][1]["request_mode"] == "all"
-    assert page_defs["trip_mode"]["selectors"][1]["resolved_values"] == [
-        "All",
-        "DRIVE",
-        "WALK",
-    ]
-    assert page_defs["trip_mode"]["selectors"][1]["export_enabled"] is True
 
     weighted_percent = payload["states"]["Weighted||Percent"]["tour_summary"]
     assert weighted_percent["kind"] == "page"
@@ -1158,21 +1298,15 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
         '["Total"]',
         '["worker"]',
     ]
-    joint_tours_weighted_percent = payload["states"]["Weighted||Percent"]["joint_tours"]
-    assert joint_tours_weighted_percent["kind"] == "page"
-    assert sorted(_region_nodes(joint_tours_weighted_percent)["joint_tours_presence"]["variants"]) == [
-        '["2"]',
-        '["3"]',
-        '["4"]',
-        '["5"]',
-        '["Total"]',
+    daily_activity_pattern_weighted_percent = payload["states"]["Weighted||Percent"][
+        "daily_activity_pattern"
     ]
-    destination_weighted_percent = payload["states"]["Weighted||Percent"]["destination"]
-    assert destination_weighted_percent["kind"] == "page"
-    assert sorted(_region_nodes(destination_weighted_percent)["destination_body"]["variants"]) == [
-        '["All NM"]',
-        '["eatout"]',
-        '["social"]',
+    assert daily_activity_pattern_weighted_percent["kind"] == "page"
+    assert sorted(
+        _region_nodes(daily_activity_pattern_weighted_percent)["activity_pattern_body"]["variants"]
+    ) == [
+        '["Total"]',
+        '["worker"]',
     ]
     stop_frequency_weighted_percent = payload["states"]["Weighted||Percent"][
         "stop_frequency"
@@ -1207,22 +1341,26 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
     ]
     tour_mode_weighted_percent = payload["states"]["Weighted||Percent"]["tour_mode"]
     assert tour_mode_weighted_percent["kind"] == "page"
+    assert _region_nodes(tour_mode_weighted_percent)["tour_mode_modes"]["selector_ids"] == [
+        "tour_purpose",
+        "auto_sufficiency",
+    ]
     assert sorted(_region_nodes(tour_mode_weighted_percent)["tour_mode_modes"]["variants"]) == [
         '["Total","All"]',
+        '["Total","Auto Deficient"]',
+        '["Total","Auto Sufficient"]',
+        '["Total","Zero Auto"]',
         '["work","All"]',
+        '["work","Auto Deficient"]',
+        '["work","Auto Sufficient"]',
+        '["work","Zero Auto"]',
     ]
     trip_mode_weighted_percent = payload["states"]["Weighted||Percent"]["trip_mode"]
     assert trip_mode_weighted_percent["kind"] == "page"
     assert sorted(_region_nodes(trip_mode_weighted_percent)["trip_summary_mode_body"]["variants"]) == [
-        '["All","All"]',
-        '["All","DRIVE"]',
-        '["All","WALK"]',
-        '["eatout","All"]',
-        '["eatout","DRIVE"]',
-        '["eatout","WALK"]',
-        '["social","All"]',
-        '["social","DRIVE"]',
-        '["social","WALK"]',
+        '["All"]',
+        '["eatout"]',
+        '["social"]',
     ]
 
 
@@ -1240,8 +1378,9 @@ def test_build_export_html_document_keeps_grouped_tour_mode_chart_when_mode_grou
         ],
         export_html_lines=[
             "pages:",
-            "  tour_mode:",
-            "    tour_purpose: all",
+            "  tour_summaries:",
+            "    tour_mode:",
+            "      tour_purpose: all",
         ],
     )
 
@@ -1250,22 +1389,82 @@ def test_build_export_html_document_keeps_grouped_tour_mode_chart_when_mode_grou
     tour_mode = payload["states"]["Weighted||Percent"]["tour_mode"]
 
     assert tour_mode["kind"] == "page"
+    assert _region_nodes(tour_mode)["tour_mode_modes"]["selector_ids"] == [
+        "tour_purpose",
+        "auto_sufficiency",
+    ]
     assert sorted(_region_nodes(tour_mode)["tour_mode_modes"]["variants"]) == [
         '["Total","All"]',
+        '["Total","Auto Deficient"]',
+        '["Total","Auto Sufficient"]',
+        '["Total","Zero Auto"]',
         '["work","All"]',
+        '["work","Auto Deficient"]',
+        '["work","Auto Sufficient"]',
+        '["work","Zero Auto"]',
     ]
     region_nodes = _region_nodes(tour_mode)
-    variant_nodes = _walk_nodes(region_nodes["tour_mode_modes"]["variants"]['["Total","All"]'])
-    assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 0
+    variant_nodes = _walk_nodes(
+        region_nodes["tour_mode_modes"]["variants"]['["Total","All"]']
+    )
     assert any(
-        node.get("kind") == "html" and "precomputed summary tables" in node.get("html", "")
+        node.get("kind") == "plotly"
+        and node.get("figure", {}).get("layout", {}).get("title", {}).get("text")
+        == "Tour Mode by Tour Purpose and Household Auto Sufficiency"
         for node in variant_nodes
     )
     vehicle_nodes = _walk_nodes(region_nodes["tour_mode_vehicles"]["default_content"])
     assert sum(1 for node in vehicle_nodes if node.get("kind") == "plotly") == 0
-    assert vehicle_nodes == [
-        {"kind": "container", "layout": "column", "child_count": 0, "children": []}
-    ]
+    assert any(
+        node.get("kind") == "widget"
+        and node.get("selector_id") == "vehicle_occupancy"
+        and not node.get("export_enabled")
+        for node in vehicle_nodes
+    )
+
+
+def test_build_export_html_document_serializes_vehicle_occupancy_variants_for_tour_mode(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=["tour_summaries"],
+        export_html_lines=[
+            "pages:",
+            "  tour_mode:",
+            "    vehicle_occupancy: all",
+        ],
+    )
+
+    html = build_export_html_document(
+        [], config, summary_runs=[_full_summary_run_with_vehicle_allocations()]
+    )
+    payload = _extract_payload(html)
+    tour_mode = payload["states"]["Weighted||Percent"]["tour_mode"]
+
+    assert tour_mode["kind"] == "page"
+    region = _region_nodes(tour_mode)["tour_mode_vehicles"]
+    assert region["selector_ids"] == ["vehicle_occupancy"]
+    assert sorted(region["variants"]) == ['["All"]', '["High"]', '["Low"]']
+
+    age_all = _plot_node_by_title(
+        region["variants"]['["All"]'],
+        "Allocated Vehicle Age by Occupancy Level",
+    )
+    age_high = _plot_node_by_title(
+        region["variants"]['["High"]'],
+        "Allocated Vehicle Age by Occupancy Level",
+    )
+    age_low = _plot_node_by_title(
+        region["variants"]['["Low"]'],
+        "Allocated Vehicle Age by Occupancy Level",
+    )
+
+    assert age_all["figure"]["data"][0]["x"] == ["0", "20+"]
+    assert age_high["figure"]["data"][0]["x"] == ["0", "20+"]
+    assert age_low["figure"]["data"][0]["x"] == ["0", "20+"]
+    assert age_all["figure"]["data"][0]["y"] != age_high["figure"]["data"][0]["y"]
+    assert age_high["figure"]["data"][0]["y"] != age_low["figure"]["data"][0]["y"]
 
 
 def test_build_export_html_document_serializes_long_term_geography_variants(
@@ -1275,12 +1474,13 @@ def test_build_export_html_document_serializes_long_term_geography_variants(
         tmp_path,
         geography_lines=[
             "enabled: true",
-            "landuse_col: district",
+            "landuse_col: COUNTY",
         ],
         export_html_lines=[
             "pages:",
-            "  long_term:",
-            "    geography: all",
+            "  long_term_choices:",
+            "    mandatory_location_choice:",
+            "      geography_level: all",
         ],
     )
 
@@ -1288,25 +1488,20 @@ def test_build_export_html_document_serializes_long_term_geography_variants(
     payload = _extract_payload(html)
     page_defs = _flatten_page_descriptors(payload["pages"])
 
-    assert page_defs["long_term"]["selectors"][0]["id"] == "geography"
-    assert page_defs["long_term"]["selectors"][0]["request_mode"] == "all"
-    assert page_defs["long_term"]["selectors"][0]["resolved_values"] == [
-        "Total",
+    assert page_defs["mandatory_location_choice"]["selectors"][0]["id"] == "geography_level"
+    assert page_defs["mandatory_location_choice"]["selectors"][0]["request_mode"] == "all"
+    assert page_defs["mandatory_location_choice"]["selectors"][0]["resolved_values"] == [
         "Suburban",
         "Urban",
     ]
-    assert page_defs["long_term"]["selectors"][0]["export_enabled"] is True
+    assert page_defs["mandatory_location_choice"]["selectors"][0]["export_enabled"] is True
 
-    long_term = payload["states"]["Weighted||Percent"]["long_term"]
-    assert long_term["kind"] == "page"
-    assert sorted(_region_nodes(long_term)["long_term_body"]["variants"]) == [
+    mandatory_location_choice = payload["states"]["Weighted||Percent"]["mandatory_location_choice"]
+    assert mandatory_location_choice["kind"] == "page"
+    assert sorted(_region_nodes(mandatory_location_choice)["commuting_flows"]["variants"]) == [
         '["Suburban"]',
-        '["Total"]',
         '["Urban"]',
     ]
-    variant_nodes = _walk_nodes(_region_nodes(long_term)["long_term_body"]["variants"]['["Urban"]'])
-    assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 6
-    assert sum(1 for node in variant_nodes if node.get("kind") == "table") == 2
 
 
 def test_build_export_html_document_warns_and_falls_back_when_long_term_geography_is_unavailable(
@@ -1316,16 +1511,24 @@ def test_build_export_html_document_warns_and_falls_back_when_long_term_geograph
         tmp_path,
         export_html_lines=[
             "pages:",
-            "  long_term:",
-            "    geography: all",
+            "  long_term_choices:",
+            "    shadow_pricing:",
+            "      student_type: all",
+            "      parts:",
+            "        school_plot:",
+            "          enabled: false",
+            "        school_table:",
+            "          enabled: false",
         ],
     )
     html = build_export_html_document([], config, summary_runs=[_full_summary_run()])
     payload = _extract_payload(html)
     page_defs = _flatten_page_descriptors(payload["pages"])
 
-    assert page_defs["long_term"]["selectors"] == []
-    assert payload["states"]["Weighted||Percent"]["long_term"]["kind"] == "page"
+    selector_meta = page_defs["shadow_pricing"]["selectors"][1]
+    assert selector_meta["id"] == "student_type"
+    assert selector_meta["export_enabled"] is False
+    assert payload["states"]["Weighted||Percent"]["shadow_pricing"]["kind"] == "page"
 
 
 def test_build_export_html_document_serializes_stop_frequency_four_chart_variant(
@@ -1387,25 +1590,27 @@ def test_build_export_html_document_serializes_joint_tours_hh_size_variants(
         tmp_path,
         export_html_lines=[
             "pages:",
-            "  joint_tours:",
-            "    hh_size: all",
+            "  daily_travel:",
+            "    daily_activity_pattern:",
+            "      person_type: all",
         ],
     )
 
     html = build_export_html_document([], config, summary_runs=[_full_summary_run()])
     payload = _extract_payload(html)
-    joint_tours = payload["states"]["Weighted||Percent"]["joint_tours"]
+    daily_activity_pattern = payload["states"]["Weighted||Percent"]["daily_activity_pattern"]
 
-    assert joint_tours["kind"] == "page"
-    assert sorted(_region_nodes(joint_tours)["joint_tours_presence"]["variants"]) == [
-        '["2"]',
-        '["3"]',
-        '["4"]',
-        '["5"]',
+    assert daily_activity_pattern["kind"] == "page"
+    assert sorted(_region_nodes(daily_activity_pattern)["activity_pattern_body"]["variants"]) == [
         '["Total"]',
+        '["worker"]',
     ]
-    variant_nodes = _walk_nodes(_region_nodes(joint_tours)["joint_tours_presence"]["variants"]['["2"]'])
-    assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 1
+    variant_nodes = _walk_nodes(
+        _region_nodes(daily_activity_pattern)["activity_pattern_body"]["variants"]['["worker"]']
+    )
+    assert any(
+        node.get("kind") in {"plotly", "card", "table"} for node in variant_nodes
+    )
 
 
 def test_build_export_html_document_serializes_trip_mode_tour_purpose_variants(
@@ -1415,9 +1620,9 @@ def test_build_export_html_document_serializes_trip_mode_tour_purpose_variants(
         tmp_path,
         export_html_lines=[
             "pages:",
-            "  trip_mode:",
-            "    tour_purpose: all",
-            "    tour_mode: all",
+            "  trip_summaries:",
+            "    trip_mode:",
+            "      tour_purpose: all",
         ],
     )
 
@@ -1427,15 +1632,9 @@ def test_build_export_html_document_serializes_trip_mode_tour_purpose_variants(
 
     assert trip_mode["kind"] == "page"
     assert sorted(_region_nodes(trip_mode)["trip_summary_mode_body"]["variants"]) == [
-        '["All","All"]',
-        '["All","DRIVE"]',
-        '["All","WALK"]',
-        '["eatout","All"]',
-        '["eatout","DRIVE"]',
-        '["eatout","WALK"]',
-        '["social","All"]',
-        '["social","DRIVE"]',
-        '["social","WALK"]',
+        '["All"]',
+        '["eatout"]',
+        '["social"]',
     ]
     page_nodes = _walk_nodes(trip_mode)
     widget_nodes = [node for node in page_nodes if node.get("kind") == "widget"]
@@ -1445,14 +1644,11 @@ def test_build_export_html_document_serializes_trip_mode_tour_purpose_variants(
         and not node.get("disabled")
         for node in widget_nodes
     )
-    assert any(
-        node.get("selector_id") == "tour_mode"
-        and node.get("export_enabled")
-        and not node.get("disabled")
-        for node in widget_nodes
+    assert not any(node.get("selector_id") == "tour_mode" for node in widget_nodes)
+    variant_nodes = _walk_nodes(
+        _region_nodes(trip_mode)["trip_summary_mode_body"]["variants"]['["eatout"]']
     )
-    variant_nodes = _walk_nodes(_region_nodes(trip_mode)["trip_summary_mode_body"]["variants"]['["eatout","DRIVE"]'])
-    assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 1
+    assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 3
 
 
 def test_build_export_html_document_rejects_unknown_page_and_selector_ids(
@@ -1477,13 +1673,14 @@ def test_build_export_html_document_rejects_unknown_page_and_selector_ids(
         tmp_path / "bad_selector",
         export_html_lines=[
             "pages:",
-            "  destination:",
-            "    unknown_selector: all",
+            "  trip_summaries:",
+            "    trip_mode:",
+            "      unknown_selector: all",
         ],
     )
     with pytest.raises(
         ValueError,
-        match="Unsupported visualizer.export_html.pages.destination entries",
+        match="Unsupported visualizer.export_html.pages.trip_summaries.trip_mode entries",
     ):
         build_export_html_document(
             [],
@@ -1561,6 +1758,7 @@ def test_export_html_save_writes_visualization_diagnostics_sidecar(
 ) -> None:
     config = _write_config(
         tmp_path,
+        dashboard_pages=["raw_trip_demo"],
         export_html_lines=[
             "pages:",
             "  raw_trip_demo: {}",

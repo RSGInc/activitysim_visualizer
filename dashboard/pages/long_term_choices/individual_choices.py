@@ -94,87 +94,116 @@ class IndividualChoicesPage(DashboardPage):
             self._body.objects = [pn.pane.Markdown("No runs loaded.")]
             return
 
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
-            self._body.objects = [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
-                )
-            ]
-            return
+        license_summary = self.optional_summary("license_holding_status_distribution")
+        bike_summary = self.optional_summary("bicycle_comfort_level_distribution")
+        pass_summary = self.optional_summary("transit_pass_ownership_by_person_type")
+        subsidy_summary = self.optional_summary("transit_subsidy_by_person_type")
 
-        license_list = _cast_category(
-            _filter_all_person_types(
-                summaries["license_holding_status_distribution"]
-            ),
-            "license_holding_status",
-        )
-        bike_list = _normalize_bicycle_comfort_levels(
-            _filter_all_person_types(
-                summaries["bicycle_comfort_level_distribution"]
+        top_row: list[pn.viewable.Viewable] = []
+        bottom_row: list[pn.viewable.Viewable] = []
+
+        if license_summary is not None:
+            license_list = _cast_category(
+                _filter_all_person_types(license_summary),
+                "license_holding_status",
             )
-        )
-        pass_list = _cast_category(
-            _filter_all_person_types(
-                summaries["transit_pass_ownership_by_person_type"]
-            ),
-            "transit_pass_ownership_status",
-        )
-        subsidy_list = _cast_category(
-            _filter_all_person_types(
-                summaries["transit_subsidy_by_person_type"]
-            ),
-            "transit_subsidy_status",
-        )
+            top_row.append(
+                bar_chart(
+                    license_list,
+                    x_col="license_holding_status",
+                    y_col="person_count",
+                    title="License Holding Status",
+                    xaxis_title="License Status",
+                    yaxis_title="Persons Age 16+",
+                    pct_col="pct",
+                    as_percent=self.as_percent,
+                )
+            )
+        else:
+            top_row.append(
+                self.data_not_available_card(
+                    detail="The license holding summary is unavailable.",
+                    missing_items=["license_holding_status_distribution"],
+                )
+            )
 
-        license_chart = bar_chart(
-            license_list,
-            x_col="license_holding_status",
-            y_col="person_count",
-            title="License Holding Status",
-            xaxis_title="License Status",
-            yaxis_title="Persons Age 16+",
-            pct_col="pct",
-            as_percent=self.as_percent,
-        )
+        if bike_summary is not None:
+            bike_list = _normalize_bicycle_comfort_levels(
+                _filter_all_person_types(bike_summary)
+            )
+            top_row.append(
+                bar_chart(
+                    bike_list,
+                    x_col="bicycle_comfort_level",
+                    y_col="person_count",
+                    title="Bicycle Comfort Level",
+                    xaxis_title="Bicycle Comfort Level",
+                    yaxis_title="Persons",
+                    pct_col="pct",
+                    as_percent=self.as_percent,
+                )
+            )
+        else:
+            top_row.append(
+                self.data_not_available_card(
+                    detail="The bicycle comfort summary is unavailable.",
+                    missing_items=["bicycle_comfort_level_distribution"],
+                )
+            )
 
-        bike_chart = bar_chart(
-            bike_list,
-            x_col="bicycle_comfort_level",
-            y_col="person_count",
-            title="Bicycle Comfort Level",
-            xaxis_title="Bicycle Comfort Level",
-            yaxis_title="Persons",
-            pct_col="pct",
-            as_percent=self.as_percent,
-        )
+        if pass_summary is not None:
+            pass_list = _cast_category(
+                _filter_all_person_types(pass_summary),
+                "transit_pass_ownership_status",
+            )
+            bottom_row.append(
+                bar_chart(
+                    pass_list,
+                    x_col="transit_pass_ownership_status",
+                    y_col="person_count",
+                    title="Transit Pass Ownership",
+                    xaxis_title="Transit Pass Ownership Status",
+                    yaxis_title="Persons",
+                    pct_col="pct",
+                    as_percent=self.as_percent,
+                )
+            )
+        else:
+            bottom_row.append(
+                self.data_not_available_card(
+                    detail="The transit pass ownership summary is unavailable.",
+                    missing_items=["transit_pass_ownership_by_person_type"],
+                )
+            )
 
-        pass_chart = bar_chart(
-            pass_list,
-            x_col="transit_pass_ownership_status",
-            y_col="person_count",
-            title="Transit Pass Ownership",
-            xaxis_title="Transit Pass Ownership Status",
-            yaxis_title="Persons",
-            pct_col="pct",
-            as_percent=self.as_percent,
-        )
-
-        subsidy_chart = bar_chart(
-            subsidy_list,
-            x_col="transit_subsidy_status",
-            y_col="person_count",
-            title="Transit Subsidy",
-            xaxis_title="Transit Subsidy Status",
-            yaxis_title="Persons",
-            pct_col="pct",
-            as_percent=self.as_percent,
-        )
+        if subsidy_summary is not None:
+            subsidy_list = _cast_category(
+                _filter_all_person_types(subsidy_summary),
+                "transit_subsidy_status",
+            )
+            bottom_row.append(
+                bar_chart(
+                    subsidy_list,
+                    x_col="transit_subsidy_status",
+                    y_col="person_count",
+                    title="Transit Subsidy",
+                    xaxis_title="Transit Subsidy Status",
+                    yaxis_title="Persons",
+                    pct_col="pct",
+                    as_percent=self.as_percent,
+                )
+            )
+        else:
+            bottom_row.append(
+                self.data_not_available_card(
+                    detail="The transit subsidy summary is unavailable.",
+                    missing_items=["transit_subsidy_by_person_type"],
+                )
+            )
 
         self._body.objects = [
-            pn.Row(license_chart, bike_chart, sizing_mode="stretch_width"),
-            pn.Row(pass_chart, subsidy_chart, sizing_mode="stretch_width"),
+            pn.Row(*top_row, sizing_mode="stretch_width"),
+            pn.Row(*bottom_row, sizing_mode="stretch_width"),
         ]
 
 

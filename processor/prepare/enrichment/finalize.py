@@ -99,6 +99,7 @@ def _cast_land_use(land_use: pl.DataFrame) -> pl.DataFrame:
     return _cast_if_present(
         land_use,
         {
+            "MAZ": pl.Int64,
             "EMPLOYMENT": pl.Float64,
             "employment_count": pl.Float64,
             "student_type": pl.Utf8,

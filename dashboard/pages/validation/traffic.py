@@ -127,15 +127,6 @@ class TrafficValidationPage(DashboardPage):
             self.weighting_key,
         )
 
-        if traffic_list is None and screenline_list is None:
-            self._body.objects = [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
-                )
-            ]
-            return
-
         direction_opts = _options(traffic_list or screenline_list or [], "direction")
         self.direction_sel.options = direction_opts
         if self.direction_sel.value not in direction_opts:
