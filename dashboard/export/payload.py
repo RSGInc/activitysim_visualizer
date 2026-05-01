@@ -1039,7 +1039,7 @@ def _page_config_key(page_def: DashboardPageDefinition | None) -> str:
     if page_def is None:
         return "<unknown>"
     if page_def.group_id:
-        return f"{page_def.group_id}.children.{page_def.page_id}"
+        return f"{page_def.group_id}.{page_def.page_id}"
     return page_def.page_id
 
 

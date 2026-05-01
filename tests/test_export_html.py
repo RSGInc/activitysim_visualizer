@@ -807,7 +807,7 @@ def test_config_rejects_duplicate_dashboard_pages(tmp_path: Path) -> None:
 
     with pytest.raises(
         ValueError,
-        match="visualizer.export_html.pages.trip_summaries.children.trip_mode.tour_purpose resolved to no values",
+        match="visualizer.export_html.pages.trip_summaries.trip_mode.tour_purpose resolved to no values",
     ):
         _write_config(
             tmp_path / "empty_page_values",

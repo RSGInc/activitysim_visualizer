@@ -50,13 +50,13 @@ def test_export_logs_selector_unavailable_warning_once_and_falls_back(caplog: py
     warning_messages = [
         record.getMessage()
         for record in caplog.records
-        if "visualizer.export_html.pages.long_term_choices.children.shadow_pricing.student_type"
+        if "visualizer.export_html.pages.long_term_choices.shadow_pricing.student_type"
         in record.getMessage()
     ]
 
     assert payload["states"]["Weighted||Percent"]["shadow_pricing"]["kind"] == "page"
     assert warning_messages == [
-        "Warning: visualizer.export_html.pages.long_term_choices.children.shadow_pricing.student_type is configured, but no enabled export part uses this selector. Ignoring the configuration."
+        "Warning: visualizer.export_html.pages.long_term_choices.shadow_pricing.student_type is configured, but no enabled export part uses this selector. Ignoring the configuration."
     ]
 
 
@@ -76,7 +76,7 @@ def test_export_raises_readable_error_for_invalid_selector_values() -> None:
 
     with pytest.raises(
         ValueError,
-        match="Unsupported visualizer.export_html.pages.trip_summaries.children.trip_mode.tour_purpose values: 'invalid-purpose'",
+        match="Unsupported visualizer.export_html.pages.trip_summaries.trip_mode.tour_purpose values: 'invalid-purpose'",
     ):
         build_export_html_document([], config, summary_runs=[_full_summary_run()])
 
@@ -211,7 +211,7 @@ def test_export_logs_selector_expansion_warning_with_disable_hint(
         "tour_mode expands region tour_mode_modes to 8 selector combinations"
         in message
         and "selectors: tour_purpose, auto_sufficiency" in message
-        and "visualizer.export_html.pages.tour_summaries.children.tour_mode.parts.tour_mode_modes.enabled: false"
+        and "visualizer.export_html.pages.tour_summaries.tour_mode.parts.tour_mode_modes.enabled: false"
         in message
         for message in messages
     )

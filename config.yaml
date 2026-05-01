@@ -39,16 +39,12 @@ visualizer:
   # want the dashboard to request full run data.
   dashboard_pages:
     - overview
-    - long_term
-    - tour_summary
-    - joint_tours
-    - destination
-    - tour_tod
-    - tour_mode
-    - stop_frequency
-    - stop_location
-    - stop_timing
-    - trip_mode
+    - long_term_choices
+    - daily_travel
+    - joint_travel
+    - tour_summaries
+    - trip_summaries
+    - validation
     # - raw_trip_demo
 
   run_colors:
@@ -67,30 +63,24 @@ visualizer:
     # - "#7f7f7f"
 
   export_html:
-    dashboard:
-      weighting: all
-      values: all
+#   # Omit `pages` to mirror `dashboard_pages`.
+#   # Omit selector overrides to export all widget states.
+#   # Uncomment only when you want to narrow the default export:
+#   # dashboard:
+#   #   weighting: [unweighted]
+#   #   values: [percent]
+# The below overrides the widget exports for the geography_level and student_type widgets
+# and "turns off" the workplace and school vs land use tables
     pages:
-      overview: {} # use empty brackets for pages with no selectors
-      long_term:
-        geography: all # default | all | [Total, County A]
-      tour_summary:
-        person_type: all # default | all | [Total, Full-time worker]
-      joint_tours:
-        hh_size: all # default | all | [Total, 2, 3]
-      destination:
-        purpose: all # default | all | [All NM, eatout]
-      tour_tod:
-        purpose: all # default | all | [Total, work]
-      tour_mode:
-        purpose: all # default | all | [Total, work]
-      stop_frequency:
-        tour_purpose: all # default | all | [Total, eatout]
-      stop_timing:
-        purpose: all # default | all | [eatout, social]
-      trip_mode:
-        tour_purpose: all # default | all | [Total, shopping]
-        tour_mode: all # default | all | [All, DRIVEALONE]
+      long_term_choices:
+        shadow_pricing:
+          geography_level: [all]
+          student_type: [all]
+          parts:
+            workplace_table:
+              enabled: false
+            school_table:
+              enabled: false
 
 # ---------------------------------------------------------------------------
 # Runs to compare
