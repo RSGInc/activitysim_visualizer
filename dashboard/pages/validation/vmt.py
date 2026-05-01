@@ -9,15 +9,9 @@ from dashboard.components import (
     bar_chart,
     control_row,
     control_row_spacer,
-    data_table,
 )
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import (
-    DashboardPageDefinition,
-    PageExportRegionDefinition,
-    PageSelectorDefinition,
-)
-from runtime.config import Config
+from dashboard.page_definitions import DashboardPageDefinition
 
 
 VMT_VIEW_OPTIONS = [
@@ -68,27 +62,30 @@ def commercial_vmt_chart_data(
 
 
 class VMTValidationPage(DashboardPage):
-    def __init__(self, state, config: Config) -> None:
-        super().__init__("VMT Validation", state, config)
-
-        self.vmt_view_sel = pn.widgets.Select(
-            name="Commercial VMT View",
-            options=VMT_VIEW_OPTIONS,
-            value=VMT_VIEW_OPTIONS[0],
+    def build_page(self) -> pn.viewable.Viewable:
+        self.vmt_view_sel = self.selector(
+            "commercial_vmt_view",
+            widget=pn.widgets.Select(
+                name="Commercial VMT View",
+                options=VMT_VIEW_OPTIONS,
+                value=VMT_VIEW_OPTIONS[0],
+            ),
+            label="Commercial VMT View",
         )
-        self._watch_widget(self.vmt_view_sel)
-
-        self._body = pn.Column(sizing_mode="stretch_width")
-        self.view = pn.Column(
+        self._body = self.section(
+            "vmt_body",
+            selectors=("commercial_vmt_view",),
+            render=self.render_body,
+        )
+        return self.new_section(
             pn.pane.Markdown("## VMT Validation"),
             self._body,
             sizing_mode="stretch_width",
         )
 
-    def _refresh(self) -> None:
+    def render_body(self):
         if not self.state.run_labels:
-            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
-            return
+            return [pn.pane.Markdown("No runs loaded.")]
 
         commercial_vmt = self.state.get_summary_table_set(
             "commercial_vmt_totals",
@@ -142,7 +139,7 @@ class VMTValidationPage(DashboardPage):
                 missing_items=["bicycle_vmt_by_facility_type"],
             )
 
-        self._body.objects = [
+        return [
             pn.Row(
                 pn.Column(
                     control_row(
@@ -163,20 +160,6 @@ PAGE = DashboardPageDefinition(
     group_id="validation",
     order=54,
     page_cls=VMTValidationPage,
-    selectors=(
-        PageSelectorDefinition(
-            selector_id="commercial_vmt_view",
-            widget_attr="vmt_view_sel",
-            label="Commercial VMT View",
-        ),
-    ),
-    export_regions=(
-        PageExportRegionDefinition(
-            region_id="vmt_body",
-            view_attr="_body",
-            selector_ids=("commercial_vmt_view",),
-        ),
-    ),
     required_summary_ids=(
         "commercial_vmt_totals",
         "bicycle_vmt_by_facility_type",
@@ -184,4 +167,3 @@ PAGE = DashboardPageDefinition(
 )
 
 VMTValidationPage.definition = PAGE
-

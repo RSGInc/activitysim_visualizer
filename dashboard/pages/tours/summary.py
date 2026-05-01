@@ -7,29 +7,21 @@ import polars as pl
 
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import (
-    DashboardPageDefinition,
-    PageExportRegionDefinition,
-    PageSelectorDefinition,
-)
+from dashboard.page_definitions import DashboardPageDefinition
 from runtime.config import Config
 
 
 def ptype_options(dap_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
-    """Collect available person types from DAP summaries."""
     ptype_set = set()
     for _, df in dap_list:
         if "person_type" in df.columns:
             ptype_set.update(df["person_type"].cast(pl.Utf8).unique().to_list())
-    return (
-        sorted(str(ptype) for ptype in ptype_set) if ptype_set else ["all_person_types"]
-    )
+    return sorted(str(ptype) for ptype in ptype_set) if ptype_set else ["all_person_types"]
 
 
 def ptype_maps(
     ptype_opts: list[str], config: Config
 ) -> tuple[list[str], dict[str, str | None]]:
-    """Return display and reverse mappings for person-type selectors."""
     label_to_ptype: dict[str, str | None] = {}
     if "all_person_types" in ptype_opts:
         label_to_ptype["Total"] = "all_person_types"
@@ -50,16 +42,13 @@ def _ptype_filter(df: pl.DataFrame, ptype: str | None) -> pl.DataFrame:
 
 
 def ordered_dap(df: pl.DataFrame, ptype: str | None) -> pl.DataFrame:
-    """Return ordered DAP rows for one person type."""
     d = _ptype_filter(df, ptype)
     base = pl.DataFrame({"daily_activity_pattern": ["M", "N", "H"]})
     return (
         base.join(
             d.select(
                 [
-                    pl.col("daily_activity_pattern")
-                    .cast(pl.Utf8)
-                    .alias("daily_activity_pattern"),
+                    pl.col("daily_activity_pattern").cast(pl.Utf8).alias("daily_activity_pattern"),
                     "person_count",
                 ]
             ),
@@ -81,11 +70,8 @@ def ordered_dap(df: pl.DataFrame, ptype: str | None) -> pl.DataFrame:
 
 
 def ordered_mtf(df: pl.DataFrame, ptype: str | None) -> pl.DataFrame:
-    """Return ordered mandatory-tour-frequency rows for one person type."""
     d = _ptype_filter(df, ptype).with_columns(
-        pl.col("mandatory_tour_frequency")
-        .cast(pl.Int64)
-        .alias("mandatory_tour_frequency")
+        pl.col("mandatory_tour_frequency").cast(pl.Int64).alias("mandatory_tour_frequency")
     )
     base = pl.DataFrame({"mandatory_tour_frequency": [1, 2, 3, 4, 5]})
     labels = pl.DataFrame(
@@ -113,11 +99,8 @@ def ordered_mtf(df: pl.DataFrame, ptype: str | None) -> pl.DataFrame:
 
 
 def ordered_inm(df: pl.DataFrame, ptype: str | None) -> pl.DataFrame:
-    """Return ordered individual non-mandatory-tour rows for one person type."""
     d = _ptype_filter(df, ptype).with_columns(
-        pl.col("nonmandatory_tour_frequency")
-        .cast(pl.Utf8)
-        .alias("nonmandatory_tour_frequency")
+        pl.col("nonmandatory_tour_frequency").cast(pl.Utf8).alias("nonmandatory_tour_frequency")
     )
     base = pl.DataFrame({"nonmandatory_tour_frequency": ["0", "1", "2", "3+"]})
     return base.join(
@@ -137,7 +120,6 @@ def chart_data(
     list[tuple[str, pl.DataFrame]],
     list[tuple[str, pl.DataFrame]],
 ]:
-    """Build ordered chart datasets for one person type."""
     return (
         [(label, ordered_dap(df, ptype)) for label, df in dap_list],
         [(label, ordered_mtf(df, ptype)) for label, df in mtf_list],
@@ -146,19 +128,25 @@ def chart_data(
 
 
 class TourSummaryPage(DashboardPage):
-    def __init__(self, state, config: Config) -> None:
-        super().__init__("Tour Summary", state, config)
+    def build_page(self) -> pn.viewable.Viewable:
         ptype_opts = self._ptype_options()
-        display_opts, self._label_to_ptype = ptype_maps(ptype_opts, config)
+        display_opts, self._label_to_ptype = ptype_maps(ptype_opts, self.config)
         default_value = "Total" if "Total" in display_opts else display_opts[0]
-        self.ptype_sel = pn.widgets.Select(
-            name="Person Type",
-            options=display_opts,
-            value=default_value,
+        self.ptype_sel = self.selector(
+            "person_type",
+            widget=pn.widgets.Select(
+                name="Person Type",
+                options=display_opts,
+                value=default_value,
+            ),
+            label="Person Type",
         )
-        self._watch_widget(self.ptype_sel)
-        self._body = pn.Column(sizing_mode="stretch_width")
-        self.view = pn.Column(
+        self._body = self.section(
+            "tour_summary_body",
+            selectors=("person_type",),
+            render=self.render_body,
+        )
+        return self.new_section(
             pn.pane.Markdown("## Tour Summary"),
             pn.Row(pn.pane.Markdown("**Person Type:**"), self.ptype_sel),
             self._body,
@@ -173,14 +161,41 @@ class TourSummaryPage(DashboardPage):
         )
         if not dap_result.has_usable_runs:
             return ["all_person_types"]
-        return ptype_options(
-            [(label, table) for label, table in dap_result.usable_runs]
-        )
+        return ptype_options([(label, table) for label, table in dap_result.usable_runs])
 
-    def _refresh(self) -> None:
-        if not self.state.run_labels:
-            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
+    def sync_controls(self) -> None:
+        summary_result = self.resolve_summary_visualization(
+            "tour_summary_profiles",
+            summary_requirements={
+                "daily_activity_pattern_by_person_type": (
+                    "person_type",
+                    "daily_activity_pattern",
+                    "person_count",
+                ),
+                "mandatory_tour_frequency_by_person_type": (
+                    "person_type",
+                    "mandatory_tour_frequency",
+                    "person_count",
+                ),
+                "nonmandatory_tour_frequency_by_person_type": (
+                    "person_type",
+                    "nonmandatory_tour_frequency",
+                    "person_count",
+                ),
+            },
+        )
+        if not summary_result.has_usable_runs:
             return
+        dap_list = summary_result.usable_by_input["daily_activity_pattern_by_person_type"]
+        ptype_opts = ptype_options(dap_list)
+        display_opts, self._label_to_ptype = ptype_maps(ptype_opts, self.config)
+        self.ptype_sel.options = display_opts
+        if self.ptype_sel.value not in display_opts:
+            self.ptype_sel.value = "Total" if "Total" in display_opts else display_opts[0]
+
+    def render_body(self):
+        if not self.state.run_labels:
+            return [pn.pane.Markdown("No runs loaded.")]
 
         summary_result = self.resolve_summary_visualization(
             "tour_summary_profiles",
@@ -203,28 +218,16 @@ class TourSummaryPage(DashboardPage):
             },
         )
         if not summary_result.has_usable_runs:
-            self._body.objects = [
+            return [
                 self.unavailable_visualization(
                     summary_result,
                     detail="Tour summary tables are unavailable.",
                 )
             ]
-            return
 
-        dap_list = summary_result.usable_by_input[
-            "daily_activity_pattern_by_person_type"
-        ]
-        mtf_list = summary_result.usable_by_input[
-            "mandatory_tour_frequency_by_person_type"
-        ]
-        inm_list = summary_result.usable_by_input[
-            "nonmandatory_tour_frequency_by_person_type"
-        ]
-        ptype_opts = ptype_options(dap_list)
-        display_opts, self._label_to_ptype = ptype_maps(ptype_opts, self.config)
-        self.ptype_sel.options = display_opts
-        if self.ptype_sel.value not in display_opts:
-            self.ptype_sel.value = "Total" if "Total" in display_opts else display_opts[0]
+        dap_list = summary_result.usable_by_input["daily_activity_pattern_by_person_type"]
+        mtf_list = summary_result.usable_by_input["mandatory_tour_frequency_by_person_type"]
+        inm_list = summary_result.usable_by_input["nonmandatory_tour_frequency_by_person_type"]
         ptype_label = self.ptype_sel.value
         ptype = self._label_to_ptype.get(ptype_label, ptype_label)
 
@@ -235,24 +238,10 @@ class TourSummaryPage(DashboardPage):
             factory=lambda: chart_data(dap_list, mtf_list, inm_list, ptype),
         )
 
-        self._body.objects = [
+        return [
             pn.Row(
-                bar_chart(
-                    dap_data,
-                    "daily_activity_pattern",
-                    "person_count",
-                    f"Daily Activity Pattern - {ptype_label}",
-                    "Pattern",
-                    as_percent=self.as_percent,
-                ),
-                bar_chart(
-                    mtf_data,
-                    "mandatory_tour_frequency_label",
-                    "person_count",
-                    f"Mandatory Tour Frequency - {ptype_label}",
-                    "Alternative",
-                    as_percent=self.as_percent,
-                ),
+                bar_chart(dap_data, "daily_activity_pattern", "person_count", f"Daily Activity Pattern - {ptype_label}", "Pattern", as_percent=self.as_percent),
+                bar_chart(mtf_data, "mandatory_tour_frequency_label", "person_count", f"Mandatory Tour Frequency - {ptype_label}", "Alternative", as_percent=self.as_percent),
             ),
             bar_chart(
                 inm_data,
@@ -271,20 +260,6 @@ PAGE = DashboardPageDefinition(
     group_id="tours",
     child_order=10,
     page_cls=TourSummaryPage,
-    selectors=(
-        PageSelectorDefinition(
-            selector_id="person_type",
-            widget_attr="ptype_sel",
-            label="Person Type",
-        ),
-    ),
-    export_regions=(
-        PageExportRegionDefinition(
-            region_id="tour_summary_body",
-            view_attr="_body",
-            selector_ids=("person_type",),
-        ),
-    ),
     required_summary_ids=(
         "daily_activity_pattern_by_person_type",
         "mandatory_tour_frequency_by_person_type",
@@ -293,4 +268,3 @@ PAGE = DashboardPageDefinition(
 )
 
 TourSummaryPage.definition = PAGE
-

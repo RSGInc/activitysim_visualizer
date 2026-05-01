@@ -152,7 +152,7 @@ Summary builders should always aggregate `finalweight` rather than switching beh
 | Which summary ids exist? | `processor/summarize/summary_specs.py` |
 | Which output columns are considered canonical? | `processor/summarize/schema.py`, derived from builder contracts |
 | How does a page get discovered? | `dashboard/page_registry.py` |
-| How does export know about page-local selectors? | `dashboard/page_definitions.py`, `dashboard/export/payload.py`, `dashboard/export/serializer.py` |
+| How does export know about page-local selectors? | `dashboard/page_base.py`, `dashboard/export/payload.py`, `dashboard/export/serializer.py` |
 
 For prepare internals, the enrichment package is now split by responsibility:
 

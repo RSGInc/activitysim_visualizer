@@ -7,12 +7,7 @@ import polars as pl
 
 from dashboard.components import density_chart
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import (
-    DashboardPageDefinition,
-    PageExportRegionDefinition,
-    PageSelectorDefinition,
-)
-from runtime.config import Config
+from dashboard.page_definitions import DashboardPageDefinition
 
 
 def _time_label(timebin: int, maxbin: int) -> str:
@@ -29,18 +24,14 @@ def _duration_hours(timebin: int, maxbin: int) -> float:
 
 
 def purpose_options(tod_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
-    """Discover purpose options from TOD summaries."""
     purposes_set = set()
     for _, df in tod_list:
         if len(df) > 0 and "tour_purpose" in df.columns:
-            purposes_set.update(
-                df["tour_purpose"].drop_nulls().cast(pl.Utf8).unique().to_list()
-            )
+            purposes_set.update(df["tour_purpose"].drop_nulls().cast(pl.Utf8).unique().to_list())
     return sorted(str(purpose) for purpose in purposes_set) if purposes_set else []
 
 
 def purpose_mapping(raw_purposes: list[str]) -> tuple[list[str], dict[str, str | None]]:
-    """Build selector display values for tour-purpose summaries."""
     mapping: dict[str, str | None] = {}
     if "all_tour_purposes" in raw_purposes:
         mapping["Total"] = "all_tour_purposes"
@@ -53,7 +44,6 @@ def purpose_mapping(raw_purposes: list[str]) -> tuple[list[str], dict[str, str |
 
 
 def max_timebin(tod_list: list[tuple[str, pl.DataFrame]]) -> int:
-    """Return the maximum available timebin, defaulting to 48."""
     for _, df in tod_list:
         if len(df) > 0 and "time_bin" in df.columns:
             return int(df["time_bin"].max())
@@ -61,7 +51,6 @@ def max_timebin(tod_list: list[tuple[str, pl.DataFrame]]) -> int:
 
 
 def prep_profile(df: pl.DataFrame, purpose: str | None, val_col: str, maxbin: int) -> pl.DataFrame:
-    """Prepare one tour TOD profile for plotting."""
     if purpose is None:
         purpose_col = pl.col("tour_purpose").cast(pl.Utf8)
         selected = (
@@ -91,25 +80,15 @@ def chart_data(
     list[tuple[str, pl.DataFrame]],
     list[tuple[str, pl.DataFrame]],
 ]:
-    """Build departure, arrival, and duration datasets for one purpose."""
     maxbin = max_timebin(tod_list)
-    dep_data = [
-        (label, prep_profile(df, purpose, "departure_tour_count", maxbin))
-        for label, df in tod_list
-    ]
-    arr_data = [
-        (label, prep_profile(df, purpose, "arrival_tour_count", maxbin))
-        for label, df in tod_list
-    ]
+    dep_data = [(label, prep_profile(df, purpose, "departure_tour_count", maxbin)) for label, df in tod_list]
+    arr_data = [(label, prep_profile(df, purpose, "arrival_tour_count", maxbin)) for label, df in tod_list]
     dur_data = [
         (
             label,
             prep_profile(df, purpose, "duration_tour_count", maxbin).with_columns(
                 pl.col("time_bin")
-                .map_elements(
-                    lambda tb: _duration_hours(int(tb), maxbin),
-                    return_dtype=pl.Float64,
-                )
+                .map_elements(lambda tb: _duration_hours(int(tb), maxbin), return_dtype=pl.Float64)
                 .alias("duration_hours")
             ),
         )
@@ -119,20 +98,22 @@ def chart_data(
 
 
 class TourTODPage(DashboardPage):
-    def __init__(self, state, config: Config) -> None:
-        super().__init__("Tour TOD", state, config)
+    def build_page(self) -> pn.viewable.Viewable:
         purp_opts = self._purpose_options()
-        _, self._purpose_to_raw = purpose_mapping(
-            [] if purp_opts == ["Total"] else purp_opts
-        )
+        _, self._purpose_to_raw = purpose_mapping([] if purp_opts == ["Total"] else purp_opts)
         if not self._purpose_to_raw:
             self._purpose_to_raw = {"Total": None}
-        self.purp_sel = pn.widgets.Select(
-            name="Tour Purpose", options=purp_opts, value=purp_opts[0]
+        self.purp_sel = self.selector(
+            "purpose",
+            widget=pn.widgets.Select(name="Tour Purpose", options=purp_opts, value=purp_opts[0]),
+            label="Tour Purpose",
         )
-        self._watch_widget(self.purp_sel)
-        self._body = pn.Column(sizing_mode="stretch_width")
-        self.view = pn.Column(
+        self._body = self.section(
+            "tour_tod_body",
+            selectors=("purpose",),
+            render=self.render_body,
+        )
+        return self.new_section(
             pn.pane.Markdown("## Tour Time of Day"),
             pn.Row(pn.pane.Markdown("**Tour Purpose:**"), self.purp_sel),
             self._body,
@@ -153,16 +134,38 @@ class TourTODPage(DashboardPage):
         )
         if not tod_result.has_usable_runs:
             return ["Total"]
-        raw_purposes = purpose_options(
-            [(label, table) for label, table in tod_result.usable_runs]
-        )
+        raw_purposes = purpose_options([(label, table) for label, table in tod_result.usable_runs])
         options, _ = purpose_mapping(raw_purposes)
         return options or ["Total"]
 
-    def _refresh(self) -> None:
-        if not self.state.run_labels:
-            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
+    def sync_controls(self) -> None:
+        tod_result = self.resolve_summary_visualization(
+            "tour_tod_profiles",
+            summary_requirements={
+                "tour_time_of_day_by_tour_purpose": (
+                    "tour_purpose",
+                    "time_bin",
+                    "departure_tour_count",
+                    "arrival_tour_count",
+                    "duration_tour_count",
+                )
+            },
+        )
+        if not tod_result.has_usable_runs:
             return
+        tod_list = tod_result.usable_by_input["tour_time_of_day_by_tour_purpose"]
+        raw_purposes = purpose_options(tod_list)
+        purp_opts, self._purpose_to_raw = purpose_mapping(raw_purposes)
+        if not purp_opts:
+            purp_opts = ["Total"]
+            self._purpose_to_raw = {"Total": None}
+        self.purp_sel.options = purp_opts
+        if self.purp_sel.value not in purp_opts:
+            self.purp_sel.value = purp_opts[0]
+
+    def render_body(self):
+        if not self.state.run_labels:
+            return [pn.pane.Markdown("No runs loaded.")]
 
         tod_result = self.resolve_summary_visualization(
             "tour_tod_profiles",
@@ -177,22 +180,13 @@ class TourTODPage(DashboardPage):
             },
         )
         if not tod_result.has_usable_runs:
-            self._body.objects = [
+            return [
                 self.unavailable_visualization(
                     tod_result,
                     detail="Tour time-of-day summaries are unavailable.",
                 )
             ]
-            return
         tod_list = tod_result.usable_by_input["tour_time_of_day_by_tour_purpose"]
-        raw_purposes = purpose_options(tod_list)
-        purp_opts, self._purpose_to_raw = purpose_mapping(raw_purposes)
-        if not purp_opts:
-            purp_opts = ["Total"]
-            self._purpose_to_raw = {"Total": None}
-        self.purp_sel.options = purp_opts
-        if self.purp_sel.value not in purp_opts:
-            self.purp_sel.value = purp_opts[0]
         purp = self.purp_sel.value
         raw_purpose = self._purpose_to_raw.get(purp)
 
@@ -212,24 +206,9 @@ class TourTODPage(DashboardPage):
             as_percent=self.as_percent,
         )
         dur_plot.object.update_xaxes(dtick=1, tick0=0, showgrid=True)
-
-        self._body.objects = [
-            density_chart(
-                dep_data,
-                "clock_time",
-                "freq",
-                f"Departure - {purp}",
-                x_label,
-                as_percent=self.as_percent,
-            ),
-            density_chart(
-                arr_data,
-                "clock_time",
-                "freq",
-                f"Arrival - {purp}",
-                x_label,
-                as_percent=self.as_percent,
-            ),
+        return [
+            density_chart(dep_data, "clock_time", "freq", f"Departure - {purp}", x_label, as_percent=self.as_percent),
+            density_chart(arr_data, "clock_time", "freq", f"Arrival - {purp}", x_label, as_percent=self.as_percent),
             dur_plot,
         ]
 
@@ -240,22 +219,7 @@ PAGE = DashboardPageDefinition(
     group_id="tours",
     child_order=20,
     page_cls=TourTODPage,
-    selectors=(
-        PageSelectorDefinition(
-            selector_id="purpose",
-            widget_attr="purp_sel",
-            label="Tour Purpose",
-        ),
-    ),
-    export_regions=(
-        PageExportRegionDefinition(
-            region_id="tour_tod_body",
-            view_attr="_body",
-            selector_ids=("purpose",),
-        ),
-    ),
     required_summary_ids=("tour_time_of_day_by_tour_purpose",),
 )
 
 TourTODPage.definition = PAGE
-

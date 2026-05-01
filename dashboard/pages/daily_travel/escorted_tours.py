@@ -7,12 +7,7 @@ import polars as pl
 
 from dashboard.components import bar_chart, data_table
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import (
-    DashboardPageDefinition,
-    PageExportRegionDefinition,
-    PageSelectorDefinition,
-)
-from runtime.config import Config
+from dashboard.page_definitions import DashboardPageDefinition
 
 
 DIRECTION_COL = "direction"
@@ -56,26 +51,28 @@ def escort_school_chart_data(
     for label, df in _nonempty(data_list):
         df = df.with_columns(pl.col(DIRECTION_COL).cast(pl.Utf8))
         df = df.filter(pl.col(DIRECTION_COL) == direction)
-
         out.append((label, df))
-
     return out
 
 
 class EscortedToursPage(DashboardPage):
-    def __init__(self, state, config: Config) -> None:
-        super().__init__("Escorted Tours", state, config)
-
+    def build_page(self) -> pn.viewable.Viewable:
         direction_opts = self._direction_options()
-        self.direction_sel = pn.widgets.Select(
-            name="Direction",
-            options=direction_opts,
-            value=direction_opts[0],
+        self.direction_sel = self.selector(
+            "direction",
+            widget=pn.widgets.Select(
+                name="Direction",
+                options=direction_opts,
+                value=direction_opts[0],
+            ),
+            label="Direction",
         )
-        self._watch_widget(self.direction_sel)
-
-        self._body = pn.Column(sizing_mode="stretch_width")
-        self.view = pn.Column(
+        self._body = self.section(
+            "escorted_tours_body",
+            selectors=("direction",),
+            render=self.render_body,
+        )
+        return self.new_section(
             pn.pane.Markdown("## Escorted Tours"),
             self._body,
             sizing_mode="stretch_width",
@@ -89,29 +86,31 @@ class EscortedToursPage(DashboardPage):
             return ["Both"]
         return direction_options(data)
 
-    def _refresh(self) -> None:
-        if not self.state.run_labels:
-            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
-            return
-
+    def sync_controls(self) -> None:
         summaries = self.require_summaries(*self.required_summary_ids)
         if summaries is None:
-            self._body.objects = [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
-                )
-            ]
             return
-
-        total_escorted_tours = _nonempty(summaries["escorted_tour_totals"])
-
         direction_opts = direction_options(
             summaries["school_escorted_tours_by_escort_type_and_direction"]
         )
         self.direction_sel.options = direction_opts
         if self.direction_sel.value not in direction_opts:
             self.direction_sel.value = direction_opts[0]
+
+    def render_body(self):
+        if not self.state.run_labels:
+            return [pn.pane.Markdown("No runs loaded.")]
+
+        summaries = self.require_summaries(*self.required_summary_ids)
+        if summaries is None:
+            return [
+                self.data_not_available_card(
+                    detail="This page only renders from precomputed summary tables.",
+                    missing_items=list(self.required_summary_ids),
+                )
+            ]
+
+        total_escorted_tours = _nonempty(summaries["escorted_tour_totals"])
         direction = self.direction_sel.value
         raw_direction = _raw_direction(direction)
 
@@ -128,7 +127,6 @@ class EscortedToursPage(DashboardPage):
             total_escorted_tours,
             "Total Number of Escorted Tours",
         )
-
         school_escort_chart = bar_chart(
             school_escort_data,
             x_col="escort_type",
@@ -140,7 +138,7 @@ class EscortedToursPage(DashboardPage):
             as_percent=self.as_percent,
         )
 
-        self._body.objects = [
+        return [
             pn.Row(
                 total_kpi,
                 pn.Column(
@@ -160,20 +158,6 @@ PAGE = DashboardPageDefinition(
     group_id="daily_travel",
     order=29,
     page_cls=EscortedToursPage,
-    selectors=(
-        PageSelectorDefinition(
-            selector_id="direction",
-            widget_attr="direction_sel",
-            label="Direction",
-        ),
-    ),
-    export_regions=(
-        PageExportRegionDefinition(
-            region_id="escorted_tours_body",
-            view_attr="_body",
-            selector_ids=("direction",),
-        ),
-    ),
     required_summary_ids=(
         "escorted_tour_totals",
         "school_escorted_tours_by_escort_type_and_direction",
@@ -181,4 +165,3 @@ PAGE = DashboardPageDefinition(
 )
 
 EscortedToursPage.definition = PAGE
-

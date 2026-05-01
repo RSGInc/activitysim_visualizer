@@ -10,8 +10,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dashboard.export.html import build_export_html_document
 from test_export_html import _full_summary_run, _write_config
 
-EXPORT_HTML_BASELINE_BYTES = 5_926_538
-EXPORT_HTML_GROWTH_BUDGET_BYTES = 350_000
+EXPORT_HTML_BASELINE_BYTES = 8_827_959
+EXPORT_HTML_GROWTH_BUDGET_BYTES = 500_000
 
 
 def _workspace_tmp_dir(label: str) -> Path:

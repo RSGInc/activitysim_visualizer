@@ -71,9 +71,6 @@ def test_page_registry_exposes_expected_default_definitions() -> None:
     assert page_definition_by_id("tour_summary").group_id == "tours"
     assert not hasattr(page_definition_by_id("tour_summary"), "child_id")
     assert page_definition_by_id("trip_mode").page_cls is not None
-    assert [selector.selector_id for selector in page_definition_by_id("stop_location").selectors] == [
-        "purpose",
-    ]
     assert page_definition_by_id("raw_trip_demo") is not None
     assert page_definition_by_id("raw_trip_demo").default_enabled is False
     assert page_definition_by_id("raw_trip_demo").title == "Prepared Trip Demo"
@@ -258,6 +255,9 @@ def test_build_dashboard_can_refresh_every_default_page_from_precomputed_summari
     )
 
     leaf_pages = {page.page_id(): page for page in template._dashboard_leaf_pages}
+    assert [selector.selector_id for selector in leaf_pages["stop_location"].registered_selectors] == [
+        "purpose",
+    ]
     assert leaf_pages["tour_summary"].ptype_sel.options == ["Total", "worker"]
     assert leaf_pages["joint_travel"].hhsize_sel.options == ["All", "2", "3"]
     assert leaf_pages["tour_tod"].purp_sel.options == ["Total", "work"]

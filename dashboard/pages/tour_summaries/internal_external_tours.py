@@ -7,12 +7,7 @@ import polars as pl
 
 from dashboard.components import data_table
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import (
-    DashboardPageDefinition,
-    PageExportRegionDefinition,
-    PageSelectorDefinition,
-)
-from runtime.config import Config
+from dashboard.page_definitions import DashboardPageDefinition
 
 
 GEO_LEVEL_COL = "geography_level"
@@ -62,24 +57,27 @@ def filter_geo_level(
 
 
 class InternalExternalToursPage(DashboardPage):
-    def __init__(self, state, config: Config) -> None:
-        super().__init__("Internal vs. External Tours", state, config)
-
+    def build_page(self) -> pn.viewable.Viewable:
         geo_data = self.state.get_summary_table_set(
             "internal_external_nonmandatory_tour_frequency_by_home_geography",
             "weighted",
         )
         geo_opts = geo_level_options(geo_data or [])
-
-        self.geo_level_sel = pn.widgets.Select(
-            name="Geography Level",
-            options=geo_opts,
-            value=geo_opts[0],
+        self.geo_level_sel = self.selector(
+            "geography_level",
+            widget=pn.widgets.Select(
+                name="Geography Level",
+                options=geo_opts,
+                value=geo_opts[0],
+            ),
+            label="Geography Level",
         )
-        self._watch_widget(self.geo_level_sel)
-
-        self._body = pn.Column(sizing_mode="stretch_width")
-        self.view = pn.Column(
+        self._body = self.section(
+            "internal_external_tours_body",
+            selectors=("geography_level",),
+            render=self.render_body,
+        )
+        return self.new_section(
             pn.pane.Markdown("## Internal vs. External Tours"),
             pn.Row(
                 pn.pane.Markdown("**Geography Level:**"),
@@ -89,10 +87,29 @@ class InternalExternalToursPage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def _refresh(self) -> None:
+    def sync_controls(self) -> None:
+        int_ext_list = self.optional_summary(
+            "internal_external_nonmandatory_tour_frequency_by_home_geography"
+        )
+        external_loc_list = self.optional_summary("external_nonmandatory_tour_locations")
+        normalized_int_ext = (
+            [(label, _normalize_geography_columns(df)) for label, df in int_ext_list]
+            if int_ext_list is not None
+            else []
+        )
+        normalized_external_loc = (
+            [(label, _normalize_geography_columns(df)) for label, df in external_loc_list]
+            if external_loc_list is not None
+            else []
+        )
+        geo_opts = geo_level_options(normalized_int_ext or normalized_external_loc)
+        self.geo_level_sel.options = geo_opts
+        if self.geo_level_sel.value not in geo_opts:
+            self.geo_level_sel.value = geo_opts[0]
+
+    def render_body(self):
         if not self.state.run_labels:
-            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
-            return
+            return [pn.pane.Markdown("No runs loaded.")]
 
         int_ext_list = self.optional_summary(
             "internal_external_nonmandatory_tour_frequency_by_home_geography"
@@ -109,12 +126,6 @@ class InternalExternalToursPage(DashboardPage):
             if external_loc_list is not None
             else []
         )
-
-        geo_opts = geo_level_options(normalized_int_ext or normalized_external_loc)
-        self.geo_level_sel.options = geo_opts
-        if self.geo_level_sel.value not in geo_opts:
-            self.geo_level_sel.value = geo_opts[0]
-
         geo_level = self.geo_level_sel.value
 
         if normalized_int_ext:
@@ -151,7 +162,7 @@ class InternalExternalToursPage(DashboardPage):
                 missing_items=["external_nonmandatory_tour_locations"],
             )
 
-        self._body.objects = [
+        return [
             pn.Row(
                 int_ext_widget,
                 external_loc_widget,
@@ -166,20 +177,6 @@ PAGE = DashboardPageDefinition(
     group_id="tour_summaries",
     order=46,
     page_cls=InternalExternalToursPage,
-    selectors=(
-        PageSelectorDefinition(
-            selector_id="geography_level",
-            widget_attr="geo_level_sel",
-            label="Geography Level",
-        ),
-    ),
-    export_regions=(
-        PageExportRegionDefinition(
-            region_id="internal_external_tours_body",
-            view_attr="_body",
-            selector_ids=("geography_level",),
-        ),
-    ),
     required_summary_ids=(
         "internal_external_nonmandatory_tour_frequency_by_home_geography",
         "external_nonmandatory_tour_locations",
@@ -187,4 +184,3 @@ PAGE = DashboardPageDefinition(
 )
 
 InternalExternalToursPage.definition = PAGE
-

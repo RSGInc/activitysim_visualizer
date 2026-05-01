@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from itertools import product
+import json
 from typing import Any
 
 from activitysim_viz_logging import get_logger
@@ -18,7 +19,9 @@ from dashboard import DashboardState
 from dashboard.export.context import ExportBuildContext
 from dashboard.export.protocols import validate_export_page
 from dashboard.export.serializer import (
+    json_default,
     page_definition_for_page,
+    sanitize_export_payload,
     serialize_viewable,
     variant_key,
 )
@@ -48,6 +51,12 @@ from processor.summarize.cache import SummaryRun
 from runtime.config import Config, ExportSelectorRequest
 
 LOGGER = get_logger("dashboard.export")
+
+TOTAL_PAYLOAD_WARNING_BYTES = 100 * 1024 * 1024
+TOTAL_PAYLOAD_STRONG_WARNING_BYTES = 250 * 1024 * 1024
+PAGE_WARNING_BYTES = 10 * 1024 * 1024
+STATIC_REGION_WARNING_BYTES = 5 * 1024 * 1024
+SELECTOR_REGION_WARNING_BYTES = 1 * 1024 * 1024
 
 
 class _RuntimeExportPart:
@@ -191,10 +200,12 @@ def build_export_artifacts(
         },
         "client_runtime": EXPORT_CLIENT_RUNTIME,
     }
+    size_analysis = analyze_export_payload_size(payload)
     diagnostics = {
         "schema_version": 1,
         "title": config.dashboard_title,
         "states": diagnostics_by_state,
+        "size_analysis": size_analysis,
     }
     return payload, diagnostics
 
@@ -207,6 +218,213 @@ def build_export_payload(
     """Build the client-side payload consumed by the export runtime."""
     payload, _ = build_export_artifacts(runs, config, summary_runs=summary_runs)
     return payload
+
+
+def analyze_export_payload_size(payload: ExportPayload) -> dict[str, Any]:
+    """Return JSON-size diagnostics for one serialized export payload."""
+    states = payload.get("states", {})
+    states_analysis: dict[str, Any] = {}
+    page_peaks: dict[str, dict[str, Any]] = {}
+    region_peaks: dict[str, dict[str, Any]] = {}
+
+    for export_state_key, state_payload in states.items():
+        state_bytes = _estimate_json_bytes(state_payload)
+        pages_analysis: dict[str, Any] = {}
+        for page_id, page_payload in state_payload.items():
+            page_bytes = _estimate_json_bytes(page_payload)
+            regions = _collect_region_size_metrics(page_payload)
+            pages_analysis[page_id] = {
+                "payload_bytes": page_bytes,
+                "regions": regions,
+            }
+
+            current_page_peak = page_peaks.get(page_id)
+            if current_page_peak is None or page_bytes > current_page_peak["payload_bytes"]:
+                page_peaks[page_id] = {
+                    "state_key": export_state_key,
+                    "payload_bytes": page_bytes,
+                }
+
+            page_region_peaks = region_peaks.setdefault(page_id, {})
+            for region_id, region_metrics in regions.items():
+                current_region_peak = page_region_peaks.get(region_id)
+                if (
+                    current_region_peak is None
+                    or region_metrics["total_bytes"] > current_region_peak["total_bytes"]
+                ):
+                    page_region_peaks[region_id] = {
+                        "state_key": export_state_key,
+                        **region_metrics,
+                    }
+
+        states_analysis[export_state_key] = {
+            "payload_bytes": state_bytes,
+            "pages": pages_analysis,
+        }
+
+    return {
+        "warning_thresholds": {
+            "total_payload_bytes": TOTAL_PAYLOAD_WARNING_BYTES,
+            "strong_total_payload_bytes": TOTAL_PAYLOAD_STRONG_WARNING_BYTES,
+            "page_payload_bytes": PAGE_WARNING_BYTES,
+            "static_region_bytes": STATIC_REGION_WARNING_BYTES,
+            "selector_region_bytes": SELECTOR_REGION_WARNING_BYTES,
+        },
+        "total_payload_bytes": _estimate_json_bytes(payload),
+        "state_count": len(states_analysis),
+        "states": states_analysis,
+        "page_peaks": {
+            page_id: page_peaks[page_id]
+            for page_id in sorted(
+                page_peaks,
+                key=lambda item: (
+                    page_peaks[item]["payload_bytes"],
+                    item,
+                ),
+                reverse=True,
+            )
+        },
+        "region_peaks": {
+            page_id: {
+                region_id: page_regions[region_id]
+                for region_id in sorted(
+                    page_regions,
+                    key=lambda item: (
+                        page_regions[item]["total_bytes"],
+                        item,
+                    ),
+                    reverse=True,
+                )
+            }
+            for page_id, page_regions in sorted(region_peaks.items())
+        },
+    }
+
+
+def emit_export_size_warnings(size_analysis: dict[str, Any] | None) -> None:
+    """Log targeted warnings when one export payload is estimated to be large."""
+    if not size_analysis:
+        return
+
+    total_payload_bytes = int(size_analysis.get("total_payload_bytes", 0))
+    state_count = int(size_analysis.get("state_count", 0))
+    if total_payload_bytes >= TOTAL_PAYLOAD_STRONG_WARNING_BYTES:
+        LOGGER.warning(
+            "Warning: HTML export payload is estimated at %s across %d dashboard states before Plotly JS. "
+            "The final file may be very large and slow to open because weighting/value states are serialized separately.",
+            _format_bytes_as_mib(total_payload_bytes),
+            state_count,
+        )
+    elif total_payload_bytes >= TOTAL_PAYLOAD_WARNING_BYTES:
+        LOGGER.warning(
+            "Warning: HTML export payload is estimated at %s across %d dashboard states before Plotly JS. "
+            "The final file may be large because weighting/value states are serialized separately.",
+            _format_bytes_as_mib(total_payload_bytes),
+            state_count,
+        )
+
+    page_peaks = size_analysis.get("page_peaks", {})
+    region_peaks = size_analysis.get("region_peaks", {})
+    for page_id, page_peak in page_peaks.items():
+        page_payload_bytes = int(page_peak.get("payload_bytes", 0))
+        if page_payload_bytes < PAGE_WARNING_BYTES:
+            continue
+        LOGGER.warning(
+            "Warning: HTML export page %s contributes about %s in state %s.",
+            page_id,
+            _format_bytes_as_mib(page_payload_bytes),
+            page_peak.get("state_key", "<unknown>"),
+        )
+
+        page_regions = region_peaks.get(page_id, {})
+        for region_id, region_peak in page_regions.items():
+            region_total_bytes = int(region_peak.get("total_bytes", 0))
+            variant_count = int(region_peak.get("variant_count", 0))
+            selector_ids = [str(item) for item in region_peak.get("selector_ids", [])]
+            page_def = page_definition_by_id(page_id)
+            config_hint = _export_part_disable_hint(page_def, region_id)
+            if variant_count == 0 and region_total_bytes >= STATIC_REGION_WARNING_BYTES:
+                LOGGER.warning(
+                    "Warning: HTML export page %s is large because region %s contributes about %s per state with no selector variants. "
+                    "Consider disabling this export part with %s.",
+                    page_id,
+                    region_id,
+                    _format_bytes_as_mib(region_total_bytes),
+                    config_hint,
+                )
+                continue
+            if _selector_region_warning_applies(region_peak):
+                LOGGER.warning(
+                    "Warning: HTML export page %s expands region %s to %d selector combinations (selectors: %s), contributing about %s per state. "
+                    "Consider exporting default selector values or disabling this export part with %s.",
+                    page_id,
+                    region_id,
+                    variant_count,
+                    ", ".join(selector_ids) if selector_ids else "<none>",
+                    _format_bytes_as_mib(region_total_bytes),
+                    config_hint,
+                )
+
+
+def _estimate_json_bytes(value: Any) -> int:
+    sanitized = sanitize_export_payload(value)
+    return len(
+        json.dumps(
+            sanitized,
+            default=json_default,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+
+
+def _collect_region_size_metrics(node: Any) -> dict[str, dict[str, Any]]:
+    metrics: dict[str, dict[str, Any]] = {}
+
+    if isinstance(node, dict):
+        if node.get("kind") == "region":
+            region_id = str(node.get("region_id", "<unknown>"))
+            default_content = node.get("default_content")
+            variants = node.get("variants", {})
+            default_content_bytes = _estimate_json_bytes(default_content)
+            variants_bytes = _estimate_json_bytes(variants)
+            metrics[region_id] = {
+                "selector_ids": [str(item) for item in node.get("selector_ids", [])],
+                "variant_count": len(variants),
+                "default_content_bytes": default_content_bytes,
+                "variants_bytes": variants_bytes,
+                "total_bytes": default_content_bytes + variants_bytes,
+            }
+        for value in node.values():
+            metrics.update(_collect_region_size_metrics(value))
+    elif isinstance(node, list):
+        for item in node:
+            metrics.update(_collect_region_size_metrics(item))
+
+    return metrics
+
+
+def _selector_region_warning_applies(region_peak: dict[str, Any]) -> bool:
+    variant_count = int(region_peak.get("variant_count", 0))
+    selector_ids = region_peak.get("selector_ids", [])
+    total_bytes = int(region_peak.get("total_bytes", 0))
+    return total_bytes >= SELECTOR_REGION_WARNING_BYTES and (
+        variant_count >= 10 or (len(selector_ids) > 1 and variant_count > 1)
+    )
+
+
+def _format_bytes_as_mib(num_bytes: int) -> str:
+    return f"{num_bytes / (1024 * 1024):.1f} MiB"
+
+
+def _export_part_disable_hint(
+    page_def: DashboardPageDefinition | None,
+    part_id: str,
+) -> str:
+    page_key = _page_config_key(page_def)
+    return (
+        f"visualizer.export_html.pages.{page_key}.parts.{part_id}.enabled: false"
+    )
 
 
 def serialize_dashboard_state(

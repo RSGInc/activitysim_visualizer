@@ -376,7 +376,7 @@ def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
 
     return (
         pl.concat([dense_by_purpose, dense_total], how="vertical")
-        .select("tour_purpose", "distance_bin", "stop_count")
+        .select("distance_bin", "tour_purpose", "stop_count")
         .sort(["tour_purpose", "distance_bin"])
     )
 

@@ -7,16 +7,10 @@ import polars as pl
 
 from dashboard.components import density_chart
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import (
-    DashboardPageDefinition,
-    PageExportRegionDefinition,
-    PageSelectorDefinition,
-)
-from runtime.config import Config
+from dashboard.page_definitions import DashboardPageDefinition
 
 
 def purpose_options(loc_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
-    """Collect purpose options from stop-location summaries."""
     purposes_set = set()
     for _, df in loc_list:
         if len(df) > 0 and "tour_purpose" in df.columns:
@@ -27,7 +21,6 @@ def purpose_options(loc_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
 
 
 def purpose_mapping(raw_purposes: list[str]) -> tuple[list[str], dict[str, str | None]]:
-    """Build selector display values for stop-location summaries."""
     mapping: dict[str, str | None] = {}
     if "all_tour_purposes" in raw_purposes:
         mapping["Total"] = "all_tour_purposes"
@@ -43,7 +36,6 @@ def chart_data(
     loc_list: list[tuple[str, pl.DataFrame]],
     purpose: str | None,
 ) -> list[tuple[str, pl.DataFrame]]:
-    """Build stop-location comparison data for the selected purpose."""
     if purpose is None:
         all_data: list[tuple[str, pl.DataFrame]] = []
         for label, df in loc_list:
@@ -61,9 +53,7 @@ def chart_data(
             else:
                 all_df = (
                     df.filter(
-                        ~pl.col("tour_purpose")
-                        .cast(pl.Utf8)
-                        .is_in(["all_tour_purposes", "Total"])
+                        ~pl.col("tour_purpose").cast(pl.Utf8).is_in(["all_tour_purposes", "Total"])
                     )
                     .group_by("distance_bin")
                     .agg(pl.col("stop_count").sum().alias("stop_count"))
@@ -85,20 +75,26 @@ def chart_data(
 
 
 class StopLocationPage(DashboardPage):
-    def __init__(self, state, config: Config) -> None:
-        super().__init__("Stop Location", state, config)
+    def build_page(self) -> pn.viewable.Viewable:
         purp_opts = self._purpose_options()
-        _, self._purpose_to_raw = purpose_mapping(
-            [] if purp_opts == ["Total"] else purp_opts
-        )
+        _, self._purpose_to_raw = purpose_mapping([] if purp_opts == ["Total"] else purp_opts)
         if not self._purpose_to_raw:
             self._purpose_to_raw = {"Total": None}
-        self.purp_sel = pn.widgets.Select(
-            name="Tour Purpose", options=purp_opts, value=purp_opts[0]
+        self.purp_sel = self.selector(
+            "purpose",
+            widget=pn.widgets.Select(
+                name="Tour Purpose",
+                options=purp_opts,
+                value=purp_opts[0],
+            ),
+            label="Tour Purpose",
         )
-        self._watch_widget(self.purp_sel)
-        self._body = pn.Column(sizing_mode="stretch_width")
-        self.view = pn.Column(
+        self._body = self.section(
+            "stop_location_body",
+            selectors=("purpose",),
+            render=self.render_body,
+        )
+        return self.new_section(
             pn.pane.Markdown("## Stop Location"),
             pn.Row(pn.pane.Markdown("**Tour Purpose:**"), self.purp_sel),
             self._body,
@@ -113,16 +109,36 @@ class StopLocationPage(DashboardPage):
         )
         if not loc_result.has_usable_runs:
             return ["Total"]
-        raw_purposes = purpose_options(
-            [(label, table) for label, table in loc_result.usable_runs]
-        )
+        raw_purposes = purpose_options([(label, table) for label, table in loc_result.usable_runs])
         options, _ = purpose_mapping(raw_purposes)
         return options or ["Total"]
 
-    def _refresh(self) -> None:
-        if not self.state.run_labels:
-            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
+    def sync_controls(self) -> None:
+        loc_result = self.resolve_summary_visualization(
+            "stop_location_distance",
+            summary_requirements={
+                "stop_out_of_direction_distance_by_tour_purpose": (
+                    "tour_purpose",
+                    "distance_bin",
+                    "stop_count",
+                )
+            },
+        )
+        if not loc_result.has_usable_runs:
             return
+        loc_list = loc_result.usable_by_input["stop_out_of_direction_distance_by_tour_purpose"]
+        raw_purposes = purpose_options(loc_list)
+        purp_opts, self._purpose_to_raw = purpose_mapping(raw_purposes)
+        if not purp_opts:
+            purp_opts = ["Total"]
+            self._purpose_to_raw = {"Total": None}
+        self.purp_sel.options = purp_opts
+        if self.purp_sel.value not in purp_opts:
+            self.purp_sel.value = purp_opts[0]
+
+    def render_body(self):
+        if not self.state.run_labels:
+            return [pn.pane.Markdown("No runs loaded.")]
 
         loc_result = self.resolve_summary_visualization(
             "stop_location_distance",
@@ -135,30 +151,17 @@ class StopLocationPage(DashboardPage):
             },
         )
         if not loc_result.has_usable_runs:
-            self._body.objects = [
+            return [
                 self.unavailable_visualization(
                     loc_result,
                     detail="Stop location summaries are unavailable.",
                 )
             ]
-            return
 
-        loc_list = loc_result.usable_by_input[
-            "stop_out_of_direction_distance_by_tour_purpose"
-        ]
+        loc_list = loc_result.usable_by_input["stop_out_of_direction_distance_by_tour_purpose"]
         purp = self.purp_sel.value
-        raw_purposes = purpose_options(loc_list)
-        purp_opts, self._purpose_to_raw = purpose_mapping(raw_purposes)
-        if not purp_opts:
-            purp_opts = ["Total"]
-            self._purpose_to_raw = {"Total": None}
-        self.purp_sel.options = purp_opts
-        if self.purp_sel.value not in purp_opts:
-            self.purp_sel.value = purp_opts[0]
-            purp = self.purp_sel.value
         raw_purpose = self._purpose_to_raw.get(purp)
-
-        self._body.objects = [
+        return [
             density_chart(
                 self.get_filtered_view(
                     "stop_location",
@@ -182,22 +185,7 @@ PAGE = DashboardPageDefinition(
     group_id="stops",
     child_order=20,
     page_cls=StopLocationPage,
-    selectors=(
-        PageSelectorDefinition(
-            selector_id="purpose",
-            widget_attr="purp_sel",
-            label="Tour Purpose",
-        ),
-    ),
-    export_regions=(
-        PageExportRegionDefinition(
-            region_id="stop_location_body",
-            view_attr="_body",
-            selector_ids=("purpose",),
-        ),
-    ),
     required_summary_ids=("stop_out_of_direction_distance_by_tour_purpose",),
 )
 
 StopLocationPage.definition = PAGE
-

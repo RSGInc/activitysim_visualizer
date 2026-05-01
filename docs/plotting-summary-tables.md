@@ -54,7 +54,7 @@ Most pages follow the same sequence:
 3. Cache selector-dependent reshaping with `get_filtered_view(...)` when useful.
 4. Pass the prepared data into `bar_chart(...)` or `density_chart(...)`.
 
-The dashboard examples in `dashboard/pages/overview.py`, `dashboard/pages/long_term.py`, `dashboard/pages/tour_mode.py`, and `dashboard/pages/tour_tod.py` all follow this pattern.
+The dashboard examples in `dashboard/pages/overview.py`, `dashboard/pages/long_term_choices/mandatory_location_choice.py`, `dashboard/pages/tour_summaries/tour_mode.py`, and `dashboard/pages/tours/tod.py` all follow this pattern.
 
 ## Plot Type 1: Categorical Bar Charts
 
@@ -108,7 +108,7 @@ This is a good fit when you only need to:
 
 If a page has a selector such as purpose or geography, filter the table before plotting.
 
-Example pattern from `dashboard/pages/tour_mode.py`:
+Example pattern from `dashboard/pages/tour_summaries/tour_mode.py`:
 
 ```python
 df.filter(pl.col("tour_purpose").cast(pl.Utf8) == purpose).select(
@@ -122,7 +122,7 @@ This is the standard approach when the summary is long-form and one selector val
 
 Some pages define a synthetic "Total" by filtering out pre-aggregated rows and summing the detailed rows.
 
-Example pattern from `dashboard/pages/tour_mode.py`:
+Example pattern from `dashboard/pages/tour_summaries/tour_mode.py`:
 
 ```python
 purpose_col = pl.col("tour_purpose").cast(pl.Utf8)
@@ -191,7 +191,7 @@ density_chart(
 
 Unlike simple bar charts, distribution plots usually need a meaningful order. The page should sort before passing data to the chart helper.
 
-Example pattern from `dashboard/pages/long_term.py`:
+Example pattern from `dashboard/pages/long_term_choices/mandatory_location_choice.py`:
 
 ```python
 df.filter(pl.col("geography") == geography).select(
@@ -206,7 +206,7 @@ If you do not sort, Plotly will use the row order it receives.
 
 When several charts use different measure columns from the same summary, it is often easier to rename the selected measure to one shared plotting name.
 
-Example pattern from `dashboard/pages/tour_tod.py`:
+Example pattern from `dashboard/pages/tours/tod.py`:
 
 ```python
 df.filter(pl.col("tour_purpose").cast(pl.Utf8) == purpose).select(
@@ -220,7 +220,7 @@ This makes the chart call simpler because every downstream chart can use `y_col=
 
 Many summary tables use coded bins that should not be shown directly.
 
-Example pattern from `dashboard/pages/tour_tod.py`:
+Example pattern from `dashboard/pages/tours/tod.py`:
 
 ```python
 selected.with_columns(
@@ -242,7 +242,7 @@ The key idea is that the page owns display-friendly reshaping, while `density_ch
 
 Sometimes one summary table powers several related charts. In those cases, prepare all chart datasets in one helper and return them together.
 
-Example pattern from `dashboard/pages/tour_tod.py`:
+Example pattern from `dashboard/pages/tours/tod.py`:
 
 ```python
 def chart_data(tod_list, purpose):
@@ -394,9 +394,9 @@ These files are especially useful references:
 
 - `dashboard/components.py`: shared chart APIs and layout behavior
 - `dashboard/pages/overview.py`: simple chart-ready summary tables
-- `dashboard/pages/long_term.py`: geography filtering and TLFD plots
-- `dashboard/pages/tour_mode.py`: selector-driven filtering and dynamic totals
-- `dashboard/pages/tour_tod.py`: profile plots, relabeling bins, and multi-chart caching
+- `dashboard/pages/long_term_choices/mandatory_location_choice.py`: geography filtering and TLFD-style plots
+- `dashboard/pages/tour_summaries/tour_mode.py`: selector-driven filtering and dynamic totals
+- `dashboard/pages/tours/tod.py`: profile plots, relabeling bins, and multi-chart caching
 
 If you are deciding where a transformation belongs, a good rule is:
 

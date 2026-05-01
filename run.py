@@ -261,7 +261,9 @@ def main() -> None:
             )
 
         requires_prepared_data = dashboard_requirements.prepared_data_mode != "none"
-        if requires_prepared_data:
+        if requires_prepared_data and args.from_csvs is not None and args.export_html:
+            prepared_runs = []
+        elif requires_prepared_data:
             existing_prepared_runs_by_key = (
                 processor_result.prepared_runs_by_key
                 if processor_result is not None

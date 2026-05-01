@@ -7,12 +7,7 @@ import polars as pl
 
 from dashboard.components import density_chart
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import (
-    DashboardPageDefinition,
-    PageExportRegionDefinition,
-    PageSelectorDefinition,
-)
-from runtime.config import Config
+from dashboard.page_definitions import DashboardPageDefinition
 
 
 def _time_label(timebin: int, maxbin: int) -> str:
@@ -24,7 +19,6 @@ def _time_label(timebin: int, maxbin: int) -> str:
 
 
 def purpose_options(timing_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
-    """Collect purpose options from stop-timing summaries."""
     purposes_set = set()
     for _, df in timing_list:
         if len(df) > 0 and "tour_purpose" in df.columns:
@@ -35,7 +29,6 @@ def purpose_options(timing_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
 
 
 def purpose_mapping(raw_purposes: list[str]) -> tuple[list[str], dict[str, str]]:
-    """Build selector display values for stop-timing summaries."""
     mapping: dict[str, str] = {}
     if "all_tour_purposes" in raw_purposes:
         mapping["Total"] = "all_tour_purposes"
@@ -46,7 +39,6 @@ def purpose_mapping(raw_purposes: list[str]) -> tuple[list[str], dict[str, str]]
 
 
 def max_timebin(timing_list: list[tuple[str, pl.DataFrame]]) -> int:
-    """Return the maximum available timebin, defaulting to 48."""
     for _, df in timing_list:
         if len(df) > 0 and "time_bin" in df.columns:
             return int(df["time_bin"].max())
@@ -59,7 +51,6 @@ def prep_profile(
     purpose: str,
     maxbin: int,
 ) -> pl.DataFrame:
-    """Prepare one timing profile for plotting."""
     return (
         df.filter(pl.col("tour_purpose") == purpose)
         .select(["time_bin", val_col])
@@ -76,34 +67,33 @@ def chart_data(
     timing_list: list[tuple[str, pl.DataFrame]],
     purpose: str,
 ) -> tuple[list[tuple[str, pl.DataFrame]], list[tuple[str, pl.DataFrame]]]:
-    """Build stop- and trip-departure profile datasets."""
     maxbin = max_timebin(timing_list)
-    stop_dep = [
-        (label, prep_profile(df, "departure_stop_count", purpose, maxbin))
-        for label, df in timing_list
-    ]
-    trip_dep = [
-        (label, prep_profile(df, "departure_trip_count", purpose, maxbin))
-        for label, df in timing_list
-    ]
+    stop_dep = [(label, prep_profile(df, "departure_stop_count", purpose, maxbin)) for label, df in timing_list]
+    trip_dep = [(label, prep_profile(df, "departure_trip_count", purpose, maxbin)) for label, df in timing_list]
     return stop_dep, trip_dep
 
 
 class StopTimingPage(DashboardPage):
-    def __init__(self, state, config: Config) -> None:
-        super().__init__("Stop Timing", state, config)
+    def build_page(self) -> pn.viewable.Viewable:
         purp_opts = self._purpose_options() or ["Total"]
-        _, self._purpose_to_raw = purpose_mapping(
-            [] if purp_opts == ["Total"] else purp_opts
-        )
+        _, self._purpose_to_raw = purpose_mapping([] if purp_opts == ["Total"] else purp_opts)
         if not self._purpose_to_raw:
             self._purpose_to_raw = {option: option for option in purp_opts}
-        self.purp_sel = pn.widgets.Select(
-            name="Tour Purpose", options=purp_opts, value=purp_opts[0]
+        self.purp_sel = self.selector(
+            "purpose",
+            widget=pn.widgets.Select(
+                name="Tour Purpose",
+                options=purp_opts,
+                value=purp_opts[0],
+            ),
+            label="Tour Purpose",
         )
-        self._watch_widget(self.purp_sel)
-        self._body = pn.Column(sizing_mode="stretch_width")
-        self.view = pn.Column(
+        self._body = self.section(
+            "stop_timing_body",
+            selectors=("purpose",),
+            render=self.render_body,
+        )
+        return self.new_section(
             pn.pane.Markdown("## Stop Timing"),
             pn.Row(pn.pane.Markdown("**Tour Purpose:**"), self.purp_sel),
             self._body,
@@ -123,18 +113,41 @@ class StopTimingPage(DashboardPage):
         )
         if not timing_result.has_usable_runs:
             return ["Total"]
-        raw_purposes = purpose_options(
-            [(label, table) for label, table in timing_result.usable_runs]
-        )
+        raw_purposes = purpose_options([(label, table) for label, table in timing_result.usable_runs])
         options, _ = purpose_mapping(raw_purposes)
         return options or sorted(
             purpose for purpose in raw_purposes if purpose != "all_tour_purposes"
         )
 
-    def _refresh(self) -> None:
-        if not self.state.run_labels:
-            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
+    def sync_controls(self) -> None:
+        timing_result = self.resolve_summary_visualization(
+            "stop_timing_profiles",
+            summary_requirements={
+                "trip_departure_time_by_purpose": (
+                    "tour_purpose",
+                    "time_bin",
+                    "departure_stop_count",
+                    "departure_trip_count",
+                )
+            },
+        )
+        if not timing_result.has_usable_runs:
             return
+        timing_list = timing_result.usable_by_input["trip_departure_time_by_purpose"]
+        raw_purposes = purpose_options(timing_list)
+        purp_opts, self._purpose_to_raw = purpose_mapping(raw_purposes)
+        if not purp_opts:
+            purp_opts = sorted(
+                purpose for purpose in raw_purposes if purpose != "all_tour_purposes"
+            )
+            self._purpose_to_raw = {purpose: purpose for purpose in purp_opts}
+        self.purp_sel.options = purp_opts
+        if self.purp_sel.value not in purp_opts:
+            self.purp_sel.value = purp_opts[0]
+
+    def render_body(self):
+        if not self.state.run_labels:
+            return [pn.pane.Markdown("No runs loaded.")]
 
         timing_result = self.resolve_summary_visualization(
             "stop_timing_profiles",
@@ -148,29 +161,16 @@ class StopTimingPage(DashboardPage):
             },
         )
         if not timing_result.has_usable_runs:
-            self._body.objects = [
+            return [
                 self.unavailable_visualization(
                     timing_result,
                     detail="Stop timing summaries are unavailable.",
                 )
             ]
-            return
 
         timing_list = timing_result.usable_by_input["trip_departure_time_by_purpose"]
         purp = self.purp_sel.value
-        raw_purposes = purpose_options(timing_list)
-        purp_opts, self._purpose_to_raw = purpose_mapping(raw_purposes)
-        if not purp_opts:
-            purp_opts = sorted(
-                purpose for purpose in raw_purposes if purpose != "all_tour_purposes"
-            )
-            self._purpose_to_raw = {purpose: purpose for purpose in purp_opts}
-        self.purp_sel.options = purp_opts
-        if self.purp_sel.value not in purp_opts:
-            self.purp_sel.value = purp_opts[0]
-            purp = self.purp_sel.value
         raw_purpose = self._purpose_to_raw.get(purp, purp)
-
         stop_dep, trip_dep = self.get_filtered_view(
             "stop_timing",
             raw_purpose,
@@ -178,8 +178,7 @@ class StopTimingPage(DashboardPage):
             factory=lambda: chart_data(timing_list, str(raw_purpose)),
         )
         x_label = "Clock time (start at 03:00)"
-
-        self._body.objects = [
+        return [
             density_chart(
                 trip_dep,
                 "clock_time",
@@ -205,22 +204,7 @@ PAGE = DashboardPageDefinition(
     group_id="stops",
     child_order=30,
     page_cls=StopTimingPage,
-    selectors=(
-        PageSelectorDefinition(
-            selector_id="purpose",
-            widget_attr="purp_sel",
-            label="Tour Purpose",
-        ),
-    ),
-    export_regions=(
-        PageExportRegionDefinition(
-            region_id="stop_timing_body",
-            view_attr="_body",
-            selector_ids=("purpose",),
-        ),
-    ),
     required_summary_ids=("trip_departure_time_by_purpose",),
 )
 
 StopTimingPage.definition = PAGE
-

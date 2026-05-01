@@ -7,16 +7,10 @@ import polars as pl
 
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import (
-    DashboardPageDefinition,
-    PageExportRegionDefinition,
-    PageSelectorDefinition,
-)
-from runtime.config import Config
+from dashboard.page_definitions import DashboardPageDefinition
 
 
 def purpose_options(mode_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
-    """Collect available purposes across all runs."""
     purpose_set = set()
     for _, df in mode_list:
         if len(df) > 0 and "tour_purpose" in df.columns:
@@ -25,7 +19,6 @@ def purpose_options(mode_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
 
 
 def purpose_mapping(raw_purposes: list[str]) -> tuple[list[str], dict[str, str | None]]:
-    """Build selector display values for tour-purpose summaries."""
     mapping: dict[str, str | None] = {}
     if "all_tour_purposes" in raw_purposes:
         mapping["Total"] = "all_tour_purposes"
@@ -42,7 +35,6 @@ def charts_by_column(
     purpose: str | None,
     columns: list[str] | None = None,
 ) -> dict[str, list[tuple[str, pl.DataFrame]]]:
-    """Build chart-ready mode datasets for the selected purpose."""
     columns = columns or [
         "tour_count_all_households",
         "tour_count_zero_auto",
@@ -66,30 +58,28 @@ def charts_by_column(
         )
 
     return {
-        col: [
-            (label, filtered_df(df, col))
-            for label, df in mode_list
-            if col in df.columns
-        ]
+        col: [(label, filtered_df(df, col)) for label, df in mode_list if col in df.columns]
         for col in columns
     }
 
 
 class TourModePage(DashboardPage):
-    def __init__(self, state, config: Config) -> None:
-        super().__init__("Tour Mode", state, config)
+    def build_page(self) -> pn.viewable.Viewable:
         total_opts = self._purpose_options()
-        _, self._purpose_to_raw = purpose_mapping(
-            [] if total_opts == ["Total"] else total_opts
-        )
+        _, self._purpose_to_raw = purpose_mapping([] if total_opts == ["Total"] else total_opts)
         if not self._purpose_to_raw:
             self._purpose_to_raw = {"Total": None}
-        self.purp_sel = pn.widgets.Select(
-            name="Tour Purpose", options=total_opts, value=total_opts[0]
+        self.purp_sel = self.selector(
+            "purpose",
+            widget=pn.widgets.Select(name="Tour Purpose", options=total_opts, value=total_opts[0]),
+            label="Tour Purpose",
         )
-        self._watch_widget(self.purp_sel)
-        self._body = pn.Column(sizing_mode="stretch_width")
-        self.view = pn.Column(
+        self._body = self.section(
+            "tours_mode_body",
+            selectors=("purpose",),
+            render=self.render_body,
+        )
+        return self.new_section(
             pn.pane.Markdown("## Tour Mode Choice"),
             pn.Row(pn.pane.Markdown("**Tour Purpose:**"), self.purp_sel),
             self._body,
@@ -111,16 +101,39 @@ class TourModePage(DashboardPage):
         )
         if not mode_result.has_usable_runs:
             return ["Total"]
-        raw_purposes = purpose_options(
-            [(label, table) for label, table in mode_result.usable_runs]
-        )
+        raw_purposes = purpose_options([(label, table) for label, table in mode_result.usable_runs])
         options, _ = purpose_mapping(raw_purposes)
         return options or ["Total"]
 
-    def _refresh(self) -> None:
-        if not self.state.run_labels:
-            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
+    def sync_controls(self) -> None:
+        mode_result = self.resolve_summary_visualization(
+            "tour_mode_auto_sufficiency",
+            summary_requirements={
+                "tour_mode_by_tour_purpose_and_auto_sufficiency": (
+                    "tour_purpose",
+                    "tour_mode",
+                    "tour_count_all_households",
+                    "tour_count_zero_auto",
+                    "tour_count_auto_deficient",
+                    "tour_count_auto_sufficient",
+                )
+            },
+        )
+        if not mode_result.has_usable_runs:
             return
+        mode_list = mode_result.usable_by_input["tour_mode_by_tour_purpose_and_auto_sufficiency"]
+        raw_purposes = purpose_options(mode_list)
+        purp_opts, self._purpose_to_raw = purpose_mapping(raw_purposes)
+        if not purp_opts:
+            purp_opts = ["Total"]
+            self._purpose_to_raw = {"Total": None}
+        self.purp_sel.options = purp_opts
+        if self.purp_sel.value not in purp_opts:
+            self.purp_sel.value = purp_opts[0]
+
+    def render_body(self):
+        if not self.state.run_labels:
+            return [pn.pane.Markdown("No runs loaded.")]
 
         mode_result = self.resolve_summary_visualization(
             "tour_mode_auto_sufficiency",
@@ -136,25 +149,14 @@ class TourModePage(DashboardPage):
             },
         )
         if not mode_result.has_usable_runs:
-            self._body.objects = [
+            return [
                 self.unavailable_visualization(
                     mode_result,
                     detail="Tour mode summaries are unavailable.",
                 )
             ]
-            return
 
-        mode_list = mode_result.usable_by_input[
-            "tour_mode_by_tour_purpose_and_auto_sufficiency"
-        ]
-        raw_purposes = purpose_options(mode_list)
-        purp_opts, self._purpose_to_raw = purpose_mapping(raw_purposes)
-        if not purp_opts:
-            purp_opts = ["Total"]
-            self._purpose_to_raw = {"Total": None}
-        self.purp_sel.options = purp_opts
-        if self.purp_sel.value not in purp_opts:
-            self.purp_sel.value = purp_opts[0]
+        mode_list = mode_result.usable_by_input["tour_mode_by_tour_purpose_and_auto_sufficiency"]
         purp = self.purp_sel.value
         raw_purpose = self._purpose_to_raw.get(purp)
 
@@ -166,9 +168,8 @@ class TourModePage(DashboardPage):
         )
 
         def make_chart(col: str, title: str):
-            data = charts_by_col[col]
             return bar_chart(
-                data,
+                charts_by_col[col],
                 x_col="tour_mode",
                 y_col=col,
                 title=title,
@@ -176,7 +177,7 @@ class TourModePage(DashboardPage):
                 as_percent=self.as_percent,
             )
 
-        body = [
+        body: list[pn.viewable.Viewable] = [
             pn.Row(
                 make_chart("tour_count_all_households", "All Households"),
                 make_chart("tour_count_zero_auto", "Zero Autos"),
@@ -190,14 +191,10 @@ class TourModePage(DashboardPage):
         if self.config.mode_groups:
             grouped_result = self.resolve_summary_visualization(
                 "tour_mode_grouped_profile",
-                summary_requirements={
-                    "grouped_tour_mode_profile": ("mode_group", "freq_all")
-                },
+                summary_requirements={"grouped_tour_mode_profile": ("mode_group", "freq_all")},
             )
             if grouped_result.has_usable_runs:
-                grouped_list = grouped_result.usable_by_input[
-                    "grouped_tour_mode_profile"
-                ]
+                grouped_list = grouped_result.usable_by_input["grouped_tour_mode_profile"]
                 body.extend(
                     [
                         pn.pane.Markdown("### Grouped Mode Summary"),
@@ -215,13 +212,10 @@ class TourModePage(DashboardPage):
                 body.append(
                     self.unavailable_visualization(
                         grouped_result,
-                        detail=(
-                            "Grouped tour mode summaries are unavailable while mode groups are enabled."
-                        ),
+                        detail="Grouped tour mode summaries are unavailable while mode groups are enabled.",
                     )
                 )
-
-        self._body.objects = body
+        return body
 
 
 PAGE = DashboardPageDefinition(
@@ -230,22 +224,7 @@ PAGE = DashboardPageDefinition(
     group_id="tours",
     child_order=30,
     page_cls=TourModePage,
-    selectors=(
-        PageSelectorDefinition(
-            selector_id="purpose",
-            widget_attr="purp_sel",
-            label="Tour Purpose",
-        ),
-    ),
-    export_regions=(
-        PageExportRegionDefinition(
-            region_id="tours_mode_body",
-            view_attr="_body",
-            selector_ids=("purpose",),
-        ),
-    ),
     required_summary_ids=("tour_mode_by_tour_purpose_and_auto_sufficiency",),
 )
 
 TourModePage.definition = PAGE
-

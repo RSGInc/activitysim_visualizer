@@ -244,7 +244,16 @@
     renderApp();
   }
 
-  function renderWidget(node) {
+  function resolveWidgetValue(node, leafPageId) {
+    if (!node.export_enabled || !node.selector_id || !leafPageId) {
+      return node.value;
+    }
+    const pageSelectorState = state.pageSelectors[leafPageId] || {};
+    const selectedValue = pageSelectorState[node.selector_id];
+    return selectedValue == null ? node.value : selectedValue;
+  }
+
+  function renderWidget(node, leafPageId) {
     const wrapper = document.createElement("div");
     wrapper.className = "widget-shell";
 
@@ -256,11 +265,12 @@
     if (node.widget_type === "select") {
       const select = document.createElement("select");
       select.disabled = !!node.disabled;
+      const selectedValue = resolveWidgetValue(node, leafPageId);
       (node.options || []).forEach((option) => {
         const opt = document.createElement("option");
         opt.value = option;
         opt.textContent = option;
-        if (option === node.value) {
+        if (option === selectedValue) {
           opt.selected = true;
         }
         select.appendChild(opt);
@@ -277,12 +287,13 @@
     if (node.widget_type === "radio_button_group") {
       const options = document.createElement("div");
       options.className = "widget-radio-options";
+      const selectedValue = resolveWidgetValue(node, leafPageId);
       (node.options || []).forEach((option) => {
         options.appendChild(
           makeButton(
             option,
             {
-              active: option === node.value,
+              active: option === selectedValue,
               disabled: !!node.disabled,
               onClick: () => {
                 if (node.export_enabled && node.selector_id) {
@@ -498,7 +509,7 @@
     }
 
     if (node.kind === "widget") {
-      return renderWidget(node);
+      return renderWidget(node, leafPageId);
     }
 
     if (node.kind === "tabs") {
