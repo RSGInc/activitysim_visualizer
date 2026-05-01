@@ -1,0 +1,110 @@
+{
+  "schema_version": "2.0",
+  "title": "Selector Region Export",
+  "runs_loaded": [],
+  "chrome": {
+    "layout": "left_rail",
+    "rail_sections": [
+      "runs_loaded",
+      "display_options"
+    ],
+    "controls_enabled": {
+      "weighting": false,
+      "values": false
+    }
+  },
+  "dashboard_controls": {
+    "weighting": [
+      "Weighted"
+    ],
+    "values": [
+      "Percent"
+    ]
+  },
+  "default_state": {
+    "weighting": "Weighted",
+    "values": "Percent"
+  },
+  "pages": [
+    {
+      "id": "trip_mode",
+      "title": "Trip Mode",
+      "selectors": [
+        {
+          "id": "tour_purpose",
+          "label": "Tour Purpose",
+          "available": true,
+          "request_mode": "all",
+          "requested_values": [],
+          "resolved_values": [
+            "All",
+            "eatout"
+          ],
+          "default_value": "All",
+          "options": [
+            "All",
+            "eatout"
+          ],
+          "export_enabled": true
+        }
+      ],
+      "children": [],
+      "default_page_id": null
+    }
+  ],
+  "states": {
+    "Weighted||Percent": {
+      "trip_mode": {
+        "kind": "page",
+        "content": {
+          "kind": "container",
+          "layout": "column",
+          "children": [
+            {
+              "kind": "widget",
+              "widget_type": "select",
+              "name": "Tour Purpose",
+              "value": "All",
+              "options": [
+                "All",
+                "eatout"
+              ],
+              "disabled": false,
+              "selector_id": "tour_purpose",
+              "export_enabled": true
+            },
+            {
+              "kind": "region",
+              "region_id": "trip_summary_mode_body",
+              "selector_ids": [
+                "tour_purpose"
+              ],
+              "content_mode": "snapshot",
+              "default_key": "[\"All\"]",
+              "default_content": {
+                "kind": "html",
+                "html": "<p>All purposes.</p>"
+              },
+              "variants": {
+                "[\"All\"]": {
+                  "kind": "html",
+                  "html": "<p>All purposes.</p>"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "page_export_support": {
+    "client_side_runtime": "dashboard-and-page-selectors",
+    "enabled_page_selectors": [
+      {
+        "page_id": "trip_mode",
+        "selector_id": "tour_purpose"
+      }
+    ]
+  },
+  "client_runtime": "region-swap-v1"
+}

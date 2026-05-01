@@ -1,64 +1,54 @@
+// Generated from dashboard/export/js_runtime by scripts/build_export_runtime.py
+// BEGIN header.js
 (function () {
   const SUPPORTED_SCHEMA_VERSION = "__EXPORT_SCHEMA_VERSION__";
   const dataElement = document.getElementById("activitysim-export-data");
   const app = document.getElementById("app");
+
   let payload = null;
-  let resizeObserver = null;
-  let resizeTimer = null;
+  let state = null;
+  let logger = null;
+  let plotManager = null;
+// END header.js
 
-  function debounce(fn, delay) {
-    return () => {
-      if (resizeTimer) {
-        clearTimeout(resizeTimer);
-      }
-      resizeTimer = setTimeout(fn, delay);
-    };
-  }
+// BEGIN dom.js
+  function el(tag, options, children) {
+    const element = document.createElement(tag);
+    const config = options || {};
+    const childNodes = children || [];
 
-  function schedulePlotResize() {
-    if (typeof Plotly === "undefined" || !Plotly.Plots || typeof Plotly.Plots.resize !== "function") {
-      return;
+    if (config.className) {
+      element.className = config.className;
     }
-
-    const resizePlots = () => {
-      document.querySelectorAll(".plot-shell .js-plotly-plot").forEach((plot) => {
-        try {
-          Plotly.Plots.resize(plot);
-        } catch (error) {
-          console.warn("[activitysim-export] Plot resize failed", error);
+    if (config.text !== undefined && config.text !== null) {
+      element.textContent = String(config.text);
+    }
+    if (config.attrs) {
+      Object.entries(config.attrs).forEach(([name, value]) => {
+        if (value !== undefined && value !== null) {
+          element.setAttribute(name, String(value));
         }
       });
-    };
-
-    requestAnimationFrame(() => {
-      resizePlots();
-      setTimeout(resizePlots, 60);
-      setTimeout(resizePlots, 180);
-      setTimeout(resizePlots, 320);
-    });
-  }
-
-  const debouncedPlotResize = debounce(schedulePlotResize, 40);
-
-  function initializePlots(root) {
-    if (typeof Plotly === "undefined" || typeof Plotly.react !== "function") {
-      fail("Plotly.react is unavailable in the embedded export runtime.");
+    }
+    if (config.style) {
+      Object.entries(config.style).forEach(([name, value]) => {
+        if (value !== undefined && value !== null) {
+          element.style[name] = String(value);
+        }
+      });
     }
 
-    const scope = root || document;
-    scope.querySelectorAll('.plot-shell[data-plot-pending="true"]').forEach((div) => {
-      const figure = div.__plotFigure || { data: [], layout: {} };
-      delete div.__plotFigure;
-      div.removeAttribute("data-plot-pending");
-      Promise.resolve(
-        Plotly.react(div, figure.data || [], figure.layout || {}, {
-          responsive: true,
-          displayModeBar: false,
-        })
-      ).catch((error) => {
-        renderRuntimeError("Plot rendering failed while loading this export.", error);
-      });
+    appendChildren(element, childNodes);
+    return element;
+  }
+
+  function appendChildren(parent, children) {
+    (children || []).forEach((child) => {
+      if (child !== undefined && child !== null) {
+        parent.appendChild(child);
+      }
     });
+    return parent;
   }
 
   function clearElement(element) {
@@ -67,61 +57,210 @@
     }
   }
 
-  function createErrorPanel(message, detail) {
-    const panel = document.createElement("div");
-    panel.className = "export-error-panel";
+  function makeButton(label, active, onClick, className) {
+    let disabled = false;
+    let resolvedLabel = label;
+    let resolvedActive = !!active;
+    let resolvedOnClick = onClick;
+    let resolvedClassName = className;
 
-    const title = document.createElement("h1");
-    title.className = "export-error-title";
-    title.textContent = "Offline export failed to load";
-    panel.appendChild(title);
-
-    const body = document.createElement("p");
-    body.className = "export-error-message";
-    body.textContent = message;
-    panel.appendChild(body);
-
-    if (detail) {
-      const extra = document.createElement("p");
-      extra.className = "export-error-message";
-      extra.textContent = String(detail);
-      panel.appendChild(extra);
+    if (typeof active === "object" && active !== null) {
+      disabled = !!active.disabled;
+      resolvedOnClick = active.onClick;
+      resolvedClassName = active.className;
+      resolvedActive = !!active.active;
+      resolvedLabel = active.label || label;
     }
 
-    return panel;
+    const button = el("button", {
+      className:
+        resolvedClassName
+        + (resolvedActive ? " active" : "")
+        + (disabled ? " disabled" : ""),
+      text: resolvedLabel,
+    });
+    button.type = "button";
+    button.disabled = disabled;
+    if (!disabled && typeof resolvedOnClick === "function") {
+      button.addEventListener("click", resolvedOnClick);
+    }
+    return button;
+  }
+// END dom.js
+
+// BEGIN errors.js
+  class ExportRuntimeError extends Error {
+    constructor(message, detail, code) {
+      super(detail ? message + " " + String(detail) : message);
+      this.name = "ExportRuntimeError";
+      this.code = code || "EXPORT_RUNTIME_ERROR";
+      this.detail = detail || null;
+      this.displayMessage = message;
+    }
+  }
+
+  function fail(message, detail, code) {
+    throw new ExportRuntimeError(message, detail, code);
+  }
+
+  function createErrorPanel(message, detail) {
+    const detailText =
+      detail && detail.message ? detail.message : (detail || "");
+    return el("div", { className: "export-error-panel" }, [
+      el("h1", {
+        className: "export-error-title",
+        text: "Offline export failed to load",
+      }),
+      el("p", {
+        className: "export-error-message",
+        text: message,
+      }),
+      detailText
+        ? el("p", {
+            className: "export-error-message",
+            text: detailText,
+          })
+        : null,
+    ]);
   }
 
   function renderRuntimeError(message, detail) {
     console.error("[activitysim-export] " + message, detail);
     clearElement(app);
+    app.appendChild(
+      el("div", { className: "export-shell" }, [
+        createErrorPanel(message, detail),
+      ])
+    );
+  }
+// END errors.js
 
-    const shell = document.createElement("div");
-    shell.className = "export-shell";
-    shell.appendChild(createErrorPanel(message, detail));
-    app.appendChild(shell);
+// BEGIN debug.js
+  function shouldEnableDebugLogging(candidate) {
+    try {
+      if (
+        typeof window !== "undefined"
+        && window.location
+        && window.location.search
+        && window.location.search.indexOf("debug_export=1") !== -1
+      ) {
+        return true;
+      }
+    } catch (error) {
+      // Ignore URL parsing issues in restricted browser environments.
+    }
+    try {
+      if (
+        typeof window !== "undefined"
+        && window.localStorage
+        && window.localStorage.getItem("debug_export") === "1"
+      ) {
+        return true;
+      }
+    } catch (error) {
+      // Ignore localStorage access failures.
+    }
+    return !!(candidate && candidate.debug);
   }
 
-  function fail(message, detail) {
-    throw new Error(detail ? message + " " + String(detail) : message);
+  function createLogger(enabled) {
+    return {
+      enabled: !!enabled,
+      debug: function () {
+        if (this.enabled) {
+          const args = Array.prototype.slice.call(arguments);
+          console.debug.apply(console, ["[activitysim-export]"].concat(args));
+        }
+      },
+      warn: function () {
+        const args = Array.prototype.slice.call(arguments);
+        console.warn.apply(console, ["[activitysim-export]"].concat(args));
+      },
+      error: function () {
+        const args = Array.prototype.slice.call(arguments);
+        console.error.apply(console, ["[activitysim-export]"].concat(args));
+      },
+    };
   }
 
+  function countNodeKinds(node, counts) {
+    if (!node || typeof node !== "object") {
+      return counts;
+    }
+    counts[node.kind || "unknown"] = (counts[node.kind || "unknown"] || 0) + 1;
+    if (node.kind === "container" || node.kind === "card") {
+      (node.children || []).forEach((child) => {
+        countNodeKinds(child, counts);
+      });
+      return counts;
+    }
+    if (node.kind === "tabs") {
+      (node.tabs || []).forEach((tab) => {
+        countNodeKinds(tab.content, counts);
+      });
+      return counts;
+    }
+    if (node.kind === "region") {
+      countNodeKinds(node.default_content, counts);
+      Object.values(node.variants || {}).forEach((variantNode) => {
+        countNodeKinds(variantNode, counts);
+      });
+      return counts;
+    }
+    return counts;
+  }
+
+  function logRuntimeSummary(candidate) {
+    if (!logger || !logger.enabled) {
+      return;
+    }
+    const pageDescriptors = candidate.pages || [];
+    const selectorCount = pageDescriptors.reduce((total, page) => {
+      const children = page.children || [];
+      const childSelectors = children.reduce((childTotal, childPage) => {
+        return childTotal + ((childPage.selectors || []).length);
+      }, 0);
+      return total + ((page.selectors || []).length) + childSelectors;
+    }, 0);
+    const stateKeys = Object.keys(candidate.states || {});
+    const nodeCounts = {};
+    stateKeys.forEach((stateId) => {
+      Object.values(candidate.states[stateId] || {}).forEach((pageNode) => {
+        if (pageNode && pageNode.kind === "page") {
+          countNodeKinds(pageNode.content, nodeCounts);
+        }
+      });
+    });
+    logger.debug("Runtime summary", {
+      schema_version: candidate.schema_version,
+      pages: pageDescriptors.length,
+      selectors: selectorCount,
+      states: stateKeys.length,
+      region_nodes: nodeCounts.region || 0,
+      plot_nodes: nodeCounts.plotly || 0,
+    });
+  }
+// END debug.js
+
+// BEGIN schema.js
   function parsePayload() {
     if (!dataElement) {
-      fail("Export payload script element was not found.");
+      fail("Export payload script element was not found.", null, "PAYLOAD_ELEMENT_MISSING");
     }
     try {
       return JSON.parse(dataElement.textContent || "");
     } catch (error) {
       fail(
         "This HTML export is not compatible with the embedded client runtime.",
-        error && error.message ? error.message : error
+        error && error.message ? error.message : error,
+        "PAYLOAD_PARSE_FAILED"
       );
     }
   }
 
   function validatePayloadSchema(candidate) {
     if (!candidate || typeof candidate !== "object") {
-      fail("Export payload was missing or malformed.");
+      fail("Export payload was missing or malformed.", null, "INVALID_PAYLOAD");
     }
     if (candidate.schema_version !== SUPPORTED_SCHEMA_VERSION) {
       fail(
@@ -129,24 +268,86 @@
           + SUPPORTED_SCHEMA_VERSION
           + " but received "
           + String(candidate.schema_version || "<missing>")
-          + "."
+          + ".",
+        null,
+        "SCHEMA_VERSION_UNSUPPORTED"
       );
     }
     if (!Array.isArray(candidate.pages)) {
-      fail("Export payload is missing its page descriptors.");
+      fail("Export payload is missing its page descriptors.", null, "MISSING_PAGE_DESCRIPTORS");
     }
     if (!candidate.default_state || typeof candidate.default_state !== "object") {
-      fail("Export payload is missing its default dashboard state.");
+      fail("Export payload is missing its default dashboard state.", null, "MISSING_DEFAULT_STATE");
     }
     if (!candidate.states || typeof candidate.states !== "object") {
-      fail("Export payload is missing required dashboard state data.");
+      fail("Export payload is missing required dashboard state data.", null, "MISSING_STATE_DATA");
     }
     if (!candidate.dashboard_controls || typeof candidate.dashboard_controls !== "object") {
-      fail("Export payload is missing dashboard controls metadata.");
+      fail("Export payload is missing dashboard controls metadata.", null, "MISSING_DASHBOARD_CONTROLS");
     }
   }
+// END schema.js
 
-  function initializeState(candidate) {
+// BEGIN state.js
+  function stateKey(currentState) {
+    return currentState.weighting + "||" + currentState.values;
+  }
+
+  function findPageById(pageDescriptors, pageId) {
+    return (pageDescriptors || []).find((page) => page.id === pageId) || null;
+  }
+
+  function hasChildren(pageDescriptor) {
+    return !!(pageDescriptor && pageDescriptor.children && pageDescriptor.children.length);
+  }
+
+  function resolveActiveChildPageIdForState(pageDescriptor, currentState) {
+    const childIds = (pageDescriptor.children || []).map((childPage) => childPage.id);
+    if (!childIds.length) {
+      return null;
+    }
+
+    const preferredChildId = currentState.activeChildPage[pageDescriptor.id];
+    if (preferredChildId && childIds.indexOf(preferredChildId) !== -1) {
+      return preferredChildId;
+    }
+    if (
+      pageDescriptor.default_page_id
+      && childIds.indexOf(pageDescriptor.default_page_id) !== -1
+    ) {
+      return pageDescriptor.default_page_id;
+    }
+    return childIds[0];
+  }
+
+  function resolveActiveChildPageId(pageDescriptor) {
+    const activeChildId = resolveActiveChildPageIdForState(pageDescriptor, state);
+    if (!activeChildId) {
+      fail(
+        "Grouped export page " + pageDescriptor.id + " is missing child pages.",
+        null,
+        "MISSING_CHILD_PAGES"
+      );
+    }
+    state.activeChildPage[pageDescriptor.id] = activeChildId;
+    return activeChildId;
+  }
+
+  function currentLeafPageId(currentPayload, currentState) {
+    if (!currentState.activePage) {
+      return null;
+    }
+    const page = findPageById(currentPayload.pages || [], currentState.activePage);
+    if (!page) {
+      return null;
+    }
+    if (hasChildren(page)) {
+      return resolveActiveChildPageIdForState(page, currentState);
+    }
+    return page.id;
+  }
+
+  function getInitialState(candidate) {
     const firstPage = candidate.pages.length ? candidate.pages[0] : null;
     const initialState = {
       weighting: candidate.default_state.weighting,
@@ -167,10 +368,10 @@
     }
 
     (candidate.pages || []).forEach((page) => {
-      if (page.children && page.children.length) {
-        const defaultChildId = page.default_page_id || page.children[0].id;
+      if (hasChildren(page)) {
+        const defaultChildId = resolveActiveChildPageIdForState(page, initialState);
         initialState.activeChildPage[page.id] = defaultChildId;
-        page.children.forEach(registerLeafPage);
+        (page.children || []).forEach(registerLeafPage);
         return;
       }
       registerLeafPage(page);
@@ -179,79 +380,157 @@
     return initialState;
   }
 
-  try {
-    payload = parsePayload();
-    validatePayloadSchema(payload);
-  } catch (error) {
-    renderRuntimeError(
-      "This HTML export is not compatible with the embedded client runtime.",
-      error && error.message ? error.message : error
-    );
-    return;
-  }
-
-  const state = initializeState(payload);
-
-  function stateKey() {
-    return state.weighting + "||" + state.values;
-  }
-
-  function makeButton(label, active, onClick, className) {
-    let disabled = false;
-    if (typeof active === "object" && active !== null) {
-      const config = active;
-      disabled = !!config.disabled;
-      onClick = config.onClick;
-      className = config.className;
-      active = !!config.active;
-      label = config.label || label;
-    }
-
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className =
-      className + (active ? " active" : "") + (disabled ? " disabled" : "");
-    button.textContent = label;
-    button.disabled = disabled;
-    if (!disabled) {
-      button.addEventListener("click", onClick);
-    }
-    return button;
-  }
-
-  function currentLeafPageId() {
-    if (!state.activePage) {
-      return null;
-    }
-    const page = (payload.pages || []).find((item) => item.id === state.activePage);
-    if (!page) {
-      return null;
-    }
-    if (page.children && page.children.length) {
-      return state.activeChildPage[page.id] || page.default_page_id || page.children[0].id;
-    }
-    return page.id;
-  }
-
-  function updateActivePageSelector(selectorId, value) {
-    const leafPageId = currentLeafPageId();
-    if (!leafPageId) {
-      fail("Cannot update a page selector because no active page is selected.");
-    }
-    const pageState = state.pageSelectors[leafPageId] || {};
+  function updateSelectorState(currentState, pageId, selectorId, value) {
+    const nextState = {
+      weighting: currentState.weighting,
+      values: currentState.values,
+      activePage: currentState.activePage,
+      activeChildPage: Object.assign({}, currentState.activeChildPage),
+      pageSelectors: Object.assign({}, currentState.pageSelectors),
+    };
+    const pageState = Object.assign({}, nextState.pageSelectors[pageId] || {});
     pageState[selectorId] = value;
-    state.pageSelectors[leafPageId] = pageState;
+    nextState.pageSelectors[pageId] = pageState;
+    return nextState;
+  }
+// END state.js
+
+// BEGIN plotly_lifecycle.js
+  const PLOT_RESIZE_RETRY_DELAYS_MS = [60, 180, 320];
+
+  function createPlotManager(config) {
+    const plotly = config.plotly;
+    const runtimeLogger = config.logger;
+    const onRuntimeError = config.onRuntimeError;
+    const plotFigures = new WeakMap();
+    let resizeObserver = null;
+    let resizeTimer = null;
+
+    function resizePlots() {
+      if (
+        !plotly
+        || !plotly.Plots
+        || typeof plotly.Plots.resize !== "function"
+      ) {
+        return;
+      }
+      document.querySelectorAll(".plot-shell .js-plotly-plot").forEach((plot) => {
+        try {
+          plotly.Plots.resize(plot);
+        } catch (error) {
+          runtimeLogger.warn("Plot resize failed", error);
+        }
+      });
+    }
+
+    function scheduleResize() {
+      if (
+        !plotly
+        || !plotly.Plots
+        || typeof plotly.Plots.resize !== "function"
+      ) {
+        return;
+      }
+      requestAnimationFrame(() => {
+        resizePlots();
+        PLOT_RESIZE_RETRY_DELAYS_MS.forEach((delay) => {
+          setTimeout(resizePlots, delay);
+        });
+      });
+    }
+
+    function debouncedScheduleResize() {
+      if (resizeTimer) {
+        clearTimeout(resizeTimer);
+      }
+      resizeTimer = setTimeout(scheduleResize, 40);
+    }
+
+    function renderPendingPlots(root) {
+      if (!plotly || typeof plotly.react !== "function") {
+        fail(
+          "Plotly.react is unavailable in the embedded export runtime.",
+          null,
+          "PLOTLY_UNAVAILABLE"
+        );
+      }
+
+      const scope = root || document;
+      scope.querySelectorAll('.plot-shell[data-plot-pending="true"]').forEach((div) => {
+        const figure = plotFigures.get(div) || { data: [], layout: {} };
+        div.removeAttribute("data-plot-pending");
+        Promise.resolve(
+          plotly.react(div, figure.data || [], figure.layout || {}, {
+            responsive: true,
+            displayModeBar: false,
+          })
+        ).catch((error) => {
+          onRuntimeError("Plot rendering failed while loading this export.", error);
+        });
+      });
+    }
+
+    function observeLayout(root) {
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+      if (typeof ResizeObserver === "undefined") {
+        return;
+      }
+      resizeObserver = new ResizeObserver(() => {
+        debouncedScheduleResize();
+      });
+      (root || document).querySelectorAll(
+        ".page-panel, .container-row, .container-column, .plot-shell"
+      ).forEach((element) => {
+        resizeObserver.observe(element);
+      });
+    }
+
+    function disconnect() {
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+        resizeObserver = null;
+      }
+      if (resizeTimer) {
+        clearTimeout(resizeTimer);
+        resizeTimer = null;
+      }
+    }
+
+    return {
+      registerPlot: function (element, figure) {
+        plotFigures.set(element, figure);
+      },
+      renderPendingPlots: renderPendingPlots,
+      scheduleResize: scheduleResize,
+      observeLayout: observeLayout,
+      disconnect: disconnect,
+    };
+  }
+// END plotly_lifecycle.js
+
+// BEGIN renderers/widgets.js
+  function updateActivePageSelector(selectorId, value) {
+    const leafPageId = currentLeafPageId(payload, state);
+    if (!leafPageId) {
+      fail(
+        "Cannot update a page selector because no active page is selected.",
+        null,
+        "MISSING_PAGE_STATE"
+      );
+    }
+    state = updateSelectorState(state, leafPageId, selectorId, value);
     renderApp();
   }
 
   function renderWidget(node) {
-    const wrapper = document.createElement("div");
-    wrapper.className = "widget-shell";
-
-    const label = document.createElement("div");
-    label.className = "widget-label";
-    label.textContent = node.name || "";
-    wrapper.appendChild(label);
+    const wrapper = el("div", { className: "widget-shell" }, [
+      el("div", {
+        className: "widget-label",
+        text: node.name || "",
+      }),
+    ]);
 
     if (node.widget_type === "select") {
       const select = document.createElement("select");
@@ -275,11 +554,9 @@
     }
 
     if (node.widget_type === "radio_button_group") {
-      const options = document.createElement("div");
-      options.className = "widget-radio-options";
-      (node.options || []).forEach((option) => {
-        options.appendChild(
-          makeButton(
+      wrapper.appendChild(
+        el("div", { className: "widget-radio-options" }, (node.options || []).map((option) => {
+          return makeButton(
             option,
             {
               active: option === node.value,
@@ -293,29 +570,27 @@
             },
             null,
             "widget-radio-option"
-          )
-        );
-      });
-      wrapper.appendChild(options);
+          );
+        }))
+      );
       return wrapper;
     }
 
-    fail("Unknown widget type encountered in export payload:", node.widget_type);
+    fail(
+      "Unknown widget type encountered in export payload:",
+      node.widget_type,
+      "UNKNOWN_WIDGET_TYPE"
+    );
   }
+// END renderers/widgets.js
 
+// BEGIN renderers/tables.js
   function renderTable(node) {
-    const wrap = document.createElement("div");
-    wrap.className = "table-wrap";
-
-    const table = document.createElement("table");
-    table.className = "export-table";
-
+    const table = el("table", { className: "export-table" });
     const thead = document.createElement("thead");
     const headRow = document.createElement("tr");
     (node.columns || []).forEach((column) => {
-      const th = document.createElement("th");
-      th.textContent = column;
-      headRow.appendChild(th);
+      headRow.appendChild(el("th", { text: column }));
     });
     thead.appendChild(headRow);
     table.appendChild(thead);
@@ -324,25 +599,27 @@
     (node.rows || []).forEach((row) => {
       const tr = document.createElement("tr");
       (node.columns || []).forEach((column) => {
-        const td = document.createElement("td");
         const value = row[column];
-        td.textContent = value == null ? "" : String(value);
-        tr.appendChild(td);
+        tr.appendChild(
+          el("td", {
+            text: value == null ? "" : String(value),
+          })
+        );
       });
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
-    wrap.appendChild(table);
-    return wrap;
-  }
 
+    return el("div", { className: "table-wrap" }, [table]);
+  }
+// END renderers/tables.js
+
+// BEGIN renderers/tabs.js
   function renderTabs(node, leafPageId) {
     const root = document.createElement("div");
     let activeIndex = 0;
-    const tabRow = document.createElement("div");
-    tabRow.className = "local-tab-row";
-    const panel = document.createElement("div");
-    panel.className = "local-tab-panel";
+    const tabRow = el("div", { className: "local-tab-row" });
+    const panel = el("div", { className: "local-tab-panel" });
 
     function paint() {
       clearElement(tabRow);
@@ -364,8 +641,8 @@
         panel.appendChild(renderNode(node.tabs[activeIndex].content, leafPageId));
       }
       requestAnimationFrame(() => {
-        initializePlots(panel);
-        schedulePlotResize();
+        plotManager.renderPendingPlots(panel);
+        plotManager.scheduleResize();
       });
     }
 
@@ -374,13 +651,16 @@
     root.appendChild(panel);
     return root;
   }
+// END renderers/tabs.js
 
+// BEGIN renderers/plots.js
   function renderPlot(node) {
-    const div = document.createElement("div");
-    div.className = "plot-shell";
-    div.setAttribute("data-plot-pending", "true");
+    const plotElement = el("div", {
+      className: "plot-shell",
+      attrs: { "data-plot-pending": "true" },
+    });
     if (node.height) {
-      div.style.minHeight = String(node.height) + "px";
+      plotElement.style.minHeight = String(node.height) + "px";
     }
     const baseFigure = node.figure || { data: [], layout: {} };
     const figure = {
@@ -390,32 +670,89 @@
         width: null,
       }),
     };
-    div.__plotFigure = figure;
-    return div;
+    plotManager.registerPlot(plotElement, figure);
+    return plotElement;
   }
+// END renderers/plots.js
 
+// BEGIN renderers/regions.js
   function resolveRegionContent(node, leafPageId) {
     const pageSelectorState = state.pageSelectors[leafPageId] || {};
     const values = (node.selector_ids || []).map((selectorId) => {
       return pageSelectorState[selectorId];
     });
-    const variantKey = JSON.stringify(values);
-    return (
-      (node.variants && node.variants[variantKey]) ||
-      node.default_content
-    );
+    const variantLookupKey = JSON.stringify(values);
+    return (node.variants && node.variants[variantLookupKey]) || node.default_content;
   }
 
   function renderRegion(node, leafPageId) {
-    const wrapper = document.createElement("div");
-    wrapper.className = "export-region";
-    wrapper.setAttribute("data-region-id", node.region_id || "");
-    wrapper.setAttribute("data-leaf-page-id", leafPageId || "");
-    wrapper.setAttribute("data-selector-ids", JSON.stringify(node.selector_ids || []));
-    wrapper.appendChild(renderNode(resolveRegionContent(node, leafPageId), leafPageId));
-    return wrapper;
+    return el("div", {
+      className: "export-region",
+      attrs: {
+        "data-region-id": node.region_id || "",
+        "data-leaf-page-id": leafPageId || "",
+        "data-selector-ids": JSON.stringify(node.selector_ids || []),
+      },
+    }, [
+      renderNode(resolveRegionContent(node, leafPageId), leafPageId),
+    ]);
   }
 
+  function collectRegionNodes(node, regions) {
+    if (!node || typeof node !== "object") {
+      return regions;
+    }
+    if (node.kind === "region") {
+      regions.push(node);
+      return regions;
+    }
+    if (node.kind === "container" || node.kind === "card") {
+      (node.children || []).forEach((child) => {
+        collectRegionNodes(child, regions);
+      });
+      return regions;
+    }
+    if (node.kind === "tabs") {
+      (node.tabs || []).forEach((tab) => {
+        collectRegionNodes(tab.content, regions);
+      });
+      return regions;
+    }
+    return regions;
+  }
+
+  function updateRenderedRegions(leafPageId, changedSelectorId) {
+    const pagesForState = payload.states[stateKey(state)];
+    if (!pagesForState) {
+      return false;
+    }
+    const pageNode = pagesForState[leafPageId];
+    if (!pageNode || pageNode.kind !== "page") {
+      return false;
+    }
+    const regionNodes = collectRegionNodes(pageNode.content, []).filter((regionNode) => {
+      return (regionNode.selector_ids || []).indexOf(changedSelectorId) !== -1;
+    });
+    if (!regionNodes.length) {
+      return false;
+    }
+    regionNodes.forEach((regionNode) => {
+      const wrapper = document.querySelector(
+        '.export-region[data-leaf-page-id="' + leafPageId + '"][data-region-id="' + regionNode.region_id + '"]'
+      );
+      if (!wrapper) {
+        return;
+      }
+      clearElement(wrapper);
+      wrapper.appendChild(renderNode(resolveRegionContent(regionNode, leafPageId), leafPageId));
+      plotManager.renderPendingPlots(wrapper);
+    });
+    plotManager.scheduleResize();
+    return true;
+  }
+// END renderers/regions.js
+
+// BEGIN renderers/nodes.js
   function nodeRole(node) {
     if (!node || typeof node !== "object") {
       return "unknown";
@@ -447,116 +784,115 @@
     return "html";
   }
 
-  function renderNode(node, leafPageId) {
-    if (!node || typeof node !== "object") {
-      fail("Encountered malformed export node content.");
-    }
-
-    if (node.kind === "container") {
-      const container = document.createElement("div");
-      const layoutClass = node.layout === "row" ? "container-row" : "container-column";
-      const childCount = Number(node.child_count || (node.children || []).length || 0);
-      container.className =
-        layoutClass + " child-count-" + String(childCount);
-      (node.children || []).forEach((child) => {
-        const wrapper = document.createElement("div");
-        wrapper.className =
-          "container-item container-item--" + nodeRole(child);
-        wrapper.appendChild(renderNode(child, leafPageId));
-        container.appendChild(wrapper);
-      });
-      return container;
-    }
-
-    if (node.kind === "card") {
-      const card = document.createElement("div");
-      card.className = "card";
-      if (node.title) {
-        const title = document.createElement("div");
-        title.className = "card-title";
-        title.textContent = node.title;
-        card.appendChild(title);
-      }
-      (node.children || []).forEach((child) => {
-        card.appendChild(renderNode(child, leafPageId));
-      });
-      return card;
-    }
-
-    if (node.kind === "html") {
-      const div = document.createElement("div");
-      div.innerHTML = node.html || "";
-      return div;
-    }
-
-    if (node.kind === "plotly") {
-      return renderPlot(node);
-    }
-
-    if (node.kind === "table") {
-      return renderTable(node);
-    }
-
-    if (node.kind === "widget") {
-      return renderWidget(node);
-    }
-
-    if (node.kind === "tabs") {
-      return renderTabs(node, leafPageId);
-    }
-
-    if (node.kind === "spacer") {
-      const spacer = document.createElement("div");
-      spacer.className = "export-spacer";
-      if (node.height != null) {
-        spacer.style.height = String(node.height) + "px";
-      }
-      if (node.width != null) {
-        spacer.style.width = String(node.width) + "px";
-      }
-      return spacer;
-    }
-
-    if (node.kind === "region") {
-      return renderRegion(node, leafPageId);
-    }
-
-    fail("Unknown export node kind encountered:", node.kind);
+  function renderContainer(node, leafPageId) {
+    const layoutClass = node.layout === "row" ? "container-row" : "container-column";
+    const childCount = Number(node.child_count || (node.children || []).length || 0);
+    const container = el("div", {
+      className: layoutClass + " child-count-" + String(childCount),
+    });
+    (node.children || []).forEach((child) => {
+      const wrapper = el("div", {
+        className: "container-item container-item--" + nodeRole(child),
+      }, [
+        renderNode(child, leafPageId),
+      ]);
+      container.appendChild(wrapper);
+    });
+    return container;
   }
 
+  function renderCard(node, leafPageId) {
+    const card = el("div", { className: "card" });
+    if (node.title) {
+      card.appendChild(el("div", { className: "card-title", text: node.title }));
+    }
+    (node.children || []).forEach((child) => {
+      card.appendChild(renderNode(child, leafPageId));
+    });
+    return card;
+  }
+
+  function renderTrustedHtml(node) {
+    const div = document.createElement("div");
+    // node.html is produced by dashboard-owned Python serializers.
+    // Do not treat this as a safe sink for arbitrary untrusted user HTML.
+    div.innerHTML = node.html || "";
+    return div;
+  }
+
+  function renderSpacer(node) {
+    const spacer = el("div", { className: "export-spacer" });
+    if (node.height != null) {
+      spacer.style.height = String(node.height) + "px";
+    }
+    if (node.width != null) {
+      spacer.style.width = String(node.width) + "px";
+    }
+    return spacer;
+  }
+
+  const NODE_RENDERERS = {
+    container: renderContainer,
+    card: renderCard,
+    html: renderTrustedHtml,
+    plotly: renderPlot,
+    table: renderTable,
+    widget: renderWidget,
+    tabs: renderTabs,
+    spacer: renderSpacer,
+    region: renderRegion,
+  };
+
+  function renderNode(node, leafPageId) {
+    if (!node || typeof node !== "object") {
+      fail("Encountered malformed export node content.", null, "INVALID_EXPORT_NODE");
+    }
+    const renderer = NODE_RENDERERS[node.kind];
+    if (!renderer) {
+      fail(
+        "Unknown export node kind encountered:",
+        node.kind,
+        "UNKNOWN_NODE_KIND"
+      );
+    }
+    return renderer(node, leafPageId);
+  }
+// END renderers/nodes.js
+
+// BEGIN renderers/app.js
   function renderControls() {
-    const shell = document.createElement("div");
-    shell.className = "rail-card";
-
-    const title = document.createElement("h2");
-    title.className = "rail-section-title";
-    title.textContent = "Display Options";
-    shell.appendChild(title);
-
-    const note = document.createElement("p");
-    note.className = "display-options-note";
-    note.textContent = "Display mode controls.";
-    shell.appendChild(note);
+    const shell = el("div", { className: "rail-card" }, [
+      el("h2", {
+        className: "rail-section-title",
+        text: "Display Options",
+      }),
+      el("p", {
+        className: "display-options-note",
+        text: "Display mode controls.",
+      }),
+    ]);
 
     [
       ["Weighting", payload.dashboard_controls.weighting, "weighting"],
       ["Values", payload.dashboard_controls.values, "values"],
     ].forEach(([label, options, key]) => {
-      const group = document.createElement("div");
-      group.className = "control-group";
-      group.style.marginTop = shell.children.length > 2 ? "16px" : "12px";
-
-      const groupTitle = document.createElement("div");
-      groupTitle.className = "control-group-title";
-      groupTitle.textContent = label;
-      group.appendChild(groupTitle);
-
-      const chips = document.createElement("div");
-      chips.className = "control-row";
+      const group = el("div", {
+        className: "control-group",
+        style: {
+          marginTop: shell.children.length > 2 ? "16px" : "12px",
+        },
+      });
+      group.appendChild(
+        el("div", {
+          className: "control-group-title",
+          text: label,
+        })
+      );
+      const chips = el("div", { className: "control-row" });
       const enabled = !!(
-        payload.chrome &&
-        payload.chrome.controls_enabled &&
-        payload.chrome.controls_enabled[key]
+        payload.chrome
+        && payload.chrome.controls_enabled
+        && payload.chrome.controls_enabled[key]
       );
       (options || []).forEach((option) => {
         chips.appendChild(
@@ -584,38 +920,45 @@
   }
 
   function renderRunsLoaded() {
-    const shell = document.createElement("div");
-    shell.className = "rail-card";
-
-    const title = document.createElement("h2");
-    title.className = "rail-section-title";
-    title.textContent = "Runs Loaded";
-    shell.appendChild(title);
-
-    const list = document.createElement("div");
-    list.className = "run-legend-list";
+    const shell = el("div", { className: "rail-card" }, [
+      el("h2", {
+        className: "rail-section-title",
+        text: "Runs Loaded",
+      }),
+    ]);
+    const list = el("div", { className: "run-legend-list" });
     const runs = payload.runs_loaded || [];
     if (!runs.length) {
-      const empty = document.createElement("p");
-      empty.className = "run-legend-empty";
-      empty.textContent = "No runs loaded.";
-      list.appendChild(empty);
+      list.appendChild(
+        el("p", {
+          className: "run-legend-empty",
+          text: "No runs loaded.",
+        })
+      );
     } else {
       runs.forEach((run) => {
-        const item = document.createElement("div");
-        item.className = "run-legend-item";
-        item.setAttribute("data-run-label", run.label || "");
-        item.setAttribute("data-run-color", run.color || "");
-        item.style.padding = "8px 10px";
-        item.style.borderLeft = "4px solid " + (run.color || "#94a3b8");
-        item.style.margin = "6px 0";
-        item.style.borderRadius = "6px";
-        item.style.background = "rgba(127,127,127,0.06)";
-
-        const runLabel = document.createElement("b");
-        runLabel.style.color = run.color || "";
-        runLabel.textContent = run.label || "";
-        item.appendChild(runLabel);
+        const runColor = run.color || "#94a3b8";
+        const item = el("div", {
+          className: "run-legend-item",
+          attrs: {
+            "data-run-label": run.label || "",
+            "data-run-color": run.color || "",
+          },
+          style: {
+            padding: "8px 10px",
+            borderLeft: "4px solid " + runColor,
+            margin: "6px 0",
+            borderRadius: "6px",
+            background: "rgba(127,127,127,0.06)",
+          },
+        }, [
+          el("b", {
+            text: run.label || "",
+            style: {
+              color: run.color || "",
+            },
+          }),
+        ]);
         list.appendChild(item);
       });
     }
@@ -624,8 +967,7 @@
   }
 
   function renderRail() {
-    const rail = document.createElement("aside");
-    rail.className = "export-rail";
+    const rail = el("aside", { className: "export-rail" });
     const sections = (payload.chrome && payload.chrome.rail_sections) || [];
     sections.forEach((section, index) => {
       if (section === "runs_loaded") {
@@ -634,205 +976,130 @@
       }
       if (section === "display_options") {
         if (index > 0) {
-          const divider = document.createElement("div");
-          divider.className = "rail-divider";
-          rail.appendChild(divider);
+          rail.appendChild(el("div", { className: "rail-divider" }));
         }
         rail.appendChild(renderControls());
         return;
       }
-      fail("Unknown rail section encountered in export payload:", section);
+      fail(
+        "Unknown rail section encountered in export payload:",
+        section,
+        "UNKNOWN_RAIL_SECTION"
+      );
     });
     return rail;
   }
 
   function renderPageTabs() {
-    const row = document.createElement("div");
-    row.className = "page-tab-row";
-    (payload.pages || []).forEach((page) => {
-      row.appendChild(
-        makeButton(
-          page.title,
-          page.id === state.activePage,
-          () => {
-            state.activePage = page.id;
-            renderApp();
-          },
-          "page-tab-button"
-        )
+    return el("div", { className: "page-tab-row" }, (payload.pages || []).map((page) => {
+      return makeButton(
+        page.title,
+        page.id === state.activePage,
+        () => {
+          state.activePage = page.id;
+          renderApp();
+        },
+        "page-tab-button"
       );
-    });
-    return row;
+    }));
   }
 
   function renderChildPageTabs(pageDescriptor) {
-    const row = document.createElement("div");
-    row.className = "local-tab-row";
     const activeChildId = resolveActiveChildPageId(pageDescriptor);
-    (pageDescriptor.children || []).forEach((childPage) => {
-      row.appendChild(
-        makeButton(
-          childPage.title,
-          childPage.id === activeChildId,
-          () => {
-            state.activeChildPage[pageDescriptor.id] = childPage.id;
-            renderApp();
-          },
-          "local-tab-button"
-        )
+    return el("div", { className: "local-tab-row" }, (pageDescriptor.children || []).map((childPage) => {
+      return makeButton(
+        childPage.title,
+        childPage.id === activeChildId,
+        () => {
+          state.activeChildPage[pageDescriptor.id] = childPage.id;
+          renderApp();
+        },
+        "local-tab-button"
       );
-    });
-    return row;
-  }
-
-  function resolveActiveChildPageId(pageDescriptor) {
-    const childIds = (pageDescriptor.children || []).map((childPage) => childPage.id);
-    if (!childIds.length) {
-      fail("Grouped export page " + pageDescriptor.id + " is missing child pages.");
-    }
-
-    const preferredChildId = state.activeChildPage[pageDescriptor.id];
-    if (preferredChildId && childIds.includes(preferredChildId)) {
-      return preferredChildId;
-    }
-    if (pageDescriptor.default_page_id && childIds.includes(pageDescriptor.default_page_id)) {
-      state.activeChildPage[pageDescriptor.id] = pageDescriptor.default_page_id;
-      return pageDescriptor.default_page_id;
-    }
-
-    state.activeChildPage[pageDescriptor.id] = childIds[0];
-    return childIds[0];
+    }));
   }
 
   function resolvePageContent(pageNode) {
     if (!pageNode || typeof pageNode !== "object") {
-      fail("Missing page state for the active dashboard selection.");
+      fail(
+        "Missing page state for the active dashboard selection.",
+        null,
+        "MISSING_PAGE_STATE"
+      );
     }
     if (pageNode.kind === "page") {
       return pageNode.content;
     }
-    fail("Unknown page content kind encountered:", pageNode.kind);
+    fail(
+      "Unknown page content kind encountered:",
+      pageNode.kind,
+      "UNKNOWN_PAGE_CONTENT"
+    );
   }
 
   function renderPagePanel() {
-    const panel = document.createElement("div");
-    panel.className = "page-panel";
-
-    const pagesForState = payload.states[stateKey()];
+    const panel = el("div", { className: "page-panel" });
+    const pagesForState = payload.states[stateKey(state)];
     if (!pagesForState) {
-      fail("Missing page state for dashboard combination " + stateKey() + ".");
+      fail(
+        "Missing page state for dashboard combination " + stateKey(state) + ".",
+        null,
+        "MISSING_PAGE_STATE"
+      );
     }
-    const pageDescriptor = (payload.pages || []).find((page) => page.id === state.activePage);
+    const pageDescriptor = findPageById(payload.pages || [], state.activePage);
     if (!pageDescriptor) {
-      fail("Missing page descriptor for active page " + state.activePage + ".");
+      fail(
+        "Missing page descriptor for active page " + state.activePage + ".",
+        null,
+        "MISSING_PAGE_DESCRIPTOR"
+      );
     }
+
     let leafPageId = pageDescriptor.id;
-    if (pageDescriptor.children && pageDescriptor.children.length) {
+    if (hasChildren(pageDescriptor)) {
       panel.appendChild(renderChildPageTabs(pageDescriptor));
       leafPageId = resolveActiveChildPageId(pageDescriptor);
     }
-    const pageNode = pagesForState[leafPageId];
-    panel.appendChild(renderNode(resolvePageContent(pageNode), leafPageId));
+
+    panel.appendChild(renderNode(resolvePageContent(pagesForState[leafPageId]), leafPageId));
     return panel;
   }
 
-  function collectRegionNodes(node, regions) {
-    if (!node || typeof node !== "object") {
-      return regions;
-    }
-    if (node.kind === "region") {
-      regions.push(node);
-      return regions;
-    }
-    if (node.kind === "container" || node.kind === "card") {
-      (node.children || []).forEach((child) => collectRegionNodes(child, regions));
-      return regions;
-    }
-    if (node.kind === "tabs") {
-      (node.tabs || []).forEach((tab) => collectRegionNodes(tab.content, regions));
-      return regions;
-    }
-    return regions;
-  }
-
-  function updateRenderedRegions(leafPageId, changedSelectorId) {
-    const pagesForState = payload.states[stateKey()];
-    if (!pagesForState) {
-      return false;
-    }
-    const pageNode = pagesForState[leafPageId];
-    if (!pageNode || pageNode.kind !== "page") {
-      return false;
-    }
-    const regionNodes = collectRegionNodes(pageNode.content, []).filter((regionNode) => {
-      return (regionNode.selector_ids || []).includes(changedSelectorId);
-    });
-    if (!regionNodes.length) {
-      return false;
-    }
-    regionNodes.forEach((regionNode) => {
-      const wrapper = document.querySelector(
-        '.export-region[data-leaf-page-id="' + leafPageId + '"][data-region-id="' + regionNode.region_id + '"]'
-      );
-      if (!wrapper) {
-        return;
-      }
-      clearElement(wrapper);
-      wrapper.appendChild(renderNode(resolveRegionContent(regionNode, leafPageId), leafPageId));
-      initializePlots(wrapper);
-    });
-    schedulePlotResize();
-    return true;
-  }
-
   function renderShell() {
-    const shell = document.createElement("div");
-    shell.className = "export-shell";
-
-    const header = document.createElement("div");
-    header.className = "export-header";
-    const title = document.createElement("h1");
-    title.textContent = payload.title;
-    header.appendChild(title);
+    const headerChildren = [
+      el("h1", { text: payload.title }),
+    ];
     if (payload.client_export_note && String(payload.client_export_note).trim()) {
-      const note = document.createElement("p");
-      note.className = "export-note";
-      note.textContent = payload.client_export_note;
-      header.appendChild(note);
+      headerChildren.push(
+        el("p", {
+          className: "export-note",
+          text: payload.client_export_note,
+        })
+      );
     }
-    shell.appendChild(header);
 
-    const layout = document.createElement("div");
-    layout.className = "export-layout";
-    layout.appendChild(renderRail());
+    const main = el("main", { className: "export-main" }, [
+      renderPageTabs(),
+      renderPagePanel(),
+    ]);
 
-    const main = document.createElement("main");
-    main.className = "export-main";
-    main.appendChild(renderPageTabs());
-    main.appendChild(renderPagePanel());
-    layout.appendChild(main);
-
-    shell.appendChild(layout);
-    return shell;
+    return el("div", { className: "export-shell" }, [
+      el("div", { className: "export-header" }, headerChildren),
+      el("div", { className: "export-layout" }, [
+        renderRail(),
+        main,
+      ]),
+    ]);
   }
 
   function renderApp() {
     try {
       clearElement(app);
       app.appendChild(renderShell());
-      initializePlots(app);
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
-      if (typeof ResizeObserver !== "undefined") {
-        resizeObserver = new ResizeObserver(() => {
-          debouncedPlotResize();
-        });
-        document.querySelectorAll(".page-panel, .container-row, .container-column, .plot-shell").forEach((element) => {
-          resizeObserver.observe(element);
-        });
-      }
-      schedulePlotResize();
+      plotManager.renderPendingPlots(app);
+      plotManager.observeLayout(app);
+      plotManager.scheduleResize();
     } catch (error) {
       renderRuntimeError(
         "This HTML export encountered a runtime rendering error.",
@@ -840,8 +1107,33 @@
       );
     }
   }
+// END renderers/app.js
 
-  window.addEventListener("resize", debouncedPlotResize);
+// BEGIN index.js
+  try {
+    payload = parsePayload();
+    validatePayloadSchema(payload);
+    logger = createLogger(shouldEnableDebugLogging(payload));
+    logRuntimeSummary(payload);
+  } catch (error) {
+    renderRuntimeError(
+      "This HTML export is not compatible with the embedded client runtime.",
+      error && error.message ? error.message : error
+    );
+    return;
+  }
+
+  state = getInitialState(payload);
+  plotManager = createPlotManager({
+    plotly: typeof Plotly === "undefined" ? null : Plotly,
+    logger: logger,
+    onRuntimeError: renderRuntimeError,
+  });
+
+  window.addEventListener("resize", () => {
+    plotManager.scheduleResize();
+  });
+
   renderApp();
 })();
-
+// END index.js

@@ -44,16 +44,19 @@ def test_export_logs_selector_unavailable_warning_once_and_falls_back(caplog: py
         html = build_export_html_document([], config, summary_runs=[_full_summary_run()])
 
     payload = _extract_payload(html)
+    # Grouped child export pages are keyed in the actual config contract as
+    # `<group_id>.children.<page_id>`. Keep this assertion aligned with the
+    # repository's real override path instead of the plan's simplified example.
     warning_messages = [
         record.getMessage()
         for record in caplog.records
-        if "visualizer.export_html.pages.long_term_choices.shadow_pricing.student_type"
+        if "visualizer.export_html.pages.long_term_choices.children.shadow_pricing.student_type"
         in record.getMessage()
     ]
 
     assert payload["states"]["Weighted||Percent"]["shadow_pricing"]["kind"] == "page"
     assert warning_messages == [
-        "Warning: visualizer.export_html.pages.long_term_choices.shadow_pricing.student_type is configured, but no enabled export part uses this selector. Ignoring the configuration."
+        "Warning: visualizer.export_html.pages.long_term_choices.children.shadow_pricing.student_type is configured, but no enabled export part uses this selector. Ignoring the configuration."
     ]
 
 
@@ -73,7 +76,7 @@ def test_export_raises_readable_error_for_invalid_selector_values() -> None:
 
     with pytest.raises(
         ValueError,
-        match="Unsupported visualizer.export_html.pages.trip_summaries.trip_mode.tour_purpose values: 'invalid-purpose'",
+        match="Unsupported visualizer.export_html.pages.trip_summaries.children.trip_mode.tour_purpose values: 'invalid-purpose'",
     ):
         build_export_html_document([], config, summary_runs=[_full_summary_run()])
 

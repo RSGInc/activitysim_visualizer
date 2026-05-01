@@ -1,0 +1,77 @@
+{
+  "schema_version": "2.0",
+  "title": "Grouped Export",
+  "runs_loaded": [],
+  "chrome": {
+    "layout": "left_rail",
+    "rail_sections": [
+      "runs_loaded",
+      "display_options"
+    ],
+    "controls_enabled": {
+      "weighting": true,
+      "values": true
+    }
+  },
+  "dashboard_controls": {
+    "weighting": [
+      "Weighted",
+      "Unweighted"
+    ],
+    "values": [
+      "Percent",
+      "Count"
+    ]
+  },
+  "default_state": {
+    "weighting": "Weighted",
+    "values": "Percent"
+  },
+  "pages": [
+    {
+      "id": "trip_summaries",
+      "title": "Trip Summaries",
+      "selectors": [],
+      "children": [
+        {
+          "id": "trip_mode",
+          "title": "Trip Mode",
+          "selectors": [],
+          "children": [],
+          "default_page_id": null
+        },
+        {
+          "id": "trip_time",
+          "title": "Trip Time",
+          "selectors": [],
+          "children": [],
+          "default_page_id": null
+        }
+      ],
+      "default_page_id": "trip_mode"
+    }
+  ],
+  "states": {
+    "Weighted||Percent": {
+      "trip_mode": {
+        "kind": "page",
+        "content": {
+          "kind": "html",
+          "html": "<p>Trip mode summary.</p>"
+        }
+      },
+      "trip_time": {
+        "kind": "page",
+        "content": {
+          "kind": "html",
+          "html": "<p>Trip time summary.</p>"
+        }
+      }
+    }
+  },
+  "page_export_support": {
+    "client_side_runtime": "dashboard-and-page-selectors",
+    "enabled_page_selectors": []
+  },
+  "client_runtime": "region-swap-v1"
+}

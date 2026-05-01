@@ -9,8 +9,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pandas as pd
 import panel as pn
 import plotly.graph_objects as go
+import numpy as np
 
-from dashboard.export.serializer import serialize_viewable
+from dashboard.export.serializer import sanitize_export_payload, serialize_viewable, variant_key
 
 
 def test_serialize_viewable_supports_container_and_card_nodes() -> None:
@@ -148,3 +149,28 @@ def test_serialize_viewable_uses_fallback_for_unsupported_objects() -> None:
 
     assert payload["kind"] == "html"
     assert "Unsupported export item: object" in payload["html"]
+
+
+def test_variant_key_is_stable_and_compact() -> None:
+    assert variant_key(["All", "Drive"]) == '["All","Drive"]'
+    assert variant_key(("All", "Drive")) == '["All","Drive"]'
+
+
+def test_sanitize_export_payload_removes_nan_and_infinity() -> None:
+    payload = {
+        "nan_float": float("nan"),
+        "pos_inf": float("inf"),
+        "neg_inf": float("-inf"),
+        "numpy_nan": np.float64("nan"),
+        "numpy_inf": np.float64("inf"),
+        "nested": [1.0, np.float64(2.5), float("nan")],
+    }
+
+    assert sanitize_export_payload(payload) == {
+        "nan_float": None,
+        "pos_inf": None,
+        "neg_inf": None,
+        "numpy_nan": None,
+        "numpy_inf": None,
+        "nested": [1.0, 2.5, None],
+    }

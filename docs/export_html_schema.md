@@ -9,7 +9,9 @@ The implementation lives under `dashboard/export/`:
 - `dashboard/export/serializer.py`: Panel-to-payload node serialization
 - `dashboard/export/runtime_assets.py`: asset loading and HTML shell assembly
 - `dashboard/export/types.py`: typed payload and node definitions
+- `dashboard/export/js_runtime/`: readable browser-runtime source split into small files
 - `dashboard/export/assets/export_runtime.js`: client runtime that validates and renders the payload
+- `scripts/build_export_runtime.py`: concatenates `js_runtime/` into the shipped runtime asset
 
 ## Top-Level Payload
 

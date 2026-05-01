@@ -1,0 +1,59 @@
+{
+  "schema_version": "2.0",
+  "title": "Minimal Export",
+  "runs_loaded": [],
+  "chrome": {
+    "layout": "left_rail",
+    "rail_sections": [
+      "runs_loaded",
+      "display_options"
+    ],
+    "controls_enabled": {
+      "weighting": false,
+      "values": false
+    }
+  },
+  "dashboard_controls": {
+    "weighting": [
+      "Weighted"
+    ],
+    "values": [
+      "Percent"
+    ]
+  },
+  "default_state": {
+    "weighting": "Weighted",
+    "values": "Percent"
+  },
+  "pages": [
+    {
+      "id": "overview",
+      "title": "Overview",
+      "selectors": [],
+      "children": [],
+      "default_page_id": null
+    }
+  ],
+  "states": {
+    "Weighted||Percent": {
+      "overview": {
+        "kind": "page",
+        "content": {
+          "kind": "card",
+          "title": "Overview",
+          "children": [
+            {
+              "kind": "html",
+              "html": "<p>Trusted export content.</p>"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "page_export_support": {
+    "client_side_runtime": "dashboard-and-page-selectors",
+    "enabled_page_selectors": []
+  },
+  "client_runtime": "region-swap-v1"
+}

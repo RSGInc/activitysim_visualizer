@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from itertools import product
 from typing import Any
 
@@ -448,46 +449,40 @@ def build_region_nodes(
                 for selector_id in active_selector_ids
             ]
             for combination in product(*selector_values):
-                for selector_id, selected_value in zip(active_selector_ids, combination):
-                    widget = selector_widgets.get(selector_id)
-                    if widget is not None:
-                        widget.value = selected_value
-                if hasattr(page, "clear_filtered_view_cache"):
-                    page.clear_filtered_view_cache()
-                page.refresh(force=True)
-                refreshed_part_view = part_def.view_for(page)
-                if refreshed_part_view is None:
-                    raise ValueError(
-                        f"Dashboard page {page_def.page_id!r} export region {part_def.part_id!r} "
-                        "resolved to no view during variant serialization."
+                with temporary_widget_values(
+                    selector_widgets,
+                    dict(zip(active_selector_ids, combination)),
+                ):
+                    refreshed_part_view = _refresh_page_part_view(
+                        page,
+                        part_def,
+                        page_id=page_def.page_id,
+                        context_label="during variant serialization",
                     )
-                page_diagnostics[
-                    f"region:{part_def.part_id}:{variant_key(combination)}"
-                ] = _serialize_page_diagnostics(page)
-                variants[variant_key(combination)] = serialize_viewable(
-                    refreshed_part_view,
-                    disable_widgets=False,
-                    widget_metadata=widget_metadata,
-                )
+                    page_diagnostics[
+                        f"region:{part_def.part_id}:{variant_key(combination)}"
+                    ] = _serialize_page_diagnostics(page)
+                    variants[variant_key(combination)] = serialize_viewable(
+                        refreshed_part_view,
+                        disable_widgets=False,
+                        widget_metadata=widget_metadata,
+                    )
 
-        for selector_id, selected_value in zip(active_selector_ids, default_values):
-            widget = selector_widgets.get(selector_id)
-            if widget is not None and selected_value is not None:
-                widget.value = selected_value
-        if hasattr(page, "clear_filtered_view_cache"):
-            page.clear_filtered_view_cache()
-        page.refresh(force=True)
-        refreshed_part_view = part_def.view_for(page)
-        if refreshed_part_view is None:
-            raise ValueError(
-                f"Dashboard page {page_def.page_id!r} export region {part_def.part_id!r} "
-                "resolved to no view after restoring defaults."
+        with temporary_widget_values(
+            selector_widgets,
+            dict(zip(active_selector_ids, default_values)),
+        ):
+            refreshed_part_view = _refresh_page_part_view(
+                page,
+                part_def,
+                page_id=page_def.page_id,
+                context_label="after restoring defaults",
             )
-        default_content = serialize_viewable(
-            refreshed_part_view,
-            disable_widgets=False,
-            widget_metadata=widget_metadata,
-        )
+            default_content = serialize_viewable(
+                refreshed_part_view,
+                disable_widgets=False,
+                widget_metadata=widget_metadata,
+            )
         region_nodes[id(part_view)] = {
             "kind": "region",
             "region_id": part_def.part_id,
@@ -544,6 +539,56 @@ def resolve_page_parts(
                 )
 
     return resolved
+
+
+@contextmanager
+def temporary_widget_values(
+    selector_widgets: dict[str, pn.widgets.Widget | None],
+    values_by_selector_id: dict[str, Any],
+):
+    """Temporarily set selector widget values and always restore the originals.
+
+    Export region serialization needs to mutate live widget instances so each
+    selector combination can be rendered offline. This helper keeps that
+    mutation boundary explicit and guarantees restoration on both success and
+    failure paths.
+    """
+    original_values = {
+        selector_id: widget.value
+        for selector_id, widget in selector_widgets.items()
+        if widget is not None
+    }
+    try:
+        for selector_id, value in values_by_selector_id.items():
+            widget = selector_widgets.get(selector_id)
+            if widget is not None:
+                widget.value = value
+        yield
+    finally:
+        for selector_id, original_value in original_values.items():
+            widget = selector_widgets.get(selector_id)
+            if widget is not None:
+                widget.value = original_value
+
+
+def _refresh_page_part_view(
+    page: Any,
+    part_def: Any,
+    *,
+    page_id: str,
+    context_label: str,
+) -> pn.viewable.Viewable:
+    """Refresh one page and resolve the current export-part subtree."""
+    if hasattr(page, "clear_filtered_view_cache"):
+        page.clear_filtered_view_cache()
+    page.refresh(force=True)
+    refreshed_part_view = part_def.view_for(page)
+    if refreshed_part_view is None:
+        raise ValueError(
+            f"Dashboard page {page_id!r} export region {part_def.part_id!r} "
+            f"resolved to no view {context_label}."
+        )
+    return refreshed_part_view
 
 
 def resolve_enabled_export_parts(
