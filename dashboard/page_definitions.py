@@ -94,10 +94,14 @@ class DashboardPageDefinition:
     # Legacy metadata remains temporarily supported for pages that have not yet
     # migrated to runtime selector/section registration.
     selectors: tuple[PageSelectorDefinition, ...] = field(default_factory=tuple)
-    export_regions: tuple[PageExportRegionDefinition, ...] = field(default_factory=tuple)
+    export_regions: tuple[PageExportRegionDefinition, ...] = field(
+        default_factory=tuple
+    )
     export_parts: tuple[PageExportPartDefinition, ...] = field(default_factory=tuple)
     required_summary_ids: tuple[str, ...] = field(default_factory=tuple)
-    required_prepared_tables: tuple[PreparedTableName, ...] = field(default_factory=tuple)
+    required_prepared_tables: tuple[PreparedTableName, ...] = field(
+        default_factory=tuple
+    )
 
 
 @dataclass(frozen=True)
@@ -106,7 +110,9 @@ class DashboardDataRequirements:
 
     prepared_data_mode: PreparedDataMode = "none"
     required_summary_ids: tuple[str, ...] = field(default_factory=tuple)
-    required_prepared_tables: tuple[PreparedTableName, ...] = field(default_factory=tuple)
+    required_prepared_tables: tuple[PreparedTableName, ...] = field(
+        default_factory=tuple
+    )
 
 
 @dataclass(frozen=True)
@@ -127,5 +133,3 @@ class DashboardPageConfigEntry:
     page_id: str
     mode: DashboardPageSelectionMode = "explicit"
     page_ids: tuple[str, ...] = field(default_factory=tuple)
-
-

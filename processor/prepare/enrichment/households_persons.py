@@ -25,7 +25,9 @@ def _enrich_households(
         state.hh = state.hh.with_columns(pl.col(sz_col).clip(1, 5).alias("HHSIZE"))
 
     if config.col_num_workers in state.hh.columns:
-        state.hh = state.hh.with_columns(pl.col(config.col_num_workers).alias("WORKERS"))
+        state.hh = state.hh.with_columns(
+            pl.col(config.col_num_workers).alias("WORKERS")
+        )
     if config.col_num_adults in state.hh.columns:
         state.hh = state.hh.with_columns(pl.col(config.col_num_adults).alias("ADULTS"))
 
@@ -100,12 +102,16 @@ def _enrich_persons(
     )
 
     if state.skim is not None:
-        LOGGER.info("[prepare_data] Computing person skim distances for '%s'", state.label)
+        LOGGER.info(
+            "[prepare_data] Computing person skim distances for '%s'", state.label
+        )
         if "home_taz" in state.per.columns and "work_taz" in state.per.columns:
             o = state.per["home_taz"].fill_null(0).to_numpy()
             d = state.per["work_taz"].fill_null(0).to_numpy()
             state.per = state.per.with_columns(
-                pl.Series("distance_to_work", _skim_lookup(state.skim, o, d, state.skim_map))
+                pl.Series(
+                    "distance_to_work", _skim_lookup(state.skim, o, d, state.skim_map)
+                )
             )
         if "home_taz" in state.per.columns and "school_taz" in state.per.columns:
             o = state.per["home_taz"].fill_null(0).to_numpy()
@@ -117,7 +123,10 @@ def _enrich_persons(
                 )
             )
 
-    if "mandatory_tour_frequency" in state.per.columns and "imf_choice" not in state.per.columns:
+    if (
+        "mandatory_tour_frequency" in state.per.columns
+        and "imf_choice" not in state.per.columns
+    ):
         state.per = state.per.with_columns(
             pl.when(pl.col("mandatory_tour_frequency") == "work1")
             .then(1)

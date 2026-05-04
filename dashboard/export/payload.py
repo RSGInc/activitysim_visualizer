@@ -75,7 +75,9 @@ class _RuntimeExportPart:
         return self._view
 
 
-def _page_selector_defs(page: Any, page_def: DashboardPageDefinition) -> tuple[Any, ...]:
+def _page_selector_defs(
+    page: Any, page_def: DashboardPageDefinition
+) -> tuple[Any, ...]:
     runtime_selectors = tuple(getattr(page, "registered_selectors", ()))
     if runtime_selectors:
         return runtime_selectors
@@ -123,7 +125,7 @@ def _page_export_parts(page: Any, page_def: DashboardPageDefinition) -> tuple[An
             )
             for section in runtime_sections
             if section.export
-    )
+        )
     return effective_export_parts(page_def)
 
 
@@ -239,7 +241,10 @@ def analyze_export_payload_size(payload: ExportPayload) -> dict[str, Any]:
             }
 
             current_page_peak = page_peaks.get(page_id)
-            if current_page_peak is None or page_bytes > current_page_peak["payload_bytes"]:
+            if (
+                current_page_peak is None
+                or page_bytes > current_page_peak["payload_bytes"]
+            ):
                 page_peaks[page_id] = {
                     "state_key": export_state_key,
                     "payload_bytes": page_bytes,
@@ -250,7 +255,8 @@ def analyze_export_payload_size(payload: ExportPayload) -> dict[str, Any]:
                 current_region_peak = page_region_peaks.get(region_id)
                 if (
                     current_region_peak is None
-                    or region_metrics["total_bytes"] > current_region_peak["total_bytes"]
+                    or region_metrics["total_bytes"]
+                    > current_region_peak["total_bytes"]
                 ):
                     page_region_peaks[region_id] = {
                         "state_key": export_state_key,
@@ -422,9 +428,7 @@ def _export_part_disable_hint(
     part_id: str,
 ) -> str:
     page_key = _page_config_key(page_def)
-    return (
-        f"visualizer.export_html.pages.{page_key}.parts.{part_id}.enabled: false"
-    )
+    return f"visualizer.export_html.pages.{page_key}.parts.{part_id}.enabled: false"
 
 
 def serialize_dashboard_state(
@@ -518,7 +522,9 @@ def serialize_dashboard_state(
 
 
 def _resolve_group_default_child_page_id(
-    page_definitions: list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...],
+    page_definitions: (
+        list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
+    ),
     *,
     default_page_id: str | None,
 ) -> str:
@@ -551,7 +557,9 @@ def serialize_page_content(
     )
     enabled_part_ids = {part_def.part_id for part_def in enabled_part_defs}
     enabled_selector_ids = {
-        selector_id for part_def in enabled_part_defs for selector_id in part_def.selector_ids
+        selector_id
+        for part_def in enabled_part_defs
+        for selector_id in part_def.selector_ids
     }
     interactive_selectors = [
         selector_meta
@@ -579,12 +587,14 @@ def serialize_page_content(
             id(widget)
             for selector_def in _page_selector_defs(page, page_def)
             for widget in [_selector_widget(selector_def, page)]
-            if _selector_id(selector_def) not in enabled_selector_ids and widget is not None
+            if _selector_id(selector_def) not in enabled_selector_ids
+            and widget is not None
         },
         hidden_view_ids={
             id(part_def.view_for(page))
             for part_def in _page_export_parts(page, page_def)
-            if part_def.part_id not in enabled_part_ids and part_def.view_for(page) is not None
+            if part_def.part_id not in enabled_part_ids
+            and part_def.view_for(page) is not None
         },
     )
     if diagnostics_for_state is not None:
@@ -666,7 +676,9 @@ def build_region_nodes(
                 for selector_id in active_selector_ids
             ]
             for combination in product(*selector_values):
-                for selector_id, selected_value in zip(active_selector_ids, combination):
+                for selector_id, selected_value in zip(
+                    active_selector_ids, combination
+                ):
                     widget = selector_widgets.get(selector_id)
                     if widget is not None:
                         widget.value = selected_value
@@ -729,7 +741,9 @@ def resolve_page_parts(
         return []
 
     root_paths = _view_paths_by_id(page.view)
-    enabled_part_defs = resolve_enabled_export_parts(page, page_def, page.config.export_html)
+    enabled_part_defs = resolve_enabled_export_parts(
+        page, page_def, page.config.export_html
+    )
     resolved: list[tuple[Any, pn.viewable.Viewable]] = []
     for part_def in enabled_part_defs:
         part_view = part_def.view_for(page)
@@ -800,15 +814,11 @@ def _child_viewables(view: pn.viewable.Viewable) -> list[pn.viewable.Viewable]:
     """Return supported child viewables for export-region path validation."""
     if isinstance(view, (pn.Column, pn.Row, pn.Card)):
         return [
-            child
-            for child in view.objects
-            if isinstance(child, pn.viewable.Viewable)
+            child for child in view.objects if isinstance(child, pn.viewable.Viewable)
         ]
     if isinstance(view, pn.Tabs):
         return [
-            child
-            for child in view.objects
-            if isinstance(child, pn.viewable.Viewable)
+            child for child in view.objects if isinstance(child, pn.viewable.Viewable)
         ]
     return []
 
@@ -832,10 +842,13 @@ def resolve_selector_metadata(
         selector_id,
         group_id=page_def.group_id,
     )
-    configured = selector_id in context.config.export_html.page_override(
-        page_id,
-        group_id=page_def.group_id,
-    ).selector_requests
+    configured = (
+        selector_id
+        in context.config.export_html.page_override(
+            page_id,
+            group_id=page_def.group_id,
+        ).selector_requests
+    )
     widget = _selector_widget(selector_def, page)
     available = _selector_available(selector_def, page, context.config)
     export_enabled = _selector_exportable(selector_def)
@@ -865,7 +878,9 @@ def resolve_selector_metadata(
 
     options = [str(option) for option in widget.options]
     default_value = str(widget.value)
-    enabled_part_defs = resolve_enabled_export_parts(page, page_def, context.config.export_html)
+    enabled_part_defs = resolve_enabled_export_parts(
+        page, page_def, context.config.export_html
+    )
     selector_used_by_enabled_part = any(
         selector_id in part_def.selector_ids for part_def in enabled_part_defs
     )
@@ -988,7 +1003,8 @@ def validate_page_export_config(config: Config) -> None:
             selector_id
             for selector_id in override.selector_requests
             if selector_defs
-            and selector_id not in {_selector_id(selector_def) for selector_def in selector_defs}
+            and selector_id
+            not in {_selector_id(selector_def) for selector_def in selector_defs}
         )
         if unknown_selectors:
             raise ValueError(
@@ -1043,7 +1059,9 @@ def _page_config_key(page_def: DashboardPageDefinition | None) -> str:
     return page_def.page_id
 
 
-def _page_definition_for_export_override(page_key: str) -> DashboardPageDefinition | None:
+def _page_definition_for_export_override(
+    page_key: str,
+) -> DashboardPageDefinition | None:
     page_def = page_definition_by_id(page_key)
     if page_def is not None:
         return page_def

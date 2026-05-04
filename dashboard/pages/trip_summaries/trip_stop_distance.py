@@ -67,7 +67,9 @@ def distance_chart_data(
                     pl.col(x_col).alias("distance_bin"),
                     pl.col(y_col).alias("freq"),
                 )
-                .with_columns(_distance_sort_expr("distance_bin").alias("_sort_distance"))
+                .with_columns(
+                    _distance_sort_expr("distance_bin").alias("_sort_distance")
+                )
                 .sort("_sort_distance")
                 .drop("_sort_distance"),
             )

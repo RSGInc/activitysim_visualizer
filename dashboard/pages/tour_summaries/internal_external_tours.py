@@ -9,7 +9,6 @@ from dashboard.components import data_table
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
-
 GEO_LEVEL_COL = "geography_level"
 GEO_TYPE_COL = "geography_type"
 
@@ -91,14 +90,19 @@ class InternalExternalToursPage(DashboardPage):
         int_ext_list = self.optional_summary(
             "internal_external_nonmandatory_tour_frequency_by_home_geography"
         )
-        external_loc_list = self.optional_summary("external_nonmandatory_tour_locations")
+        external_loc_list = self.optional_summary(
+            "external_nonmandatory_tour_locations"
+        )
         normalized_int_ext = (
             [(label, _normalize_geography_columns(df)) for label, df in int_ext_list]
             if int_ext_list is not None
             else []
         )
         normalized_external_loc = (
-            [(label, _normalize_geography_columns(df)) for label, df in external_loc_list]
+            [
+                (label, _normalize_geography_columns(df))
+                for label, df in external_loc_list
+            ]
             if external_loc_list is not None
             else []
         )
@@ -114,7 +118,9 @@ class InternalExternalToursPage(DashboardPage):
         int_ext_list = self.optional_summary(
             "internal_external_nonmandatory_tour_frequency_by_home_geography"
         )
-        external_loc_list = self.optional_summary("external_nonmandatory_tour_locations")
+        external_loc_list = self.optional_summary(
+            "external_nonmandatory_tour_locations"
+        )
 
         normalized_int_ext = (
             [(label, _normalize_geography_columns(df)) for label, df in int_ext_list]
@@ -122,7 +128,10 @@ class InternalExternalToursPage(DashboardPage):
             else []
         )
         normalized_external_loc = (
-            [(label, _normalize_geography_columns(df)) for label, df in external_loc_list]
+            [
+                (label, _normalize_geography_columns(df))
+                for label, df in external_loc_list
+            ]
             if external_loc_list is not None
             else []
         )

@@ -13,7 +13,6 @@ from dashboard.components import (
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
-
 VMT_VIEW_OPTIONS = [
     "Total Commercial VMT",
     "External VMT Only",

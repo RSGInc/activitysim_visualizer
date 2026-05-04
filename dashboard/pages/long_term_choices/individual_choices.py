@@ -58,7 +58,10 @@ def _normalize_bicycle_comfort_levels(
                 label,
                 df.with_columns(
                     pl.col("bicycle_comfort_level")
-                    .replace(_BICYCLE_COMFORT_DISPLAY, default=pl.col("bicycle_comfort_level"))
+                    .replace(
+                        _BICYCLE_COMFORT_DISPLAY,
+                        default=pl.col("bicycle_comfort_level"),
+                    )
                     .alias("bicycle_comfort_level")
                 ),
             )
@@ -222,4 +225,3 @@ PAGE = DashboardPageDefinition(
 )
 
 IndividualChoicesPage.definition = PAGE
-

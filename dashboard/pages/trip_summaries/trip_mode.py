@@ -47,7 +47,12 @@ def _tour_mode_labels(
     if first_df is None or "tour_mode" not in first_df.columns:
         return []
     vals = (
-        first_df.select("tour_mode").drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
+        first_df.select("tour_mode")
+        .drop_nulls()
+        .unique()
+        .to_series()
+        .cast(pl.Utf8)
+        .to_list()
     )
     return sorted(v for v in vals if v not in {"All", "all_tour_modes"})
 

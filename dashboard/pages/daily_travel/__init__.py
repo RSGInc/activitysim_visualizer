@@ -8,4 +8,3 @@ GROUP = DashboardGroupDefinition(
     order=40,
     default_page_id="daily_activity_pattern",
 )
-

@@ -10,72 +10,164 @@ from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
 
-def _nonempty(data_list: list[tuple[str, pl.DataFrame]]) -> list[tuple[str, pl.DataFrame]]:
+def _nonempty(
+    data_list: list[tuple[str, pl.DataFrame]],
+) -> list[tuple[str, pl.DataFrame]]:
     return [(label, df) for label, df in data_list if df is not None and len(df) > 0]
 
 
-def _options(data_list: list[tuple[str, pl.DataFrame]], col: str, total_label: str = "All") -> list[str]:
+def _options(
+    data_list: list[tuple[str, pl.DataFrame]], col: str, total_label: str = "All"
+) -> list[str]:
     if col == "auto_sufficiency":
         return ["All", "Zero Auto", "Auto Deficient", "Auto Sufficient"]
     first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
     if first_df is None or col not in first_df.columns:
         return [total_label]
-    vals = first_df.select(col).drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
+    vals = (
+        first_df.select(col).drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
+    )
     if col == "tour_purpose":
         options = []
         if "all_tour_purposes" in vals:
             options.append("Total")
-        options.extend(sorted(v for v in vals if v not in {total_label, "Total", "all_tour_purposes"}))
+        options.extend(
+            sorted(
+                v for v in vals if v not in {total_label, "Total", "all_tour_purposes"}
+            )
+        )
         return options or ["Total"]
     return [total_label] + sorted(v for v in vals if v != total_label)
 
 
-def _filter_col(data_list: list[tuple[str, pl.DataFrame]], col: str, value: str, total_label: str = "All"):
+def _filter_col(
+    data_list: list[tuple[str, pl.DataFrame]],
+    col: str,
+    value: str,
+    total_label: str = "All",
+):
     def _sort_filtered(df: pl.DataFrame) -> pl.DataFrame:
         if "age" in df.columns:
-            return df.with_columns(pl.when(pl.col("age").cast(pl.Utf8) == "20+").then(999).otherwise(pl.col("age").cast(pl.Int64, strict=False)).alias("_sort_age")).sort("_sort_age").drop("_sort_age")
-        sort_cols = [name for name in df.columns if name not in {"vehicle_count", "pct", col}]
+            return (
+                df.with_columns(
+                    pl.when(pl.col("age").cast(pl.Utf8) == "20+")
+                    .then(999)
+                    .otherwise(pl.col("age").cast(pl.Int64, strict=False))
+                    .alias("_sort_age")
+                )
+                .sort("_sort_age")
+                .drop("_sort_age")
+            )
+        sort_cols = [
+            name for name in df.columns if name not in {"vehicle_count", "pct", col}
+        ]
         return df.sort(sort_cols[0]) if sort_cols else df
+
     out = []
     for label, df in _nonempty(data_list):
         if col in df.columns:
             df = df.with_columns(pl.col(col).cast(pl.Utf8))
             if value == total_label:
                 if "vehicle_count" in df.columns:
-                    group_cols = [name for name in df.columns if name not in {col, "vehicle_count"}]
+                    group_cols = [
+                        name
+                        for name in df.columns
+                        if name not in {col, "vehicle_count"}
+                    ]
                     if len(group_cols) == 1:
-                        df = df.group_by(group_cols[0]).agg(vehicle_count=pl.col("vehicle_count").sum())
+                        df = df.group_by(group_cols[0]).agg(
+                            vehicle_count=pl.col("vehicle_count").sum()
+                        )
                         df = _sort_filtered(df)
                 else:
                     value_cols = [name for name in df.columns if name != col]
                     if len(value_cols) == 1:
-                        df = df.group_by(col).agg(pl.col(value_cols[0]).sum().alias(value_cols[0])).sort(col)
+                        df = (
+                            df.group_by(col)
+                            .agg(pl.col(value_cols[0]).sum().alias(value_cols[0]))
+                            .sort(col)
+                        )
             else:
                 df = _sort_filtered(df.filter(pl.col(col) == value))
         out.append((label, df))
     return out
 
 
-def tour_mode_chart_data(data_list: list[tuple[str, pl.DataFrame]], purpose: str, auto_sufficiency: str):
-    value_col = {"All": "tour_count_all_households", "Zero Auto": "tour_count_zero_auto", "Auto Deficient": "tour_count_auto_deficient", "Auto Sufficient": "tour_count_auto_sufficient"}[auto_sufficiency]
+def tour_mode_chart_data(
+    data_list: list[tuple[str, pl.DataFrame]], purpose: str, auto_sufficiency: str
+):
+    value_col = {
+        "All": "tour_count_all_households",
+        "Zero Auto": "tour_count_zero_auto",
+        "Auto Deficient": "tour_count_auto_deficient",
+        "Auto Sufficient": "tour_count_auto_sufficient",
+    }[auto_sufficiency]
     out = []
     for label, df in _nonempty(data_list):
         df = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
-        df = df.filter(pl.col("tour_purpose") == ("all_tour_purposes" if purpose == "Total" else purpose))
-        out.append((label, df.select(pl.col("tour_mode"), pl.col(value_col).alias("tour_count")).sort("tour_mode")))
+        df = df.filter(
+            pl.col("tour_purpose")
+            == ("all_tour_purposes" if purpose == "Total" else purpose)
+        )
+        out.append(
+            (
+                label,
+                df.select(
+                    pl.col("tour_mode"), pl.col(value_col).alias("tour_count")
+                ).sort("tour_mode"),
+            )
+        )
     return out
 
 
 class TourModePage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
-        mode_data = self.state.get_summary_table_set("tour_mode_by_tour_purpose_and_auto_sufficiency", "weighted")
-        veh_data = self.state.get_summary_table_set("allocated_vehicle_age_by_occupancy", "weighted")
-        self.purpose_sel = self.selector("tour_purpose", widget=pn.widgets.Select(name="Tour Purpose", options=_options(mode_data or [], "tour_purpose"), value=_options(mode_data or [], "tour_purpose")[0]), label="Tour Purpose")
-        self.auto_suff_sel = self.selector("auto_sufficiency", widget=pn.widgets.Select(name="Household Auto Sufficiency", options=_options(mode_data or [], "auto_sufficiency"), value=_options(mode_data or [], "auto_sufficiency")[0]), label="Household Auto Sufficiency")
-        self.occupancy_sel = self.selector("vehicle_occupancy", widget=pn.widgets.Select(name="Vehicle Occupancy", options=_options(veh_data or [], "occupancy"), value=_options(veh_data or [], "occupancy")[0]), label="Vehicle Occupancy")
-        self._mode_section = self.section("tour_mode_modes", selectors=("tour_purpose", "auto_sufficiency"), render=self.render_modes)
-        self._vehicle_section = self.section("tour_mode_vehicles", selectors=("vehicle_occupancy",), render=self.render_vehicles)
-        return self.new_section(pn.pane.Markdown("## Tour Mode"), self._mode_section, self._vehicle_section)
+        mode_data = self.state.get_summary_table_set(
+            "tour_mode_by_tour_purpose_and_auto_sufficiency", "weighted"
+        )
+        veh_data = self.state.get_summary_table_set(
+            "allocated_vehicle_age_by_occupancy", "weighted"
+        )
+        self.purpose_sel = self.selector(
+            "tour_purpose",
+            widget=pn.widgets.Select(
+                name="Tour Purpose",
+                options=_options(mode_data or [], "tour_purpose"),
+                value=_options(mode_data or [], "tour_purpose")[0],
+            ),
+            label="Tour Purpose",
+        )
+        self.auto_suff_sel = self.selector(
+            "auto_sufficiency",
+            widget=pn.widgets.Select(
+                name="Household Auto Sufficiency",
+                options=_options(mode_data or [], "auto_sufficiency"),
+                value=_options(mode_data or [], "auto_sufficiency")[0],
+            ),
+            label="Household Auto Sufficiency",
+        )
+        self.occupancy_sel = self.selector(
+            "vehicle_occupancy",
+            widget=pn.widgets.Select(
+                name="Vehicle Occupancy",
+                options=_options(veh_data or [], "occupancy"),
+                value=_options(veh_data or [], "occupancy")[0],
+            ),
+            label="Vehicle Occupancy",
+        )
+        self._mode_section = self.section(
+            "tour_mode_modes",
+            selectors=("tour_purpose", "auto_sufficiency"),
+            render=self.render_modes,
+        )
+        self._vehicle_section = self.section(
+            "tour_mode_vehicles",
+            selectors=("vehicle_occupancy",),
+            render=self.render_vehicles,
+        )
+        return self.new_section(
+            pn.pane.Markdown("## Tour Mode"), self._mode_section, self._vehicle_section
+        )
 
     def _summaries(self):
         return (
@@ -90,7 +182,12 @@ class TourModePage(DashboardPage):
         for widget, opts in [
             (self.purpose_sel, _options(mode_summary or [], "tour_purpose")),
             (self.auto_suff_sel, _options(mode_summary or [], "auto_sufficiency")),
-            (self.occupancy_sel, _options(age_summary or fuel_summary or body_summary or [], "occupancy")),
+            (
+                self.occupancy_sel,
+                _options(
+                    age_summary or fuel_summary or body_summary or [], "occupancy"
+                ),
+            ),
         ]:
             widget.options = opts
             if widget.value not in opts:
@@ -103,27 +200,127 @@ class TourModePage(DashboardPage):
         purpose = self.purpose_sel.value
         auto_suff = self.auto_suff_sel.value
         if mode_summary is None:
-            return [pn.pane.Markdown("### Tour Mode"), pn.Row(pn.pane.Markdown("**Tour Purpose:**"), self.purpose_sel, pn.pane.Markdown("**Household Auto Sufficiency:**"), self.auto_suff_sel), self.data_not_available_card(detail="The tour mode summary is unavailable.", missing_items=["tour_mode_by_tour_purpose_and_auto_sufficiency"])]
-        mode_data = self.get_filtered_view("tour_mode", (purpose, auto_suff), factory=lambda: tour_mode_chart_data(mode_summary, purpose, auto_suff))
-        return [pn.pane.Markdown("### Tour Mode"), pn.Row(pn.pane.Markdown("**Tour Purpose:**"), self.purpose_sel, pn.pane.Markdown("**Household Auto Sufficiency:**"), self.auto_suff_sel), bar_chart(mode_data, "tour_mode", "tour_count", "Tour Mode by Tour Purpose and Household Auto Sufficiency", "Tour Mode", pct_col="pct", as_percent=self.as_percent)]
+            return [
+                pn.pane.Markdown("### Tour Mode"),
+                pn.Row(
+                    pn.pane.Markdown("**Tour Purpose:**"),
+                    self.purpose_sel,
+                    pn.pane.Markdown("**Household Auto Sufficiency:**"),
+                    self.auto_suff_sel,
+                ),
+                self.data_not_available_card(
+                    detail="The tour mode summary is unavailable.",
+                    missing_items=["tour_mode_by_tour_purpose_and_auto_sufficiency"],
+                ),
+            ]
+        mode_data = self.get_filtered_view(
+            "tour_mode",
+            (purpose, auto_suff),
+            factory=lambda: tour_mode_chart_data(mode_summary, purpose, auto_suff),
+        )
+        return [
+            pn.pane.Markdown("### Tour Mode"),
+            pn.Row(
+                pn.pane.Markdown("**Tour Purpose:**"),
+                self.purpose_sel,
+                pn.pane.Markdown("**Household Auto Sufficiency:**"),
+                self.auto_suff_sel,
+            ),
+            bar_chart(
+                mode_data,
+                "tour_mode",
+                "tour_count",
+                "Tour Mode by Tour Purpose and Household Auto Sufficiency",
+                "Tour Mode",
+                pct_col="pct",
+                as_percent=self.as_percent,
+            ),
+        ]
 
     def render_vehicles(self):
         _, age_summary, fuel_summary, body_summary = self._summaries()
         occupancy = self.occupancy_sel.value
         widgets: list[pn.viewable.Viewable] = []
         if age_summary is not None:
-            widgets.append(bar_chart(self.get_filtered_view("allocated_vehicle_age", occupancy, factory=lambda: _filter_col(age_summary, "occupancy", occupancy)), "age", "vehicle_count", "Allocated Vehicle Age by Occupancy Level", "Vehicle Age", pct_col="pct", as_percent=self.as_percent))
+            widgets.append(
+                bar_chart(
+                    self.get_filtered_view(
+                        "allocated_vehicle_age",
+                        occupancy,
+                        factory=lambda: _filter_col(
+                            age_summary, "occupancy", occupancy
+                        ),
+                    ),
+                    "age",
+                    "vehicle_count",
+                    "Allocated Vehicle Age by Occupancy Level",
+                    "Vehicle Age",
+                    pct_col="pct",
+                    as_percent=self.as_percent,
+                )
+            )
         else:
-            widgets.append(self.data_not_available_card(detail="The allocated vehicle age summary is unavailable.", missing_items=["allocated_vehicle_age_by_occupancy"]))
+            widgets.append(
+                self.data_not_available_card(
+                    detail="The allocated vehicle age summary is unavailable.",
+                    missing_items=["allocated_vehicle_age_by_occupancy"],
+                )
+            )
         if fuel_summary is not None:
-            widgets.append(bar_chart(self.get_filtered_view("allocated_vehicle_fuel", occupancy, factory=lambda: _filter_col(fuel_summary, "occupancy", occupancy)), "fuel_type", "vehicle_count", "Allocated Vehicle Fuel Type by Occupancy Level", "Vehicle Fuel Type", pct_col="pct", as_percent=self.as_percent))
+            widgets.append(
+                bar_chart(
+                    self.get_filtered_view(
+                        "allocated_vehicle_fuel",
+                        occupancy,
+                        factory=lambda: _filter_col(
+                            fuel_summary, "occupancy", occupancy
+                        ),
+                    ),
+                    "fuel_type",
+                    "vehicle_count",
+                    "Allocated Vehicle Fuel Type by Occupancy Level",
+                    "Vehicle Fuel Type",
+                    pct_col="pct",
+                    as_percent=self.as_percent,
+                )
+            )
         else:
-            widgets.append(self.data_not_available_card(detail="The allocated vehicle fuel summary is unavailable.", missing_items=["allocated_vehicle_fuel_type_by_occupancy"]))
+            widgets.append(
+                self.data_not_available_card(
+                    detail="The allocated vehicle fuel summary is unavailable.",
+                    missing_items=["allocated_vehicle_fuel_type_by_occupancy"],
+                )
+            )
         if body_summary is not None:
-            widgets.append(bar_chart(self.get_filtered_view("allocated_vehicle_body", occupancy, factory=lambda: _filter_col(body_summary, "occupancy", occupancy)), "body_type", "vehicle_count", "Allocated Vehicle Body Type by Occupancy Level", "Vehicle Body Type", pct_col="pct", as_percent=self.as_percent))
+            widgets.append(
+                bar_chart(
+                    self.get_filtered_view(
+                        "allocated_vehicle_body",
+                        occupancy,
+                        factory=lambda: _filter_col(
+                            body_summary, "occupancy", occupancy
+                        ),
+                    ),
+                    "body_type",
+                    "vehicle_count",
+                    "Allocated Vehicle Body Type by Occupancy Level",
+                    "Vehicle Body Type",
+                    pct_col="pct",
+                    as_percent=self.as_percent,
+                )
+            )
         else:
-            widgets.append(self.data_not_available_card(detail="The allocated vehicle body summary is unavailable.", missing_items=["allocated_vehicle_body_type_by_occupancy"]))
-        return [pn.pane.Markdown("### Allocated Vehicle Characteristics"), pn.Row(pn.pane.Markdown("**Vehicle Occupancy:**"), self.occupancy_sel), pn.Row(*widgets)]
+            widgets.append(
+                self.data_not_available_card(
+                    detail="The allocated vehicle body summary is unavailable.",
+                    missing_items=["allocated_vehicle_body_type_by_occupancy"],
+                )
+            )
+        return [
+            pn.pane.Markdown("### Allocated Vehicle Characteristics"),
+            pn.Row(pn.pane.Markdown("**Vehicle Occupancy:**"), self.occupancy_sel),
+            pn.Row(*widgets),
+        ]
 
 
 PAGE = DashboardPageDefinition(
@@ -132,7 +329,12 @@ PAGE = DashboardPageDefinition(
     group_id="tour_summaries",
     order=42,
     page_cls=TourModePage,
-    required_summary_ids=("tour_mode_by_tour_purpose_and_auto_sufficiency", "allocated_vehicle_age_by_occupancy", "allocated_vehicle_fuel_type_by_occupancy", "allocated_vehicle_body_type_by_occupancy"),
+    required_summary_ids=(
+        "tour_mode_by_tour_purpose_and_auto_sufficiency",
+        "allocated_vehicle_age_by_occupancy",
+        "allocated_vehicle_fuel_type_by_occupancy",
+        "allocated_vehicle_body_type_by_occupancy",
+    ),
 )
 
 TourModePage.definition = PAGE

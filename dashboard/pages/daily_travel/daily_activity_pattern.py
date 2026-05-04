@@ -10,7 +10,6 @@ from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 from runtime.config import Config
 
-
 PERSON_TYPE_COL = "person_type"
 
 
@@ -185,9 +184,7 @@ class DailyActivityPatternPage(DashboardPage):
         raw_opts = person_type_options(
             summaries["daily_activity_pattern_by_person_type"]
         )
-        display_opts, self._person_type_to_raw = person_type_maps(
-            raw_opts, self.config
-        )
+        display_opts, self._person_type_to_raw = person_type_maps(raw_opts, self.config)
         self.person_type_sel.options = display_opts
         if self.person_type_sel.value not in display_opts:
             self.person_type_sel.value = display_opts[0]

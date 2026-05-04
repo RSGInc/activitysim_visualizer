@@ -43,7 +43,9 @@ def serialize_viewable(
             )
             for child in obj.objects
             if id(child) not in hidden_view_ids
-            and not (isinstance(child, pn.widgets.Widget) and id(child) in hidden_widget_ids)
+            and not (
+                isinstance(child, pn.widgets.Widget) and id(child) in hidden_widget_ids
+            )
         ]
         return {
             "kind": "card",
@@ -62,7 +64,9 @@ def serialize_viewable(
             )
             for child in obj.objects
             if id(child) not in hidden_view_ids
-            and not (isinstance(child, pn.widgets.Widget) and id(child) in hidden_widget_ids)
+            and not (
+                isinstance(child, pn.widgets.Widget) and id(child) in hidden_widget_ids
+            )
         ]
         return {
             "kind": "container",
@@ -82,7 +86,9 @@ def serialize_viewable(
             )
             for child in obj.objects
             if id(child) not in hidden_view_ids
-            and not (isinstance(child, pn.widgets.Widget) and id(child) in hidden_widget_ids)
+            and not (
+                isinstance(child, pn.widgets.Widget) and id(child) in hidden_widget_ids
+            )
         ]
         return {
             "kind": "container",

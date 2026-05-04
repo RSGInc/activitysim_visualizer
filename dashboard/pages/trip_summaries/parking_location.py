@@ -10,7 +10,6 @@ from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 from processor.models import RunData
 
-
 PARKING_CAPACITY_COLUMNS = (
     "PRKSPACES",
     "parking_spaces",
@@ -47,12 +46,11 @@ def parking_scatter_data(
             .group_by("geography_id")
             .agg(parking_capacity=pl.col("parking_capacity").sum())
         )
-        parking_counts = (
-            summary_df.filter(pl.col("geography_type").cast(pl.Utf8) == "maz")
-            .select(
-                pl.col("geography_id").cast(pl.Utf8),
-                pl.col("trip_count").cast(pl.Float64),
-            )
+        parking_counts = summary_df.filter(
+            pl.col("geography_type").cast(pl.Utf8) == "maz"
+        ).select(
+            pl.col("geography_id").cast(pl.Utf8),
+            pl.col("trip_count").cast(pl.Float64),
         )
         joined = (
             land_use.join(parking_counts, on="geography_id", how="full", coalesce=True)
@@ -98,12 +96,19 @@ class ParkingLocationPage(DashboardPage):
                 "Parking location scatterplots require parking trip summaries and prepared "
                 "land use tables with parking capacity columns."
             )
-            result = parking_result if not parking_result.has_usable_runs else prepared_result
+            result = (
+                parking_result
+                if not parking_result.has_usable_runs
+                else prepared_result
+            )
             return [self.unavailable_visualization(result, detail=detail)]
 
         scatter_data = self.get_filtered_view(
             "parking_location_scatter",
-            tuple(label for label, _ in parking_result.usable_by_input["parking_locations"]),
+            tuple(
+                label
+                for label, _ in parking_result.usable_by_input["parking_locations"]
+            ),
             factory=lambda: parking_scatter_data(
                 parking_result.usable_by_input["parking_locations"],
                 prepared_result.usable_by_input["land_use"],

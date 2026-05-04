@@ -341,7 +341,9 @@ def write_summary_run_cache(
         for summary_id, table in mode_tables.items():
             filename = Path(summary_file_map([summary_id])[summary_id]).stem
             metadata = mode_metadata.get(summary_id, {})
-            state = str(metadata.get("state", "empty" if table.is_empty() else "available"))
+            state = str(
+                metadata.get("state", "empty" if table.is_empty() else "available")
+            )
             summary_states[mode][summary_id] = state
             detail = str(metadata.get("detail", "")).strip()
             if detail:
@@ -524,7 +526,11 @@ def load_summary_run_cache(
             table = pl.read_csv(path, infer_schema_length=10000)
             state = manifest_summary_states.get(mode, {}).get(summary_id)
             if state is None:
-                state = "empty" if summary_id in empty_summaries.get(mode, []) else "available"
+                state = (
+                    "empty"
+                    if summary_id in empty_summaries.get(mode, [])
+                    else "available"
+                )
             if summary_id in empty_summaries.get(mode, []) and table.columns == [
                 "__empty__"
             ]:

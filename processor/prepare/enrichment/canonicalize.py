@@ -36,7 +36,9 @@ def _canonicalize_persons(per: pl.DataFrame, config: Config) -> pl.DataFrame:
     return _materialize_column(
         per,
         "person_type",
-        _resolve_source_column(per, config.col_ptype, fallbacks=("person_type", "ptype")),
+        _resolve_source_column(
+            per, config.col_ptype, fallbacks=("person_type", "ptype")
+        ),
         overwrite=True,
     )
 

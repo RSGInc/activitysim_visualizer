@@ -71,7 +71,10 @@ def _build_zone_context(state: _PrepareState, config: Config) -> _ZoneContext:
     if (
         config.geography_enabled
         and config.geography_landuse_col
-        and ((config.taz_col if config.use_maz else config.maz_col) in state.land_use.columns)
+        and (
+            (config.taz_col if config.use_maz else config.maz_col)
+            in state.land_use.columns
+        )
         and config.geography_landuse_col in state.land_use.columns
     ):
         LOGGER.info(

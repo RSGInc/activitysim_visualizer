@@ -28,16 +28,26 @@ def _compute_household_weights(
         LOGGER.info("[compute_weights] Auto-detected sample_rate column in households.")
 
     if hh_weight_col and hh_weight_col in hh.columns:
-        LOGGER.info("[compute_weights] Using household weight column: %s", hh_weight_col)
-        return hh.with_columns(pl.col(hh_weight_col).cast(pl.Float64).alias("finalweight"))
+        LOGGER.info(
+            "[compute_weights] Using household weight column: %s", hh_weight_col
+        )
+        return hh.with_columns(
+            pl.col(hh_weight_col).cast(pl.Float64).alias("finalweight")
+        )
 
-    if (not explicit_weight_supplied) and sample_rate_col and sample_rate_col in hh.columns:
+    if (
+        (not explicit_weight_supplied)
+        and sample_rate_col
+        and sample_rate_col in hh.columns
+    ):
         LOGGER.info(
             "[compute_weights] Using sample-rate expansion from column: %s",
             sample_rate_col,
         )
         return hh.with_columns(
-            (pl.lit(1.0) / pl.col(sample_rate_col).cast(pl.Float64)).alias("finalweight")
+            (pl.lit(1.0) / pl.col(sample_rate_col).cast(pl.Float64)).alias(
+                "finalweight"
+            )
         )
 
     if explicit_weight_supplied and sample_rate_col and sample_rate_col in hh.columns:
@@ -45,7 +55,9 @@ def _compute_household_weights(
             "[compute_weights] Explicit run weight columns supplied; skipping sample_rate expansion."
         )
     else:
-        LOGGER.info("[compute_weights] No weight column found; defaulting finalweight=1.")
+        LOGGER.info(
+            "[compute_weights] No weight column found; defaulting finalweight=1."
+        )
     return hh.with_columns(pl.lit(1.0).alias("finalweight"))
 
 
@@ -56,12 +68,16 @@ def _compute_person_weights(
     person_weight_col: str | None,
 ) -> pl.DataFrame:
     if person_weight_col and person_weight_col in per.columns:
-        LOGGER.info("[compute_weights] Using person weight column: %s", person_weight_col)
+        LOGGER.info(
+            "[compute_weights] Using person weight column: %s", person_weight_col
+        )
         return per.with_columns(
             pl.col(person_weight_col).cast(pl.Float64).alias("finalweight")
         )
 
-    if _has_columns(per, "household_id") and _has_columns(hh, "household_id", "finalweight"):
+    if _has_columns(per, "household_id") and _has_columns(
+        hh, "household_id", "finalweight"
+    ):
         return (
             per.join(
                 hh.select(["household_id", pl.col("finalweight").alias("_hw")]),
@@ -88,7 +104,9 @@ def _compute_trip_weights(
             pl.col(trip_weight_col).cast(pl.Float64).alias("finalweight")
         )
 
-    if _has_columns(trips, "person_id") and _has_columns(per, "person_id", "finalweight"):
+    if _has_columns(trips, "person_id") and _has_columns(
+        per, "person_id", "finalweight"
+    ):
         return (
             trips.join(
                 per.select(["person_id", pl.col("finalweight").alias("_pw")]),
@@ -123,7 +141,11 @@ def _compute_tour_weights(
     *,
     trip_weight_col: str | None,
 ) -> pl.DataFrame:
-    if trip_weight_col and trip_weight_col in trips.columns and "tour_id" in trips.columns:
+    if (
+        trip_weight_col
+        and trip_weight_col in trips.columns
+        and "tour_id" in trips.columns
+    ):
         tour_avg = trips.group_by("tour_id").agg(
             pl.col("finalweight").mean().alias("_tw")
         )
@@ -133,7 +155,9 @@ def _compute_tour_weights(
             .drop("_tw")
         )
 
-    if _has_columns(tours, "person_id") and _has_columns(per, "person_id", "finalweight"):
+    if _has_columns(tours, "person_id") and _has_columns(
+        per, "person_id", "finalweight"
+    ):
         return (
             tours.join(
                 per.select(["person_id", pl.col("finalweight").alias("_pw")]),

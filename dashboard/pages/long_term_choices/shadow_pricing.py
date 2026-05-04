@@ -125,7 +125,9 @@ class ShadowPricingPage(DashboardPage):
         school_summary = self.optional_summary("school_location_enrollment_comparison")
         return {
             "mode": "ready",
-            "geo_opts": _options(workplace_summary or school_summary or [], "geography_type"),
+            "geo_opts": _options(
+                workplace_summary or school_summary or [], "geography_type"
+            ),
             "student_opts": _options(school_summary or [], "student_type"),
             "workplace_summary": workplace_summary,
             "school_summary": school_summary,
@@ -272,4 +274,3 @@ PAGE = DashboardPageDefinition(
 )
 
 ShadowPricingPage.definition = PAGE
-

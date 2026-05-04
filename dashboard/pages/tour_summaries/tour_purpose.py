@@ -86,4 +86,3 @@ PAGE = DashboardPageDefinition(
 )
 
 TourPurposePage.definition = PAGE
-

@@ -148,12 +148,10 @@ def load_summary_runs_from_cache(
                 person_weight_col=entry.get("person_weight_col") or None,
                 trip_weight_col=entry.get("trip_weight_col") or None,
             )
-            expected_prepared_manifest_identity = (
-                build_prepared_manifest_identity(
-                    run_key=expected_run_key,
-                    config=config,
-                    run_fingerprint=expected_run_fingerprint,
-                )
+            expected_prepared_manifest_identity = build_prepared_manifest_identity(
+                run_key=expected_run_key,
+                config=config,
+                run_fingerprint=expected_run_fingerprint,
             )
         else:
             expected_prepared_manifest_identity = None
@@ -234,7 +232,9 @@ def prune_processor_result(
     pruned_prepared_runs_by_key = {
         run_key: (
             label,
-            prune_prepared_runs([(label, prepared_run)], required_prepared_tables)[0][1],
+            prune_prepared_runs([(label, prepared_run)], required_prepared_tables)[0][
+                1
+            ],
         )
         for run_key, (label, prepared_run) in result.prepared_runs_by_key.items()
     }
@@ -295,6 +295,7 @@ def _resolve_prepared_run(
     write_cache: bool,
 ) -> tuple[str, RunData] | None:
     """Reuse in-memory prepared runs, then prepared cache, then raw-run rebuilds."""
+
     def _log_prepare_table_diagnostics(run_label: str, prepared_run: RunData) -> None:
         missing_tables = unavailable_tables(prepared_run)
         failed_prepare_tables = failed_tables(prepared_run)
@@ -590,9 +591,7 @@ def run_summary_workflow(
         prepared_runs_by_key[run_key] = prepared_loaded
 
         summaries_by_mode, summary_metadata_by_mode = (
-            summary_cache.build_mode_summaries_with_metadata(
-                prepared_loaded[1], config
-            )
+            summary_cache.build_mode_summaries_with_metadata(prepared_loaded[1], config)
         )
         summary_run = summary_cache.create_summary_run(
             label=label,

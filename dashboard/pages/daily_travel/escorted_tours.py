@@ -9,7 +9,6 @@ from dashboard.components import bar_chart, data_table
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
-
 DIRECTION_COL = "direction"
 
 

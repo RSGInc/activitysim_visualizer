@@ -75,8 +75,14 @@ def _enrich_tours(
         zone_context=zone_context,
     )
 
-    if state.skim is not None and "OTAZ" in state.tours.columns and "DTAZ" in state.tours.columns:
-        LOGGER.info("[prepare_data] Computing tour skim distances for '%s'", state.label)
+    if (
+        state.skim is not None
+        and "OTAZ" in state.tours.columns
+        and "DTAZ" in state.tours.columns
+    ):
+        LOGGER.info(
+            "[prepare_data] Computing tour skim distances for '%s'", state.label
+        )
         o = state.tours["OTAZ"].fill_null(0).to_numpy()
         d = state.tours["DTAZ"].fill_null(0).to_numpy()
         state.tours = state.tours.with_columns(

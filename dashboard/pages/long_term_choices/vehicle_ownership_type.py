@@ -234,4 +234,3 @@ PAGE = DashboardPageDefinition(
 )
 
 VehicleOwnershipTypePage.definition = PAGE
-

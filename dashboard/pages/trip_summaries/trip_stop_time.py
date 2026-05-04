@@ -84,8 +84,12 @@ def trip_stop_time_chart_data(
     trip_data = []
     stop_data = []
     for label, df in _nonempty(data_list):
-        trip_data.append((label, _profile(df, "departure_trip_count", tour_purpose, maxbin)))
-        stop_data.append((label, _profile(df, "departure_stop_count", tour_purpose, maxbin)))
+        trip_data.append(
+            (label, _profile(df, "departure_trip_count", tour_purpose, maxbin))
+        )
+        stop_data.append(
+            (label, _profile(df, "departure_stop_count", tour_purpose, maxbin))
+        )
     return trip_data, stop_data
 
 
@@ -160,7 +164,9 @@ class TripStopTimePage(DashboardPage):
             purpose_opts, self._purpose_to_raw = purpose_mapping(raw_purposes)
             if not purpose_opts:
                 purpose_opts = sorted(
-                    purpose for purpose in raw_purposes if purpose != "all_tour_purposes"
+                    purpose
+                    for purpose in raw_purposes
+                    if purpose != "all_tour_purposes"
                 )
                 self._purpose_to_raw = {purpose: purpose for purpose in purpose_opts}
             if not purpose_opts:

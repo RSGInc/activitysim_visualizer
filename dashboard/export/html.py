@@ -22,7 +22,9 @@ def build_export_html_document(
     summary_runs: list[SummaryRun] | None = None,
 ) -> str:
     """Build a self-contained HTML document for offline dashboard viewing."""
-    payload, diagnostics = build_export_artifacts(runs, config, summary_runs=summary_runs)
+    payload, diagnostics = build_export_artifacts(
+        runs, config, summary_runs=summary_runs
+    )
     emit_export_size_warnings(diagnostics.get("size_analysis"))
     payload = sanitize_export_payload(payload)
     payload_json = json.dumps(
@@ -46,7 +48,9 @@ def write_export_html_document(
     """Write the standalone export HTML document to disk."""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    payload, diagnostics = build_export_artifacts(runs, config, summary_runs=summary_runs)
+    payload, diagnostics = build_export_artifacts(
+        runs, config, summary_runs=summary_runs
+    )
     emit_export_size_warnings(diagnostics.get("size_analysis"))
     payload = sanitize_export_payload(payload)
     output_path.write_text(

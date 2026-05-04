@@ -302,7 +302,9 @@ def trip_distance(rd: RunData, config: Config) -> pl.DataFrame:
         "tour_purpose": pl.Utf8,
         "stop_count": pl.Float64,
     },
-    required_columns={"trips": ("stops", "out_dir_dist", "tour_purpose", "finalweight")},
+    required_columns={
+        "trips": ("stops", "out_dir_dist", "tour_purpose", "finalweight")
+    },
 )
 def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
     """Out-of-direction distance for stops, in 41 bins (0–40 miles).

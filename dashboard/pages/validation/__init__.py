@@ -8,4 +8,3 @@ GROUP = DashboardGroupDefinition(
     order=80,
     default_page_id="traffic",
 )
-

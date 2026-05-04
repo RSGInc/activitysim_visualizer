@@ -160,11 +160,15 @@ def test_export_html_smoke_serializes_grouped_default_page_as_leaf_page_id() -> 
     payload = json.loads(html[start:end])
     page_by_id = {page["id"]: page for page in payload["pages"]}
 
-    assert page_by_id["tours"]["default_page_id"] == "tour_summary"
-    assert page_by_id["stops"]["default_page_id"] == "stop_frequency"
-    assert page_by_id["tours"]["default_page_id"] in [
-        child["id"] for child in page_by_id["tours"]["children"]
+    assert page_by_id["daily_travel"]["default_page_id"] == "daily_activity_pattern"
+    assert page_by_id["tour_summaries"]["default_page_id"] == "tour_purpose"
+    assert page_by_id["trip_summaries"]["default_page_id"] == "trip_stop_purpose"
+    assert page_by_id["daily_travel"]["default_page_id"] in [
+        child["id"] for child in page_by_id["daily_travel"]["children"]
     ]
-    assert page_by_id["stops"]["default_page_id"] in [
-        child["id"] for child in page_by_id["stops"]["children"]
+    assert page_by_id["tour_summaries"]["default_page_id"] in [
+        child["id"] for child in page_by_id["tour_summaries"]["children"]
+    ]
+    assert page_by_id["trip_summaries"]["default_page_id"] in [
+        child["id"] for child in page_by_id["trip_summaries"]["children"]
     ]

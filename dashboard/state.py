@@ -118,7 +118,9 @@ class DashboardState(param.Parameterized):
         """Return usable summary tables for the requested weighting mode."""
         if not self._summary_runs:
             return None
-        selection = self.inspect_summary_table(summary_name, weighting_key=weighting_key)
+        selection = self.inspect_summary_table(
+            summary_name, weighting_key=weighting_key
+        )
         if not selection.has_usable_runs:
             return None
         return [(label, table) for label, table in selection.usable_runs]
@@ -146,7 +148,10 @@ class DashboardState(param.Parameterized):
             metadata = run.get_summary_metadata(summary_name, mode) or {}
             state = str(metadata.get("state", "")).strip().lower()
             if table is None:
-                detail = str(metadata.get("detail", "")).strip() or "summary table is missing"
+                detail = (
+                    str(metadata.get("detail", "")).strip()
+                    or "summary table is missing"
+                )
                 excluded_runs.append(
                     VisualizationRunAvailability(
                         label=run.label,
@@ -194,7 +199,9 @@ class DashboardState(param.Parameterized):
                 )
                 continue
             if table.is_empty():
-                detail = str(metadata.get("detail", "")).strip() or "summary table is empty"
+                detail = (
+                    str(metadata.get("detail", "")).strip() or "summary table is empty"
+                )
                 excluded_runs.append(
                     VisualizationRunAvailability(
                         label=run.label,
