@@ -1,17 +1,8 @@
-  function updateActivePageSelector(selectorId, value) {
-    const leafPageId = currentLeafPageId(payload, state);
-    if (!leafPageId) {
-      fail(
-        "Cannot update a page selector because no active page is selected.",
-        null,
-        "MISSING_PAGE_STATE"
-      );
-    }
-    state = updateSelectorState(state, leafPageId, selectorId, value);
-    renderApp();
-  }
+  /**
+   * Widget renderers for export payload nodes.
+   */
 
-  function renderWidget(node) {
+  function renderWidget(node, context, actions) {
     const wrapper = el("div", { className: "widget-shell" }, [
       el("div", {
         className: "widget-label",
@@ -22,7 +13,7 @@
     if (node.widget_type === "select") {
       const select = document.createElement("select");
       select.disabled = !!node.disabled;
-      (node.options || []).forEach((option) => {
+      for (const option of node.options || []) {
         const opt = document.createElement("option");
         opt.value = option;
         opt.textContent = option;
@@ -30,10 +21,12 @@
           opt.selected = true;
         }
         select.appendChild(opt);
-      });
+      }
       if (node.export_enabled && node.selector_id) {
         select.addEventListener("change", () => {
-          updateActivePageSelector(node.selector_id, select.value);
+          actions.setPageSelector(node.selector_id, select.value, {
+            preferPartialRegionUpdate: true,
+          });
         });
       }
       wrapper.appendChild(select);
@@ -43,21 +36,17 @@
     if (node.widget_type === "radio_button_group") {
       wrapper.appendChild(
         el("div", { className: "widget-radio-options" }, (node.options || []).map((option) => {
-          return makeButton(
-            option,
-            {
-              active: option === node.value,
-              disabled: !!node.disabled,
-              onClick: () => {
-                if (node.export_enabled && node.selector_id) {
-                  updateActivePageSelector(node.selector_id, option);
-                }
-              },
-              className: "widget-radio-option",
+          return makeButton({
+            label: option,
+            active: option === node.value,
+            disabled: !!node.disabled,
+            onClick: () => {
+              if (node.export_enabled && node.selector_id) {
+                actions.setPageSelector(node.selector_id, option);
+              }
             },
-            null,
-            "widget-radio-option"
-          );
+            className: "widget-radio-option",
+          });
         }))
       );
       return wrapper;

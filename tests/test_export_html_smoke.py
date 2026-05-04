@@ -126,10 +126,12 @@ def test_export_runtime_assets_are_loaded_from_source_files() -> None:
     assert ".export-shell" in css
     assert ".export-error-panel" in css
     assert "function validatePayloadSchema(candidate)" in runtime_js
-    assert "function renderPlot(node)" in runtime_js
-    assert "function renderNode(node, leafPageId)" in runtime_js
-    assert "function renderRegion(node, leafPageId)" in runtime_js
-    assert "function resolveActiveChildPageId(pageDescriptor)" in runtime_js
+    assert "function renderPlot(node, context)" in runtime_js
+    assert "function renderNode(node, context, actions, leafPageId)" in runtime_js
+    assert "function renderRegion(node, context, actions, leafPageId)" in runtime_js
+    assert "function getLeafPageId(currentPayload, currentState)" in runtime_js
+    assert "function createRuntimeContext(config)" in runtime_js
+    assert "function createRuntimeActions(context)" in runtime_js
     assert "Plotly.react" in runtime_js
     assert "__EXPORT_SCHEMA_VERSION__" not in runtime_js
 

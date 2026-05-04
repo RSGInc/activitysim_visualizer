@@ -1,3 +1,13 @@
+  /**
+   * DOM helpers used by the export runtime.
+   *
+   * These helpers are intentionally small and explicit so Python developers can
+   * read the renderers as plain "build element tree" code.
+   */
+
+  /**
+   * Create a DOM element and apply a small set of supported properties.
+   */
   function el(tag, options, children) {
     const element = document.createElement(tag);
     const config = options || {};
@@ -28,47 +38,45 @@
     return element;
   }
 
+  /**
+   * Append child nodes while ignoring null placeholders produced by render code.
+   */
   function appendChildren(parent, children) {
-    (children || []).forEach((child) => {
+    for (const child of children || []) {
       if (child !== undefined && child !== null) {
         parent.appendChild(child);
       }
-    });
+    }
     return parent;
   }
 
+  /**
+   * Remove all current children before repainting a container.
+   */
   function clearElement(element) {
     while (element && element.firstChild) {
       element.removeChild(element.firstChild);
     }
   }
 
-  function makeButton(label, active, onClick, className) {
-    let disabled = false;
-    let resolvedLabel = label;
-    let resolvedActive = !!active;
-    let resolvedOnClick = onClick;
-    let resolvedClassName = className;
-
-    if (typeof active === "object" && active !== null) {
-      disabled = !!active.disabled;
-      resolvedOnClick = active.onClick;
-      resolvedClassName = active.className;
-      resolvedActive = !!active.active;
-      resolvedLabel = active.label || label;
-    }
-
+  /**
+   * Build a button from a single config object.
+   *
+   * The previous overloaded helper accepted multiple call styles, which made
+   * call sites harder to scan. The runtime now uses one explicit API.
+   */
+  function makeButton(config) {
     const button = el("button", {
       className:
-        resolvedClassName
-        + (resolvedActive ? " active" : "")
-        + (disabled ? " disabled" : ""),
-      text: resolvedLabel,
+        (config.className || "")
+        + (config.active ? " active" : "")
+        + (config.disabled ? " disabled" : ""),
+      text: config.label,
     });
     button.type = "button";
-    button.disabled = disabled;
-    if (!disabled && typeof resolvedOnClick === "function") {
-      button.addEventListener("click", resolvedOnClick);
+    button.disabled = !!config.disabled;
+    if (!config.disabled && typeof config.onClick === "function") {
+      button.addEventListener("click", config.onClick);
     }
     return button;
   }

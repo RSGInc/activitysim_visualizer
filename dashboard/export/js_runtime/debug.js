@@ -1,3 +1,11 @@
+  /**
+   * Debug helpers for the export runtime.
+   *
+   * These helpers keep optional logging and summary reporting out of the main
+   * render path while making runtime behavior easier to inspect from the
+   * browser console.
+   */
+
   function shouldEnableDebugLogging(candidate) {
     try {
       if (
@@ -25,6 +33,9 @@
     return !!(candidate && candidate.debug);
   }
 
+  /**
+   * Create a small console logger with a fixed export-runtime prefix.
+   */
   function createLogger(enabled) {
     return {
       enabled: !!enabled,
@@ -45,35 +56,41 @@
     };
   }
 
+  /**
+   * Count node kinds recursively for optional debug summaries.
+   */
   function countNodeKinds(node, counts) {
     if (!node || typeof node !== "object") {
       return counts;
     }
     counts[node.kind || "unknown"] = (counts[node.kind || "unknown"] || 0) + 1;
     if (node.kind === "container" || node.kind === "card") {
-      (node.children || []).forEach((child) => {
+      for (const child of node.children || []) {
         countNodeKinds(child, counts);
-      });
+      }
       return counts;
     }
     if (node.kind === "tabs") {
-      (node.tabs || []).forEach((tab) => {
+      for (const tab of node.tabs || []) {
         countNodeKinds(tab.content, counts);
-      });
+      }
       return counts;
     }
     if (node.kind === "region") {
       countNodeKinds(node.default_content, counts);
-      Object.values(node.variants || {}).forEach((variantNode) => {
+      for (const variantNode of Object.values(node.variants || {})) {
         countNodeKinds(variantNode, counts);
-      });
+      }
       return counts;
     }
     return counts;
   }
 
-  function logRuntimeSummary(candidate) {
-    if (!logger || !logger.enabled) {
+  /**
+   * Log a summary of the payload currently loaded into the browser runtime.
+   */
+  function logRuntimeSummary(runtimeLogger, candidate) {
+    if (!runtimeLogger || !runtimeLogger.enabled) {
       return;
     }
     const pageDescriptors = candidate.pages || [];
@@ -86,14 +103,14 @@
     }, 0);
     const stateKeys = Object.keys(candidate.states || {});
     const nodeCounts = {};
-    stateKeys.forEach((stateId) => {
-      Object.values(candidate.states[stateId] || {}).forEach((pageNode) => {
+    for (const stateId of stateKeys) {
+      for (const pageNode of Object.values(candidate.states[stateId] || {})) {
         if (pageNode && pageNode.kind === "page") {
           countNodeKinds(pageNode.content, nodeCounts);
         }
-      });
-    });
-    logger.debug("Runtime summary", {
+      }
+    }
+    runtimeLogger.debug("Runtime summary", {
       schema_version: candidate.schema_version,
       pages: pageDescriptors.length,
       selectors: selectorCount,

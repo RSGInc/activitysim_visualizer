@@ -1,4 +1,8 @@
-  function renderPlot(node) {
+  /**
+   * Plot renderer that registers serialized Plotly figures with the plot
+   * lifecycle manager for later browser-side rendering.
+   */
+  function renderPlot(node, context) {
     const plotElement = el("div", {
       className: "plot-shell",
       attrs: { "data-plot-pending": "true" },
@@ -14,6 +18,6 @@
         width: null,
       }),
     };
-    plotManager.registerPlot(plotElement, figure);
+    context.plotManager.registerPlot(plotElement, figure);
     return plotElement;
   }

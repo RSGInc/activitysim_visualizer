@@ -1,12 +1,52 @@
+  /**
+   * Plotly lifecycle helpers.
+   *
+   * Plotly needs a small amount of browser-specific coordination when the page
+   * first renders or when layout sizes change. Keeping that timing logic here
+   * avoids spreading retries, observers, and direct Plotly access through the
+   * main renderers.
+   */
   const PLOT_RESIZE_RETRY_DELAYS_MS = [60, 180, 320];
+  const PLOT_RESIZE_DEBOUNCE_DELAY_MS = 40;
 
   function createPlotManager(config) {
     const plotly = config.plotly;
     const runtimeLogger = config.logger;
     const onRuntimeError = config.onRuntimeError;
     const plotFigures = new WeakMap();
+    const registeredPlots = new Set();
     let resizeObserver = null;
-    let resizeTimer = null;
+    let resizeDebounceTimer = null;
+    let resizeFrameHandle = null;
+    let resizeRetryTimers = [];
+
+    function clearScheduledResizeWork() {
+      if (resizeDebounceTimer) {
+        clearTimeout(resizeDebounceTimer);
+        resizeDebounceTimer = null;
+      }
+      if (resizeFrameHandle !== null) {
+        cancelAnimationFrame(resizeFrameHandle);
+        resizeFrameHandle = null;
+      }
+      for (const retryTimer of resizeRetryTimers) {
+        clearTimeout(retryTimer);
+      }
+      resizeRetryTimers = [];
+    }
+
+    function getRegisteredPlotTargets() {
+      const targets = [];
+      for (const container of registeredPlots) {
+        if (!document.contains(container)) {
+          registeredPlots.delete(container);
+          continue;
+        }
+        const renderedPlot = container.querySelector(".js-plotly-plot");
+        targets.push(renderedPlot || container);
+      }
+      return targets;
+    }
 
     function resizePlots() {
       if (
@@ -16,15 +56,21 @@
       ) {
         return;
       }
-      document.querySelectorAll(".plot-shell .js-plotly-plot").forEach((plot) => {
+      for (const plot of getRegisteredPlotTargets()) {
         try {
           plotly.Plots.resize(plot);
         } catch (error) {
           runtimeLogger.warn("Plot resize failed", error);
         }
-      });
+      }
     }
 
+    /**
+     * Plot containers often report one layout size on the first frame and a
+     * final size shortly after the surrounding flex/grid layout settles. We
+     * keep a small, named retry schedule here instead of scattering setTimeout
+     * calls through the renderers.
+     */
     function scheduleResize() {
       if (
         !plotly
@@ -33,21 +79,35 @@
       ) {
         return;
       }
-      requestAnimationFrame(() => {
+      clearScheduledResizeWork();
+      resizeFrameHandle = requestAnimationFrame(() => {
+        resizeFrameHandle = null;
         resizePlots();
-        PLOT_RESIZE_RETRY_DELAYS_MS.forEach((delay) => {
-          setTimeout(resizePlots, delay);
+        resizeRetryTimers = PLOT_RESIZE_RETRY_DELAYS_MS.map((delay) => {
+          return setTimeout(resizePlots, delay);
         });
       });
     }
 
     function debouncedScheduleResize() {
-      if (resizeTimer) {
-        clearTimeout(resizeTimer);
+      if (resizeDebounceTimer) {
+        clearTimeout(resizeDebounceTimer);
       }
-      resizeTimer = setTimeout(scheduleResize, 40);
+      resizeDebounceTimer = setTimeout(scheduleResize, PLOT_RESIZE_DEBOUNCE_DELAY_MS);
     }
 
+    /**
+     * Register a plot container and remember the serialized figure associated
+     * with it. The WeakMap is the runtime's plot registry for figure payloads.
+     */
+    function registerPlot(element, figure) {
+      plotFigures.set(element, figure);
+      registeredPlots.add(element);
+    }
+
+    /**
+     * Render any plot containers that were added during the latest DOM paint.
+     */
     function renderPendingPlots(root) {
       if (!plotly || typeof plotly.react !== "function") {
         fail(
@@ -58,7 +118,7 @@
       }
 
       const scope = root || document;
-      scope.querySelectorAll('.plot-shell[data-plot-pending="true"]').forEach((div) => {
+      for (const div of scope.querySelectorAll('.plot-shell[data-plot-pending="true"]')) {
         const figure = plotFigures.get(div) || { data: [], layout: {} };
         div.removeAttribute("data-plot-pending");
         Promise.resolve(
@@ -69,7 +129,7 @@
         ).catch((error) => {
           onRuntimeError("Plot rendering failed while loading this export.", error);
         });
-      });
+      }
     }
 
     function observeLayout(root) {
@@ -82,11 +142,11 @@
       resizeObserver = new ResizeObserver(() => {
         debouncedScheduleResize();
       });
-      (root || document).querySelectorAll(
+      for (const element of (root || document).querySelectorAll(
         ".page-panel, .container-row, .container-column, .plot-shell"
-      ).forEach((element) => {
+      )) {
         resizeObserver.observe(element);
-      });
+      }
     }
 
     function disconnect() {
@@ -94,16 +154,11 @@
         resizeObserver.disconnect();
         resizeObserver = null;
       }
-      if (resizeTimer) {
-        clearTimeout(resizeTimer);
-        resizeTimer = null;
-      }
+      clearScheduledResizeWork();
     }
 
     return {
-      registerPlot: function (element, figure) {
-        plotFigures.set(element, figure);
-      },
+      registerPlot: registerPlot,
       renderPendingPlots: renderPendingPlots,
       scheduleResize: scheduleResize,
       observeLayout: observeLayout,

@@ -1,4 +1,7 @@
-  function renderTabs(node, leafPageId) {
+  /**
+   * Local tab renderer used inside exported pages.
+   */
+  function renderTabs(node, context, actions, leafPageId) {
     const root = document.createElement("div");
     let activeIndex = 0;
     const tabRow = el("div", { className: "local-tab-row" });
@@ -7,25 +10,25 @@
     function paint() {
       clearElement(tabRow);
       clearElement(panel);
-      (node.tabs || []).forEach((tab, index) => {
+      for (const [index, tab] of (node.tabs || []).entries()) {
         tabRow.appendChild(
-          makeButton(
-            tab.title,
-            index === activeIndex,
-            () => {
+          makeButton({
+            label: tab.title,
+            active: index === activeIndex,
+            onClick: () => {
               activeIndex = index;
               paint();
             },
-            "local-tab-button"
-          )
+            className: "local-tab-button",
+          })
         );
-      });
+      }
       if (node.tabs && node.tabs[activeIndex]) {
-        panel.appendChild(renderNode(node.tabs[activeIndex].content, leafPageId));
+        panel.appendChild(renderNode(node.tabs[activeIndex].content, context, actions, leafPageId));
       }
       requestAnimationFrame(() => {
-        plotManager.renderPendingPlots(panel);
-        plotManager.scheduleResize();
+        context.plotManager.renderPendingPlots(panel);
+        context.plotManager.scheduleResize();
       });
     }
 

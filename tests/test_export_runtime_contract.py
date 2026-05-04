@@ -65,6 +65,42 @@ def test_malformed_runtime_fixture_is_missing_required_contract_fields() -> None
     assert REQUIRED_TOP_LEVEL_FIELDS - set(payload)
 
 
+def test_duplicate_region_fixture_contains_duplicate_region_ids() -> None:
+    payload = _load_fixture("duplicate_region_id_payload.json")
+    children = payload["states"]["Weighted||Percent"]["trip_mode"]["content"]["children"]
+
+    assert [child["region_id"] for child in children if child["kind"] == "region"] == [
+        "shared_region",
+        "shared_region",
+    ]
+
+
+def test_invalid_selector_default_fixture_uses_default_not_in_options() -> None:
+    payload = _load_fixture("invalid_selector_default_payload.json")
+    selector = payload["pages"][0]["selectors"][0]
+
+    assert selector["default_value"] not in selector["options"]
+
+
+def test_invalid_grouped_default_fixture_uses_unknown_default_page_id() -> None:
+    payload = _load_fixture("invalid_grouped_default_payload.json")
+    grouped_page = payload["pages"][0]
+
+    assert grouped_page["default_page_id"] == "trip_time"
+    assert grouped_page["default_page_id"] not in [
+        child["id"] for child in grouped_page["children"]
+    ]
+
+
+def test_unknown_region_selector_fixture_references_missing_leaf_page_selector() -> None:
+    payload = _load_fixture("unknown_region_selector_payload.json")
+    region = payload["states"]["Weighted||Percent"]["trip_mode"]["content"]
+    selector_ids = {selector["id"] for selector in payload["pages"][0]["selectors"]}
+
+    assert region["selector_ids"] == ["missing_selector"]
+    assert not set(region["selector_ids"]) <= selector_ids
+
+
 def test_runtime_asset_replaces_schema_placeholder() -> None:
     runtime_js = load_export_runtime_js()
 
@@ -84,6 +120,16 @@ def test_html_shell_embeds_schema_version_payload_runtime_and_css() -> None:
     assert "window.Plotly = {};" in shell
     assert EXPORT_SCHEMA_VERSION in shell
     assert "__EXPORT_SCHEMA_VERSION__" not in shell
+
+
+def test_runtime_asset_contains_explicit_context_action_and_region_helpers() -> None:
+    runtime_js = load_export_runtime_js()
+
+    assert "function createRuntimeContext(config)" in runtime_js
+    assert "function createRuntimeActions(context)" in runtime_js
+    assert "function makeButton(config)" in runtime_js
+    assert "function buildRegionVariantKey(selectorValues)" in runtime_js
+    assert "const PLOT_RESIZE_RETRY_DELAYS_MS = [60, 180, 320];" in runtime_js
 
 
 def test_generated_export_html_contains_no_raw_nan_or_infinity(tmp_path: Path) -> None:

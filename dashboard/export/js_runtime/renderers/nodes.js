@@ -1,3 +1,10 @@
+  /**
+   * Node-level renderer registry.
+   *
+   * Each payload node kind maps to one small renderer so new node types have a
+   * predictable place to live.
+   */
+
   function nodeRole(node) {
     if (!node || typeof node !== "object") {
       return "unknown";
@@ -29,31 +36,31 @@
     return "html";
   }
 
-  function renderContainer(node, leafPageId) {
+  function renderContainer(node, context, actions, leafPageId) {
     const layoutClass = node.layout === "row" ? "container-row" : "container-column";
     const childCount = Number(node.child_count || (node.children || []).length || 0);
     const container = el("div", {
       className: layoutClass + " child-count-" + String(childCount),
     });
-    (node.children || []).forEach((child) => {
+    for (const child of node.children || []) {
       const wrapper = el("div", {
         className: "container-item container-item--" + nodeRole(child),
       }, [
-        renderNode(child, leafPageId),
+        renderNode(child, context, actions, leafPageId),
       ]);
       container.appendChild(wrapper);
-    });
+    }
     return container;
   }
 
-  function renderCard(node, leafPageId) {
+  function renderCard(node, context, actions, leafPageId) {
     const card = el("div", { className: "card" });
     if (node.title) {
       card.appendChild(el("div", { className: "card-title", text: node.title }));
     }
-    (node.children || []).forEach((child) => {
-      card.appendChild(renderNode(child, leafPageId));
-    });
+    for (const child of node.children || []) {
+      card.appendChild(renderNode(child, context, actions, leafPageId));
+    }
     return card;
   }
 
@@ -88,7 +95,7 @@
     region: renderRegion,
   };
 
-  function renderNode(node, leafPageId) {
+  function renderNode(node, context, actions, leafPageId) {
     if (!node || typeof node !== "object") {
       fail("Encountered malformed export node content.", null, "INVALID_EXPORT_NODE");
     }
@@ -100,5 +107,5 @@
         "UNKNOWN_NODE_KIND"
       );
     }
-    return renderer(node, leafPageId);
+    return renderer(node, context, actions, leafPageId);
   }
