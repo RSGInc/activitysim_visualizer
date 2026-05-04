@@ -8,7 +8,6 @@ from processor.prepare.enrichment.columns import resolve_source_column
 from processor.prepare.enrichment.types import _PrepareState
 from runtime.config import Config, StudentTypeConfig
 
-
 _TRUE_TOKENS = {"true", "1", "yes", "y", "t"}
 
 
@@ -75,7 +74,9 @@ def _default_student_types(state: _PrepareState) -> list[StudentTypeConfig]:
     return defaults
 
 
-def _resolved_student_types(state: _PrepareState, config: Config) -> list[StudentTypeConfig]:
+def _resolved_student_types(
+    state: _PrepareState, config: Config
+) -> list[StudentTypeConfig]:
     return config.student_types or _default_student_types(state)
 
 
@@ -136,7 +137,9 @@ def _build_land_use_overlay(
     overlays: list[pl.DataFrame] = []
     for entry in student_types:
         present_columns = [
-            column for column in entry.land_use_columns if column in state.land_use.columns
+            column
+            for column in entry.land_use_columns
+            if column in state.land_use.columns
         ]
         if not present_columns:
             continue

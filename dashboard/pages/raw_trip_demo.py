@@ -108,4 +108,3 @@ PAGE = DashboardPageDefinition(
 )
 
 RawTripDemoPage.definition = PAGE
-

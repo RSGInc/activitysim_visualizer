@@ -319,6 +319,7 @@ def test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_failed(
     tmp_path: Path,
     monkeypatch,
     caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     run_dir = tmp_path / "run_a"
     config = _write_config(
@@ -370,7 +371,8 @@ def test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_failed(
 
     assert [label for label, _ in result.prepared_runs] == ["Run A"]
     assert list(result.prepared_runs_by_key) == ["run-a"]
-    assert "recorded failed tables" in caplog.text
+    captured = capsys.readouterr()
+    assert "recorded failed tables" in (caplog.text + captured.err + captured.out)
 
 
 def test_run_summary_workflow_uses_cache_hit_without_raw_read_or_summary_rebuild(

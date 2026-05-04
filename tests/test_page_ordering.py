@@ -44,11 +44,10 @@ def test_export_page_order_keeps_live_page_order_when_export_overrides_are_confi
 
     assert [page.page_id for page in live_pages] == [
         "overview",
-        "parking_location",
-        "trip_mode",
-        "trip_stop_distance",
         "trip_stop_purpose",
+        "trip_mode",
         "trip_stop_time",
+        "trip_stop_distance",
     ]
     assert [page.page_id for page in export_pages] == [page.page_id for page in live_pages]
 
@@ -68,10 +67,9 @@ def test_export_page_order_inherits_live_page_order_when_export_pages_are_unset(
     export_pages = resolve_export_page_definitions(config)
 
     assert [page.page_id for page in export_pages] == [
-        "parking_location",
-        "trip_mode",
-        "trip_stop_distance",
         "trip_stop_purpose",
+        "trip_mode",
         "trip_stop_time",
+        "trip_stop_distance",
         "overview",
     ]

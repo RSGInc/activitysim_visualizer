@@ -477,10 +477,9 @@ def at_work_sub_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
         .sort("atwork_subtour_frequency_category")
     )
 
+
 # TODO: fix in specs to match original.
-def atwork_subtour_frequency_distribution(
-    rd: RunData, config: Config
-) -> pl.DataFrame:
+def atwork_subtour_frequency_distribution(rd: RunData, config: Config) -> pl.DataFrame:
     """Backward-compatible alias used by summary spec registration."""
     return at_work_sub_tour_freq(rd, config)
 
@@ -817,7 +816,9 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
         "geography": pl.Utf8,
         "average_tour_distance": pl.Float64,
     },
-    required_columns={"tours": ("tour_category", "tour_purpose", "SKIMDIST", "finalweight")},
+    required_columns={
+        "tours": ("tour_category", "tour_purpose", "SKIMDIST", "finalweight")
+    },
 )
 def avg_non_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     """Average non-mandatory tour distance by purpose and geography.

@@ -9,9 +9,9 @@
   let state = null;
   let logger = null;
   let plotManager = null;
-// END header.js
+  // END header.js
 
-// BEGIN dom.js
+  // BEGIN dom.js
   function el(tag, options, children) {
     const element = document.createElement(tag);
     const config = options || {};
@@ -86,9 +86,9 @@
     }
     return button;
   }
-// END dom.js
+  // END dom.js
 
-// BEGIN errors.js
+  // BEGIN errors.js
   class ExportRuntimeError extends Error {
     constructor(message, detail, code) {
       super(detail ? message + " " + String(detail) : message);
@@ -117,9 +117,9 @@
       }),
       detailText
         ? el("p", {
-            className: "export-error-message",
-            text: detailText,
-          })
+          className: "export-error-message",
+          text: detailText,
+        })
         : null,
     ]);
   }
@@ -133,9 +133,9 @@
       ])
     );
   }
-// END errors.js
+  // END errors.js
 
-// BEGIN debug.js
+  // BEGIN debug.js
   function shouldEnableDebugLogging(candidate) {
     try {
       if (
@@ -240,9 +240,9 @@
       plot_nodes: nodeCounts.plotly || 0,
     });
   }
-// END debug.js
+  // END debug.js
 
-// BEGIN schema.js
+  // BEGIN schema.js
   function parsePayload() {
     if (!dataElement) {
       fail("Export payload script element was not found.", null, "PAYLOAD_ELEMENT_MISSING");
@@ -265,10 +265,10 @@
     if (candidate.schema_version !== SUPPORTED_SCHEMA_VERSION) {
       fail(
         "Unsupported export schema version. Expected "
-          + SUPPORTED_SCHEMA_VERSION
-          + " but received "
-          + String(candidate.schema_version || "<missing>")
-          + ".",
+        + SUPPORTED_SCHEMA_VERSION
+        + " but received "
+        + String(candidate.schema_version || "<missing>")
+        + ".",
         null,
         "SCHEMA_VERSION_UNSUPPORTED"
       );
@@ -286,9 +286,9 @@
       fail("Export payload is missing dashboard controls metadata.", null, "MISSING_DASHBOARD_CONTROLS");
     }
   }
-// END schema.js
+  // END schema.js
 
-// BEGIN state.js
+  // BEGIN state.js
   function stateKey(currentState) {
     return currentState.weighting + "||" + currentState.values;
   }
@@ -393,9 +393,9 @@
     nextState.pageSelectors[pageId] = pageState;
     return nextState;
   }
-// END state.js
+  // END state.js
 
-// BEGIN plotly_lifecycle.js
+  // BEGIN plotly_lifecycle.js
   const PLOT_RESIZE_RETRY_DELAYS_MS = [60, 180, 320];
 
   function createPlotManager(config) {
@@ -508,9 +508,9 @@
       disconnect: disconnect,
     };
   }
-// END plotly_lifecycle.js
+  // END plotly_lifecycle.js
 
-// BEGIN renderers/widgets.js
+  // BEGIN renderers/widgets.js
   function updateActivePageSelector(selectorId, value) {
     const leafPageId = currentLeafPageId(payload, state);
     if (!leafPageId) {
@@ -535,11 +535,12 @@
     if (node.widget_type === "select") {
       const select = document.createElement("select");
       select.disabled = !!node.disabled;
+      const selectedValue = resolveWidgetValue(node, leafPageId);
       (node.options || []).forEach((option) => {
         const opt = document.createElement("option");
         opt.value = option;
         opt.textContent = option;
-        if (option === node.value) {
+        if (option === selectedValue) {
           opt.selected = true;
         }
         select.appendChild(opt);
@@ -559,7 +560,7 @@
           return makeButton(
             option,
             {
-              active: option === node.value,
+              active: option === selectedValue,
               disabled: !!node.disabled,
               onClick: () => {
                 if (node.export_enabled && node.selector_id) {
@@ -582,9 +583,9 @@
       "UNKNOWN_WIDGET_TYPE"
     );
   }
-// END renderers/widgets.js
+  // END renderers/widgets.js
 
-// BEGIN renderers/tables.js
+  // BEGIN renderers/tables.js
   function renderTable(node) {
     const table = el("table", { className: "export-table" });
     const thead = document.createElement("thead");
@@ -612,9 +613,9 @@
 
     return el("div", { className: "table-wrap" }, [table]);
   }
-// END renderers/tables.js
+  // END renderers/tables.js
 
-// BEGIN renderers/tabs.js
+  // BEGIN renderers/tabs.js
   function renderTabs(node, leafPageId) {
     const root = document.createElement("div");
     let activeIndex = 0;
@@ -651,9 +652,9 @@
     root.appendChild(panel);
     return root;
   }
-// END renderers/tabs.js
+  // END renderers/tabs.js
 
-// BEGIN renderers/plots.js
+  // BEGIN renderers/plots.js
   function renderPlot(node) {
     const plotElement = el("div", {
       className: "plot-shell",
@@ -673,9 +674,9 @@
     plotManager.registerPlot(plotElement, figure);
     return plotElement;
   }
-// END renderers/plots.js
+  // END renderers/plots.js
 
-// BEGIN renderers/regions.js
+  // BEGIN renderers/regions.js
   function resolveRegionContent(node, leafPageId) {
     const pageSelectorState = state.pageSelectors[leafPageId] || {};
     const values = (node.selector_ids || []).map((selectorId) => {
@@ -750,9 +751,9 @@
     plotManager.scheduleResize();
     return true;
   }
-// END renderers/regions.js
+  // END renderers/regions.js
 
-// BEGIN renderers/nodes.js
+  // BEGIN renderers/nodes.js
   function nodeRole(node) {
     if (!node || typeof node !== "object") {
       return "unknown";
@@ -857,9 +858,9 @@
     }
     return renderer(node, leafPageId);
   }
-// END renderers/nodes.js
+  // END renderers/nodes.js
 
-// BEGIN renderers/app.js
+  // BEGIN renderers/app.js
   function renderControls() {
     const shell = el("div", { className: "rail-card" }, [
       el("h2", {
@@ -1107,9 +1108,9 @@
       );
     }
   }
-// END renderers/app.js
+  // END renderers/app.js
 
-// BEGIN index.js
+  // BEGIN index.js
   try {
     payload = parsePayload();
     validatePayloadSchema(payload);

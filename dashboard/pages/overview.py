@@ -231,4 +231,3 @@ PAGE = DashboardPageDefinition(
 )
 
 OverviewPage.definition = PAGE
-

@@ -102,7 +102,9 @@ def _combined_nm_tours(
         "distbin": pl.Int32,
         "freq": pl.Float64,
     },
-    required_columns={"tours": ("tour_category", "tour_purpose", "SKIMDIST", "finalweight")},
+    required_columns={
+        "tours": ("tour_category", "tour_purpose", "SKIMDIST", "finalweight")
+    },
 )
 def distance_distribution(rd: RunData, config: Config) -> pl.DataFrame:
     """NM destination distance distribution by purpose.
@@ -169,7 +171,9 @@ def distance_distribution(rd: RunData, config: Config) -> pl.DataFrame:
         "purpose": pl.Utf8,
         "avg_distance": pl.Float64,
     },
-    required_columns={"tours": ("tour_category", "tour_purpose", "SKIMDIST", "finalweight")},
+    required_columns={
+        "tours": ("tour_category", "tour_purpose", "SKIMDIST", "finalweight")
+    },
 )
 def average_distance(rd: RunData, config: Config) -> pl.DataFrame:
     """Average NM tour distance by purpose.
@@ -225,7 +229,10 @@ def average_distance(rd: RunData, config: Config) -> pl.DataFrame:
         "tour_purp": pl.Utf8,
         "tour_rate": pl.Float64,
     },
-    required_columns={"per": ("finalweight",), "tours": ("tour_category", "finalweight")},
+    required_columns={
+        "per": ("finalweight",),
+        "tours": ("tour_category", "finalweight"),
+    },
 )
 def nm_tour_rates(rd: RunData, config: Config) -> pl.DataFrame:
     """NM tour rates per person by person type and purpose.

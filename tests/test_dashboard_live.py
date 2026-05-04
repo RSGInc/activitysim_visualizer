@@ -66,14 +66,11 @@ def test_page_registry_exposes_expected_default_definitions() -> None:
 
     assert [definition.page_id for definition in definitions] == EXPECTED_DEFAULT_LEAF_PAGE_IDS
     assert [definition.title for definition in definitions] == EXPECTED_DEFAULT_LEAF_PAGE_TITLES
-    assert page_definition_by_id("tour_summary") is not None
-    assert page_definition_by_id("tour_summary").title == "Tour Summary"
-    assert page_definition_by_id("tour_summary").group_id == "tours"
-    assert not hasattr(page_definition_by_id("tour_summary"), "child_id")
+    assert page_definition_by_id("daily_activity_pattern") is not None
+    assert page_definition_by_id("daily_activity_pattern").title == "Daily Activity Pattern"
+    assert page_definition_by_id("daily_activity_pattern").group_id == "daily_travel"
+    assert not hasattr(page_definition_by_id("daily_activity_pattern"), "child_id")
     assert page_definition_by_id("trip_mode").page_cls is not None
-    assert [selector.selector_id for selector in page_definition_by_id("stop_location").selectors] == [
-        "purpose",
-    ]
     assert page_definition_by_id("raw_trip_demo") is not None
     assert page_definition_by_id("raw_trip_demo").default_enabled is False
     assert page_definition_by_id("raw_trip_demo").title == "Prepared Trip Demo"
@@ -160,7 +157,7 @@ def test_resolve_page_definitions_supports_nested_group_child_selection(
         tmp_path,
         dashboard_pages=[
             "overview",
-            {"tours": ["tour_summary", "tr_mode"]},
+            {"tour_summaries": ["tour_purpose", "tour_mode"]},
             "joint_travel",
         ],
     )
@@ -169,8 +166,8 @@ def test_resolve_page_definitions_supports_nested_group_child_selection(
 
     assert [page.page_id for page in resolved_pages] == [
         "overview",
-        "tour_summary",
-        "tr_mode",
+        "tour_purpose",
+        "tour_mode",
         "joint_travel",
     ]
 
@@ -258,12 +255,29 @@ def test_build_dashboard_can_refresh_every_default_page_from_precomputed_summari
     )
 
     leaf_pages = {page.page_id(): page for page in template._dashboard_leaf_pages}
-    assert leaf_pages["tour_summary"].ptype_sel.options == ["Total", "worker"]
+    assert [
+        selector.selector_id
+        for selector in leaf_pages["trip_stop_distance"].registered_selectors
+    ] == [
+        "tour_purpose",
+    ]
+    assert leaf_pages["daily_activity_pattern"].person_type_sel.options == [
+        "Total",
+        "worker",
+    ]
     assert leaf_pages["joint_travel"].hhsize_sel.options == ["All", "2", "3"]
-    assert leaf_pages["tour_tod"].purp_sel.options == ["Total", "work"]
+    assert leaf_pages["tour_time"].purpose_sel.options == ["Total", "work"]
     assert leaf_pages["tour_mode"].purpose_sel.options == ["Total", "work"]
-    assert leaf_pages["stop_frequency"].purp_sel.options == ["Total", "eatout", "social"]
-    assert leaf_pages["stop_timing"].purp_sel.options == ["Total", "eatout", "social"]
+    assert leaf_pages["tour_stop_frequency"].purpose_sel.options == [
+        "All",
+        "eatout",
+        "social",
+    ]
+    assert leaf_pages["trip_stop_time"].tour_purpose_sel.options == [
+        "Total",
+        "eatout",
+        "social",
+    ]
     assert leaf_pages["trip_mode"].tour_purpose_sel.options == ["All", "eatout", "social"]
 
 
@@ -370,36 +384,36 @@ def test_build_dashboard_switches_tabs_and_refreshes_only_the_active_page(
 
     assert state.active_tab == 0
     assert state.page_state["Overview"]["last_rendered_state"] == ("weighted", "percent")
-    assert state.page_state["Tour Summary"].get("last_rendered_state") is None
+    assert state.page_state["Daily Activity Pattern"].get("last_rendered_state") is None
 
     tabs.active = 1
 
     assert state.active_tab == 1
     assert state.page_state["Overview"]["last_rendered_state"] == ("weighted", "percent")
-    assert state.page_state["Tour Summary"]["last_rendered_state"] == (
+    assert state.page_state["Daily Activity Pattern"]["last_rendered_state"] == (
         "weighted",
         "percent",
     )
-    assert state.page_state["Stop Frequency"].get("last_rendered_state") is None
+    assert state.page_state["Tour Purpose"].get("last_rendered_state") is None
 
     state.weight_mode = "Unweighted"
 
     assert state.page_state["Overview"]["last_rendered_state"] is None
-    assert state.page_state["Tour Summary"]["last_rendered_state"] == (
+    assert state.page_state["Daily Activity Pattern"]["last_rendered_state"] == (
         "unweighted",
         "percent",
     )
-    assert state.page_state["Stop Frequency"].get("last_rendered_state") is None
+    assert state.page_state["Tour Purpose"].get("last_rendered_state") is None
 
     state.value_mode = "Count"
 
-    assert state.page_state["Tour Summary"]["last_rendered_state"] == (
+    assert state.page_state["Daily Activity Pattern"]["last_rendered_state"] == (
         "unweighted",
         "count",
     )
     assert state.page_state["Overview"].get("last_rendered_state") is None
     assert state.page_state["Mandatory Location Choice"].get("last_rendered_state") is None
-    assert state.page_state["Stop Frequency"].get("last_rendered_state") is None
+    assert state.page_state["Tour Purpose"].get("last_rendered_state") is None
 
 
 def test_build_dashboard_preserves_widget_state_across_tab_switches(
@@ -408,18 +422,20 @@ def test_build_dashboard_preserves_widget_state_across_tab_switches(
     config = _write_config(tmp_path)
     template = build_dashboard([], config, summary_runs=[_full_summary_run()])
     tabs = template.main[0]
-    tour_summary_page = next(
-        page for page in template._dashboard_leaf_pages if page.page_id() == "tour_summary"
+    daily_activity_pattern_page = next(
+        page
+        for page in template._dashboard_leaf_pages
+        if page.page_id() == "daily_activity_pattern"
     )
 
     tabs.active = 1
-    assert tour_summary_page.ptype_sel.options == ["Total", "worker"]
+    assert daily_activity_pattern_page.person_type_sel.options == ["Total", "worker"]
 
-    tour_summary_page.ptype_sel.value = "worker"
+    daily_activity_pattern_page.person_type_sel.value = "worker"
     tabs.active = 0
     tabs.active = 1
 
-    assert tour_summary_page.ptype_sel.value == "worker"
+    assert daily_activity_pattern_page.person_type_sel.value == "worker"
 
 
 def test_dashboard_page_cache_helpers_reuse_summary_and_filtered_view_results(

@@ -109,6 +109,7 @@ visualizer:
 - standalone top-level pages remain as single files like `dashboard/pages/overview.py`
 - grouped pages live under subdirectories like `dashboard/pages/tours/` and `dashboard/pages/stops/`
 - each group directory declares one top-level group plus one or more child page modules
+- new or refactored pages should use `DashboardPage.build_page()`, `self.selector(...)`, and `self.section(...)` rather than page-local selector/export metadata in `PAGE`
 
 If no explicit weight columns are configured and no `sample_rate` column is present, weights default to `1`.
 

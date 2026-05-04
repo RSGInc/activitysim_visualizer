@@ -7,10 +7,8 @@ import polars as pl
 
 from dashboard.components import data_table, scatter_chart
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition, PageExportRegionDefinition
+from dashboard.page_definitions import DashboardPageDefinition
 from processor.models import RunData
-from runtime.config import Config
-
 
 PARKING_CAPACITY_COLUMNS = (
     "PRKSPACES",
@@ -48,12 +46,11 @@ def parking_scatter_data(
             .group_by("geography_id")
             .agg(parking_capacity=pl.col("parking_capacity").sum())
         )
-        parking_counts = (
-            summary_df.filter(pl.col("geography_type").cast(pl.Utf8) == "maz")
-            .select(
-                pl.col("geography_id").cast(pl.Utf8),
-                pl.col("trip_count").cast(pl.Float64),
-            )
+        parking_counts = summary_df.filter(
+            pl.col("geography_type").cast(pl.Utf8) == "maz"
+        ).select(
+            pl.col("geography_id").cast(pl.Utf8),
+            pl.col("trip_count").cast(pl.Float64),
         )
         joined = (
             land_use.join(parking_counts, on="geography_id", how="full", coalesce=True)
@@ -68,23 +65,26 @@ def parking_scatter_data(
 
 
 class ParkingLocationPage(DashboardPage):
-    def __init__(self, state, config: Config) -> None:
-        super().__init__("Parking Location", state, config)
-        self._body = pn.Column(sizing_mode="stretch_width")
-        self.view = pn.Column(
+    def build_page(self) -> pn.viewable.Viewable:
+        self._body = self.section(
+            "parking_location_body",
+            render=self.render_body,
+        )
+        return self.new_section(
             pn.pane.Markdown("## Parking Location"),
             self._body,
             sizing_mode="stretch_width",
         )
 
-    def _refresh(self) -> None:
+    def render_body(self):
         if not self.state.run_labels:
-            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
-            return
+            return [pn.pane.Markdown("No runs loaded.")]
 
         parking_result = self.resolve_summary_visualization(
             "parking_location_scatter",
-            summary_requirements={"parking_locations": ("geography_type", "geography_id", "trip_count")},
+            summary_requirements={
+                "parking_locations": ("geography_type", "geography_id", "trip_count")
+            },
         )
         prepared_result = self.resolve_prepared_visualization(
             "parking_location_land_use",
@@ -96,20 +96,26 @@ class ParkingLocationPage(DashboardPage):
                 "Parking location scatterplots require parking trip summaries and prepared "
                 "land use tables with parking capacity columns."
             )
-            result = parking_result if not parking_result.has_usable_runs else prepared_result
-            self._body.objects = [self.unavailable_visualization(result, detail=detail)]
-            return
+            result = (
+                parking_result
+                if not parking_result.has_usable_runs
+                else prepared_result
+            )
+            return [self.unavailable_visualization(result, detail=detail)]
 
         scatter_data = self.get_filtered_view(
             "parking_location_scatter",
-            tuple(label for label, _ in parking_result.usable_by_input["parking_locations"]),
+            tuple(
+                label
+                for label, _ in parking_result.usable_by_input["parking_locations"]
+            ),
             factory=lambda: parking_scatter_data(
                 parking_result.usable_by_input["parking_locations"],
                 prepared_result.usable_by_input["land_use"],
             ),
         )
         if not scatter_data:
-            self._body.objects = [
+            return [
                 self.data_not_available_card(
                     detail=(
                         "Prepared land use tables do not expose a recognized parking "
@@ -118,9 +124,8 @@ class ParkingLocationPage(DashboardPage):
                     missing_items=list(PARKING_CAPACITY_COLUMNS),
                 )
             ]
-            return
 
-        self._body.objects = [
+        return [
             scatter_chart(
                 scatter_data,
                 x_col="parking_capacity",
@@ -144,13 +149,6 @@ PAGE = DashboardPageDefinition(
     prepared_data_mode="required",
     required_summary_ids=("parking_locations",),
     required_prepared_tables=("land_use",),
-    export_regions=(
-        PageExportRegionDefinition(
-            region_id="parking_location_body",
-            view_attr="_body",
-        ),
-    ),
 )
 
 ParkingLocationPage.definition = PAGE
-

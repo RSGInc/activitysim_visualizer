@@ -86,17 +86,20 @@ def build_dashboard(
     leaf_page_by_id = {page.page_id(): page for page in leaf_pages}
     pages = []
     for entry in resolve_live_navigation_entries(config):
-        child_pages = [leaf_page_by_id[page_definition.page_id] for page_definition in entry.page_definitions]
+        child_pages = [
+            leaf_page_by_id[page_definition.page_id]
+            for page_definition in entry.page_definitions
+        ]
         if entry.group_definition is None:
             pages.append(child_pages[0])
             continue
         pages.append(
-                GroupedDashboardPage(
-                    entry.group_definition.group_id,
-                    entry.title,
-                    child_pages,
-                    default_child_page_id=entry.group_definition.default_page_id,
-                )
+            GroupedDashboardPage(
+                entry.group_definition.group_id,
+                entry.title,
+                child_pages,
+                default_child_page_id=entry.group_definition.default_page_id,
+            )
         )
     tabs = pn.Tabs(
         *[(page.name, page.view) for page in pages],

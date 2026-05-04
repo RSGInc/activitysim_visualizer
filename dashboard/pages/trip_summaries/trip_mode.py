@@ -7,12 +7,7 @@ import polars as pl
 
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import (
-    DashboardPageDefinition,
-    PageExportRegionDefinition,
-    PageSelectorDefinition,
-)
-from runtime.config import Config
+from dashboard.page_definitions import DashboardPageDefinition
 
 
 def _nonempty(
@@ -37,9 +32,7 @@ def _tour_purpose_options(
         .to_list()
     )
     options = ["All"]
-    options.extend(
-        sorted(v for v in vals if v not in {"All", "all_tour_purposes"})
-    )
+    options.extend(sorted(v for v in vals if v not in {"All", "all_tour_purposes"}))
     return options
 
 
@@ -54,7 +47,12 @@ def _tour_mode_labels(
     if first_df is None or "tour_mode" not in first_df.columns:
         return []
     vals = (
-        first_df.select("tour_mode").drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
+        first_df.select("tour_mode")
+        .drop_nulls()
+        .unique()
+        .to_series()
+        .cast(pl.Utf8)
+        .to_list()
     )
     return sorted(v for v in vals if v not in {"All", "all_tour_modes"})
 
@@ -81,24 +79,27 @@ def _filtered_trip_mode_data(
 
 
 class TripModePage(DashboardPage):
-    def __init__(self, state, config: Config) -> None:
-        super().__init__("Trip Mode", state, config)
-
+    def build_page(self) -> pn.viewable.Viewable:
         trip_mode_data = self.state.get_summary_table_set(
             "trip_mode_by_tour_purpose_and_tour_mode",
             "weighted",
         )
         purpose_opts = _tour_purpose_options(trip_mode_data or [])
-
-        self.tour_purpose_sel = pn.widgets.Select(
-            name="Tour Purpose",
-            options=purpose_opts,
-            value=purpose_opts[0],
+        self.tour_purpose_sel = self.selector(
+            "tour_purpose",
+            widget=pn.widgets.Select(
+                name="Tour Purpose",
+                options=purpose_opts,
+                value=purpose_opts[0],
+            ),
+            label="Tour Purpose",
         )
-        self._watch_widget(self.tour_purpose_sel)
-
-        self._body = pn.Column(sizing_mode="stretch_width")
-        self.view = pn.Column(
+        self._body = self.section(
+            "trip_summary_mode_body",
+            selectors=("tour_purpose",),
+            render=self.render_body,
+        )
+        return self.new_section(
             pn.pane.Markdown("## Trip Mode"),
             pn.Row(
                 pn.pane.Markdown("**Tour Purpose:**"),
@@ -108,27 +109,30 @@ class TripModePage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def _refresh(self) -> None:
-        if not self.state.run_labels:
-            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
-            return
-
+    def sync_controls(self) -> None:
         summaries = self.require_summaries(*self.required_summary_ids)
         if summaries is None:
-            self._body.objects = [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
-                )
-            ]
             return
-
         trip_mode_list = summaries["trip_mode_by_tour_purpose_and_tour_mode"]
         purpose_opts = _tour_purpose_options(trip_mode_list)
         self.tour_purpose_sel.options = purpose_opts
         if self.tour_purpose_sel.value not in purpose_opts:
             self.tour_purpose_sel.value = purpose_opts[0]
 
+    def render_body(self):
+        if not self.state.run_labels:
+            return [pn.pane.Markdown("No runs loaded.")]
+
+        summaries = self.require_summaries(*self.required_summary_ids)
+        if summaries is None:
+            return [
+                self.data_not_available_card(
+                    detail="This page only renders from precomputed summary tables.",
+                    missing_items=list(self.required_summary_ids),
+                )
+            ]
+
+        trip_mode_list = summaries["trip_mode_by_tour_purpose_and_tour_mode"]
         tour_purpose = self.tour_purpose_sel.value
         raw_tour_purpose = _raw_tour_purpose(tour_purpose)
         mode_labels = _tour_mode_labels(trip_mode_list)
@@ -168,11 +172,12 @@ class TripModePage(DashboardPage):
             )
 
         grid_rows: list[pn.Row] = []
-        row_size = 2
-        for start in range(0, len(grid_cards), row_size):
-            grid_rows.append(pn.Row(*grid_cards[start : start + row_size], sizing_mode="stretch_width"))
+        for start in range(0, len(grid_cards), 2):
+            grid_rows.append(
+                pn.Row(*grid_cards[start : start + 2], sizing_mode="stretch_width")
+            )
 
-        self._body.objects = [
+        return [
             bar_chart(
                 overall_data,
                 x_col="trip_mode",
@@ -194,22 +199,7 @@ PAGE = DashboardPageDefinition(
     group_id="trip_summaries",
     order=48,
     page_cls=TripModePage,
-    selectors=(
-        PageSelectorDefinition(
-            selector_id="tour_purpose",
-            widget_attr="tour_purpose_sel",
-            label="Tour Purpose",
-        ),
-    ),
-    export_regions=(
-        PageExportRegionDefinition(
-            region_id="trip_summary_mode_body",
-            view_attr="_body",
-            selector_ids=("tour_purpose",),
-        ),
-    ),
     required_summary_ids=("trip_mode_by_tour_purpose_and_tour_mode",),
 )
 
 TripModePage.definition = PAGE
-

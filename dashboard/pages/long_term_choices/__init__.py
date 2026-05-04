@@ -8,4 +8,3 @@ GROUP = DashboardGroupDefinition(
     order=50,
     default_page_id="individual_choices",
 )
-

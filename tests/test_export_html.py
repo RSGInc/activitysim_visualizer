@@ -649,21 +649,21 @@ def test_export_html_config_supports_nested_group_children_requests(
         tmp_path,
         export_html_lines=[
             "pages:",
-            "  tours:",
+            "  tour_summaries:",
             "    children:",
-            "      tour_summary: {}",
-            "      tr_mode:",
-            "        purpose:",
-            "          - total",
-            "          - work",
+            "      tour_purpose: {}",
+            "      tour_mode:",
+                "        tour_purpose:",
+                "          - total",
+                "          - work",
         ],
     )
 
     assert (
         config.export_html.selector_request(
-            "tr_mode",
-            "purpose",
-            group_id="tours",
+            "tour_mode",
+            "tour_purpose",
+            group_id="tour_summaries",
         ).values
         == ("total", "work")
     )
@@ -807,7 +807,7 @@ def test_config_rejects_duplicate_dashboard_pages(tmp_path: Path) -> None:
 
     with pytest.raises(
         ValueError,
-        match="visualizer.export_html.pages.trip_summaries.children.trip_mode.tour_purpose resolved to no values",
+        match="visualizer\\.export_html\\.pages\\.trip_summaries(\\.children)?\\.trip_mode\\.tour_purpose resolved to no values",
     ):
         _write_config(
             tmp_path / "empty_page_values",
@@ -907,7 +907,7 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     enabled_selectors = payload["page_export_support"]["enabled_page_selectors"]
     assert {"page_id": "daily_activity_pattern", "selector_id": "person_type"} in enabled_selectors
     assert {"page_id": "joint_travel", "selector_id": "household_size"} in enabled_selectors
-    assert {"page_id": "stop_frequency", "selector_id": "tour_purpose"} in enabled_selectors
+    assert {"page_id": "tour_stop_frequency", "selector_id": "tour_purpose"} in enabled_selectors
     assert {"page_id": "trip_mode", "selector_id": "tour_purpose"} in enabled_selectors
     assert sorted(payload["states"]) == [
         "Unweighted||Count",
@@ -925,13 +925,6 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
 
     page_defs = _flatten_page_descriptors(payload["pages"])
     assert page_defs["overview"]["selectors"] == []
-    assert page_defs["tour_summary"]["selectors"][0]["id"] == "person_type"
-    assert page_defs["tour_summary"]["selectors"][0]["request_mode"] == "all"
-    assert page_defs["tour_summary"]["selectors"][0]["resolved_values"] == [
-        "Total",
-        "worker",
-    ]
-    assert page_defs["tour_summary"]["selectors"][0]["export_enabled"] is True
     assert page_defs["daily_activity_pattern"]["selectors"][0]["id"] == "person_type"
     assert page_defs["daily_activity_pattern"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["daily_activity_pattern"]["selectors"][0]["resolved_values"] == [
@@ -939,13 +932,13 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
         "worker",
     ]
     assert page_defs["daily_activity_pattern"]["selectors"][0]["export_enabled"] is True
-    assert page_defs["tour_tod"]["selectors"][0]["id"] == "purpose"
-    assert page_defs["tour_tod"]["selectors"][0]["request_mode"] == "all"
-    assert page_defs["tour_tod"]["selectors"][0]["resolved_values"] == [
+    assert page_defs["tour_time"]["selectors"][0]["id"] == "tour_purpose"
+    assert page_defs["tour_time"]["selectors"][0]["request_mode"] == "all"
+    assert page_defs["tour_time"]["selectors"][0]["resolved_values"] == [
         "Total",
         "work",
     ]
-    assert page_defs["tour_tod"]["selectors"][0]["export_enabled"] is True
+    assert page_defs["tour_time"]["selectors"][0]["export_enabled"] is True
     assert page_defs["tour_mode"]["selectors"][0]["id"] == "tour_purpose"
     assert page_defs["tour_mode"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["tour_mode"]["selectors"][0]["resolved_values"] == [
@@ -953,30 +946,22 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
         "work",
     ]
     assert page_defs["tour_mode"]["selectors"][0]["export_enabled"] is True
-    assert page_defs["stop_frequency"]["selectors"][0]["id"] == "tour_purpose"
-    assert page_defs["stop_frequency"]["selectors"][0]["request_mode"] == "all"
-    assert page_defs["stop_frequency"]["selectors"][0]["resolved_values"] == [
+    assert page_defs["tour_stop_frequency"]["selectors"][0]["id"] == "tour_purpose"
+    assert page_defs["tour_stop_frequency"]["selectors"][0]["request_mode"] == "all"
+    assert page_defs["tour_stop_frequency"]["selectors"][0]["resolved_values"] == [
+        "All",
+        "eatout",
+        "social",
+    ]
+    assert page_defs["tour_stop_frequency"]["selectors"][0]["export_enabled"] is True
+    assert page_defs["trip_stop_time"]["selectors"][0]["id"] == "tour_purpose"
+    assert page_defs["trip_stop_time"]["selectors"][0]["request_mode"] == "all"
+    assert page_defs["trip_stop_time"]["selectors"][0]["resolved_values"] == [
         "Total",
         "eatout",
         "social",
     ]
-    assert page_defs["stop_frequency"]["selectors"][0]["export_enabled"] is True
-    assert page_defs["stop_location"]["selectors"][0]["id"] == "purpose"
-    assert page_defs["stop_location"]["selectors"][0]["request_mode"] == "all"
-    assert page_defs["stop_location"]["selectors"][0]["resolved_values"] == [
-        "Total",
-        "eatout",
-        "social",
-    ]
-    assert page_defs["stop_location"]["selectors"][0]["export_enabled"] is True
-    assert page_defs["stop_timing"]["selectors"][0]["id"] == "purpose"
-    assert page_defs["stop_timing"]["selectors"][0]["request_mode"] == "all"
-    assert page_defs["stop_timing"]["selectors"][0]["resolved_values"] == [
-        "Total",
-        "eatout",
-        "social",
-    ]
-    assert page_defs["stop_timing"]["selectors"][0]["export_enabled"] is True
+    assert page_defs["trip_stop_time"]["selectors"][0]["export_enabled"] is True
     assert page_defs["trip_mode"]["selectors"][0]["id"] == "tour_purpose"
     assert page_defs["trip_mode"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["trip_mode"]["selectors"][0]["resolved_values"] == [
@@ -988,13 +973,6 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     weighted_percent = payload["states"]["Weighted||Percent"]
     overview = weighted_percent["overview"]
     assert overview["kind"] == "page"
-    tour_summary = weighted_percent["tour_summary"]
-    assert tour_summary["kind"] == "page"
-    assert _region_nodes(tour_summary)["tour_summary_body"]["selector_ids"] == ["person_type"]
-    assert sorted(_region_nodes(tour_summary)["tour_summary_body"]["variants"]) == [
-        '["Total"]',
-        '["worker"]',
-    ]
     daily_activity_pattern = weighted_percent["daily_activity_pattern"]
     assert daily_activity_pattern["kind"] == "page"
     assert _region_nodes(daily_activity_pattern)["activity_pattern_body"]["selector_ids"] == ["person_type"]
@@ -1002,10 +980,10 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
         '["Total"]',
         '["worker"]',
     ]
-    tour_tod = weighted_percent["tour_tod"]
-    assert tour_tod["kind"] == "page"
-    assert _region_nodes(tour_tod)["tour_tod_body"]["selector_ids"] == ["purpose"]
-    assert sorted(_region_nodes(tour_tod)["tour_tod_body"]["variants"]) == [
+    tour_time = weighted_percent["tour_time"]
+    assert tour_time["kind"] == "page"
+    assert _region_nodes(tour_time)["tour_time_body"]["selector_ids"] == ["tour_purpose"]
+    assert sorted(_region_nodes(tour_time)["tour_time_body"]["variants"]) == [
         '["Total"]',
         '["work"]',
     ]
@@ -1025,32 +1003,29 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
         '["work","Auto Sufficient"]',
         '["work","Zero Auto"]',
     ]
-    stop_frequency = weighted_percent["stop_frequency"]
-    assert stop_frequency["kind"] == "page"
-    assert _region_nodes(stop_frequency)["stop_frequency_body"]["selector_ids"] == [
+    tour_stop_frequency = weighted_percent["tour_stop_frequency"]
+    assert tour_stop_frequency["kind"] == "page"
+    assert _region_nodes(tour_stop_frequency)["tour_stop_frequency_body"]["selector_ids"] == [
+        "tour_purpose",
+        "direction",
+    ]
+    assert sorted(_region_nodes(tour_stop_frequency)["tour_stop_frequency_body"]["variants"]) == [
+        '["All","Both"]',
+        '["All","Inbound"]',
+        '["All","Outbound"]',
+        '["eatout","Both"]',
+        '["eatout","Inbound"]',
+        '["eatout","Outbound"]',
+        '["social","Both"]',
+        '["social","Inbound"]',
+        '["social","Outbound"]',
+    ]
+    trip_stop_time = weighted_percent["trip_stop_time"]
+    assert trip_stop_time["kind"] == "page"
+    assert _region_nodes(trip_stop_time)["trip_stop_time_body"]["selector_ids"] == [
         "tour_purpose"
     ]
-    assert sorted(_region_nodes(stop_frequency)["stop_frequency_body"]["variants"]) == [
-        '["Total"]',
-        '["eatout"]',
-        '["social"]',
-    ]
-    stop_location = weighted_percent["stop_location"]
-    assert stop_location["kind"] == "page"
-    assert _region_nodes(stop_location)["stop_location_body"]["selector_ids"] == [
-        "purpose"
-    ]
-    assert sorted(_region_nodes(stop_location)["stop_location_body"]["variants"]) == [
-        '["Total"]',
-        '["eatout"]',
-        '["social"]',
-    ]
-    stop_timing = weighted_percent["stop_timing"]
-    assert stop_timing["kind"] == "page"
-    assert _region_nodes(stop_timing)["stop_timing_body"]["selector_ids"] == [
-        "purpose"
-    ]
-    assert sorted(_region_nodes(stop_timing)["stop_timing_body"]["variants"]) == [
+    assert sorted(_region_nodes(trip_stop_time)["trip_stop_time_body"]["variants"]) == [
         '["Total"]',
         '["eatout"]',
         '["social"]',
@@ -1064,7 +1039,7 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
         '["social"]',
     ]
     widget_nodes = [
-        node for node in _walk_nodes(tour_summary) if node.get("kind") == "widget"
+        node for node in _walk_nodes(daily_activity_pattern) if node.get("kind") == "widget"
     ]
     assert widget_nodes
     assert any(
@@ -1203,35 +1178,28 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
             "  weighting: all",
             "  values: all",
             "pages:",
-            "  tours:",
-            "    children:",
-            "      tour_summary:",
-            "        person_type:",
-            "          - total",
-            "          - worker",
-            "      tour_tod:",
-            "        purpose: all",
             "  daily_travel:",
             "    children:",
             "      daily_activity_pattern:",
-            "        person_type: all",
+                "        person_type:",
+                "          - total",
+                "          - worker",
             "  tour_summaries:",
             "    children:",
+            "      tour_time:",
+                "        tour_purpose: all",
+            "      tour_stop_frequency:",
+                "        tour_purpose: all",
+                "        direction: all",
             "      tour_mode:",
-            "        tour_purpose: all",
-            "        auto_sufficiency: all",
-            "  stops:",
-            "    children:",
-            "      stop_frequency:",
-            "        tour_purpose: all",
-            "      stop_location:",
-            "        purpose: all",
-            "      stop_timing:",
-            "        purpose: all",
+                "        tour_purpose: all",
+                "        auto_sufficiency: all",
             "  trip_summaries:",
             "    children:",
-            "      trip_mode:",
-            "        tour_purpose: all",
+                "      trip_mode:",
+                "        tour_purpose: all",
+            "      trip_stop_time:",
+                "        tour_purpose: all",
         ],
     )
 
@@ -1239,45 +1207,32 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
     payload = _extract_payload(html)
     page_defs = _flatten_page_descriptors(payload["pages"])
 
-    assert page_defs["tour_summary"]["selectors"][0]["request_mode"] == "explicit"
-    assert page_defs["tour_summary"]["selectors"][0]["resolved_values"] == [
-        "Total",
-        "worker",
-    ]
-    assert page_defs["tour_summary"]["selectors"][0]["export_enabled"] is True
-    assert page_defs["daily_activity_pattern"]["selectors"][0]["request_mode"] == "all"
+    assert page_defs["daily_activity_pattern"]["selectors"][0]["request_mode"] == "explicit"
     assert page_defs["daily_activity_pattern"]["selectors"][0]["resolved_values"] == [
         "Total",
         "worker",
     ]
     assert page_defs["daily_activity_pattern"]["selectors"][0]["export_enabled"] is True
-    assert page_defs["stop_frequency"]["selectors"][0]["request_mode"] == "all"
-    assert page_defs["stop_frequency"]["selectors"][0]["resolved_values"] == [
+    assert page_defs["tour_stop_frequency"]["selectors"][0]["request_mode"] == "all"
+    assert page_defs["tour_stop_frequency"]["selectors"][0]["resolved_values"] == [
+        "All",
+        "eatout",
+        "social",
+    ]
+    assert page_defs["tour_stop_frequency"]["selectors"][0]["export_enabled"] is True
+    assert page_defs["trip_stop_time"]["selectors"][0]["request_mode"] == "all"
+    assert page_defs["trip_stop_time"]["selectors"][0]["resolved_values"] == [
         "Total",
         "eatout",
         "social",
     ]
-    assert page_defs["stop_frequency"]["selectors"][0]["export_enabled"] is True
-    assert page_defs["stop_location"]["selectors"][0]["request_mode"] == "all"
-    assert page_defs["stop_location"]["selectors"][0]["resolved_values"] == [
-        "Total",
-        "eatout",
-        "social",
-    ]
-    assert page_defs["stop_location"]["selectors"][0]["export_enabled"] is True
-    assert page_defs["stop_timing"]["selectors"][0]["request_mode"] == "all"
-    assert page_defs["stop_timing"]["selectors"][0]["resolved_values"] == [
-        "Total",
-        "eatout",
-        "social",
-    ]
-    assert page_defs["stop_timing"]["selectors"][0]["export_enabled"] is True
-    assert page_defs["tour_tod"]["selectors"][0]["request_mode"] == "all"
-    assert page_defs["tour_tod"]["selectors"][0]["resolved_values"] == [
+    assert page_defs["trip_stop_time"]["selectors"][0]["export_enabled"] is True
+    assert page_defs["tour_time"]["selectors"][0]["request_mode"] == "all"
+    assert page_defs["tour_time"]["selectors"][0]["resolved_values"] == [
         "Total",
         "work",
     ]
-    assert page_defs["tour_tod"]["selectors"][0]["export_enabled"] is True
+    assert page_defs["tour_time"]["selectors"][0]["export_enabled"] is True
     assert page_defs["tour_mode"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["tour_mode"]["selectors"][0]["resolved_values"] == [
         "Total",
@@ -1292,9 +1247,9 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
     ]
     assert page_defs["trip_mode"]["selectors"][0]["export_enabled"] is True
 
-    weighted_percent = payload["states"]["Weighted||Percent"]["tour_summary"]
+    weighted_percent = payload["states"]["Weighted||Percent"]["daily_activity_pattern"]
     assert weighted_percent["kind"] == "page"
-    assert sorted(_region_nodes(weighted_percent)["tour_summary_body"]["variants"]) == [
+    assert sorted(_region_nodes(weighted_percent)["activity_pattern_body"]["variants"]) == [
         '["Total"]',
         '["worker"]',
     ]
@@ -1308,34 +1263,31 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
         '["Total"]',
         '["worker"]',
     ]
-    stop_frequency_weighted_percent = payload["states"]["Weighted||Percent"][
-        "stop_frequency"
+    tour_stop_frequency_weighted_percent = payload["states"]["Weighted||Percent"][
+        "tour_stop_frequency"
     ]
-    assert stop_frequency_weighted_percent["kind"] == "page"
-    assert sorted(_region_nodes(stop_frequency_weighted_percent)["stop_frequency_body"]["variants"]) == [
+    assert tour_stop_frequency_weighted_percent["kind"] == "page"
+    assert sorted(_region_nodes(tour_stop_frequency_weighted_percent)["tour_stop_frequency_body"]["variants"]) == [
+        '["All","Both"]',
+        '["All","Inbound"]',
+        '["All","Outbound"]',
+        '["eatout","Both"]',
+        '["eatout","Inbound"]',
+        '["eatout","Outbound"]',
+        '["social","Both"]',
+        '["social","Inbound"]',
+        '["social","Outbound"]',
+    ]
+    trip_stop_time_weighted_percent = payload["states"]["Weighted||Percent"]["trip_stop_time"]
+    assert trip_stop_time_weighted_percent["kind"] == "page"
+    assert sorted(_region_nodes(trip_stop_time_weighted_percent)["trip_stop_time_body"]["variants"]) == [
         '["Total"]',
         '["eatout"]',
         '["social"]',
     ]
-    stop_location_weighted_percent = payload["states"]["Weighted||Percent"][
-        "stop_location"
-    ]
-    assert stop_location_weighted_percent["kind"] == "page"
-    assert sorted(_region_nodes(stop_location_weighted_percent)["stop_location_body"]["variants"]) == [
-        '["Total"]',
-        '["eatout"]',
-        '["social"]',
-    ]
-    stop_timing_weighted_percent = payload["states"]["Weighted||Percent"]["stop_timing"]
-    assert stop_timing_weighted_percent["kind"] == "page"
-    assert sorted(_region_nodes(stop_timing_weighted_percent)["stop_timing_body"]["variants"]) == [
-        '["Total"]',
-        '["eatout"]',
-        '["social"]',
-    ]
-    tour_tod_weighted_percent = payload["states"]["Weighted||Percent"]["tour_tod"]
-    assert tour_tod_weighted_percent["kind"] == "page"
-    assert sorted(_region_nodes(tour_tod_weighted_percent)["tour_tod_body"]["variants"]) == [
+    tour_time_weighted_percent = payload["states"]["Weighted||Percent"]["tour_time"]
+    assert tour_time_weighted_percent["kind"] == "page"
+    assert sorted(_region_nodes(tour_time_weighted_percent)["tour_time_body"]["variants"]) == [
         '["Total"]',
         '["work"]',
     ]
@@ -1538,23 +1490,35 @@ def test_build_export_html_document_serializes_stop_frequency_four_chart_variant
         tmp_path,
         export_html_lines=[
             "pages:",
-            "  stop_frequency:",
-            "    tour_purpose: all",
+            "  tour_stop_frequency:",
+                "    tour_purpose: all",
+                "    direction: all",
         ],
     )
 
     html = build_export_html_document([], config, summary_runs=[_full_summary_run()])
     payload = _extract_payload(html)
-    stop_frequency = payload["states"]["Weighted||Percent"]["stop_frequency"]
+    tour_stop_frequency = payload["states"]["Weighted||Percent"]["tour_stop_frequency"]
 
-    assert stop_frequency["kind"] == "page"
-    assert sorted(_region_nodes(stop_frequency)["stop_frequency_body"]["variants"]) == [
-        '["Total"]',
-        '["eatout"]',
-        '["social"]',
+    assert tour_stop_frequency["kind"] == "page"
+    assert sorted(_region_nodes(tour_stop_frequency)["tour_stop_frequency_body"]["variants"]) == [
+        '["All","Both"]',
+        '["All","Inbound"]',
+        '["All","Outbound"]',
+        '["eatout","Both"]',
+        '["eatout","Inbound"]',
+        '["eatout","Outbound"]',
+        '["social","Both"]',
+        '["social","Inbound"]',
+        '["social","Outbound"]',
     ]
-    variant_nodes = _walk_nodes(_region_nodes(stop_frequency)["stop_frequency_body"]["variants"]['["eatout"]'])
-    assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 4
+    variant_nodes = _walk_nodes(
+        _region_nodes(tour_stop_frequency)["tour_stop_frequency_body"]["variants"][
+            '["eatout","Both"]'
+        ]
+    )
+    assert not any(node.get("kind") == "plotly" for node in variant_nodes)
+    assert any(node.get("kind") == "card" for node in variant_nodes)
 
 
 def test_build_export_html_document_serializes_stop_timing_two_chart_variant(
@@ -1564,22 +1528,24 @@ def test_build_export_html_document_serializes_stop_timing_two_chart_variant(
         tmp_path,
         export_html_lines=[
             "pages:",
-            "  stop_timing:",
-            "    purpose: all",
+            "  trip_stop_time:",
+                "    tour_purpose: all",
         ],
     )
 
     html = build_export_html_document([], config, summary_runs=[_full_summary_run()])
     payload = _extract_payload(html)
-    stop_timing = payload["states"]["Weighted||Percent"]["stop_timing"]
+    trip_stop_time = payload["states"]["Weighted||Percent"]["trip_stop_time"]
 
-    assert stop_timing["kind"] == "page"
-    assert sorted(_region_nodes(stop_timing)["stop_timing_body"]["variants"]) == [
+    assert trip_stop_time["kind"] == "page"
+    assert sorted(_region_nodes(trip_stop_time)["trip_stop_time_body"]["variants"]) == [
         '["Total"]',
         '["eatout"]',
         '["social"]',
     ]
-    variant_nodes = _walk_nodes(_region_nodes(stop_timing)["stop_timing_body"]["variants"]['["Total"]'])
+    variant_nodes = _walk_nodes(
+        _region_nodes(trip_stop_time)["trip_stop_time_body"]["variants"]['["Total"]']
+    )
     assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 2
 
 

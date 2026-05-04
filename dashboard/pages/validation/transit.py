@@ -9,15 +9,9 @@ from dashboard.components import (
     bar_chart,
     control_row,
     control_row_spacer,
-    data_table,
 )
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import (
-    DashboardPageDefinition,
-    PageExportRegionDefinition,
-    PageSelectorDefinition,
-)
-from runtime.config import Config
+from dashboard.page_definitions import DashboardPageDefinition
 
 
 def _nonempty(
@@ -80,9 +74,7 @@ def _filter_transit(
 
 
 class TransitValidationPage(DashboardPage):
-    def __init__(self, state, config: Config) -> None:
-        super().__init__("Transit Validation", state, config)
-
+    def build_page(self) -> pn.viewable.Viewable:
         boarding_data = self.state.get_summary_table_set(
             "transit_boardings_by_operator_and_technology",
             "weighted",
@@ -91,26 +83,32 @@ class TransitValidationPage(DashboardPage):
             "transit_transfer_rate",
             "weighted",
         )
-
         tech_opts = _options(boarding_data or [], "technology")
         access_opts = _options(transfer_data or [], "access_mode")
-
-        self.technology_sel = pn.widgets.Select(
-            name="Transit Technology",
-            options=tech_opts,
-            value=tech_opts[0],
+        self.technology_sel = self.selector(
+            "technology",
+            widget=pn.widgets.Select(
+                name="Transit Technology",
+                options=tech_opts,
+                value=tech_opts[0],
+            ),
+            label="Transit Technology",
         )
-        self._watch_widget(self.technology_sel)
-
-        self.access_mode_sel = pn.widgets.Select(
-            name="Access Mode",
-            options=access_opts,
-            value=access_opts[0],
+        self.access_mode_sel = self.selector(
+            "access_mode",
+            widget=pn.widgets.Select(
+                name="Access Mode",
+                options=access_opts,
+                value=access_opts[0],
+            ),
+            label="Access Mode",
         )
-        self._watch_widget(self.access_mode_sel)
-
-        self._body = pn.Column(sizing_mode="stretch_width")
-        self.view = pn.Column(
+        self._body = self.section(
+            "transit_body",
+            selectors=("technology", "access_mode"),
+            render=self.render_body,
+        )
+        return self.new_section(
             pn.pane.Markdown("## Transit Validation"),
             pn.Row(
                 pn.pane.Markdown("**Transit Technology:**"),
@@ -120,10 +118,27 @@ class TransitValidationPage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def _refresh(self) -> None:
+    def sync_controls(self) -> None:
+        boarding_list = self.state.get_summary_table_set(
+            "transit_boardings_by_operator_and_technology",
+            self.weighting_key,
+        )
+        transfer_list = self.state.get_summary_table_set(
+            "transit_transfer_rate",
+            self.weighting_key,
+        )
+        tech_opts = _options(boarding_list or transfer_list or [], "technology")
+        self.technology_sel.options = tech_opts
+        if self.technology_sel.value not in tech_opts:
+            self.technology_sel.value = tech_opts[0]
+        access_opts = _options(transfer_list or [], "access_mode")
+        self.access_mode_sel.options = access_opts
+        if self.access_mode_sel.value not in access_opts:
+            self.access_mode_sel.value = access_opts[0]
+
+    def render_body(self):
         if not self.state.run_labels:
-            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
-            return
+            return [pn.pane.Markdown("No runs loaded.")]
 
         boarding_list = self.state.get_summary_table_set(
             "transit_boardings_by_operator_and_technology",
@@ -133,17 +148,6 @@ class TransitValidationPage(DashboardPage):
             "transit_transfer_rate",
             self.weighting_key,
         )
-
-        tech_opts = _options(boarding_list or transfer_list or [], "technology")
-        self.technology_sel.options = tech_opts
-        if self.technology_sel.value not in tech_opts:
-            self.technology_sel.value = tech_opts[0]
-
-        access_opts = _options(transfer_list or [], "access_mode")
-        self.access_mode_sel.options = access_opts
-        if self.access_mode_sel.value not in access_opts:
-            self.access_mode_sel.value = access_opts[0]
-
         technology = self.technology_sel.value
         access_mode = self.access_mode_sel.value
 
@@ -197,7 +201,7 @@ class TransitValidationPage(DashboardPage):
                 missing_items=["transit_transfer_rate"],
             )
 
-        self._body.objects = [
+        return [
             pn.Row(
                 pn.Column(control_row_spacer(), boarding_chart),
                 pn.Column(
@@ -218,25 +222,6 @@ PAGE = DashboardPageDefinition(
     group_id="validation",
     order=53,
     page_cls=TransitValidationPage,
-    selectors=(
-        PageSelectorDefinition(
-            selector_id="technology",
-            widget_attr="technology_sel",
-            label="Transit Technology",
-        ),
-        PageSelectorDefinition(
-            selector_id="access_mode",
-            widget_attr="access_mode_sel",
-            label="Access Mode",
-        ),
-    ),
-    export_regions=(
-        PageExportRegionDefinition(
-            region_id="transit_body",
-            view_attr="_body",
-            selector_ids=("technology", "access_mode"),
-        ),
-    ),
     required_summary_ids=(
         "transit_boardings_by_operator_and_technology",
         "transit_transfer_rate",
@@ -244,4 +229,3 @@ PAGE = DashboardPageDefinition(
 )
 
 TransitValidationPage.definition = PAGE
-

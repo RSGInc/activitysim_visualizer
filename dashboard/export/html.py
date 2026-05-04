@@ -8,7 +8,7 @@ from pathlib import Path
 
 from plotly.offline import get_plotlyjs
 
-from dashboard.export.payload import build_export_artifacts, build_export_payload
+from dashboard.export.payload import build_export_artifacts, emit_export_size_warnings
 from dashboard.export.runtime_assets import build_export_html_shell
 from dashboard.export.serializer import json_default, sanitize_export_payload
 from runtime.config import Config
@@ -22,9 +22,11 @@ def build_export_html_document(
     summary_runs: list[SummaryRun] | None = None,
 ) -> str:
     """Build a self-contained HTML document for offline dashboard viewing."""
-    payload = sanitize_export_payload(
-        build_export_payload(runs, config, summary_runs=summary_runs)
+    payload, diagnostics = build_export_artifacts(
+        runs, config, summary_runs=summary_runs
     )
+    emit_export_size_warnings(diagnostics.get("size_analysis"))
+    payload = sanitize_export_payload(payload)
     payload_json = json.dumps(
         payload,
         default=json_default,
@@ -46,7 +48,10 @@ def write_export_html_document(
     """Write the standalone export HTML document to disk."""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    payload, diagnostics = build_export_artifacts(runs, config, summary_runs=summary_runs)
+    payload, diagnostics = build_export_artifacts(
+        runs, config, summary_runs=summary_runs
+    )
+    emit_export_size_warnings(diagnostics.get("size_analysis"))
     payload = sanitize_export_payload(payload)
     output_path.write_text(
         build_export_html_shell(

@@ -161,16 +161,20 @@ def test_build_export_payload_normalizes_group_default_page_ids_to_leaf_page_ids
     payload = build_export_payload([], config, summary_runs=[_full_summary_run()])
     page_by_id = {page["id"]: page for page in payload["pages"]}
 
-    assert page_by_id["tours"]["default_page_id"] == "tour_summary"
-    assert page_by_id["stops"]["default_page_id"] == "stop_frequency"
-    assert page_by_id["tours"]["default_page_id"] in [
-        child["id"] for child in page_by_id["tours"]["children"]
+    assert page_by_id["daily_travel"]["default_page_id"] == "daily_activity_pattern"
+    assert page_by_id["tour_summaries"]["default_page_id"] == "tour_purpose"
+    assert page_by_id["trip_summaries"]["default_page_id"] == "trip_stop_purpose"
+    assert page_by_id["daily_travel"]["default_page_id"] in [
+        child["id"] for child in page_by_id["daily_travel"]["children"]
     ]
-    assert page_by_id["stops"]["default_page_id"] in [
-        child["id"] for child in page_by_id["stops"]["children"]
+    assert page_by_id["tour_summaries"]["default_page_id"] in [
+        child["id"] for child in page_by_id["tour_summaries"]["children"]
     ]
-    assert page_by_id["tours"]["default_page_id"] != "summary"
-    assert page_by_id["stops"]["default_page_id"] != "frequency"
+    assert page_by_id["trip_summaries"]["default_page_id"] in [
+        child["id"] for child in page_by_id["trip_summaries"]["children"]
+    ]
+    assert page_by_id["tour_summaries"]["default_page_id"] != "summary"
+    assert page_by_id["trip_summaries"]["default_page_id"] != "purpose"
 
 
 def test_build_export_payload_applies_excluded_pages_and_groups() -> None:

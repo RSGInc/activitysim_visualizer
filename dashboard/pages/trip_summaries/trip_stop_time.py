@@ -7,12 +7,7 @@ import polars as pl
 
 from dashboard.components import density_chart
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import (
-    DashboardPageDefinition,
-    PageExportRegionDefinition,
-    PageSelectorDefinition,
-)
-from runtime.config import Config
+from dashboard.page_definitions import DashboardPageDefinition
 
 
 def _nonempty(
@@ -32,7 +27,6 @@ def purpose_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
 
 
 def purpose_mapping(raw_purposes: list[str]) -> tuple[list[str], dict[str, str]]:
-    """Build selector display values for trip/stop time summaries."""
     mapping: dict[str, str] = {}
     if "all_tour_purposes" in raw_purposes:
         mapping["Total"] = "all_tour_purposes"
@@ -89,7 +83,6 @@ def trip_stop_time_chart_data(
     maxbin = _max_timebin(data_list)
     trip_data = []
     stop_data = []
-
     for label, df in _nonempty(data_list):
         trip_data.append(
             (label, _profile(df, "departure_trip_count", tour_purpose, maxbin))
@@ -97,14 +90,11 @@ def trip_stop_time_chart_data(
         stop_data.append(
             (label, _profile(df, "departure_stop_count", tour_purpose, maxbin))
         )
-
     return trip_data, stop_data
 
 
 class TripStopTimePage(DashboardPage):
-    def __init__(self, state, config: Config) -> None:
-        super().__init__("Trip and Stop Time", state, config)
-
+    def build_page(self) -> pn.viewable.Viewable:
         tod_data = self.state.get_summary_table_set(
             "trip_departure_time_by_purpose",
             "weighted",
@@ -114,16 +104,21 @@ class TripStopTimePage(DashboardPage):
         if not purpose_opts:
             purpose_opts = ["Total"]
             self._purpose_to_raw = {"Total": "all_tour_purposes"}
-
-        self.tour_purpose_sel = pn.widgets.Select(
-            name="Tour Purpose",
-            options=purpose_opts,
-            value=purpose_opts[0],
+        self.tour_purpose_sel = self.selector(
+            "tour_purpose",
+            widget=pn.widgets.Select(
+                name="Tour Purpose",
+                options=purpose_opts,
+                value=purpose_opts[0],
+            ),
+            label="Tour Purpose",
         )
-        self._watch_widget(self.tour_purpose_sel)
-
-        self._body = pn.Column(sizing_mode="stretch_width")
-        self.view = pn.Column(
+        self._body = self.section(
+            "trip_stop_time_body",
+            selectors=("tour_purpose",),
+            render=self.render_body,
+        )
+        return self.new_section(
             pn.pane.Markdown("## Trip and Stop Time"),
             pn.Row(
                 pn.pane.Markdown("**Tour Purpose:**"),
@@ -133,23 +128,11 @@ class TripStopTimePage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def _refresh(self) -> None:
-        if not self.state.run_labels:
-            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
-            return
-
+    def sync_controls(self) -> None:
         summaries = self.require_summaries(*self.required_summary_ids)
         if summaries is None:
-            self._body.objects = [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
-                )
-            ]
             return
-
         tod_list = summaries["trip_departure_time_by_purpose"]
-
         raw_purposes = purpose_options(tod_list)
         purpose_opts, self._purpose_to_raw = purpose_mapping(raw_purposes)
         if not purpose_opts:
@@ -157,13 +140,40 @@ class TripStopTimePage(DashboardPage):
                 purpose for purpose in raw_purposes if purpose != "all_tour_purposes"
             )
             self._purpose_to_raw = {purpose: purpose for purpose in purpose_opts}
-        if not purpose_opts:
-            self._body.objects = [pn.pane.Markdown("No trip/stop time data available.")]
-            return
+        if purpose_opts:
+            self.tour_purpose_sel.options = purpose_opts
+            if self.tour_purpose_sel.value not in purpose_opts:
+                self.tour_purpose_sel.value = purpose_opts[0]
 
-        self.tour_purpose_sel.options = purpose_opts
-        if self.tour_purpose_sel.value not in purpose_opts:
+    def render_body(self):
+        if not self.state.run_labels:
+            return [pn.pane.Markdown("No runs loaded.")]
+
+        summaries = self.require_summaries(*self.required_summary_ids)
+        if summaries is None:
+            return [
+                self.data_not_available_card(
+                    detail="This page only renders from precomputed summary tables.",
+                    missing_items=list(self.required_summary_ids),
+                )
+            ]
+
+        tod_list = summaries["trip_departure_time_by_purpose"]
+        raw_purposes = purpose_options(tod_list)
+        if not self.tour_purpose_sel.options:
+            purpose_opts, self._purpose_to_raw = purpose_mapping(raw_purposes)
+            if not purpose_opts:
+                purpose_opts = sorted(
+                    purpose
+                    for purpose in raw_purposes
+                    if purpose != "all_tour_purposes"
+                )
+                self._purpose_to_raw = {purpose: purpose for purpose in purpose_opts}
+            if not purpose_opts:
+                return [pn.pane.Markdown("No trip/stop time data available.")]
+            self.tour_purpose_sel.options = purpose_opts
             self.tour_purpose_sel.value = purpose_opts[0]
+
         tour_purpose = self.tour_purpose_sel.value
         raw_purpose = self._purpose_to_raw.get(tour_purpose, tour_purpose)
 
@@ -174,29 +184,25 @@ class TripStopTimePage(DashboardPage):
             factory=lambda: trip_stop_time_chart_data(tod_list, str(raw_purpose)),
         )
 
-        trip_chart = density_chart(
-            trip_data,
-            x_col="clock_time",
-            y_col="departure_trip_count",
-            title=f"Trip Departure Time Distribution - {tour_purpose}",
-            xaxis_title="Clock Time (start at 03:00)",
-            normalize=False,
-            as_percent=self.as_percent,
-        )
-
-        stop_chart = density_chart(
-            stop_data,
-            x_col="clock_time",
-            y_col="departure_stop_count",
-            title=f"Stop Departure Time Distribution - {tour_purpose}",
-            xaxis_title="Clock Time (start at 03:00)",
-            normalize=False,
-            as_percent=self.as_percent,
-        )
-
-        self._body.objects = [
-            trip_chart,
-            stop_chart,
+        return [
+            density_chart(
+                trip_data,
+                x_col="clock_time",
+                y_col="departure_trip_count",
+                title=f"Trip Departure Time Distribution - {tour_purpose}",
+                xaxis_title="Clock Time (start at 03:00)",
+                normalize=False,
+                as_percent=self.as_percent,
+            ),
+            density_chart(
+                stop_data,
+                x_col="clock_time",
+                y_col="departure_stop_count",
+                title=f"Stop Departure Time Distribution - {tour_purpose}",
+                xaxis_title="Clock Time (start at 03:00)",
+                normalize=False,
+                as_percent=self.as_percent,
+            ),
         ]
 
 
@@ -206,22 +212,7 @@ PAGE = DashboardPageDefinition(
     group_id="trip_summaries",
     order=49,
     page_cls=TripStopTimePage,
-    selectors=(
-        PageSelectorDefinition(
-            selector_id="tour_purpose",
-            widget_attr="tour_purpose_sel",
-            label="Tour Purpose",
-        ),
-    ),
-    export_regions=(
-        PageExportRegionDefinition(
-            region_id="trip_stop_time_body",
-            view_attr="_body",
-            selector_ids=("tour_purpose",),
-        ),
-    ),
     required_summary_ids=("trip_departure_time_by_purpose",),
 )
 
 TripStopTimePage.definition = PAGE
-

@@ -5,14 +5,9 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import data_table, scatter_chart
+from dashboard.components import scatter_chart
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import (
-    DashboardPageDefinition,
-    PageExportRegionDefinition,
-    PageSelectorDefinition,
-)
-from runtime.config import Config
+from dashboard.page_definitions import DashboardPageDefinition
 
 
 def _nonempty(
@@ -75,33 +70,37 @@ def validation_chart_data(
 
 
 class TrafficValidationPage(DashboardPage):
-    def __init__(self, state, config: Config) -> None:
-        super().__init__("Traffic Validation", state, config)
-
+    def build_page(self) -> pn.viewable.Viewable:
         traffic_data = self.state.get_summary_table_set(
             "traffic_count_comparisons",
             "weighted",
         )
-
         direction_opts = _options(traffic_data or [], "direction")
         period_opts = _options(traffic_data or [], "count_period")
-
-        self.direction_sel = pn.widgets.Select(
-            name="Direction",
-            options=direction_opts,
-            value=direction_opts[0],
+        self.direction_sel = self.selector(
+            "direction",
+            widget=pn.widgets.Select(
+                name="Direction",
+                options=direction_opts,
+                value=direction_opts[0],
+            ),
+            label="Direction",
         )
-        self._watch_widget(self.direction_sel)
-
-        self.count_period_sel = pn.widgets.Select(
-            name="Count Period",
-            options=period_opts,
-            value=period_opts[0],
+        self.count_period_sel = self.selector(
+            "count_period",
+            widget=pn.widgets.Select(
+                name="Count Period",
+                options=period_opts,
+                value=period_opts[0],
+            ),
+            label="Count Period",
         )
-        self._watch_widget(self.count_period_sel)
-
-        self._body = pn.Column(sizing_mode="stretch_width")
-        self.view = pn.Column(
+        self._body = self.section(
+            "traffic_body",
+            selectors=("direction", "count_period"),
+            render=self.render_body,
+        )
+        return self.new_section(
             pn.pane.Markdown("## Traffic Validation"),
             pn.Row(
                 pn.pane.Markdown("**Direction:**"),
@@ -113,10 +112,27 @@ class TrafficValidationPage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def _refresh(self) -> None:
+    def sync_controls(self) -> None:
+        traffic_list = self.state.get_summary_table_set(
+            "traffic_count_comparisons",
+            self.weighting_key,
+        )
+        screenline_list = self.state.get_summary_table_set(
+            "screenline_flow_comparisons",
+            self.weighting_key,
+        )
+        direction_opts = _options(traffic_list or screenline_list or [], "direction")
+        self.direction_sel.options = direction_opts
+        if self.direction_sel.value not in direction_opts:
+            self.direction_sel.value = direction_opts[0]
+        period_opts = _options(traffic_list or screenline_list or [], "count_period")
+        self.count_period_sel.options = period_opts
+        if self.count_period_sel.value not in period_opts:
+            self.count_period_sel.value = period_opts[0]
+
+    def render_body(self):
         if not self.state.run_labels:
-            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
-            return
+            return [pn.pane.Markdown("No runs loaded.")]
 
         traffic_list = self.state.get_summary_table_set(
             "traffic_count_comparisons",
@@ -126,17 +142,6 @@ class TrafficValidationPage(DashboardPage):
             "screenline_flow_comparisons",
             self.weighting_key,
         )
-
-        direction_opts = _options(traffic_list or screenline_list or [], "direction")
-        self.direction_sel.options = direction_opts
-        if self.direction_sel.value not in direction_opts:
-            self.direction_sel.value = direction_opts[0]
-
-        period_opts = _options(traffic_list or screenline_list or [], "count_period")
-        self.count_period_sel.options = period_opts
-        if self.count_period_sel.value not in period_opts:
-            self.count_period_sel.value = period_opts[0]
-
         direction = self.direction_sel.value
         count_period = self.count_period_sel.value
 
@@ -188,7 +193,7 @@ class TrafficValidationPage(DashboardPage):
                 missing_items=["screenline_flow_comparisons"],
             )
 
-        self._body.objects = [
+        return [
             pn.Row(
                 traffic_chart,
                 screenline_chart,
@@ -203,25 +208,6 @@ PAGE = DashboardPageDefinition(
     group_id="validation",
     order=52,
     page_cls=TrafficValidationPage,
-    selectors=(
-        PageSelectorDefinition(
-            selector_id="direction",
-            widget_attr="direction_sel",
-            label="Direction",
-        ),
-        PageSelectorDefinition(
-            selector_id="count_period",
-            widget_attr="count_period_sel",
-            label="Count Period",
-        ),
-    ),
-    export_regions=(
-        PageExportRegionDefinition(
-            region_id="traffic_body",
-            view_attr="_body",
-            selector_ids=("direction", "count_period"),
-        ),
-    ),
     required_summary_ids=(
         "traffic_count_comparisons",
         "screenline_flow_comparisons",
@@ -229,4 +215,3 @@ PAGE = DashboardPageDefinition(
 )
 
 TrafficValidationPage.definition = PAGE
-

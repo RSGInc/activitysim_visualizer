@@ -8,4 +8,3 @@ GROUP = DashboardGroupDefinition(
     order=70,
     default_page_id="trip_stop_purpose",
 )
-

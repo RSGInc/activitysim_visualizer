@@ -109,8 +109,8 @@ def missing_summary_inputs(
             column for column in required_columns if column not in table.columns
         ]
         if missing_columns:
-            missing[table_name] = (
-                "missing required columns: " + ", ".join(sorted(missing_columns))
+            missing[table_name] = "missing required columns: " + ", ".join(
+                sorted(missing_columns)
             )
 
     return missing

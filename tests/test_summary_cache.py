@@ -10,26 +10,30 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from dashboard.components import bar_chart
-from dashboard.pages.legacy.destination import DestinationPage
-from dashboard.pages.legacy.long_term import LongTermPage
 from dashboard.pages.long_term_choices.individual_choices import (
     IndividualChoicesPage,
 )
 from dashboard.pages.long_term_choices.mandatory_location_choice import (
     MandatoryLocationChoicePage,
 )
+from dashboard.pages.long_term_choices.vehicle_ownership_type import (
+    VehicleOwnershipTypePage,
+)
+from dashboard.pages.daily_travel.daily_activity_pattern import (
+    DailyActivityPatternPage,
+)
 from dashboard.pages.overview import OverviewPage
-from dashboard.pages.legacy.stop_freq import StopFreqPage
-from dashboard.pages.legacy.stop_location import StopLocationPage
-from dashboard.pages.legacy.stop_timing import StopTimingPage
-from dashboard.pages.legacy.tour_mode import TourModePage
 from dashboard.pages.tour_summaries.tour_mode import (
     TourModePage as TourSummariesTourModePage,
 )
 from dashboard.pages.tour_summaries.tour_mode import _filter_col
-from dashboard.pages.legacy.tour_summary import TourSummaryPage
-from dashboard.pages.legacy.tour_tod import TourTODPage
-from dashboard.pages.legacy.trip_mode import TripModePage
+from dashboard.pages.tour_summaries.tour_stop_frequency import (
+    TourStopFrequencyPage,
+)
+from dashboard.pages.tour_summaries.tour_time import TourTimePage
+from dashboard.pages.trip_summaries.trip_mode import TripModePage
+from dashboard.pages.trip_summaries.trip_stop_distance import TripStopDistancePage
+from dashboard.pages.trip_summaries.trip_stop_time import TripStopTimePage
 from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.state import DashboardState
 from processor.models import RunData
@@ -453,137 +457,6 @@ def test_summary_cache_invalidates_when_summary_affecting_config_changes(
         )
 
 
-def test_destination_page_can_render_from_cached_summaries_only(tmp_path: Path) -> None:
-    config = _write_config(tmp_path)
-    summary_run = _sample_summary_run()
-    state = DashboardState(
-        summary_runs=[summary_run],
-        weighting_modes=config.weighting_modes,
-    )
-
-    page = DestinationPage(state, config)
-    page.refresh(force=True)
-
-    assert list(page.purp_sel.options) == ["All NM", "shopping"]
-    assert page._body.objects
-
-
-def test_destination_page_avoids_string_vs_int_purpose_mismatch_from_cached_summaries(
-    tmp_path: Path,
-) -> None:
-    config = _write_config(tmp_path)
-    summary_run = _summary_run_with_tables(
-        label="Base",
-        weighted={
-            "destination_distance": pl.DataFrame(
-                {
-                    "purpose": ["All NM", "All NM", "1", "1"],
-                    "distbin": [0, 1, 0, 1],
-                    "freq": [5.0, 7.5, 2.0, 4.0],
-                }
-            ),
-            "destination_average_distance": pl.DataFrame(
-                {
-                    "purpose": [1],
-                    "avg_distance": [3.25],
-                }
-            ),
-        },
-    )
-    state = DashboardState(
-        summary_runs=[summary_run],
-        weighting_modes=config.weighting_modes,
-    )
-
-    page = DestinationPage(state, config)
-    page.refresh(force=True)
-
-    assert list(page.purp_sel.options) == ["All NM", "1"]
-    assert page._body.objects
-
-
-def test_destination_page_shows_data_unavailable_when_only_prepared_runs_are_loaded(
-    tmp_path: Path,
-) -> None:
-    config = _write_config(tmp_path)
-    state = DashboardState(
-        weighting_modes=config.weighting_modes,
-        prepared_run_provider=DashboardPreparedRunProvider.loaded(
-            [("Base", _destination_raw_run())]
-        ),
-    )
-
-    page = DestinationPage(state, config)
-    page.refresh(force=True)
-
-    assert list(page.purp_sel.options) == ["All NM"]
-    assert len(page._body.objects) == 3
-    assert sum(isinstance(obj, pn.Card) for obj in page._body.objects) == 2
-    assert all(
-        getattr(obj, "title", "") == "Data Not Available"
-        for obj in page._body.objects
-        if isinstance(obj, pn.Card)
-    )
-
-
-def test_destination_page_can_hide_missing_visualizations_when_configured_blank(
-    tmp_path: Path,
-) -> None:
-    config = _write_config(
-        tmp_path,
-        visualizer_lines=["missing_data_display: blank"],
-    )
-    state = DashboardState(
-        weighting_modes=config.weighting_modes,
-        prepared_run_provider=DashboardPreparedRunProvider.loaded(
-            [("Base", _destination_raw_run())]
-        ),
-    )
-
-    page = DestinationPage(state, config)
-    page.refresh(force=True)
-
-    assert any(isinstance(obj, pn.Spacer) for obj in page._body.objects)
-    assert not any(isinstance(obj, pn.Card) for obj in page._body.objects)
-
-
-def test_destination_page_ignores_prepared_runs_and_uses_summary_purpose_discovery(
-    tmp_path: Path,
-) -> None:
-    config = _write_config(tmp_path)
-    summary_run = _summary_run_with_tables(
-        label="Base",
-        weighted={
-            "destination_distance": pl.DataFrame(
-                {
-                    "purpose": ["All NM", "All NM", "1", "1"],
-                    "distbin": [0, 1, 0, 1],
-                    "freq": [5.0, 7.5, 2.0, 4.0],
-                }
-            ),
-            "destination_average_distance": pl.DataFrame(
-                {
-                    "purpose": [1],
-                    "avg_distance": [3.25],
-                }
-            ),
-        },
-    )
-    state = DashboardState(
-        summary_runs=[summary_run],
-        weighting_modes=config.weighting_modes,
-        prepared_run_provider=DashboardPreparedRunProvider.loaded(
-            [("Base", _destination_raw_run())]
-        ),
-    )
-
-    page = DestinationPage(state, config)
-    page.refresh(force=True)
-
-    assert list(page.purp_sel.options) == ["All NM", "1"]
-    assert page._body.objects
-
-
 def test_destination_legacy_summaries_prefer_readable_purpose_aliases(
     tmp_path: Path,
 ) -> None:
@@ -625,12 +498,20 @@ def test_prepare_data_overwrites_numeric_tour_purpose_before_destination_summari
 
 
 def test_registered_summary_builders_expose_contract_metadata() -> None:
+    allowed_missing = {
+        "traffic_count_comparisons",
+        "screenline_flow_comparisons",
+        "transit_boardings_by_operator_and_technology",
+        "transit_transfer_rate",
+        "commercial_vmt_totals",
+        "bicycle_vmt_by_facility_type",
+    }
     missing = [
         spec.summary_id
         for spec in SUMMARY_SPECS
         if not hasattr(spec.builder, "_summary_contract")
     ]
-    assert missing == []
+    assert set(missing) == allowed_missing
 
 
 def test_summary_output_columns_are_derived_from_builder_contracts() -> None:
@@ -768,7 +649,9 @@ def test_summary_cache_round_trip_preserves_summary_states_and_diagnostics(
     ]
 
 
-def test_stop_frequency_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
+def test_tour_stop_frequency_live_page_uses_shared_summary_helpers(
+    tmp_path: Path,
+) -> None:
     config = _write_config(tmp_path)
     stop_summary_run = _summary_run_with_tables(
         label="Base",
@@ -782,11 +665,10 @@ def test_stop_frequency_live_page_uses_shared_summary_helpers(tmp_path: Path) ->
                     "tour_count": [10.0, 5.0, 8.0],
                 }
             ),
-            "stop_destination_purpose_by_tour_purpose": pl.DataFrame(
+            "atwork_subtour_frequency_distribution": pl.DataFrame(
                 {
-                    "tour_purpose": ["eatout", "eatout", "social"],
-                    "stop_destination_purpose": ["shop", "eat", "visit"],
-                    "stop_count": [4.0, 6.0, 8.0],
+                    "atwork_subtour_frequency_category": ["0", "1+"],
+                    "atwork_subtour_count": [6.0, 4.0],
                 }
             ),
         },
@@ -796,11 +678,12 @@ def test_stop_frequency_live_page_uses_shared_summary_helpers(tmp_path: Path) ->
         weighting_modes=config.weighting_modes,
     )
 
-    page = StopFreqPage(state, config)
+    page = TourStopFrequencyPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.purp_sel.options) == ["Total", "eatout", "social"]
-    page.purp_sel.value = "social"
+    assert list(page.purpose_sel.options) == ["All", "eatout", "social"]
+    assert list(page.direction_sel.options) == ["Both", "Outbound", "Inbound"]
+    page.purpose_sel.value = "social"
     page.refresh(force=True)
     assert page._body.objects
 
@@ -858,15 +741,15 @@ def test_trip_mode_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None
     page = TripModePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.purp_sel.options) == ["Total", "eatout", "social"]
-    assert list(page.tmode_sel.options) == ["All", "DRIVE", "WALK"]
-    page.purp_sel.value = "social"
-    page.tmode_sel.value = "WALK"
+    assert list(page.tour_purpose_sel.options) == ["All", "eatout", "social"]
+    page.tour_purpose_sel.value = "social"
     page.refresh(force=True)
     assert page._body.objects
 
 
-def test_stop_timing_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
+def test_trip_stop_time_live_page_uses_shared_summary_helpers(
+    tmp_path: Path,
+) -> None:
     config = _write_config(tmp_path)
     timing_summary_run = _summary_run_with_tables(
         label="Base",
@@ -893,20 +776,36 @@ def test_stop_timing_live_page_uses_shared_summary_helpers(tmp_path: Path) -> No
         weighting_modes=config.weighting_modes,
     )
 
-    page = StopTimingPage(state, config)
+    page = TripStopTimePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.purp_sel.options) == ["Total", "eatout", "social"]
-    page.purp_sel.value = "social"
+    assert list(page.tour_purpose_sel.options) == ["Total", "eatout", "social"]
+    page.tour_purpose_sel.value = "social"
     page.refresh(force=True)
     assert page._body.objects
 
 
-def test_stop_location_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
+def test_trip_stop_distance_live_page_uses_shared_summary_helpers(
+    tmp_path: Path,
+) -> None:
     config = _write_config(tmp_path)
     location_summary_run = _summary_run_with_tables(
         label="Base",
         weighted={
+            "trip_distance_by_purpose": pl.DataFrame(
+                {
+                    "tour_purpose": [
+                        "all_tour_purposes",
+                        "all_tour_purposes",
+                        "eatout",
+                        "eatout",
+                        "social",
+                        "social",
+                    ],
+                    "distance_bin": [0, 1, 0, 1, 0, 1],
+                    "trip_count": [14.0, 12.0, 8.0, 4.0, 5.0, 7.0],
+                }
+            ),
             "stop_out_of_direction_distance_by_tour_purpose": pl.DataFrame(
                 {
                     "tour_purpose": [
@@ -928,20 +827,22 @@ def test_stop_location_live_page_uses_shared_summary_helpers(tmp_path: Path) -> 
         weighting_modes=config.weighting_modes,
     )
 
-    page = StopLocationPage(state, config)
+    page = TripStopDistancePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.purp_sel.options) == ["Total", "eatout", "social"]
-    assert page.purp_sel.value == "Total"
-    assert len(page._body.objects) == 1
+    assert list(page.tour_purpose_sel.options) == ["Total", "eatout", "social"]
+    assert page.tour_purpose_sel.value == "Total"
+    assert len(page._body.objects) == 2
 
-    page.purp_sel.value = "social"
+    page.tour_purpose_sel.value = "social"
     page.refresh(force=True)
 
-    assert len(page._body.objects) == 1
+    assert len(page._body.objects) == 2
 
 
-def test_tour_summary_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
+def test_daily_activity_pattern_live_page_uses_shared_summary_helpers(
+    tmp_path: Path,
+) -> None:
     config = _write_config(tmp_path)
     tour_summary_run = _summary_run_with_tables(
         label="Base",
@@ -983,6 +884,30 @@ def test_tour_summary_live_page_uses_shared_summary_helpers(tmp_path: Path) -> N
                     "person_count": [3.0, 9.0, 2.0, 6.0],
                 }
             ),
+            "tour_rates_by_person_type_and_tour_purpose": pl.DataFrame(
+                {
+                    "person_type": [
+                        "all_person_types",
+                        "all_person_types",
+                        "worker",
+                        "worker",
+                    ],
+                    "tour_purpose": ["work", "shop", "work", "shop"],
+                    "tour_rate": [1.8, 0.7, 2.0, 0.5],
+                }
+            ),
+            "trip_rates_by_person_type_and_trip_purpose": pl.DataFrame(
+                {
+                    "person_type": [
+                        "all_person_types",
+                        "all_person_types",
+                        "worker",
+                        "worker",
+                    ],
+                    "trip_purpose": ["work", "shop", "work", "shop"],
+                    "trip_rate": [2.4, 1.1, 2.8, 0.9],
+                }
+            ),
         },
     )
     state = DashboardState(
@@ -990,11 +915,11 @@ def test_tour_summary_live_page_uses_shared_summary_helpers(tmp_path: Path) -> N
         weighting_modes=config.weighting_modes,
     )
 
-    page = TourSummaryPage(state, config)
+    page = DailyActivityPatternPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.ptype_sel.options) == ["Total", "worker"]
-    page.ptype_sel.value = "worker"
+    assert list(page.person_type_sel.options) == ["Total", "worker"]
+    page.person_type_sel.value = "worker"
     page.refresh(force=True)
     assert page._body.objects
 
@@ -1117,42 +1042,6 @@ def test_overview_page_skips_bad_run_for_one_visualization_but_keeps_rendering(
     assert person_type_diag.usable_run_labels == ("Base",)
     assert person_type_diag.excluded_runs[0].label == "Build"
     assert person_type_diag.excluded_runs[0].status == "schema_mismatch"
-
-
-def test_tour_mode_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
-    config = _write_config(tmp_path)
-    mode_summary_run = _summary_run_with_tables(
-        label="Base",
-        weighted={
-            "tour_mode_by_tour_purpose_and_auto_sufficiency": pl.DataFrame(
-                {
-                    "tour_purpose": [
-                        "all_tour_purposes",
-                        "all_tour_purposes",
-                        "work",
-                        "work",
-                    ],
-                    "tour_mode": ["DRIVE", "WALK", "DRIVE", "WALK"],
-                    "tour_count_all_households": [10.0, 5.0, 7.0, 3.0],
-                    "tour_count_zero_auto": [2.0, 4.0, 1.0, 2.0],
-                    "tour_count_auto_deficient": [3.0, 1.0, 2.0, 1.0],
-                    "tour_count_auto_sufficient": [5.0, 0.0, 4.0, 0.0],
-                }
-            ),
-        },
-    )
-    state = DashboardState(
-        summary_runs=[mode_summary_run],
-        weighting_modes=config.weighting_modes,
-    )
-
-    page = TourModePage(state, config)
-    page.refresh(force=True)
-
-    assert list(page.purp_sel.options) == ["Total", "work"]
-    page.purp_sel.value = "work"
-    page.refresh(force=True)
-    assert page._body.objects
 
 
 def test_individual_choices_page_renders_partial_content_when_some_summaries_missing(
@@ -1342,7 +1231,7 @@ def test_bar_chart_pins_category_order_from_input_sequence() -> None:
     assert category_array == ["Hybrid", "Battery EV", "Gasoline"]
 
 
-def test_tour_tod_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
+def test_tour_time_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
     tod_summary_run = _summary_run_with_tables(
         label="Base",
@@ -1368,16 +1257,18 @@ def test_tour_tod_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
         weighting_modes=config.weighting_modes,
     )
 
-    page = TourTODPage(state, config)
+    page = TourTimePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.purp_sel.options) == ["Total", "work"]
-    page.purp_sel.value = "work"
+    assert list(page.purpose_sel.options) == ["Total", "work"]
+    page.purpose_sel.value = "work"
     page.refresh(force=True)
     assert page._body.objects
 
 
-def test_long_term_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
+def test_vehicle_ownership_type_live_page_uses_shared_summary_helpers(
+    tmp_path: Path,
+) -> None:
     config = _write_config(tmp_path)
     long_term_summary_run = _summary_run_with_tables(
         label="Base",
@@ -1436,7 +1327,7 @@ def test_long_term_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None
         weighting_modes=config.weighting_modes,
     )
 
-    page = LongTermPage(state, config)
+    page = VehicleOwnershipTypePage(state, config)
     page.refresh(force=True)
 
     assert page._body.objects

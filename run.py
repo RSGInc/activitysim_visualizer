@@ -118,7 +118,9 @@ def parse_args() -> argparse.Namespace:
 
 def resolve_requested_steps(args: argparse.Namespace) -> list[str]:
     """Resolve the ordered workflow steps requested on the CLI."""
-    explicit_steps = args.prepare_only or args.prepare or args.summarize or args.dashboard
+    explicit_steps = (
+        args.prepare_only or args.prepare or args.summarize or args.dashboard
+    )
 
     if args.from_csvs is not None and args.write_csvs:
         raise ValueError("--from-csvs cannot be combined with --write-csvs.")
@@ -261,7 +263,9 @@ def main() -> None:
             )
 
         requires_prepared_data = dashboard_requirements.prepared_data_mode != "none"
-        if requires_prepared_data:
+        if requires_prepared_data and args.from_csvs is not None and args.export_html:
+            prepared_runs = []
+        elif requires_prepared_data:
             existing_prepared_runs_by_key = (
                 processor_result.prepared_runs_by_key
                 if processor_result is not None

@@ -27,7 +27,11 @@ from processor.summarize.cache import SUMMARY_SPEC_BY_ID
 from runtime.config import Config
 
 LOGGER = get_logger("dashboard.page_registry")
-VALID_PREPARED_DATA_MODES: tuple[PreparedDataMode, ...] = ("none", "optional", "required")
+VALID_PREPARED_DATA_MODES: tuple[PreparedDataMode, ...] = (
+    "none",
+    "optional",
+    "required",
+)
 
 
 @dataclass(frozen=True)
@@ -67,7 +71,9 @@ def _load_discovered_modules() -> tuple[
         for child_info in pkgutil.iter_modules(package_module.__path__):
             if child_info.name.startswith("_"):
                 continue
-            child_modules.append(importlib.import_module(f"{module_name}.{child_info.name}"))
+            child_modules.append(
+                importlib.import_module(f"{module_name}.{child_info.name}")
+            )
         if not child_modules:
             raise ValueError(
                 f"Dashboard page group {group_definition.group_id!r} does not contain any child page modules."
@@ -96,7 +102,13 @@ def all_group_definitions() -> tuple[DashboardGroupDefinition, ...]:
         seen_group_ids.add(group_definition.group_id)
         seen_titles.add(group_definition.title)
     return tuple(
-        sorted(group_definitions, key=lambda group_definition: (group_definition.order, group_definition.group_id))
+        sorted(
+            group_definitions,
+            key=lambda group_definition: (
+                group_definition.order,
+                group_definition.group_id,
+            ),
+        )
     )
 
 
@@ -111,7 +123,10 @@ def all_page_definitions() -> tuple[DashboardPageDefinition, ...]:
         _validate_page_definition(page_definition)
         page_definitions.append(page_definition)
 
-    group_lookup = {group_definition.group_id: group_definition for group_definition in all_group_definitions()}
+    group_lookup = {
+        group_definition.group_id: group_definition
+        for group_definition in all_group_definitions()
+    }
     for group_definition, child_modules in grouped_modules:
         for module in child_modules:
             page_definition = _page_definition_from_module(module)
@@ -165,7 +180,9 @@ def all_page_definitions() -> tuple[DashboardPageDefinition, ...]:
 def _page_definition_from_module(module: object) -> DashboardPageDefinition:
     page_definition = getattr(module, "PAGE", None)
     if page_definition is None:
-        raise ValueError(f"{module.__name__} must declare a module-level PAGE definition.")
+        raise ValueError(
+            f"{module.__name__} must declare a module-level PAGE definition."
+        )
     if not isinstance(page_definition, DashboardPageDefinition):
         raise TypeError(
             f"{module.__name__}.PAGE must be a DashboardPageDefinition instance."
@@ -263,7 +280,9 @@ def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
     export_parts = effective_export_parts(page_definition)
     for part in export_parts:
         unknown_part_selectors = [
-            selector_id for selector_id in part.selector_ids if selector_id not in selector_id_set
+            selector_id
+            for selector_id in part.selector_ids
+            if selector_id not in selector_id_set
         ]
         if unknown_part_selectors:
             raise ValueError(
@@ -282,7 +301,9 @@ def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
 
 
 def _validate_selected_page_definitions(
-    page_definitions: list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...],
+    page_definitions: (
+        list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
+    ),
 ) -> None:
     for page_definition in page_definitions:
         _validate_page_definition(page_definition)
@@ -313,7 +334,9 @@ def page_definitions_for_group(group_id: str) -> tuple[DashboardPageDefinition, 
     )
 
 
-def selector_definition_by_id(page_id: str, selector_id: str) -> PageSelectorDefinition | None:
+def selector_definition_by_id(
+    page_id: str, selector_id: str
+) -> PageSelectorDefinition | None:
     """Look up one registered selector definition by page id and selector id."""
     page_definition = page_definition_by_id(page_id)
     if page_definition is None:
@@ -354,7 +377,9 @@ def effective_export_parts(
     )
 
 
-def exportable_page_selectors() -> list[tuple[DashboardPageDefinition, PageSelectorDefinition]]:
+def exportable_page_selectors() -> (
+    list[tuple[DashboardPageDefinition, PageSelectorDefinition]]
+):
     """Return all exportable page selectors in stable page/selector order."""
     return [
         (page_definition, selector)
@@ -388,7 +413,9 @@ def default_navigation_entries() -> tuple[DashboardNavigationEntry, ...]:
 
 
 def navigation_entries_for_pages(
-    page_definitions: list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
+    page_definitions: (
+        list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
+    ),
 ) -> tuple[DashboardNavigationEntry, ...]:
     """Group leaf pages into top-level navigation entries."""
     grouped: list[DashboardNavigationEntry] = []
@@ -447,7 +474,8 @@ def _resolve_group_children(
             f"Dashboard page group {group_definition.group_id!r} does not contain any leaf pages."
         )
     child_by_page_id = {
-        page_definition.page_id: page_definition for page_definition in available_children
+        page_definition.page_id: page_definition
+        for page_definition in available_children
     }
 
     if entry.mode == "all":
@@ -512,9 +540,7 @@ def _resolve_page_definitions_from_entries(
 
         group_definition = group_definition_by_id(entry.page_id)
         if group_definition is None:
-            raise ValueError(
-                f"Unsupported {error_field_name}: {entry.page_id!r}"
-            )
+            raise ValueError(f"Unsupported {error_field_name}: {entry.page_id!r}")
         for child_page in _resolve_group_children(
             group_definition,
             entry,
@@ -584,7 +610,9 @@ def resolve_export_navigation_entries(config: Config) -> list[DashboardNavigatio
 
 
 def enabled_prepared_data_mode_for_pages(
-    page_definitions: list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
+    page_definitions: (
+        list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
+    ),
 ) -> PreparedDataMode:
     """Return the strongest prepared-data requirement across a page definition set."""
     mode: PreparedDataMode = "none"
@@ -597,7 +625,9 @@ def enabled_prepared_data_mode_for_pages(
 
 
 def data_requirements_for_pages(
-    page_definitions: list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
+    page_definitions: (
+        list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
+    ),
 ) -> DashboardDataRequirements:
     """Return the summary/prepared-table requirements for a page definition set."""
     required_summary_ids: list[str] = []
@@ -640,7 +670,9 @@ def export_data_requirements(config: Config) -> DashboardDataRequirements:
 
 def build_prepared_run_provider_for_page_definitions(
     runs: list[tuple[str, RunData]] | None,
-    page_definitions: list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...],
+    page_definitions: (
+        list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
+    ),
 ) -> DashboardPreparedRunProvider:
     prepared_mode = data_requirements_for_pages(page_definitions).prepared_data_mode
     if prepared_mode == "none":
@@ -673,7 +705,9 @@ def build_export_prepared_run_provider(
 def _build_registered_pages(
     state: DashboardState,
     config: Config,
-    page_definitions: list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...],
+    page_definitions: (
+        list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
+    ),
 ) -> list[DashboardPage]:
     pages: list[DashboardPage] = []
     for page_definition in page_definitions:
@@ -686,9 +720,15 @@ def _build_registered_pages(
     return pages
 
 
-def build_registered_live_pages(state: DashboardState, config: Config) -> list[DashboardPage]:
+def build_registered_live_pages(
+    state: DashboardState, config: Config
+) -> list[DashboardPage]:
     return _build_registered_pages(state, config, resolve_live_page_definitions(config))
 
 
-def build_registered_export_pages(state: DashboardState, config: Config) -> list[DashboardPage]:
-    return _build_registered_pages(state, config, resolve_export_page_definitions(config))
+def build_registered_export_pages(
+    state: DashboardState, config: Config
+) -> list[DashboardPage]:
+    return _build_registered_pages(
+        state, config, resolve_export_page_definitions(config)
+    )

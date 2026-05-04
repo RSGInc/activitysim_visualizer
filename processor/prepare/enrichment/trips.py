@@ -35,7 +35,9 @@ def _enrich_trips(
         and "tour_id" in tour_join_cols
     ):
         state.trips = state.trips.join(
-            state.tours.select(tour_join_cols).rename({"NUMBER_HH": "num_participants"}),
+            state.tours.select(tour_join_cols).rename(
+                {"NUMBER_HH": "num_participants"}
+            ),
             on="tour_id",
             how="left",
             suffix="_tour",
@@ -55,7 +57,10 @@ def _enrich_trips(
             for column in ["household_id", "HHVEH", "WORKERS"]
             if column in state.hh.columns
         ]
-        if "household_id" in state.trips.columns and "household_id" in hh_trip_join_cols:
+        if (
+            "household_id" in state.trips.columns
+            and "household_id" in hh_trip_join_cols
+        ):
             state.trips = state.trips.join(
                 state.hh.select(hh_trip_join_cols),
                 on="household_id",
@@ -91,8 +96,14 @@ def _enrich_trips(
         config=config,
         zone_context=zone_context,
     )
-    if state.skim is not None and "OTAZ" in state.trips.columns and "DTAZ" in state.trips.columns:
-        LOGGER.info("[prepare_data] Computing trip skim distances for '%s'", state.label)
+    if (
+        state.skim is not None
+        and "OTAZ" in state.trips.columns
+        and "DTAZ" in state.trips.columns
+    ):
+        LOGGER.info(
+            "[prepare_data] Computing trip skim distances for '%s'", state.label
+        )
         o = state.trips["OTAZ"].fill_null(0).to_numpy()
         d = state.trips["DTAZ"].fill_null(0).to_numpy()
         state.trips = state.trips.with_columns(

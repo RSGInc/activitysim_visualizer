@@ -25,9 +25,7 @@ if TYPE_CHECKING:
 LOGGER = get_logger("dashboard.page")
 
 SectionContent = (
-    pn.viewable.Viewable
-    | list[pn.viewable.Viewable]
-    | tuple[pn.viewable.Viewable, ...]
+    pn.viewable.Viewable | list[pn.viewable.Viewable] | tuple[pn.viewable.Viewable, ...]
 )
 
 
@@ -62,7 +60,9 @@ class DashboardPage:
         if len(args) == 2:
             state, config = args
             definition = self.definition
-            derived_name = definition.title if definition is not None else type(self).__name__
+            derived_name = (
+                definition.title if definition is not None else type(self).__name__
+            )
         elif len(args) == 3:
             derived_name, state, config = args
         else:
@@ -126,7 +126,9 @@ class DashboardPage:
         for section_id in section_ids:
             section = self._registered_sections.get(section_id)
             if section is None:
-                raise KeyError(f"Unknown section id {section_id!r} on page {self.name!r}.")
+                raise KeyError(
+                    f"Unknown section id {section_id!r} on page {self.name!r}."
+                )
             section.dirty = True
 
     def build_page(self) -> pn.viewable.Viewable:
@@ -266,7 +268,9 @@ class DashboardPage:
 
     def _validate_registered_components(self) -> None:
         if self.view is None:
-            raise ValueError(f"Dashboard page {self.name!r} build_page() returned no view.")
+            raise ValueError(
+                f"Dashboard page {self.name!r} build_page() returned no view."
+            )
         if not isinstance(self.view, pn.viewable.Viewable):
             raise TypeError(
                 f"Dashboard page {self.name!r} build_page() must return a Panel viewable."
@@ -402,7 +406,9 @@ class DashboardPage:
         excluded_by_key: dict[tuple[str, str, str], VisualizationRunAvailability] = {}
         for selection in selections.values():
             for issue in selection.excluded_runs:
-                excluded_by_key[(issue.label, issue.source_kind, issue.source_id)] = issue
+                excluded_by_key[(issue.label, issue.source_kind, issue.source_id)] = (
+                    issue
+                )
             for label, _ in selection.usable_runs:
                 if label in common_labels:
                     continue
@@ -416,9 +422,7 @@ class DashboardPage:
                     )
                 )
         input_kinds = {selection.source_kind for selection in selections.values()}
-        input_kind = (
-            next(iter(input_kinds)) if len(input_kinds) == 1 else "mixed"
-        )
+        input_kind = next(iter(input_kinds)) if len(input_kinds) == 1 else "mixed"
         result = VisualizationInputResult(
             visualization_id=visualization_id,
             input_kind=input_kind,
@@ -494,9 +498,9 @@ class DashboardPage:
             summary_name,
             weighting_key=self.weighting_key,
         )
-        self._page_state.setdefault("required_summary_selections", {})[summary_name] = (
-            selection
-        )
+        self._page_state.setdefault("required_summary_selections", {})[
+            summary_name
+        ] = selection
         if not selection.has_usable_runs:
             self._warn_once(
                 f"missing-summary:{summary_name}",
@@ -521,9 +525,9 @@ class DashboardPage:
             weighting_key=self.weighting_key,
             required_columns=required_columns,
         )
-        self._page_state.setdefault("required_summary_selections", {})[summary_name] = (
-            selection
-        )
+        self._page_state.setdefault("required_summary_selections", {})[
+            summary_name
+        ] = selection
         return selection
 
     def optional_summary(
@@ -569,8 +573,7 @@ class DashboardPage:
             return None
         return {
             summary_name: [
-                (label, table)
-                for label, table in selections[summary_name].usable_runs
+                (label, table) for label, table in selections[summary_name].usable_runs
             ]
             for summary_name in summary_names
         }
@@ -607,7 +610,10 @@ class DashboardPage:
     def _format_issue_detail(
         self,
         detail: str,
-        issues: list[VisualizationRunAvailability] | tuple[VisualizationRunAvailability, ...],
+        issues: (
+            list[VisualizationRunAvailability]
+            | tuple[VisualizationRunAvailability, ...]
+        ),
     ) -> str:
         lines = [detail, "", "Availability details:"]
         by_source: dict[str, list[VisualizationRunAvailability]] = defaultdict(list)
@@ -683,7 +689,11 @@ class DashboardPage:
         page_cache_id = self.page_id() or self.name
         cache = self.state.get_cache("filtered_view")
         prefix = (page_cache_id, self.weighting_key)
-        stale_keys = [key for key in cache if key[0] == page_cache_id and key[2] == self.weighting_key]
+        stale_keys = [
+            key
+            for key in cache
+            if key[0] == page_cache_id and key[2] == self.weighting_key
+        ]
         for key in stale_keys:
             cache.pop(key, None)
 

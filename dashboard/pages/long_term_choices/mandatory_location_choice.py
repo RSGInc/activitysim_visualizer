@@ -17,7 +17,6 @@ from dashboard.page_base import SectionContent
 from dashboard.page_definitions import DashboardPageDefinition
 from runtime.config import Config
 
-
 GEO_LEVEL_COL = "geography_level"
 GEO_COL = "geography"
 GEO_TYPE_COL = "geography_type"
@@ -152,7 +151,9 @@ def filter_geo_level(
         elif {
             "origin_geography_level",
             "destination_geography_level",
-        }.issubset(df.columns) and geo_level not in {"Total", "All"}:
+        }.issubset(
+            df.columns
+        ) and geo_level not in {"Total", "All"}:
             df = df.with_columns(
                 pl.col("origin_geography_level").cast(pl.Utf8),
                 pl.col("destination_geography_level").cast(pl.Utf8),
@@ -522,4 +523,3 @@ PAGE = DashboardPageDefinition(
 )
 
 MandatoryLocationChoicePage.definition = PAGE
-

@@ -2,21 +2,16 @@
 
 EXPECTED_DEFAULT_PAGES = [
     ("overview", "Overview"),
-    ("tours", "Tours"),
     ("daily_travel", "Daily Travel"),
     ("joint_travel", "Joint Travel"),
     ("long_term_choices", "Long-Term Choices"),
     ("tour_summaries", "Tour Summaries"),
     ("trip_summaries", "Trip Summaries"),
     ("validation", "Validation Summaries"),
-    ("stops", "Stops"),
 ]
 
 EXPECTED_DEFAULT_LEAF_PAGES = [
     ("overview", "Overview"),
-    ("tour_summary", "Tour Summary"),
-    ("tour_tod", "Tour TOD"),
-    ("tr_mode", "Old Tour Mode"),
     ("daily_activity_pattern", "Daily Activity Pattern"),
     ("escorted_tours", "Escorted Tours"),
     ("joint_travel", "Joint Travel"),
@@ -38,9 +33,6 @@ EXPECTED_DEFAULT_LEAF_PAGES = [
     ("traffic", "Traffic Validation"),
     ("transit", "Transit Validation"),
     ("vmt", "VMT Validation"),
-    ("stop_frequency", "Stop Frequency"),
-    ("stop_location", "Stop Location"),
-    ("stop_timing", "Stop Timing"),
 ]
 
 EXPECTED_DEFAULT_PAGE_IDS = [page_id for page_id, _ in EXPECTED_DEFAULT_PAGES]

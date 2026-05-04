@@ -7,13 +7,8 @@ import polars as pl
 
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import (
-    DashboardPageDefinition,
-    PageExportRegionDefinition,
-    PageSelectorDefinition,
-)
+from dashboard.page_definitions import DashboardPageDefinition
 from runtime.config import Config
-
 
 PERSON_TYPE_COL = "person_type"
 
@@ -145,20 +140,24 @@ def filter_person_type_rates(
 
 
 class DailyActivityPatternPage(DashboardPage):
-    def __init__(self, state, config: Config) -> None:
-        super().__init__("Daily Activity Pattern", state, config)
-
+    def build_page(self) -> pn.viewable.Viewable:
         person_type_opts = self._person_type_options()
         self._person_type_to_raw = {"Total": "all_person_types"}
-        self.person_type_sel = pn.widgets.Select(
-            name="Person Type",
-            options=person_type_opts,
-            value=person_type_opts[0],
+        self.person_type_sel = self.selector(
+            "person_type",
+            widget=pn.widgets.Select(
+                name="Person Type",
+                options=person_type_opts,
+                value=person_type_opts[0],
+            ),
+            label="Person Type",
         )
-        self._watch_widget(self.person_type_sel)
-
-        self._body = pn.Column(sizing_mode="stretch_width")
-        self.view = pn.Column(
+        self._body = self.section(
+            "activity_pattern_body",
+            selectors=("person_type",),
+            render=self.render_body,
+        )
+        return self.new_section(
             pn.pane.Markdown("## Daily Activity Pattern"),
             pn.Row(
                 pn.pane.Markdown("**Person Type:**"),
@@ -178,30 +177,31 @@ class DailyActivityPatternPage(DashboardPage):
         opts, self._person_type_to_raw = person_type_maps(raw_opts, self.config)
         return opts or ["Total"]
 
-    def _refresh(self) -> None:
-        if not self.state.run_labels:
-            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
+    def sync_controls(self) -> None:
+        summaries = self.require_summaries(*self.required_summary_ids)
+        if summaries is None:
             return
+        raw_opts = person_type_options(
+            summaries["daily_activity_pattern_by_person_type"]
+        )
+        display_opts, self._person_type_to_raw = person_type_maps(raw_opts, self.config)
+        self.person_type_sel.options = display_opts
+        if self.person_type_sel.value not in display_opts:
+            self.person_type_sel.value = display_opts[0]
+
+    def render_body(self):
+        if not self.state.run_labels:
+            return [pn.pane.Markdown("No runs loaded.")]
 
         summaries = self.require_summaries(*self.required_summary_ids)
         if summaries is None:
-            self._body.objects = [
+            return [
                 self.data_not_available_card(
                     detail="This page only renders from precomputed summary tables.",
                     missing_items=list(self.required_summary_ids),
                 )
             ]
-            return
 
-        raw_opts = person_type_options(
-            summaries["daily_activity_pattern_by_person_type"]
-        )
-        display_opts, self._person_type_to_raw = person_type_maps(
-            raw_opts, self.config
-        )
-        self.person_type_sel.options = display_opts
-        if self.person_type_sel.value not in display_opts:
-            self.person_type_sel.value = display_opts[0]
         person_type = self.person_type_sel.value
         raw_person_type = self._person_type_to_raw.get(person_type)
         person_weights = _person_weights_by_run(
@@ -215,7 +215,6 @@ class DailyActivityPatternPage(DashboardPage):
                 summaries["daily_activity_pattern_by_person_type"], raw_person_type
             ),
         )
-
         mand_tour_freq_data = self.get_filtered_view(
             "mandatory_tour_frequency",
             raw_person_type,
@@ -223,7 +222,6 @@ class DailyActivityPatternPage(DashboardPage):
                 summaries["mandatory_tour_frequency_by_person_type"], raw_person_type
             ),
         )
-
         nonmand_tour_freq_data = self.get_filtered_view(
             "nonmandatory_tour_frequency",
             raw_person_type,
@@ -232,7 +230,6 @@ class DailyActivityPatternPage(DashboardPage):
                 raw_person_type,
             ),
         )
-
         tour_rate_data = self.get_filtered_view(
             "tour_rate_per_person",
             raw_person_type,
@@ -244,7 +241,6 @@ class DailyActivityPatternPage(DashboardPage):
                 person_weights=person_weights,
             ),
         )
-
         trip_rate_data = self.get_filtered_view(
             "trip_rate_per_person",
             raw_person_type,
@@ -257,63 +253,59 @@ class DailyActivityPatternPage(DashboardPage):
             ),
         )
 
-        dap_chart = bar_chart(
-            dap_data,
-            x_col="daily_activity_pattern",
-            y_col="person_count",
-            title=f"Daily Activity Pattern - {person_type}",
-            xaxis_title="Daily Activity Pattern",
-            yaxis_title="Persons",
-            pct_col="pct",
-            as_percent=self.as_percent,
-        )
-
-        mand_tour_freq_chart = bar_chart(
-            mand_tour_freq_data,
-            x_col="mandatory_tour_frequency",
-            y_col="person_count",
-            title=f"Mandatory Tour Frequency - {person_type}",
-            xaxis_title="Mandatory Tour Frequency",
-            yaxis_title="Persons",
-            pct_col="pct",
-            as_percent=self.as_percent,
-        )
-
-        nonmand_tour_freq_chart = bar_chart(
-            nonmand_tour_freq_data,
-            x_col="nonmandatory_tour_frequency",
-            y_col="person_count",
-            title=f"Non-Mandatory Tour Frequency - {person_type}",
-            xaxis_title="Non-Mandatory Tour Frequency",
-            yaxis_title="Persons",
-            pct_col="pct",
-            as_percent=self.as_percent,
-        )
-
-        tour_rate_chart = bar_chart(
-            tour_rate_data,
-            x_col="tour_purpose",
-            y_col="tour_rate",
-            title=f"Daily Tour Rate per Person by Tour Purpose - {person_type}",
-            xaxis_title="Tour Purpose",
-            yaxis_title="Tours per Person-Day",
-            as_percent=False,
-        )
-
-        trip_rate_chart = bar_chart(
-            trip_rate_data,
-            x_col="trip_purpose",
-            y_col="trip_rate",
-            title=f"Daily Trip Rate per Person by Trip Purpose - {person_type}",
-            xaxis_title="Trip Purpose",
-            yaxis_title="Trips per Person-Day",
-            as_percent=False,
-        )
-
-        self._body.objects = [
-            dap_chart,
-            pn.Row(mand_tour_freq_chart, nonmand_tour_freq_chart),
-            pn.Row(tour_rate_chart, trip_rate_chart),
+        return [
+            bar_chart(
+                dap_data,
+                x_col="daily_activity_pattern",
+                y_col="person_count",
+                title=f"Daily Activity Pattern - {person_type}",
+                xaxis_title="Daily Activity Pattern",
+                yaxis_title="Persons",
+                pct_col="pct",
+                as_percent=self.as_percent,
+            ),
+            pn.Row(
+                bar_chart(
+                    mand_tour_freq_data,
+                    x_col="mandatory_tour_frequency",
+                    y_col="person_count",
+                    title=f"Mandatory Tour Frequency - {person_type}",
+                    xaxis_title="Mandatory Tour Frequency",
+                    yaxis_title="Persons",
+                    pct_col="pct",
+                    as_percent=self.as_percent,
+                ),
+                bar_chart(
+                    nonmand_tour_freq_data,
+                    x_col="nonmandatory_tour_frequency",
+                    y_col="person_count",
+                    title=f"Non-Mandatory Tour Frequency - {person_type}",
+                    xaxis_title="Non-Mandatory Tour Frequency",
+                    yaxis_title="Persons",
+                    pct_col="pct",
+                    as_percent=self.as_percent,
+                ),
+            ),
+            pn.Row(
+                bar_chart(
+                    tour_rate_data,
+                    x_col="tour_purpose",
+                    y_col="tour_rate",
+                    title=f"Daily Tour Rate per Person by Tour Purpose - {person_type}",
+                    xaxis_title="Tour Purpose",
+                    yaxis_title="Tours per Person-Day",
+                    as_percent=False,
+                ),
+                bar_chart(
+                    trip_rate_data,
+                    x_col="trip_purpose",
+                    y_col="trip_rate",
+                    title=f"Daily Trip Rate per Person by Trip Purpose - {person_type}",
+                    xaxis_title="Trip Purpose",
+                    yaxis_title="Trips per Person-Day",
+                    as_percent=False,
+                ),
+            ),
         ]
 
 
@@ -323,20 +315,6 @@ PAGE = DashboardPageDefinition(
     group_id="daily_travel",
     order=28,
     page_cls=DailyActivityPatternPage,
-    selectors=(
-        PageSelectorDefinition(
-            selector_id="person_type",
-            widget_attr="person_type_sel",
-            label="Person Type",
-        ),
-    ),
-    export_regions=(
-        PageExportRegionDefinition(
-            region_id="activity_pattern_body",
-            view_attr="_body",
-            selector_ids=("person_type",),
-        ),
-    ),
     required_summary_ids=(
         "daily_activity_pattern_by_person_type",
         "mandatory_tour_frequency_by_person_type",
@@ -347,4 +325,3 @@ PAGE = DashboardPageDefinition(
 )
 
 DailyActivityPatternPage.definition = PAGE
-
