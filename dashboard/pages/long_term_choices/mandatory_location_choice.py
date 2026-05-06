@@ -104,6 +104,88 @@ def _adapt_commuting_flows(
     return out
 
 
+PREFERRED_GEO_ORDER = [
+    "all_geographies",
+    "district",
+    "taz",
+    "maz",
+]
+
+
+def _ordered_geo_options(values: set[str]) -> list[str]:
+    ordered = [v for v in PREFERRED_GEO_ORDER if v in values]
+    extras = sorted(v for v in values if v not in PREFERRED_GEO_ORDER)
+    return ordered + extras
+
+
+def geo_level_option_set(
+    data_list: list[tuple[str, pl.DataFrame]] | None,
+) -> set[str]:
+    """Return geography levels available in every non-empty run in this summary."""
+    if data_list is None:
+        return set()
+
+    per_run: list[set[str]] = []
+
+    for _, df in _nonempty(data_list):
+        if GEO_LEVEL_COL in df.columns:
+            vals = (
+                df.select(GEO_LEVEL_COL)
+                .drop_nulls()
+                .unique()
+                .to_series()
+                .cast(pl.Utf8)
+                .to_list()
+            )
+            per_run.append(set(vals))
+
+        elif {
+            "origin_geography_level",
+            "destination_geography_level",
+        }.issubset(df.columns):
+            origin_vals = set(
+                df["origin_geography_level"]
+                .cast(pl.Utf8)
+                .drop_nulls()
+                .unique()
+                .to_list()
+            )
+            dest_vals = set(
+                df["destination_geography_level"]
+                .cast(pl.Utf8)
+                .drop_nulls()
+                .unique()
+                .to_list()
+            )
+
+            # For the current flow filter, origin and destination must both
+            # support the selected level.
+            per_run.append(origin_vals & dest_vals)
+
+    if not per_run:
+        return set()
+
+    return set.intersection(*per_run)
+
+
+def core_geo_level_options(
+    *summary_lists: list[tuple[str, pl.DataFrame]] | None,
+) -> list[str]:
+    """Use only geography levels available in all provided core summaries."""
+    available_sets = [
+        geo_level_option_set(summary)
+        for summary in summary_lists
+        if summary is not None
+    ]
+    available_sets = [s for s in available_sets if s]
+
+    if not available_sets:
+        return ["Total"]
+
+    common = set.intersection(*available_sets)
+    return _ordered_geo_options(common) or ["Total"]
+
+
 def geo_level_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
     first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
     if first_df is None:
@@ -138,6 +220,29 @@ def geo_level_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
     return sorted(vals) if vals else ["Total"]
 
 
+def wfh_geo_level_options(
+    data_list: list[tuple[str, pl.DataFrame]],
+) -> list[str]:
+    first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
+    if first_df is None or GEO_TYPE_COL not in first_df.columns:
+        return []
+
+    vals = (
+        first_df.select(GEO_TYPE_COL)
+        .drop_nulls()
+        .unique()
+        .to_series()
+        .cast(pl.Utf8)
+        .to_list()
+    )
+
+    preferred_order = ["all_geographies", "district", "taz", "maz"]
+    ordered = [v for v in preferred_order if v in vals]
+    extras = sorted(v for v in vals if v not in preferred_order)
+
+    return ordered + extras
+
+
 def filter_geo_level(
     data_list: list[tuple[str, pl.DataFrame]],
     geo_level: str,
@@ -151,9 +256,7 @@ def filter_geo_level(
         elif {
             "origin_geography_level",
             "destination_geography_level",
-        }.issubset(
-            df.columns
-        ) and geo_level not in {"Total", "All"}:
+        }.issubset(df.columns) and geo_level not in {"Total", "All"}:
             df = df.with_columns(
                 pl.col("origin_geography_level").cast(pl.Utf8),
                 pl.col("destination_geography_level").cast(pl.Utf8),
@@ -162,6 +265,46 @@ def filter_geo_level(
                 & (pl.col("destination_geography_level") == geo_level)
             )
         out.append((label, df))
+    return out
+
+
+def wfh_chart_data(
+    wfh_list: list[tuple[str, pl.DataFrame]],
+    geography_type: str,
+) -> list[tuple[str, pl.DataFrame]]:
+    out = []
+
+    for label, df in wfh_list:
+        if df is None or len(df) == 0:
+            continue
+
+        chart_df = (
+            df.with_columns(
+                pl.col(GEO_TYPE_COL).cast(pl.Utf8),
+                pl.col(GEO_ID_COL).cast(pl.Utf8),
+            )
+            .filter(pl.col(GEO_TYPE_COL) == geography_type)
+            .with_columns(
+                pl.when(pl.col("worker_count") > 0)
+                .then(
+                    pl.col("work_from_home_worker_count")
+                    / pl.col("worker_count")
+                    * 100.0
+                )
+                .otherwise(0.0)
+                .alias("work_from_home_rate")
+            )
+            .with_columns(
+                pl.when(pl.col(GEO_ID_COL) == "all_geographies")
+                .then(pl.lit("All Geographies"))
+                .otherwise(pl.col(GEO_ID_COL))
+                .alias("geography_label")
+            )
+            .sort("geography_label")
+        )
+
+        out.append((label, chart_df))
+
     return out
 
 
@@ -333,7 +476,9 @@ class MandatoryLocationChoicePage(DashboardPage):
             _adapt_commuting_flows(commuting_flows) if commuting_flows else None
         )
 
-        geo_opts = geo_level_options(internal_external or commuting_flows or [])
+        geo_opts = core_geo_level_options(
+            internal_external, commuting_flows, wfh_summary
+        )
         return {
             "mode": "ready",
             "geo_opts": geo_opts,
@@ -438,6 +583,7 @@ class MandatoryLocationChoicePage(DashboardPage):
                 y_col="person_count",
                 title=f"{self.location_type_sel.value} Location Distance Distribution",
                 xaxis_title="Distance (miles)",
+                yaxis_title=f"{self.location_type_sel.value} Locations",
                 normalize=False,
                 as_percent=self.as_percent,
             )
@@ -460,17 +606,20 @@ class MandatoryLocationChoicePage(DashboardPage):
             wfh_data = self.get_filtered_view(
                 "mandatory_wfh",
                 geo_level,
-                factory=lambda: filter_geo_level(wfh_summary, geo_level),
+                factory=lambda: wfh_chart_data(
+                    wfh_summary,
+                    geo_level,
+                ),
             )
             remote_row.append(
                 bar_chart(
                     wfh_data,
-                    x_col=GEO_COL,
-                    y_col="work_from_home_worker_count",
+                    x_col="geography_label",
+                    y_col="work_from_home_rate",
                     title="Work From Home Rate by Geography",
                     xaxis_title="Geography",
-                    yaxis_title="Workers",
-                    as_percent=self.as_percent,
+                    yaxis_title="Workers Working From Home (%)",
+                    as_percent=False,
                 )
             )
         else:
@@ -489,7 +638,7 @@ class MandatoryLocationChoicePage(DashboardPage):
                     y_col="person_count",
                     title="Telecommute Rate",
                     xaxis_title="Telecommute Frequency",
-                    yaxis_title="Workers",
+                    yaxis_title="Workers Who Do Not Work From Home",
                     as_percent=self.as_percent,
                 )
             )

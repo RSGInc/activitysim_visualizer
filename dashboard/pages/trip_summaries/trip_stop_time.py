@@ -192,6 +192,7 @@ class TripStopTimePage(DashboardPage):
                 title=f"Trip Departure Time Distribution - {tour_purpose}",
                 xaxis_title="Clock Time (start at 03:00)",
                 normalize=False,
+                yaxis_title="Trips",
                 as_percent=self.as_percent,
             ),
             density_chart(
@@ -201,6 +202,7 @@ class TripStopTimePage(DashboardPage):
                 title=f"Stop Departure Time Distribution - {tour_purpose}",
                 xaxis_title="Clock Time (start at 03:00)",
                 normalize=False,
+                yaxis_title="Stops",
                 as_percent=self.as_percent,
             ),
         ]

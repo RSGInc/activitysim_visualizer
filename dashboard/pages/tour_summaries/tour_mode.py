@@ -232,6 +232,7 @@ class TourModePage(DashboardPage):
                 "tour_count",
                 "Tour Mode by Tour Purpose and Household Auto Sufficiency",
                 "Tour Mode",
+                yaxis_title="Tours",
                 pct_col="pct",
                 as_percent=self.as_percent,
             ),
@@ -255,6 +256,7 @@ class TourModePage(DashboardPage):
                     "vehicle_count",
                     "Allocated Vehicle Age by Occupancy Level",
                     "Vehicle Age",
+                    yaxis_title="Allocated Vehicles",
                     pct_col="pct",
                     as_percent=self.as_percent,
                 )
@@ -280,6 +282,7 @@ class TourModePage(DashboardPage):
                     "vehicle_count",
                     "Allocated Vehicle Fuel Type by Occupancy Level",
                     "Vehicle Fuel Type",
+                    yaxis_title="Allocated Vehicles",
                     pct_col="pct",
                     as_percent=self.as_percent,
                 )
@@ -305,6 +308,7 @@ class TourModePage(DashboardPage):
                     "vehicle_count",
                     "Allocated Vehicle Body Type by Occupancy Level",
                     "Vehicle Body Type",
+                    yaxis_title="Allocated Vehicles",
                     pct_col="pct",
                     as_percent=self.as_percent,
                 )

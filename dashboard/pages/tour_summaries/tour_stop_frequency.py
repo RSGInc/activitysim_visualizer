@@ -165,6 +165,7 @@ class TourStopFrequencyPage(DashboardPage):
                 f"Tour Stop Frequency - {purpose}, {direction}",
                 "Stop Count",
                 pct_col="pct",
+                yaxis_title="Tours",
                 as_percent=self.as_percent,
             ),
             pn.pane.Markdown("### At-Work Sub-Tour Frequency"),
@@ -175,6 +176,7 @@ class TourStopFrequencyPage(DashboardPage):
                 "At-Work Sub-Tour Frequency",
                 "At-Work Sub-Tour Frequency",
                 pct_col="pct",
+                yaxis_title="At-Work Sub-Tours",
                 as_percent=self.as_percent,
             ),
         ]
