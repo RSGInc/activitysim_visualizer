@@ -219,7 +219,7 @@ def allocated_vehicle_body(rd: RunData, config: Config) -> pl.DataFrame:
         "tour_count_auto_sufficient": pl.Float64,
         "tour_count_all_households": pl.Float64,
     },
-    required_columns={"tours": ("tour_mode", "tour_purpose", "finalweight")},
+    required_columns={"tours": ("tour_mode", "tour_purpose", "finalweight", "AUTOSUFF")},
 )
 def tour_mode(rd: RunData, config: Config) -> pl.DataFrame:
     """Tour mode by auto sufficiency level and total, by tour purpose/category.
@@ -229,7 +229,8 @@ def tour_mode(rd: RunData, config: Config) -> pl.DataFrame:
     tour_count_zero_auto, tour_count_auto_deficient,
     tour_count_auto_sufficient, tour_count_all_households.
     """
-    if "tour_mode" not in rd.tours.columns:
+    required = {"tour_mode", "tour_purpose", "finalweight", "AUTOSUFF"}
+    if not required.issubset(set(rd.tours.columns)):
         return empty_summary_frame(tour_mode)
 
     indiv = (
@@ -280,11 +281,7 @@ def tour_mode(rd: RunData, config: Config) -> pl.DataFrame:
         wgt_col = "wgt" if "wgt" in df.columns else "finalweight"
 
         for as_val in range(3):
-            as_filter = (
-                (pl.col("AUTOSUFF") == as_val)
-                if "AUTOSUFF" in df.columns
-                else pl.lit(True)
-            )
+            as_filter = pl.col("AUTOSUFF") == as_val
 
             sub = df.filter(purpose_filter & as_filter)
             counts = sub.group_by("tour_mode").agg(pl.col(wgt_col).sum().alias("n"))

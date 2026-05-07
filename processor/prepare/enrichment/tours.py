@@ -17,7 +17,7 @@ def _enrich_tours(
 ) -> _PrepareState:
     hh_for_tours = [
         column
-        for column in ["household_id", "HHVEH", "WORKERS", "ADULTS"]
+        for column in ["household_id", "HHVEH", "WORKERS", "LICENSEDDRIVERS", "ADULTS"]
         if column in state.hh.columns
     ]
     if "household_id" in state.tours.columns and "household_id" in hh_for_tours:
@@ -27,13 +27,19 @@ def _enrich_tours(
             how="left",
         )
 
-    if "HHVEH" in state.tours.columns and "WORKERS" in state.tours.columns:
+    if "HHVEH" in state.tours.columns and "LICENSEDDRIVERS" in state.tours.columns:
         state.tours = state.tours.with_columns(
             pl.when(pl.col("HHVEH") == 0)
             .then(0)
-            .when((pl.col("HHVEH") > 0) & (pl.col("HHVEH") < pl.col("WORKERS")))
+            .when(
+                (pl.col("HHVEH") > 0)
+                & (pl.col("HHVEH") < pl.col("LICENSEDDRIVERS"))
+            )
             .then(1)
-            .when((pl.col("HHVEH") > 0) & (pl.col("HHVEH") >= pl.col("WORKERS")))
+            .when(
+                (pl.col("HHVEH") > 0)
+                & (pl.col("HHVEH") >= pl.col("LICENSEDDRIVERS"))
+            )
             .then(2)
             .otherwise(0)
             .alias("AUTOSUFF")

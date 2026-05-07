@@ -172,8 +172,8 @@ class TourModePage(DashboardPage):
             **Auto sufficiency definitions**
 
             - **Zero Auto**: household has no vehicles.
-            - **Auto Deficient**: household has fewer vehicles than workers.
-            - **Auto Sufficient**: household has at least as many vehicles as workers.
+            - **Auto Deficient**: household has fewer vehicles than licensed drivers.
+            - **Auto Sufficient**: household has at least as many vehicles as licensed drivers.
             """
             ),
             self._mode_section,

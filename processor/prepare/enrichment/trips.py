@@ -54,7 +54,7 @@ def _enrich_trips(
     if "HHVEH" not in state.trips.columns:
         hh_trip_join_cols = [
             column
-            for column in ["household_id", "HHVEH", "WORKERS"]
+            for column in ["household_id", "HHVEH", "WORKERS", "LICENSEDDRIVERS"]
             if column in state.hh.columns
         ]
         if (
@@ -69,14 +69,20 @@ def _enrich_trips(
     if (
         "AUTOSUFF" not in state.trips.columns
         and "HHVEH" in state.trips.columns
-        and "WORKERS" in state.trips.columns
+        and "LICENSEDDRIVERS" in state.trips.columns
     ):
         state.trips = state.trips.with_columns(
             pl.when(pl.col("HHVEH") == 0)
             .then(0)
-            .when((pl.col("HHVEH") > 0) & (pl.col("HHVEH") < pl.col("WORKERS")))
+            .when(
+                (pl.col("HHVEH") > 0)
+                & (pl.col("HHVEH") < pl.col("LICENSEDDRIVERS"))
+            )
             .then(1)
-            .when((pl.col("HHVEH") > 0) & (pl.col("HHVEH") >= pl.col("WORKERS")))
+            .when(
+                (pl.col("HHVEH") > 0)
+                & (pl.col("HHVEH") >= pl.col("LICENSEDDRIVERS"))
+            )
             .then(2)
             .otherwise(0)
             .alias("AUTOSUFF")
