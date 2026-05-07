@@ -14,7 +14,7 @@
       return JSON.parse(dataElement.textContent || "");
     } catch (error) {
       fail(
-        "This HTML export is not compatible with the embedded client runtime.",
+        "Export payload JSON could not be parsed.",
         error && error.message ? error.message : error,
         "PAYLOAD_PARSE_FAILED"
       );

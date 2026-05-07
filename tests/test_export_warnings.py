@@ -12,7 +12,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pytest
 
 import dashboard.export.payload as export_payload
-from dashboard.export.html import build_export_html_document, write_export_html_document
+from dashboard.export.html import (
+    ExportBuildError,
+    build_export_html_document,
+    write_export_html_document,
+)
 from dashboard.export.payload import analyze_export_payload_size
 from test_export_html import _extract_payload, _full_summary_run, _write_config
 
@@ -53,13 +57,13 @@ def test_export_logs_selector_unavailable_warning_once_and_falls_back(caplog: py
     warning_messages = [
         record.getMessage()
         for record in caplog.records
-        if "visualizer.export_html.pages.long_term_choices.children.shadow_pricing.student_type"
+        if "visualizer.export_html.pages.long_term_choices.shadow_pricing.student_type"
         in record.getMessage()
     ]
 
     assert payload["states"]["Weighted||Percent"]["shadow_pricing"]["kind"] == "page"
     assert warning_messages == [
-        "Warning: visualizer.export_html.pages.long_term_choices.children.shadow_pricing.student_type is configured, but no enabled export part uses this selector. Ignoring the configuration."
+        "Warning: visualizer.export_html.pages.long_term_choices.shadow_pricing.student_type is configured, but no enabled export part uses this selector. Ignoring the configuration."
     ]
 
 
@@ -78,8 +82,8 @@ def test_export_raises_readable_error_for_invalid_selector_values() -> None:
     )
 
     with pytest.raises(
-        ValueError,
-        match="Unsupported visualizer.export_html.pages.trip_summaries.children.trip_mode.tour_purpose values: 'invalid-purpose'",
+        ExportBuildError,
+        match="Unsupported visualizer.export_html.pages.trip_summaries.trip_mode.tour_purpose values: 'invalid-purpose'",
     ):
         build_export_html_document([], config, summary_runs=[_full_summary_run()])
 

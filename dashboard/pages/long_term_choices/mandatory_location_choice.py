@@ -294,7 +294,7 @@ def wfh_chart_data(
                     * 100.0
                 )
                 .otherwise(0.0)
-                .alias("work_from_home_rate")
+                .alias("work_from_home_percent")
             )
             .with_columns(
                 pl.when(pl.col(GEO_ID_COL) == "all_geographies")
@@ -613,14 +613,29 @@ class MandatoryLocationChoicePage(DashboardPage):
                     geo_level,
                 ),
             )
+            wfh_y_col = (
+                "work_from_home_percent"
+                if self.as_percent
+                else "work_from_home_worker_count"
+            )
+            wfh_yaxis_title = (
+                "Workers Working From Home (%)"
+                if self.as_percent
+                else "Workers Working From Home"
+            )
+            wfh_title = (
+                "Work From Home Rate by Geography"
+                if self.as_percent
+                else "Workers Working From Home by Geography"
+            )
             remote_row.append(
                 bar_chart(
                     wfh_data,
                     x_col="geography_label",
-                    y_col="work_from_home_rate",
-                    title="Work From Home Rate by Geography",
+                    y_col=wfh_y_col,
+                    title=wfh_title,
                     xaxis_title="Geography",
-                    yaxis_title="Workers Working From Home (%)",
+                    yaxis_title=wfh_yaxis_title,
                     as_percent=False,
                 )
             )

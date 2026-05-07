@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.build_export_runtime import OUTPUT_PATH, build_runtime_source
+from dashboard.export.build_export_runtime import OUTPUT_PATH, build_runtime_source
 
 
 def test_build_export_runtime_script_reproduces_committed_runtime_asset() -> None:
