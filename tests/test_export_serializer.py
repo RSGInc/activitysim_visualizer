@@ -144,6 +144,24 @@ def test_serialize_viewable_supports_html_and_spacer_nodes() -> None:
     assert spacer_payload["kind"] == "spacer"
 
 
+def test_serialize_viewable_dedents_indented_markdown_blocks() -> None:
+    markdown_payload = serialize_viewable(
+        pn.pane.Markdown(
+            """
+            **Auto sufficiency definitions**
+
+            - **Zero Auto**: household has no vehicles.
+            - **Auto Deficient**: household has fewer vehicles than licensed drivers.
+            """
+        ),
+        disable_widgets=True,
+    )
+
+    assert "<strong>Auto sufficiency definitions</strong>" in markdown_payload["html"]
+    assert "<li><strong>Zero Auto</strong>: household has no vehicles.</li>" in markdown_payload["html"]
+    assert "            **Zero Auto**" not in markdown_payload["html"]
+
+
 def test_serialize_viewable_uses_fallback_for_unsupported_objects() -> None:
     payload = serialize_viewable(object(), disable_widgets=True)
 

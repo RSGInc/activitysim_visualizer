@@ -1,4 +1,4 @@
-// Generated from dashboard/export/js_runtime by scripts/build_export_runtime.py
+// Generated from dashboard/export/js_runtime by dashboard/export/build_export_runtime.py
 // BEGIN header.js
 (function () {
   /**
@@ -11,9 +11,9 @@
   const SUPPORTED_SCHEMA_VERSION = "__EXPORT_SCHEMA_VERSION__";
   const dataElement = document.getElementById("activitysim-export-data");
   const app = document.getElementById("app");
-  // END header.js
+// END header.js
 
-  // BEGIN dom.js
+// BEGIN dom.js
   /**
    * DOM helpers used by the export runtime.
    *
@@ -96,9 +96,9 @@
     }
     return button;
   }
-  // END dom.js
+// END dom.js
 
-  // BEGIN errors.js
+// BEGIN errors.js
   /**
    * Runtime error helpers.
    *
@@ -137,9 +137,9 @@
       }),
       detailText
         ? el("p", {
-          className: "export-error-message",
-          text: detailText,
-        })
+            className: "export-error-message",
+            text: detailText,
+          })
         : null,
     ]);
   }
@@ -156,9 +156,9 @@
       ])
     );
   }
-  // END errors.js
+// END errors.js
 
-  // BEGIN debug.js
+// BEGIN debug.js
   /**
    * Debug helpers for the export runtime.
    *
@@ -280,9 +280,9 @@
       plot_nodes: nodeCounts.plotly || 0,
     });
   }
-  // END debug.js
+// END debug.js
 
-  // BEGIN schema.js
+// BEGIN schema.js
   /**
    * Payload parsing and validation helpers.
    *
@@ -299,189 +299,10 @@
       return JSON.parse(dataElement.textContent || "");
     } catch (error) {
       fail(
-        "Export payload JSON could not be parsed. The HTML file may be truncated, partially written, or corrupted. Regenerate the export and inspect the sibling diagnostics JSON file if one was written.",
-        error && error.message ? error.message : error
+        "This HTML export is not compatible with the embedded client runtime.",
+        error && error.message ? error.message : error,
+        "PAYLOAD_PARSE_FAILED"
       );
-    }
-  }
-
-  function collectLeafPages(pageDescriptors, leafPages) {
-    for (const pageDescriptor of pageDescriptors || []) {
-      if (hasChildren(pageDescriptor)) {
-        collectLeafPages(pageDescriptor.children || [], leafPages);
-      } else {
-        leafPages.push(pageDescriptor);
-      }
-    }
-    return leafPages;
-  }
-
-  function collectPageDescriptors(pageDescriptors, allPages) {
-    for (const pageDescriptor of pageDescriptors || []) {
-      allPages.push(pageDescriptor);
-      if (hasChildren(pageDescriptor)) {
-        collectPageDescriptors(pageDescriptor.children || [], allPages);
-      }
-    }
-    return allPages;
-  }
-
-  function collectRegionsForValidation(node, regions) {
-    if (!node || typeof node !== "object") {
-      return regions;
-    }
-    if (node.kind === "region") {
-      regions.push(node);
-      collectRegionsForValidation(node.default_content, regions);
-      for (const variantNode of Object.values(node.variants || {})) {
-        collectRegionsForValidation(variantNode, regions);
-      }
-      return regions;
-    }
-    if (node.kind === "container" || node.kind === "card") {
-      for (const child of node.children || []) {
-        collectRegionsForValidation(child, regions);
-      }
-      return regions;
-    }
-    if (node.kind === "tabs") {
-      for (const tab of node.tabs || []) {
-        collectRegionsForValidation(tab.content, regions);
-      }
-    }
-    return regions;
-  }
-
-  function validateUniquePageIds(candidate) {
-    const pages = collectPageDescriptors(candidate.pages || [], []);
-    const seenPageIds = {};
-    for (const pageDescriptor of pages) {
-      if (seenPageIds[pageDescriptor.id]) {
-        fail(
-          "Export payload contains duplicate page id " + pageDescriptor.id + ".",
-          null,
-          "DUPLICATE_PAGE_ID"
-        );
-      }
-      seenPageIds[pageDescriptor.id] = true;
-    }
-  }
-
-  function validateDefaultState(candidate) {
-    const stateKey = buildDashboardStateKey(candidate.default_state);
-    if (!candidate.states[stateKey]) {
-      fail(
-        "Export payload is missing state data for its default dashboard state " + stateKey + ".",
-        null,
-        "MISSING_DEFAULT_STATE_ENTRY"
-      );
-    }
-    if (
-      (candidate.dashboard_controls.weighting || []).indexOf(candidate.default_state.weighting) === -1
-      || (candidate.dashboard_controls.values || []).indexOf(candidate.default_state.values) === -1
-    ) {
-      fail(
-        "Export payload default dashboard state does not match the available dashboard controls.",
-        null,
-        "INVALID_DEFAULT_DASHBOARD_STATE"
-      );
-    }
-  }
-
-  function validatePageDescriptors(candidate) {
-    for (const pageDescriptor of collectPageDescriptors(candidate.pages || [], [])) {
-      if (hasChildren(pageDescriptor)) {
-        const childIds = (pageDescriptor.children || []).map((childPage) => childPage.id);
-        if (!pageDescriptor.default_page_id || childIds.indexOf(pageDescriptor.default_page_id) === -1) {
-          fail(
-            "Grouped export page " + pageDescriptor.id + " has an invalid default_page_id.",
-            null,
-            "INVALID_DEFAULT_PAGE_REFERENCE"
-          );
-        }
-      }
-      for (const selector of pageDescriptor.selectors || []) {
-        if (
-          selector.default_value !== undefined
-          && selector.default_value !== null
-          && (selector.options || []).indexOf(selector.default_value) === -1
-        ) {
-          fail(
-            "Selector " + selector.id + " on page " + pageDescriptor.id + " has a default_value that is not in options.",
-            null,
-            "INVALID_SELECTOR_DEFAULT"
-          );
-        }
-      }
-    }
-  }
-
-  function validateStates(candidate) {
-    const leafPages = collectLeafPages(candidate.pages || [], []);
-    const leafPageIds = {};
-    for (const leafPage of leafPages) {
-      leafPageIds[leafPage.id] = leafPage;
-    }
-
-    for (const [stateId, pagesForState] of Object.entries(candidate.states || {})) {
-      for (const leafPage of leafPages) {
-        const pageNode = pagesForState[leafPage.id];
-        if (!pageNode) {
-          fail(
-            "State " + stateId + " is missing page content for leaf page " + leafPage.id + ".",
-            null,
-            "MISSING_STATE_PAGE"
-          );
-        }
-        if (!pageNode || pageNode.kind !== "page") {
-          fail(
-            "State " + stateId + " contains invalid page content for leaf page " + leafPage.id + ".",
-            null,
-            "INVALID_STATE_PAGE"
-          );
-        }
-        const selectorIds = {};
-        for (const selector of leafPage.selectors || []) {
-          selectorIds[selector.id] = true;
-        }
-        const seenRegionIds = {};
-        for (const regionNode of collectRegionsForValidation(pageNode.content, [])) {
-          if (!regionNode.region_id) {
-            fail(
-              "Leaf page " + leafPage.id + " contains a region without region_id.",
-              null,
-              "MISSING_REGION_ID"
-            );
-          }
-          if (seenRegionIds[regionNode.region_id]) {
-            fail(
-              "Leaf page " + leafPage.id + " contains duplicate region id " + regionNode.region_id + ".",
-              null,
-              "DUPLICATE_REGION_ID"
-            );
-          }
-          seenRegionIds[regionNode.region_id] = true;
-          for (const selectorId of regionNode.selector_ids || []) {
-            if (!selectorIds[selectorId]) {
-              fail(
-                "Region " + regionNode.region_id + " on page " + leafPage.id + " references unknown selector " + selectorId + ".",
-                null,
-                "UNKNOWN_REGION_SELECTOR"
-              );
-            }
-          }
-        }
-      }
-
-      for (const pageId of Object.keys(pagesForState || {})) {
-        if (!leafPageIds[pageId]) {
-          fail(
-            "State " + stateId + " references unknown page id " + pageId + ".",
-            null,
-            "UNKNOWN_STATE_PAGE"
-          );
-        }
-      }
     }
   }
 
@@ -672,10 +493,10 @@
     if (candidate.schema_version !== SUPPORTED_SCHEMA_VERSION) {
       fail(
         "Unsupported export schema version. Expected "
-        + SUPPORTED_SCHEMA_VERSION
-        + " but received "
-        + String(candidate.schema_version || "<missing>")
-        + ".",
+          + SUPPORTED_SCHEMA_VERSION
+          + " but received "
+          + String(candidate.schema_version || "<missing>")
+          + ".",
         null,
         "SCHEMA_VERSION_UNSUPPORTED"
       );
@@ -697,9 +518,9 @@
     validatePageDescriptors(candidate);
     validateStates(candidate);
   }
-  // END schema.js
+// END schema.js
 
-  // BEGIN state.js
+// BEGIN state.js
   /**
    * State helpers for the export runtime.
    *
@@ -869,9 +690,9 @@
     nextState.pageSelectors[pageId] = pageState;
     return normalizeState(currentPayload, nextState);
   }
-  // END state.js
+// END state.js
 
-  // BEGIN plotly_lifecycle.js
+// BEGIN plotly_lifecycle.js
   /**
    * Plotly lifecycle helpers.
    *
@@ -1039,9 +860,9 @@
       disconnect: disconnect,
     };
   }
-  // END plotly_lifecycle.js
+// END plotly_lifecycle.js
 
-  // BEGIN renderers/widgets.js
+// BEGIN renderers/widgets.js
   /**
    * Widget renderers for export payload nodes.
    */
@@ -1102,9 +923,9 @@
       "UNKNOWN_WIDGET_TYPE"
     );
   }
-  // END renderers/widgets.js
+// END renderers/widgets.js
 
-  // BEGIN renderers/tables.js
+// BEGIN renderers/tables.js
   /**
    * Table renderer for serialized tabular export nodes.
    */
@@ -1135,9 +956,9 @@
 
     return el("div", { className: "table-wrap" }, [table]);
   }
-  // END renderers/tables.js
+// END renderers/tables.js
 
-  // BEGIN renderers/tabs.js
+// BEGIN renderers/tabs.js
   /**
    * Local tab renderer used inside exported pages.
    */
@@ -1177,9 +998,9 @@
     root.appendChild(panel);
     return root;
   }
-  // END renderers/tabs.js
+// END renderers/tabs.js
 
-  // BEGIN renderers/plots.js
+// BEGIN renderers/plots.js
   /**
    * Plot renderer that registers serialized Plotly figures with the plot
    * lifecycle manager for later browser-side rendering.
@@ -1203,9 +1024,9 @@
     context.plotManager.registerPlot(plotElement, figure);
     return plotElement;
   }
-  // END renderers/plots.js
+// END renderers/plots.js
 
-  // BEGIN renderers/regions.js
+// BEGIN renderers/regions.js
   /**
    * Region helpers and renderers.
    *
@@ -1333,9 +1154,9 @@
     context.plotManager.scheduleResize();
     return true;
   }
-  // END renderers/regions.js
+// END renderers/regions.js
 
-  // BEGIN renderers/nodes.js
+// BEGIN renderers/nodes.js
   /**
    * Node-level renderer registry.
    *
@@ -1447,9 +1268,9 @@
     }
     return renderer(node, context, actions, leafPageId);
   }
-  // END renderers/nodes.js
+// END renderers/nodes.js
 
-  // BEGIN renderers/app.js
+// BEGIN renderers/app.js
   /**
    * Top-level app renderers.
    *
@@ -1748,9 +1569,9 @@
       );
     }
   }
-  // END renderers/app.js
+// END renderers/app.js
 
-  // BEGIN index.js
+// BEGIN index.js
   /**
    * Runtime bootstrap.
    *

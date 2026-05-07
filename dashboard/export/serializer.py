@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import inspect
 import json
 from typing import Any
 
@@ -175,7 +176,11 @@ def serialize_viewable(
         source = (
             obj.object if isinstance(obj.object, str) else obj.object._repr_markdown_()
         )
-        return {"kind": "html", "html": markdown.markdown(source, extensions=["nl2br"])}
+        normalized_source = inspect.cleandoc(source)
+        return {
+            "kind": "html",
+            "html": markdown.markdown(normalized_source, extensions=["nl2br"]),
+        }
     if isinstance(obj, pn.pane.HTML):
         return {"kind": "html", "html": obj.object or ""}
     if isinstance(obj, pn.Spacer):

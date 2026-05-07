@@ -431,7 +431,7 @@ That order follows the runtime's actual execution path pretty well.
 If you edit the source files under `js_runtime/`, remember to rebuild the generated asset:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/build_export_runtime.py
+.\.venv\Scripts\python.exe dashboard\export\build_export_runtime.py
 ```
 
 Then run the export runtime tests:

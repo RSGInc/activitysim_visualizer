@@ -224,3 +224,5 @@ tmp*/
 *.csv
 *.parquet
 *.json
+
+plans/

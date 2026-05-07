@@ -143,7 +143,7 @@ If you change the payload or runtime behavior:
 6. update the export payload and smoke tests
 
 The generated runtime asset is now built from `dashboard/export/js_runtime/` by
-`scripts/build_export_runtime.py`. Make source changes in `js_runtime/`, then
+`dashboard/export/build_export_runtime.py`. Make source changes in `js_runtime/`, then
 rebuild the committed asset.
 
 ## Recommended Tests

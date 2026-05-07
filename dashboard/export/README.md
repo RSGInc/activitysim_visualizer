@@ -30,7 +30,8 @@ the result. This is not a frontend application with a separate deployment model.
   Generated browser runtime shipped inside exported HTML files.
 - `js_runtime/`
   Readable runtime source files that are concatenated into `assets/export_runtime.js`.
-- `../../scripts/build_export_runtime.py`
+- `build_export_runtime.py`
+  Concatenates `js_runtime/` into `assets/export_runtime.js`.
   Rebuilds the generated runtime asset from `js_runtime/`.
 
 ## Runtime Source Layout
