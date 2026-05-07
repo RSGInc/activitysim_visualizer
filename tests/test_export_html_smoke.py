@@ -50,6 +50,7 @@ def test_export_html_smoke_writes_single_self_contained_file() -> None:
 
     html = out_path.read_text(encoding="utf-8")
     assert "activitysim-export-data" in html
+    assert "Export payload JSON could not be parsed." in html
     assert "Plotly.react" in html
     assert "Offline export failed to load" in html
     assert "This HTML export encountered a runtime rendering error." in html

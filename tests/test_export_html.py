@@ -209,7 +209,10 @@ def _full_summary_run():
         ),
         "work_from_home_rate_by_geography": pl.DataFrame(
             {
+                "geography_level": ["All", "Urban", "Suburban"],
+                "geography_type": ["All", "Urban", "Suburban"],
                 "geography": ["all_geographies", "Urban", "Suburban"],
+                "geography_id": ["all_geographies", "Urban", "Suburban"],
                 "worker_count": [20.0, 12.0, 8.0],
                 "work_from_home_worker_count": [11.0, 7.0, 4.0],
             }

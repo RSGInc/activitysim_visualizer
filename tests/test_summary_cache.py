@@ -1089,15 +1089,21 @@ def test_individual_choices_page_renders_partial_content_when_some_summaries_mis
     page = IndividualChoicesPage(state, config)
     page.refresh(force=True)
 
+    assert isinstance(page.view, pn.Column)
     cards = [
         obj
-        for row in page._body.objects
+        for row in page.view.objects
         if isinstance(row, pn.Row)
-        for obj in row.objects
+        for column in row.objects
+        if isinstance(column, pn.Column)
+        for section in column.objects
+        if isinstance(section, pn.Column)
+        for obj in section.objects
         if isinstance(obj, pn.Card)
     ]
     assert len(cards) == 2
-    assert any(isinstance(obj, pn.Row) for obj in page._body.objects)
+    assert sorted(card.title for card in cards) == ["Data Empty", "Data Empty"]
+    assert any(isinstance(obj, pn.Row) for obj in page.view.objects)
 
 
 def test_tour_summaries_tour_mode_page_renders_main_chart_without_vehicle_summaries(

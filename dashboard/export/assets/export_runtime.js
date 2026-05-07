@@ -113,7 +113,7 @@
       return JSON.parse(dataElement.textContent || "");
     } catch (error) {
       fail(
-        "This HTML export is not compatible with the embedded client runtime.",
+        "Export payload JSON could not be parsed. The HTML file may be truncated, partially written, or corrupted. Regenerate the export and inspect the sibling diagnostics JSON file if one was written.",
         error && error.message ? error.message : error
       );
     }
