@@ -268,7 +268,9 @@ def _normalize_export_page_override(
     if not isinstance(raw_value, dict):
         raise ValueError(f"{field_name} must be a mapping.")
 
-    enabled = _normalize_optional_bool(raw_value.get("enabled"), field_name=f"{field_name}.enabled")
+    enabled = _normalize_optional_bool(
+        raw_value.get("enabled"), field_name=f"{field_name}.enabled"
+    )
 
     selector_requests: dict[str, ExportSelectorRequest] = {}
     parts: dict[str, ExportPartOverride] = {}
@@ -289,7 +291,8 @@ def _normalize_export_page_override(
                     raise ValueError(f"{field_name}.parts.{part_id} must be a mapping.")
                 if set(raw_part_cfg) - {"enabled"}:
                     invalid_keys = ", ".join(
-                        repr(str(item)) for item in sorted(set(raw_part_cfg) - {"enabled"})
+                        repr(str(item))
+                        for item in sorted(set(raw_part_cfg) - {"enabled"})
                     )
                     raise ValueError(
                         f"{field_name}.parts.{part_id} only supports 'enabled'. Invalid keys: {invalid_keys}"
@@ -359,9 +362,7 @@ def _normalize_dashboard_page_entries(
             child_page_ids: list[str] = []
             for raw_child_page_id in raw_children:
                 if not isinstance(raw_child_page_id, str):
-                    raise ValueError(
-                        f"{field_name}.{page_id} entries must be strings."
-                    )
+                    raise ValueError(f"{field_name}.{page_id} entries must be strings.")
                 child_page_id = raw_child_page_id.strip().lower()
                 if not child_page_id or child_page_id in child_page_ids:
                     continue
@@ -402,7 +403,8 @@ def _normalize_export_page_entries(
             raise ValueError(f"{field_name}.{page_id} must be a mapping.")
 
         is_leaf_override = any(
-            str(key).strip().lower() in {"enabled", "parts"} or not isinstance(value, dict)
+            str(key).strip().lower() in {"enabled", "parts"}
+            or not isinstance(value, dict)
             for key, value in raw_page_cfg.items()
         )
         if is_leaf_override:
@@ -594,24 +596,30 @@ def _normalize_student_types(
                 )
             person_selector = StudentTypePersonSelector(
                 is_university=is_university,
-                school_segment=_normalize_student_selector_values(
-                    person_raw["school_segment"],
-                    field_name=f"{entry_name}.person.school_segment",
-                )
-                if "school_segment" in person_raw
-                else (),
-                SCHG=_normalize_student_selector_values(
-                    person_raw["SCHG"],
-                    field_name=f"{entry_name}.person.SCHG",
-                )
-                if "SCHG" in person_raw
-                else (),
-                pstudent=_normalize_student_selector_values(
-                    person_raw["pstudent"],
-                    field_name=f"{entry_name}.person.pstudent",
-                )
-                if "pstudent" in person_raw
-                else (),
+                school_segment=(
+                    _normalize_student_selector_values(
+                        person_raw["school_segment"],
+                        field_name=f"{entry_name}.person.school_segment",
+                    )
+                    if "school_segment" in person_raw
+                    else ()
+                ),
+                SCHG=(
+                    _normalize_student_selector_values(
+                        person_raw["SCHG"],
+                        field_name=f"{entry_name}.person.SCHG",
+                    )
+                    if "SCHG" in person_raw
+                    else ()
+                ),
+                pstudent=(
+                    _normalize_student_selector_values(
+                        person_raw["pstudent"],
+                        field_name=f"{entry_name}.person.pstudent",
+                    )
+                    if "pstudent" in person_raw
+                    else ()
+                ),
             )
 
         normalized.append(
@@ -907,9 +915,9 @@ class Config:
         run_colors = visualizer_cfg.get("run_colors", list(_DEFAULT_RUN_COLORS))
         if not isinstance(run_colors, list):
             raise ValueError("visualizer.run_colors must be a list when provided.")
-        missing_data_display = str(
-            visualizer_cfg.get("missing_data_display", "card")
-        ).strip().lower()
+        missing_data_display = (
+            str(visualizer_cfg.get("missing_data_display", "card")).strip().lower()
+        )
         if missing_data_display not in {"card", "blank"}:
             raise ValueError(
                 "visualizer.missing_data_display must be either 'card' or 'blank'."

@@ -177,6 +177,7 @@ class TourTimePage(DashboardPage):
                 f"Tour Departure Time Distribution - {purpose}",
                 "Clock Time (start at 03:00)",
                 normalize=False,
+                yaxis_title="Tours",
                 as_percent=self.as_percent,
             ),
             density_chart(
@@ -186,6 +187,7 @@ class TourTimePage(DashboardPage):
                 f"Tour Arrival Time Distribution - {purpose}",
                 "Clock Time (start at 03:00)",
                 normalize=False,
+                yaxis_title="Tours",
                 as_percent=self.as_percent,
             ),
             density_chart(
@@ -195,6 +197,7 @@ class TourTimePage(DashboardPage):
                 f"Tour Duration Distribution - {purpose}",
                 "Tour Duration (hours)",
                 normalize=False,
+                yaxis_title="Tours",
                 as_percent=self.as_percent,
             ),
         ]

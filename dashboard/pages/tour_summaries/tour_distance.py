@@ -216,6 +216,7 @@ class TourDistancePage(DashboardPage):
                 f"Tour Distance Distribution - {tour_purpose}",
                 "Distance (miles)",
                 normalize=False,
+                yaxis_title="Tours",
                 as_percent=self.as_percent,
             ),
         ]

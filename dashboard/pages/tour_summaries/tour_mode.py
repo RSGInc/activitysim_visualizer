@@ -166,7 +166,16 @@ class TourModePage(DashboardPage):
             render=self.render_vehicles,
         )
         return self.new_section(
-            pn.pane.Markdown("## Tour Mode"), self._mode_section, self._vehicle_section
+            pn.pane.Markdown("## Tour Mode"),
+            pn.pane.Markdown("""
+            **Auto sufficiency definitions**
+
+            - **Zero Auto**: household has no vehicles.
+            - **Auto Deficient**: household has fewer vehicles than licensed drivers.
+            - **Auto Sufficient**: household has at least as many vehicles as licensed drivers.
+            """),
+            self._mode_section,
+            self._vehicle_section,
         )
 
     def _summaries(self):
@@ -232,6 +241,7 @@ class TourModePage(DashboardPage):
                 "tour_count",
                 "Tour Mode by Tour Purpose and Household Auto Sufficiency",
                 "Tour Mode",
+                yaxis_title="Tours",
                 pct_col="pct",
                 as_percent=self.as_percent,
             ),
@@ -255,6 +265,7 @@ class TourModePage(DashboardPage):
                     "vehicle_count",
                     "Allocated Vehicle Age by Occupancy Level",
                     "Vehicle Age",
+                    yaxis_title="Allocated Vehicles",
                     pct_col="pct",
                     as_percent=self.as_percent,
                 )
@@ -280,6 +291,7 @@ class TourModePage(DashboardPage):
                     "vehicle_count",
                     "Allocated Vehicle Fuel Type by Occupancy Level",
                     "Vehicle Fuel Type",
+                    yaxis_title="Allocated Vehicles",
                     pct_col="pct",
                     as_percent=self.as_percent,
                 )
@@ -305,6 +317,7 @@ class TourModePage(DashboardPage):
                     "vehicle_count",
                     "Allocated Vehicle Body Type by Occupancy Level",
                     "Vehicle Body Type",
+                    yaxis_title="Allocated Vehicles",
                     pct_col="pct",
                     as_percent=self.as_percent,
                 )

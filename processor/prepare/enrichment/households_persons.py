@@ -13,6 +13,15 @@ from runtime.config import Config
 LOGGER = get_logger("processor.prepare")
 
 
+def _licensed_driver_expr(column_name: str = "has_license") -> pl.Expr:
+    return (
+        pl.col(column_name)
+        .cast(pl.Utf8)
+        .str.to_lowercase()
+        .is_in(["true", "1", "yes", "licensed"])
+    )
+
+
 def _enrich_households(
     state: _PrepareState, config: Config, zone_context: _ZoneContext
 ) -> None:
@@ -141,6 +150,22 @@ def _enrich_persons(
             .otherwise(0)
             .alias("imf_choice")
         )
+
+    if {
+        "household_id",
+        "has_license",
+    }.issubset(state.per.columns) and "household_id" in state.hh.columns:
+        licensed_drivers = (
+            state.per.filter(
+                pl.col("household_id").is_not_null()
+                & pl.col("has_license").is_not_null()
+            )
+            .group_by("household_id")
+            .agg(_licensed_driver_expr().sum().cast(pl.Int32).alias("LICENSEDDRIVERS"))
+        )
+        state.hh = state.hh.join(
+            licensed_drivers, on="household_id", how="left"
+        ).with_columns(pl.col("LICENSEDDRIVERS").fill_null(0).cast(pl.Int32))
 
 
 def _enrich_households_and_persons(

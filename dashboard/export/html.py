@@ -5,7 +5,9 @@ from __future__ import annotations
 import html
 import json
 from pathlib import Path
+from uuid import uuid4
 
+from activitysim_viz_logging import get_logger
 from plotly.offline import get_plotlyjs
 
 from dashboard.export.payload import build_export_artifacts, emit_export_size_warnings
@@ -15,6 +17,150 @@ from runtime.config import Config
 from processor.models import RunData
 from processor.summarize.cache import SummaryRun
 
+LOGGER = get_logger("dashboard.export")
+
+PAYLOAD_SCRIPT_START_TOKEN = (
+    '<script id="activitysim-export-data" type="application/json">'
+)
+PAYLOAD_SCRIPT_END_TOKEN = "</script>"
+
+
+class ExportBuildError(ValueError):
+    """Raised when one phase of export generation fails."""
+
+    def __init__(
+        self,
+        *,
+        phase: str,
+        output_path: str | Path | None = None,
+        hint: str | None = None,
+        detail: str | None = None,
+    ) -> None:
+        self.phase = phase
+        self.output_path = str(output_path) if output_path is not None else None
+        self.hint = hint
+        self.detail = detail
+
+        message = f"HTML export failed during {phase}"
+        if self.output_path:
+            message += f" for {self.output_path}"
+        if detail:
+            message += f": {detail}"
+        if hint:
+            message += f" Hint: {hint}"
+        super().__init__(message)
+
+
+def _run_export_phase(
+    phase: str,
+    func,
+    *,
+    output_path: str | Path | None = None,
+    hint: str | None = None,
+):
+    try:
+        return func()
+    except ExportBuildError:
+        raise
+    except Exception as exc:
+        raise ExportBuildError(
+            phase=phase,
+            output_path=output_path,
+            hint=hint,
+            detail=str(exc),
+        ) from exc
+
+
+def _build_export_payload_and_diagnostics(
+    runs: list[tuple[str, RunData]],
+    config: Config,
+    summary_runs: list[SummaryRun] | None = None,
+) -> tuple[dict, dict]:
+    payload, diagnostics = build_export_artifacts(
+        runs, config, summary_runs=summary_runs
+    )
+    emit_export_size_warnings(diagnostics.get("size_analysis"))
+    return sanitize_export_payload(payload), sanitize_export_payload(diagnostics)
+
+
+def _serialize_export_payload_json(payload: dict) -> str:
+    return json.dumps(
+        payload,
+        default=json_default,
+        allow_nan=False,
+    ).replace("</", "<\\/")
+
+
+def _serialize_export_diagnostics_json(diagnostics: dict) -> str:
+    return json.dumps(
+        diagnostics,
+        default=json_default,
+        allow_nan=False,
+        indent=2,
+    )
+
+
+def _build_export_html_shell_document(*, title: str, payload_json: str) -> str:
+    return build_export_html_shell(
+        title=html.escape(title),
+        payload_json=payload_json,
+        plotly_js=get_plotlyjs(),
+    )
+
+
+def _validate_export_html_document(document: str) -> None:
+    if PAYLOAD_SCRIPT_START_TOKEN not in document:
+        raise ExportBuildError(
+            phase="validate assembled HTML",
+            hint="The generated HTML is missing the embedded export payload script tag.",
+        )
+    start = document.index(PAYLOAD_SCRIPT_START_TOKEN) + len(PAYLOAD_SCRIPT_START_TOKEN)
+    end = document.find(PAYLOAD_SCRIPT_END_TOKEN, start)
+    if end < 0:
+        raise ExportBuildError(
+            phase="validate assembled HTML",
+            hint="The generated HTML is missing the closing </script> for the embedded payload.",
+        )
+    payload_json = document[start:end]
+    if not payload_json.strip():
+        raise ExportBuildError(
+            phase="validate assembled HTML",
+            hint="The embedded export payload was empty. Regenerate the export and inspect the diagnostics output.",
+        )
+    try:
+        json.loads(payload_json)
+    except json.JSONDecodeError as exc:
+        raise ExportBuildError(
+            phase="validate assembled HTML",
+            hint="The generated HTML contains malformed embedded JSON. Regenerate the export and inspect the diagnostics output.",
+            detail=str(exc),
+        ) from exc
+
+
+def _write_text_file(path: Path, contents: str) -> None:
+    path.write_text(contents, encoding="utf-8")
+
+
+def _write_temp_text(final_path: Path, contents: str) -> Path:
+    temp_path = final_path.with_name(f".{final_path.name}.{uuid4().hex}.tmp")
+    _write_text_file(temp_path, contents)
+    return temp_path
+
+
+def _finalize_temp_file(temp_path: Path, final_path: Path) -> None:
+    temp_path.replace(final_path)
+
+
+def _cleanup_temp_files(*paths: Path | None) -> None:
+    for path in paths:
+        if path is None:
+            continue
+        try:
+            if path.exists():
+                path.unlink()
+        except OSError:
+            LOGGER.warning("Could not remove temporary export file %s", path)
+
 
 def build_export_html_document(
     runs: list[tuple[str, RunData]],
@@ -22,21 +168,32 @@ def build_export_html_document(
     summary_runs: list[SummaryRun] | None = None,
 ) -> str:
     """Build a self-contained HTML document for offline dashboard viewing."""
-    payload, diagnostics = build_export_artifacts(
-        runs, config, summary_runs=summary_runs
+    payload, _ = _run_export_phase(
+        "build payload",
+        lambda: _build_export_payload_and_diagnostics(
+            runs, config, summary_runs=summary_runs
+        ),
+        hint="The export payload could not be constructed from the requested dashboard state.",
     )
-    emit_export_size_warnings(diagnostics.get("size_analysis"))
-    payload = sanitize_export_payload(payload)
-    payload_json = json.dumps(
-        payload,
-        default=json_default,
-        allow_nan=False,
-    ).replace("</", "<\\/")
-    return build_export_html_shell(
-        title=html.escape(config.dashboard_title),
-        payload_json=payload_json,
-        plotly_js=get_plotlyjs(),
+    payload_json = _run_export_phase(
+        "serialize payload JSON",
+        lambda: _serialize_export_payload_json(payload),
+        hint="The export payload contained data that could not be serialized to JSON.",
     )
+    document = _run_export_phase(
+        "assemble HTML shell",
+        lambda: _build_export_html_shell_document(
+            title=config.dashboard_title,
+            payload_json=payload_json,
+        ),
+        hint="The standalone HTML shell could not be assembled.",
+    )
+    _run_export_phase(
+        "validate assembled HTML",
+        lambda: _validate_export_html_document(document),
+        hint="The generated HTML failed an integrity check before it was returned.",
+    )
+    return document
 
 
 def write_export_html_document(
@@ -48,31 +205,88 @@ def write_export_html_document(
     """Write the standalone export HTML document to disk."""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    payload, diagnostics = build_export_artifacts(
-        runs, config, summary_runs=summary_runs
-    )
-    emit_export_size_warnings(diagnostics.get("size_analysis"))
-    payload = sanitize_export_payload(payload)
-    output_path.write_text(
-        build_export_html_shell(
-            title=html.escape(config.dashboard_title),
-            payload_json=json.dumps(
-                payload,
-                default=json_default,
-                allow_nan=False,
-            ).replace("</", "<\\/"),
-            plotly_js=get_plotlyjs(),
-        ),
-        encoding="utf-8",
-    )
     diagnostics_path = output_path.with_name(f"{output_path.stem}.diagnostics.json")
-    diagnostics_path.write_text(
-        json.dumps(
-            sanitize_export_payload(diagnostics),
-            default=json_default,
-            allow_nan=False,
-            indent=2,
+    output_existed = output_path.exists()
+    diagnostics_existed = diagnostics_path.exists()
+    html_temp_path: Path | None = None
+    diagnostics_temp_path: Path | None = None
+    html_finalized = False
+    diagnostics_finalized = False
+
+    LOGGER.info("Export phase: build payload")
+    payload, diagnostics = _run_export_phase(
+        "build payload",
+        lambda: _build_export_payload_and_diagnostics(
+            runs, config, summary_runs=summary_runs
         ),
-        encoding="utf-8",
+        output_path=output_path,
+        hint="Check summary/prepared data compatibility and export page configuration.",
     )
+    LOGGER.info("Export phase: serialize payload JSON")
+    payload_json = _run_export_phase(
+        "serialize payload JSON",
+        lambda: _serialize_export_payload_json(payload),
+        output_path=output_path,
+        hint="The export payload contained data that could not be serialized to JSON.",
+    )
+    diagnostics_json = _run_export_phase(
+        "serialize diagnostics JSON",
+        lambda: _serialize_export_diagnostics_json(diagnostics),
+        output_path=diagnostics_path,
+        hint="The export diagnostics contained data that could not be serialized to JSON.",
+    )
+    LOGGER.info("Export phase: assemble HTML shell")
+    document = _run_export_phase(
+        "assemble HTML shell",
+        lambda: _build_export_html_shell_document(
+            title=config.dashboard_title,
+            payload_json=payload_json,
+        ),
+        output_path=output_path,
+        hint="The standalone HTML shell could not be assembled.",
+    )
+    LOGGER.info("Export phase: validate assembled HTML")
+    _run_export_phase(
+        "validate assembled HTML",
+        lambda: _validate_export_html_document(document),
+        output_path=output_path,
+        hint="The generated HTML looked incomplete or malformed before it was written.",
+    )
+    try:
+        LOGGER.info("Export phase: write HTML atomically")
+        html_temp_path = _run_export_phase(
+            "write HTML atomically",
+            lambda: _write_temp_text(output_path, document),
+            output_path=output_path,
+            hint="The HTML export file could not be written to its temporary location.",
+        )
+        LOGGER.info("Export phase: write diagnostics file")
+        diagnostics_temp_path = _run_export_phase(
+            "write diagnostics sidecar",
+            lambda: _write_temp_text(diagnostics_path, diagnostics_json),
+            output_path=diagnostics_path,
+            hint="The diagnostics file could not be written to its temporary location.",
+        )
+        LOGGER.info("Export phase: finalize export files")
+        _run_export_phase(
+            "finalize export files",
+            lambda: _finalize_temp_file(diagnostics_temp_path, diagnostics_path),
+            output_path=diagnostics_path,
+            hint="The completed diagnostics file could not be moved into place.",
+        )
+        diagnostics_finalized = True
+        _run_export_phase(
+            "finalize export files",
+            lambda: _finalize_temp_file(html_temp_path, output_path),
+            output_path=output_path,
+            hint="The completed HTML export file could not be moved into place.",
+        )
+        html_finalized = True
+    except ExportBuildError:
+        _cleanup_temp_files(html_temp_path, diagnostics_temp_path)
+        if not output_existed and not html_finalized:
+            _cleanup_temp_files(output_path)
+        if not diagnostics_existed and not diagnostics_finalized:
+            _cleanup_temp_files(diagnostics_path)
+        raise
     return output_path

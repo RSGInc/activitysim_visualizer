@@ -12,7 +12,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _dashboard_expectations import EXPECTED_DEFAULT_LEAF_PAGES, EXPECTED_DEFAULT_PAGES
-from dashboard.export.html import build_export_html_document, write_export_html_document
+from dashboard.export.html import (
+    ExportBuildError,
+    build_export_html_document,
+    write_export_html_document,
+)
 from dashboard.export.types import EXPORT_CLIENT_RUNTIME, EXPORT_SCHEMA_VERSION
 from processor.models import RunData
 from processor.summarize.cache import create_summary_run
@@ -209,7 +213,10 @@ def _full_summary_run():
         ),
         "work_from_home_rate_by_geography": pl.DataFrame(
             {
+                "geography_level": ["All", "Urban", "Suburban"],
+                "geography_type": ["All", "Urban", "Suburban"],
                 "geography": ["all_geographies", "Urban", "Suburban"],
+                "geography_id": ["all_geographies", "Urban", "Suburban"],
                 "worker_count": [20.0, 12.0, 8.0],
                 "work_from_home_worker_count": [11.0, 7.0, 4.0],
             }
@@ -1743,3 +1750,43 @@ def test_export_html_save_writes_visualization_diagnostics_sidecar(
     assert raw_demo[0]["visualization_id"] == "raw_trip_demo_trip_modes"
     assert raw_demo[0]["render_state"] == "skipped"
     assert raw_demo[0]["input_ids"] == ["trips"]
+
+
+def test_export_html_save_fails_fast_without_final_files_when_html_write_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _write_config(tmp_path)
+    out_path = tmp_path / "dashboard.html"
+
+    def fail_html_temp_write(path: Path, contents: str) -> None:
+        if "dashboard.html" in path.name and path.suffix == ".tmp":
+            raise OSError("disk full")
+        path.write_text(contents, encoding="utf-8")
+
+    monkeypatch.setattr("dashboard.export.html._write_text_file", fail_html_temp_write)
+
+    with pytest.raises(ExportBuildError, match="write HTML atomically"):
+        write_export_html_document(out_path, [], config, summary_runs=[_full_summary_run()])
+
+    assert not out_path.exists()
+    assert not (tmp_path / "dashboard.diagnostics.json").exists()
+
+
+def test_export_html_save_rejects_malformed_assembled_html_before_finalizing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _write_config(tmp_path)
+    out_path = tmp_path / "dashboard.html"
+
+    monkeypatch.setattr(
+        "dashboard.export.html.build_export_html_shell",
+        lambda **kwargs: "<html><body>broken export</body></html>",
+    )
+
+    with pytest.raises(ExportBuildError, match="validate assembled HTML"):
+        write_export_html_document(out_path, [], config, summary_runs=[_full_summary_run()])
+
+    assert not out_path.exists()
+    assert not (tmp_path / "dashboard.diagnostics.json").exists()

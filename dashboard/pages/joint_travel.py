@@ -251,6 +251,7 @@ class JointTravelPage(DashboardPage):
                         "joint_tour_count",
                         "Joint Tours by Household Size",
                         "Household Size",
+                        yaxis_title="Joint Tours",
                         as_percent=self.as_percent,
                     ),
                     bar_chart(
@@ -259,6 +260,7 @@ class JointTravelPage(DashboardPage):
                         "joint_tour_count",
                         "Joint Tours by Party Size",
                         "Party Size",
+                        yaxis_title="Joint Tours",
                         as_percent=self.as_percent,
                     ),
                     bar_chart(
@@ -267,6 +269,7 @@ class JointTravelPage(DashboardPage):
                         "joint_tour_count",
                         f"Joint Tour Composition by Party Size - {party_size}",
                         "Tour Composition",
+                        yaxis_title="Joint Tours",
                         as_percent=self.as_percent,
                     ),
                     sizing_mode="stretch_width",
@@ -310,6 +313,7 @@ class JointTravelPage(DashboardPage):
                         "person_percent",
                         "People Taking Part in a Joint Tour by Household Size",
                         "Household Size",
+                        yaxis_title="Percent of People (%)",
                         as_percent=False,
                     ),
                     bar_chart(
@@ -318,6 +322,7 @@ class JointTravelPage(DashboardPage):
                         "household_percent",
                         f"Households Taking Part in a Joint Tour - {hhsize}",
                         "Joint Tour Count",
+                        yaxis_title="Percent of Households (%)",
                         as_percent=False,
                     ),
                     sizing_mode="stretch_width",

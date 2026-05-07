@@ -19,6 +19,7 @@ def _cast_households(hh: pl.DataFrame) -> pl.DataFrame:
             "HHVEH": pl.Int32,
             "HHSIZE": pl.Int32,
             "WORKERS": pl.Int32,
+            "LICENSEDDRIVERS": pl.Int32,
             "ADULTS": pl.Int32,
             "HGEO": pl.Utf8,
         },
@@ -62,6 +63,7 @@ def _cast_tours(tours: pl.DataFrame) -> pl.DataFrame:
             "SKIMDIST": pl.Float64,
             "NUMBER_HH": pl.Int32,
             "AUTOSUFF": pl.Int32,
+            "LICENSEDDRIVERS": pl.Int32,
             "finalweight": pl.Float64,
         },
     )
@@ -89,6 +91,7 @@ def _cast_trips(trips: pl.DataFrame) -> pl.DataFrame:
             "inbound": pl.Int32,
             "trip_num": pl.Int32,
             "AUTOSUFF": pl.Int32,
+            "LICENSEDDRIVERS": pl.Int32,
             "num_participants": pl.Int32,
             "finalweight": pl.Float64,
         },

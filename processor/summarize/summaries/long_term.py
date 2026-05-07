@@ -14,15 +14,18 @@ from processor.summarize.contracts import empty_summary_frame, summary_contract
         "person_type_label": pl.Utf8,
         "person_count": pl.Float64,
     },
-    required_columns={"per": ("person_type", "has_license", "finalweight")},
+    required_columns={"per": ("person_type", "has_license", "finalweight", "age")},
 )
 def license_holding_status(rd: RunData, config: Config) -> pl.DataFrame:
-    required = {"person_type", "has_license", "finalweight"}
+    required = {"person_type", "has_license", "finalweight", "age"}
     if not required.issubset(set(rd.per.columns)):
         return empty_summary_frame(license_holding_status)
 
     base = rd.per.filter(
-        pl.col("person_type").is_not_null() & pl.col("has_license").is_not_null()
+        pl.col("person_type").is_not_null()
+        & pl.col("has_license").is_not_null()
+        & pl.col("age").is_not_null()
+        & (pl.col("age") >= 16)
     ).with_columns(
         pl.col("person_type").cast(pl.Utf8),
         pl.when(pl.col("has_license"))
@@ -162,32 +165,31 @@ def auto_ownership(rd: RunData, config: Config) -> pl.DataFrame:
 
 @summary_contract(
     schema={
-        "geography": pl.Utf8,
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
         "worker_count": pl.Float64,
         "work_from_home_worker_count": pl.Float64,
     },
-    required_columns={"per": ("is_worker", "finalweight")},
+    required_columns={"per": ("is_worker", "home_zone_id", "finalweight")},
 )
 def wfh(rd: RunData, config: Config) -> pl.DataFrame:
-    """Work-from-home summary by geography group + all_geographies.
-    Returns DataFrame: geography, worker_count, work_from_home_worker_count.
-    If geography disabled, returns a single all_geographies row."""
+    """Work-from-home summary by geography.
+    Always emits MAZ/home_zone_id rows, plus an all_geographies row.
+    May also emit configured geography aggregations.
+    """
 
-    if "is_worker" not in rd.per.columns:
-        return pl.DataFrame(
-            {
-                "geography": ["all_geographies"],
-                "worker_count": [0.0],
-                "work_from_home_worker_count": [0.0],
-            }
-        )
-
-    wfh_col = "work_from_home"
+    required = {"is_worker", "home_zone_id", "finalweight"}
+    if not required.issubset(set(rd.per.columns)):
+        return empty_summary_frame(wfh)
 
     workers = rd.per.filter(
-        pl.col("is_worker").cast(pl.Utf8).str.to_lowercase().is_in(["true", "1"])
+        _worker_filter_expr() & pl.col("home_zone_id").is_not_null()
     )
 
+    if workers.is_empty():
+        return empty_summary_frame(wfh)
+
+    wfh_col = "work_from_home"
     if wfh_col in workers.columns:
         workers = workers.with_columns(
             pl.col(wfh_col)
@@ -199,30 +201,80 @@ def wfh(rd: RunData, config: Config) -> pl.DataFrame:
     else:
         workers = workers.with_columns(pl.lit(False).alias("_is_wfh"))
 
-    if config.geography_enabled and "HGEO" in workers.columns:
-        by_geo = (
-            workers.group_by("HGEO")
+    base = workers.select("home_zone_id", "_is_wfh", "finalweight")
+
+    def _aggregate_wfh_counts(
+        df: pl.DataFrame,
+        geography_type: str,
+        geography_id_col: str,
+    ) -> pl.DataFrame:
+        return (
+            df.group_by(geography_id_col)
             .agg(
                 worker_count=pl.col("finalweight").sum(),
                 work_from_home_worker_count=(
                     pl.col("finalweight") * pl.col("_is_wfh").cast(pl.Float64)
                 ).sum(),
             )
-            .rename({"HGEO": "geography"})
-            .with_columns(pl.col("geography").cast(pl.Utf8))
+            .rename({geography_id_col: "geography_id"})
+            .with_columns(
+                pl.lit(geography_type).alias("geography_type"),
+                pl.col("geography_id").cast(pl.Utf8),
+                pl.col("worker_count").cast(pl.Float64),
+                pl.col("work_from_home_worker_count").cast(pl.Float64),
+            )
+            .select(
+                "geography_type",
+                "geography_id",
+                "worker_count",
+                "work_from_home_worker_count",
+            )
         )
-    else:
-        by_geo = empty_summary_frame(wfh)
 
-    total = workers.select(
-        geography=pl.lit("all_geographies"),
-        worker_count=pl.col("finalweight").sum(),
-        work_from_home_worker_count=(
-            pl.col("finalweight") * pl.col("_is_wfh").cast(pl.Float64)
-        ).sum(),
+    outputs = [
+        _aggregate_wfh_counts(
+            base,
+            geography_type="maz",
+            geography_id_col="home_zone_id",
+        )
+    ]
+
+    # Optional higher-level geographies
+    # Adapt to your repo's actual geography helper pattern.
+    #
+    # if config.geography_enabled:
+    #     for geography_type, lookup_df in config.home_maz_geography_lookups():
+    #         geo_df = (
+    #             base.join(
+    #                 lookup_df,
+    #                 left_on="home_zone_id",
+    #                 right_on="MAZ",
+    #                 how="inner",
+    #             )
+    #             .pipe(_aggregate_wfh_counts, geography_type, "geography_id")
+    #         )
+    #         outputs.append(geo_df)
+
+    all_geographies = base.select(
+        pl.lit("all_geographies").alias("geography_type"),
+        pl.lit("all_geographies").alias("geography_id"),
+        pl.col("finalweight").sum().cast(pl.Float64).alias("worker_count"),
+        (pl.col("finalweight") * pl.col("_is_wfh").cast(pl.Float64))
+        .sum()
+        .cast(pl.Float64)
+        .alias("work_from_home_worker_count"),
     )
 
-    return pl.concat([by_geo, total]).sort("geography")
+    return (
+        pl.concat([*outputs, all_geographies], how="vertical")
+        .with_columns(
+            pl.col("geography_type").cast(pl.Utf8),
+            pl.col("geography_id").cast(pl.Utf8),
+            pl.col("worker_count").cast(pl.Float64),
+            pl.col("work_from_home_worker_count").cast(pl.Float64),
+        )
+        .sort(["geography_type", "geography_id"])
+    )
 
 
 def _empty_internal_external_worker_by_geography() -> pl.DataFrame:
@@ -321,11 +373,21 @@ def internal_vs_external(rd: RunData, config: Config) -> pl.DataFrame:
     if not required.issubset(set(rd.per.columns)):
         return _empty_internal_external_worker_by_geography()
 
-    base = rd.per.filter(
-        _worker_filter_expr()
-        & pl.col("is_external_worker").is_not_null()
-        & pl.col("home_zone_id").is_not_null()
-    ).select("home_zone_id", "is_external_worker", "finalweight")
+    base = (
+        rd.per.filter(
+            _worker_filter_expr()
+            & pl.col("is_external_worker").is_not_null()
+            & pl.col("home_zone_id").is_not_null()
+        )
+        .with_columns(
+            pl.col("is_external_worker")
+            .cast(pl.Utf8)
+            .str.to_lowercase()
+            .is_in(["true", "1", "yes", "external"])
+            .alias("is_external_worker")
+        )
+        .select("home_zone_id", "is_external_worker", "finalweight")
+    )
 
     if base.is_empty():
         return _empty_internal_external_worker_by_geography()
@@ -335,7 +397,12 @@ def internal_vs_external(rd: RunData, config: Config) -> pl.DataFrame:
             base,
             geography_type="maz",
             geography_id_col="home_zone_id",
-        )
+        ),
+        _aggregate_internal_external_counts(
+            base.with_columns(pl.lit("all_geographies").alias("_all_geographies")),
+            geography_type="all_geographies",
+            geography_id_col="_all_geographies",
+        ),
     ]
 
     # TODO: Need to update below for geographic aggregation
@@ -648,6 +715,16 @@ def commuting_flows(rd: RunData, config: Config) -> pl.DataFrame:
             destination_col="workplace_zone_id",
         )
     ]
+
+    all_geographies = base.select(
+        pl.lit("all_geographies").alias("origin_geography_type"),
+        pl.lit("all_geographies").alias("origin_geography_id"),
+        pl.lit("all_geographies").alias("destination_geography_type"),
+        pl.lit("all_geographies").alias("destination_geography_id"),
+        pl.col("finalweight").sum().cast(pl.Float64).alias("commuter_count"),
+    )
+
+    outputs.append(all_geographies)
 
     # TODO: Update below with geography aggregation helper
     # The summary description calls for optional:
@@ -1517,17 +1594,32 @@ def free_parking(rd: RunData, config: Config) -> pl.DataFrame:
         "telecommute_frequency": pl.Utf8,
         "person_count": pl.Float64,
     },
-    required_columns={"per": ("telecommute_frequency", "finalweight")},
+    required_columns={
+        "per": ("telecommute_frequency", "finalweight", "is_worker", "work_from_home")
+    },
 )
 def telecommute(rd: RunData, config: Config | None = None) -> pl.DataFrame:
-    """Telecommute frequency distribution. Columns: telecommute_frequency, person_count."""
-    if "telecommute_frequency" not in rd.per.columns:
+    """Telecommute frequency distribution for workers who do not work from home."""
+    if not {
+        "telecommute_frequency",
+        "finalweight",
+        "is_worker",
+        "work_from_home",
+    }.issubset(rd.per.columns):
         return empty_summary_frame(telecommute)
 
     return (
         rd.per.filter(
             pl.col("telecommute_frequency").is_not_null()
             & (pl.col("telecommute_frequency") != "")
+            & pl.col("is_worker")
+            .cast(pl.Utf8)
+            .str.to_lowercase()
+            .is_in(["true", "1", "yes", "worker"])
+            & ~pl.col("work_from_home")
+            .cast(pl.Utf8)
+            .str.to_lowercase()
+            .is_in(["true", "1", "yes", "work_from_home", "home"])
         )
         .group_by("telecommute_frequency")
         .agg(person_count=pl.col("finalweight").sum())

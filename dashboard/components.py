@@ -150,7 +150,7 @@ def bar_chart(
         if percent_mode and y.sum() > 0:
             y = y / y.sum() * 100.0
         y_list = y.tolist()
-        yy_title = "Percent (%)" if percent_mode else yaxis_title
+        yy_title = f"Percent of {yaxis_title} (%)" if percent_mode else yaxis_title
         hover = [
             f"{label}<br>{xaxis_title or x_col}: {xi}<br>{yy_title}: {yi:,.1f}"
             for xi, yi in zip(x, y_list)
@@ -172,7 +172,7 @@ def bar_chart(
         fig,
         title,
         xaxis_title,
-        "Percent (%)" if percent_mode else yaxis_title,
+        f"Percent of {yaxis_title} (%)" if percent_mode else yaxis_title,
         height,
         barmode=barmode,
     )
@@ -215,7 +215,11 @@ def line_chart(
             )
         )
     _layout(
-        fig, title, xaxis_title, "Percent (%)" if percent_mode else yaxis_title, height
+        fig,
+        title,
+        xaxis_title,
+        f"Percent of {yaxis_title} (%)" if percent_mode else yaxis_title,
+        height,
     )
     return pn.pane.Plotly(fig, sizing_mode="stretch_width")
 
@@ -264,7 +268,7 @@ def density_chart(
         fig,
         title,
         xaxis_title,
-        "Percent (%)" if (percent_mode or normalize) else yaxis_title,
+        f"Percent of {yaxis_title} (%)" if (percent_mode or normalize) else yaxis_title,
         height,
     )
     return pn.pane.Plotly(fig, sizing_mode="stretch_width")
