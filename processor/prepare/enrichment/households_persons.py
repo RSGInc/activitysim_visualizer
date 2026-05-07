@@ -157,17 +157,15 @@ def _enrich_persons(
     }.issubset(state.per.columns) and "household_id" in state.hh.columns:
         licensed_drivers = (
             state.per.filter(
-                pl.col("household_id").is_not_null() & pl.col("has_license").is_not_null()
+                pl.col("household_id").is_not_null()
+                & pl.col("has_license").is_not_null()
             )
             .group_by("household_id")
-            .agg(
-                _licensed_driver_expr().sum().cast(pl.Int32).alias("LICENSEDDRIVERS")
-            )
+            .agg(_licensed_driver_expr().sum().cast(pl.Int32).alias("LICENSEDDRIVERS"))
         )
-        state.hh = (
-            state.hh.join(licensed_drivers, on="household_id", how="left")
-            .with_columns(pl.col("LICENSEDDRIVERS").fill_null(0).cast(pl.Int32))
-        )
+        state.hh = state.hh.join(
+            licensed_drivers, on="household_id", how="left"
+        ).with_columns(pl.col("LICENSEDDRIVERS").fill_null(0).cast(pl.Int32))
 
 
 def _enrich_households_and_persons(

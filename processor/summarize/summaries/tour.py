@@ -219,7 +219,9 @@ def allocated_vehicle_body(rd: RunData, config: Config) -> pl.DataFrame:
         "tour_count_auto_sufficient": pl.Float64,
         "tour_count_all_households": pl.Float64,
     },
-    required_columns={"tours": ("tour_mode", "tour_purpose", "finalweight", "AUTOSUFF")},
+    required_columns={
+        "tours": ("tour_mode", "tour_purpose", "finalweight", "AUTOSUFF")
+    },
 )
 def tour_mode(rd: RunData, config: Config) -> pl.DataFrame:
     """Tour mode by auto sufficiency level and total, by tour purpose/category.

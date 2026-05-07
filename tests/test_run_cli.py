@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import run
 import runtime_workflows
 from dashboard import app as dashboard_app
+from dashboard.export.html import ExportBuildError
 from processor.models import RunData
 from processor.prepare.cache import build_prepared_manifest_identity
 from runtime.config import Config
@@ -887,3 +888,68 @@ def test_dashboard_workflow_rejects_missing_summary_runs(tmp_path: Path) -> None
             summary_runs=[],
             config=config,
         )
+
+
+def test_main_surfaces_export_build_phase_failures_in_cli(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    config = _write_cli_config(
+        tmp_path,
+        runs=[{"dir": tmp_path / "run_a", "label": "Run A"}],
+    )
+    summary_run = _simple_summary_run("Run A", "run-a")
+    cache_dir = write_summary_run_cache(
+        summary_run,
+        config,
+        run_fingerprint=build_run_fingerprint(
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+            skim_file=None,
+            hh_weight_col=None,
+            person_weight_col=None,
+            trip_weight_col=None,
+        ),
+        prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="run-a",
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+        ),
+    )
+
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(
+        "dashboard.export.html.write_export_html_document",  # type: ignore[arg-type]
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            ExportBuildError(
+                phase="build payload",
+                output_path=tmp_path / "dashboard.html",
+                hint="Check summary/prepared data compatibility and export page configuration.",
+                detail="simulated payload failure",
+            )
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "activitysim-viz",
+            "--config",
+            str(tmp_path / "config.yaml"),
+            "--from-csvs",
+            str(cache_dir),
+            "--export-html",
+            str(tmp_path / "dashboard.html"),
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="1"):
+        run.main()
+
+    captured = capsys.readouterr()
+    assert "HTML export failed during build payload" in captured.err
+    assert "Hint: Check summary/prepared data compatibility and export page configuration." in captured.err
+    assert "Done." not in captured.err

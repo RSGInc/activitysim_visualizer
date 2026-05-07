@@ -167,15 +167,13 @@ class TourModePage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Tour Mode"),
-            pn.pane.Markdown(
-                """
+            pn.pane.Markdown("""
             **Auto sufficiency definitions**
 
             - **Zero Auto**: household has no vehicles.
             - **Auto Deficient**: household has fewer vehicles than licensed drivers.
             - **Auto Sufficient**: household has at least as many vehicles as licensed drivers.
-            """
-            ),
+            """),
             self._mode_section,
             self._vehicle_section,
         )

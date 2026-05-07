@@ -31,14 +31,10 @@ def _enrich_tours(
         state.tours = state.tours.with_columns(
             pl.when(pl.col("HHVEH") == 0)
             .then(0)
-            .when(
-                (pl.col("HHVEH") > 0)
-                & (pl.col("HHVEH") < pl.col("LICENSEDDRIVERS"))
-            )
+            .when((pl.col("HHVEH") > 0) & (pl.col("HHVEH") < pl.col("LICENSEDDRIVERS")))
             .then(1)
             .when(
-                (pl.col("HHVEH") > 0)
-                & (pl.col("HHVEH") >= pl.col("LICENSEDDRIVERS"))
+                (pl.col("HHVEH") > 0) & (pl.col("HHVEH") >= pl.col("LICENSEDDRIVERS"))
             )
             .then(2)
             .otherwise(0)

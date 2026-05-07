@@ -666,16 +666,24 @@ def run_dashboard_workflow(
     )
 
     if export_html_path:
-        from dashboard.export.html import write_export_html_document
+        from dashboard.export.html import ExportBuildError, write_export_html_document
 
         LOGGER.info("Building dashboard")
         LOGGER.info("Exporting dashboard to %s ...", export_html_path)
-        write_export_html_document(
-            export_html_path,
-            prepared_runs,
-            config,
-            summary_runs=summary_runs,
-        )
+        try:
+            write_export_html_document(
+                export_html_path,
+                prepared_runs,
+                config,
+                summary_runs=summary_runs,
+            )
+        except ExportBuildError as exc:
+            LOGGER.error("Dashboard export failed during %s.", exc.phase)
+            if exc.output_path:
+                LOGGER.error("Export target: %s", exc.output_path)
+            if exc.hint:
+                LOGGER.error("Next step: %s", exc.hint)
+            raise
         LOGGER.info("Done.")
         return
 

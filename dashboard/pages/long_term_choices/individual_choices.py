@@ -379,9 +379,11 @@ class IndividualChoicesPage(DashboardPage):
                 y_col="person_count",
                 title=f"Transit Subsidy - {display_person_type}",
                 xaxis_title="Transit Subsidy Status",
-                yaxis_title="Workers and Students"
-                if display_person_type == "Total"
-                else f"{display_person_type}",
+                yaxis_title=(
+                    "Workers and Students"
+                    if display_person_type == "Total"
+                    else f"{display_person_type}"
+                ),
                 pct_col="pct",
                 as_percent=self.as_percent,
             )

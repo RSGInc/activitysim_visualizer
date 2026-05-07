@@ -256,7 +256,9 @@ def filter_geo_level(
         elif {
             "origin_geography_level",
             "destination_geography_level",
-        }.issubset(df.columns) and geo_level not in {"Total", "All"}:
+        }.issubset(
+            df.columns
+        ) and geo_level not in {"Total", "All"}:
             df = df.with_columns(
                 pl.col("origin_geography_level").cast(pl.Utf8),
                 pl.col("destination_geography_level").cast(pl.Utf8),
