@@ -219,3 +219,8 @@ quarto/dashboard_files/
 
 .pytest_*/
 local_config.yaml
+tmp*/
+*.html
+*.csv
+*.parquet
+*.json

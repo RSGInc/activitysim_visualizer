@@ -166,7 +166,18 @@ class TourModePage(DashboardPage):
             render=self.render_vehicles,
         )
         return self.new_section(
-            pn.pane.Markdown("## Tour Mode"), self._mode_section, self._vehicle_section
+            pn.pane.Markdown("## Tour Mode"),
+            pn.pane.Markdown(
+                """
+            **Auto sufficiency definitions**
+
+            - **Zero Auto**: household has no vehicles.
+            - **Auto Deficient**: household has fewer vehicles than workers.
+            - **Auto Sufficient**: household has at least as many vehicles as workers.
+            """
+            ),
+            self._mode_section,
+            self._vehicle_section,
         )
 
     def _summaries(self):
