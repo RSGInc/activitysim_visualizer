@@ -629,6 +629,64 @@ def test_tour_purpose_grouping_rolls_up_joint_atwork_and_school_across_summaries
     assert total["departure_tour_count"].sum() == non_total["departure_tour_count"].sum()
 
 
+def test_atwork_grouping_does_not_relabel_parent_mandatory_work_tours(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "group_joint_tour_purposes: true",
+            "group_atwork_tour_purposes: true",
+            "group_school_tour_purposes: false",
+        ],
+    )
+    tours = pl.DataFrame(
+        {
+            "tour_id": [1, 2],
+            "tour_category": ["mandatory", "atwork"],
+            "tour_purpose": ["work", "eat"],
+            "atwork_subtour_frequency": ["eat", ""],
+        }
+    )
+
+    grouped = with_summary_tour_purpose(tours, config)
+
+    assert grouped["summary_tour_purpose"].to_list() == ["work", "atwork"]
+
+
+def test_atwork_subtour_frequency_summary_counts_parent_work_tours_only(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    rd = RunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame(),
+        per=pl.DataFrame(),
+        tours=pl.DataFrame(
+            {
+                "tour_purpose": ["work", "work", "atwork", "work"],
+                "tour_category": ["mandatory", "mandatory", "atwork", "non_mandatory"],
+                "atwork_subtour_frequency": ["no_subtours", "eat", "", "business1"],
+                "finalweight": [2.0, 3.0, 10.0, 5.0],
+            }
+        ),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    summary = tour.at_work_sub_tour_freq(rd, config)
+
+    assert summary.sort("atwork_subtour_frequency_category").to_dict(as_series=False) == {
+        "atwork_subtour_frequency_category": ["eat", "no_subtours"],
+        "atwork_subtour_count": [3.0, 2.0],
+    }
+
+
 def test_prepare_data_uses_default_fallbacks_for_purpose_timing_and_employment(
     tmp_path: Path,
 ) -> None:

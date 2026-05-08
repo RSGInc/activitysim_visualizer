@@ -402,17 +402,23 @@ def stop_freq(rd: RunData, config: Config) -> pl.DataFrame:
         "atwork_subtour_count": pl.Float64,
     },
     required_columns={
-        "tours": ("tour_purpose", "atwork_subtour_frequency", "finalweight")
+        "tours": (
+            "tour_purpose",
+            "tour_category",
+            "atwork_subtour_frequency",
+            "finalweight",
+        )
     },
 )
 def at_work_sub_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
-    required = {"tour_purpose", "atwork_subtour_frequency", "finalweight"}
+    required = {"tour_purpose", "tour_category", "atwork_subtour_frequency", "finalweight"}
     if not required.issubset(set(rd.tours.columns)):
         return empty_summary_frame(at_work_sub_tour_freq)
 
     return (
         rd.tours.filter(
             (pl.col("tour_purpose").cast(pl.Utf8).str.to_lowercase() == "work")
+            & (pl.col("tour_category").cast(pl.Utf8).str.to_lowercase() == "mandatory")
             & pl.col("atwork_subtour_frequency").is_not_null()
         )
         .group_by("atwork_subtour_frequency")

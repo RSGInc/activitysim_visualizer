@@ -21,6 +21,7 @@ from dashboard.pages.long_term_choices.vehicle_ownership_type import (
 )
 from dashboard.pages.daily_travel.daily_activity_pattern import (
     DailyActivityPatternPage,
+    filter_person_type_rates,
 )
 from dashboard.pages.overview import OverviewPage
 from dashboard.pages.tour_summaries.tour_mode import (
@@ -922,6 +923,45 @@ def test_daily_activity_pattern_live_page_uses_shared_summary_helpers(
     page.person_type_sel.value = "worker"
     page.refresh(force=True)
     assert page._body.objects
+
+
+def test_filter_person_type_rates_total_uses_full_person_denominator() -> None:
+    data_list = [
+        (
+            "Base",
+            pl.DataFrame(
+                {
+                    "person_type": ["worker", "student", "worker"],
+                    "tour_purpose": ["school", "work", "work"],
+                    "tour_rate": [0.5, 1.0, 2.0],
+                }
+            ),
+        )
+    ]
+    person_weights = {
+        "Base": pl.DataFrame(
+            {
+                "person_type": ["worker", "student"],
+                "person_count": [10.0, 30.0],
+            }
+        )
+    }
+
+    filtered = filter_person_type_rates(
+        data_list,
+        "all_person_types",
+        purpose_col="tour_purpose",
+        rate_col="tour_rate",
+        person_weights=person_weights,
+    )
+
+    assert len(filtered) == 1
+    label, df = filtered[0]
+    assert label == "Base"
+    assert df.sort("tour_purpose").to_dict(as_series=False) == {
+        "tour_purpose": ["school", "work"],
+        "tour_rate": [0.125, 1.25],
+    }
 
 
 def test_overview_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:

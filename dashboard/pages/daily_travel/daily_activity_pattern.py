@@ -114,6 +114,7 @@ def filter_person_type_rates(
             out.append((label, aggregated))
             continue
 
+        total_person_count = float(weights["person_count"].sum())
         aggregated = (
             d.filter(~pl.col(PERSON_TYPE_COL).is_in(["all_person_types", "Total"]))
             .join(weights, on=PERSON_TYPE_COL, how="left")
@@ -124,11 +125,10 @@ def filter_person_type_rates(
             .group_by(purpose_col)
             .agg(
                 pl.col("_weighted_rate").sum().alias("_weighted_rate_sum"),
-                pl.col("person_count").sum().alias("_person_count_sum"),
             )
             .with_columns(
-                pl.when(pl.col("_person_count_sum") > 0)
-                .then(pl.col("_weighted_rate_sum") / pl.col("_person_count_sum"))
+                pl.when(pl.lit(total_person_count) > 0)
+                .then(pl.col("_weighted_rate_sum") / pl.lit(total_person_count))
                 .otherwise(None)
                 .alias(rate_col)
             )
