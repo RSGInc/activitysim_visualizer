@@ -11,10 +11,15 @@ from runtime.config import Config
 from processor.models import RunData
 from processor.prepare.enrichment.pipeline import prepare_data
 from processor.summarize.schema import SUMMARY_OUTPUT_COLUMNS
-from processor.summarize.summaries import legacy, tour, trip
+from processor.summarize.summaries import legacy, long_term, tour, trip
 
 
-def _write_config(tmp_path: Path, *, column_lines: list[str] | None = None) -> Config:
+def _write_config(
+    tmp_path: Path,
+    *,
+    column_lines: list[str] | None = None,
+    extra_lines: list[str] | None = None,
+) -> Config:
     tmp_path.mkdir(parents=True, exist_ok=True)
     config_path = tmp_path / "config.yaml"
     lines = [
@@ -28,6 +33,8 @@ def _write_config(tmp_path: Path, *, column_lines: list[str] | None = None) -> C
     if column_lines:
         lines.append("columns:")
         lines.extend(f"  {line}" for line in column_lines)
+    if extra_lines:
+        lines.extend(extra_lines)
     config_path.write_text("\n".join(lines), encoding="utf-8")
     return Config.from_yaml(config_path)
 
@@ -292,6 +299,130 @@ def test_config_summary_signature_changes_when_alias_lists_change(
     )
 
     assert config_a.summary_config_digest != config_b.summary_config_digest
+
+
+def test_config_summary_signature_changes_when_transit_subsidy_labels_change(
+    tmp_path: Path,
+) -> None:
+    config_a = _write_config(
+        tmp_path / "a",
+        extra_lines=[
+            "transit_subsidies:",
+            "  0: No Subsidy",
+            "  1: Employer Paid",
+        ],
+    )
+    config_b = _write_config(
+        tmp_path / "b",
+        extra_lines=[
+            "transit_subsidies:",
+            "  0: No Subsidy",
+            "  1: Universal Pass",
+        ],
+    )
+
+    assert config_a.summary_config_digest != config_b.summary_config_digest
+
+
+def test_transit_subsidy_summary_uses_raw_categories_and_label_overrides(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "person_types:",
+            "  1: Full-time worker",
+            "  3: University student",
+            "transit_subsidies:",
+            "  0: No Subsidy",
+            "  1: Employer Paid",
+            "  2: Student Discount",
+        ],
+    )
+    run = RunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame(),
+        per=pl.DataFrame(
+            {
+                "person_type": [1, 1, 3, 3, 4],
+                "transit_pass_subsidy": [1, 2, 2, 0, 9],
+                "is_worker": [True, True, False, False, False],
+                "is_student": [False, False, True, True, False],
+                "finalweight": [2.0, 1.0, 3.0, 4.0, 5.0],
+            }
+        ),
+        tours=pl.DataFrame(),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    result = long_term.transit_subsidy(run, config).sort(
+        ["person_type", "transit_subsidy_status"]
+    )
+
+    assert result.columns == [
+        "person_type",
+        "transit_subsidy_status",
+        "transit_subsidy_label",
+        "person_type_label",
+        "person_count",
+    ]
+    assert result.to_dicts() == [
+        {
+            "person_type": "1",
+            "transit_subsidy_status": "1",
+            "transit_subsidy_label": "Employer Paid",
+            "person_type_label": "Full-time worker",
+            "person_count": 2.0,
+        },
+        {
+            "person_type": "1",
+            "transit_subsidy_status": "2",
+            "transit_subsidy_label": "Student Discount",
+            "person_type_label": "Full-time worker",
+            "person_count": 1.0,
+        },
+        {
+            "person_type": "3",
+            "transit_subsidy_status": "0",
+            "transit_subsidy_label": "No Subsidy",
+            "person_type_label": "University student",
+            "person_count": 4.0,
+        },
+        {
+            "person_type": "3",
+            "transit_subsidy_status": "2",
+            "transit_subsidy_label": "Student Discount",
+            "person_type_label": "University student",
+            "person_count": 3.0,
+        },
+        {
+            "person_type": "all_person_types",
+            "transit_subsidy_status": "0",
+            "transit_subsidy_label": "No Subsidy",
+            "person_type_label": "All Person Types",
+            "person_count": 4.0,
+        },
+        {
+            "person_type": "all_person_types",
+            "transit_subsidy_status": "1",
+            "transit_subsidy_label": "Employer Paid",
+            "person_type_label": "All Person Types",
+            "person_count": 2.0,
+        },
+        {
+            "person_type": "all_person_types",
+            "transit_subsidy_status": "2",
+            "transit_subsidy_label": "Student Discount",
+            "person_type_label": "All Person Types",
+            "person_count": 4.0,
+        },
+    ]
 
 
 def test_prepare_data_uses_default_fallbacks_for_purpose_timing_and_employment(

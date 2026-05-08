@@ -369,18 +369,31 @@ class IndividualChoicesPage(DashboardPage):
             raw_person_type,
             factory=lambda: _cast_category(
                 filter_person_type_counts(summary, raw_person_type),
-                "transit_subsidy_status",
+                (
+                    "transit_subsidy_label"
+                    if any(
+                        "transit_subsidy_label" in df.columns
+                        for _, df in filter_person_type_counts(summary, raw_person_type)
+                    )
+                    else "transit_subsidy_status"
+                ),
             ),
+        )
+        subsidy_x_col = (
+            "transit_subsidy_label"
+            if subsidy_list
+            and all("transit_subsidy_label" in df.columns for _, df in subsidy_list)
+            else "transit_subsidy_status"
         )
         return [
             bar_chart(
                 subsidy_list,
-                x_col="transit_subsidy_status",
+                x_col=subsidy_x_col,
                 y_col="person_count",
                 title=f"Transit Subsidy - {display_person_type}",
                 xaxis_title="Transit Subsidy Status",
                 yaxis_title=(
-                    "Workers and Students"
+                    "All Workers"
                     if display_person_type == "Total"
                     else f"{display_person_type}"
                 ),
