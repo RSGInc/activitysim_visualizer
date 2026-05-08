@@ -65,6 +65,8 @@ class RunData:
     hh_weight_col: Optional[str] = None
     person_weight_col: Optional[str] = None
     trip_weight_col: Optional[str] = None
+    skimjoin_manifest: dict[str, Any] = field(default_factory=dict)
+    skimjoin_reports: dict[str, pl.DataFrame] = field(default_factory=dict)
 
 
 def prune_prepared_run(
@@ -92,6 +94,8 @@ def prune_prepared_run(
         hh_weight_col=prepared_run.hh_weight_col,
         person_weight_col=prepared_run.person_weight_col,
         trip_weight_col=prepared_run.trip_weight_col,
+        skimjoin_manifest=dict(prepared_run.skimjoin_manifest),
+        skimjoin_reports=dict(prepared_run.skimjoin_reports),
     )
 
 

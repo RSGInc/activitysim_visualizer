@@ -142,6 +142,17 @@ class ExportHTMLSettings:
         return ExportPageOverride()
 
 
+@dataclass(frozen=True)
+class SkimjoinSettings:
+    """Optional runtime wiring for late-prepare skim enrichment."""
+
+    enabled: bool = False
+    config_path: str | None = None
+    summary_ids: list[str] = field(default_factory=list)
+    config_digest: str | None = None
+    normalized_config: Any | None = None
+
+
 def _normalize_export_html_selection(
     raw_value,
     *,
@@ -237,6 +248,92 @@ def _normalize_optional_bool(raw_value, *, field_name: str) -> bool | None:
     if isinstance(raw_value, bool):
         return raw_value
     raise ValueError(f"{field_name} must be true or false when provided.")
+
+
+def _normalize_string_list(raw_value, *, field_name: str) -> list[str]:
+    if raw_value is None:
+        return []
+    if not isinstance(raw_value, list):
+        raise ValueError(f"{field_name} must be a list when provided.")
+
+    normalized: list[str] = []
+    for item in raw_value:
+        if not isinstance(item, str):
+            raise ValueError(f"{field_name} entries must be strings.")
+        token = item.strip()
+        if token and token not in normalized:
+            normalized.append(token)
+    return normalized
+
+
+def _normalize_skimjoin_settings(
+    raw_value,
+    *,
+    config_dir: Path,
+) -> SkimjoinSettings:
+    if raw_value is None:
+        return SkimjoinSettings()
+    if not isinstance(raw_value, dict):
+        raise ValueError("skimjoin must be a mapping when provided.")
+
+    enabled = raw_value.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise ValueError("skimjoin.enabled must be true or false when provided.")
+    summary_ids = _normalize_string_list(
+        raw_value.get("summary_ids"),
+        field_name="skimjoin.summary_ids",
+    )
+    config_path_raw = raw_value.get("config_path")
+    resolved_config_path: str | None = None
+    if config_path_raw is not None:
+        if not isinstance(config_path_raw, str) or not config_path_raw.strip():
+            raise ValueError("skimjoin.config_path must be a non-empty string.")
+        resolved_path = Path(config_path_raw).expanduser()
+        if not resolved_path.is_absolute():
+            resolved_path = (config_dir / resolved_path).resolve()
+        resolved_config_path = str(resolved_path)
+
+    if not enabled:
+        return SkimjoinSettings(
+            enabled=False,
+            config_path=resolved_config_path,
+            summary_ids=summary_ids,
+        )
+
+    if resolved_config_path is None:
+        raise ValueError("skimjoin.config_path is required when skimjoin.enabled is true.")
+
+    from processor.skimjoin.config.io import load_config_file
+    from processor.skimjoin.config.normalize import normalize_config
+    from processor.skimjoin.config.validation import load_config
+
+    skimjoin_data = load_config_file(resolved_config_path)
+    explicit_config = load_config(skimjoin_data)
+    normalized_config = normalize_config(explicit_config)
+    skim_files = list(normalized_config.skim_files)
+    if not skim_files:
+        raise ValueError(
+            "Integrated skimjoin requires at least one skim file in the separate skimjoin config."
+        )
+    invalid_skim_files = [
+        str(path)
+        for path in skim_files
+        if Path(str(path)).suffix.lower() != ".omx"
+    ]
+    if invalid_skim_files:
+        raise ValueError(
+            "Integrated skimjoin currently supports OMX skim inputs only. "
+            + "Unsupported skim files: "
+            + ", ".join(repr(path) for path in invalid_skim_files)
+        )
+
+    return SkimjoinSettings(
+        enabled=True,
+        config_path=resolved_config_path,
+        summary_ids=summary_ids,
+        config_digest=_digest_payload(normalized_config.model_dump(mode="python")),
+        normalized_config=normalized_config,
+    )
 
 
 def _normalize_excluded_ids(
@@ -663,6 +760,7 @@ class Config:
     summary_root: str
     weighting_modes: list[str]
     export_html: ExportHTMLSettings
+    skimjoin: SkimjoinSettings
 
     files: dict[str, str]
 
@@ -686,6 +784,7 @@ class Config:
     col_tour_duration: list[str]
     col_trip_depart: list[str]
     col_total_employment: list[str]
+    col_income_segment: list[str]
     person_type_labels: Optional[dict[str, str]]
     student_types: list[StudentTypeConfig]
 
@@ -754,6 +853,10 @@ class Config:
         skim_cfg = raw.get("skim", {})
         if not isinstance(skim_cfg, dict):
             raise ValueError("skim must be a mapping when provided.")
+        skimjoin = _normalize_skimjoin_settings(
+            raw.get("skimjoin"),
+            config_dir=config_path.parent,
+        )
         modes_cfg = raw.get("modes", {})
         if not isinstance(modes_cfg, dict):
             raise ValueError("modes must be a mapping when provided.")
@@ -945,6 +1048,7 @@ class Config:
             summary_root=str(summary_root),
             weighting_modes=weighting_modes,
             export_html=export_html,
+            skimjoin=skimjoin,
             files=files,
             col_ptype=cols.get("ptype", "ptype"),
             col_hhsize=cols.get("hhsize", "hhsize"),
@@ -1029,6 +1133,11 @@ class Config:
                     "employment",
                 ],
             ),
+            col_income_segment=_normalize_column_aliases(
+                cols.get("income_segment"),
+                field_name="columns.income_segment",
+                default=["income_segment", "income_broad", "income"],
+            ),
             person_type_labels=person_type_labels,
             student_types=student_types,
             use_maz=bool(zones.get("use_maz", True)),
@@ -1090,6 +1199,7 @@ class Config:
                 "tour_duration": list(self.col_tour_duration),
                 "trip_depart": list(self.col_trip_depart),
                 "total_employment": list(self.col_total_employment),
+                "income_segment": list(self.col_income_segment),
             },
             "student_types": [
                 {
@@ -1115,6 +1225,10 @@ class Config:
             },
             "geography": geography_payload,
             "skim": {"matrix": self.skim_matrix},
+            "skimjoin": {
+                "enabled": self.skimjoin.enabled,
+                "config_digest": self.skimjoin.config_digest,
+            },
         }
 
     def summary_signature_payload(self) -> dict[str, Any]:
@@ -1154,6 +1268,7 @@ class Config:
                 "tour_duration": list(self.col_tour_duration),
                 "trip_depart": list(self.col_trip_depart),
                 "total_employment": list(self.col_total_employment),
+                "income_segment": list(self.col_income_segment),
             },
             "person_type_labels": (
                 {
@@ -1197,6 +1312,11 @@ class Config:
                     if self.mode_groups
                     else None
                 ),
+            },
+            "skimjoin": {
+                "enabled": self.skimjoin.enabled,
+                "config_digest": self.skimjoin.config_digest,
+                "summary_ids": list(self.skimjoin.summary_ids),
             },
         }
 

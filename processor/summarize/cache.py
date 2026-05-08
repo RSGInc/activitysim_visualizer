@@ -103,7 +103,20 @@ def strip_weights(rd: RunData) -> RunData:
         hh_weight_col=None,
         person_weight_col=None,
         trip_weight_col=None,
+        skimjoin_manifest=dict(rd.skimjoin_manifest),
+        skimjoin_reports=dict(rd.skimjoin_reports),
     )
+
+
+def requested_summary_ids(config: Config) -> list[str]:
+    """Return baseline summary ids plus any optional skimjoin summaries."""
+    summary_ids = list(DEFAULT_SUMMARY_IDS)
+    if not config.skimjoin.enabled:
+        return summary_ids
+    for summary_id in config.skimjoin.summary_ids:
+        if summary_id not in summary_ids:
+            summary_ids.append(summary_id)
+    return summary_ids
 
 
 def build_summaries(
@@ -112,7 +125,7 @@ def build_summaries(
     summary_ids: list[str] | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Build the requested summary tables for one prepared run."""
-    summary_ids = summary_ids or DEFAULT_SUMMARY_IDS
+    summary_ids = summary_ids or requested_summary_ids(config)
     tables: dict[str, pl.DataFrame] = {}
     for summary_id in summary_ids:
         spec = SUMMARY_SPEC_BY_ID.get(summary_id)
@@ -128,7 +141,7 @@ def build_summaries_with_metadata(
     summary_ids: list[str] | None = None,
 ) -> tuple[dict[str, pl.DataFrame], dict[str, dict[str, object]]]:
     """Build summaries plus per-summary execution metadata."""
-    summary_ids = summary_ids or DEFAULT_SUMMARY_IDS
+    summary_ids = summary_ids or requested_summary_ids(config)
     tables: dict[str, pl.DataFrame] = {}
     metadata: dict[str, dict[str, object]] = {}
     for summary_id in summary_ids:

@@ -14,6 +14,7 @@ from processor.summarize.summaries import (
     joint_travel,
     legacy,
     long_term,
+    skimjoin,
     tour,
     trip,
     validation,
@@ -316,6 +317,16 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         "parking_locations",
         trip.parking_locations,
     ),
+    SummarySpec(
+        "skimjoin_trip_component_means",
+        "skimjoin_trip_component_means",
+        skimjoin.trip_skim_component_means,
+    ),
+    SummarySpec(
+        "skimjoin_tour_component_means",
+        "skimjoin_tour_component_means",
+        skimjoin.tour_skim_component_means,
+    ),
     # VALIDATION SUMMARIES
     SummarySpec(
         "traffic_count_comparisons",
@@ -373,4 +384,10 @@ SUMMARY_SPEC_BY_ID = {spec.summary_id: spec for spec in SUMMARY_SPECS}
 SUMMARY_FILENAME_BY_ID = {
     spec.summary_id: f"{spec.filename}.csv" for spec in SUMMARY_SPECS
 }
-DEFAULT_SUMMARY_IDS = [spec.summary_id for spec in SUMMARY_SPECS]
+OPTIONAL_SUMMARY_IDS = {
+    "skimjoin_trip_component_means",
+    "skimjoin_tour_component_means",
+}
+DEFAULT_SUMMARY_IDS = [
+    spec.summary_id for spec in SUMMARY_SPECS if spec.summary_id not in OPTIONAL_SUMMARY_IDS
+]

@@ -7,6 +7,7 @@ import numpy as np
 import polars as pl
 
 from processor.prepare.enrichment.columns import _has_columns
+from processor.prepare.enrichment.columns import _resolve_source_column
 from processor.prepare.enrichment.types import _PrepareState, _ZoneContext
 from processor.prepare.enrichment.zones import _skim_lookup, _to_taz
 from runtime.config import Config
@@ -17,6 +18,24 @@ LOGGER = get_logger("processor.prepare")
 def _enrich_trips(
     state: _PrepareState, config: Config, zone_context: _ZoneContext
 ) -> _PrepareState:
+    hh_income_source = _resolve_source_column(state.hh, config.col_income_segment)
+    if hh_income_source is not None and "household_id" in state.trips.columns:
+        hh_income = state.hh.select(
+            [
+                pl.col("household_id"),
+                pl.col(hh_income_source).alias("income_segment_hh"),
+            ]
+        )
+        state.trips = state.trips.join(hh_income, on="household_id", how="left")
+        if "income_segment" in state.trips.columns:
+            state.trips = state.trips.with_columns(
+                pl.coalesce([pl.col("income_segment"), pl.col("income_segment_hh")]).alias(
+                    "income_segment"
+                )
+            ).drop("income_segment_hh")
+        else:
+            state.trips = state.trips.rename({"income_segment_hh": "income_segment"})
+
     tour_join_cols = [
         column
         for column in [

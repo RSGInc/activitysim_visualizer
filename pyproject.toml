@@ -4,12 +4,14 @@ version = "0.1.0"
 description = "Panel-based ActivitySim comparison visualizer"
 requires-python = ">=3.10"
 dependencies = [
+    "h5py",
     "numpy",
     "jupyter",
     "pandas",
     "panel",
     "plotly",
     "polars",
+    "pydantic",
     "pyarrow",
     "openmatrix",
     "pyyaml",

@@ -5,6 +5,7 @@ from __future__ import annotations
 from activitysim_viz_logging import get_logger
 import polars as pl
 
+from processor.prepare.enrichment.columns import _resolve_source_column
 from processor.prepare.enrichment.types import _PrepareState, _ZoneContext
 from processor.prepare.enrichment.zones import _skim_lookup, _to_taz
 from runtime.config import Config
@@ -15,9 +16,36 @@ LOGGER = get_logger("processor.prepare")
 def _enrich_tours(
     state: _PrepareState, config: Config, zone_context: _ZoneContext
 ) -> _PrepareState:
+    hh_income_source = _resolve_source_column(state.hh, config.col_income_segment)
+    if hh_income_source is not None:
+        hh_income = state.hh.select(
+            [
+                pl.col("household_id"),
+                pl.col(hh_income_source).alias("income_segment_hh"),
+            ]
+        )
+        if "household_id" in state.tours.columns:
+            state.tours = state.tours.join(hh_income, on="household_id", how="left")
+            if "income_segment" in state.tours.columns:
+                state.tours = state.tours.with_columns(
+                    pl.coalesce(
+                        [pl.col("income_segment"), pl.col("income_segment_hh")]
+                    ).alias("income_segment")
+                ).drop("income_segment_hh")
+            else:
+                state.tours = state.tours.rename(
+                    {"income_segment_hh": "income_segment"}
+                )
+
     hh_for_tours = [
         column
-        for column in ["household_id", "HHVEH", "WORKERS", "LICENSEDDRIVERS", "ADULTS"]
+        for column in [
+            "household_id",
+            "HHVEH",
+            "WORKERS",
+            "LICENSEDDRIVERS",
+            "ADULTS",
+        ]
         if column in state.hh.columns
     ]
     if "household_id" in state.tours.columns and "household_id" in hh_for_tours:

@@ -29,6 +29,7 @@ from processor.prepare.cache import (
 )
 from processor.prepare.enrichment.pipeline import prepare_data
 from processor.prepare.reader import read_run, resolve_skim_path
+from processor.skimjoin.pipeline import apply_skimjoin
 from runtime.config import Config
 from processor.summarize import cache as summary_cache
 
@@ -157,13 +158,13 @@ def load_summary_runs_from_cache(
             expected_prepared_manifest_identity = None
         summary_runs.append(
             summary_cache.load_summary_run_cache(
-                cache_dir,
-                config,
-                expected_modes=config.weighting_modes,
-                expected_summary_ids=summary_cache.DEFAULT_SUMMARY_IDS,
-                expected_summary_config_digest=config.summary_config_digest,
-                expected_run_fingerprint=expected_run_fingerprint,
-                expected_prepared_manifest_identity=expected_prepared_manifest_identity,
+                    cache_dir,
+                    config,
+                    expected_modes=config.weighting_modes,
+                    expected_summary_ids=summary_cache.requested_summary_ids(config),
+                    expected_summary_config_digest=config.summary_config_digest,
+                    expected_run_fingerprint=expected_run_fingerprint,
+                    expected_prepared_manifest_identity=expected_prepared_manifest_identity,
                 expected_label=expected_label,
                 expected_run_key=expected_run_key,
             )
@@ -371,6 +372,7 @@ def _resolve_prepared_run(
         trip_weight_col=entry.get("trip_weight_col") or None,
     )
     prepared_run = prepare_data(prepared_run, config)
+    prepared_run = apply_skimjoin(prepared_run, config)
     if not has_usable_loaded_tables(prepared_run):
         LOGGER.warning(
             "Skipping run %r because no raw prepared tables could be loaded safely.",
@@ -556,7 +558,7 @@ def run_summary_workflow(
                     cache_dir,
                     config,
                     expected_modes=config.weighting_modes,
-                    expected_summary_ids=summary_cache.DEFAULT_SUMMARY_IDS,
+                    expected_summary_ids=summary_cache.requested_summary_ids(config),
                     expected_summary_config_digest=config.summary_config_digest,
                     expected_run_fingerprint=run_fingerprint,
                     expected_prepared_manifest_identity=prepared_manifest_identity,
@@ -590,9 +592,21 @@ def run_summary_workflow(
         existing_prepared_runs_by_key = dict(prepare_result.prepared_runs_by_key)
         prepared_runs_by_key[run_key] = prepared_loaded
 
-        summaries_by_mode, summary_metadata_by_mode = (
-            summary_cache.build_mode_summaries_with_metadata(prepared_loaded[1], config)
-        )
+        if config.skimjoin.enabled:
+            summaries_by_mode, summary_metadata_by_mode = (
+                summary_cache.build_mode_summaries_with_metadata(
+                    prepared_loaded[1],
+                    config,
+                    summary_ids=summary_cache.requested_summary_ids(config),
+                )
+            )
+        else:
+            summaries_by_mode, summary_metadata_by_mode = (
+                summary_cache.build_mode_summaries_with_metadata(
+                    prepared_loaded[1],
+                    config,
+                )
+            )
         summary_run = summary_cache.create_summary_run(
             label=label,
             run_key=run_key,

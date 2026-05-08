@@ -476,7 +476,10 @@ def test_prepared_cache_rejects_old_schema_version(tmp_path: Path) -> None:
     entry = write_prepared_run_cache(prepared, config, run_key="base")
     manifest_path = entry.cache_dir / "manifest.json"
     manifest = manifest_path.read_text(encoding="utf-8")
-    manifest_path.write_text(manifest.replace('"schema_version": 3', '"schema_version": 1'), encoding="utf-8")
+    manifest_path.write_text(
+        manifest.replace('"schema_version": 4', '"schema_version": 1'),
+        encoding="utf-8",
+    )
 
     with pytest.raises(PreparedCacheError, match="Unsupported prepared cache schema_version"):
         load_prepared_run_cache(

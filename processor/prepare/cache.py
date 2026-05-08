@@ -21,8 +21,8 @@ from processor.prepare.availability import (
 from processor.prepare.writer import write_all
 from runtime.config import Config
 
-SCHEMA_VERSION = 3
-SUPPORTED_SCHEMA_VERSIONS = {2, 3}
+SCHEMA_VERSION = 4
+SUPPORTED_SCHEMA_VERSIONS = {2, 3, 4}
 SUPPORTED_FILE_FORMATS = ("parquet", "csv")
 PREPARED_TABLE_ATTRS: tuple[tuple[str, str, str], ...] = (
     ("hh", "households", "households"),
@@ -132,6 +132,33 @@ def _read_manifest(cache_dir: Path) -> dict[str, object]:
         ) from exc
 
 
+def _write_skimjoin_outputs(cache_dir: Path, rd: RunData, config: Config) -> None:
+    if not rd.skimjoin_manifest:
+        return
+
+    skimjoin_dir = cache_dir / "skimjoin"
+    skimjoin_dir.mkdir(parents=True, exist_ok=True)
+
+    normalized = config.skimjoin.normalized_config
+    if normalized is not None:
+        from processor.skimjoin.reports.qa import write_normalized_config, write_table
+
+        write_normalized_config(
+            skimjoin_dir / "config_normalized.yaml",
+            normalized,
+        )
+        report_filenames = {
+            "skim_lookup_summary": "skim_lookup_summary.csv",
+            "missing_lookup_report": "missing_lookup_report.csv",
+            "skipped_rule_report": "skipped_rule_report.csv",
+            "tour_aggregation_summary": "tour_aggregation_summary.csv",
+        }
+        for report_name, filename in report_filenames.items():
+            table = rd.skimjoin_reports.get(report_name)
+            if table is not None:
+                write_table(skimjoin_dir / filename, table)
+
+
 def write_prepared_run_cache(
     rd: RunData,
     config: Config,
@@ -171,6 +198,7 @@ def write_prepared_run_cache(
             tables_to_write[stem] = table
 
     write_all(tables_to_write, cache_dir, file_format=file_format)
+    _write_skimjoin_outputs(cache_dir, rd, config)
 
     manifest = {
         "schema_version": SCHEMA_VERSION,
@@ -212,6 +240,18 @@ def write_prepared_run_cache(
         "person_weight_col": rd.person_weight_col,
         "trip_weight_col": rd.trip_weight_col,
         "run_fingerprint": run_fingerprint or {},
+        "skimjoin_enabled": bool(rd.skimjoin_manifest.get("skimjoin_enabled", False)),
+        "skimjoin_config_digest": rd.skimjoin_manifest.get("skimjoin_config_digest"),
+        "skimjoin_status": rd.skimjoin_manifest.get("skimjoin_status"),
+        "skimjoin_applied_outputs": list(
+            rd.skimjoin_manifest.get("skimjoin_applied_outputs", [])
+        ),
+        "skimjoin_skipped_rules": list(
+            rd.skimjoin_manifest.get("skimjoin_skipped_rules", [])
+        ),
+        "skimjoin_warning_count": int(
+            rd.skimjoin_manifest.get("skimjoin_warning_count", 0)
+        ),
     }
     (cache_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2), encoding="utf-8"
@@ -327,6 +367,20 @@ def load_prepared_run_cache(
             hh_weight_col=manifest.get("hh_weight_col"),
             person_weight_col=manifest.get("person_weight_col"),
             trip_weight_col=manifest.get("trip_weight_col"),
+            skimjoin_manifest={
+                "skimjoin_enabled": bool(manifest.get("skimjoin_enabled", False)),
+                "skimjoin_config_digest": manifest.get("skimjoin_config_digest"),
+                "skimjoin_status": manifest.get("skimjoin_status"),
+                "skimjoin_applied_outputs": list(
+                    manifest.get("skimjoin_applied_outputs", [])
+                ),
+                "skimjoin_skipped_rules": list(
+                    manifest.get("skimjoin_skipped_rules", [])
+                ),
+                "skimjoin_warning_count": int(
+                    manifest.get("skimjoin_warning_count", 0)
+                ),
+            },
         ),
         table_states=manifest_table_states,
         table_reasons=manifest_table_diagnostics,
