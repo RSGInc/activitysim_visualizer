@@ -288,12 +288,12 @@ def test_config_normalizes_column_alias_values_and_preserves_order(
     assert config.col_trip_mode == ["trip_mode_src"]
 
 
-def test_tour_purpose_grouping_flags_default_to_false(tmp_path: Path) -> None:
+def test_tour_purpose_grouping_flags_default_to_true(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
 
-    assert config.group_joint_tour_purposes is False
-    assert config.group_atwork_tour_purposes is False
-    assert config.group_school_tour_purposes is False
+    assert config.group_joint_tour_purposes is True
+    assert config.group_atwork_tour_purposes is True
+    assert config.group_school_tour_purposes is True
 
 
 def test_tour_purpose_grouping_flags_parse_explicit_booleans(tmp_path: Path) -> None:
@@ -309,6 +309,21 @@ def test_tour_purpose_grouping_flags_parse_explicit_booleans(tmp_path: Path) -> 
     assert config.group_joint_tour_purposes is True
     assert config.group_atwork_tour_purposes is False
     assert config.group_school_tour_purposes is True
+
+
+def test_tour_purpose_grouping_flags_allow_explicit_false_overrides(tmp_path: Path) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "group_joint_tour_purposes: false",
+            "group_atwork_tour_purposes: false",
+            "group_school_tour_purposes: false",
+        ],
+    )
+
+    assert config.group_joint_tour_purposes is False
+    assert config.group_atwork_tour_purposes is False
+    assert config.group_school_tour_purposes is False
 
 
 def test_tour_purpose_grouping_flags_reject_invalid_values(tmp_path: Path) -> None:

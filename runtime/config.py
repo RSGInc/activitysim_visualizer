@@ -955,21 +955,24 @@ class Config:
                 raw.get("group_joint_tour_purposes"),
                 field_name="group_joint_tour_purposes",
             )
-            or False
+            if raw.get("group_joint_tour_purposes") is not None
+            else True
         )
         group_atwork_tour_purposes = (
             _normalize_optional_bool(
                 raw.get("group_atwork_tour_purposes"),
                 field_name="group_atwork_tour_purposes",
             )
-            or False
+            if raw.get("group_atwork_tour_purposes") is not None
+            else True
         )
         group_school_tour_purposes = (
             _normalize_optional_bool(
                 raw.get("group_school_tour_purposes"),
                 field_name="group_school_tour_purposes",
             )
-            or False
+            if raw.get("group_school_tour_purposes") is not None
+            else True
         )
         student_types = _normalize_student_types(
             raw.get("student_types"),
