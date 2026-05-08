@@ -4,6 +4,9 @@ import polars as pl
 from runtime.config import Config
 from processor.models import RunData
 from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize.summaries.tour_purpose_helpers import (
+    purpose_column,
+)
 
 
 @summary_contract(
@@ -36,13 +39,14 @@ def tour_purpose(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"tour_purpose", "finalweight"}
     if not required.issubset(set(rd.tours.columns)):
         return empty_summary_frame(tour_purpose)
+    purpose_col = purpose_column(rd.tours)
 
     return (
-        rd.tours.filter(pl.col("tour_purpose").is_not_null())
-        .group_by("tour_purpose")
+        rd.tours.filter(pl.col(purpose_col).is_not_null())
+        .group_by(purpose_col)
         .agg(tour_count=pl.col("finalweight").sum())
         .with_columns(
-            pl.col("tour_purpose").cast(pl.Utf8),
+            pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"),
             pl.col("tour_count").cast(pl.Float64),
         )
         .select("tour_purpose", "tour_count")
@@ -234,95 +238,39 @@ def tour_mode(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"tour_mode", "tour_purpose", "finalweight", "AUTOSUFF"}
     if not required.issubset(set(rd.tours.columns)):
         return empty_summary_frame(tour_mode)
+    purpose_col = purpose_column(rd.tours)
 
-    indiv = (
+    if "tour_category" not in rd.tours.columns:
+        return empty_summary_frame(tour_mode)
+
+    base = (
         rd.tours.filter(
-            pl.col("tour_category").is_in(["mandatory", "non-mandatory", "atwork"])
+            pl.col(purpose_col).is_not_null()
+            & pl.col("tour_mode").is_not_null()
+            & pl.col("AUTOSUFF").is_not_null()
         )
-        if "tour_category" in rd.tours.columns
-        else rd.tours
+        .with_columns(
+            pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"),
+            pl.when(pl.col("tour_category").cast(pl.Utf8).str.to_lowercase() == "joint")
+            .then(pl.col("finalweight") * pl.col("NUMBER_HH").cast(pl.Float64))
+            .otherwise(pl.col("finalweight"))
+            .alias("_tour_weight"),
+        )
     )
 
-    joint = (
-        rd.tours.filter(pl.col("tour_category") == "joint").with_columns(
-            (pl.col("finalweight") * pl.col("NUMBER_HH")).alias("wgt")
-        )
-        if "tour_category" in rd.tours.columns
-        else rd.tours.head(0)
-    )
-
-    purpose_groups = []
-    if "tour_purpose" in rd.tours.columns:
-        purposes = (
-            indiv["tour_purpose"].drop_nulls().cast(pl.Utf8).unique().sort().to_list()
-        )
-        for p in purposes:
-            purpose_groups.append((p, indiv, pl.col("tour_purpose").cast(pl.Utf8) == p))
-
-        if len(joint) > 0:
-            j_purposes = (
-                joint["tour_purpose"]
-                .drop_nulls()
-                .cast(pl.Utf8)
-                .unique()
-                .sort()
-                .to_list()
-            )
-            for p in j_purposes:
-                purpose_groups.append(
-                    (f"joint_{p}", joint, pl.col("tour_purpose").cast(pl.Utf8) == p)
-                )
-    else:
+    if base.is_empty():
         return empty_summary_frame(tour_mode)
 
     all_modes = rd.tours["tour_mode"].drop_nulls().unique().to_list()
     all_modes = config.ordered_modes(all_modes)
 
-    result_rows = []
-    for purpose_name, df, purpose_filter in purpose_groups:
-        wgt_col = "wgt" if "wgt" in df.columns else "finalweight"
-
-        for as_val in range(3):
-            as_filter = pl.col("AUTOSUFF") == as_val
-
-            sub = df.filter(purpose_filter & as_filter)
-            counts = sub.group_by("tour_mode").agg(pl.col(wgt_col).sum().alias("n"))
-
-            for mode in all_modes:
-                n_row = counts.filter(pl.col("tour_mode") == mode)["n"]
-                n = float(n_row[0]) if len(n_row) > 0 else 0.0
-                result_rows.append(
-                    {
-                        "tour_mode": mode,
-                        "tour_purpose": purpose_name,
-                        "autosuff": as_val,
-                        "tour_count": n,
-                    }
-                )
-
-    if not result_rows:
-        return pl.DataFrame(
-            {
-                "tour_mode": [],
-                "tour_purpose": [],
-                "tour_count_zero_auto": [],
-                "tour_count_auto_deficient": [],
-                "tour_count_auto_sufficient": [],
-                "tour_count_all_households": [],
-            }
-        )
-
-    df_result = pl.DataFrame(
-        result_rows,
-        schema={
-            "tour_mode": pl.Utf8,
-            "tour_purpose": pl.Utf8,
-            "autosuff": pl.Int32,
-            "tour_count": pl.Float64,
-        },
+    aggregated = (
+        base.group_by(["tour_mode", "tour_purpose", "AUTOSUFF"])
+        .agg(tour_count=pl.col("_tour_weight").sum())
+        .rename({"AUTOSUFF": "autosuff"})
     )
 
-    pivot = df_result.pivot(
+    pivot = aggregated.pivot(
         on="autosuff",
         index=["tour_mode", "tour_purpose"],
         values="tour_count",
@@ -409,11 +357,13 @@ def stop_freq(rd: RunData, config: Config) -> pl.DataFrame:
     """
     if "tour_purpose" not in rd.tours.columns:
         return empty_summary_frame(stop_freq)
+    purpose_col = purpose_column(rd.tours)
 
     return (
         rd.tours.filter(pl.col("tour_category").is_not_null())
         .with_columns(
             [
+                pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"),
                 pl.col("num_ob_stops").clip(0, 3).alias("outbound_stop_count"),
                 pl.col("num_ib_stops").clip(0, 3).alias("inbound_stop_count"),
                 pl.col("num_tot_stops").clip(0, 6).alias("total_stop_count"),
@@ -501,29 +451,22 @@ def tour_tod(rd: RunData, config: Config) -> pl.DataFrame:
     """
     if "tour_category" not in rd.tours.columns:
         return empty_summary_frame(tour_tod)
-
-    indiv = rd.tours.filter(
-        pl.col("tour_category").is_in(["mandatory", "non-mandatory", "atwork"])
-    )
-
-    joint = rd.tours.filter(pl.col("tour_category") == "joint").with_columns(
-        (pl.col("finalweight") * pl.col("NUMBER_HH")).alias("wgt")
-    )
-
-    purpose_groups = []
-    if "tour_purpose" in rd.tours.columns:
-        purps = indiv["tour_purpose"].drop_nulls().unique().sort().to_list()
-        for p in purps:
-            purpose_groups.append((p, indiv, pl.col("tour_purpose") == p))
-
-        if len(joint) > 0:
-            j_purps = joint["tour_purpose"].drop_nulls().unique().sort().to_list()
-            for p in j_purps:
-                purpose_groups.append(
-                    (f"joint_{p}", joint, pl.col("tour_purpose") == p)
-                )
-    else:
+    purpose_col = purpose_column(rd.tours)
+    if "tour_purpose" not in rd.tours.columns:
         return empty_summary_frame(tour_tod)
+
+    base = (
+        rd.tours.filter(pl.col(purpose_col).is_not_null())
+        .with_columns(
+            pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"),
+            pl.when(pl.col("tour_category").cast(pl.Utf8).str.to_lowercase() == "joint")
+            .then(pl.col("finalweight") * pl.col("NUMBER_HH").cast(pl.Float64))
+            .otherwise(pl.col("finalweight"))
+            .alias("_tour_weight"),
+        )
+    )
+
+    purposes = base["tour_purpose"].drop_nulls().unique().sort().to_list()
 
     max_period = 48
     if "start_hour" in rd.tours.columns:
@@ -534,28 +477,27 @@ def tour_tod(rd: RunData, config: Config) -> pl.DataFrame:
 
     bins = list(range(1, 25 if max_period <= 24 else 49))
 
-    def _hist(df: pl.DataFrame, col: str, wgt_col: str, filt) -> pl.DataFrame:
+    def _hist(df: pl.DataFrame, col: str, filt) -> pl.DataFrame:
         if col not in df.columns:
             return pl.DataFrame({"time_bin": bins, "n": [0.0] * len(bins)})
 
         sub = (
             df.filter(filt)
-            .select([col, wgt_col])
+            .select([col, "_tour_weight"])
             .with_columns(pl.col(col).cast(pl.Int32).alias("time_bin"))
             .filter(pl.col("time_bin").is_between(1, bins[-1]))
         )
 
-        counts = sub.group_by("time_bin").agg(pl.col(wgt_col).sum().alias("n"))
+        counts = sub.group_by("time_bin").agg(pl.col("_tour_weight").sum().alias("n"))
         base = pl.DataFrame({"time_bin": bins})
         return base.join(counts, on="time_bin", how="left").fill_null(0)
 
     all_rows = []
-    for purpose_name, df, filt in purpose_groups:
-        wgt = "wgt" if "wgt" in df.columns else "finalweight"
-
-        dep = _hist(df, "start_hour", wgt, filt)
-        arr = _hist(df, "end_hour", wgt, filt)
-        dur = _hist(df, "tourdur", wgt, filt)
+    for purpose_name in purposes:
+        filt = pl.col("tour_purpose") == purpose_name
+        dep = _hist(base, "start_hour", filt)
+        arr = _hist(base, "end_hour", filt)
+        dur = _hist(base, "tourdur", filt)
 
         for i, tb in enumerate(bins):
             all_rows.append(
@@ -623,13 +565,12 @@ def tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     }
     if not required.issubset(set(rd.tours.columns)):
         return empty_summary_frame(tour_distance)
+    purpose_col = purpose_column(rd.tours)
 
     base = (
-        rd.tours.filter(
-            pl.col("tour_purpose").is_not_null() & pl.col("SKIMDIST").is_not_null()
-        )
+        rd.tours.filter(pl.col(purpose_col).is_not_null() & pl.col("SKIMDIST").is_not_null())
         .with_columns(
-            pl.col("tour_purpose").cast(pl.Utf8),
+            pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"),
             pl.when(pl.col("tour_category").cast(pl.Utf8).str.to_lowercase() == "joint")
             .then(
                 pl.col("finalweight")
@@ -835,6 +776,8 @@ def avg_non_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
         & pl.col("SKIMDIST").is_not_null()
         & pl.col("finalweight").is_not_null()
     )
+    purpose_col = purpose_column(rd.tours)
+    tours = tours.with_columns(pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"))
 
     if tours.is_empty():
         return empty_summary_frame(avg_non_mand_tour_distance)

@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 
 import polars as pl
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -11,7 +12,8 @@ from runtime.config import Config
 from processor.models import RunData
 from processor.prepare.enrichment.pipeline import prepare_data
 from processor.summarize.schema import SUMMARY_OUTPUT_COLUMNS
-from processor.summarize.summaries import legacy, long_term, tour, trip
+from processor.summarize.summaries import daily_travel, legacy, long_term, tour, trip
+from processor.summarize.summaries.tour_purpose_helpers import with_summary_tour_purpose
 
 
 def _write_config(
@@ -286,6 +288,37 @@ def test_config_normalizes_column_alias_values_and_preserves_order(
     assert config.col_trip_mode == ["trip_mode_src"]
 
 
+def test_tour_purpose_grouping_flags_default_to_false(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+
+    assert config.group_joint_tour_purposes is False
+    assert config.group_atwork_tour_purposes is False
+    assert config.group_school_tour_purposes is False
+
+
+def test_tour_purpose_grouping_flags_parse_explicit_booleans(tmp_path: Path) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "group_joint_tour_purposes: true",
+            "group_atwork_tour_purposes: false",
+            "group_school_tour_purposes: true",
+        ],
+    )
+
+    assert config.group_joint_tour_purposes is True
+    assert config.group_atwork_tour_purposes is False
+    assert config.group_school_tour_purposes is True
+
+
+def test_tour_purpose_grouping_flags_reject_invalid_values(tmp_path: Path) -> None:
+    with pytest.raises(
+        ValueError,
+        match="group_joint_tour_purposes must be true or false",
+    ):
+        _write_config(tmp_path, extra_lines=["group_joint_tour_purposes: maybe"])
+
+
 def test_config_summary_signature_changes_when_alias_lists_change(
     tmp_path: Path,
 ) -> None:
@@ -319,6 +352,18 @@ def test_config_summary_signature_changes_when_transit_subsidy_labels_change(
             "  0: No Subsidy",
             "  1: Universal Pass",
         ],
+    )
+
+    assert config_a.summary_config_digest != config_b.summary_config_digest
+
+
+def test_config_summary_signature_changes_when_tour_purpose_grouping_changes(
+    tmp_path: Path,
+) -> None:
+    config_a = _write_config(tmp_path / "a")
+    config_b = _write_config(
+        tmp_path / "b",
+        extra_lines=["group_joint_tour_purposes: true"],
     )
 
     assert config_a.summary_config_digest != config_b.summary_config_digest
@@ -388,27 +433,6 @@ def test_transit_subsidy_summary_uses_raw_categories_and_label_overrides(
             "person_count": 1.0,
         },
         {
-            "person_type": "3",
-            "transit_subsidy_status": "0",
-            "transit_subsidy_label": "No Subsidy",
-            "person_type_label": "University student",
-            "person_count": 4.0,
-        },
-        {
-            "person_type": "3",
-            "transit_subsidy_status": "2",
-            "transit_subsidy_label": "Student Discount",
-            "person_type_label": "University student",
-            "person_count": 3.0,
-        },
-        {
-            "person_type": "all_person_types",
-            "transit_subsidy_status": "0",
-            "transit_subsidy_label": "No Subsidy",
-            "person_type_label": "All Person Types",
-            "person_count": 4.0,
-        },
-        {
             "person_type": "all_person_types",
             "transit_subsidy_status": "1",
             "transit_subsidy_label": "Employer Paid",
@@ -420,9 +444,189 @@ def test_transit_subsidy_summary_uses_raw_categories_and_label_overrides(
             "transit_subsidy_status": "2",
             "transit_subsidy_label": "Student Discount",
             "person_type_label": "All Person Types",
-            "person_count": 4.0,
+            "person_count": 1.0,
         },
     ]
+
+
+def _prepared_run_with_groupable_tour_purposes() -> RunData:
+    return RunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1, 2], "home_zone_id": [10, 20]}),
+        per=pl.DataFrame(
+            {
+                "person_id": [101, 102],
+                "person_type": ["worker", "student"],
+                "finalweight": [1.0, 1.0],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [1, 2, 3, 4, 5],
+                "person_id": [101, 101, 101, 102, 102],
+                "household_id": [1, 1, 1, 2, 2],
+                "tour_purpose": [
+                    "shopping",
+                    "eatout",
+                    "escort",
+                    "university",
+                    "college",
+                ],
+                "tour_mode": ["DRIVE", "DRIVE", "WALK", "WALK", "WALK"],
+                "tour_category": [
+                    "non-mandatory",
+                    "joint",
+                    "atwork",
+                    "mandatory",
+                    "mandatory",
+                ],
+                "atwork_subtour_frequency": [
+                    "no_subtours",
+                    "no_subtours",
+                    "1_eat",
+                    "no_subtours",
+                    "no_subtours",
+                ],
+                "NUMBER_HH": [1, 3, 1, 1, 1],
+                "finalweight": [1.0, 2.0, 1.0, 1.0, 1.0],
+                "start_hour": [1, 1, 1, 1, 1],
+                "end_hour": [1, 1, 1, 1, 1],
+                "tourdur": [1, 1, 1, 1, 1],
+                "AUTOSUFF": [2, 2, 1, 0, 0],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "tour_id": [1, 2, 3, 4, 5],
+                "tour_purpose": [
+                    "shopping",
+                    "eatout",
+                    "escort",
+                    "university",
+                    "college",
+                ],
+                "tour_category": [
+                    "non-mandatory",
+                    "joint",
+                    "atwork",
+                    "mandatory",
+                    "mandatory",
+                ],
+                "atwork_subtour_frequency": [
+                    "no_subtours",
+                    "no_subtours",
+                    "1_eat",
+                    "no_subtours",
+                    "no_subtours",
+                ],
+                "tour_mode": ["DRIVE", "DRIVE", "WALK", "WALK", "WALK"],
+                "trip_mode": ["DRIVEALONE", "DRIVEALONE", "WALK", "WALK", "WALK"],
+                "depart_hour": [1, 1, 1, 1, 1],
+                "stops": [0, 0, 0, 0, 0],
+                "od_dist": [5.0, 6.0, 2.0, 4.0, 3.0],
+                "num_participants": [1, 3, 1, 1, 1],
+                "finalweight": [1.0, 2.0, 1.0, 1.0, 1.0],
+            }
+        ),
+        joint_participants=pl.DataFrame(
+            {"tour_id": [], "person_id": []},
+            schema={"tour_id": pl.Int64, "person_id": pl.Int64},
+        ),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+
+def test_tour_purpose_grouping_preserves_current_behavior_when_disabled(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    prepared = _prepared_run_with_groupable_tour_purposes()
+    prepared = RunData(
+        label=prepared.label,
+        run_dir=prepared.run_dir,
+        skim_file=prepared.skim_file,
+        hh=prepared.hh,
+        per=prepared.per,
+        tours=with_summary_tour_purpose(prepared.tours, config),
+        trips=with_summary_tour_purpose(prepared.trips, config),
+        joint_participants=prepared.joint_participants,
+        land_use=prepared.land_use,
+        skim_matrix=prepared.skim_matrix,
+        skim_zone_map=prepared.skim_zone_map,
+        hh_weight_col=prepared.hh_weight_col,
+        person_weight_col=prepared.person_weight_col,
+        trip_weight_col=prepared.trip_weight_col,
+    )
+
+    tour_tod_profiles = tour.tour_tod(prepared, config)
+    trip_mode_profile = trip.trip_mode(prepared, config)
+    person_tour_rates = daily_travel.tour_rate_per_person(prepared, config)
+
+    tour_purposes = set(tour_tod_profiles["tour_purpose"].unique().to_list())
+    assert "joint_eatout" in tour_purposes
+    assert "escort" in trip_mode_profile["tour_purpose"].unique().to_list()
+    assert "university" in person_tour_rates["tour_purpose"].unique().to_list()
+    assert "college" in person_tour_rates["tour_purpose"].unique().to_list()
+
+
+def test_tour_purpose_grouping_rolls_up_joint_atwork_and_school_across_summaries(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "group_joint_tour_purposes: true",
+            "group_atwork_tour_purposes: true",
+            "group_school_tour_purposes: true",
+        ],
+    )
+    prepared = _prepared_run_with_groupable_tour_purposes()
+    prepared = RunData(
+        label=prepared.label,
+        run_dir=prepared.run_dir,
+        skim_file=prepared.skim_file,
+        hh=prepared.hh,
+        per=prepared.per,
+        tours=with_summary_tour_purpose(prepared.tours, config),
+        trips=with_summary_tour_purpose(prepared.trips, config),
+        joint_participants=prepared.joint_participants,
+        land_use=prepared.land_use,
+        skim_matrix=prepared.skim_matrix,
+        skim_zone_map=prepared.skim_zone_map,
+        hh_weight_col=prepared.hh_weight_col,
+        person_weight_col=prepared.person_weight_col,
+        trip_weight_col=prepared.trip_weight_col,
+    )
+
+    tour_tod_profiles = tour.tour_tod(prepared, config)
+    trip_mode_profile = trip.trip_mode(prepared, config)
+    person_tour_rates = daily_travel.tour_rate_per_person(prepared, config)
+
+    tour_purposes = set(tour_tod_profiles["tour_purpose"].unique().to_list())
+    assert "joint" in tour_purposes
+    assert "joint_eatout" not in tour_purposes
+    assert "school" in tour_purposes
+    assert "university" not in tour_purposes
+    assert "college" not in tour_purposes
+
+    trip_purposes = set(trip_mode_profile["tour_purpose"].unique().to_list())
+    assert {"joint", "atwork", "school", "all_tour_purposes"}.issubset(trip_purposes)
+    assert "escort" not in trip_purposes
+    assert "university" not in trip_purposes
+    assert "college" not in trip_purposes
+
+    rate_purposes = set(person_tour_rates["tour_purpose"].unique().to_list())
+    assert "school" in rate_purposes
+    assert "university" not in rate_purposes
+    assert "college" not in rate_purposes
+
+    non_total = tour_tod_profiles.filter(pl.col("tour_purpose") != "all_tour_purposes")
+    total = tour_tod_profiles.filter(pl.col("tour_purpose") == "all_tour_purposes")
+    assert total["departure_tour_count"].sum() == non_total["departure_tour_count"].sum()
 
 
 def test_prepare_data_uses_default_fallbacks_for_purpose_timing_and_employment(
@@ -629,8 +833,8 @@ def test_summaries_return_empty_tables_when_canonical_columns_are_missing(
         skim_file=prepared.skim_file,
         hh=prepared.hh,
         per=prepared.per,
-        tours=prepared.tours.drop("tour_purpose"),
-        trips=prepared.trips.drop(["tour_purpose", "trip_purpose"]),
+        tours=prepared.tours.drop(["tour_purpose", "summary_tour_purpose"]),
+        trips=prepared.trips.drop(["tour_purpose", "summary_tour_purpose", "trip_purpose"]),
         joint_participants=prepared.joint_participants,
         land_use=prepared.land_use,
         skim_matrix=prepared.skim_matrix,

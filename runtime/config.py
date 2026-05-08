@@ -703,6 +703,9 @@ class Config:
     col_total_employment: list[str]
     person_type_labels: Optional[dict[str, str]]
     transit_subsidy_labels: Optional[dict[str, str]]
+    group_joint_tour_purposes: bool
+    group_atwork_tour_purposes: bool
+    group_school_tour_purposes: bool
     student_types: list[StudentTypeConfig]
 
     use_maz: bool
@@ -947,6 +950,27 @@ class Config:
             raw.get("transit_subsidies"),
             field_name="transit_subsidies",
         )
+        group_joint_tour_purposes = (
+            _normalize_optional_bool(
+                raw.get("group_joint_tour_purposes"),
+                field_name="group_joint_tour_purposes",
+            )
+            or False
+        )
+        group_atwork_tour_purposes = (
+            _normalize_optional_bool(
+                raw.get("group_atwork_tour_purposes"),
+                field_name="group_atwork_tour_purposes",
+            )
+            or False
+        )
+        group_school_tour_purposes = (
+            _normalize_optional_bool(
+                raw.get("group_school_tour_purposes"),
+                field_name="group_school_tour_purposes",
+            )
+            or False
+        )
         student_types = _normalize_student_types(
             raw.get("student_types"),
             field_name="student_types",
@@ -1052,6 +1076,9 @@ class Config:
             ),
             person_type_labels=person_type_labels,
             transit_subsidy_labels=transit_subsidy_labels,
+            group_joint_tour_purposes=group_joint_tour_purposes,
+            group_atwork_tour_purposes=group_atwork_tour_purposes,
+            group_school_tour_purposes=group_school_tour_purposes,
             student_types=student_types,
             use_maz=bool(zones.get("use_maz", True)),
             maz_col=zones.get("maz_col", "zone_id"),
@@ -1112,6 +1139,11 @@ class Config:
                 "tour_duration": list(self.col_tour_duration),
                 "trip_depart": list(self.col_trip_depart),
                 "total_employment": list(self.col_total_employment),
+            },
+            "tour_purpose_grouping": {
+                "group_joint_tour_purposes": self.group_joint_tour_purposes,
+                "group_atwork_tour_purposes": self.group_atwork_tour_purposes,
+                "group_school_tour_purposes": self.group_school_tour_purposes,
             },
             "student_types": [
                 {
@@ -1193,6 +1225,11 @@ class Config:
                 if self.transit_subsidy_labels
                 else None
             ),
+            "tour_purpose_grouping": {
+                "group_joint_tour_purposes": self.group_joint_tour_purposes,
+                "group_atwork_tour_purposes": self.group_atwork_tour_purposes,
+                "group_school_tour_purposes": self.group_school_tour_purposes,
+            },
             "student_types": [
                 {
                     "label": entry.label,

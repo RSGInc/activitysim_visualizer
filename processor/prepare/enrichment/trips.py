@@ -9,6 +9,7 @@ import polars as pl
 from processor.prepare.enrichment.columns import _has_columns
 from processor.prepare.enrichment.types import _PrepareState, _ZoneContext
 from processor.prepare.enrichment.zones import _skim_lookup, _to_taz
+from processor.summarize.summaries.tour_purpose_helpers import with_summary_tour_purpose
 from runtime.config import Config
 
 LOGGER = get_logger("processor.prepare")
@@ -26,6 +27,7 @@ def _enrich_trips(
             "tour_purpose",
             "tour_mode",
             "tour_category",
+            "atwork_subtour_frequency",
         ]
         if column in state.tours.columns
     ]
@@ -169,5 +171,7 @@ def _enrich_trips(
             )
         else:
             state.trips = state.trips.with_columns(pl.lit(0.0).alias("out_dir_dist"))
+
+    state.trips = with_summary_tour_purpose(state.trips, config)
 
     return state
