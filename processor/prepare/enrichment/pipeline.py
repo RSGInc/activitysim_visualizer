@@ -22,6 +22,7 @@ from processor.prepare.enrichment.student_enrollment import (
 from processor.prepare.enrichment.tours import _enrich_tours
 from processor.prepare.enrichment.trips import _enrich_trips
 from processor.prepare.enrichment.types import _PrepareState
+from processor.prepare.enrichment.vot_bins import _normalize_vot_bins
 from processor.prepare.enrichment.weights import _apply_weights
 from processor.prepare.enrichment.zones import _build_zone_context
 from runtime.config import Config
@@ -62,6 +63,7 @@ def prepare_data(rd: RunData, config: Config) -> RunData:
     state = _derive_student_enrollment(state, config)
     state = _enrich_tours(state, config, zone_context)
     state = _enrich_trips(state, config, zone_context)
+    state = _normalize_vot_bins(state, config)
     state = _cast_prepared_tables(state)
 
     LOGGER.info("[prepare_data] Complete: %s", state.label)

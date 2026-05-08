@@ -249,6 +249,27 @@ def _raw_run_with_student_enrollment_inputs() -> ProcessorRunData:
     )
 
 
+def _raw_run_with_income_segment(
+    *,
+    label: str,
+    income_segment: int,
+) -> ProcessorRunData:
+    run = _raw_run()
+    return ProcessorRunData(
+        label=label,
+        run_dir=run.run_dir,
+        skim_file=run.skim_file,
+        hh=run.hh.with_columns(pl.lit(income_segment).alias("income_segment")),
+        per=run.per,
+        tours=run.tours,
+        trips=run.trips,
+        joint_participants=run.joint_participants,
+        land_use=run.land_use,
+        skim_matrix=run.skim_matrix,
+        skim_zone_map=run.skim_zone_map,
+    )
+
+
 def test_processor_prepare_feature_modules_expose_canonical_prepare_helpers() -> None:
     assert callable(processor_prepare_data)
     assert callable(processor_read_run)
@@ -280,6 +301,50 @@ def test_processor_prepare_data_carries_atwork_subtour_frequency_to_trips(
     prepared = processor_prepare_data(_raw_run_with_atwork_subtour_frequency(), config)
 
     assert prepared.trips["atwork_subtour_frequency"].to_list() == ["1_eat"]
+
+
+def test_processor_prepare_data_can_normalize_vot_bins_by_run_label(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  vot_bins:",
+            "    output_column: vot_bin",
+            "    source_column: income_segment",
+            "    mappings:",
+            "      estimation-output:",
+            "        1: L",
+            "        2: M",
+            "        3: M",
+            "        4: H",
+            "      filtered:",
+            "        1: L",
+            "        2: L",
+            "        3: M",
+            "        4: M",
+            "        5: H",
+            "        6: H",
+        ],
+    )
+
+    estimation_run = _raw_run_with_income_segment(
+        label="Estimation Output",
+        income_segment=2,
+    )
+    filtered_run = _raw_run_with_income_segment(
+        label="Filtered",
+        income_segment=2,
+    )
+
+    estimation_prepared = processor_prepare_data(estimation_run, config)
+    filtered_prepared = processor_prepare_data(filtered_run, config)
+
+    assert estimation_prepared.trips["vot_bin"].to_list() == ["M"]
+    assert estimation_prepared.tours["vot_bin"].to_list() == ["M"]
+    assert filtered_prepared.trips["vot_bin"].to_list() == ["L"]
+    assert filtered_prepared.tours["vot_bin"].to_list() == ["L"]
 
 
 def test_processor_read_run_returns_partial_data_when_optional_tables_are_missing(

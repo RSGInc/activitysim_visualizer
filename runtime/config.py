@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 import hashlib
 import json
 from pathlib import Path
+import re
 from typing import Any, Optional
 
 from activitysim_viz_logging import get_logger
@@ -150,6 +151,80 @@ class SkimjoinSettings:
     config_path: str | None = None
     config_digest: str | None = None
     normalized_config: Any | None = None
+
+
+@dataclass(frozen=True)
+class PrepareVotBinsSettings:
+    """Optional run-aware VOT normalization applied during prepare."""
+
+    enabled: bool = False
+    source_column: str = "income_segment"
+    output_column: str = "vot_bin"
+    fallback_value: str | None = None
+    mappings: dict[str, dict[str, str]] = field(default_factory=dict)
+
+    def mapping_for_run(self, run_label: str) -> dict[str, str] | None:
+        return self.mappings.get(_normalize_run_selector_key(run_label))
+
+
+def _normalize_run_selector_key(value: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "-", str(value).strip().lower()).strip("-")
+    return normalized or str(value).strip().lower()
+
+
+def _normalize_prepare_vot_bins(
+    raw_value,
+    *,
+    field_name: str,
+) -> PrepareVotBinsSettings:
+    """Normalize optional run-aware VOT bin mappings."""
+    if raw_value in (None, {}):
+        return PrepareVotBinsSettings()
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{field_name} must be a mapping when provided.")
+
+    output_column = str(raw_value.get("output_column", "vot_bin")).strip()
+    source_column = str(raw_value.get("source_column", "income_segment")).strip()
+    if not output_column:
+        raise ValueError(f"{field_name}.output_column must be a non-empty string.")
+    if not source_column:
+        raise ValueError(f"{field_name}.source_column must be a non-empty string.")
+
+    fallback_raw = raw_value.get("fallback_value")
+    fallback_value = None if fallback_raw is None else str(fallback_raw)
+
+    mappings_raw = raw_value.get("mappings", {})
+    if mappings_raw in (None, {}):
+        return PrepareVotBinsSettings(
+            enabled=False,
+            source_column=source_column,
+            output_column=output_column,
+            fallback_value=fallback_value,
+        )
+    if not isinstance(mappings_raw, dict):
+        raise ValueError(f"{field_name}.mappings must be a mapping.")
+
+    mappings: dict[str, dict[str, str]] = {}
+    for run_name, raw_mapping in mappings_raw.items():
+        if not isinstance(raw_mapping, dict):
+            raise ValueError(f"{field_name}.mappings.{run_name} must be a mapping.")
+        normalized_run_name = _normalize_run_selector_key(str(run_name))
+        if normalized_run_name in mappings:
+            raise ValueError(
+                f"{field_name}.mappings contains duplicate run key {run_name!r} after normalization."
+            )
+        mappings[normalized_run_name] = {
+            str(source_value): str(mapped_value)
+            for source_value, mapped_value in raw_mapping.items()
+        }
+
+    return PrepareVotBinsSettings(
+        enabled=bool(mappings),
+        source_column=source_column,
+        output_column=output_column,
+        fallback_value=fallback_value,
+        mappings=mappings,
+    )
 
 
 def _normalize_export_html_selection(
@@ -769,6 +844,7 @@ class Config:
     weighting_modes: list[str]
     export_html: ExportHTMLSettings
     skimjoin: SkimjoinSettings
+    prepare_vot_bins: PrepareVotBinsSettings
 
     files: dict[str, str]
 
@@ -857,6 +933,11 @@ class Config:
         geo = raw.get("geography", {})
         if not isinstance(geo, dict):
             raise ValueError("geography must be a mapping when provided.")
+        prepare_cfg = raw.get("prepare", {})
+        if prepare_cfg is None:
+            prepare_cfg = {}
+        if not isinstance(prepare_cfg, dict):
+            raise ValueError("prepare must be a mapping when provided.")
         geo_enabled = bool(geo.get("enabled", False))
         geo_mapping = None
         if geo_enabled and "mapping" in geo:
@@ -868,6 +949,10 @@ class Config:
         skimjoin = _normalize_skimjoin_settings(
             raw.get("skimjoin"),
             config_dir=config_path.parent,
+        )
+        prepare_vot_bins = _normalize_prepare_vot_bins(
+            prepare_cfg.get("vot_bins"),
+            field_name="prepare.vot_bins",
         )
         modes_cfg = raw.get("modes", {})
         if not isinstance(modes_cfg, dict):
@@ -1090,6 +1175,7 @@ class Config:
             weighting_modes=weighting_modes,
             export_html=export_html,
             skimjoin=skimjoin,
+            prepare_vot_bins=prepare_vot_bins,
             files=files,
             col_ptype=cols.get("ptype", "ptype"),
             col_hhsize=cols.get("hhsize", "hhsize"),
@@ -1279,6 +1365,23 @@ class Config:
                 "enabled": self.skimjoin.enabled,
                 "config_digest": self.skimjoin.config_digest,
             },
+            "prepare": {
+                "vot_bins": {
+                    "enabled": self.prepare_vot_bins.enabled,
+                    "source_column": self.prepare_vot_bins.source_column,
+                    "output_column": self.prepare_vot_bins.output_column,
+                    "fallback_value": self.prepare_vot_bins.fallback_value,
+                    "mappings": {
+                        run_name: {
+                            key: value
+                            for key, value in sorted(run_mapping.items())
+                        }
+                        for run_name, run_mapping in sorted(
+                            self.prepare_vot_bins.mappings.items()
+                        )
+                    },
+                }
+            },
         }
 
     def summary_signature_payload(self) -> dict[str, Any]:
@@ -1379,6 +1482,23 @@ class Config:
             "skimjoin": {
                 "enabled": self.skimjoin.enabled,
                 "config_digest": self.skimjoin.config_digest,
+            },
+            "prepare": {
+                "vot_bins": {
+                    "enabled": self.prepare_vot_bins.enabled,
+                    "source_column": self.prepare_vot_bins.source_column,
+                    "output_column": self.prepare_vot_bins.output_column,
+                    "fallback_value": self.prepare_vot_bins.fallback_value,
+                    "mappings": {
+                        run_name: {
+                            key: value
+                            for key, value in sorted(run_mapping.items())
+                        }
+                        for run_name, run_mapping in sorted(
+                            self.prepare_vot_bins.mappings.items()
+                        )
+                    },
+                }
             },
         }
 

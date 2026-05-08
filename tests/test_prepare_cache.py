@@ -31,6 +31,7 @@ def _write_config(
     *,
     visualizer_lines: list[str] | None = None,
     column_lines: list[str] | None = None,
+    extra_lines: list[str] | None = None,
 ) -> Config:
     tmp_path.mkdir(parents=True, exist_ok=True)
     config_path = tmp_path / "config.yaml"
@@ -50,6 +51,8 @@ def _write_config(
     if column_lines:
         lines.append("columns:")
         lines.extend(f"  {line}" for line in column_lines)
+    if extra_lines:
+        lines.extend(extra_lines)
     config_path.write_text("\n".join(lines), encoding="utf-8")
     return Config.from_yaml(config_path)
 
@@ -229,6 +232,39 @@ def test_prepared_cache_invalidates_when_prepare_affecting_config_changes(
             expected_label="Base",
             expected_run_key="base",
         )
+
+
+def test_prepared_cache_invalidates_when_vot_bin_mapping_changes(
+    tmp_path: Path,
+) -> None:
+    config_a = _write_config(
+        tmp_path / "a",
+        extra_lines=[
+            "prepare:",
+            "  vot_bins:",
+            "    mappings:",
+            "      estimation-output:",
+            "        1: L",
+            "        2: M",
+            "        3: M",
+            "        4: H",
+        ],
+    )
+    config_b = _write_config(
+        tmp_path / "b",
+        extra_lines=[
+            "prepare:",
+            "  vot_bins:",
+            "    mappings:",
+            "      estimation-output:",
+            "        1: L",
+            "        2: L",
+            "        3: M",
+            "        4: H",
+        ],
+    )
+
+    assert config_a.prepare_config_digest != config_b.prepare_config_digest
 
 
 def test_prepared_cache_invalidates_when_student_type_config_changes(
