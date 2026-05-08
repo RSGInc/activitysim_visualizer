@@ -8,6 +8,7 @@ import polars as pl
 from processor.prepare.enrichment.columns import _resolve_source_column
 from processor.prepare.enrichment.types import _PrepareState, _ZoneContext
 from processor.prepare.enrichment.zones import _skim_lookup, _to_taz
+from processor.summarize.summaries.tour_purpose_helpers import with_summary_tour_purpose
 from runtime.config import Config
 
 LOGGER = get_logger("processor.prepare")
@@ -142,5 +143,7 @@ def _enrich_tours(
         state.tours = state.tours.with_columns(
             (pl.col("end_hour") - pl.col("start_hour")).alias("tourdur")
         )
+
+    state.tours = with_summary_tour_purpose(state.tours, config)
 
     return state

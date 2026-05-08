@@ -4,6 +4,9 @@ import polars as pl
 from runtime.config import Config
 from processor.models import RunData
 from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize.summaries.tour_purpose_helpers import (
+    purpose_column,
+)
 
 
 @summary_contract(
@@ -49,16 +52,16 @@ def stop_purpose_by_tour_purpose(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"stops", "tour_purpose", "trip_purpose", "finalweight"}
     if not required.issubset(rd.trips.columns):
         return empty_summary_frame(stop_purpose_by_tour_purpose)
+    purpose_col = purpose_column(rd.trips)
 
     return (
         rd.trips.filter(pl.col("stops") == 1)
-        .filter(
-            pl.col("tour_purpose").is_not_null() & pl.col("trip_purpose").is_not_null()
-        )
-        .group_by(["tour_purpose", "trip_purpose"])
+        .filter(pl.col(purpose_col).is_not_null() & pl.col("trip_purpose").is_not_null())
+        .group_by([purpose_col, "trip_purpose"])
         .agg(stop_count=pl.col("finalweight").sum())
         .rename(
             {
+                purpose_col: "tour_purpose",
                 "trip_purpose": "stop_destination_purpose",
             }
         )
@@ -86,15 +89,17 @@ def trip_mode(rd: RunData, config: Config) -> pl.DataFrame:
 
     if "tour_purpose" not in rd.trips.columns:
         return empty_summary_frame(trip_mode)
+    purpose_col = purpose_column(rd.trips)
 
     base = (
         rd.trips.filter(
-            pl.col("tour_purpose").is_not_null()
+            pl.col(purpose_col).is_not_null()
             & pl.col("tour_mode").is_not_null()
             & pl.col("trip_mode").is_not_null()
         )
-        .group_by(["tour_purpose", "tour_mode", "trip_mode"])
+        .group_by([purpose_col, "tour_mode", "trip_mode"])
         .agg(trip_count=pl.col("finalweight").sum())
+        .rename({purpose_col: "tour_purpose"})
         .select(
             pl.col("tour_purpose").cast(pl.Utf8),
             pl.col("tour_mode").cast(pl.Utf8),
@@ -159,9 +164,11 @@ def trip_stop_tod(rd: RunData, config: Config) -> pl.DataFrame:
 
     if "stops" not in rd.trips.columns:
         return empty_summary_frame(trip_stop_tod)
+    purpose_col = purpose_column(rd.trips)
 
     stops = rd.trips.filter(pl.col("stops") == 1)
-    all_trips = rd.trips
+    all_trips = rd.trips.with_columns(pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"))
+    stops = stops.with_columns(pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"))
 
     max_period = 48
     try:
@@ -174,7 +181,7 @@ def trip_stop_tod(rd: RunData, config: Config) -> pl.DataFrame:
     if "tour_purpose" not in rd.trips.columns:
         return empty_summary_frame(trip_stop_tod)
 
-    purpose_list = rd.trips["tour_purpose"].drop_nulls().unique().sort().to_list()
+    purpose_list = all_trips["tour_purpose"].drop_nulls().unique().sort().to_list()
     purposes = {p: pl.col("tour_purpose") == p for p in purpose_list}
     purposes["all_tour_purposes"] = pl.lit(True)
 
@@ -242,13 +249,12 @@ def trip_distance(rd: RunData, config: Config) -> pl.DataFrame:
     }
     if not required.issubset(set(rd.trips.columns)):
         return empty_summary_frame(trip_distance)
+    purpose_col = purpose_column(rd.trips)
 
     base = (
-        rd.trips.filter(
-            pl.col("tour_purpose").is_not_null() & pl.col("od_dist").is_not_null()
-        )
+        rd.trips.filter(pl.col(purpose_col).is_not_null() & pl.col("od_dist").is_not_null())
         .with_columns(
-            pl.col("tour_purpose").cast(pl.Utf8),
+            pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"),
             (
                 pl.col("finalweight")
                 * pl.coalesce(
@@ -315,12 +321,14 @@ def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
         return empty_summary_frame(stop_ood_distance)
 
     stops = rd.trips.filter(pl.col("stops") == 1)
+    purpose_col = purpose_column(rd.trips)
 
     if "out_dir_dist" not in stops.columns:
         return empty_summary_frame(stop_ood_distance)
 
     stops2 = stops.with_columns(
-        pl.col("out_dir_dist").fill_null(0).clip(0, 999).alias("ood")
+        pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"),
+        pl.col("out_dir_dist").fill_null(0).clip(0, 999).alias("ood"),
     ).with_columns(pl.col("ood").cast(pl.Int32).clip(0, 40).alias("distance_bin"))
 
     bins_df = pl.DataFrame(

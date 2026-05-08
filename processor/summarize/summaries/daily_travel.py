@@ -5,6 +5,9 @@ import polars as pl
 from runtime.config import Config
 from processor.models import RunData
 from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize.summaries.tour_purpose_helpers import (
+    purpose_column,
+)
 
 
 @summary_contract(
@@ -284,57 +287,80 @@ def escorted_tours_to_from_school(rd: RunData, config: Config) -> pl.DataFrame:
     },
     required_columns={
         "per": ("person_id", "person_type", "finalweight"),
-        "tours": ("person_id", "tour_purpose", "finalweight"),
+        "tours": ("person_id", "tour_purpose"),
     },
 )
 def tour_rate_per_person(rd: RunData, config: Config) -> pl.DataFrame:
     person_required = {"person_id", "person_type", "finalweight"}
-    tour_required = {"person_id", "tour_purpose", "finalweight"}
+    tour_required = {"person_id", "tour_purpose"}
 
     if not person_required.issubset(set(rd.per.columns)) or not tour_required.issubset(
         set(rd.tours.columns)
     ):
         return empty_summary_frame(tour_rate_per_person)
 
-    person_totals = (
-        rd.per.filter(pl.col("person_type").is_not_null())
+    purpose_col = purpose_column(rd.tours)
+
+    # Denominator:
+    # Weighted person-days by person type.
+    #
+    # This assumes each row in rd.per represents one observed person-day.
+    weighted_person_days = (
+        rd.per.filter(
+            pl.col("person_id").is_not_null()
+            & pl.col("person_type").is_not_null()
+            & pl.col("finalweight").is_not_null()
+        )
+        .select(
+            "person_id",
+            pl.col("person_type").cast(pl.Utf8),
+            pl.col("finalweight").cast(pl.Float64).alias("person_weight"),
+        )
         .group_by("person_type")
-        .agg(person_count=pl.col("finalweight").sum())
-        .with_columns(pl.col("person_type").cast(pl.Utf8))
+        .agg(weighted_person_days=pl.col("person_weight").sum())
     )
 
-    tour_totals = (
+    # Numerator:
+    # Weighted tours by person type and tour purpose.
+    #
+    # Each tour contributes the person's weight once.
+    # This preserves the intended person-day expansion logic.
+    weighted_tours = (
         rd.tours.filter(
-            pl.col("person_id").is_not_null() & pl.col("tour_purpose").is_not_null()
+            pl.col("person_id").is_not_null() & pl.col(purpose_col).is_not_null()
         )
         .join(
-            rd.per.select("person_id", "person_type"),
+            rd.per.filter(
+                pl.col("person_id").is_not_null()
+                & pl.col("person_type").is_not_null()
+                & pl.col("finalweight").is_not_null()
+            ).select(
+                "person_id",
+                pl.col("person_type").cast(pl.Utf8),
+                pl.col("finalweight").cast(pl.Float64).alias("person_weight"),
+            ),
             on="person_id",
             how="inner",
         )
-        .filter(pl.col("person_type").is_not_null())
-        .group_by(["person_type", "tour_purpose"])
-        .agg(tour_count=pl.col("finalweight").sum())
-        .with_columns(
-            pl.col("person_type").cast(pl.Utf8),
-            pl.col("tour_purpose").cast(pl.Utf8),
-        )
+        .group_by(["person_type", purpose_col])
+        .agg(weighted_tours=pl.col("person_weight").sum())
+        .rename({purpose_col: "tour_purpose"})
+        .with_columns(pl.col("tour_purpose").cast(pl.Utf8))
     )
 
     return (
-        tour_totals.join(person_totals, on="person_type", how="left")
+        weighted_tours.join(weighted_person_days, on="person_type", how="left")
         .with_columns(
-            pl.when(pl.col("person_count") > 0)
-            .then(pl.col("tour_count") / pl.col("person_count"))
+            pl.when(pl.col("weighted_person_days") > 0)
+            .then(pl.col("weighted_tours") / pl.col("weighted_person_days"))
             .otherwise(None)
             .alias("tour_rate")
         )
-        .with_columns(
+        .select(
             pl.col("person_type").cast(pl.Utf8),
             pl.col("tour_purpose").cast(pl.Utf8),
             pl.col("tour_rate").cast(pl.Float64),
         )
-        .select("person_type", "tour_purpose", "tour_rate")
         .sort(["person_type", "tour_purpose"])
     )
 

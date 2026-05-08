@@ -118,6 +118,72 @@ def _raw_run() -> ProcessorRunData:
     )
 
 
+def _raw_run_with_atwork_subtour_frequency() -> ProcessorRunData:
+    return ProcessorRunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame(
+            {
+                "household_id": [1],
+                "home_zone_id": [10],
+                "auto_ownership": [1],
+                "hhsize": [2],
+                "num_workers": [1],
+                "num_adults": [1],
+            }
+        ),
+        per=pl.DataFrame(
+            {
+                "person_id": [101],
+                "household_id": [1],
+                "ptype": [1],
+                "home_zone_id": [10],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [1001],
+                "person_id": [101],
+                "household_id": [1],
+                "primary_purpose": ["eatout"],
+                "tour_type": ["eatout"],
+                "tour_mode": ["WALK"],
+                "tour_category": ["atwork"],
+                "atwork_subtour_frequency": ["1_eat"],
+                "start": [8],
+                "end": [9],
+                "duration": [1],
+                "origin": [10],
+                "destination": [20],
+                "stop_frequency": ["0out_0in"],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "trip_id": [5001],
+                "tour_id": [1001],
+                "person_id": [101],
+                "household_id": [1],
+                "trip_mode": ["WALK"],
+                "purpose": ["work"],
+                "depart": [8],
+                "outbound": [True],
+                "trip_num": [1],
+                "origin": [10],
+                "destination": [20],
+            }
+        ),
+        joint_participants=pl.DataFrame(
+            {"tour_id": [], "person_id": []},
+            schema={"tour_id": pl.Int64, "person_id": pl.Int64},
+        ),
+        land_use=pl.DataFrame({"zone_id": [10, 20], "TAZ": [10, 20], "EMPLOY_TOT": [7, 8]}),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+
 def _raw_run_with_student_enrollment_inputs() -> ProcessorRunData:
     return ProcessorRunData(
         label="Base",
@@ -204,6 +270,16 @@ def test_processor_prepare_data_exposes_the_same_prepared_contract(
     assert prepared.land_use["MAZ"].to_list() == [10, 20]
     assert prepared.land_use["EMPLOYMENT"].to_list() == [7, 8]
     assert prepared.land_use["employment_count"].to_list() == [7.0, 8.0]
+
+
+def test_processor_prepare_data_carries_atwork_subtour_frequency_to_trips(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+
+    prepared = processor_prepare_data(_raw_run_with_atwork_subtour_frequency(), config)
+
+    assert prepared.trips["atwork_subtour_frequency"].to_list() == ["1_eat"]
 
 
 def test_processor_read_run_returns_partial_data_when_optional_tables_are_missing(

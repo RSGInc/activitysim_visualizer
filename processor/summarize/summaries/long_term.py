@@ -1380,6 +1380,7 @@ def transit_pass(rd: RunData, config: Config) -> pl.DataFrame:
     schema={
         "person_type": pl.Utf8,
         "transit_subsidy_status": pl.Utf8,
+        "transit_subsidy_label": pl.Utf8,
         "person_type_label": pl.Utf8,
         "person_count": pl.Float64,
     },
@@ -1398,7 +1399,7 @@ def transit_subsidy(rd: RunData, config: Config) -> pl.DataFrame:
         "person_type",
         "transit_pass_subsidy",
         "is_worker",
-        "is_student",
+        # "is_student",
         "finalweight",
     }
     if not required.issubset(set(rd.per.columns)):
@@ -1408,25 +1409,20 @@ def transit_subsidy(rd: RunData, config: Config) -> pl.DataFrame:
         pl.col("person_type").is_not_null()
         & pl.col("transit_pass_subsidy").is_not_null()
         & (
-            (
-                pl.col("is_worker")
-                .cast(pl.Utf8)
-                .str.to_lowercase()
-                .is_in(["true", "1", "yes", "worker"])
-            )
-            | (
-                pl.col("is_student")
-                .cast(pl.Utf8)
-                .str.to_lowercase()
-                .is_in(["true", "1", "yes", "student"])
-            )
+            pl.col("is_worker")
+            .cast(pl.Utf8)
+            .str.to_lowercase()
+            .is_in(["true", "1", "yes", "worker"])
         )
+        # | (
+        #     pl.col("is_student")
+        #     .cast(pl.Utf8)
+        #     .str.to_lowercase()
+        #     .is_in(["true", "1", "yes", "student"])
+        # )
     ).with_columns(
         pl.col("person_type").cast(pl.Utf8),
-        pl.when(pl.col("transit_pass_subsidy") == 1)
-        .then(pl.lit("has_transit_subsidy"))
-        .otherwise(pl.lit("no_transit_subsidy"))
-        .alias("transit_subsidy_status"),
+        pl.col("transit_pass_subsidy").cast(pl.Utf8).alias("transit_subsidy_status"),
     )
 
     by_person_type = base.group_by(["person_type", "transit_subsidy_status"]).agg(
@@ -1444,6 +1440,12 @@ def transit_subsidy(rd: RunData, config: Config) -> pl.DataFrame:
         .with_columns(
             pl.col("person_type").cast(pl.Utf8),
             pl.col("transit_subsidy_status").cast(pl.Utf8),
+            pl.col("transit_subsidy_status")
+            .map_elements(
+                config.transit_subsidy_label,
+                return_dtype=pl.Utf8,
+            )
+            .alias("transit_subsidy_label"),
             pl.col("person_type")
             .map_elements(
                 lambda x: (
@@ -1459,6 +1461,7 @@ def transit_subsidy(rd: RunData, config: Config) -> pl.DataFrame:
         .select(
             "person_type",
             "transit_subsidy_status",
+            "transit_subsidy_label",
             "person_type_label",
             "person_count",
         )

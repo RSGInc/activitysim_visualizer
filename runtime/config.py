@@ -557,6 +557,21 @@ def _normalize_column_aliases(
     return normalized
 
 
+def _normalize_label_mapping(
+    raw_value,
+    *,
+    field_name: str,
+) -> dict[str, str] | None:
+    """Normalize a simple value->label mapping used for display overrides."""
+    if raw_value is None:
+        return None
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{field_name} must be a mapping when provided.")
+
+    normalized = {str(key): str(value) for key, value in raw_value.items()}
+    return normalized or None
+
+
 _DEFAULT_RUN_COLORS = [
     "#1f77b4",
     "#ff7f0e",
@@ -779,6 +794,10 @@ class Config:
     col_total_employment: list[str]
     col_income_segment: list[str]
     person_type_labels: Optional[dict[str, str]]
+    transit_subsidy_labels: Optional[dict[str, str]]
+    group_joint_tour_purposes: bool
+    group_atwork_tour_purposes: bool
+    group_school_tour_purposes: bool
     student_types: list[StudentTypeConfig]
 
     use_maz: bool
@@ -1019,9 +1038,38 @@ class Config:
                 "visualizer.missing_data_display must be either 'card' or 'blank'."
             )
 
-        person_type_labels = {
-            str(k): str(v) for k, v in raw.get("person_types", {}).items()
-        } or None
+        person_type_labels = _normalize_label_mapping(
+            raw.get("person_types"),
+            field_name="person_types",
+        )
+        transit_subsidy_labels = _normalize_label_mapping(
+            raw.get("transit_subsidies"),
+            field_name="transit_subsidies",
+        )
+        group_joint_tour_purposes = (
+            _normalize_optional_bool(
+                raw.get("group_joint_tour_purposes"),
+                field_name="group_joint_tour_purposes",
+            )
+            if raw.get("group_joint_tour_purposes") is not None
+            else True
+        )
+        group_atwork_tour_purposes = (
+            _normalize_optional_bool(
+                raw.get("group_atwork_tour_purposes"),
+                field_name="group_atwork_tour_purposes",
+            )
+            if raw.get("group_atwork_tour_purposes") is not None
+            else True
+        )
+        group_school_tour_purposes = (
+            _normalize_optional_bool(
+                raw.get("group_school_tour_purposes"),
+                field_name="group_school_tour_purposes",
+            )
+            if raw.get("group_school_tour_purposes") is not None
+            else True
+        )
         student_types = _normalize_student_types(
             raw.get("student_types"),
             field_name="student_types",
@@ -1132,6 +1180,10 @@ class Config:
                 default=["income_segment", "income_broad", "income"],
             ),
             person_type_labels=person_type_labels,
+            transit_subsidy_labels=transit_subsidy_labels,
+            group_joint_tour_purposes=group_joint_tour_purposes,
+            group_atwork_tour_purposes=group_atwork_tour_purposes,
+            group_school_tour_purposes=group_school_tour_purposes,
             student_types=student_types,
             use_maz=bool(zones.get("use_maz", True)),
             maz_col=zones.get("maz_col", "zone_id"),
@@ -1193,6 +1245,11 @@ class Config:
                 "trip_depart": list(self.col_trip_depart),
                 "total_employment": list(self.col_total_employment),
                 "income_segment": list(self.col_income_segment),
+            },
+            "tour_purpose_grouping": {
+                "group_joint_tour_purposes": self.group_joint_tour_purposes,
+                "group_atwork_tour_purposes": self.group_atwork_tour_purposes,
+                "group_school_tour_purposes": self.group_school_tour_purposes,
             },
             "student_types": [
                 {
@@ -1271,6 +1328,19 @@ class Config:
                 if self.person_type_labels
                 else None
             ),
+            "transit_subsidy_labels": (
+                {
+                    key: self.transit_subsidy_labels[key]
+                    for key in sorted(self.transit_subsidy_labels)
+                }
+                if self.transit_subsidy_labels
+                else None
+            ),
+            "tour_purpose_grouping": {
+                "group_joint_tour_purposes": self.group_joint_tour_purposes,
+                "group_atwork_tour_purposes": self.group_atwork_tour_purposes,
+                "group_school_tour_purposes": self.group_school_tour_purposes,
+            },
             "student_types": [
                 {
                     "label": entry.label,
@@ -1386,7 +1456,16 @@ class Config:
 
     def person_type_label(self, value) -> str:
         """Return the display label for a person type value."""
+        return self._lookup_label(value, self.person_type_labels)
+
+    def transit_subsidy_label(self, value) -> str:
+        """Return the display label for a transit subsidy value."""
+        return self._lookup_label(value, self.transit_subsidy_labels)
+
+    @staticmethod
+    def _lookup_label(value, labels: dict[str, str] | None) -> str:
+        """Return a configured display label, falling back to the raw value."""
         value_str = str(value)
-        if self.person_type_labels and value_str in self.person_type_labels:
-            return self.person_type_labels[value_str]
+        if labels and value_str in labels:
+            return labels[value_str]
         return value_str
