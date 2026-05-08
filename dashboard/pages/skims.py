@@ -13,7 +13,10 @@ from processor.models import RunData
 
 TRIP_STATS_SUMMARY_ID = "skimjoin_trip_component_stats"
 TOUR_STATS_SUMMARY_ID = "skimjoin_tour_component_stats"
-_DEFAULT_BIN_COUNT = 1000
+TRIP_ECDF_SUMMARY_ID = "skimjoin_trip_component_ecdf"
+TOUR_ECDF_SUMMARY_ID = "skimjoin_tour_component_ecdf"
+_DEFAULT_BIN_COUNT = 500
+_DISTRIBUTION_CLIP_PERCENTILE = 0.95
 
 
 def _nonempty(
@@ -226,6 +229,65 @@ def _distribution_bins(
     return distributions
 
 
+def _distribution_x_range(
+    distribution_data: list[tuple[str, pl.DataFrame]] | None,
+    ecdf_data: list[tuple[str, pl.DataFrame]] | None,
+    *,
+    component: str,
+    mode_column: str,
+    mode_value: str,
+    clip_percentile: float = _DISTRIBUTION_CLIP_PERCENTILE,
+) -> tuple[float, float] | None:
+    x_values: list[float] = []
+    clip_values: list[float] = []
+
+    for _, df in _nonempty(distribution_data):
+        if "bin_mid" not in df.columns:
+            continue
+        x_values.extend(
+            float(value)
+            for value in df.get_column("bin_mid").to_list()
+            if value is not None and np.isfinite(value)
+        )
+
+    for _, df in _nonempty(ecdf_data):
+        required_columns = {mode_column, "component", "percentile", "value"}
+        if not required_columns.issubset(df.columns):
+            continue
+        filtered = df.with_columns(
+            pl.col(mode_column).cast(pl.Utf8),
+            pl.col("component").cast(pl.Utf8),
+            pl.col("percentile").cast(pl.Float64),
+            pl.col("value").cast(pl.Float64),
+        ).filter(
+            (pl.col(mode_column) == mode_value)
+            & (pl.col("component") == component)
+            & (pl.col("percentile") == clip_percentile)
+        )
+        if filtered.is_empty():
+            continue
+        clip_value = filtered.get_column("value")[0]
+        if clip_value is not None and np.isfinite(clip_value):
+            clip_values.append(float(clip_value))
+
+    if not x_values or not clip_values:
+        return None
+
+    x_min = min(x_values)
+    x_max = max(x_values)
+    clip_max = max(clip_values)
+    if clip_max <= x_min or clip_max >= x_max:
+        return None
+    return (x_min, clip_max)
+
+
+def _distribution_title(base_title: str, x_range: tuple[float, float] | None) -> str:
+    if x_range is None:
+        return base_title
+    percentile = int(_DISTRIBUTION_CLIP_PERCENTILE * 100)
+    return f"{base_title} (view clipped at {percentile}th percentile)"
+
+
 class SkimSummariesPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
         trip_stats = self.state.get_summary_table_set(TRIP_STATS_SUMMARY_ID, "weighted")
@@ -304,6 +366,12 @@ class SkimSummariesPage(DashboardPage):
 
     def _tour_prepared_runs(self):
         return self.get_prepared_runs(weighted=(self.weighting_key == "weighted"))
+
+    def _trip_ecdf_summaries(self):
+        return self.optional_summary(TRIP_ECDF_SUMMARY_ID)
+
+    def _tour_ecdf_summaries(self):
+        return self.optional_summary(TOUR_ECDF_SUMMARY_ID)
 
     def sync_controls(self) -> None:
         trip_stats = self._trip_summaries()
@@ -389,6 +457,13 @@ class SkimSummariesPage(DashboardPage):
                 component=component,
             ),
         )
+        trip_distribution_x_range = _distribution_x_range(
+            trip_distribution_data,
+            self._trip_ecdf_summaries(),
+            component=component,
+            mode_column="trip_mode",
+            mode_value=trip_mode,
+        )
 
         if not any(not df.is_empty() for _, df in trip_stats_data):
             return [
@@ -407,12 +482,16 @@ class SkimSummariesPage(DashboardPage):
                 trip_distribution_data,
                 x_col="bin_mid",
                 y_col="freq",
-                title=f"Trip Distribution - {component} / {trip_mode}",
+                title=_distribution_title(
+                    f"Trip Distribution - {component} / {trip_mode}",
+                    trip_distribution_x_range,
+                ),
                 xaxis_title="Skim Value",
                 yaxis_title="Trips",
                 normalize=self.as_percent,
                 height=320,
                 as_percent=False,
+                xaxis_range=trip_distribution_x_range,
             )
             if any(not df.is_empty() for _, df in trip_distribution_data)
             else self.data_not_available_card(
@@ -494,6 +573,13 @@ class SkimSummariesPage(DashboardPage):
                 component=component,
             ),
         )
+        tour_distribution_x_range = _distribution_x_range(
+            tour_distribution_data,
+            self._tour_ecdf_summaries(),
+            component=component,
+            mode_column="tour_mode",
+            mode_value=tour_mode,
+        )
 
         if not any(not df.is_empty() for _, df in tour_stats_data):
             return [
@@ -512,12 +598,16 @@ class SkimSummariesPage(DashboardPage):
                 tour_distribution_data,
                 x_col="bin_mid",
                 y_col="freq",
-                title=f"Tour Distribution - {component} / {tour_mode}",
+                title=_distribution_title(
+                    f"Tour Distribution - {component} / {tour_mode}",
+                    tour_distribution_x_range,
+                ),
                 xaxis_title="Skim Value",
                 yaxis_title="Tours",
                 normalize=self.as_percent,
                 height=320,
                 as_percent=False,
+                xaxis_range=tour_distribution_x_range,
             )
             if any(not df.is_empty() for _, df in tour_distribution_data)
             else self.data_not_available_card(

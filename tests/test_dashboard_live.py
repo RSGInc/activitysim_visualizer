@@ -752,12 +752,12 @@ def test_skims_page_renders_disaggregated_distribution_plots_when_prepared_runs_
                     {
                         "trip_mode": ["SOV"],
                         "component": ["skim_auto_time"],
-                        "n_total": [3.0],
-                        "n_valid": [3.0],
-                        "mean": [12.0],
-                        "std": [2.0],
+                        "n_total": [100.0],
+                        "n_valid": [100.0],
+                        "mean": [13.88],
+                        "std": [18.71],
                         "min": [10.0],
-                        "max": [14.0],
+                        "max": [200.0],
                         "median": [12.0],
                         "mode": [10.0],
                         "zero_share": [0.0],
@@ -766,23 +766,23 @@ def test_skims_page_renders_disaggregated_distribution_plots_when_prepared_runs_
                 ),
                 "skimjoin_trip_component_ecdf": pl.DataFrame(
                     {
-                        "trip_mode": ["SOV", "SOV"],
-                        "component": ["skim_auto_time", "skim_auto_time"],
-                        "percentile": [0.0, 1.0],
-                        "value": [10.0, 14.0],
-                        "n_valid": [3.0, 3.0],
+                        "trip_mode": ["SOV", "SOV", "SOV"],
+                        "component": ["skim_auto_time", "skim_auto_time", "skim_auto_time"],
+                        "percentile": [0.0, 0.99, 1.0],
+                        "value": [10.0, 14.0, 200.0],
+                        "n_valid": [100.0, 100.0, 100.0],
                     }
                 ),
                 "skimjoin_tour_component_stats": pl.DataFrame(
                     {
                         "tour_mode": ["SOV"],
                         "component": ["skim_auto_time"],
-                        "n_total": [2.0],
-                        "n_valid": [2.0],
-                        "mean": [12.0],
-                        "std": [2.0],
+                        "n_total": [100.0],
+                        "n_valid": [100.0],
+                        "mean": [13.88],
+                        "std": [18.71],
                         "min": [10.0],
-                        "max": [14.0],
+                        "max": [200.0],
                         "median": [12.0],
                         "mode": [10.0],
                         "zero_share": [0.0],
@@ -791,11 +791,11 @@ def test_skims_page_renders_disaggregated_distribution_plots_when_prepared_runs_
                 ),
                 "skimjoin_tour_component_ecdf": pl.DataFrame(
                     {
-                        "tour_mode": ["SOV", "SOV"],
-                        "component": ["skim_auto_time", "skim_auto_time"],
-                        "percentile": [0.0, 1.0],
-                        "value": [10.0, 14.0],
-                        "n_valid": [2.0, 2.0],
+                        "tour_mode": ["SOV", "SOV", "SOV"],
+                        "component": ["skim_auto_time", "skim_auto_time", "skim_auto_time"],
+                        "percentile": [0.0, 0.99, 1.0],
+                        "value": [10.0, 14.0, 200.0],
+                        "n_valid": [100.0, 100.0, 100.0],
                     }
                 ),
             },
@@ -818,16 +818,16 @@ def test_skims_page_renders_disaggregated_distribution_plots_when_prepared_runs_
         per=pl.DataFrame(),
         tours=pl.DataFrame(
             {
-                "tour_mode": ["SOV", "SOV"],
-                "skim_auto_time": [10.0, 14.0],
-                "finalweight": [1.0, 1.0],
+                "tour_mode": ["SOV", "SOV", "SOV", "SOV"],
+                "skim_auto_time": [10.0, 12.0, 14.0, 200.0],
+                "finalweight": [33.0, 33.0, 33.0, 1.0],
             }
         ),
         trips=pl.DataFrame(
             {
-                "trip_mode": ["SOV", "SOV", "SOV"],
-                "skim_auto_time": [10.0, 12.0, 14.0],
-                "finalweight": [1.0, 1.0, 1.0],
+                "trip_mode": ["SOV", "SOV", "SOV", "SOV"],
+                "skim_auto_time": [10.0, 12.0, 14.0, 200.0],
+                "finalweight": [33.0, 33.0, 33.0, 1.0],
             }
         ),
         joint_participants=pl.DataFrame(),
@@ -848,3 +848,11 @@ def test_skims_page_renders_disaggregated_distribution_plots_when_prepared_runs_
 
     assert isinstance(page._trip_section.objects[-1], pn.pane.Plotly)
     assert isinstance(page._tour_section.objects[-1], pn.pane.Plotly)
+    assert tuple(page._trip_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
+        (10.095, 14.0)
+    )
+    assert tuple(page._tour_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
+        (10.095, 14.0)
+    )
+    assert "view clipped at 99th percentile" in page._trip_section.objects[-1].object.layout.title.text
+    assert "view clipped at 99th percentile" in page._tour_section.objects[-1].object.layout.title.text

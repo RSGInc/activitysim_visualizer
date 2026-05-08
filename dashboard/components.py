@@ -234,6 +234,7 @@ def density_chart(
     normalize: bool = False,
     height: int = 350,
     as_percent: bool | None = None,
+    xaxis_range: tuple[float, float] | None = None,
 ) -> pn.pane.Plotly:
     """
     Create an overlaid density/histogram line chart.
@@ -271,6 +272,8 @@ def density_chart(
         f"Percent of {yaxis_title} (%)" if (percent_mode or normalize) else yaxis_title,
         height,
     )
+    if xaxis_range is not None:
+        fig.update_xaxes(range=[float(xaxis_range[0]), float(xaxis_range[1])])
     return pn.pane.Plotly(fig, sizing_mode="stretch_width")
 
 
