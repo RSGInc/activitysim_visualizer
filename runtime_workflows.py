@@ -520,6 +520,7 @@ def run_summary_workflow(
     run_entries: list[dict],
     prefer_cache: bool,
     write_cache: bool,
+    prepared_prefer_cache: bool = True,
     existing_result: ProcessorWorkflowResult | None = None,
 ) -> ProcessorWorkflowResult:
     """Build or reuse summaries for the configured runs.
@@ -578,7 +579,7 @@ def run_summary_workflow(
             config=config,
             prepared_root=prepared_root,
             run_entries=[entry],
-            prefer_cache=True,
+            prefer_cache=prepared_prefer_cache,
             write_cache=True,
             existing_result=prepare_result,
         )

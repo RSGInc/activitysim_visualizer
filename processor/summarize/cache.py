@@ -109,14 +109,8 @@ def strip_weights(rd: RunData) -> RunData:
 
 
 def requested_summary_ids(config: Config) -> list[str]:
-    """Return baseline summary ids plus any optional skimjoin summaries."""
-    summary_ids = list(DEFAULT_SUMMARY_IDS)
-    if not config.skimjoin.enabled:
-        return summary_ids
-    for summary_id in config.skimjoin.summary_ids:
-        if summary_id not in summary_ids:
-            summary_ids.append(summary_id)
-    return summary_ids
+    """Return the registered default summary ids."""
+    return list(DEFAULT_SUMMARY_IDS)
 
 
 def build_summaries(

@@ -152,6 +152,7 @@ def _write_skimjoin_outputs(cache_dir: Path, rd: RunData, config: Config) -> Non
             "missing_lookup_report": "missing_lookup_report.csv",
             "skipped_rule_report": "skipped_rule_report.csv",
             "tour_aggregation_summary": "tour_aggregation_summary.csv",
+            "failure_report": "failure_report.csv",
         }
         for report_name, filename in report_filenames.items():
             table = rd.skimjoin_reports.get(report_name)
@@ -251,6 +252,9 @@ def write_prepared_run_cache(
         ),
         "skimjoin_warning_count": int(
             rd.skimjoin_manifest.get("skimjoin_warning_count", 0)
+        ),
+        "skimjoin_failure_detail": rd.skimjoin_manifest.get(
+            "skimjoin_failure_detail"
         ),
     }
     (cache_dir / "manifest.json").write_text(
@@ -380,6 +384,7 @@ def load_prepared_run_cache(
                 "skimjoin_warning_count": int(
                     manifest.get("skimjoin_warning_count", 0)
                 ),
+                "skimjoin_failure_detail": manifest.get("skimjoin_failure_detail"),
             },
         ),
         table_states=manifest_table_states,

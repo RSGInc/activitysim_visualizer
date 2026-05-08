@@ -148,7 +148,6 @@ class SkimjoinSettings:
 
     enabled: bool = False
     config_path: str | None = None
-    summary_ids: list[str] = field(default_factory=list)
     config_digest: str | None = None
     normalized_config: Any | None = None
 
@@ -279,10 +278,6 @@ def _normalize_skimjoin_settings(
     enabled = raw_value.get("enabled", False)
     if not isinstance(enabled, bool):
         raise ValueError("skimjoin.enabled must be true or false when provided.")
-    summary_ids = _normalize_string_list(
-        raw_value.get("summary_ids"),
-        field_name="skimjoin.summary_ids",
-    )
     config_path_raw = raw_value.get("config_path")
     resolved_config_path: str | None = None
     if config_path_raw is not None:
@@ -297,7 +292,6 @@ def _normalize_skimjoin_settings(
         return SkimjoinSettings(
             enabled=False,
             config_path=resolved_config_path,
-            summary_ids=summary_ids,
         )
 
     if resolved_config_path is None:
@@ -330,7 +324,6 @@ def _normalize_skimjoin_settings(
     return SkimjoinSettings(
         enabled=True,
         config_path=resolved_config_path,
-        summary_ids=summary_ids,
         config_digest=_digest_payload(normalized_config.model_dump(mode="python")),
         normalized_config=normalized_config,
     )
@@ -1316,7 +1309,6 @@ class Config:
             "skimjoin": {
                 "enabled": self.skimjoin.enabled,
                 "config_digest": self.skimjoin.config_digest,
-                "summary_ids": list(self.skimjoin.summary_ids),
             },
         }
 

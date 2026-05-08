@@ -24,6 +24,7 @@ from dashboard.app import build_dashboard
 from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
+from dashboard.pages.skims import SkimSummariesPage
 import dashboard.pages as dashboard_pages_package
 from dashboard.page_registry import (
     all_page_definitions,
@@ -487,3 +488,363 @@ def test_dashboard_page_cache_helpers_reuse_summary_and_filtered_view_results(
     assert page.summary_value[0][1]["value"][0] == "summary"
     assert page.filtered_view_value == {"kind": "filtered_view"}
     assert state.cache_stats["filtered_view"] == {"hits": 2, "misses": 1}
+
+
+def test_skims_page_renders_component_selector_and_independent_sections(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _full_summary_run()
+    skim_summary_run = type(summary_run)(
+        label=summary_run.label,
+        run_key=summary_run.run_key,
+        summaries_by_mode={
+            "weighted": {
+                **summary_run.summaries_by_mode["weighted"],
+                "skimjoin_trip_component_stats": pl.DataFrame(
+                    {
+                        "trip_mode": ["DRIVE", "WALK"],
+                        "component": ["skim_time", "skim_time"],
+                        "n_total": [6.0, 2.0],
+                        "n_valid": [3.0, 2.0],
+                        "mean": [6.67, 5.0],
+                        "std": [4.71, 0.0],
+                        "min": [0.0, 5.0],
+                        "max": [10.0, 5.0],
+                        "median": [10.0, 5.0],
+                        "mode": [10.0, 5.0],
+                        "zero_share": [0.33, 0.0],
+                        "missing_share": [0.5, 0.0],
+                    }
+                ),
+                "skimjoin_trip_component_ecdf": pl.DataFrame(
+                    {
+                        "trip_mode": ["DRIVE", "DRIVE", "WALK", "WALK"],
+                        "component": ["skim_time", "skim_time", "skim_time", "skim_time"],
+                        "percentile": [0.0, 1.0, 0.0, 1.0],
+                        "value": [0.0, 10.0, 5.0, 5.0],
+                        "n_valid": [3.0, 3.0, 2.0, 2.0],
+                    }
+                ),
+                "skimjoin_tour_component_stats": pl.DataFrame(
+                    {
+                        "tour_mode": ["DRIVE", "WALK"],
+                        "component": ["skim_time", "skim_time"],
+                        "n_total": [6.0, 2.0],
+                        "n_valid": [3.0, 2.0],
+                        "mean": [6.67, 5.0],
+                        "std": [4.71, 0.0],
+                        "min": [0.0, 5.0],
+                        "max": [10.0, 5.0],
+                        "median": [10.0, 5.0],
+                        "mode": [10.0, 5.0],
+                        "zero_share": [0.33, 0.0],
+                        "missing_share": [0.5, 0.0],
+                    }
+                ),
+                "skimjoin_tour_component_ecdf": pl.DataFrame(
+                    {
+                        "tour_mode": ["DRIVE", "DRIVE", "WALK", "WALK"],
+                        "component": ["skim_time", "skim_time", "skim_time", "skim_time"],
+                        "percentile": [0.0, 1.0, 0.0, 1.0],
+                        "value": [0.0, 10.0, 5.0, 5.0],
+                        "n_valid": [3.0, 3.0, 2.0, 2.0],
+                    }
+                ),
+            },
+            "unweighted": {
+                **summary_run.summaries_by_mode["unweighted"],
+                "skimjoin_trip_component_stats": pl.DataFrame(
+                    {
+                        "trip_mode": ["DRIVE"],
+                        "component": ["skim_time"],
+                        "n_total": [3.0],
+                        "n_valid": [2.0],
+                        "mean": [5.0],
+                        "std": [5.0],
+                        "min": [0.0],
+                        "max": [10.0],
+                        "median": [0.0],
+                        "mode": [0.0],
+                        "zero_share": [0.5],
+                        "missing_share": [1.0 / 3.0],
+                    }
+                ),
+                "skimjoin_trip_component_ecdf": pl.DataFrame(
+                    {
+                        "trip_mode": ["DRIVE", "DRIVE"],
+                        "component": ["skim_time", "skim_time"],
+                        "percentile": [0.0, 1.0],
+                        "value": [0.0, 10.0],
+                        "n_valid": [2.0, 2.0],
+                    }
+                ),
+                "skimjoin_tour_component_stats": pl.DataFrame(
+                    {
+                        "tour_mode": ["DRIVE"],
+                        "component": ["skim_time"],
+                        "n_total": [3.0],
+                        "n_valid": [2.0],
+                        "mean": [5.0],
+                        "std": [5.0],
+                        "min": [0.0],
+                        "max": [10.0],
+                        "median": [0.0],
+                        "mode": [0.0],
+                        "zero_share": [0.5],
+                        "missing_share": [1.0 / 3.0],
+                    }
+                ),
+                "skimjoin_tour_component_ecdf": pl.DataFrame(
+                    {
+                        "tour_mode": ["DRIVE", "DRIVE"],
+                        "component": ["skim_time", "skim_time"],
+                        "percentile": [0.0, 1.0],
+                        "value": [0.0, 10.0],
+                        "n_valid": [2.0, 2.0],
+                    }
+                ),
+            },
+        },
+        source_run_dir=summary_run.source_run_dir,
+        manifest=summary_run.manifest,
+    )
+    state = DashboardState(
+        summary_runs=[skim_summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = SkimSummariesPage(state, config)
+    page.refresh(force=True)
+
+    assert page.component_sel.options == ["skim_time"]
+    assert list(page.trip_mode_sel.options) == ["DRIVE", "WALK"]
+    assert list(page.tour_mode_sel.options) == ["DRIVE", "WALK"]
+    assert len(page._trip_section.objects) == 4
+    assert len(page._tour_section.objects) == 4
+
+    page.trip_mode_sel.value = "WALK"
+    assert len(page._trip_section.objects) == 4
+    assert len(page._tour_section.objects) == 4
+
+
+def test_skims_page_mode_selectors_exclude_component_modes_with_no_valid_observations(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _full_summary_run()
+    skim_summary_run = type(summary_run)(
+        label=summary_run.label,
+        run_key=summary_run.run_key,
+        summaries_by_mode={
+            "weighted": {
+                **summary_run.summaries_by_mode["weighted"],
+                "skimjoin_trip_component_stats": pl.DataFrame(
+                    {
+                        "trip_mode": ["SOV", "WALK", "HOV2"],
+                        "component": [
+                            "skim_auto_time",
+                            "skim_auto_time",
+                            "skim_walk_distance",
+                        ],
+                        "n_total": [10.0, 5.0, 3.0],
+                        "n_valid": [10.0, 0.0, 3.0],
+                        "mean": [12.0, None, 1.5],
+                        "std": [2.0, None, 0.2],
+                        "min": [8.0, None, 1.2],
+                        "max": [16.0, None, 1.8],
+                        "median": [12.0, None, 1.5],
+                        "mode": [12.0, None, 1.2],
+                        "zero_share": [0.0, None, 0.0],
+                        "missing_share": [0.0, 1.0, 0.0],
+                    }
+                ),
+                "skimjoin_trip_component_ecdf": pl.DataFrame(
+                    {
+                        "trip_mode": ["SOV", "SOV", "HOV2", "HOV2"],
+                        "component": [
+                            "skim_auto_time",
+                            "skim_auto_time",
+                            "skim_walk_distance",
+                            "skim_walk_distance",
+                        ],
+                        "percentile": [0.0, 1.0, 0.0, 1.0],
+                        "value": [8.0, 16.0, 1.2, 1.8],
+                        "n_valid": [10.0, 10.0, 3.0, 3.0],
+                    }
+                ),
+                "skimjoin_tour_component_stats": pl.DataFrame(
+                    {
+                        "tour_mode": ["SOV", "WALK", "HOV2"],
+                        "component": [
+                            "skim_auto_time",
+                            "skim_auto_time",
+                            "skim_walk_distance",
+                        ],
+                        "n_total": [10.0, 5.0, 3.0],
+                        "n_valid": [10.0, 0.0, 3.0],
+                        "mean": [12.0, None, 1.5],
+                        "std": [2.0, None, 0.2],
+                        "min": [8.0, None, 1.2],
+                        "max": [16.0, None, 1.8],
+                        "median": [12.0, None, 1.5],
+                        "mode": [12.0, None, 1.2],
+                        "zero_share": [0.0, None, 0.0],
+                        "missing_share": [0.0, 1.0, 0.0],
+                    }
+                ),
+                "skimjoin_tour_component_ecdf": pl.DataFrame(
+                    {
+                        "tour_mode": ["SOV", "SOV", "HOV2", "HOV2"],
+                        "component": [
+                            "skim_auto_time",
+                            "skim_auto_time",
+                            "skim_walk_distance",
+                            "skim_walk_distance",
+                        ],
+                        "percentile": [0.0, 1.0, 0.0, 1.0],
+                        "value": [8.0, 16.0, 1.2, 1.8],
+                        "n_valid": [10.0, 10.0, 3.0, 3.0],
+                    }
+                ),
+            },
+            "unweighted": {
+                **summary_run.summaries_by_mode["unweighted"],
+                "skimjoin_trip_component_stats": pl.DataFrame(),
+                "skimjoin_trip_component_ecdf": pl.DataFrame(),
+                "skimjoin_tour_component_stats": pl.DataFrame(),
+                "skimjoin_tour_component_ecdf": pl.DataFrame(),
+            },
+        },
+        source_run_dir=summary_run.source_run_dir,
+        manifest=summary_run.manifest,
+    )
+    state = DashboardState(
+        summary_runs=[skim_summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = SkimSummariesPage(state, config)
+    page.refresh(force=True)
+
+    assert page.component_sel.options == ["skim_auto_time", "skim_walk_distance"]
+    assert list(page.trip_mode_sel.options) == ["SOV"]
+    assert list(page.tour_mode_sel.options) == ["SOV"]
+
+    page.component_sel.value = "skim_walk_distance"
+
+    assert list(page.trip_mode_sel.options) == ["HOV2"]
+    assert list(page.tour_mode_sel.options) == ["HOV2"]
+
+
+def test_skims_page_renders_disaggregated_distribution_plots_when_prepared_runs_are_loaded(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _full_summary_run()
+    skim_summary_run = type(summary_run)(
+        label=summary_run.label,
+        run_key=summary_run.run_key,
+        summaries_by_mode={
+            "weighted": {
+                **summary_run.summaries_by_mode["weighted"],
+                "skimjoin_trip_component_stats": pl.DataFrame(
+                    {
+                        "trip_mode": ["SOV"],
+                        "component": ["skim_auto_time"],
+                        "n_total": [3.0],
+                        "n_valid": [3.0],
+                        "mean": [12.0],
+                        "std": [2.0],
+                        "min": [10.0],
+                        "max": [14.0],
+                        "median": [12.0],
+                        "mode": [10.0],
+                        "zero_share": [0.0],
+                        "missing_share": [0.0],
+                    }
+                ),
+                "skimjoin_trip_component_ecdf": pl.DataFrame(
+                    {
+                        "trip_mode": ["SOV", "SOV"],
+                        "component": ["skim_auto_time", "skim_auto_time"],
+                        "percentile": [0.0, 1.0],
+                        "value": [10.0, 14.0],
+                        "n_valid": [3.0, 3.0],
+                    }
+                ),
+                "skimjoin_tour_component_stats": pl.DataFrame(
+                    {
+                        "tour_mode": ["SOV"],
+                        "component": ["skim_auto_time"],
+                        "n_total": [2.0],
+                        "n_valid": [2.0],
+                        "mean": [12.0],
+                        "std": [2.0],
+                        "min": [10.0],
+                        "max": [14.0],
+                        "median": [12.0],
+                        "mode": [10.0],
+                        "zero_share": [0.0],
+                        "missing_share": [0.0],
+                    }
+                ),
+                "skimjoin_tour_component_ecdf": pl.DataFrame(
+                    {
+                        "tour_mode": ["SOV", "SOV"],
+                        "component": ["skim_auto_time", "skim_auto_time"],
+                        "percentile": [0.0, 1.0],
+                        "value": [10.0, 14.0],
+                        "n_valid": [2.0, 2.0],
+                    }
+                ),
+            },
+            "unweighted": {
+                **summary_run.summaries_by_mode["unweighted"],
+                "skimjoin_trip_component_stats": pl.DataFrame(),
+                "skimjoin_trip_component_ecdf": pl.DataFrame(),
+                "skimjoin_tour_component_stats": pl.DataFrame(),
+                "skimjoin_tour_component_ecdf": pl.DataFrame(),
+            },
+        },
+        source_run_dir=summary_run.source_run_dir,
+        manifest=summary_run.manifest,
+    )
+    prepared_run = RunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame(),
+        per=pl.DataFrame(),
+        tours=pl.DataFrame(
+            {
+                "tour_mode": ["SOV", "SOV"],
+                "skim_auto_time": [10.0, 14.0],
+                "finalweight": [1.0, 1.0],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "trip_mode": ["SOV", "SOV", "SOV"],
+                "skim_auto_time": [10.0, 12.0, 14.0],
+                "finalweight": [1.0, 1.0, 1.0],
+            }
+        ),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+    state = DashboardState(
+        summary_runs=[skim_summary_run],
+        weighting_modes=config.weighting_modes,
+        prepared_run_provider=DashboardPreparedRunProvider.loaded(
+            [("Base", prepared_run)]
+        ),
+    )
+
+    page = SkimSummariesPage(state, config)
+    page.refresh(force=True)
+
+    assert isinstance(page._trip_section.objects[-1], pn.pane.Plotly)
+    assert isinstance(page._tour_section.objects[-1], pn.pane.Plotly)

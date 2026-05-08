@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from fnmatch import fnmatch
 from typing import Any, Literal
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -49,7 +51,27 @@ class ZoneMappingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     lookup_name: str | None = None
+    file_lookup_names: dict[str, str] = Field(default_factory=dict)
     missing_zone_policy: MissingPolicy = "error"
+
+    @field_validator("file_lookup_names", mode="before")
+    @classmethod
+    def _normalize_file_lookup_names(cls, value: Any) -> dict[str, str]:
+        if value in (None, {}):
+            return {}
+        if not isinstance(value, dict):
+            raise TypeError("zone_mapping.file_lookup_names must be a mapping.")
+        return {str(pattern): str(name) for pattern, name in value.items()}
+
+    def resolve_lookup_name(self, file_path: str | None) -> str | None:
+        if not file_path:
+            return self.lookup_name
+        path_text = str(file_path)
+        file_name = Path(path_text).name
+        for pattern, lookup_name in self.file_lookup_names.items():
+            if fnmatch(path_text, pattern) or fnmatch(file_name, pattern):
+                return lookup_name
+        return self.lookup_name
 
 
 class TourAggregationConfig(BaseModel):

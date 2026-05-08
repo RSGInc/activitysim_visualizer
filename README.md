@@ -210,6 +210,9 @@ Common commands:
 | `python run.py --config local_config.yaml --from-csvs --export-html output.html` | Build a standalone HTML export from existing summary caches |
 | `python run.py --config local_config.yaml --summarize --write-csvs` | Rebuild summaries and write fresh cache files |
 | `python run.py --config local_config.yaml --summarize --skip-summary-cache-write` | Build summaries for this run without writing cache updates |
+| `python run.py --config local_config.yaml --summarize --refresh-summary-cache` | Delete and rebuild summary caches for the selected runs |
+| `python run.py --config local_config.yaml --summarize --refresh-prepared-cache` | Rebuild summaries from freshly prepared tables instead of prepared-cache hits |
+| `python run.py --config local_config.yaml --prepare --summarize --refresh-caches` | Delete and rebuild both prepared and summary caches for the selected runs |
 
 Behavior details:
 
@@ -217,6 +220,9 @@ Behavior details:
 - `--from-csvs path\to\cache1 path\to\cache2` lets you point directly at specific summary cache directories.
 - `--dashboard` by itself is not valid unless you also use `--from-csvs`.
 - During summarize, the app will reuse prepared cache when possible and rebuild from raw outputs only when needed.
+- `--refresh-prepared-cache` deletes the selected runs' prepared-cache directories first, then disables prepared-cache reuse for that invocation.
+- `--refresh-summary-cache` deletes the selected runs' summary-cache directories first, then disables summary-cache reuse for that invocation.
+- `--refresh-caches` is shorthand for both refresh flags together.
 
 ## Cache Layout
 

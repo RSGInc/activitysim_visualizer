@@ -14,7 +14,10 @@ import runtime_workflows
 from dashboard import app as dashboard_app
 from dashboard.export.html import ExportBuildError
 from processor.models import RunData
-from processor.prepare.cache import build_prepared_manifest_identity
+from processor.prepare.cache import (
+    build_prepared_manifest_identity,
+    write_prepared_run_cache,
+)
 from runtime.config import Config
 from processor.summarize import cache as summary_cache
 from processor.summarize.cache import (
@@ -157,6 +160,34 @@ def test_main_rejects_from_csvs_with_write_csvs(monkeypatch, capsys) -> None:
 
     captured = capsys.readouterr()
     assert captured.err == "Error: --from-csvs cannot be combined with --write-csvs.\n"
+
+
+def test_main_rejects_refresh_summary_cache_without_summarize(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    _write_cli_config(tmp_path, runs=[])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "activitysim-viz",
+            "--config",
+            str(tmp_path / "config.yaml"),
+            "--prepare-only",
+            "--refresh-summary-cache",
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="1"):
+        run.main()
+
+    captured = capsys.readouterr()
+    assert (
+        captured.err
+        == "Error: --refresh-summary-cache and --refresh-caches require the summarize step.\n"
+    )
 
 
 def test_main_rejects_dashboard_step_without_summarize_or_from_csvs(
@@ -463,6 +494,163 @@ def test_main_explicit_prepare_and_summarize_runs_processor_without_dashboard(
     assert (Path(config.summary_root) / "run-a" / "manifest.json").exists()
 
 
+def test_main_refresh_summary_cache_rebuilds_and_rewrites_run_cache(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_cli_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+    )
+    summary_cache_dir = write_summary_run_cache(
+        _simple_summary_run("Run A", "run-a"),
+        config,
+        run_fingerprint=build_run_fingerprint(
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+            skim_file=None,
+            hh_weight_col=None,
+            person_weight_col=None,
+            trip_weight_col=None,
+        ),
+        prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="run-a",
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+        ),
+    )
+    stale_marker = summary_cache_dir / "stale.txt"
+    stale_marker.write_text("old", encoding="utf-8")
+    read_calls: list[str] = []
+    prepare_calls: list[str] = []
+    summary_build_calls: list[str] = []
+
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(
+        runtime_workflows,
+        "read_run",
+        lambda run_dir, config, label=None, **kwargs: (
+            read_calls.append(label or Path(run_dir).name),
+            _fake_run_data(label or Path(run_dir).name, str(run_dir)),
+        )[1],
+    )
+    monkeypatch.setattr(
+        runtime_workflows,
+        "prepare_data",
+        lambda rd, config: (
+            prepare_calls.append(rd.label),
+            rd,
+        )[1],
+    )
+    monkeypatch.setattr(
+        summary_cache,
+        "build_mode_summaries_with_metadata",
+        lambda rd, config, **kwargs: (
+            summary_build_calls.append(rd.label),
+            _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
+        )[1],
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "activitysim-viz",
+            "--config",
+            str(tmp_path / "config.yaml"),
+            "--summarize",
+            "--write-csvs",
+            "--refresh-summary-cache",
+        ],
+    )
+
+    run.main()
+
+    assert read_calls == ["Run A"]
+    assert prepare_calls == ["Run A"]
+    assert summary_build_calls == ["Run A"]
+    assert not stale_marker.exists()
+    assert (summary_cache_dir / "manifest.json").exists()
+
+
+def test_main_refresh_prepared_cache_rebuilds_prepared_tables_before_summarize(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_cli_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+    )
+    prepared_dir = Path(config.summary_root).parent / "prepared_cache"
+    write_prepared_run_cache(
+        _fake_run_data("Run A", str(run_dir)),
+        config,
+        run_key="run-a",
+        output_root=prepared_dir,
+        run_fingerprint=build_run_fingerprint(
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+            skim_file=None,
+            hh_weight_col=None,
+            person_weight_col=None,
+            trip_weight_col=None,
+        ),
+    )
+    stale_marker = prepared_dir / "run-a" / "stale.txt"
+    stale_marker.write_text("old", encoding="utf-8")
+    read_calls: list[str] = []
+    prepare_calls: list[str] = []
+    summary_build_calls: list[str] = []
+
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(
+        runtime_workflows,
+        "read_run",
+        lambda run_dir, config, label=None, **kwargs: (
+            read_calls.append(label or Path(run_dir).name),
+            _fake_run_data(label or Path(run_dir).name, str(run_dir)),
+        )[1],
+    )
+    monkeypatch.setattr(
+        runtime_workflows,
+        "prepare_data",
+        lambda rd, config: (
+            prepare_calls.append(rd.label),
+            rd,
+        )[1],
+    )
+    monkeypatch.setattr(
+        summary_cache,
+        "build_mode_summaries_with_metadata",
+        lambda rd, config, **kwargs: (
+            summary_build_calls.append(rd.label),
+            _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
+        )[1],
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "activitysim-viz",
+            "--config",
+            str(tmp_path / "config.yaml"),
+            "--summarize",
+            "--refresh-prepared-cache",
+            "--skip-summary-cache-write",
+        ],
+    )
+
+    run.main()
+
+    assert read_calls == ["Run A"]
+    assert prepare_calls == ["Run A"]
+    assert summary_build_calls == ["Run A"]
+    assert not stale_marker.exists()
+    assert (prepared_dir / "run-a" / "manifest.json").exists()
+
+
 def test_main_uses_cache_hit_for_one_run_and_raw_fallback_for_another(
     tmp_path: Path,
     monkeypatch,
@@ -551,6 +739,105 @@ def test_main_uses_cache_hit_for_one_run_and_raw_fallback_for_another(
             "summary_run_labels": ["Run A", "Run B"],
         }
     ]
+
+
+def test_main_refresh_caches_rebuilds_prepared_and_summary_caches(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_cli_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+    )
+    prepared_dir = Path(config.summary_root).parent / "prepared_cache"
+    summary_dir = Path(config.summary_root)
+    write_prepared_run_cache(
+        _fake_run_data("Run A", str(run_dir)),
+        config,
+        run_key="run-a",
+        output_root=prepared_dir,
+        run_fingerprint=build_run_fingerprint(
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+            skim_file=None,
+            hh_weight_col=None,
+            person_weight_col=None,
+            trip_weight_col=None,
+        ),
+    )
+    write_summary_run_cache(
+        _simple_summary_run("Run A", "run-a"),
+        config,
+        run_fingerprint=build_run_fingerprint(
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+            skim_file=None,
+            hh_weight_col=None,
+            person_weight_col=None,
+            trip_weight_col=None,
+        ),
+        prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="run-a",
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+        ),
+    )
+    prepared_marker = prepared_dir / "run-a" / "stale.txt"
+    summary_marker = summary_dir / "run-a" / "stale.txt"
+    prepared_marker.write_text("old", encoding="utf-8")
+    summary_marker.write_text("old", encoding="utf-8")
+    read_calls: list[str] = []
+    prepare_calls: list[str] = []
+    summary_build_calls: list[str] = []
+
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(
+        runtime_workflows,
+        "read_run",
+        lambda run_dir, config, label=None, **kwargs: (
+            read_calls.append(label or Path(run_dir).name),
+            _fake_run_data(label or Path(run_dir).name, str(run_dir)),
+        )[1],
+    )
+    monkeypatch.setattr(
+        runtime_workflows,
+        "prepare_data",
+        lambda rd, config: (
+            prepare_calls.append(rd.label),
+            rd,
+        )[1],
+    )
+    monkeypatch.setattr(
+        summary_cache,
+        "build_mode_summaries_with_metadata",
+        lambda rd, config, **kwargs: (
+            summary_build_calls.append(rd.label),
+            _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
+        )[1],
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "activitysim-viz",
+            "--config",
+            str(tmp_path / "config.yaml"),
+            "--prepare",
+            "--summarize",
+            "--write-csvs",
+            "--refresh-caches",
+        ],
+    )
+
+    run.main()
+
+    assert read_calls == ["Run A"]
+    assert prepare_calls == ["Run A"]
+    assert summary_build_calls == ["Run A"]
+    assert not prepared_marker.exists()
+    assert not summary_marker.exists()
 
 
 def test_main_loads_prepared_runs_for_enabled_live_prepared_data_page_even_on_cache_hits(

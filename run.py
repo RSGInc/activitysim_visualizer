@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -20,6 +21,7 @@ from runtime_workflows import (
     prune_processor_result,
     prune_summary_runs,
     prepared_cache_root,
+    run_entries_with_keys,
     resolve_run_entries,
     run_dashboard_workflow,
     run_prepare_workflow,
@@ -98,6 +100,21 @@ def parse_args() -> argparse.Namespace:
         help="Do not write missing or stale summary caches during normal runs",
     )
     parser.add_argument(
+        "--refresh-caches",
+        action="store_true",
+        help="Refresh both prepared and summary caches for the selected runs before rebuilding.",
+    )
+    parser.add_argument(
+        "--refresh-prepared-cache",
+        action="store_true",
+        help="Refresh prepared caches for the selected runs before rebuilding.",
+    )
+    parser.add_argument(
+        "--refresh-summary-cache",
+        action="store_true",
+        help="Refresh summary caches for the selected runs before rebuilding.",
+    )
+    parser.add_argument(
         "--export-html",
         metavar="PATH",
         help="Export dashboard to a self-contained HTML file and exit",
@@ -163,8 +180,65 @@ def resolve_requested_steps(args: argparse.Namespace) -> list[str]:
         raise ValueError("--write-csvs requires the summarize step.")
     if args.skip_summary_cache_write and "summarize" not in steps:
         raise ValueError("--skip-summary-cache-write requires the summarize step.")
+    if (
+        args.refresh_summary_cache or args.refresh_caches
+    ) and "summarize" not in steps:
+        raise ValueError(
+            "--refresh-summary-cache and --refresh-caches require the summarize step."
+        )
+    if (
+        args.refresh_prepared_cache or args.refresh_caches
+    ) and not any(step in {"prepare", "summarize"} for step in steps):
+        raise ValueError(
+            "--refresh-prepared-cache and --refresh-caches require the prepare or summarize step."
+        )
 
     return steps
+
+
+def _remove_run_cache_dirs(
+    *,
+    root: Path,
+    run_keys: list[str],
+    cache_label: str,
+) -> None:
+    """Remove per-run cache directories before a forced rebuild."""
+    for run_key in run_keys:
+        cache_dir = root / run_key
+        if cache_dir.exists():
+            LOGGER.info("Refreshing %s cache for run key %r", cache_label, run_key)
+            shutil.rmtree(cache_dir)
+
+
+def _refresh_requested_caches(
+    *,
+    args: argparse.Namespace,
+    prepared_root: Path,
+    cache_root: Path,
+    run_entries: list[dict],
+) -> tuple[bool, bool]:
+    """Delete targeted cache directories and return cache reuse preferences."""
+    refresh_prepared = bool(args.refresh_caches or args.refresh_prepared_cache)
+    refresh_summary = bool(args.refresh_caches or args.refresh_summary_cache)
+    if not refresh_prepared and not refresh_summary:
+        return True, True
+
+    run_keys = [
+        run_key for _, run_key in run_entries_with_keys(run_entries)
+    ]
+    if refresh_prepared:
+        _remove_run_cache_dirs(
+            root=prepared_root,
+            run_keys=run_keys,
+            cache_label="prepared",
+        )
+    if refresh_summary:
+        _remove_run_cache_dirs(
+            root=cache_root,
+            run_keys=run_keys,
+            cache_label="summary",
+        )
+    return (not refresh_prepared, not refresh_summary)
 
 
 def main() -> None:
@@ -199,6 +273,12 @@ def main() -> None:
             config=config,
             require_runs="prepare" in steps or "summarize" in steps,
         )
+        prefer_prepared_cache, prefer_summary_cache = _refresh_requested_caches(
+            args=args,
+            prepared_root=prepared_root,
+            cache_root=cache_root,
+            run_entries=run_entries,
+        )
         processor_result = None
         summary_runs = []
         required_run_keys: list[str] = []
@@ -208,7 +288,7 @@ def main() -> None:
                 config=config,
                 prepared_root=prepared_root,
                 run_entries=run_entries,
-                prefer_cache=True,
+                prefer_cache=prefer_prepared_cache,
                 write_cache=True,
                 existing_result=processor_result,
             )
@@ -219,7 +299,8 @@ def main() -> None:
                 cache_root=cache_root,
                 prepared_root=prepared_root,
                 run_entries=run_entries,
-                prefer_cache=not args.write_csvs,
+                prefer_cache=prefer_summary_cache and not args.write_csvs,
+                prepared_prefer_cache=prefer_prepared_cache,
                 write_cache=args.write_csvs or not args.skip_summary_cache_write,
                 existing_result=processor_result,
             )

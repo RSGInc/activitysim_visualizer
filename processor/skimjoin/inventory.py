@@ -71,4 +71,15 @@ def inventory_skim_files(paths: Iterable[str | Path]) -> pl.DataFrame:
         if path.suffix.lower() not in {".h5", ".hdf5", ".omx"}:
             raise ValueError(f"Unsupported skim file type: {path}")
         rows.extend(record.__dict__ for record in inventory_hdf5_file(path))
-    return pl.DataFrame(rows).sort(["file_path", "matrix_name"])
+    return pl.DataFrame(
+        rows,
+        schema={
+            "file_path": pl.String,
+            "matrix_path": pl.String,
+            "matrix_name": pl.String,
+            "shape_rows": pl.Int64,
+            "shape_cols": pl.Int64,
+            "dtype": pl.String,
+        },
+        infer_schema_length=None,
+    ).sort(["file_path", "matrix_name"])

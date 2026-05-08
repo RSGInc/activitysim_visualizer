@@ -9,6 +9,38 @@ from processor.skimjoin.config.schema import NormalizedConfig, NormalizedLookupR
 from processor.skimjoin.skimstore.base import SkimStore
 
 
+def _lookup_summary_schema() -> dict[str, pl.DataType]:
+    return {
+        "rule_name": pl.String,
+        "mode": pl.String,
+        "component": pl.String,
+        "output": pl.String,
+        "matrix_name": pl.String,
+        "n_trips": pl.Int64,
+        "origin_column": pl.String,
+        "destination_column": pl.String,
+        "mean_value": pl.Float64,
+        "min_value": pl.Float64,
+        "max_value": pl.Float64,
+        "n_missing": pl.Int64,
+    }
+
+
+def _missing_report_schema() -> dict[str, pl.DataType]:
+    return {
+        "rule_name": pl.String,
+        "trip_id": pl.Int64,
+        "origin": pl.Int64,
+        "destination": pl.Int64,
+        "matrix_name": pl.String,
+        "reason": pl.String,
+    }
+
+
+def _row_trip_id(row: dict[str, object]) -> object:
+    return row.get("trip_id", row.get("_row_id"))
+
+
 def annotate_trips(
     trips: pl.DataFrame,
     normalized: NormalizedConfig,
@@ -59,7 +91,7 @@ def annotate_trips(
                     missing_rows.append(
                         {
                             "rule_name": rule.name,
-                            "trip_id": row.get("trip_id", row["_row_id"]),
+                            "trip_id": _row_trip_id(row),
                             "origin": row.get(rule.origin),
                             "destination": row.get(rule.destination),
                             "matrix_name": matrix_name,
@@ -74,7 +106,9 @@ def annotate_trips(
                 str(inv_row["matrix_path"]),
                 group.get_column(rule.origin).cast(pl.Int64).to_numpy(),
                 group.get_column(rule.destination).cast(pl.Int64).to_numpy(),
-                lookup_name=normalized.zone_mapping.lookup_name,
+                lookup_name=normalized.zone_mapping.resolve_lookup_name(
+                    str(inv_row["file_path"])
+                ),
             )
 
             row_ids = group.get_column("_row_id").to_list()
@@ -104,7 +138,7 @@ def annotate_trips(
                 missing_rows.append(
                     {
                         "rule_name": rule.name,
-                        "trip_id": row.get("trip_id", row["_row_id"]),
+                        "trip_id": _row_trip_id(row),
                         "origin": row.get(rule.origin),
                         "destination": row.get(rule.destination),
                         "matrix_name": matrix_name,
@@ -122,7 +156,19 @@ def annotate_trips(
         if output not in trips.columns:
             trips = trips.with_columns(pl.lit(None, dtype=pl.Float64).alias(output))
 
-    return trips.drop("_row_id"), pl.DataFrame(lookup_rows), pl.DataFrame(missing_rows)
+    return (
+        trips.drop("_row_id"),
+        pl.DataFrame(
+            lookup_rows,
+            schema=_lookup_summary_schema(),
+            infer_schema_length=None,
+        ),
+        pl.DataFrame(
+            missing_rows,
+            schema=_missing_report_schema(),
+            infer_schema_length=None,
+        ),
+    )
 
 
 def _missing_trip_columns_for_rule(trips: pl.DataFrame, rule: NormalizedLookupRule) -> list[str]:
@@ -146,7 +192,11 @@ def _resolve_subset(rule: NormalizedLookupRule, subset: pl.DataFrame) -> dict[st
     required_columns = [rule.origin, rule.destination]
     for dimension_name in rule.dimensions_used:
         required_columns.append(rule.dimensions[dimension_name].source_column)
-    rows = subset.select(["_row_id", "trip_id", *dict.fromkeys(required_columns)]).to_dicts()
+    select_columns = ["_row_id"]
+    if "trip_id" in subset.columns:
+        select_columns.append("trip_id")
+    select_columns.extend(dict.fromkeys(required_columns))
+    rows = subset.select(select_columns).to_dicts()
     groups: dict[str, list[dict[str, object]]] = defaultdict(list)
     errors: list[dict[str, object]] = []
     for row in rows:
@@ -162,7 +212,7 @@ def _resolve_subset(rule: NormalizedLookupRule, subset: pl.DataFrame) -> dict[st
                     errors.append(
                         {
                             "rule_name": rule.name,
-                            "trip_id": row.get("trip_id", row["_row_id"]),
+                            "trip_id": _row_trip_id(row),
                             "origin": row.get(rule.origin),
                             "destination": row.get(rule.destination),
                             "matrix_name": None,
@@ -176,7 +226,7 @@ def _resolve_subset(rule: NormalizedLookupRule, subset: pl.DataFrame) -> dict[st
                     errors.append(
                         {
                             "rule_name": rule.name,
-                            "trip_id": row.get("trip_id", row["_row_id"]),
+                            "trip_id": _row_trip_id(row),
                             "origin": row.get(rule.origin),
                             "destination": row.get(rule.destination),
                             "matrix_name": None,
@@ -191,6 +241,9 @@ def _resolve_subset(rule: NormalizedLookupRule, subset: pl.DataFrame) -> dict[st
             continue
         groups[matrix_name].append(row)
     return {
-        "groups": {name: pl.DataFrame(rows) for name, rows in groups.items()},
+        "groups": {
+            name: pl.DataFrame(rows, infer_schema_length=None)
+            for name, rows in groups.items()
+        },
         "errors": errors,
     }
