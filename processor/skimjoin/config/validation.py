@@ -41,7 +41,20 @@ def validate_config(
     failures: list[str] = []
     warnings: list[str] = []
 
-    matrix_rows = inventory.select(["matrix_name", "file_path", "matrix_path", "shape_rows", "shape_cols"]).to_dicts()
+    matrix_rows = inventory.select(
+        [
+            "matrix_name",
+            "file_path",
+            "matrix_path",
+            "shape_rows",
+            "shape_cols",
+            "source_kind",
+            "key_column_name",
+            "value_column_name",
+            "origin_column_name",
+            "destination_column_name",
+        ]
+    ).to_dicts()
     inventory_by_name: dict[str, dict[str, object]] = {}
     duplicate_names: list[str] = []
     for row in matrix_rows:
@@ -95,11 +108,12 @@ def validate_config(
             if matrix_name not in inventory_by_name:
                 failures.append(f"{rule.name}: referenced matrix {matrix_name!r} was not found in skim inventory")
                 continue
-            shape_rows = int(inventory_by_name[matrix_name]["shape_rows"])
-            shape_cols = int(inventory_by_name[matrix_name]["shape_cols"])
-            zone_failures, zone_warnings = _validate_od_bounds(rule, combo["rows"], shape_rows, shape_cols)
-            failures.extend(f"{rule.name}: {message}" for message in zone_failures)
-            warnings.extend(f"{rule.name}: {message}" for message in zone_warnings)
+            if str(inventory_by_name[matrix_name]["source_kind"]) == "od_matrix" and rule.lookup == "od":
+                shape_rows = int(inventory_by_name[matrix_name]["shape_rows"])
+                shape_cols = int(inventory_by_name[matrix_name]["shape_cols"])
+                zone_failures, zone_warnings = _validate_od_bounds(rule, combo["rows"], shape_rows, shape_cols)
+                failures.extend(f"{rule.name}: {message}" for message in zone_failures)
+                warnings.extend(f"{rule.name}: {message}" for message in zone_warnings)
 
     if normalized.activitysim.tour_id_column not in trips.columns:
         failures.append(f"Trips table is missing tour id column {normalized.activitysim.tour_id_column!r}.")
@@ -129,7 +143,13 @@ def _validate_required_columns(
         failures.append(f"Trips table is missing outbound column {outbound_column!r}.")
 
     for rule in normalized.lookups:
-        required_trip_columns = {rule.origin, rule.destination, *rule.when.keys()}
+        required_trip_columns = {*rule.when.keys()}
+        if rule.lookup == "key":
+            if rule.key_column is not None:
+                required_trip_columns.add(rule.key_column)
+        else:
+            required_trip_columns.add(rule.origin)
+            required_trip_columns.add(rule.destination)
         for dimension_name in rule.dimensions_used:
             if dimension_name not in rule.dimensions:
                 continue
@@ -145,7 +165,13 @@ def _validate_required_columns(
 
 
 def _missing_trip_columns_for_rule(rule: NormalizedLookupRule, trips: pl.DataFrame) -> list[str]:
-    required_trip_columns = {rule.origin, rule.destination, *rule.when.keys()}
+    required_trip_columns = {*rule.when.keys()}
+    if rule.lookup == "key":
+        if rule.key_column is not None:
+            required_trip_columns.add(rule.key_column)
+    else:
+        required_trip_columns.add(rule.origin)
+        required_trip_columns.add(rule.destination)
     for dimension_name in rule.dimensions_used:
         if dimension_name not in rule.dimensions:
             continue
@@ -187,6 +213,8 @@ def _validate_segment_coverage(normalized: NormalizedConfig, trips: pl.DataFrame
 
 def _validate_rule_structure(rule: NormalizedLookupRule) -> list[str]:
     failures: list[str] = []
+    if rule.lookup == "key" and not rule.key_column:
+        failures.append("lookup 'key' requires key_column")
     for dimension_name in rule.dimensions_used:
         if dimension_name not in rule.dimensions:
             failures.append(f"placeholder {{{dimension_name}}} is not defined in dimensions")
@@ -226,7 +254,12 @@ def _rule_matrix_combinations(
     failures: list[str] = []
     if subset.is_empty():
         return [], failures
-    rows = subset.select([rule.origin, rule.destination, *{rule.dimensions[name].source_column for name in rule.dimensions_used}]).to_dicts()
+    select_columns = [_rule_origin_column(rule)]
+    destination_column = _rule_destination_column(rule)
+    if destination_column is not None:
+        select_columns.append(destination_column)
+    select_columns.extend({rule.dimensions[name].source_column for name in rule.dimensions_used})
+    rows = subset.select(select_columns).to_dicts()
     grouped: dict[str, list[dict[str, object]]] = {}
     for row in rows:
         matrix_name, error = _render_matrix_name(rule, row)
@@ -288,3 +321,13 @@ def _validate_od_bounds(
         elif policy == "warn":
             warnings.append(message)
     return failures, warnings
+
+
+def _rule_origin_column(rule: NormalizedLookupRule) -> str:
+    return rule.key_column if rule.lookup == "key" and rule.key_column is not None else rule.origin
+
+
+def _rule_destination_column(rule: NormalizedLookupRule) -> str | None:
+    if rule.lookup == "key":
+        return None
+    return rule.destination

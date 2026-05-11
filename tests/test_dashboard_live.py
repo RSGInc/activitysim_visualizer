@@ -849,10 +849,32 @@ def test_skims_page_renders_disaggregated_distribution_plots_when_prepared_runs_
     assert isinstance(page._trip_section.objects[-1], pn.pane.Plotly)
     assert isinstance(page._tour_section.objects[-1], pn.pane.Plotly)
     assert tuple(page._trip_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
-        (10.095, 14.0)
+        (10.0, 200.0)
     )
     assert tuple(page._tour_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
-        (10.095, 14.0)
+        (10.0, 200.0)
     )
-    assert "view clipped at 99th percentile" in page._trip_section.objects[-1].object.layout.title.text
-    assert "view clipped at 99th percentile" in page._tour_section.objects[-1].object.layout.title.text
+    assert page._trip_section.objects[-1].object.layout.title.text == "Trip Distribution - skim_auto_time / SOV"
+    assert page._tour_section.objects[-1].object.layout.title.text == "Tour Distribution - skim_auto_time / SOV"
+
+    page.trip_min_sel.value = 11.0
+    page.trip_max_sel.value = 13.0
+    page.tour_min_sel.value = 11.0
+    page.tour_max_sel.value = 13.0
+
+    assert tuple(page._trip_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
+        (11.0, 13.0)
+    )
+    assert tuple(page._tour_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
+        (11.0, 13.0)
+    )
+
+    page.trip_reset_btn.clicks = page.trip_reset_btn.clicks + 1
+    page.tour_reset_btn.clicks = page.tour_reset_btn.clicks + 1
+
+    assert tuple(page._trip_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
+        (10.0, 200.0)
+    )
+    assert tuple(page._tour_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
+        (10.0, 200.0)
+    )

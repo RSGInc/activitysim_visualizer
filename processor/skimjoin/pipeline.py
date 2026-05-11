@@ -131,15 +131,16 @@ def _skimjoin_manifest(
 
 def _validate_runtime_inventory(inventory: pl.DataFrame) -> None:
     if inventory.is_empty():
-        raise ValueError("Integrated skimjoin could not resolve any OMX skim matrices.")
+        raise ValueError("Integrated skimjoin could not resolve any skim matrices.")
 
-    suffixes = {
-        str(path).lower().rsplit(".", 1)[-1]
-        for path in inventory.get_column("file_path").unique().to_list()
+    source_kinds = {
+        str(value) for value in inventory.get_column("source_kind").unique().to_list()
     }
-    if suffixes != {"omx"}:
+    unsupported = sorted(source_kind for source_kind in source_kinds if source_kind not in {"od_matrix", "keyed_column", "od_table"})
+    if unsupported:
         raise ValueError(
-            "Integrated skimjoin currently supports OMX skim inputs only."
+            "Integrated skimjoin encountered unsupported skim source kinds: "
+            + ", ".join(repr(value) for value in unsupported)
         )
 
     matrix_names = [
@@ -152,7 +153,7 @@ def _validate_runtime_inventory(inventory: pl.DataFrame) -> None:
     )
     if duplicates:
         raise ValueError(
-            "Integrated skimjoin requires unique matrix names across OMX inputs. "
+            "Integrated skimjoin requires unique matrix names across skim inputs. "
             + "Duplicate names: "
             + ", ".join(repr(name) for name in duplicates)
         )

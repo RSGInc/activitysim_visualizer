@@ -16,7 +16,6 @@ TOUR_STATS_SUMMARY_ID = "skimjoin_tour_component_stats"
 TRIP_ECDF_SUMMARY_ID = "skimjoin_trip_component_ecdf"
 TOUR_ECDF_SUMMARY_ID = "skimjoin_tour_component_ecdf"
 _DEFAULT_BIN_COUNT = 500
-_DISTRIBUTION_CLIP_PERCENTILE = 0.95
 
 
 def _nonempty(
@@ -177,6 +176,7 @@ def _distribution_bins(
     mode_column: str,
     mode_value: str,
     component: str,
+    x_range: tuple[float, float] | None = None,
     bin_count: int = _DEFAULT_BIN_COUNT,
 ) -> list[tuple[str, pl.DataFrame]]:
     value_sets = _prepared_component_values(
@@ -194,6 +194,10 @@ def _distribution_bins(
         return []
     min_value = float(np.min(all_values))
     max_value = float(np.max(all_values))
+
+    if x_range is not None:
+        min_value = float(x_range[0])
+        max_value = float(x_range[1])
 
     if min_value == max_value:
         bin_mid = min_value
@@ -214,7 +218,17 @@ def _distribution_bins(
     mids = ((edges[:-1] + edges[1:]) / 2.0).tolist()
     distributions: list[tuple[str, pl.DataFrame]] = []
     for label, values, weights in value_sets:
-        hist, _ = np.histogram(values, bins=edges, weights=weights)
+        in_range = (values >= min_value) & (values <= max_value)
+        histogram_values = values[in_range]
+        histogram_weights = weights[in_range]
+        if histogram_values.size == 0:
+            hist = np.zeros(len(mids), dtype=float)
+        else:
+            hist, _ = np.histogram(
+                histogram_values,
+                bins=edges,
+                weights=histogram_weights,
+            )
         distributions.append(
             (
                 label,
@@ -229,63 +243,46 @@ def _distribution_bins(
     return distributions
 
 
-def _distribution_x_range(
-    distribution_data: list[tuple[str, pl.DataFrame]] | None,
-    ecdf_data: list[tuple[str, pl.DataFrame]] | None,
+def _distribution_title(base_title: str, x_range: tuple[float, float] | None) -> str:
+    return base_title
+
+
+def _distribution_data_bounds(
+    prepared_runs: list[tuple[str, RunData]] | None,
     *,
-    component: str,
+    table_name: str,
     mode_column: str,
     mode_value: str,
-    clip_percentile: float = _DISTRIBUTION_CLIP_PERCENTILE,
+    component: str,
 ) -> tuple[float, float] | None:
-    x_values: list[float] = []
-    clip_values: list[float] = []
-
-    for _, df in _nonempty(distribution_data):
-        if "bin_mid" not in df.columns:
-            continue
-        x_values.extend(
-            float(value)
-            for value in df.get_column("bin_mid").to_list()
-            if value is not None and np.isfinite(value)
-        )
-
-    for _, df in _nonempty(ecdf_data):
-        required_columns = {mode_column, "component", "percentile", "value"}
-        if not required_columns.issubset(df.columns):
-            continue
-        filtered = df.with_columns(
-            pl.col(mode_column).cast(pl.Utf8),
-            pl.col("component").cast(pl.Utf8),
-            pl.col("percentile").cast(pl.Float64),
-            pl.col("value").cast(pl.Float64),
-        ).filter(
-            (pl.col(mode_column) == mode_value)
-            & (pl.col("component") == component)
-            & (pl.col("percentile") == clip_percentile)
-        )
-        if filtered.is_empty():
-            continue
-        clip_value = filtered.get_column("value")[0]
-        if clip_value is not None and np.isfinite(clip_value):
-            clip_values.append(float(clip_value))
-
-    if not x_values or not clip_values:
+    value_sets = _prepared_component_values(
+        prepared_runs,
+        table_name=table_name,
+        mode_column=mode_column,
+        mode_value=mode_value,
+        component=component,
+    )
+    if not value_sets:
         return None
-
-    x_min = min(x_values)
-    x_max = max(x_values)
-    clip_max = max(clip_values)
-    if clip_max <= x_min or clip_max >= x_max:
+    all_values = np.concatenate(
+        [values for _, values, _ in value_sets if values.size > 0]
+    )
+    if all_values.size == 0:
         return None
-    return (x_min, clip_max)
+    return (float(np.min(all_values)), float(np.max(all_values)))
 
 
-def _distribution_title(base_title: str, x_range: tuple[float, float] | None) -> str:
-    if x_range is None:
-        return base_title
-    percentile = int(_DISTRIBUTION_CLIP_PERCENTILE * 100)
-    return f"{base_title} (view clipped at {percentile}th percentile)"
+def _resolve_distribution_range(
+    min_value: float | None,
+    max_value: float | None,
+) -> tuple[float, float] | None:
+    if min_value is None or max_value is None:
+        return None
+    if not np.isfinite(min_value) or not np.isfinite(max_value):
+        return None
+    if float(max_value) <= float(min_value):
+        return None
+    return (float(min_value), float(max_value))
 
 
 class SkimSummariesPage(DashboardPage):
@@ -316,6 +313,21 @@ class SkimSummariesPage(DashboardPage):
             ),
             label="Trip Mode",
         )
+        self.trip_min_sel = self.selector(
+            "trip_min",
+            widget=pn.widgets.FloatInput(name="Trip Min", step=0.1, value=0.0),
+            label="Trip Min",
+        )
+        self.trip_max_sel = self.selector(
+            "trip_max",
+            widget=pn.widgets.FloatInput(name="Trip Max", step=0.1, value=1.0),
+            label="Trip Max",
+        )
+        self.trip_reset_btn = pn.widgets.Button(
+            name="Reset to full range",
+            button_type="default",
+            width=150,
+        )
         self.tour_mode_sel = self.selector(
             "tour_mode",
             widget=pn.widgets.Select(
@@ -328,20 +340,42 @@ class SkimSummariesPage(DashboardPage):
             ),
             label="Tour Mode",
         )
+        self.tour_min_sel = self.selector(
+            "tour_min",
+            widget=pn.widgets.FloatInput(name="Tour Min", step=0.1, value=0.0),
+            label="Tour Min",
+        )
+        self.tour_max_sel = self.selector(
+            "tour_max",
+            widget=pn.widgets.FloatInput(name="Tour Max", step=0.1, value=1.0),
+            label="Tour Max",
+        )
+        self.tour_reset_btn = pn.widgets.Button(
+            name="Reset to full range",
+            button_type="default",
+            width=150,
+        )
 
         if self.trip_mode_sel.options:
             self.trip_mode_sel.value = self.trip_mode_sel.options[0]
         if self.tour_mode_sel.options:
             self.tour_mode_sel.value = self.tour_mode_sel.options[0]
 
+        self.trip_reset_btn.on_click(
+            lambda event: self._reset_distribution_range("trip")
+        )
+        self.tour_reset_btn.on_click(
+            lambda event: self._reset_distribution_range("tour")
+        )
+
         self._trip_section = self.section(
             "skim_trip_section",
-            selectors=("skim_component", "trip_mode"),
+            selectors=("skim_component", "trip_mode", "trip_min", "trip_max"),
             render=self.render_trip_section,
         )
         self._tour_section = self.section(
             "skim_tour_section",
-            selectors=("skim_component", "tour_mode"),
+            selectors=("skim_component", "tour_mode", "tour_min", "tour_max"),
             render=self.render_tour_section,
         )
 
@@ -400,6 +434,82 @@ class SkimSummariesPage(DashboardPage):
         if self.tour_mode_sel.value not in tour_mode_options:
             self.tour_mode_sel.value = tour_mode_options[0]
 
+        self._sync_distribution_range_controls(
+            prefix="trip",
+            prepared_runs=self._trip_prepared_runs(),
+            table_name="trips",
+            mode_column="trip_mode",
+            mode_value=self.trip_mode_sel.value,
+            component=self.component_sel.value,
+        )
+        self._sync_distribution_range_controls(
+            prefix="tour",
+            prepared_runs=self._tour_prepared_runs(),
+            table_name="tours",
+            mode_column="tour_mode",
+            mode_value=self.tour_mode_sel.value,
+            component=self.component_sel.value,
+        )
+
+    def _sync_distribution_range_controls(
+        self,
+        *,
+        prefix: str,
+        prepared_runs: list[tuple[str, RunData]] | None,
+        table_name: str,
+        mode_column: str,
+        mode_value: str,
+        component: str,
+    ) -> None:
+        min_widget = getattr(self, f"{prefix}_min_sel")
+        max_widget = getattr(self, f"{prefix}_max_sel")
+        context_key = (component, mode_value, self.weighting_key)
+        state_key = f"{prefix}_distribution_range_context"
+        auto_key = f"{prefix}_distribution_auto_range"
+
+        bounds = _distribution_data_bounds(
+            prepared_runs,
+            table_name=table_name,
+            mode_column=mode_column,
+            mode_value=mode_value,
+            component=component,
+        )
+        target_range = bounds
+        if target_range is None:
+            self._page_state[state_key] = context_key
+            self._page_state[auto_key] = None
+            return
+
+        last_context = self._page_state.get(state_key)
+        last_auto_range = self._page_state.get(auto_key)
+        current_range = _resolve_distribution_range(min_widget.value, max_widget.value)
+
+        should_reset = (
+            last_context != context_key
+            or last_auto_range is None
+            or current_range is None
+            or (
+                current_range is not None
+                and last_auto_range is not None
+                and tuple(current_range) == tuple(last_auto_range)
+            )
+        )
+        if should_reset:
+            min_widget.value = float(target_range[0])
+            max_widget.value = float(target_range[1])
+
+        self._page_state[state_key] = context_key
+        self._page_state[auto_key] = tuple(target_range)
+
+    def _reset_distribution_range(self, prefix: str) -> None:
+        auto_range = self._page_state.get(f"{prefix}_distribution_auto_range")
+        if not auto_range:
+            return
+        min_widget = getattr(self, f"{prefix}_min_sel")
+        max_widget = getattr(self, f"{prefix}_max_sel")
+        min_widget.value = float(auto_range[0])
+        max_widget.value = float(auto_range[1])
+
     def render_trip_section(self):
         if not self.state.run_labels:
             return [pn.pane.Markdown("No runs loaded.")]
@@ -411,6 +521,11 @@ class SkimSummariesPage(DashboardPage):
                 control_row(
                     pn.pane.Markdown("**Trip Mode:**"),
                     self.trip_mode_sel,
+                    pn.pane.Markdown("**Min:**"),
+                    self.trip_min_sel,
+                    pn.pane.Markdown("**Max:**"),
+                    self.trip_max_sel,
+                    self.trip_reset_btn,
                 ),
                 self.data_not_available_card(
                     detail="Trip skim summaries require the precomputed skim trip statistics table.",
@@ -426,10 +541,36 @@ class SkimSummariesPage(DashboardPage):
                 control_row(
                     pn.pane.Markdown("**Trip Mode:**"),
                     self.trip_mode_sel,
+                    pn.pane.Markdown("**Min:**"),
+                    self.trip_min_sel,
+                    pn.pane.Markdown("**Max:**"),
+                    self.trip_max_sel,
+                    self.trip_reset_btn,
                 ),
                 self.data_not_available_card(
                     detail="Trip skim summaries are available only when skim-enriched trip summary tables contain numeric components.",
                     missing_items=[TRIP_STATS_SUMMARY_ID],
+                ),
+            ]
+
+        trip_distribution_x_range = _resolve_distribution_range(
+            self.trip_min_sel.value,
+            self.trip_max_sel.value,
+        )
+        if trip_distribution_x_range is None:
+            return [
+                pn.pane.Markdown("### Trip Skims"),
+                control_row(
+                    pn.pane.Markdown("**Trip Mode:**"),
+                    self.trip_mode_sel,
+                    pn.pane.Markdown("**Min:**"),
+                    self.trip_min_sel,
+                    pn.pane.Markdown("**Max:**"),
+                    self.trip_max_sel,
+                    self.trip_reset_btn,
+                ),
+                self.data_not_available_card(
+                    detail="Trip distribution controls require finite values with min less than max.",
                 ),
             ]
 
@@ -449,20 +590,16 @@ class SkimSummariesPage(DashboardPage):
             component,
             trip_mode,
             self.weighting_key,
+            trip_distribution_x_range[0],
+            trip_distribution_x_range[1],
             factory=lambda: _distribution_bins(
                 self._trip_prepared_runs(),
                 table_name="trips",
                 mode_column="trip_mode",
                 mode_value=trip_mode,
                 component=component,
+                x_range=trip_distribution_x_range,
             ),
-        )
-        trip_distribution_x_range = _distribution_x_range(
-            trip_distribution_data,
-            self._trip_ecdf_summaries(),
-            component=component,
-            mode_column="trip_mode",
-            mode_value=trip_mode,
         )
 
         if not any(not df.is_empty() for _, df in trip_stats_data):
@@ -471,6 +608,11 @@ class SkimSummariesPage(DashboardPage):
                 control_row(
                     pn.pane.Markdown("**Trip Mode:**"),
                     self.trip_mode_sel,
+                    pn.pane.Markdown("**Min:**"),
+                    self.trip_min_sel,
+                    pn.pane.Markdown("**Max:**"),
+                    self.trip_max_sel,
+                    self.trip_reset_btn,
                 ),
                 self.data_not_available_card(
                     detail=f"No trip skim summary data is available for component `{component}` and mode `{trip_mode}`.",
@@ -507,6 +649,11 @@ class SkimSummariesPage(DashboardPage):
             control_row(
                 pn.pane.Markdown("**Trip Mode:**"),
                 self.trip_mode_sel,
+                pn.pane.Markdown("**Min:**"),
+                self.trip_min_sel,
+                pn.pane.Markdown("**Max:**"),
+                self.trip_max_sel,
+                self.trip_reset_btn,
             ),
             data_table(
                 trip_stats_data,
@@ -527,6 +674,11 @@ class SkimSummariesPage(DashboardPage):
                 control_row(
                     pn.pane.Markdown("**Tour Mode:**"),
                     self.tour_mode_sel,
+                    pn.pane.Markdown("**Min:**"),
+                    self.tour_min_sel,
+                    pn.pane.Markdown("**Max:**"),
+                    self.tour_max_sel,
+                    self.tour_reset_btn,
                 ),
                 self.data_not_available_card(
                     detail="Tour skim summaries require the precomputed skim tour statistics table.",
@@ -542,10 +694,36 @@ class SkimSummariesPage(DashboardPage):
                 control_row(
                     pn.pane.Markdown("**Tour Mode:**"),
                     self.tour_mode_sel,
+                    pn.pane.Markdown("**Min:**"),
+                    self.tour_min_sel,
+                    pn.pane.Markdown("**Max:**"),
+                    self.tour_max_sel,
+                    self.tour_reset_btn,
                 ),
                 self.data_not_available_card(
                     detail="Tour skim summaries are available only when skim-enriched tour summary tables contain numeric components.",
                     missing_items=[TOUR_STATS_SUMMARY_ID],
+                ),
+            ]
+
+        tour_distribution_x_range = _resolve_distribution_range(
+            self.tour_min_sel.value,
+            self.tour_max_sel.value,
+        )
+        if tour_distribution_x_range is None:
+            return [
+                pn.pane.Markdown("### Tour Skims"),
+                control_row(
+                    pn.pane.Markdown("**Tour Mode:**"),
+                    self.tour_mode_sel,
+                    pn.pane.Markdown("**Min:**"),
+                    self.tour_min_sel,
+                    pn.pane.Markdown("**Max:**"),
+                    self.tour_max_sel,
+                    self.tour_reset_btn,
+                ),
+                self.data_not_available_card(
+                    detail="Tour distribution controls require finite values with min less than max.",
                 ),
             ]
 
@@ -565,20 +743,16 @@ class SkimSummariesPage(DashboardPage):
             component,
             tour_mode,
             self.weighting_key,
+            tour_distribution_x_range[0],
+            tour_distribution_x_range[1],
             factory=lambda: _distribution_bins(
                 self._tour_prepared_runs(),
                 table_name="tours",
                 mode_column="tour_mode",
                 mode_value=tour_mode,
                 component=component,
+                x_range=tour_distribution_x_range,
             ),
-        )
-        tour_distribution_x_range = _distribution_x_range(
-            tour_distribution_data,
-            self._tour_ecdf_summaries(),
-            component=component,
-            mode_column="tour_mode",
-            mode_value=tour_mode,
         )
 
         if not any(not df.is_empty() for _, df in tour_stats_data):
@@ -587,6 +761,11 @@ class SkimSummariesPage(DashboardPage):
                 control_row(
                     pn.pane.Markdown("**Tour Mode:**"),
                     self.tour_mode_sel,
+                    pn.pane.Markdown("**Min:**"),
+                    self.tour_min_sel,
+                    pn.pane.Markdown("**Max:**"),
+                    self.tour_max_sel,
+                    self.tour_reset_btn,
                 ),
                 self.data_not_available_card(
                     detail=f"No tour skim summary data is available for component `{component}` and mode `{tour_mode}`.",
@@ -623,6 +802,11 @@ class SkimSummariesPage(DashboardPage):
             control_row(
                 pn.pane.Markdown("**Tour Mode:**"),
                 self.tour_mode_sel,
+                pn.pane.Markdown("**Min:**"),
+                self.tour_min_sel,
+                pn.pane.Markdown("**Max:**"),
+                self.tour_max_sel,
+                self.tour_reset_btn,
             ),
             data_table(
                 tour_stats_data,

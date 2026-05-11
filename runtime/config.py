@@ -387,11 +387,11 @@ def _normalize_skimjoin_settings(
     invalid_skim_files = [
         str(path)
         for path in skim_files
-        if Path(str(path)).suffix.lower() != ".omx"
+        if Path(str(path)).suffix.lower() not in {".omx", ".csv", ".h5", ".hdf5"}
     ]
     if invalid_skim_files:
         raise ValueError(
-            "Integrated skimjoin currently supports OMX skim inputs only. "
+            "Integrated skimjoin supports only OMX, HDF5, and CSV skim inputs. "
             + "Unsupported skim files: "
             + ", ".join(repr(path) for path in invalid_skim_files)
         )

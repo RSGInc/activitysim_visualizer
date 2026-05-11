@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 MissingPolicy = Literal["error", "warn", "set_null"]
 AggregationMethod = Literal["sum", "mean", "min", "max", "first", "last"]
+LookupType = Literal["od", "key"]
 
 
 class DimensionConfig(BaseModel):
@@ -45,6 +46,22 @@ class DefaultsConfig(BaseModel):
     output_prefix: str = "skim_"
     missing_matrix_policy: MissingPolicy = "error"
     missing_od_policy: MissingPolicy = "error"
+    sentinel_values: list[float] = Field(default_factory=list)
+
+    @field_validator("sentinel_values", mode="before")
+    @classmethod
+    def _normalize_sentinel_values(cls, value: Any) -> list[float]:
+        if value in (None, []):
+            return []
+        if not isinstance(value, list):
+            raise TypeError("defaults.sentinel_values must be a list.")
+        normalized: list[float] = []
+        for item in value:
+            try:
+                normalized.append(float(item))
+            except (TypeError, ValueError) as exc:
+                raise TypeError("defaults.sentinel_values entries must be numeric.") from exc
+        return normalized
 
 
 class ZoneMappingConfig(BaseModel):
@@ -140,6 +157,8 @@ class NormalizedLookupRule(BaseModel):
     component: str
     output: str
     matrix: str
+    lookup: LookupType = "od"
+    key_column: str | None = None
     origin: str
     destination: str
     when: dict[str, Any] = Field(default_factory=dict)
@@ -147,6 +166,14 @@ class NormalizedLookupRule(BaseModel):
     dimensions: dict[str, DimensionConfig] = Field(default_factory=dict)
     missing_matrix_policy: MissingPolicy = "error"
     missing_od_policy: MissingPolicy = "error"
+    sentinel_values: list[float] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_lookup_fields(self) -> "NormalizedLookupRule":
+        if self.lookup == "key":
+            if not self.key_column:
+                raise ValueError("key lookups require key_column.")
+        return self
 
 
 class NormalizedConfig(BaseModel):

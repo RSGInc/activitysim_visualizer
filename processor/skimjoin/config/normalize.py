@@ -24,6 +24,7 @@ RESERVED_KEYS = {
     "defaults",
     "missing_matrix_policy",
     "missing_od_policy",
+    "sentinel_values",
     "skip",
 }
 
@@ -47,6 +48,7 @@ def normalize_config(config: ExplicitConfig) -> NormalizedConfig:
         "when": {},
         "missing_matrix_policy": config.defaults.missing_matrix_policy,
         "missing_od_policy": config.defaults.missing_od_policy,
+        "sentinel_values": list(config.defaults.sentinel_values),
     }
     lookups: list[NormalizedLookupRule] = []
     segment_validations: dict[str, dict[str, Any]] = {}
@@ -131,6 +133,14 @@ def _merge_context(parent: dict[str, Any], block: dict[str, Any]) -> dict[str, A
         context["missing_matrix_policy"] = str(block["missing_matrix_policy"])
     if "missing_od_policy" in block:
         context["missing_od_policy"] = str(block["missing_od_policy"])
+    if "sentinel_values" in block:
+        sentinel_values = block["sentinel_values"]
+        if sentinel_values in (None, []):
+            context["sentinel_values"] = []
+        elif not isinstance(sentinel_values, list):
+            raise ValueError("sentinel_values must be a list.")
+        else:
+            context["sentinel_values"] = [float(value) for value in sentinel_values]
     if "when" in block:
         when = block["when"]
         if not isinstance(when, dict):
@@ -213,6 +223,12 @@ def _normalize_component(
         component=component_name,
         output=output,
         matrix=matrix,
+        lookup=str(component_block.get("lookup", "od")),
+        key_column=(
+            str(component_block["key_column"])
+            if component_block.get("key_column") is not None
+            else None
+        ),
         origin=str(component_block.get("origin", context["origin"])),
         destination=str(component_block.get("destination", context["destination"])),
         when=context["when"],
@@ -220,4 +236,5 @@ def _normalize_component(
         dimensions=context["dimensions"],
         missing_matrix_policy=str(component_block.get("missing_matrix_policy", context["missing_matrix_policy"])),
         missing_od_policy=str(component_block.get("missing_od_policy", context["missing_od_policy"])),
+        sentinel_values=list(context.get("sentinel_values", [])),
     )

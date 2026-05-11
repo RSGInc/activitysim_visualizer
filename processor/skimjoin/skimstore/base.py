@@ -4,11 +4,14 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import polars as pl
 
 
 class SkimStore:
     def __init__(self) -> None:
         self._cache: dict[tuple[str, str], np.ndarray] = {}
+        self._keyed_cache: dict[tuple[str, str, str], dict[int, float]] = {}
+        self._od_table_cache: dict[tuple[str, str, str, str], dict[tuple[int, int], float]] = {}
 
     def get_matrix(self, file_path: str, matrix_path: str) -> np.ndarray:
         key = (file_path, matrix_path)
@@ -45,6 +48,116 @@ class SkimStore:
         )
         values = np.full(len(o_idx), np.nan, dtype=float)
         values[valid] = matrix[o_idx[valid], d_idx[valid]]
+        return values, valid
+
+    def get_keyed_values(
+        self,
+        file_path: str,
+        *,
+        key_column_name: str,
+        value_column_name: str,
+    ) -> dict[int, float]:
+        key = (file_path, key_column_name, value_column_name)
+        if key in self._keyed_cache:
+            return self._keyed_cache[key]
+
+        table = pl.read_csv(file_path).select([key_column_name, value_column_name])
+        values: dict[int, float] = {}
+        for row in table.iter_rows(named=True):
+            raw_key = row.get(key_column_name)
+            raw_value = row.get(value_column_name)
+            if raw_key is None or raw_value is None:
+                continue
+            try:
+                values[int(raw_key)] = float(raw_value)
+            except (TypeError, ValueError):
+                continue
+        self._keyed_cache[key] = values
+        return values
+
+    def lookup_keyed_values(
+        self,
+        file_path: str,
+        keys: np.ndarray,
+        *,
+        key_column_name: str,
+        value_column_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        lookup = self.get_keyed_values(
+            file_path,
+            key_column_name=key_column_name,
+            value_column_name=value_column_name,
+        )
+        key_arr = np.asarray(keys, dtype=np.float64)
+        values = np.full(len(key_arr), np.nan, dtype=float)
+        valid = np.zeros(len(key_arr), dtype=bool)
+        for idx, raw_key in enumerate(key_arr):
+            if np.isnan(raw_key):
+                continue
+            key_value = int(raw_key)
+            if key_value not in lookup:
+                continue
+            values[idx] = lookup[key_value]
+            valid[idx] = True
+        return values, valid
+
+    def get_od_table_values(
+        self,
+        file_path: str,
+        *,
+        origin_column_name: str,
+        destination_column_name: str,
+        value_column_name: str,
+    ) -> dict[tuple[int, int], float]:
+        key = (file_path, origin_column_name, destination_column_name, value_column_name)
+        if key in self._od_table_cache:
+            return self._od_table_cache[key]
+
+        table = pl.read_csv(file_path).select(
+            [origin_column_name, destination_column_name, value_column_name]
+        )
+        values: dict[tuple[int, int], float] = {}
+        for row in table.iter_rows(named=True):
+            raw_origin = row.get(origin_column_name)
+            raw_destination = row.get(destination_column_name)
+            raw_value = row.get(value_column_name)
+            if raw_origin is None or raw_destination is None or raw_value is None:
+                continue
+            try:
+                values[(int(raw_origin), int(raw_destination))] = float(raw_value)
+            except (TypeError, ValueError):
+                continue
+        self._od_table_cache[key] = values
+        return values
+
+    def lookup_od_table_values(
+        self,
+        file_path: str,
+        origins: np.ndarray,
+        destinations: np.ndarray,
+        *,
+        origin_column_name: str,
+        destination_column_name: str,
+        value_column_name: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        lookup = self.get_od_table_values(
+            file_path,
+            origin_column_name=origin_column_name,
+            destination_column_name=destination_column_name,
+            value_column_name=value_column_name,
+        )
+        o_arr = np.asarray(origins, dtype=np.float64)
+        d_arr = np.asarray(destinations, dtype=np.float64)
+        values = np.full(len(o_arr), np.nan, dtype=float)
+        valid = np.zeros(len(o_arr), dtype=bool)
+        for idx, (raw_origin, raw_destination) in enumerate(zip(o_arr, d_arr, strict=False)):
+            if np.isnan(raw_origin) or np.isnan(raw_destination):
+                continue
+            key = (int(raw_origin), int(raw_destination))
+            if key not in lookup:
+                continue
+            values[idx] = lookup[key]
+            valid[idx] = True
         return values, valid
 
 

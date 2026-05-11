@@ -16,8 +16,10 @@ import runtime_workflows
 from processor.models import RunData
 from processor.prepare.cache import load_prepared_run_cache, write_prepared_run_cache
 from processor.skimjoin.annotate.trips import annotate_trips
+from processor.skimjoin.config.validation import ConfigValidationError, validate_config
 from processor.skimjoin.inventory import inventory_skim_files
 from processor.skimjoin.pipeline import apply_skimjoin
+from processor.skimjoin.skimstore.omx import OmxSkimStore
 from processor.summarize import cache as summary_cache
 from processor.summarize.contracts import empty_summary_frame
 from processor.summarize.summaries import skimjoin as skimjoin_summaries
@@ -106,6 +108,7 @@ def _write_prepare_run_inputs(
     *,
     include_income_segment: bool = False,
     include_origin_parking_zone: bool = False,
+    include_o_maz: bool = False,
     trip_id_column_name: str = "trip_id",
 ) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -136,6 +139,8 @@ def _write_prepare_run_inputs(
     trips[trip_id_column_name] = [5001]
     if include_origin_parking_zone:
         trips["origin_parking_zone"] = [101]
+    if include_o_maz:
+        trips["o_maz"] = [101]
 
     pl.DataFrame(hh).write_parquet(run_dir / "final_households.parquet")
     pl.DataFrame(
@@ -194,6 +199,36 @@ def _write_omx_with_lookup(
     handle.close()
 
 
+def _write_csv_skim(
+    path: Path,
+    *,
+    rows: list[dict[str, object]] | None = None,
+) -> None:
+    pl.DataFrame(
+        rows
+        or [
+            {"maz": 101, "walk_dist_local_bus": 0.25, "walk_dist_premium_transit": 0.5},
+            {"maz": 102, "walk_dist_local_bus": 0.75, "walk_dist_premium_transit": 1.0},
+        ]
+    ).write_csv(path)
+
+
+def _write_csv_od_skim(
+    path: Path,
+    *,
+    rows: list[dict[str, object]] | None = None,
+) -> None:
+    pl.DataFrame(
+        rows
+        or [
+            {"OMAZ": 101, "DMAZ": 101, "DISTWALK": 0.0, "actual": 0.0},
+            {"OMAZ": 101, "DMAZ": 102, "DISTWALK": 0.5, "actual": 10.0},
+            {"OMAZ": 102, "DMAZ": 101, "DISTWALK": 0.75, "actual": 15.0},
+            {"OMAZ": 102, "DMAZ": 102, "DISTWALK": 0.0, "actual": 0.0},
+        ]
+    ).write_csv(path)
+
+
 def test_config_loads_separate_skimjoin_config_and_digest(tmp_path: Path) -> None:
     skim_path = tmp_path / "skims.omx"
     _write_omx(skim_path)
@@ -212,28 +247,117 @@ def test_config_loads_separate_skimjoin_config_and_digest(tmp_path: Path) -> Non
     )
 
 
-def test_config_rejects_non_omx_integrated_skimjoin_inputs(tmp_path: Path) -> None:
-    skim_cfg = tmp_path / "skimjoin.yaml"
-    skim_cfg.write_text(
-        "\n".join(
-            [
-                "project:",
-                "  skim_files:",
-                "    - skims.h5",
-                "  trips_table: ignored_trips.parquet",
-                "activitysim:",
-                "  mode_column: trip_mode",
-                "modes:",
-                "  SOV:",
-                "    time:",
-                "      matrix: SOV_TIME",
-            ]
-        ),
-        encoding="utf-8",
+def test_inventory_supports_csv_keyed_columns(tmp_path: Path) -> None:
+    csv_path = tmp_path / "maz_stop_walk.csv"
+    _write_csv_skim(csv_path)
+
+    inventory = inventory_skim_files([csv_path])
+
+    assert inventory["matrix_name"].to_list() == [
+        "maz_stop_walk__walk_dist_local_bus",
+        "maz_stop_walk__walk_dist_premium_transit",
+    ]
+    assert inventory["source_kind"].unique().to_list() == ["keyed_column"]
+    assert inventory["key_column_name"].unique().to_list() == ["maz"]
+    assert inventory["value_column_name"].to_list() == [
+        "walk_dist_local_bus",
+        "walk_dist_premium_transit",
+    ]
+
+
+def test_inventory_supports_csv_od_columns(tmp_path: Path) -> None:
+    csv_path = tmp_path / "maz_maz_walk.csv"
+    _write_csv_od_skim(csv_path)
+
+    inventory = inventory_skim_files([csv_path])
+
+    assert inventory["matrix_name"].to_list() == [
+        "maz_maz_walk__DISTWALK",
+        "maz_maz_walk__actual",
+    ]
+    assert inventory["source_kind"].unique().to_list() == ["od_table"]
+    assert inventory["origin_column_name"].unique().to_list() == ["OMAZ"]
+    assert inventory["destination_column_name"].unique().to_list() == ["DMAZ"]
+    assert inventory["value_column_name"].to_list() == ["DISTWALK", "actual"]
+
+
+def test_config_accepts_mixed_omx_and_csv_skim_inputs(tmp_path: Path) -> None:
+    skim_path = tmp_path / "skims.omx"
+    csv_path = tmp_path / "maz_stop_walk.csv"
+    _write_omx(skim_path)
+    _write_csv_skim(csv_path)
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[skim_path, csv_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  WALK_TRANSIT:",
+            "    maz_stop_walk:",
+            "      lookup: key",
+            "      key_column: o_maz",
+            "      matrix: maz_stop_walk__walk_dist_local_bus",
+        ],
     )
 
-    with pytest.raises(ValueError, match="OMX skim inputs only"):
-        _write_main_config(tmp_path, skimjoin_enabled=True)
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+
+    assert config.skimjoin.normalized_config is not None
+
+
+def test_validate_config_rejects_duplicate_matrix_names_across_sources(tmp_path: Path) -> None:
+    skim_path = tmp_path / "auto.omx"
+    csv_path = tmp_path / "auto.csv"
+    _write_omx(skim_path, matrix_name="auto__time")
+    pl.DataFrame({"id": [101], "time": [1.0]}).write_csv(csv_path)
+    _write_prepare_run_inputs(tmp_path / "run", include_o_maz=True)
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[skim_path, csv_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  WALK_TRANSIT:",
+            "    test_lookup:",
+            "      lookup: key",
+            "      key_column: o_maz",
+            "      matrix: auto__time",
+        ],
+    )
+    config_data = {
+        "project": {
+            "skim_files": [str(skim_path), str(csv_path)],
+            "trips_table": "run/final_trips.parquet",
+            "tours_table": "run/final_tours.parquet",
+        },
+        "activitysim": {
+            "trips_table": "run/final_trips.parquet",
+            "tours_table": "run/final_tours.parquet",
+            "mode_column": "trip_mode",
+            "tour_id_column": "tour_id",
+            "outbound_column": "outbound",
+        },
+        "defaults": {
+            "origin": "OTAZ",
+            "destination": "DTAZ",
+            "output_prefix": "skim_",
+        },
+        "modes": {
+            "WALK_TRANSIT": {
+                "test_lookup": {
+                    "lookup": "key",
+                    "key_column": "o_maz",
+                    "matrix": "auto__time",
+                }
+            }
+        },
+    }
+    inventory = inventory_skim_files([skim_path, csv_path])
+    trips = pl.read_parquet(tmp_path / "run" / "final_trips.parquet")
+    tours = pl.read_parquet(tmp_path / "run" / "final_tours.parquet")
+
+    with pytest.raises(ConfigValidationError, match="Duplicate matrix names"):
+        validate_config(config_data, inventory, trips, tours=tours)
 
 
 def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> None:
@@ -421,6 +545,286 @@ def test_run_prepare_workflow_handles_trips_without_canonical_trip_id(tmp_path: 
     assert prepared.trips["skim_time"].to_list() == [2.0]
     assert prepared.tours["skim_time"].to_list() == [2.0]
     assert prepared.skimjoin_manifest["skimjoin_status"] == "applied"
+
+
+def test_annotate_trips_supports_keyed_csv_lookup(tmp_path: Path) -> None:
+    csv_path = tmp_path / "maz_stop_walk.csv"
+    _write_csv_skim(csv_path)
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[csv_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  WALK_TRANSIT:",
+            "    maz_stop_walk:",
+            "      output: skim_transit_maz_stop_walk",
+            "      lookup: key",
+            "      key_column: o_maz",
+            "      matrix: maz_stop_walk__walk_dist_local_bus",
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1, 2, 3],
+            "trip_mode": ["WALK_TRANSIT", "WALK_TRANSIT", "WALK_TRANSIT"],
+            "o_maz": [101, 102, 999],
+            "OTAZ": [101, 101, 101],
+            "DTAZ": [102, 102, 102],
+        }
+    )
+    inventory = inventory_skim_files(normalized.skim_files)
+
+    annotated, lookup_summary, missing = annotate_trips(
+        trips,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+    )
+
+    assert annotated["skim_transit_maz_stop_walk"].to_list() == [0.25, 0.75, None]
+    assert lookup_summary["matrix_name"].to_list() == ["maz_stop_walk__walk_dist_local_bus"]
+    assert lookup_summary["origin_column"].to_list() == ["o_maz"]
+    assert lookup_summary["destination_column"].null_count() == 1
+    assert missing["reason"].to_list() == ["missing_od"]
+    assert missing["origin"].to_list() == [999]
+
+
+def test_annotate_trips_supports_csv_od_lookup(tmp_path: Path) -> None:
+    csv_path = tmp_path / "maz_maz_walk.csv"
+    _write_csv_od_skim(csv_path)
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[csv_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  WALK:",
+            "    maz_walk_distance:",
+            "      output: skim_walk_maz_distance",
+            "      origin: o_maz",
+            "      destination: d_maz",
+            "      matrix: maz_maz_walk__DISTWALK",
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1, 2, 3],
+            "trip_mode": ["WALK", "WALK", "WALK"],
+            "o_maz": [101, 102, 999],
+            "d_maz": [102, 101, 101],
+            "OTAZ": [101, 102, 999],
+            "DTAZ": [102, 101, 101],
+        }
+    )
+    inventory = inventory_skim_files(normalized.skim_files)
+
+    annotated, lookup_summary, missing = annotate_trips(
+        trips,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+    )
+
+    assert annotated["skim_walk_maz_distance"].to_list() == [0.5, 0.75, None]
+    assert lookup_summary["matrix_name"].to_list() == ["maz_maz_walk__DISTWALK"]
+    assert lookup_summary["origin_column"].to_list() == ["o_maz"]
+    assert lookup_summary["destination_column"].to_list() == ["d_maz"]
+    assert missing["reason"].to_list() == ["missing_od"]
+    assert missing["origin"].to_list() == [999]
+    assert missing["destination"].to_list() == [101]
+
+
+def test_run_prepare_workflow_supports_keyed_csv_skims_in_integrated_runtime(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "run"
+    _write_prepare_run_inputs(run_dir, include_o_maz=True)
+    skim_path = tmp_path / "skims.omx"
+    csv_path = tmp_path / "maz_stop_walk.csv"
+    _write_omx(skim_path)
+    _write_csv_skim(csv_path)
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[skim_path, csv_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  SOV:",
+            "    time:",
+            "      matrix: SOV_TIME",
+            "    maz_stop_walk:",
+            "      output: skim_transit_maz_stop_walk",
+            "      lookup: key",
+            "      key_column: o_maz",
+            "      matrix: maz_stop_walk__walk_dist_local_bus",
+        ],
+    )
+
+    config = _write_main_config(tmp_path, run_dir=run_dir, skimjoin_enabled=True)
+
+    prepared_root = runtime_workflows.prepared_cache_root(config, create=True)
+    result = runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=prepared_root,
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=False,
+    )
+
+    prepared = result.prepared_runs[0][1]
+    assert prepared.skimjoin_manifest["skimjoin_status"] == "applied"
+    assert prepared.trips["skim_transit_maz_stop_walk"].to_list() == [0.25]
+    assert prepared.tours["skim_transit_maz_stop_walk"].to_list() == [0.25]
+
+
+def test_run_prepare_workflow_supports_csv_od_skims_in_integrated_runtime(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "run"
+    _write_prepare_run_inputs(run_dir, include_o_maz=True)
+    trips_path = run_dir / "final_trips.parquet"
+    trips = pl.read_parquet(trips_path).with_columns(
+        pl.lit("WALK").alias("trip_mode"),
+        pl.lit(102).alias("d_maz"),
+    )
+    trips.write_parquet(trips_path)
+    tours_path = run_dir / "final_tours.parquet"
+    tours = pl.read_parquet(tours_path).with_columns(pl.lit("WALK").alias("tour_mode"))
+    tours.write_parquet(tours_path)
+
+    csv_path = tmp_path / "maz_maz_walk.csv"
+    _write_csv_od_skim(csv_path)
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[csv_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  WALK:",
+            "    maz_walk_distance:",
+            "      output: skim_walk_maz_distance",
+            "      origin: o_maz",
+            "      destination: d_maz",
+            "      matrix: maz_maz_walk__DISTWALK",
+        ],
+    )
+
+    config = _write_main_config(tmp_path, run_dir=run_dir, skimjoin_enabled=True)
+
+    prepared_root = runtime_workflows.prepared_cache_root(config, create=True)
+    result = runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=prepared_root,
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=False,
+    )
+
+    prepared = result.prepared_runs[0][1]
+    assert prepared.skimjoin_manifest["skimjoin_status"] == "applied"
+    assert prepared.trips["skim_walk_maz_distance"].to_list() == [0.5]
+    assert prepared.tours["skim_walk_maz_distance"].to_list() == [0.5]
+
+
+def test_annotate_trips_nullifies_configured_omx_sentinel_values(tmp_path: Path) -> None:
+    skim_path = tmp_path / "skims.omx"
+    _write_omx_with_lookup(
+        skim_path,
+        matrix_name="SOV_TIME",
+        lookup_name="taz",
+        values=np.array([[1.0, 9999.0], [3.0, 4.0]]),
+    )
+    _write_skimjoin_config(
+        tmp_path,
+        skim_file=skim_path,
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  SOV:",
+            "    time:",
+            "      matrix: SOV_TIME",
+            "      sentinel_values:",
+            "        - 9999",
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1, 2],
+            "trip_mode": ["SOV", "SOV"],
+            "OTAZ": [101, 102],
+            "DTAZ": [102, 102],
+        }
+    )
+    inventory = inventory_skim_files(normalized.skim_files)
+
+    annotated, lookup_summary, missing = annotate_trips(
+        trips,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+    )
+
+    assert annotated["skim_time"].to_list() == [None, 4.0]
+    assert lookup_summary["n_missing"].to_list() == [1]
+    assert missing["reason"].to_list() == ["sentinel_value"]
+
+
+def test_annotate_trips_nullifies_configured_keyed_csv_sentinel_values(tmp_path: Path) -> None:
+    csv_path = tmp_path / "maz_stop_walk.csv"
+    _write_csv_skim(
+        csv_path,
+        rows=[
+            {"maz": 101, "walk_dist_local_bus": 999999.0, "walk_dist_premium_transit": 0.5},
+            {"maz": 102, "walk_dist_local_bus": 0.75, "walk_dist_premium_transit": 1.0},
+        ],
+    )
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[csv_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  WALK_TRANSIT:",
+            "    maz_stop_walk:",
+            "      output: skim_transit_maz_stop_walk",
+            "      lookup: key",
+            "      key_column: o_maz",
+            "      matrix: maz_stop_walk__walk_dist_local_bus",
+            "      sentinel_values:",
+            "        - 999999",
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1, 2],
+            "trip_mode": ["WALK_TRANSIT", "WALK_TRANSIT"],
+            "o_maz": [101, 102],
+            "OTAZ": [101, 102],
+            "DTAZ": [102, 101],
+        }
+    )
+    inventory = inventory_skim_files(normalized.skim_files)
+
+    annotated, lookup_summary, missing = annotate_trips(trips, normalized, inventory)
+
+    assert annotated["skim_transit_maz_stop_walk"].to_list() == [None, 0.75]
+    assert lookup_summary["n_missing"].to_list() == [1]
+    assert missing["reason"].to_list() == ["sentinel_value"]
 
 
 def test_annotate_trips_handles_late_matrix_names_in_missing_report_without_schema_failure(

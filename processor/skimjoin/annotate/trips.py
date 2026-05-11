@@ -50,7 +50,20 @@ def annotate_trips(
     skim_store = skim_store or SkimStore()
     inventory_by_name = {
         str(row["matrix_name"]): row
-        for row in inventory.select(["matrix_name", "file_path", "matrix_path", "shape_rows", "shape_cols"]).to_dicts()
+        for row in inventory.select(
+            [
+                "matrix_name",
+                "file_path",
+                "matrix_path",
+                "shape_rows",
+                "shape_cols",
+                "source_kind",
+                "key_column_name",
+                "value_column_name",
+                "origin_column_name",
+                "destination_column_name",
+            ]
+        ).to_dicts()
     }
     mode_column = normalized.activitysim.mode_column
     trips = trips.with_row_index("_row_id")
@@ -101,14 +114,37 @@ def annotate_trips(
                 continue
 
             inv_row = inventory_by_name[matrix_name]
-            values, valid = skim_store.lookup_values(
-                str(inv_row["file_path"]),
-                str(inv_row["matrix_path"]),
-                group.get_column(rule.origin).cast(pl.Int64).to_numpy(),
-                group.get_column(rule.destination).cast(pl.Int64).to_numpy(),
-                lookup_name=normalized.zone_mapping.resolve_lookup_name(
-                    str(inv_row["file_path"])
-                ),
+            source_kind = str(inv_row["source_kind"])
+            if source_kind == "keyed_column":
+                values, valid = skim_store.lookup_keyed_values(
+                    str(inv_row["file_path"]),
+                    group.get_column(_rule_origin_column(rule)).cast(pl.Float64).to_numpy(),
+                    key_column_name=str(inv_row["key_column_name"]),
+                    value_column_name=str(inv_row["value_column_name"]),
+                )
+            elif source_kind == "od_table":
+                values, valid = skim_store.lookup_od_table_values(
+                    str(inv_row["file_path"]),
+                    group.get_column(rule.origin).cast(pl.Float64).to_numpy(),
+                    group.get_column(rule.destination).cast(pl.Float64).to_numpy(),
+                    origin_column_name=str(inv_row["origin_column_name"]),
+                    destination_column_name=str(inv_row["destination_column_name"]),
+                    value_column_name=str(inv_row["value_column_name"]),
+                )
+            else:
+                values, valid = skim_store.lookup_values(
+                    str(inv_row["file_path"]),
+                    str(inv_row["matrix_path"]),
+                    group.get_column(rule.origin).cast(pl.Int64).to_numpy(),
+                    group.get_column(rule.destination).cast(pl.Int64).to_numpy(),
+                    lookup_name=normalized.zone_mapping.resolve_lookup_name(
+                        str(inv_row["file_path"])
+                    ),
+                )
+            values, valid, sentinel_mask = _nullify_sentinel_values(
+                values,
+                valid,
+                rule.sentinel_values,
             )
 
             row_ids = group.get_column("_row_id").to_list()
@@ -123,8 +159,8 @@ def annotate_trips(
                     "output": rule.output,
                     "matrix_name": matrix_name,
                     "n_trips": int(group.height),
-                    "origin_column": rule.origin,
-                    "destination_column": rule.destination,
+                    "origin_column": _rule_origin_column(rule),
+                    "destination_column": _rule_destination_column(rule),
                     "mean_value": float(np.nanmean(values)) if np.isfinite(values).any() else np.nan,
                     "min_value": float(np.nanmin(values)) if np.isfinite(values).any() else np.nan,
                     "max_value": float(np.nanmax(values)) if np.isfinite(values).any() else np.nan,
@@ -135,14 +171,15 @@ def annotate_trips(
             invalid_indices = [idx for idx, is_valid in enumerate(valid) if not is_valid]
             for idx in invalid_indices:
                 row = group.row(idx, named=True)
+                reason = "sentinel_value" if sentinel_mask[idx] else "missing_od"
                 missing_rows.append(
                     {
                         "rule_name": rule.name,
                         "trip_id": _row_trip_id(row),
-                        "origin": row.get(rule.origin),
-                        "destination": row.get(rule.destination),
+                        "origin": row.get(_rule_origin_column(rule)),
+                        "destination": row.get(_rule_destination_column(rule)),
                         "matrix_name": matrix_name,
-                        "reason": "missing_od",
+                        "reason": reason,
                     }
                 )
 
@@ -172,7 +209,13 @@ def annotate_trips(
 
 
 def _missing_trip_columns_for_rule(trips: pl.DataFrame, rule: NormalizedLookupRule) -> list[str]:
-    required_columns = {rule.origin, rule.destination, *rule.when.keys()}
+    required_columns = {*rule.when.keys()}
+    if rule.lookup == "key":
+        if rule.key_column is not None:
+            required_columns.add(rule.key_column)
+    else:
+        required_columns.add(rule.origin)
+        required_columns.add(rule.destination)
     for dimension_name in rule.dimensions_used:
         required_columns.add(rule.dimensions[dimension_name].source_column)
     return sorted(column for column in required_columns if column not in trips.columns)
@@ -189,7 +232,10 @@ def _build_rule_mask(trips: pl.DataFrame, mode_column: str, rule: NormalizedLook
 
 
 def _resolve_subset(rule: NormalizedLookupRule, subset: pl.DataFrame) -> dict[str, object]:
-    required_columns = [rule.origin, rule.destination]
+    required_columns = [_rule_origin_column(rule)]
+    destination_column = _rule_destination_column(rule)
+    if destination_column is not None:
+        required_columns.append(destination_column)
     for dimension_name in rule.dimensions_used:
         required_columns.append(rule.dimensions[dimension_name].source_column)
     select_columns = ["_row_id"]
@@ -213,8 +259,8 @@ def _resolve_subset(rule: NormalizedLookupRule, subset: pl.DataFrame) -> dict[st
                         {
                             "rule_name": rule.name,
                             "trip_id": _row_trip_id(row),
-                            "origin": row.get(rule.origin),
-                            "destination": row.get(rule.destination),
+                            "origin": row.get(_rule_origin_column(rule)),
+                            "destination": row.get(_rule_destination_column(rule)),
                             "matrix_name": None,
                             "reason": f"missing_dimension_value:{dimension_name}",
                         }
@@ -227,8 +273,8 @@ def _resolve_subset(rule: NormalizedLookupRule, subset: pl.DataFrame) -> dict[st
                         {
                             "rule_name": rule.name,
                             "trip_id": _row_trip_id(row),
-                            "origin": row.get(rule.origin),
-                            "destination": row.get(rule.destination),
+                            "origin": row.get(_rule_origin_column(rule)),
+                            "destination": row.get(_rule_destination_column(rule)),
                             "matrix_name": None,
                             "reason": f"missing_dimension_value:{dimension_name}",
                         }
@@ -247,3 +293,32 @@ def _resolve_subset(rule: NormalizedLookupRule, subset: pl.DataFrame) -> dict[st
         },
         "errors": errors,
     }
+
+
+def _rule_origin_column(rule: NormalizedLookupRule) -> str:
+    return rule.key_column if rule.lookup == "key" and rule.key_column is not None else rule.origin
+
+
+def _rule_destination_column(rule: NormalizedLookupRule) -> str | None:
+    if rule.lookup == "key":
+        return None
+    return rule.destination
+
+
+def _nullify_sentinel_values(
+    values: np.ndarray,
+    valid: np.ndarray,
+    sentinel_values: list[float],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    sentinel_mask = np.zeros(len(values), dtype=bool)
+    if not sentinel_values:
+        return values, valid, sentinel_mask
+    finite_mask = np.isfinite(values) & valid
+    for sentinel_value in sentinel_values:
+        sentinel_mask = sentinel_mask | (finite_mask & np.isclose(values, sentinel_value))
+    if sentinel_mask.any():
+        values = values.copy()
+        valid = valid.copy()
+        values[sentinel_mask] = np.nan
+        valid[sentinel_mask] = False
+    return values, valid, sentinel_mask
