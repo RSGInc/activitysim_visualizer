@@ -673,6 +673,120 @@ def test_annotate_trips_supports_csv_od_lookup(tmp_path: Path) -> None:
     assert missing["destination"].to_list() == [101]
 
 
+def test_annotate_trips_resolves_placeholders_into_multiple_matrix_groups(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    handle = omx.open_file(str(skim_path), "w")
+    handle["SOV_L_TIME"] = np.array([[1.0, 2.0], [3.0, 4.0]])
+    handle["SOV_H_TIME"] = np.array([[10.0, 20.0], [30.0, 40.0]])
+    handle.create_mapping("taz", np.array([101, 102], dtype=np.uint32))
+    handle.close()
+
+    _write_skimjoin_config(
+        tmp_path,
+        skim_file=skim_path,
+        include_default_mode=False,
+        extra_lines=[
+            "dimensions:",
+            "  VOT:",
+            "    source_column: income_segment",
+            "    values:",
+            "      1: L",
+            "      2: H",
+            "modes:",
+            "  SOV:",
+            "    time:",
+            "      matrix: SOV_{VOT}_TIME",
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1, 2, 3],
+            "trip_mode": ["SOV", "SOV", "SOV"],
+            "OTAZ": [101, 101, 101],
+            "DTAZ": [102, 102, 102],
+            "income_segment": [1, 2, 999],
+        }
+    )
+    inventory = inventory_skim_files(normalized.skim_files)
+
+    annotated, lookup_summary, missing = annotate_trips(
+        trips,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+    )
+
+    assert annotated["skim_time"].to_list() == [2.0, 20.0, None]
+    assert lookup_summary.sort("matrix_name")["matrix_name"].to_list() == [
+        "SOV_H_TIME",
+        "SOV_L_TIME",
+    ]
+    assert lookup_summary.sort("matrix_name")["n_trips"].to_list() == [1, 1]
+    assert missing["reason"].to_list() == ["missing_dimension_value:VOT"]
+    assert missing["trip_id"].to_list() == [3]
+
+
+def test_annotate_trips_supports_multiple_outputs_in_one_pass(tmp_path: Path) -> None:
+    skim_path = tmp_path / "skims.omx"
+    csv_path = tmp_path / "maz_stop_walk.csv"
+    _write_omx(skim_path, matrix_name="SOV_TIME")
+    _write_csv_skim(csv_path)
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[skim_path, csv_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  SOV:",
+            "    time:",
+            "      output: skim_time",
+            "      matrix: SOV_TIME",
+            "  WALK_TRANSIT:",
+            "    maz_stop_walk:",
+            "      output: skim_transit_maz_stop_walk",
+            "      lookup: key",
+            "      key_column: o_maz",
+            "      matrix: maz_stop_walk__walk_dist_local_bus",
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1, 2, 3],
+            "trip_mode": ["SOV", "WALK_TRANSIT", "WALK_TRANSIT"],
+            "OTAZ": [101, 101, 101],
+            "DTAZ": [102, 102, 102],
+            "o_maz": [101, 101, 999],
+        }
+    )
+    inventory = inventory_skim_files(normalized.skim_files)
+
+    annotated, lookup_summary, missing = annotate_trips(
+        trips,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+    )
+
+    assert annotated["skim_time"].to_list() == [2.0, None, None]
+    assert annotated["skim_transit_maz_stop_walk"].to_list() == [None, 0.25, None]
+    assert lookup_summary.sort("output")["output"].to_list() == [
+        "skim_time",
+        "skim_transit_maz_stop_walk",
+    ]
+    assert missing["reason"].to_list() == ["missing_od"]
+    assert missing["trip_id"].to_list() == [3]
+
+
 def test_run_prepare_workflow_supports_keyed_csv_skims_in_integrated_runtime(
     tmp_path: Path,
 ) -> None:

@@ -11,7 +11,9 @@ class SkimStore:
     def __init__(self) -> None:
         self._cache: dict[tuple[str, str], np.ndarray] = {}
         self._keyed_cache: dict[tuple[str, str, str], dict[int, float]] = {}
+        self._keyed_table_cache: dict[tuple[str, str, str], pl.DataFrame] = {}
         self._od_table_cache: dict[tuple[str, str, str, str], dict[tuple[int, int], float]] = {}
+        self._od_table_frame_cache: dict[tuple[str, str, str, str], pl.DataFrame] = {}
 
     def get_matrix(self, file_path: str, matrix_path: str) -> np.ndarray:
         key = (file_path, matrix_path)
@@ -50,6 +52,26 @@ class SkimStore:
         values[valid] = matrix[o_idx[valid], d_idx[valid]]
         return values, valid
 
+    def lookup_values_frame(
+        self,
+        file_path: str,
+        matrix_path: str,
+        work: pl.DataFrame,
+        *,
+        lookup_name: str | None = None,
+    ) -> pl.DataFrame:
+        values, valid = self.lookup_values(
+            file_path,
+            matrix_path,
+            work.get_column("lookup_origin").cast(pl.Int64).to_numpy(),
+            work.get_column("lookup_destination").cast(pl.Int64).to_numpy(),
+            lookup_name=lookup_name,
+        )
+        return work.with_columns(
+            pl.Series("value", values),
+            pl.Series("valid", valid),
+        )
+
     def get_keyed_values(
         self,
         file_path: str,
@@ -74,6 +96,28 @@ class SkimStore:
                 continue
         self._keyed_cache[key] = values
         return values
+
+    def get_keyed_table(
+        self,
+        file_path: str,
+        *,
+        key_column_name: str,
+        value_column_name: str,
+    ) -> pl.DataFrame:
+        key = (file_path, key_column_name, value_column_name)
+        if key in self._keyed_table_cache:
+            return self._keyed_table_cache[key]
+
+        table = (
+            pl.read_csv(file_path)
+            .select(
+                pl.col(key_column_name).cast(pl.Float64).alias("__lookup_key"),
+                pl.col(value_column_name).cast(pl.Float64).alias("__lookup_value"),
+            )
+            .filter(pl.col("__lookup_key").is_not_null() & pl.col("__lookup_value").is_not_null())
+        )
+        self._keyed_table_cache[key] = table
+        return table
 
     def lookup_keyed_values(
         self,
@@ -100,6 +144,33 @@ class SkimStore:
             values[idx] = lookup[key_value]
             valid[idx] = True
         return values, valid
+
+    def lookup_keyed_frame(
+        self,
+        file_path: str,
+        work: pl.DataFrame,
+        *,
+        key_column_name: str,
+        value_column_name: str,
+    ) -> pl.DataFrame:
+        table = self.get_keyed_table(
+            file_path,
+            key_column_name=key_column_name,
+            value_column_name=value_column_name,
+        )
+        return (
+            work.join(
+                table,
+                left_on="lookup_origin",
+                right_on="__lookup_key",
+                how="left",
+            )
+            .with_columns(
+                pl.col("__lookup_value").alias("value"),
+                pl.col("__lookup_value").is_not_null().alias("valid"),
+            )
+            .drop(["__lookup_value"])
+        )
 
     def get_od_table_values(
         self,
@@ -130,6 +201,34 @@ class SkimStore:
         self._od_table_cache[key] = values
         return values
 
+    def get_od_table_frame(
+        self,
+        file_path: str,
+        *,
+        origin_column_name: str,
+        destination_column_name: str,
+        value_column_name: str,
+    ) -> pl.DataFrame:
+        key = (file_path, origin_column_name, destination_column_name, value_column_name)
+        if key in self._od_table_frame_cache:
+            return self._od_table_frame_cache[key]
+
+        table = (
+            pl.read_csv(file_path)
+            .select(
+                pl.col(origin_column_name).cast(pl.Float64).alias("__lookup_origin"),
+                pl.col(destination_column_name).cast(pl.Float64).alias("__lookup_destination"),
+                pl.col(value_column_name).cast(pl.Float64).alias("__lookup_value"),
+            )
+            .filter(
+                pl.col("__lookup_origin").is_not_null()
+                & pl.col("__lookup_destination").is_not_null()
+                & pl.col("__lookup_value").is_not_null()
+            )
+        )
+        self._od_table_frame_cache[key] = table
+        return table
+
     def lookup_od_table_values(
         self,
         file_path: str,
@@ -159,6 +258,35 @@ class SkimStore:
             values[idx] = lookup[key]
             valid[idx] = True
         return values, valid
+
+    def lookup_od_table_frame(
+        self,
+        file_path: str,
+        work: pl.DataFrame,
+        *,
+        origin_column_name: str,
+        destination_column_name: str,
+        value_column_name: str,
+    ) -> pl.DataFrame:
+        table = self.get_od_table_frame(
+            file_path,
+            origin_column_name=origin_column_name,
+            destination_column_name=destination_column_name,
+            value_column_name=value_column_name,
+        )
+        return (
+            work.join(
+                table,
+                left_on=["lookup_origin", "lookup_destination"],
+                right_on=["__lookup_origin", "__lookup_destination"],
+                how="left",
+            )
+            .with_columns(
+                pl.col("__lookup_value").alias("value"),
+                pl.col("__lookup_value").is_not_null().alias("valid"),
+            )
+            .drop(["__lookup_value"])
+        )
 
 
 def _zone_indices(
