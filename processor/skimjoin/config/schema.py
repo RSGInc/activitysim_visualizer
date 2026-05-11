@@ -31,7 +31,7 @@ class DimensionConfig(BaseModel):
 class ActivitySimConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    trips_table: str
+    trips_table: str | None = None
     tours_table: str | None = None
     mode_column: str = "trip_mode"
     tour_id_column: str = "tour_id"

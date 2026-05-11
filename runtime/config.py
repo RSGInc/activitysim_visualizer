@@ -377,7 +377,10 @@ def _normalize_skimjoin_settings(
     from processor.skimjoin.config.validation import load_config
 
     skimjoin_data = load_config_file(resolved_config_path)
-    explicit_config = load_config(skimjoin_data)
+    explicit_config = load_config(
+        skimjoin_data,
+        require_activitysim_tables=False,
+    )
     normalized_config = normalize_config(explicit_config)
     skim_files = list(normalized_config.skim_files)
     if not skim_files:

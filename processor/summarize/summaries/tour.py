@@ -40,6 +40,8 @@ def tour_purpose(rd: RunData, config: Config) -> pl.DataFrame:
     if not required.issubset(set(rd.tours.columns)):
         return empty_summary_frame(tour_purpose)
     purpose_col = purpose_column(rd.tours)
+    if not purpose_col:
+        return empty_summary_frame(tour_purpose)
 
     return (
         rd.tours.filter(pl.col(purpose_col).is_not_null())
@@ -239,6 +241,8 @@ def tour_mode(rd: RunData, config: Config) -> pl.DataFrame:
     if not required.issubset(set(rd.tours.columns)):
         return empty_summary_frame(tour_mode)
     purpose_col = purpose_column(rd.tours)
+    if not purpose_col:
+        return empty_summary_frame(tour_mode)
 
     if "tour_category" not in rd.tours.columns:
         return empty_summary_frame(tour_mode)
@@ -358,6 +362,8 @@ def stop_freq(rd: RunData, config: Config) -> pl.DataFrame:
     if "tour_purpose" not in rd.tours.columns:
         return empty_summary_frame(stop_freq)
     purpose_col = purpose_column(rd.tours)
+    if not purpose_col:
+        return empty_summary_frame(stop_freq)
 
     return (
         rd.tours.filter(pl.col("tour_category").is_not_null())
@@ -458,6 +464,8 @@ def tour_tod(rd: RunData, config: Config) -> pl.DataFrame:
     if "tour_category" not in rd.tours.columns:
         return empty_summary_frame(tour_tod)
     purpose_col = purpose_column(rd.tours)
+    if not purpose_col:
+        return empty_summary_frame(tour_tod)
     if "tour_purpose" not in rd.tours.columns:
         return empty_summary_frame(tour_tod)
 
@@ -572,6 +580,8 @@ def tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     if not required.issubset(set(rd.tours.columns)):
         return empty_summary_frame(tour_distance)
     purpose_col = purpose_column(rd.tours)
+    if not purpose_col:
+        return empty_summary_frame(tour_distance)
 
     base = (
         rd.tours.filter(pl.col(purpose_col).is_not_null() & pl.col("SKIMDIST").is_not_null())
@@ -783,6 +793,8 @@ def avg_non_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
         & pl.col("finalweight").is_not_null()
     )
     purpose_col = purpose_column(rd.tours)
+    if not purpose_col:
+        return empty_summary_frame(avg_non_mand_tour_distance)
     tours = tours.with_columns(pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"))
 
     if tours.is_empty():

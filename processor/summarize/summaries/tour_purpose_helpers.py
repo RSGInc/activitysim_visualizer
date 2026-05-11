@@ -33,7 +33,11 @@ def with_summary_tour_purpose(
 
 def purpose_column(df: pl.DataFrame, fallback: str = "tour_purpose") -> str:
     """Return the preferred prepared column for summary-time purpose grouping."""
-    return SUMMARY_TOUR_PURPOSE if SUMMARY_TOUR_PURPOSE in df.columns else fallback
+    if SUMMARY_TOUR_PURPOSE in df.columns:
+        return SUMMARY_TOUR_PURPOSE
+    if fallback in df.columns:
+        return fallback
+    return ""
 
 
 def summary_tour_purpose_expr(

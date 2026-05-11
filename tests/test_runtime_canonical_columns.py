@@ -378,7 +378,7 @@ def test_config_summary_signature_changes_when_tour_purpose_grouping_changes(
     config_a = _write_config(tmp_path / "a")
     config_b = _write_config(
         tmp_path / "b",
-        extra_lines=["group_joint_tour_purposes: true"],
+        extra_lines=["group_joint_tour_purposes: false"],
     )
 
     assert config_a.summary_config_digest != config_b.summary_config_digest
@@ -558,7 +558,14 @@ def _prepared_run_with_groupable_tour_purposes() -> RunData:
 def test_tour_purpose_grouping_preserves_current_behavior_when_disabled(
     tmp_path: Path,
 ) -> None:
-    config = _write_config(tmp_path)
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "group_joint_tour_purposes: false",
+            "group_atwork_tour_purposes: false",
+            "group_school_tour_purposes: false",
+        ],
+    )
     prepared = _prepared_run_with_groupable_tour_purposes()
     prepared = RunData(
         label=prepared.label,
@@ -591,14 +598,7 @@ def test_tour_purpose_grouping_preserves_current_behavior_when_disabled(
 def test_tour_purpose_grouping_rolls_up_joint_atwork_and_school_across_summaries(
     tmp_path: Path,
 ) -> None:
-    config = _write_config(
-        tmp_path,
-        extra_lines=[
-            "group_joint_tour_purposes: true",
-            "group_atwork_tour_purposes: true",
-            "group_school_tour_purposes: true",
-        ],
-    )
+    config = _write_config(tmp_path)
     prepared = _prepared_run_with_groupable_tour_purposes()
     prepared = RunData(
         label=prepared.label,

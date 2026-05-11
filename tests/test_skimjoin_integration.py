@@ -247,6 +247,36 @@ def test_config_loads_separate_skimjoin_config_and_digest(tmp_path: Path) -> Non
     )
 
 
+def test_config_loads_integrated_skimjoin_without_activitysim_table_paths(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    _write_omx(skim_path, matrix_name="SOV_TIME")
+    config_path = tmp_path / "skimjoin.yaml"
+    lines = [
+        "project:",
+        "  skim_files:",
+        f"    - {skim_path.name}",
+        "activitysim:",
+        "  mode_column: trip_mode",
+        "  tour_id_column: tour_id",
+        "  outbound_column: outbound",
+        "defaults:",
+        "  origin: OTAZ",
+        "  destination: DTAZ",
+        "modes:",
+        "  SOV:",
+        "    time:",
+        "      matrix: SOV_TIME",
+    ]
+    config_path.write_text("\n".join(lines), encoding="utf-8")
+
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+
+    assert config.skimjoin.enabled is True
+    assert config.skimjoin.normalized_config is not None
+
+
 def test_inventory_supports_csv_keyed_columns(tmp_path: Path) -> None:
     csv_path = tmp_path / "maz_stop_walk.csv"
     _write_csv_skim(csv_path)

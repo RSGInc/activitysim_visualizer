@@ -24,8 +24,17 @@ class ValidationArtifacts:
     inventory: pl.DataFrame
 
 
-def load_config(data: dict[str, Any]) -> ExplicitConfig:
-    return ExplicitConfig.model_validate(data)
+def load_config(
+    data: dict[str, Any],
+    *,
+    require_activitysim_tables: bool = True,
+) -> ExplicitConfig:
+    config = ExplicitConfig.model_validate(data)
+    if require_activitysim_tables and not config.activitysim.trips_table:
+        raise ConfigValidationError(
+            "activitysim.trips_table is required for standalone skimjoin workflows."
+        )
+    return config
 
 
 def validate_config(

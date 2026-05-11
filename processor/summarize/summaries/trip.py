@@ -53,6 +53,8 @@ def stop_purpose_by_tour_purpose(rd: RunData, config: Config) -> pl.DataFrame:
     if not required.issubset(rd.trips.columns):
         return empty_summary_frame(stop_purpose_by_tour_purpose)
     purpose_col = purpose_column(rd.trips)
+    if not purpose_col:
+        return empty_summary_frame(stop_purpose_by_tour_purpose)
 
     return (
         rd.trips.filter(pl.col("stops") == 1)
@@ -90,6 +92,8 @@ def trip_mode(rd: RunData, config: Config) -> pl.DataFrame:
     if "tour_purpose" not in rd.trips.columns:
         return empty_summary_frame(trip_mode)
     purpose_col = purpose_column(rd.trips)
+    if not purpose_col:
+        return empty_summary_frame(trip_mode)
 
     base = (
         rd.trips.filter(
@@ -165,6 +169,8 @@ def trip_stop_tod(rd: RunData, config: Config) -> pl.DataFrame:
     if "stops" not in rd.trips.columns:
         return empty_summary_frame(trip_stop_tod)
     purpose_col = purpose_column(rd.trips)
+    if not purpose_col:
+        return empty_summary_frame(trip_stop_tod)
 
     stops = rd.trips.filter(pl.col("stops") == 1)
     all_trips = rd.trips.with_columns(pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"))
@@ -250,6 +256,8 @@ def trip_distance(rd: RunData, config: Config) -> pl.DataFrame:
     if not required.issubset(set(rd.trips.columns)):
         return empty_summary_frame(trip_distance)
     purpose_col = purpose_column(rd.trips)
+    if not purpose_col:
+        return empty_summary_frame(trip_distance)
 
     base = (
         rd.trips.filter(pl.col(purpose_col).is_not_null() & pl.col("od_dist").is_not_null())
@@ -322,6 +330,8 @@ def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
 
     stops = rd.trips.filter(pl.col("stops") == 1)
     purpose_col = purpose_column(rd.trips)
+    if not purpose_col:
+        return empty_summary_frame(stop_ood_distance)
 
     if "out_dir_dist" not in stops.columns:
         return empty_summary_frame(stop_ood_distance)

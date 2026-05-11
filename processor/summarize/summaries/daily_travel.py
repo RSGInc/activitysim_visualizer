@@ -300,6 +300,8 @@ def tour_rate_per_person(rd: RunData, config: Config) -> pl.DataFrame:
         return empty_summary_frame(tour_rate_per_person)
 
     purpose_col = purpose_column(rd.tours)
+    if not purpose_col:
+        return empty_summary_frame(tour_rate_per_person)
 
     # Denominator:
     # Weighted person-days by person type.
