@@ -369,14 +369,26 @@ class SkimSummariesPage(DashboardPage):
         )
 
         self._trip_section = self.section(
-            "skim_trip_section",
+            "skim_trip_summary_section",
+            selectors=("skim_component", "trip_mode"),
+            render=self.render_trip_summary_section,
+        )
+        self._trip_distribution_section = self.section(
+            "skim_trip_distribution_section",
             selectors=("skim_component", "trip_mode", "trip_min", "trip_max"),
-            render=self.render_trip_section,
+            export_data_mode="required",
+            render=self.render_trip_distribution_section,
         )
         self._tour_section = self.section(
-            "skim_tour_section",
+            "skim_tour_summary_section",
+            selectors=("skim_component", "tour_mode"),
+            render=self.render_tour_summary_section,
+        )
+        self._tour_distribution_section = self.section(
+            "skim_tour_distribution_section",
             selectors=("skim_component", "tour_mode", "tour_min", "tour_max"),
-            render=self.render_tour_section,
+            export_data_mode="required",
+            render=self.render_tour_distribution_section,
         )
 
         return self.new_section(
@@ -386,7 +398,9 @@ class SkimSummariesPage(DashboardPage):
                 self.component_sel,
             ),
             self._trip_section,
+            self._trip_distribution_section,
             self._tour_section,
+            self._tour_distribution_section,
         )
 
     def _trip_summaries(self):
@@ -510,7 +524,7 @@ class SkimSummariesPage(DashboardPage):
         min_widget.value = float(auto_range[0])
         max_widget.value = float(auto_range[1])
 
-    def render_trip_section(self):
+    def render_trip_summary_section(self):
         if not self.state.run_labels:
             return [pn.pane.Markdown("No runs loaded.")]
 
@@ -521,11 +535,6 @@ class SkimSummariesPage(DashboardPage):
                 control_row(
                     pn.pane.Markdown("**Trip Mode:**"),
                     self.trip_mode_sel,
-                    pn.pane.Markdown("**Min:**"),
-                    self.trip_min_sel,
-                    pn.pane.Markdown("**Max:**"),
-                    self.trip_max_sel,
-                    self.trip_reset_btn,
                 ),
                 self.data_not_available_card(
                     detail="Trip skim summaries require the precomputed skim trip statistics table.",
@@ -541,36 +550,10 @@ class SkimSummariesPage(DashboardPage):
                 control_row(
                     pn.pane.Markdown("**Trip Mode:**"),
                     self.trip_mode_sel,
-                    pn.pane.Markdown("**Min:**"),
-                    self.trip_min_sel,
-                    pn.pane.Markdown("**Max:**"),
-                    self.trip_max_sel,
-                    self.trip_reset_btn,
                 ),
                 self.data_not_available_card(
                     detail="Trip skim summaries are available only when skim-enriched trip summary tables contain numeric components.",
                     missing_items=[TRIP_STATS_SUMMARY_ID],
-                ),
-            ]
-
-        trip_distribution_x_range = _resolve_distribution_range(
-            self.trip_min_sel.value,
-            self.trip_max_sel.value,
-        )
-        if trip_distribution_x_range is None:
-            return [
-                pn.pane.Markdown("### Trip Skims"),
-                control_row(
-                    pn.pane.Markdown("**Trip Mode:**"),
-                    self.trip_mode_sel,
-                    pn.pane.Markdown("**Min:**"),
-                    self.trip_min_sel,
-                    pn.pane.Markdown("**Max:**"),
-                    self.trip_max_sel,
-                    self.trip_reset_btn,
-                ),
-                self.data_not_available_card(
-                    detail="Trip distribution controls require finite values with min less than max.",
                 ),
             ]
 
@@ -585,6 +568,55 @@ class SkimSummariesPage(DashboardPage):
                 mode_value=trip_mode,
             ),
         )
+        if not any(not df.is_empty() for _, df in trip_stats_data):
+            return [
+                pn.pane.Markdown("### Trip Skims"),
+                control_row(
+                    pn.pane.Markdown("**Trip Mode:**"),
+                    self.trip_mode_sel,
+                ),
+                self.data_not_available_card(
+                    detail=f"No trip skim summary data is available for component `{component}` and mode `{trip_mode}`.",
+                ),
+            ]
+
+        return [
+            pn.pane.Markdown("### Trip Skims"),
+            control_row(
+                pn.pane.Markdown("**Trip Mode:**"),
+                self.trip_mode_sel,
+            ),
+            data_table(
+                trip_stats_data,
+                title=f"Trip Summary Statistics - {component} / {trip_mode}",
+                height=130,
+            ),
+        ]
+
+    def render_trip_distribution_section(self):
+        if not self.state.run_labels:
+            return [pn.pane.Markdown("No runs loaded.")]
+
+        component = self.component_sel.value
+        trip_mode = self.trip_mode_sel.value
+        trip_distribution_x_range = _resolve_distribution_range(
+            self.trip_min_sel.value,
+            self.trip_max_sel.value,
+        )
+        if trip_distribution_x_range is None:
+            return [
+                control_row(
+                    pn.pane.Markdown("**Trip Distribution Min:**"),
+                    self.trip_min_sel,
+                    pn.pane.Markdown("**Trip Distribution Max:**"),
+                    self.trip_max_sel,
+                    self.trip_reset_btn,
+                ),
+                self.data_not_available_card(
+                    detail="Trip distribution controls require finite values with min less than max.",
+                ),
+            ]
+
         trip_distribution_data = self.get_filtered_view(
             "skim_trip_distribution",
             component,
@@ -601,23 +633,6 @@ class SkimSummariesPage(DashboardPage):
                 x_range=trip_distribution_x_range,
             ),
         )
-
-        if not any(not df.is_empty() for _, df in trip_stats_data):
-            return [
-                pn.pane.Markdown("### Trip Skims"),
-                control_row(
-                    pn.pane.Markdown("**Trip Mode:**"),
-                    self.trip_mode_sel,
-                    pn.pane.Markdown("**Min:**"),
-                    self.trip_min_sel,
-                    pn.pane.Markdown("**Max:**"),
-                    self.trip_max_sel,
-                    self.trip_reset_btn,
-                ),
-                self.data_not_available_card(
-                    detail=f"No trip skim summary data is available for component `{component}` and mode `{trip_mode}`.",
-                ),
-            ]
 
         trip_distribution_view = (
             density_chart(
@@ -645,25 +660,17 @@ class SkimSummariesPage(DashboardPage):
         )
 
         return [
-            pn.pane.Markdown("### Trip Skims"),
             control_row(
-                pn.pane.Markdown("**Trip Mode:**"),
-                self.trip_mode_sel,
-                pn.pane.Markdown("**Min:**"),
+                pn.pane.Markdown("**Trip Distribution Min:**"),
                 self.trip_min_sel,
-                pn.pane.Markdown("**Max:**"),
+                pn.pane.Markdown("**Trip Distribution Max:**"),
                 self.trip_max_sel,
                 self.trip_reset_btn,
-            ),
-            data_table(
-                trip_stats_data,
-                title=f"Trip Summary Statistics - {component} / {trip_mode}",
-                height=130,
             ),
             trip_distribution_view,
         ]
 
-    def render_tour_section(self):
+    def render_tour_summary_section(self):
         if not self.state.run_labels:
             return [pn.pane.Markdown("No runs loaded.")]
 
@@ -674,11 +681,6 @@ class SkimSummariesPage(DashboardPage):
                 control_row(
                     pn.pane.Markdown("**Tour Mode:**"),
                     self.tour_mode_sel,
-                    pn.pane.Markdown("**Min:**"),
-                    self.tour_min_sel,
-                    pn.pane.Markdown("**Max:**"),
-                    self.tour_max_sel,
-                    self.tour_reset_btn,
                 ),
                 self.data_not_available_card(
                     detail="Tour skim summaries require the precomputed skim tour statistics table.",
@@ -694,36 +696,10 @@ class SkimSummariesPage(DashboardPage):
                 control_row(
                     pn.pane.Markdown("**Tour Mode:**"),
                     self.tour_mode_sel,
-                    pn.pane.Markdown("**Min:**"),
-                    self.tour_min_sel,
-                    pn.pane.Markdown("**Max:**"),
-                    self.tour_max_sel,
-                    self.tour_reset_btn,
                 ),
                 self.data_not_available_card(
                     detail="Tour skim summaries are available only when skim-enriched tour summary tables contain numeric components.",
                     missing_items=[TOUR_STATS_SUMMARY_ID],
-                ),
-            ]
-
-        tour_distribution_x_range = _resolve_distribution_range(
-            self.tour_min_sel.value,
-            self.tour_max_sel.value,
-        )
-        if tour_distribution_x_range is None:
-            return [
-                pn.pane.Markdown("### Tour Skims"),
-                control_row(
-                    pn.pane.Markdown("**Tour Mode:**"),
-                    self.tour_mode_sel,
-                    pn.pane.Markdown("**Min:**"),
-                    self.tour_min_sel,
-                    pn.pane.Markdown("**Max:**"),
-                    self.tour_max_sel,
-                    self.tour_reset_btn,
-                ),
-                self.data_not_available_card(
-                    detail="Tour distribution controls require finite values with min less than max.",
                 ),
             ]
 
@@ -738,6 +714,55 @@ class SkimSummariesPage(DashboardPage):
                 mode_value=tour_mode,
             ),
         )
+        if not any(not df.is_empty() for _, df in tour_stats_data):
+            return [
+                pn.pane.Markdown("### Tour Skims"),
+                control_row(
+                    pn.pane.Markdown("**Tour Mode:**"),
+                    self.tour_mode_sel,
+                ),
+                self.data_not_available_card(
+                    detail=f"No tour skim summary data is available for component `{component}` and mode `{tour_mode}`.",
+                ),
+            ]
+
+        return [
+            pn.pane.Markdown("### Tour Skims"),
+            control_row(
+                pn.pane.Markdown("**Tour Mode:**"),
+                self.tour_mode_sel,
+            ),
+            data_table(
+                tour_stats_data,
+                title=f"Tour Summary Statistics - {component} / {tour_mode}",
+                height=130,
+            ),
+        ]
+
+    def render_tour_distribution_section(self):
+        if not self.state.run_labels:
+            return [pn.pane.Markdown("No runs loaded.")]
+
+        component = self.component_sel.value
+        tour_mode = self.tour_mode_sel.value
+        tour_distribution_x_range = _resolve_distribution_range(
+            self.tour_min_sel.value,
+            self.tour_max_sel.value,
+        )
+        if tour_distribution_x_range is None:
+            return [
+                control_row(
+                    pn.pane.Markdown("**Tour Distribution Min:**"),
+                    self.tour_min_sel,
+                    pn.pane.Markdown("**Tour Distribution Max:**"),
+                    self.tour_max_sel,
+                    self.tour_reset_btn,
+                ),
+                self.data_not_available_card(
+                    detail="Tour distribution controls require finite values with min less than max.",
+                ),
+            ]
+
         tour_distribution_data = self.get_filtered_view(
             "skim_tour_distribution",
             component,
@@ -754,23 +779,6 @@ class SkimSummariesPage(DashboardPage):
                 x_range=tour_distribution_x_range,
             ),
         )
-
-        if not any(not df.is_empty() for _, df in tour_stats_data):
-            return [
-                pn.pane.Markdown("### Tour Skims"),
-                control_row(
-                    pn.pane.Markdown("**Tour Mode:**"),
-                    self.tour_mode_sel,
-                    pn.pane.Markdown("**Min:**"),
-                    self.tour_min_sel,
-                    pn.pane.Markdown("**Max:**"),
-                    self.tour_max_sel,
-                    self.tour_reset_btn,
-                ),
-                self.data_not_available_card(
-                    detail=f"No tour skim summary data is available for component `{component}` and mode `{tour_mode}`.",
-                ),
-            ]
 
         tour_distribution_view = (
             density_chart(
@@ -798,20 +806,12 @@ class SkimSummariesPage(DashboardPage):
         )
 
         return [
-            pn.pane.Markdown("### Tour Skims"),
             control_row(
-                pn.pane.Markdown("**Tour Mode:**"),
-                self.tour_mode_sel,
-                pn.pane.Markdown("**Min:**"),
+                pn.pane.Markdown("**Tour Distribution Min:**"),
                 self.tour_min_sel,
-                pn.pane.Markdown("**Max:**"),
+                pn.pane.Markdown("**Tour Distribution Max:**"),
                 self.tour_max_sel,
                 self.tour_reset_btn,
-            ),
-            data_table(
-                tour_stats_data,
-                title=f"Tour Summary Statistics - {component} / {tour_mode}",
-                height=130,
             ),
             tour_distribution_view,
         ]

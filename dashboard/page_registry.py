@@ -665,7 +665,12 @@ def live_data_requirements(config: Config) -> DashboardDataRequirements:
 
 
 def export_data_requirements(config: Config) -> DashboardDataRequirements:
-    return data_requirements_for_pages(resolve_export_page_definitions(config))
+    requirements = data_requirements_for_pages(resolve_export_page_definitions(config))
+    return DashboardDataRequirements(
+        prepared_data_mode="none",
+        required_summary_ids=requirements.required_summary_ids,
+        required_prepared_tables=(),
+    )
 
 
 def build_prepared_run_provider_for_page_definitions(
@@ -696,10 +701,7 @@ def build_export_prepared_run_provider(
     runs: list[tuple[str, RunData]] | None,
     config: Config,
 ) -> DashboardPreparedRunProvider:
-    return build_prepared_run_provider_for_page_definitions(
-        runs,
-        resolve_export_page_definitions(config),
-    )
+    return DashboardPreparedRunProvider.not_requested()
 
 
 def _build_registered_pages(

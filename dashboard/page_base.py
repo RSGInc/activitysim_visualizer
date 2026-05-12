@@ -20,7 +20,7 @@ from dashboard.data_access import (
 from runtime.config import Config
 
 if TYPE_CHECKING:
-    from dashboard.page_definitions import DashboardPageDefinition
+    from dashboard.page_definitions import DashboardPageDefinition, PreparedDataMode
 
 LOGGER = get_logger("dashboard.page")
 
@@ -43,6 +43,7 @@ class RegisteredPageSection:
     container: pn.Column
     selector_ids: tuple[str, ...]
     export: bool
+    export_data_mode: "PreparedDataMode"
     render: Callable[[], SectionContent]
     dirty: bool = True
 
@@ -173,6 +174,7 @@ class DashboardPage:
         *,
         selectors: tuple[str, ...] = (),
         export: bool = True,
+        export_data_mode: "PreparedDataMode" = "none",
         render: Callable[[], SectionContent],
     ) -> pn.Column:
         """Register one stable page section."""
@@ -196,6 +198,7 @@ class DashboardPage:
             container=container,
             selector_ids=tuple(selectors),
             export=export,
+            export_data_mode=export_data_mode,
             render=render,
         )
         return container

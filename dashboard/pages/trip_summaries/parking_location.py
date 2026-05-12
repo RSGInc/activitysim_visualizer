@@ -68,6 +68,7 @@ class ParkingLocationPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
         self._body = self.section(
             "parking_location_body",
+            export_data_mode="required",
             render=self.render_body,
         )
         return self.new_section(

@@ -235,6 +235,9 @@ def density_chart(
     height: int = 350,
     as_percent: bool | None = None,
     xaxis_range: tuple[float, float] | None = None,
+    xaxis_categoryarray: list[object] | None = None,
+    xaxis_tickvals: list[object] | None = None,
+    xaxis_ticktext: list[str] | None = None,
 ) -> pn.pane.Plotly:
     """
     Create an overlaid density/histogram line chart.
@@ -274,6 +277,17 @@ def density_chart(
     )
     if xaxis_range is not None:
         fig.update_xaxes(range=[float(xaxis_range[0]), float(xaxis_range[1])])
+    if xaxis_categoryarray is not None:
+        fig.update_xaxes(
+            type="category",
+            categoryorder="array",
+            categoryarray=xaxis_categoryarray,
+        )
+    if xaxis_tickvals is not None:
+        tick_kwargs = {"tickmode": "array", "tickvals": xaxis_tickvals}
+        if xaxis_ticktext is not None:
+            tick_kwargs["ticktext"] = xaxis_ticktext
+        fig.update_xaxes(**tick_kwargs)
     return pn.pane.Plotly(fig, sizing_mode="stretch_width")
 
 

@@ -9,7 +9,6 @@ from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 from processor.models import RunData
-from runtime.config import Config
 
 
 def trip_mode_distribution(
@@ -45,22 +44,24 @@ def trip_mode_distribution(
 class RawTripDemoPage(DashboardPage):
     """Example page for future prepared-data pages to follow."""
 
-    def __init__(self, state, config: Config) -> None:
-        super().__init__("Prepared Trip Demo", state, config)
-        self._body = pn.Column(sizing_mode="stretch_width")
-        self.view = self._body
+    def build_page(self) -> pn.viewable.Viewable:
+        self._body = self.section(
+            "raw_trip_demo_body",
+            export_data_mode="required",
+            render=self.render_body,
+        )
+        return self._body
 
-    def _refresh(self) -> None:
+    def render_body(self):
         if not self.state.run_labels:
-            self._body.objects = [pn.pane.Markdown("No runs loaded.")]
-            return
+            return [pn.pane.Markdown("No runs loaded.")]
 
         prepared_result = self.resolve_prepared_visualization(
             "raw_trip_demo_trip_modes",
             table_requirements={"trips": ("trip_mode",)},
         )
         if not prepared_result.has_usable_runs:
-            self._body.objects = [
+            return [
                 pn.pane.Markdown("## Prepared Trip Demo"),
                 self.unavailable_visualization(
                     prepared_result,
@@ -70,7 +71,6 @@ class RawTripDemoPage(DashboardPage):
                     ),
                 ),
             ]
-            return
 
         prepared_runs = prepared_result.usable_by_input["trips"]
         trip_mode_list = self.get_filtered_view(
@@ -79,7 +79,7 @@ class RawTripDemoPage(DashboardPage):
             tuple(label for label, _ in prepared_runs),
             factory=lambda: trip_mode_distribution(prepared_runs),
         )
-        self._body.objects = [
+        return [
             pn.pane.Markdown("## Prepared Trip Demo"),
             pn.pane.Markdown(
                 "This page demonstrates the opt-in prepared-data path by aggregating "

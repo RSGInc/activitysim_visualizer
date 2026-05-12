@@ -20,7 +20,7 @@ NodeKind = Literal[
     "region",
 ]
 ContainerLayout = Literal["row", "column"]
-WidgetType = Literal["radio_button_group", "select"]
+WidgetType = Literal["radio_button_group", "select", "float_input"]
 RegionContentMode = Literal["snapshot"]
 
 
@@ -31,7 +31,7 @@ class SelectorMetadataPayload(TypedDict):
     request_mode: str
     requested_values: list[str]
     resolved_values: list[str]
-    default_value: str | None
+    default_value: Any
     options: list[str]
     export_enabled: bool
 
@@ -109,6 +109,7 @@ class WidgetNode(TypedDict):
     name: str
     value: Any
     options: list[Any]
+    step: Any
     disabled: bool
     selector_id: str | None
     export_enabled: bool

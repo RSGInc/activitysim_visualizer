@@ -172,6 +172,24 @@ def serialize_viewable(
             "selector_id": selector_id,
             "export_enabled": bool(selector_meta and selector_meta["export_enabled"]),
         }
+    if isinstance(obj, pn.widgets.FloatInput):
+        if id(obj) in hidden_widget_ids:
+            return {"kind": "spacer", "height": 0, "width": 0}
+        selector_id, selector_meta = widget_metadata.get(id(obj), (None, None))
+        disabled = True if disable_widgets else bool(obj.disabled)
+        if selector_meta and not selector_meta["export_enabled"]:
+            disabled = True
+        return {
+            "kind": "widget",
+            "widget_type": "float_input",
+            "name": obj.name or "",
+            "value": obj.value,
+            "options": [],
+            "step": obj.step,
+            "disabled": disabled,
+            "selector_id": selector_id,
+            "export_enabled": bool(selector_meta and selector_meta["export_enabled"]),
+        }
     if isinstance(obj, pn.pane.Markdown):
         source = (
             obj.object if isinstance(obj.object, str) else obj.object._repr_markdown_()

@@ -66,10 +66,12 @@ class _RuntimeExportPart:
         *,
         part_id: str,
         selector_ids: tuple[str, ...],
+        export_data_mode: str,
         view: pn.viewable.Viewable,
     ) -> None:
         self.part_id = part_id
         self.selector_ids = selector_ids
+        self.export_data_mode = export_data_mode
         self._view = view
 
     def view_for(self, page: Any) -> pn.viewable.Viewable | None:
@@ -115,6 +117,17 @@ def _selector_available(selector_def: Any, page: Any, config: Config) -> bool:
     return True
 
 
+def _selector_options(widget: pn.widgets.Widget) -> list[str]:
+    raw_options = getattr(widget, "options", None)
+    if raw_options is None:
+        return []
+    return [str(option) for option in raw_options]
+
+
+def _selector_supports_option_enumeration(widget: pn.widgets.Widget) -> bool:
+    return hasattr(widget, "options")
+
+
 def _page_export_parts(page: Any, page_def: DashboardPageDefinition) -> tuple[Any, ...]:
     runtime_sections = tuple(getattr(page, "registered_sections", ()))
     if runtime_sections:
@@ -122,12 +135,21 @@ def _page_export_parts(page: Any, page_def: DashboardPageDefinition) -> tuple[An
             _RuntimeExportPart(
                 part_id=section.section_id,
                 selector_ids=section.selector_ids,
+                export_data_mode=section.export_data_mode,
                 view=section.container,
             )
             for section in runtime_sections
             if section.export
         )
     return effective_export_parts(page_def)
+
+
+def _part_uses_prepared_data(part_def: Any) -> bool:
+    return str(getattr(part_def, "export_data_mode", "none")) != "none"
+
+
+def _include_part_in_export(part_def: Any) -> bool:
+    return not _part_uses_prepared_data(part_def)
 
 
 def _build_validation_page(
@@ -456,6 +478,13 @@ def serialize_dashboard_state(
         if page.view is None:
             continue
         page_def = page_definition_for_page(page)
+        enabled_part_defs = resolve_enabled_export_parts(
+            page,
+            page_def,
+            page.config.export_html,
+        )
+        if _page_export_parts(page, page_def) and not enabled_part_defs:
+            continue
         selector_defs = _page_selector_defs(page, page_def)
         selector_metadata_by_id = {
             _selector_id(selector_def): resolve_selector_metadata(
@@ -477,6 +506,9 @@ def serialize_dashboard_state(
             "selectors": [
                 selector_metadata_by_id[selector_id]
                 for selector_id in selector_metadata_by_id
+                if any(
+                    selector_id in part_def.selector_ids for part_def in enabled_part_defs
+                )
             ],
             "children": [],
             "default_page_id": None,
@@ -833,6 +865,8 @@ def resolve_enabled_export_parts(
     )
     enabled_parts = []
     for part_def in _page_export_parts(page, page_def):
+        if not _include_part_in_export(part_def):
+            continue
         part_override = override.parts.get(part_def.part_id)
         if part_override is not None and part_override.enabled is False:
             continue
@@ -919,7 +953,7 @@ def resolve_selector_metadata(
             "export_enabled": False,
         }
 
-    options = [str(option) for option in widget.options]
+    options = _selector_options(widget)
     default_value = str(widget.value)
     enabled_part_defs = resolve_enabled_export_parts(
         page, page_def, context.config.export_html
@@ -927,6 +961,7 @@ def resolve_selector_metadata(
     selector_used_by_enabled_part = any(
         selector_id in part_def.selector_ids for part_def in enabled_part_defs
     )
+    supports_option_enumeration = _selector_supports_option_enumeration(widget)
     if configured and not selector_used_by_enabled_part:
         warning_key = (page_id, selector_id, "unused")
         if warning_key not in context.warned_unavailable_selectors:
@@ -936,6 +971,29 @@ def resolve_selector_metadata(
                 "but no enabled export part uses this selector. Ignoring the configuration."
             )
             context.warned_unavailable_selectors.add(warning_key)
+        return {
+            "id": selector_id,
+            "label": _selector_label(selector_def),
+            "available": True,
+            "request_mode": request.mode,
+            "requested_values": list(request.values),
+            "resolved_values": [default_value],
+            "default_value": default_value,
+            "options": options,
+            "export_enabled": False,
+        }
+    if not supports_option_enumeration:
+        if configured and request.mode != "default":
+            warning_key = (page_id, selector_id, "non_enumerated")
+            if warning_key not in context.warned_unavailable_selectors:
+                LOGGER.warning(
+                    "Warning: "
+                    f"{_selector_field_name(page_def, selector_id)} is configured with "
+                    f"mode {request.mode!r}, but widget type {type(widget).__name__} "
+                    "does not expose discrete options for export enumeration. "
+                    "Exporting only the current widget value."
+                )
+                context.warned_unavailable_selectors.add(warning_key)
         return {
             "id": selector_id,
             "label": _selector_label(selector_def),

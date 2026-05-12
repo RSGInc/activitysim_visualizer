@@ -72,6 +72,7 @@ class PageExportPartDefinition:
     part_id: str
     view_attr: str
     selector_ids: tuple[str, ...] = field(default_factory=tuple)
+    export_data_mode: PreparedDataMode = "none"
 
     def view_for(self, page: Any) -> pn.viewable.Viewable | None:
         """Return the stable part root viewable from a page instance when present."""
