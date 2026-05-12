@@ -620,12 +620,16 @@ def test_skims_page_renders_component_selector_and_independent_sections(
     assert page.component_sel.options == ["skim_time"]
     assert list(page.trip_mode_sel.options) == ["DRIVE", "WALK"]
     assert list(page.tour_mode_sel.options) == ["DRIVE", "WALK"]
-    assert len(page._trip_section.objects) == 4
-    assert len(page._tour_section.objects) == 4
+    assert len(page._trip_section.objects) == 3
+    assert len(page._trip_distribution_section.objects) == 2
+    assert len(page._tour_section.objects) == 3
+    assert len(page._tour_distribution_section.objects) == 2
 
     page.trip_mode_sel.value = "WALK"
-    assert len(page._trip_section.objects) == 4
-    assert len(page._tour_section.objects) == 4
+    assert len(page._trip_section.objects) == 3
+    assert len(page._trip_distribution_section.objects) == 2
+    assert len(page._tour_section.objects) == 3
+    assert len(page._tour_distribution_section.objects) == 2
 
 
 def test_skims_page_mode_selectors_exclude_component_modes_with_no_valid_observations(
@@ -846,35 +850,35 @@ def test_skims_page_renders_disaggregated_distribution_plots_when_prepared_runs_
     page = SkimSummariesPage(state, config)
     page.refresh(force=True)
 
-    assert isinstance(page._trip_section.objects[-1], pn.pane.Plotly)
-    assert isinstance(page._tour_section.objects[-1], pn.pane.Plotly)
-    assert tuple(page._trip_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
+    assert isinstance(page._trip_distribution_section.objects[-1], pn.pane.Plotly)
+    assert isinstance(page._tour_distribution_section.objects[-1], pn.pane.Plotly)
+    assert tuple(page._trip_distribution_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
         (10.0, 200.0)
     )
-    assert tuple(page._tour_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
+    assert tuple(page._tour_distribution_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
         (10.0, 200.0)
     )
-    assert page._trip_section.objects[-1].object.layout.title.text == "Trip Distribution - skim_auto_time / SOV"
-    assert page._tour_section.objects[-1].object.layout.title.text == "Tour Distribution - skim_auto_time / SOV"
+    assert page._trip_distribution_section.objects[-1].object.layout.title.text == "Trip Distribution - skim_auto_time / SOV"
+    assert page._tour_distribution_section.objects[-1].object.layout.title.text == "Tour Distribution - skim_auto_time / SOV"
 
     page.trip_min_sel.value = 11.0
     page.trip_max_sel.value = 13.0
     page.tour_min_sel.value = 11.0
     page.tour_max_sel.value = 13.0
 
-    assert tuple(page._trip_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
+    assert tuple(page._trip_distribution_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
         (11.0, 13.0)
     )
-    assert tuple(page._tour_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
+    assert tuple(page._tour_distribution_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
         (11.0, 13.0)
     )
 
     page.trip_reset_btn.clicks = page.trip_reset_btn.clicks + 1
     page.tour_reset_btn.clicks = page.tour_reset_btn.clicks + 1
 
-    assert tuple(page._trip_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
+    assert tuple(page._trip_distribution_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
         (10.0, 200.0)
     )
-    assert tuple(page._tour_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
+    assert tuple(page._tour_distribution_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
         (10.0, 200.0)
     )

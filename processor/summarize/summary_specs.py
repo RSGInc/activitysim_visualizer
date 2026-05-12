@@ -169,6 +169,31 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         daily_travel.escorted_tours_to_from_school,
     ),
     SummarySpec(
+        "adult_escorted_tour_purposes_by_direction",
+        "adult_escorted_tour_purposes_by_direction",
+        daily_travel.adult_escorted_tour_purposes_by_direction,
+    ),
+    SummarySpec(
+        "adult_escort_trip_stop_frequency",
+        "adult_escort_trip_stop_frequency",
+        daily_travel.adult_escort_trip_stop_frequency,
+    ),
+    SummarySpec(
+        "adult_escorted_tours_by_person_type_and_direction",
+        "adult_escorted_tours_by_person_type_and_direction",
+        daily_travel.adult_escorted_tours_by_person_type_and_direction,
+    ),
+    SummarySpec(
+        "adult_escorted_tour_distance_distribution_by_direction",
+        "adult_escorted_tour_distance_distribution_by_direction",
+        daily_travel.adult_escorted_tour_distance_distribution_by_direction,
+    ),
+    SummarySpec(
+        "adult_escorted_trip_distance_distribution_by_direction",
+        "adult_escorted_trip_distance_distribution_by_direction",
+        daily_travel.adult_escorted_trip_distance_distribution_by_direction,
+    ),
+    SummarySpec(
         "tour_rates_by_person_type_and_tour_purpose",
         "tour_rates_by_person_type_and_tour_purpose",
         daily_travel.tour_rate_per_person,

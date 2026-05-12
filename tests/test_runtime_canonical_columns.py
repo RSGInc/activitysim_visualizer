@@ -702,6 +702,141 @@ def test_atwork_subtour_frequency_summary_counts_parent_work_tours_only(
     }
 
 
+def test_escorted_tour_summaries_exclude_child_person_types(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    rd = RunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame(),
+        per=pl.DataFrame(
+            {
+                "person_id": [101, 102, 103],
+                "person_type": [4, 7, 2],
+                "finalweight": [1.0, 1.0, 1.0],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [1001, 1002, 1003, 1004],
+                "person_id": [101, 101, 103, 102],
+                "person_type": [4, 4, 2, 7],
+                "tour_purpose": ["escort", "shopping", "escort", "school"],
+                "school_esc_outbound": ["ride_share", None, "pure_escort", "pure_escort"],
+                "school_esc_inbound": [None, "ride_share", "pure_escort", "ride_share"],
+                "SKIMDIST": [12.2, 7.6, 44.4, 9.1],
+                "num_ob_stops": [1, 5, 4, 2],
+                "num_ib_stops": [0, 3, 5, 1],
+                "num_tot_stops": [1, 8, 9, 3],
+                "finalweight": [2.0, 4.0, 3.0, 5.0],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "tour_id": [1001, 1001, 1003, 1003, 1004],
+                "od_dist": [5.4, 6.2, 8.8, 41.1, 9.9],
+                "inbound": [0, 1, 0, 1, 0],
+                "finalweight": [2.0, 2.0, 3.0, 3.0, 5.0],
+            }
+        ),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    total = daily_travel.total_escorted_tours(rd, config)
+    school = daily_travel.escorted_tours_to_from_school(rd, config).sort(
+        ["escort_type", "direction"]
+    )
+    purposes = daily_travel.adult_escorted_tour_purposes_by_direction(rd, config).sort(
+        ["tour_purpose", "direction"]
+    )
+    person_types = daily_travel.adult_escorted_tours_by_person_type_and_direction(
+        rd, config
+    ).sort(["person_type", "direction"])
+    tour_distance = (
+        daily_travel.adult_escorted_tour_distance_distribution_by_direction(
+            rd, config
+        ).sort(["direction", "distance_bin"])
+    )
+    trip_distance = (
+        daily_travel.adult_escorted_trip_distance_distribution_by_direction(
+            rd, config
+        ).sort(["direction", "distance_bin"])
+    )
+    stop_frequency = daily_travel.adult_escort_trip_stop_frequency(rd, config).sort(
+        ["tour_purpose", "outbound_stop_count", "inbound_stop_count", "total_stop_count"]
+    )
+
+    assert total.to_dict(as_series=False) == {"tour_count": [5.0]}
+    assert school.to_dict(as_series=False) == {
+        "escort_type": [
+            "pure_escort",
+            "pure_escort",
+            "pure_escort",
+            "ride_share",
+            "ride_share",
+        ],
+        "direction": [
+            "all_directions",
+            "inbound",
+            "outbound",
+            "all_directions",
+            "outbound",
+        ],
+        "tour_count": [6.0, 3.0, 3.0, 2.0, 2.0],
+    }
+    assert purposes.to_dict(as_series=False) == {
+        "tour_purpose": ["escort", "escort", "escort"],
+        "direction": ["all_directions", "inbound", "outbound"],
+        "tour_count": [8.0, 3.0, 5.0],
+    }
+    assert person_types.to_dict(as_series=False) == {
+        "person_type": ["2", "2", "2", "4", "4"],
+        "direction": [
+            "all_directions",
+            "inbound",
+            "outbound",
+            "all_directions",
+            "outbound",
+        ],
+        "tour_count": [6.0, 3.0, 3.0, 2.0, 2.0],
+    }
+    assert tour_distance.to_dict(as_series=False) == {
+        "distance_bin": ["12", "40+", "40+", "12", "40+"],
+        "direction": [
+            "all_directions",
+            "all_directions",
+            "inbound",
+            "outbound",
+            "outbound",
+        ],
+        "tour_count": [2.0, 6.0, 3.0, 2.0, 3.0],
+    }
+    assert trip_distance.to_dict(as_series=False) == {
+        "distance_bin": ["40+", "5", "6", "9", "40+", "6", "5", "9"],
+        "direction": [
+            "all_directions",
+            "all_directions",
+            "all_directions",
+            "all_directions",
+            "inbound",
+            "inbound",
+            "outbound",
+            "outbound",
+        ],
+        "trip_count": [3.0, 2.0, 2.0, 3.0, 3.0, 2.0, 2.0, 3.0],
+    }
+    assert stop_frequency.to_dict(as_series=False) == {
+        "tour_purpose": ["escort", "escort"],
+        "outbound_stop_count": [1, 3],
+        "inbound_stop_count": [0, 3],
+        "total_stop_count": [1, 6],
+        "tour_count": [2.0, 3.0],
+    }
+
+
 def test_prepare_data_uses_default_fallbacks_for_purpose_timing_and_employment(
     tmp_path: Path,
 ) -> None:

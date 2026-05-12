@@ -23,6 +23,7 @@ from dashboard.pages.daily_travel.daily_activity_pattern import (
     DailyActivityPatternPage,
     filter_person_type_rates,
 )
+from dashboard.pages.daily_travel.escorted_tours import EscortedToursPage
 from dashboard.pages.overview import OverviewPage
 from dashboard.pages.tour_summaries.tour_mode import (
     TourModePage as TourSummariesTourModePage,
@@ -921,6 +922,67 @@ def test_daily_activity_pattern_live_page_uses_shared_summary_helpers(
 
     assert list(page.person_type_sel.options) == ["Total", "worker"]
     page.person_type_sel.value = "worker"
+    page.refresh(force=True)
+    assert page._body.objects
+
+
+def test_escorted_tours_live_page_renders_stop_frequency_controls_and_chart(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    escorted_summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "escorted_tour_totals": pl.DataFrame({"tour_count": [5.0]}),
+            "school_escorted_tours_by_escort_type_and_direction": pl.DataFrame(
+                {
+                    "escort_type": ["pure_escort", "pure_escort", "ride_share"],
+                    "direction": ["all_directions", "outbound", "all_directions"],
+                    "tour_count": [6.0, 3.0, 2.0],
+                }
+            ),
+            "adult_escort_trip_stop_frequency": pl.DataFrame(
+                {
+                    "tour_purpose": ["escort", "escort"],
+                    "outbound_stop_count": [1, 3],
+                    "inbound_stop_count": [0, 3],
+                    "total_stop_count": [1, 6],
+                    "tour_count": [2.0, 3.0],
+                }
+            ),
+            "adult_escorted_tours_by_person_type_and_direction": pl.DataFrame(
+                {
+                    "person_type": ["2", "2", "4"],
+                    "direction": ["all_directions", "outbound", "all_directions"],
+                    "tour_count": [6.0, 3.0, 2.0],
+                }
+            ),
+            "adult_escorted_tour_distance_distribution_by_direction": pl.DataFrame(
+                {
+                    "distance_bin": ["12", "40+", "12"],
+                    "direction": ["all_directions", "all_directions", "outbound"],
+                    "tour_count": [2.0, 3.0, 2.0],
+                }
+            ),
+            "adult_escorted_trip_distance_distribution_by_direction": pl.DataFrame(
+                {
+                    "distance_bin": ["5", "6", "5"],
+                    "direction": ["all_directions", "all_directions", "outbound"],
+                    "trip_count": [2.0, 2.0, 2.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[escorted_summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = EscortedToursPage(state, config)
+    page.refresh(force=True)
+
+    assert list(page.direction_sel.options) == ["Both", "Outbound"]
+    page.direction_sel.value = "Outbound"
     page.refresh(force=True)
     assert page._body.objects
 

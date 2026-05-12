@@ -14,7 +14,13 @@ from dashboard.export.types import (
     EXPORT_PAGE_SELECTOR_RUNTIME,
     EXPORT_SCHEMA_VERSION,
 )
-from test_export_html import _full_summary_run, _region_nodes, _walk_nodes, _write_config
+from test_export_html import (
+    _full_summary_run,
+    _region_nodes,
+    _skim_summary_run,
+    _walk_nodes,
+    _write_config,
+)
 
 
 def _workspace_tmp_dir(label: str) -> Path:
@@ -223,3 +229,85 @@ def test_build_export_payload_disables_shadow_pricing_table_parts() -> None:
 
     assert region_ids == ["school_plot", "workplace_plot"]
     assert not any(node.get("kind") == "table" for node in nodes)
+
+
+def test_build_export_payload_skips_prepared_only_sections_but_keeps_summary_safe_skims_content() -> None:
+    tmp_path = _workspace_tmp_dir("payload_skims_summary_safe")
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=["skims"],
+        export_html_lines=[
+            "pages:",
+            "  skims: {}",
+        ],
+    )
+
+    payload = build_export_payload([], config, summary_runs=[_skim_summary_run()])
+
+    assert payload["pages"] == [
+        {
+            "id": "skims",
+            "title": "Skim Summaries",
+            "selectors": [
+                {
+                    "id": "skim_component",
+                    "label": "Skim Component",
+                    "available": True,
+                    "request_mode": "all",
+                    "requested_values": [],
+                    "resolved_values": ["DIST", "TIME"],
+                    "default_value": "DIST",
+                    "options": ["DIST", "TIME"],
+                    "export_enabled": True,
+                },
+                {
+                    "id": "trip_mode",
+                    "label": "Trip Mode",
+                    "available": True,
+                    "request_mode": "all",
+                    "requested_values": [],
+                    "resolved_values": ["DRIVE"],
+                    "default_value": "DRIVE",
+                    "options": ["DRIVE"],
+                    "export_enabled": False,
+                },
+                {
+                    "id": "tour_mode",
+                    "label": "Tour Mode",
+                    "available": True,
+                    "request_mode": "all",
+                    "requested_values": [],
+                    "resolved_values": ["DRIVE"],
+                    "default_value": "DRIVE",
+                    "options": ["DRIVE"],
+                    "export_enabled": False,
+                },
+            ],
+            "children": [],
+            "default_page_id": None,
+        }
+    ]
+    skims = payload["states"]["Weighted||Percent"]["skims"]
+    region_ids = sorted(_region_nodes(skims))
+    nodes = _walk_nodes(skims)
+
+    assert region_ids == ["skim_tour_summary_section", "skim_trip_summary_section"]
+    assert not any(node.get("widget_type") == "float_input" for node in nodes)
+    assert not any(node.get("selector_id") in {"trip_min", "trip_max", "tour_min", "tour_max"} for node in nodes)
+
+
+def test_build_export_payload_omits_prepared_only_pages() -> None:
+    tmp_path = _workspace_tmp_dir("payload_prepared_only_page")
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=["raw_trip_demo"],
+        export_html_lines=[
+            "pages:",
+            "  raw_trip_demo: {}",
+        ],
+    )
+
+    payload = build_export_payload([], config, summary_runs=[_full_summary_run()])
+
+    assert payload["pages"] == []
+    assert payload["states"]["Weighted||Percent"] == {}

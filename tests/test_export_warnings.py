@@ -276,7 +276,7 @@ def test_export_size_analysis_is_written_to_diagnostics_sidecar() -> None:
     assert size_analysis["total_payload_bytes"] > 0
     assert size_analysis["state_count"] == 4
     assert "Weighted||Percent" in size_analysis["states"]
-    assert size_analysis["states"]["Weighted||Percent"]["pages"]["raw_trip_demo"]["payload_bytes"] > 0
+    assert size_analysis["states"]["Weighted||Percent"]["pages"] == {}
 
 
 def test_export_size_analysis_sanitizes_nan_values() -> None:

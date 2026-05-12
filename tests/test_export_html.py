@@ -513,6 +513,51 @@ def _raw_trip_run() -> RunData:
     )
 
 
+def _skim_summary_run():
+    weighted = {
+        "skimjoin_trip_component_stats": pl.DataFrame(
+            {
+                "component": ["TIME", "TIME", "DIST"],
+                "trip_mode": ["DRIVE", "WALK", "DRIVE"],
+                "n_valid": [10.0, 8.0, 12.0],
+                "mean": [15.0, 20.0, 7.0],
+                "std": [1.5, 2.0, 0.7],
+                "min": [10.0, 15.0, 5.0],
+                "max": [20.0, 30.0, 9.0],
+                "median": [15.0, 20.0, 7.0],
+                "mode": [14.0, 19.0, 7.0],
+                "zero_share": [0.0, 0.0, 0.0],
+                "missing_share": [0.0, 0.0, 0.0],
+            }
+        ),
+        "skimjoin_tour_component_stats": pl.DataFrame(
+            {
+                "component": ["TIME", "TIME", "DIST"],
+                "tour_mode": ["DRIVE", "WALK", "DRIVE"],
+                "n_valid": [6.0, 5.0, 7.0],
+                "mean": [25.0, 18.0, 11.0],
+                "std": [2.5, 1.8, 1.1],
+                "min": [21.0, 14.0, 9.0],
+                "max": [30.0, 22.0, 13.0],
+                "median": [25.0, 18.0, 11.0],
+                "mode": [24.0, 18.0, 11.0],
+                "zero_share": [0.0, 0.0, 0.0],
+                "missing_share": [0.0, 0.0, 0.0],
+            }
+        ),
+    }
+    unweighted = {name: _scale_table(df, 0.5) for name, df in weighted.items()}
+    return create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode={
+            "weighted": weighted,
+            "unweighted": unweighted,
+        },
+        source_run_dir="C:/runs/base",
+    )
+
+
 def test_export_html_config_defaults_to_all_dashboard_states_and_selector_values(
     tmp_path: Path,
 ) -> None:
@@ -1122,7 +1167,7 @@ def test_build_export_html_document_inherits_live_page_order_when_export_pages_a
     ]
 
 
-def test_build_export_html_document_renders_prepared_trip_demo_page_when_runs_are_loaded(
+def test_build_export_html_document_omits_prepared_only_trip_demo_page_when_runs_are_loaded(
     tmp_path: Path,
 ) -> None:
     config = _write_config(
@@ -1139,17 +1184,11 @@ def test_build_export_html_document_renders_prepared_trip_demo_page_when_runs_ar
 
     html = build_export_html_document([("Base", _raw_trip_run())], config)
     payload = _extract_payload(html)
-    raw_demo = payload["states"]["Weighted||Percent"]["raw_trip_demo"]
-
-    assert [(page["id"], page["title"]) for page in payload["pages"]] == [
-        ("raw_trip_demo", "Prepared Trip Demo")
-    ]
-    assert raw_demo["kind"] == "page"
-    variant_nodes = _walk_nodes(raw_demo)
-    assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 1
+    assert payload["pages"] == []
+    assert payload["states"]["Weighted||Percent"] == {}
 
 
-def test_build_export_html_document_shows_placeholder_for_prepared_trip_demo_without_runs(
+def test_build_export_html_document_omits_prepared_only_trip_demo_page_without_runs(
     tmp_path: Path,
 ) -> None:
     config = _write_config(
@@ -1165,14 +1204,35 @@ def test_build_export_html_document_shows_placeholder_for_prepared_trip_demo_wit
     )
     html = build_export_html_document([], config, summary_runs=[_full_summary_run()])
     payload = _extract_payload(html)
-    raw_demo = payload["states"]["Weighted||Percent"]["raw_trip_demo"]
-    variant_nodes = _walk_nodes(raw_demo)
+    assert payload["pages"] == []
+    assert payload["states"]["Weighted||Percent"] == {}
 
-    assert raw_demo["kind"] == "page"
-    assert any(
-        node.get("kind") == "card" and node.get("title") == "Data Not Available"
-        for node in variant_nodes
+
+def test_build_export_html_document_keeps_summary_safe_skims_content_and_hides_prepared_only_controls(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=["skims"],
+        export_html_lines=[
+            "pages:",
+            "  skims: {}",
+        ],
     )
+
+    html = build_export_html_document([], config, summary_runs=[_skim_summary_run()])
+    payload = _extract_payload(html)
+    skims = payload["states"]["Weighted||Percent"]["skims"]
+    nodes = _walk_nodes(skims)
+
+    assert [(page["id"], page["title"]) for page in payload["pages"]] == [
+        ("skims", "Skim Summaries")
+    ]
+    assert not any(
+        node.get("selector_id") in {"trip_min", "trip_max", "tour_min", "tour_max"}
+        for node in nodes
+    )
+    assert not any(node.get("widget_type") == "float_input" for node in nodes)
 
 
 def test_build_export_html_document_validates_page_selector_requests_against_registry(
@@ -1484,9 +1544,9 @@ def test_build_export_html_document_warns_and_falls_back_when_long_term_geograph
     payload = _extract_payload(html)
     page_defs = _flatten_page_descriptors(payload["pages"])
 
-    selector_meta = page_defs["shadow_pricing"]["selectors"][1]
-    assert selector_meta["id"] == "student_type"
-    assert selector_meta["export_enabled"] is False
+    assert [selector["id"] for selector in page_defs["shadow_pricing"]["selectors"]] == [
+        "geography_level"
+    ]
     assert payload["states"]["Weighted||Percent"]["shadow_pricing"]["kind"] == "page"
 
 
@@ -1744,12 +1804,7 @@ def test_export_html_save_writes_visualization_diagnostics_sidecar(
     diagnostics = json.loads(
         (tmp_path / "dashboard.diagnostics.json").read_text(encoding="utf-8")
     )
-    raw_demo = diagnostics["states"]["Weighted||Percent"]["raw_trip_demo"]["default"]
-
-    assert raw_demo
-    assert raw_demo[0]["visualization_id"] == "raw_trip_demo_trip_modes"
-    assert raw_demo[0]["render_state"] == "skipped"
-    assert raw_demo[0]["input_ids"] == ["trips"]
+    assert diagnostics["states"]["Weighted||Percent"] == {}
 
 
 def test_export_html_save_fails_fast_without_final_files_when_html_write_fails(
