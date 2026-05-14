@@ -12,27 +12,7 @@ from dashboard.components import (
 )
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
-
-
-def _nonempty(
-    data_list: list[tuple[str, pl.DataFrame]],
-) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, df) for label, df in data_list if df is not None and len(df) > 0]
-
-
-def _options(
-    data_list: list[tuple[str, pl.DataFrame]],
-    col: str,
-    total_label: str = "All",
-) -> list[str]:
-    first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
-    if first_df is None or col not in first_df.columns:
-        return [total_label]
-
-    vals = (
-        first_df.select(col).drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
-    )
-    return [total_label] + sorted(v for v in vals if v != total_label)
+from dashboard.pages._shared.common import column_options, nonempty_runs
 
 
 def _filter_transit(
@@ -42,7 +22,7 @@ def _filter_transit(
 ) -> list[tuple[str, pl.DataFrame]]:
     out = []
 
-    for label, df in _nonempty(data_list):
+    for label, df in nonempty_runs(data_list):
         if "technology" in df.columns:
             df = df.with_columns(pl.col("technology").cast(pl.Utf8))
             if technology != "All":
@@ -83,8 +63,8 @@ class TransitValidationPage(DashboardPage):
             "transit_transfer_rate",
             "weighted",
         )
-        tech_opts = _options(boarding_data or [], "technology")
-        access_opts = _options(transfer_data or [], "access_mode")
+        tech_opts = column_options(boarding_data or [], "technology")
+        access_opts = column_options(transfer_data or [], "access_mode")
         self.technology_sel = self.selector(
             "technology",
             widget=pn.widgets.Select(
@@ -127,11 +107,11 @@ class TransitValidationPage(DashboardPage):
             "transit_transfer_rate",
             self.weighting_key,
         )
-        tech_opts = _options(boarding_list or transfer_list or [], "technology")
+        tech_opts = column_options(boarding_list or transfer_list or [], "technology")
         self.technology_sel.options = tech_opts
         if self.technology_sel.value not in tech_opts:
             self.technology_sel.value = tech_opts[0]
-        access_opts = _options(transfer_list or [], "access_mode")
+        access_opts = column_options(transfer_list or [], "access_mode")
         self.access_mode_sel.options = access_opts
         if self.access_mode_sel.value not in access_opts:
             self.access_mode_sel.value = access_opts[0]

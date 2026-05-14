@@ -8,51 +8,11 @@ import polars as pl
 from dashboard.components import data_table
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
-
-GEO_LEVEL_COL = "geography_level"
-GEO_TYPE_COL = "geography_type"
-
-
-def _nonempty(
-    data_list: list[tuple[str, pl.DataFrame]],
-) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, df) for label, df in data_list if df is not None and len(df) > 0]
-
-
-def _normalize_geography_columns(df: pl.DataFrame) -> pl.DataFrame:
-    if GEO_TYPE_COL in df.columns and GEO_LEVEL_COL not in df.columns:
-        return df.rename({GEO_TYPE_COL: GEO_LEVEL_COL})
-    return df
-
-
-def geo_level_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
-    first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
-    if first_df is None or GEO_LEVEL_COL not in first_df.columns:
-        return ["All"]
-
-    vals = (
-        first_df.select(GEO_LEVEL_COL)
-        .drop_nulls()
-        .unique()
-        .to_series()
-        .cast(pl.Utf8)
-        .to_list()
-    )
-    return ["All"] + sorted(v for v in vals if v != "All")
-
-
-def filter_geo_level(
-    data_list: list[tuple[str, pl.DataFrame]],
-    geo_level: str,
-) -> list[tuple[str, pl.DataFrame]]:
-    out = []
-    for label, df in _nonempty(data_list):
-        if GEO_LEVEL_COL in df.columns and geo_level != "All":
-            df = df.with_columns(pl.col(GEO_LEVEL_COL).cast(pl.Utf8)).filter(
-                pl.col(GEO_LEVEL_COL) == geo_level
-            )
-        out.append((label, df))
-    return out
+from dashboard.pages._shared.geography import (
+    filter_geo_level,
+    geo_level_options,
+    normalize_geography_columns,
+)
 
 
 class InternalExternalToursPage(DashboardPage):
@@ -94,13 +54,13 @@ class InternalExternalToursPage(DashboardPage):
             "external_nonmandatory_tour_locations"
         )
         normalized_int_ext = (
-            [(label, _normalize_geography_columns(df)) for label, df in int_ext_list]
+            [(label, normalize_geography_columns(df)) for label, df in int_ext_list]
             if int_ext_list is not None
             else []
         )
         normalized_external_loc = (
             [
-                (label, _normalize_geography_columns(df))
+                (label, normalize_geography_columns(df))
                 for label, df in external_loc_list
             ]
             if external_loc_list is not None
@@ -123,13 +83,13 @@ class InternalExternalToursPage(DashboardPage):
         )
 
         normalized_int_ext = (
-            [(label, _normalize_geography_columns(df)) for label, df in int_ext_list]
+            [(label, normalize_geography_columns(df)) for label, df in int_ext_list]
             if int_ext_list is not None
             else []
         )
         normalized_external_loc = (
             [
-                (label, _normalize_geography_columns(df))
+                (label, normalize_geography_columns(df))
                 for label, df in external_loc_list
             ]
             if external_loc_list is not None

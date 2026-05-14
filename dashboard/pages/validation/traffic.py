@@ -8,27 +8,7 @@ import polars as pl
 from dashboard.components import scatter_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
-
-
-def _nonempty(
-    data_list: list[tuple[str, pl.DataFrame]],
-) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, df) for label, df in data_list if df is not None and len(df) > 0]
-
-
-def _options(
-    data_list: list[tuple[str, pl.DataFrame]],
-    col: str,
-    total_label: str = "All",
-) -> list[str]:
-    first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
-    if first_df is None or col not in first_df.columns:
-        return [total_label]
-
-    vals = (
-        first_df.select(col).drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
-    )
-    return [total_label] + sorted(v for v in vals if v != total_label)
+from dashboard.pages._shared.common import column_options, nonempty_runs
 
 
 def validation_chart_data(
@@ -38,7 +18,7 @@ def validation_chart_data(
 ) -> list[tuple[str, pl.DataFrame]]:
     out = []
 
-    for label, df in _nonempty(data_list):
+    for label, df in nonempty_runs(data_list):
         if "direction" in df.columns:
             df = df.with_columns(pl.col("direction").cast(pl.Utf8))
             if direction != "All":
@@ -75,8 +55,8 @@ class TrafficValidationPage(DashboardPage):
             "traffic_count_comparisons",
             "weighted",
         )
-        direction_opts = _options(traffic_data or [], "direction")
-        period_opts = _options(traffic_data or [], "count_period")
+        direction_opts = column_options(traffic_data or [], "direction")
+        period_opts = column_options(traffic_data or [], "count_period")
         self.direction_sel = self.selector(
             "direction",
             widget=pn.widgets.Select(
@@ -121,11 +101,15 @@ class TrafficValidationPage(DashboardPage):
             "screenline_flow_comparisons",
             self.weighting_key,
         )
-        direction_opts = _options(traffic_list or screenline_list or [], "direction")
+        direction_opts = column_options(
+            traffic_list or screenline_list or [], "direction"
+        )
         self.direction_sel.options = direction_opts
         if self.direction_sel.value not in direction_opts:
             self.direction_sel.value = direction_opts[0]
-        period_opts = _options(traffic_list or screenline_list or [], "count_period")
+        period_opts = column_options(
+            traffic_list or screenline_list or [], "count_period"
+        )
         self.count_period_sel.options = period_opts
         if self.count_period_sel.value not in period_opts:
             self.count_period_sel.value = period_opts[0]

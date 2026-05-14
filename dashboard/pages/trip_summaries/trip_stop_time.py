@@ -8,47 +8,19 @@ import polars as pl
 from dashboard.components import density_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
-
-
-def _nonempty(
-    data_list: list[tuple[str, pl.DataFrame]],
-) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, df) for label, df in data_list if df is not None and len(df) > 0]
+from dashboard.pages._shared.common import nonempty_runs
+from dashboard.pages._shared.purposes import tour_purpose_mapping
+from dashboard.pages._shared.time_distance import max_timebin, time_label
 
 
 def purpose_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
     purposes_set = set()
-    for _, df in _nonempty(data_list):
+    for _, df in nonempty_runs(data_list):
         if "tour_purpose" in df.columns:
             purposes_set.update(
                 df["tour_purpose"].drop_nulls().cast(pl.Utf8).unique().to_list()
             )
     return sorted(str(purpose) for purpose in purposes_set) if purposes_set else []
-
-
-def purpose_mapping(raw_purposes: list[str]) -> tuple[list[str], dict[str, str]]:
-    mapping: dict[str, str] = {}
-    if "all_tour_purposes" in raw_purposes:
-        mapping["Total"] = "all_tour_purposes"
-    for purpose in raw_purposes:
-        if purpose not in {"all_tour_purposes", "Total", "All"}:
-            mapping[purpose] = purpose
-    return list(mapping), mapping
-
-
-def _time_label(timebin: int, maxbin: int) -> str:
-    step = 30 if maxbin == 48 else 60
-    total_minutes = ((int(timebin) - 1) * step + 3 * 60) % (24 * 60)
-    hh = total_minutes // 60
-    mm = total_minutes % 60
-    return f"{hh:02d}:{mm:02d}"
-
-
-def _max_timebin(data_list: list[tuple[str, pl.DataFrame]]) -> int:
-    for _, df in _nonempty(data_list):
-        if "time_bin" in df.columns:
-            return int(df["time_bin"].max())
-    return 48
 
 
 def _profile(
@@ -68,7 +40,7 @@ def _profile(
         .with_columns(
             pl.col("time_bin")
             .map_elements(
-                lambda tb: _time_label(int(tb), maxbin),
+                lambda tb: time_label(int(tb), maxbin),
                 return_dtype=pl.Utf8,
             )
             .alias("clock_time")
@@ -80,10 +52,10 @@ def trip_stop_time_chart_data(
     data_list: list[tuple[str, pl.DataFrame]],
     tour_purpose: str,
 ) -> tuple[list[tuple[str, pl.DataFrame]], list[tuple[str, pl.DataFrame]]]:
-    maxbin = _max_timebin(data_list)
+    maxbin = max_timebin(data_list)
     trip_data = []
     stop_data = []
-    for label, df in _nonempty(data_list):
+    for label, df in nonempty_runs(data_list):
         trip_data.append(
             (label, _profile(df, "departure_trip_count", tour_purpose, maxbin))
         )
@@ -100,7 +72,7 @@ class TripStopTimePage(DashboardPage):
             "weighted",
         )
         raw_purposes = purpose_options(tod_data or [])
-        purpose_opts, self._purpose_to_raw = purpose_mapping(raw_purposes)
+        purpose_opts, self._purpose_to_raw = tour_purpose_mapping(raw_purposes)
         if not purpose_opts:
             purpose_opts = ["Total"]
             self._purpose_to_raw = {"Total": "all_tour_purposes"}
@@ -134,7 +106,7 @@ class TripStopTimePage(DashboardPage):
             return
         tod_list = summaries["trip_departure_time_by_purpose"]
         raw_purposes = purpose_options(tod_list)
-        purpose_opts, self._purpose_to_raw = purpose_mapping(raw_purposes)
+        purpose_opts, self._purpose_to_raw = tour_purpose_mapping(raw_purposes)
         if not purpose_opts:
             purpose_opts = sorted(
                 purpose for purpose in raw_purposes if purpose != "all_tour_purposes"
@@ -161,7 +133,7 @@ class TripStopTimePage(DashboardPage):
         tod_list = summaries["trip_departure_time_by_purpose"]
         raw_purposes = purpose_options(tod_list)
         if not self.tour_purpose_sel.options:
-            purpose_opts, self._purpose_to_raw = purpose_mapping(raw_purposes)
+            purpose_opts, self._purpose_to_raw = tour_purpose_mapping(raw_purposes)
             if not purpose_opts:
                 purpose_opts = sorted(
                     purpose

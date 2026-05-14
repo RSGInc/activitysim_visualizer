@@ -15,7 +15,13 @@ from dashboard.components import (
 from dashboard.page_base import DashboardPage
 from dashboard.page_base import SectionContent
 from dashboard.page_definitions import DashboardPageDefinition
-from runtime.config import Config
+from dashboard.pages._shared.common import nonempty_runs
+from dashboard.pages._shared.geography import (
+    filter_geo_level,
+    geo_level_options,
+    normalize_geography_columns,
+    rename_present,
+)
 
 GEO_LEVEL_COL = "geography_level"
 GEO_COL = "geography"
@@ -23,35 +29,11 @@ GEO_TYPE_COL = "geography_type"
 GEO_ID_COL = "geography_id"
 
 
-def _nonempty(
-    data_list: list[tuple[str, pl.DataFrame]],
-) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, df) for label, df in data_list if df is not None and len(df) > 0]
-
-
-def _rename_present(df: pl.DataFrame, mapping: dict[str, str]) -> pl.DataFrame:
-    rename_map = {
-        source: target
-        for source, target in mapping.items()
-        if source in df.columns and target not in df.columns
-    }
-    return df.rename(rename_map) if rename_map else df
-
-
-def _normalize_geography_columns(df: pl.DataFrame) -> pl.DataFrame:
-    rename_map: dict[str, str] = {}
-    if GEO_TYPE_COL in df.columns and GEO_LEVEL_COL not in df.columns:
-        rename_map[GEO_TYPE_COL] = GEO_LEVEL_COL
-    if GEO_ID_COL in df.columns and GEO_COL not in df.columns:
-        rename_map[GEO_ID_COL] = GEO_COL
-    return df.rename(rename_map) if rename_map else df
-
-
 def _adapt_internal_external(
     data_list: list[tuple[str, pl.DataFrame]],
 ) -> list[tuple[str, pl.DataFrame]]:
     return [
-        (label, _normalize_geography_columns(df)) for label, df in _nonempty(data_list)
+        (label, normalize_geography_columns(df)) for label, df in nonempty_runs(data_list)
     ]
 
 
@@ -59,9 +41,9 @@ def _adapt_external_workplace(
     data_list: list[tuple[str, pl.DataFrame]],
 ) -> list[tuple[str, pl.DataFrame]]:
     out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in _nonempty(data_list):
-        normalized = _normalize_geography_columns(df)
-        normalized = _rename_present(
+    for label, df in nonempty_runs(data_list):
+        normalized = normalize_geography_columns(df)
+        normalized = rename_present(
             normalized,
             {
                 GEO_COL: "workplace_location",
@@ -76,7 +58,7 @@ def _adapt_workplace_lu(
     data_list: list[tuple[str, pl.DataFrame]],
 ) -> list[tuple[str, pl.DataFrame]]:
     return [
-        (label, _normalize_geography_columns(df)) for label, df in _nonempty(data_list)
+        (label, normalize_geography_columns(df)) for label, df in nonempty_runs(data_list)
     ]
 
 
@@ -84,7 +66,7 @@ def _adapt_school_lu(
     data_list: list[tuple[str, pl.DataFrame]],
 ) -> list[tuple[str, pl.DataFrame]]:
     return [
-        (label, _normalize_geography_columns(df)) for label, df in _nonempty(data_list)
+        (label, normalize_geography_columns(df)) for label, df in nonempty_runs(data_list)
     ]
 
 
@@ -92,8 +74,8 @@ def _adapt_commuting_flows(
     data_list: list[tuple[str, pl.DataFrame]],
 ) -> list[tuple[str, pl.DataFrame]]:
     out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in _nonempty(data_list):
-        normalized = _rename_present(
+    for label, df in nonempty_runs(data_list):
+        normalized = rename_present(
             df,
             {
                 "origin_geography_type": "origin_geography_level",
@@ -127,7 +109,7 @@ def geo_level_option_set(
 
     per_run: list[set[str]] = []
 
-    for _, df in _nonempty(data_list):
+    for _, df in nonempty_runs(data_list):
         if GEO_LEVEL_COL in df.columns:
             vals = (
                 df.select(GEO_LEVEL_COL)
@@ -186,40 +168,6 @@ def core_geo_level_options(
     return _ordered_geo_options(common) or ["Total"]
 
 
-def geo_level_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
-    first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
-    if first_df is None:
-        return ["Total"]
-
-    if GEO_LEVEL_COL in first_df.columns:
-        vals = (
-            first_df.select(GEO_LEVEL_COL)
-            .drop_nulls()
-            .unique()
-            .to_series()
-            .cast(pl.Utf8)
-            .to_list()
-        )
-    elif {
-        "origin_geography_level",
-        "destination_geography_level",
-    }.issubset(first_df.columns):
-        vals = (
-            pl.concat(
-                [
-                    first_df["origin_geography_level"].cast(pl.Utf8),
-                    first_df["destination_geography_level"].cast(pl.Utf8),
-                ]
-            )
-            .drop_nulls()
-            .unique()
-            .to_list()
-        )
-    else:
-        return ["Total"]
-    return sorted(vals) if vals else ["Total"]
-
-
 def wfh_geo_level_options(
     data_list: list[tuple[str, pl.DataFrame]],
 ) -> list[str]:
@@ -241,33 +189,6 @@ def wfh_geo_level_options(
     extras = sorted(v for v in vals if v not in preferred_order)
 
     return ordered + extras
-
-
-def filter_geo_level(
-    data_list: list[tuple[str, pl.DataFrame]],
-    geo_level: str,
-) -> list[tuple[str, pl.DataFrame]]:
-    out = []
-    for label, df in _nonempty(data_list):
-        if GEO_LEVEL_COL in df.columns and geo_level not in {"Total", "All"}:
-            df = df.with_columns(pl.col(GEO_LEVEL_COL).cast(pl.Utf8)).filter(
-                pl.col(GEO_LEVEL_COL) == geo_level
-            )
-        elif {
-            "origin_geography_level",
-            "destination_geography_level",
-        }.issubset(
-            df.columns
-        ) and geo_level not in {"Total", "All"}:
-            df = df.with_columns(
-                pl.col("origin_geography_level").cast(pl.Utf8),
-                pl.col("destination_geography_level").cast(pl.Utf8),
-            ).filter(
-                (pl.col("origin_geography_level") == geo_level)
-                & (pl.col("destination_geography_level") == geo_level)
-            )
-        out.append((label, df))
-    return out
 
 
 def wfh_chart_data(
@@ -321,7 +242,7 @@ def distance_chart_data(
                 pl.col("person_count"),
             ).sort("distance_bin"),
         )
-        for label, df in _nonempty(data_list)
+        for label, df in nonempty_runs(data_list)
     ]
 
 
@@ -399,7 +320,11 @@ class MandatoryLocationChoicePage(DashboardPage):
             return geo_level_options(_adapt_internal_external(data))
         commuting = self.state.get_summary_table_set("commuting_flows", "weighted")
         if commuting is not None:
-            return geo_level_options(_adapt_commuting_flows(commuting))
+            return geo_level_options(
+                _adapt_commuting_flows(commuting),
+                total_label="Total",
+                support_origin_destination=True,
+            )
         return ["Total"]
 
     def sync_controls(self) -> None:
@@ -513,7 +438,11 @@ class MandatoryLocationChoicePage(DashboardPage):
             internal_external_table = self.get_filtered_view(
                 "mandatory_internal_external",
                 geo_level,
-                factory=lambda: filter_geo_level(internal_external, geo_level),
+                factory=lambda: filter_geo_level(
+                    internal_external,
+                    geo_level,
+                    total_values=("All", "Total"),
+                ),
             )
             worker_views.append(
                 data_table(internal_external_table, "Internal vs. External Workers")
@@ -528,7 +457,7 @@ class MandatoryLocationChoicePage(DashboardPage):
 
         if external_workplace is not None:
             external_workplace_chart = bar_chart(
-                _nonempty(external_workplace),
+                nonempty_runs(external_workplace),
                 x_col="workplace_location",
                 y_col="person_count",
                 title="External Worker Workplace Location",
@@ -557,7 +486,12 @@ class MandatoryLocationChoicePage(DashboardPage):
             commuting_flows_table = self.get_filtered_view(
                 "mandatory_commuting_flows",
                 geo_level,
-                factory=lambda: filter_geo_level(commuting_flows, geo_level),
+                factory=lambda: filter_geo_level(
+                    commuting_flows,
+                    geo_level,
+                    total_values=("All", "Total"),
+                    support_origin_destination=True,
+                ),
             )
             commuting_widget = data_table(commuting_flows_table, "Commuting Flows")
         else:
@@ -650,7 +584,7 @@ class MandatoryLocationChoicePage(DashboardPage):
         if telecommute is not None:
             remote_row.append(
                 bar_chart(
-                    _nonempty(telecommute),
+                    nonempty_runs(telecommute),
                     x_col="telecommute_frequency",
                     y_col="person_count",
                     title="Telecommute Rate",

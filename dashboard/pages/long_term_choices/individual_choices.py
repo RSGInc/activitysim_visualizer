@@ -8,16 +8,19 @@ import polars as pl
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
-from runtime.config import Config
+from dashboard.pages._shared.common import (
+    category_order,
+    complete_category_counts,
+    nonempty_runs,
+)
+from dashboard.pages._shared.person_types import (
+    filter_person_type_runs,
+    person_type_display_mapping,
+    person_type_options,
+)
 
 PERSON_TYPE_COL = "person_type"
 ALL_PERSON_TYPES = "all_person_types"
-
-
-def _nonempty(
-    data_list: list[tuple[str, pl.DataFrame]],
-) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, df) for label, df in data_list if df is not None and len(df) > 0]
 
 
 def _cast_category(
@@ -34,98 +37,8 @@ def _cast_category(
                 .alias(category_col)
             ),
         )
-        for label, df in _nonempty(data_list)
+        for label, df in nonempty_runs(data_list)
     ]
-
-
-def person_type_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
-    person_types = set()
-    for _, df in _nonempty(data_list):
-        if PERSON_TYPE_COL not in df.columns:
-            continue
-        person_types.update(
-            df.select(PERSON_TYPE_COL).drop_nulls().to_series().cast(pl.Utf8).to_list()
-        )
-    return sorted(str(person_type) for person_type in person_types) or [
-        ALL_PERSON_TYPES
-    ]
-
-
-def person_type_maps(
-    person_type_opts: list[str],
-    config: Config,
-) -> tuple[list[str], dict[str, str | None]]:
-    label_to_person_type: dict[str, str | None] = {}
-    if ALL_PERSON_TYPES in person_type_opts:
-        label_to_person_type["Total"] = ALL_PERSON_TYPES
-    else:
-        label_to_person_type["Total"] = None
-    for person_type in person_type_opts:
-        if person_type in {ALL_PERSON_TYPES, "Total"}:
-            continue
-        label_to_person_type[config.person_type_label(person_type)] = person_type
-    return list(label_to_person_type), label_to_person_type
-
-
-def _filter_person_type(df: pl.DataFrame, person_type: str | None) -> pl.DataFrame:
-    person_type_col = pl.col(PERSON_TYPE_COL).cast(pl.Utf8)
-    if person_type is None:
-        return df.filter(~person_type_col.is_in([ALL_PERSON_TYPES, "Total"]))
-    return df.filter(person_type_col == person_type)
-
-
-def filter_person_type_counts(
-    data_list: list[tuple[str, pl.DataFrame]],
-    person_type: str | None,
-) -> list[tuple[str, pl.DataFrame]]:
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in _nonempty(data_list):
-        if PERSON_TYPE_COL not in df.columns:
-            out.append((label, df))
-            continue
-        out.append((label, _filter_person_type(df, person_type)))
-    return out
-
-
-def category_order(
-    data_list: list[tuple[str, pl.DataFrame]],
-    category_col: str,
-) -> list[str]:
-    order: list[str] = []
-    for _, df in _nonempty(data_list):
-        if category_col not in df.columns:
-            continue
-        for value in df.select(category_col).drop_nulls().to_series().cast(pl.Utf8).to_list():
-            if value not in order:
-                order.append(value)
-    return order
-
-
-def complete_category_counts(
-    data_list: list[tuple[str, pl.DataFrame]],
-    *,
-    category_col: str,
-    category_values: list[str],
-    value_cols: tuple[str, ...] = ("person_count", "pct"),
-) -> list[tuple[str, pl.DataFrame]]:
-    if not category_values:
-        return data_list
-    base = pl.DataFrame({category_col: category_values})
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in data_list:
-        if df is None:
-            completed = base
-        else:
-            available_cols = [col for col in (category_col, *value_cols) if col in df.columns]
-            completed = base.join(df.select(available_cols), on=category_col, how="left")
-        fill_exprs = []
-        for col in value_cols:
-            if col in completed.columns:
-                fill_exprs.append(pl.col(col).fill_null(0).alias(col))
-            else:
-                fill_exprs.append(pl.lit(0).alias(col))
-        out.append((label, completed.with_columns(fill_exprs)))
-    return out
 
 
 _BICYCLE_COMFORT_DISPLAY = {
@@ -206,9 +119,10 @@ class IndividualChoicesPage(DashboardPage):
             raw_opts.update(person_type_options(data))
         if not raw_opts:
             return ["Total"]
-        opts, self._person_type_to_raw = person_type_maps(
+        opts, self._person_type_to_raw = person_type_display_mapping(
             sorted(raw_opts),
             self.config,
+            all_value=ALL_PERSON_TYPES,
         )
         return opts or ["Total"]
 
@@ -255,7 +169,11 @@ class IndividualChoicesPage(DashboardPage):
             "license_holding_status_distribution",
             raw_person_type,
             factory=lambda: complete_category_counts(
-                filter_person_type_counts(normalized_summary, raw_person_type),
+                filter_person_type_runs(
+                    normalized_summary,
+                    raw_person_type,
+                    all_values=(ALL_PERSON_TYPES, "Total"),
+                ),
                 category_col="license_holding_status",
                 category_values=x_values,
             ),
@@ -290,7 +208,11 @@ class IndividualChoicesPage(DashboardPage):
             "bicycle_comfort_level_distribution",
             raw_person_type,
             factory=lambda: complete_category_counts(
-                filter_person_type_counts(normalized_summary, raw_person_type),
+                filter_person_type_runs(
+                    normalized_summary,
+                    raw_person_type,
+                    all_values=(ALL_PERSON_TYPES, "Total"),
+                ),
                 category_col="bicycle_comfort_level",
                 category_values=x_values,
             ),
@@ -325,7 +247,11 @@ class IndividualChoicesPage(DashboardPage):
             "transit_pass_ownership_by_person_type",
             raw_person_type,
             factory=lambda: complete_category_counts(
-                filter_person_type_counts(normalized_summary, raw_person_type),
+                filter_person_type_runs(
+                    normalized_summary,
+                    raw_person_type,
+                    all_values=(ALL_PERSON_TYPES, "Total"),
+                ),
                 category_col="transit_pass_ownership_status",
                 category_values=x_values,
             ),
@@ -365,7 +291,11 @@ class IndividualChoicesPage(DashboardPage):
             "transit_subsidy_by_person_type",
             raw_person_type,
             factory=lambda: complete_category_counts(
-                filter_person_type_counts(normalized_summary, raw_person_type),
+                filter_person_type_runs(
+                    normalized_summary,
+                    raw_person_type,
+                    all_values=(ALL_PERSON_TYPES, "Total"),
+                ),
                 category_col=subsidy_category_col,
                 category_values=x_values,
             ),

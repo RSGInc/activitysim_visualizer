@@ -8,12 +8,8 @@ import polars as pl
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
-
-
-def _nonempty(
-    data_list: list[tuple[str, pl.DataFrame]],
-) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, df) for label, df in data_list if df is not None and len(df) > 0]
+from dashboard.pages._shared.common import nonempty_runs
+from dashboard.pages._shared.purposes import tour_purpose_options
 
 
 def _options(
@@ -51,7 +47,7 @@ def stop_frequency_chart_data(
         "Inbound": "inbound_stop_count",
     }[direction]
     out = []
-    for label, df in _nonempty(data_list):
+    for label, df in nonempty_runs(data_list):
         df = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
         if purpose == "All":
             if (
@@ -91,8 +87,14 @@ class TourStopFrequencyPage(DashboardPage):
             "tour_purpose",
             widget=pn.widgets.Select(
                 name="Tour Purpose",
-                options=_options(stop_data or [], "tour_purpose"),
-                value=_options(stop_data or [], "tour_purpose")[0],
+                options=tour_purpose_options(
+                    stop_data or [],
+                    total_display="All",
+                ),
+                value=tour_purpose_options(
+                    stop_data or [],
+                    total_display="All",
+                )[0],
             ),
             label="Tour Purpose",
         )
@@ -121,7 +123,7 @@ class TourStopFrequencyPage(DashboardPage):
         if summaries is None:
             return
         stop_list = summaries["tour_stop_frequency_by_tour_purpose"]
-        purpose_opts = _options(stop_list, "tour_purpose")
+        purpose_opts = tour_purpose_options(stop_list, total_display="All")
         self.purpose_sel.options = purpose_opts
         if self.purpose_sel.value not in purpose_opts:
             self.purpose_sel.value = purpose_opts[0]
@@ -142,7 +144,7 @@ class TourStopFrequencyPage(DashboardPage):
                 )
             ]
         stop_list = summaries["tour_stop_frequency_by_tour_purpose"]
-        atwork_list = _nonempty(summaries["atwork_subtour_frequency_distribution"])
+        atwork_list = nonempty_runs(summaries["atwork_subtour_frequency_distribution"])
         purpose = self.purpose_sel.value
         direction = self.direction_sel.value
         stop_data = self.get_filtered_view(

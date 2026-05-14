@@ -8,42 +8,7 @@ import polars as pl
 from dashboard.components import data_table, scatter_chart
 from dashboard.page_base import DashboardPage, SectionContent
 from dashboard.page_definitions import DashboardPageDefinition
-from runtime.config import Config
-
-
-def _nonempty(
-    data_list: list[tuple[str, pl.DataFrame]],
-) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, df) for label, df in data_list if df is not None and len(df) > 0]
-
-
-def _options(
-    data_list: list[tuple[str, pl.DataFrame]],
-    col: str,
-    *,
-    total_label: str = "All",
-) -> list[str]:
-    first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
-    if first_df is None or col not in first_df.columns:
-        return [total_label]
-
-    vals = (
-        first_df.select(col).drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
-    )
-    return [total_label] + sorted(v for v in vals if v != total_label)
-
-
-def _filter_col(
-    data_list: list[tuple[str, pl.DataFrame]],
-    col: str,
-    value: str,
-) -> list[tuple[str, pl.DataFrame]]:
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in _nonempty(data_list):
-        if col in df.columns and value != "All":
-            df = df.with_columns(pl.col(col).cast(pl.Utf8)).filter(pl.col(col) == value)
-        out.append((label, df))
-    return out
+from dashboard.pages._shared.common import column_options, filter_runs_by_column
 
 
 class ShadowPricingPage(DashboardPage):
@@ -125,10 +90,10 @@ class ShadowPricingPage(DashboardPage):
         school_summary = self.optional_summary("school_location_enrollment_comparison")
         return {
             "mode": "ready",
-            "geo_opts": _options(
+            "geo_opts": column_options(
                 workplace_summary or school_summary or [], "geography_type"
             ),
-            "student_opts": _options(school_summary or [], "student_type"),
+            "student_opts": column_options(school_summary or [], "student_type"),
             "workplace_summary": workplace_summary,
             "school_summary": school_summary,
         }
@@ -148,7 +113,7 @@ class ShadowPricingPage(DashboardPage):
         workplace_data = self.get_filtered_view(
             "shadow_pricing_workplace",
             geo_level,
-            factory=lambda: _filter_col(
+            factory=lambda: filter_runs_by_column(
                 workplace_summary,
                 "geography_type",
                 geo_level,
@@ -181,7 +146,7 @@ class ShadowPricingPage(DashboardPage):
         workplace_data = self.get_filtered_view(
             "shadow_pricing_workplace",
             geo_level,
-            factory=lambda: _filter_col(
+            factory=lambda: filter_runs_by_column(
                 workplace_summary,
                 "geography_type",
                 geo_level,
@@ -210,8 +175,8 @@ class ShadowPricingPage(DashboardPage):
         school_data = self.get_filtered_view(
             "shadow_pricing_school",
             (geo_level, student_type),
-            factory=lambda: _filter_col(
-                _filter_col(
+            factory=lambda: filter_runs_by_column(
+                filter_runs_by_column(
                     school_summary,
                     "geography_type",
                     geo_level,
@@ -248,8 +213,8 @@ class ShadowPricingPage(DashboardPage):
         school_data = self.get_filtered_view(
             "shadow_pricing_school",
             (geo_level, student_type),
-            factory=lambda: _filter_col(
-                _filter_col(
+            factory=lambda: filter_runs_by_column(
+                filter_runs_by_column(
                     school_summary,
                     "geography_type",
                     geo_level,

@@ -8,12 +8,8 @@ import polars as pl
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
-
-
-def _nonempty(
-    data_list: list[tuple[str, pl.DataFrame]],
-) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, df) for label, df in data_list if df is not None and len(df) > 0]
+from dashboard.pages._shared.common import column_options, nonempty_runs
+from dashboard.pages._shared.purposes import tour_purpose_options
 
 
 def _options(
@@ -64,7 +60,7 @@ def _filter_col(
         return df.sort(sort_cols[0]) if sort_cols else df
 
     out = []
-    for label, df in _nonempty(data_list):
+    for label, df in nonempty_runs(data_list):
         if col in df.columns:
             df = df.with_columns(pl.col(col).cast(pl.Utf8))
             if value == total_label:
@@ -103,7 +99,7 @@ def tour_mode_chart_data(
         "Auto Sufficient": "tour_count_auto_sufficient",
     }[auto_sufficiency]
     out = []
-    for label, df in _nonempty(data_list):
+    for label, df in nonempty_runs(data_list):
         df = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
         df = df.filter(
             pl.col("tour_purpose")
@@ -132,8 +128,8 @@ class TourModePage(DashboardPage):
             "tour_purpose",
             widget=pn.widgets.Select(
                 name="Tour Purpose",
-                options=_options(mode_data or [], "tour_purpose"),
-                value=_options(mode_data or [], "tour_purpose")[0],
+                options=tour_purpose_options(mode_data or []),
+                value=tour_purpose_options(mode_data or [])[0],
             ),
             label="Tour Purpose",
         )
@@ -150,8 +146,8 @@ class TourModePage(DashboardPage):
             "vehicle_occupancy",
             widget=pn.widgets.Select(
                 name="Vehicle Occupancy",
-                options=_options(veh_data or [], "occupancy"),
-                value=_options(veh_data or [], "occupancy")[0],
+                options=column_options(veh_data or [], "occupancy"),
+                value=column_options(veh_data or [], "occupancy")[0],
             ),
             label="Vehicle Occupancy",
         )
@@ -189,11 +185,11 @@ class TourModePage(DashboardPage):
     def sync_controls(self) -> None:
         mode_summary, age_summary, fuel_summary, body_summary = self._summaries()
         for widget, opts in [
-            (self.purpose_sel, _options(mode_summary or [], "tour_purpose")),
+            (self.purpose_sel, tour_purpose_options(mode_summary or [])),
             (self.auto_suff_sel, _options(mode_summary or [], "auto_sufficiency")),
             (
                 self.occupancy_sel,
-                _options(
+                column_options(
                     age_summary or fuel_summary or body_summary or [], "occupancy"
                 ),
             ),

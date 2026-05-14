@@ -8,72 +8,21 @@ import polars as pl
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
-from runtime.config import Config
+from dashboard.pages._shared.common import nonempty_runs
+from dashboard.pages._shared.person_types import (
+    filter_person_type_runs,
+    person_type_display_mapping,
+    person_type_options,
+)
 
 PERSON_TYPE_COL = "person_type"
-
-
-def _nonempty(
-    data_list: list[tuple[str, pl.DataFrame]],
-) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, df) for label, df in data_list if df is not None and len(df) > 0]
-
-
-def person_type_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
-    ptypes = set()
-    for _, df in _nonempty(data_list):
-        if PERSON_TYPE_COL in df.columns:
-            ptypes.update(
-                df.select(PERSON_TYPE_COL)
-                .drop_nulls()
-                .to_series()
-                .cast(pl.Utf8)
-                .to_list()
-            )
-    return sorted(str(ptype) for ptype in ptypes) if ptypes else ["all_person_types"]
-
-
-def person_type_maps(
-    person_type_opts: list[str],
-    config: Config,
-) -> tuple[list[str], dict[str, str | None]]:
-    label_to_person_type: dict[str, str | None] = {}
-    if "all_person_types" in person_type_opts:
-        label_to_person_type["Total"] = "all_person_types"
-    else:
-        label_to_person_type["Total"] = None
-    for person_type in person_type_opts:
-        if person_type in {"all_person_types", "Total"}:
-            continue
-        label_to_person_type[config.person_type_label(person_type)] = person_type
-    return list(label_to_person_type), label_to_person_type
-
-
-def _person_type_filter(df: pl.DataFrame, person_type: str | None) -> pl.DataFrame:
-    person_type_col = pl.col(PERSON_TYPE_COL).cast(pl.Utf8)
-    if person_type is None:
-        return df.filter(~person_type_col.is_in(["all_person_types", "Total"]))
-    return df.filter(person_type_col == person_type)
-
-
-def filter_person_type_counts(
-    data_list: list[tuple[str, pl.DataFrame]],
-    person_type: str | None,
-) -> list[tuple[str, pl.DataFrame]]:
-    out = []
-    for label, df in _nonempty(data_list):
-        if PERSON_TYPE_COL not in df.columns:
-            out.append((label, df))
-            continue
-        out.append((label, _person_type_filter(df, person_type)))
-    return out
 
 
 def _person_weights_by_run(
     dap_data_list: list[tuple[str, pl.DataFrame]],
 ) -> dict[str, pl.DataFrame]:
     weights: dict[str, pl.DataFrame] = {}
-    for label, df in _nonempty(dap_data_list):
+    for label, df in nonempty_runs(dap_data_list):
         if PERSON_TYPE_COL not in df.columns or "person_count" not in df.columns:
             continue
         weights[label] = (
@@ -94,7 +43,7 @@ def filter_person_type_rates(
     person_weights: dict[str, pl.DataFrame],
 ) -> list[tuple[str, pl.DataFrame]]:
     out = []
-    for label, df in _nonempty(data_list):
+    for label, df in nonempty_runs(data_list):
         if PERSON_TYPE_COL not in df.columns:
             out.append((label, df))
             continue
@@ -174,7 +123,9 @@ class DailyActivityPatternPage(DashboardPage):
         if data is None:
             return ["Total"]
         raw_opts = person_type_options(data)
-        opts, self._person_type_to_raw = person_type_maps(raw_opts, self.config)
+        opts, self._person_type_to_raw = person_type_display_mapping(
+            raw_opts, self.config
+        )
         return opts or ["Total"]
 
     def sync_controls(self) -> None:
@@ -184,7 +135,9 @@ class DailyActivityPatternPage(DashboardPage):
         raw_opts = person_type_options(
             summaries["daily_activity_pattern_by_person_type"]
         )
-        display_opts, self._person_type_to_raw = person_type_maps(raw_opts, self.config)
+        display_opts, self._person_type_to_raw = person_type_display_mapping(
+            raw_opts, self.config
+        )
         self.person_type_sel.options = display_opts
         if self.person_type_sel.value not in display_opts:
             self.person_type_sel.value = display_opts[0]
@@ -211,21 +164,21 @@ class DailyActivityPatternPage(DashboardPage):
         dap_data = self.get_filtered_view(
             "daily_activity_pattern",
             raw_person_type,
-            factory=lambda: filter_person_type_counts(
+            factory=lambda: filter_person_type_runs(
                 summaries["daily_activity_pattern_by_person_type"], raw_person_type
             ),
         )
         mand_tour_freq_data = self.get_filtered_view(
             "mandatory_tour_frequency",
             raw_person_type,
-            factory=lambda: filter_person_type_counts(
+            factory=lambda: filter_person_type_runs(
                 summaries["mandatory_tour_frequency_by_person_type"], raw_person_type
             ),
         )
         nonmand_tour_freq_data = self.get_filtered_view(
             "nonmandatory_tour_frequency",
             raw_person_type,
-            factory=lambda: filter_person_type_counts(
+            factory=lambda: filter_person_type_runs(
                 summaries["nonmandatory_tour_frequency_by_person_type"],
                 raw_person_type,
             ),

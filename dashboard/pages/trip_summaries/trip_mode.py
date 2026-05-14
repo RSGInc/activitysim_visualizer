@@ -8,36 +8,8 @@ import polars as pl
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
-
-
-def _nonempty(
-    data_list: list[tuple[str, pl.DataFrame]],
-) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, df) for label, df in data_list if df is not None and len(df) > 0]
-
-
-def _tour_purpose_options(
-    data_list: list[tuple[str, pl.DataFrame]],
-) -> list[str]:
-    first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
-    if first_df is None or "tour_purpose" not in first_df.columns:
-        return ["All"]
-
-    vals = (
-        first_df.select("tour_purpose")
-        .drop_nulls()
-        .unique()
-        .to_series()
-        .cast(pl.Utf8)
-        .to_list()
-    )
-    options = ["All"]
-    options.extend(sorted(v for v in vals if v not in {"All", "all_tour_purposes"}))
-    return options
-
-
-def _raw_tour_purpose(value: str) -> str:
-    return "all_tour_purposes" if value == "All" else value
+from dashboard.pages._shared.common import column_options, nonempty_runs
+from dashboard.pages._shared.purposes import raw_tour_purpose
 
 
 def _tour_mode_labels(
@@ -64,7 +36,7 @@ def _filtered_trip_mode_data(
     tour_mode: str | None = None,
 ) -> list[tuple[str, pl.DataFrame]]:
     out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in _nonempty(data_list):
+    for label, df in nonempty_runs(data_list):
         filtered = df.with_columns(
             pl.col("tour_purpose").cast(pl.Utf8),
             pl.col("tour_mode").cast(pl.Utf8),
@@ -84,7 +56,12 @@ class TripModePage(DashboardPage):
             "trip_mode_by_tour_purpose_and_tour_mode",
             "weighted",
         )
-        purpose_opts = _tour_purpose_options(trip_mode_data or [])
+        purpose_opts = column_options(
+            trip_mode_data or [],
+            "tour_purpose",
+            total_label="All",
+            exclude=("all_tour_purposes",),
+        )
         self.tour_purpose_sel = self.selector(
             "tour_purpose",
             widget=pn.widgets.Select(
@@ -114,7 +91,12 @@ class TripModePage(DashboardPage):
         if summaries is None:
             return
         trip_mode_list = summaries["trip_mode_by_tour_purpose_and_tour_mode"]
-        purpose_opts = _tour_purpose_options(trip_mode_list)
+        purpose_opts = column_options(
+            trip_mode_list,
+            "tour_purpose",
+            total_label="All",
+            exclude=("all_tour_purposes",),
+        )
         self.tour_purpose_sel.options = purpose_opts
         if self.tour_purpose_sel.value not in purpose_opts:
             self.tour_purpose_sel.value = purpose_opts[0]
@@ -134,15 +116,18 @@ class TripModePage(DashboardPage):
 
         trip_mode_list = summaries["trip_mode_by_tour_purpose_and_tour_mode"]
         tour_purpose = self.tour_purpose_sel.value
-        raw_tour_purpose = _raw_tour_purpose(tour_purpose)
+        raw_purpose = raw_tour_purpose(
+            tour_purpose,
+            total_display="All",
+        )
         mode_labels = _tour_mode_labels(trip_mode_list)
 
         overall_data = self.get_filtered_view(
             "trip_mode_overall",
-            raw_tour_purpose,
+            raw_purpose,
             factory=lambda: _filtered_trip_mode_data(
                 trip_mode_list,
-                raw_tour_purpose,
+                raw_purpose,
             ),
         )
 
@@ -150,10 +135,10 @@ class TripModePage(DashboardPage):
         for tour_mode in mode_labels:
             mode_data = self.get_filtered_view(
                 "trip_mode_grid",
-                (raw_tour_purpose, tour_mode),
+                (raw_purpose, tour_mode),
                 factory=lambda tm=tour_mode: _filtered_trip_mode_data(
                     trip_mode_list,
-                    raw_tour_purpose,
+                    raw_purpose,
                     tour_mode=tm,
                 ),
             )
