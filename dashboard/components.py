@@ -120,6 +120,7 @@ def bar_chart(
     pct_col: str | None = None,
     height: int = 400,
     as_percent: bool | None = None,
+    xaxis_categoryarray: list[object] | None = None,
 ) -> pn.pane.Plotly:
     """
     Create a grouped bar chart comparing multiple runs.
@@ -176,11 +177,12 @@ def bar_chart(
         height,
         barmode=barmode,
     )
-    if category_order:
+    final_category_order = xaxis_categoryarray or category_order
+    if final_category_order:
         fig.update_xaxes(
             type="category",
             categoryorder="array",
-            categoryarray=category_order,
+            categoryarray=final_category_order,
         )
     return pn.pane.Plotly(fig, sizing_mode="stretch_width")
 

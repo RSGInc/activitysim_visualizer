@@ -87,6 +87,47 @@ def filter_person_type_counts(
     return out
 
 
+def category_order(
+    data_list: list[tuple[str, pl.DataFrame]],
+    category_col: str,
+) -> list[str]:
+    order: list[str] = []
+    for _, df in _nonempty(data_list):
+        if category_col not in df.columns:
+            continue
+        for value in df.select(category_col).drop_nulls().to_series().cast(pl.Utf8).to_list():
+            if value not in order:
+                order.append(value)
+    return order
+
+
+def complete_category_counts(
+    data_list: list[tuple[str, pl.DataFrame]],
+    *,
+    category_col: str,
+    category_values: list[str],
+    value_cols: tuple[str, ...] = ("person_count", "pct"),
+) -> list[tuple[str, pl.DataFrame]]:
+    if not category_values:
+        return data_list
+    base = pl.DataFrame({category_col: category_values})
+    out: list[tuple[str, pl.DataFrame]] = []
+    for label, df in data_list:
+        if df is None:
+            completed = base
+        else:
+            available_cols = [col for col in (category_col, *value_cols) if col in df.columns]
+            completed = base.join(df.select(available_cols), on=category_col, how="left")
+        fill_exprs = []
+        for col in value_cols:
+            if col in completed.columns:
+                fill_exprs.append(pl.col(col).fill_null(0).alias(col))
+            else:
+                fill_exprs.append(pl.lit(0).alias(col))
+        out.append((label, completed.with_columns(fill_exprs)))
+    return out
+
+
 _BICYCLE_COMFORT_DISPLAY = {
     "1": "Strong and Fearless",
     "2": "Enthused and Confident",
@@ -123,113 +164,63 @@ def _normalize_bicycle_comfort_levels(
 
 class IndividualChoicesPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
-        self._selector_to_summary = {
-            "license_person_type": "license_holding_status_distribution",
-            "bike_person_type": "bicycle_comfort_level_distribution",
-            "pass_person_type": "transit_pass_ownership_by_person_type",
-            "subsidy_person_type": "transit_subsidy_by_person_type",
-        }
-        self._selector_maps: dict[str, dict[str, str | None]] = {}
-
-        self.license_person_type_sel = self._build_person_type_selector(
-            "license_person_type"
+        person_type_opts = self._person_type_options()
+        self._person_type_to_raw = {"Total": ALL_PERSON_TYPES}
+        self.person_type_sel = self.selector(
+            "person_type",
+            widget=pn.widgets.Select(
+                name="Person Type",
+                options=person_type_opts,
+                value=person_type_opts[0],
+            ),
+            label="Person Type",
         )
-        self.bike_person_type_sel = self._build_person_type_selector("bike_person_type")
-        self.pass_person_type_sel = self._build_person_type_selector("pass_person_type")
-        self.subsidy_person_type_sel = self._build_person_type_selector(
-            "subsidy_person_type"
-        )
-
-        self._license_section = self.section(
-            "license_chart",
-            selectors=("license_person_type",),
-            render=self.render_license_chart,
-        )
-        self._bike_section = self.section(
-            "bike_chart",
-            selectors=("bike_person_type",),
-            render=self.render_bike_chart,
-        )
-        self._pass_section = self.section(
-            "pass_chart",
-            selectors=("pass_person_type",),
-            render=self.render_pass_chart,
-        )
-        self._subsidy_section = self.section(
-            "subsidy_chart",
-            selectors=("subsidy_person_type",),
-            render=self.render_subsidy_chart,
+        self._body = self.section(
+            "individual_choices_body",
+            selectors=("person_type",),
+            render=self.render_body,
         )
 
         return self.new_section(
             pn.pane.Markdown("## Individual Choices"),
             pn.Row(
-                self._chart_card(self.license_person_type_sel, self._license_section),
-                self._chart_card(self.bike_person_type_sel, self._bike_section),
-                sizing_mode="stretch_width",
-            ),
-            pn.Row(
-                self._chart_card(self.pass_person_type_sel, self._pass_section),
-                self._chart_card(self.subsidy_person_type_sel, self._subsidy_section),
-                sizing_mode="stretch_width",
-            ),
-        )
-
-    def _build_person_type_selector(self, selector_id: str) -> pn.widgets.Select:
-        options = self._person_type_options(self._selector_to_summary[selector_id])
-        self._selector_maps[selector_id] = {"Total": ALL_PERSON_TYPES}
-        return self.selector(
-            selector_id,
-            widget=pn.widgets.Select(
-                name="Person Type",
-                options=options,
-                value=options[0],
-            ),
-            label="Person Type",
-        )
-
-    def _chart_card(
-        self,
-        selector: pn.widgets.Select,
-        chart_section: pn.Column,
-    ) -> pn.Column:
-        return pn.Column(
-            pn.Row(
                 pn.pane.Markdown("**Person Type:**"),
-                selector,
-                sizing_mode="stretch_width",
+                self.person_type_sel,
             ),
-            chart_section,
+            self._body,
             sizing_mode="stretch_width",
         )
 
-    def _person_type_options(self, summary_name: str) -> list[str]:
-        data = self.state.get_summary_table_set(summary_name, self.weighting_key)
-        if data is None:
+    def _person_type_options(self) -> list[str]:
+        summary_names = (
+            "license_holding_status_distribution",
+            "bicycle_comfort_level_distribution",
+            "transit_pass_ownership_by_person_type",
+            "transit_subsidy_by_person_type",
+        )
+        raw_opts: set[str] = set()
+        for summary_name in summary_names:
+            data = self.state.get_summary_table_set(summary_name, self.weighting_key)
+            if data is None:
+                continue
+            raw_opts.update(person_type_options(data))
+        if not raw_opts:
             return ["Total"]
-        raw_opts = person_type_options(data)
-        opts, _ = person_type_maps(raw_opts, self.config)
+        opts, self._person_type_to_raw = person_type_maps(
+            sorted(raw_opts),
+            self.config,
+        )
         return opts or ["Total"]
 
     def sync_controls(self) -> None:
-        for selector_id, summary_name in self._selector_to_summary.items():
-            data = self.optional_summary(summary_name)
-            if data is None:
-                continue
-            raw_opts = person_type_options(data)
-            display_opts, mapping = person_type_maps(raw_opts, self.config)
-            selector = self._registered_selectors[selector_id].widget
-            self._selector_maps[selector_id] = mapping
-            selector.options = display_opts
-            if selector.value not in display_opts:
-                selector.value = display_opts[0]
+        display_opts = self._person_type_options()
+        self.person_type_sel.options = display_opts
+        if self.person_type_sel.value not in display_opts:
+            self.person_type_sel.value = display_opts[0]
 
-    def _selector_person_type(self, selector_id: str) -> tuple[str, str | None]:
-        selector = self._registered_selectors[selector_id].widget
-        display_value = str(selector.value)
-        raw_value = self._selector_maps.get(selector_id, {}).get(
-            display_value, ALL_PERSON_TYPES
-        )
+    def _selected_person_type(self) -> tuple[str, str | None]:
+        display_value = str(self.person_type_sel.value)
+        raw_value = self._person_type_to_raw.get(display_value, ALL_PERSON_TYPES)
         return display_value, raw_value
 
     def _summary_or_placeholder(
@@ -246,160 +237,171 @@ class IndividualChoicesPage(DashboardPage):
             missing_items=[summary_name],
         )
 
-    def render_license_chart(self):
-        if not self.state.run_labels:
-            return [pn.pane.Markdown("No runs loaded.")]
-
+    def render_license_chart(
+        self,
+        display_person_type: str,
+        raw_person_type: str | None,
+    ):
         summary = self._summary_or_placeholder(
             "license_holding_status_distribution",
             detail="The license holding summary is unavailable.",
         )
         if isinstance(summary, pn.Card):
-            return [summary]
+            return summary
 
-        display_person_type, raw_person_type = self._selector_person_type(
-            "license_person_type"
-        )
+        normalized_summary = _cast_category(summary, "license_holding_status")
+        x_values = category_order(normalized_summary, "license_holding_status")
         license_list = self.get_filtered_view(
             "license_holding_status_distribution",
             raw_person_type,
-            factory=lambda: _cast_category(
-                filter_person_type_counts(summary, raw_person_type),
-                "license_holding_status",
+            factory=lambda: complete_category_counts(
+                filter_person_type_counts(normalized_summary, raw_person_type),
+                category_col="license_holding_status",
+                category_values=x_values,
             ),
         )
-        return [
-            bar_chart(
-                license_list,
-                x_col="license_holding_status",
-                y_col="person_count",
-                title=f"License Holding Status - {display_person_type}",
-                xaxis_title="License Status",
-                yaxis_title="Persons Age 16+",
-                pct_col="pct",
-                as_percent=self.as_percent,
-            )
-        ]
+        return bar_chart(
+            license_list,
+            x_col="license_holding_status",
+            y_col="person_count",
+            title=f"License Holding Status - {display_person_type}",
+            xaxis_title="License Status",
+            yaxis_title="Persons Age 16+",
+            pct_col="pct",
+            as_percent=self.as_percent,
+            xaxis_categoryarray=x_values,
+        )
 
-    def render_bike_chart(self):
-        if not self.state.run_labels:
-            return [pn.pane.Markdown("No runs loaded.")]
-
+    def render_bike_chart(
+        self,
+        display_person_type: str,
+        raw_person_type: str | None,
+    ):
         summary = self._summary_or_placeholder(
             "bicycle_comfort_level_distribution",
             detail="The bicycle comfort summary is unavailable.",
         )
         if isinstance(summary, pn.Card):
-            return [summary]
+            return summary
 
-        display_person_type, raw_person_type = self._selector_person_type(
-            "bike_person_type"
-        )
+        normalized_summary = _normalize_bicycle_comfort_levels(summary)
+        x_values = category_order(normalized_summary, "bicycle_comfort_level")
         bike_list = self.get_filtered_view(
             "bicycle_comfort_level_distribution",
             raw_person_type,
-            factory=lambda: _normalize_bicycle_comfort_levels(
-                filter_person_type_counts(summary, raw_person_type)
+            factory=lambda: complete_category_counts(
+                filter_person_type_counts(normalized_summary, raw_person_type),
+                category_col="bicycle_comfort_level",
+                category_values=x_values,
             ),
         )
-        return [
-            bar_chart(
-                bike_list,
-                x_col="bicycle_comfort_level",
-                y_col="person_count",
-                title=f"Bicycle Comfort Level - {display_person_type}",
-                xaxis_title="Bicycle Comfort Level",
-                yaxis_title="Persons",
-                pct_col="pct",
-                as_percent=self.as_percent,
-            )
-        ]
+        return bar_chart(
+            bike_list,
+            x_col="bicycle_comfort_level",
+            y_col="person_count",
+            title=f"Bicycle Comfort Level - {display_person_type}",
+            xaxis_title="Bicycle Comfort Level",
+            yaxis_title="Persons",
+            pct_col="pct",
+            as_percent=self.as_percent,
+            xaxis_categoryarray=x_values,
+        )
 
-    def render_pass_chart(self):
-        if not self.state.run_labels:
-            return [pn.pane.Markdown("No runs loaded.")]
-
+    def render_pass_chart(
+        self,
+        display_person_type: str,
+        raw_person_type: str | None,
+    ):
         summary = self._summary_or_placeholder(
             "transit_pass_ownership_by_person_type",
             detail="The transit pass ownership summary is unavailable.",
         )
         if isinstance(summary, pn.Card):
-            return [summary]
+            return summary
 
-        display_person_type, raw_person_type = self._selector_person_type(
-            "pass_person_type"
-        )
+        normalized_summary = _cast_category(summary, "transit_pass_ownership_status")
+        x_values = category_order(normalized_summary, "transit_pass_ownership_status")
         pass_list = self.get_filtered_view(
             "transit_pass_ownership_by_person_type",
             raw_person_type,
-            factory=lambda: _cast_category(
-                filter_person_type_counts(summary, raw_person_type),
-                "transit_pass_ownership_status",
+            factory=lambda: complete_category_counts(
+                filter_person_type_counts(normalized_summary, raw_person_type),
+                category_col="transit_pass_ownership_status",
+                category_values=x_values,
             ),
         )
-        return [
-            bar_chart(
-                pass_list,
-                x_col="transit_pass_ownership_status",
-                y_col="person_count",
-                title=f"Transit Pass Ownership - {display_person_type}",
-                xaxis_title="Transit Pass Ownership Status",
-                yaxis_title="Persons",
-                pct_col="pct",
-                as_percent=self.as_percent,
-            )
-        ]
+        return bar_chart(
+            pass_list,
+            x_col="transit_pass_ownership_status",
+            y_col="person_count",
+            title=f"Transit Pass Ownership - {display_person_type}",
+            xaxis_title="Transit Pass Ownership Status",
+            yaxis_title="Persons",
+            pct_col="pct",
+            as_percent=self.as_percent,
+            xaxis_categoryarray=x_values,
+        )
 
-    def render_subsidy_chart(self):
-        if not self.state.run_labels:
-            return [pn.pane.Markdown("No runs loaded.")]
-
+    def render_subsidy_chart(
+        self,
+        display_person_type: str,
+        raw_person_type: str | None,
+    ):
         summary = self._summary_or_placeholder(
             "transit_subsidy_by_person_type",
             detail="The transit subsidy summary is unavailable.",
         )
         if isinstance(summary, pn.Card):
-            return [summary]
+            return summary
 
-        display_person_type, raw_person_type = self._selector_person_type(
-            "subsidy_person_type"
+        subsidy_category_col = (
+            "transit_subsidy_label"
+            if any("transit_subsidy_label" in df.columns for _, df in summary)
+            else "transit_subsidy_status"
         )
+        normalized_summary = _cast_category(summary, subsidy_category_col)
+        x_values = category_order(normalized_summary, subsidy_category_col)
         subsidy_list = self.get_filtered_view(
             "transit_subsidy_by_person_type",
             raw_person_type,
-            factory=lambda: _cast_category(
-                filter_person_type_counts(summary, raw_person_type),
-                (
-                    "transit_subsidy_label"
-                    if any(
-                        "transit_subsidy_label" in df.columns
-                        for _, df in filter_person_type_counts(summary, raw_person_type)
-                    )
-                    else "transit_subsidy_status"
-                ),
+            factory=lambda: complete_category_counts(
+                filter_person_type_counts(normalized_summary, raw_person_type),
+                category_col=subsidy_category_col,
+                category_values=x_values,
             ),
         )
-        subsidy_x_col = (
-            "transit_subsidy_label"
-            if subsidy_list
-            and all("transit_subsidy_label" in df.columns for _, df in subsidy_list)
-            else "transit_subsidy_status"
+        return bar_chart(
+            subsidy_list,
+            x_col=subsidy_category_col,
+            y_col="person_count",
+            title=f"Transit Subsidy - {display_person_type}",
+            xaxis_title="Transit Subsidy Status",
+            yaxis_title=(
+                "All Workers"
+                if display_person_type == "Total"
+                else f"{display_person_type}"
+            ),
+            pct_col="pct",
+            as_percent=self.as_percent,
+            xaxis_categoryarray=x_values,
         )
+
+    def render_body(self):
+        if not self.state.run_labels:
+            return [pn.pane.Markdown("No runs loaded.")]
+
+        display_person_type, raw_person_type = self._selected_person_type()
         return [
-            bar_chart(
-                subsidy_list,
-                x_col=subsidy_x_col,
-                y_col="person_count",
-                title=f"Transit Subsidy - {display_person_type}",
-                xaxis_title="Transit Subsidy Status",
-                yaxis_title=(
-                    "All Workers"
-                    if display_person_type == "Total"
-                    else f"{display_person_type}"
-                ),
-                pct_col="pct",
-                as_percent=self.as_percent,
-            )
+            pn.Row(
+                self.render_license_chart(display_person_type, raw_person_type),
+                self.render_bike_chart(display_person_type, raw_person_type),
+                sizing_mode="stretch_width",
+            ),
+            pn.Row(
+                self.render_pass_chart(display_person_type, raw_person_type),
+                self.render_subsidy_chart(display_person_type, raw_person_type),
+                sizing_mode="stretch_width",
+            ),
         ]
 
 
