@@ -104,12 +104,12 @@ def main(argv: list[str] | None = None) -> int:
                 write_normalized_config(qa_dir / "config_normalized.yaml", normalized)
             write_validation_failure_report(qa_dir / "validation_report.txt", str(exc), normalized=normalized)
             return 1
-        default_output_dir = _default_output_dir(artifacts, config_path)
+        default_output_dir = _default_output_dir(artifacts)
         _write_validation_artifacts(artifacts, default_output_dir or qa_dir)
         return 0
 
     artifacts = _validate_from_config_data(config_data, config_path, strict=False)
-    default_output_dir = _default_output_dir(artifacts, config_path)
+    default_output_dir = _default_output_dir(artifacts)
 
     if args.command == "annotate-trips":
         out_path = _resolve_output_path(
@@ -316,7 +316,7 @@ def _write_table_preview(path: Path, table: pl.DataFrame, *, table_name: str) ->
     write_table(path, summarize_table_columns(table, table_name=table_name).drop("table"))
 
 
-def _default_output_dir(artifacts: ValidationArtifacts, config_path: Path) -> Path | None:
+def _default_output_dir(artifacts: ValidationArtifacts) -> Path | None:
     project = artifacts.config.project
     if project is None or project.output_dir is None:
         return None

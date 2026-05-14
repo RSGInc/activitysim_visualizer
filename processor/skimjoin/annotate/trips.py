@@ -603,16 +603,6 @@ def _missing_trip_columns_for_rule(trips: pl.DataFrame, rule: NormalizedLookupRu
     return sorted(column for column in required_columns if column not in trips.columns)
 
 
-def _build_rule_mask(trips: pl.DataFrame, mode_column: str, rule: NormalizedLookupRule) -> pl.Series:
-    mask = trips.get_column(mode_column) == rule.mode
-    for column, condition in rule.when.items():
-        if isinstance(condition, dict):
-            mask = mask & trips.get_column(column).is_in(condition["in"])
-        else:
-            mask = mask & (trips.get_column(column) == condition)
-    return mask
-
-
 def _build_when_mask(trips: pl.DataFrame, rule: NormalizedLookupRule) -> pl.Series:
     mask = pl.Series([True] * trips.height)
     for column, condition in rule.when.items():
