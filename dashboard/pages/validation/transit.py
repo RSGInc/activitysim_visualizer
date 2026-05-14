@@ -10,7 +10,7 @@ from dashboard.components import (
     control_row,
     control_row_spacer,
 )
-from dashboard.page_base import DashboardPage
+from dashboard.page_base import MultiSelectorComparisonPage, SectionSpec, SelectorSpec
 from dashboard.page_definitions import DashboardPageDefinition
 from dashboard.pages._shared.common import column_options, nonempty_runs
 
@@ -53,147 +53,148 @@ def _filter_transit(
     return out
 
 
-class TransitValidationPage(DashboardPage):
-    def build_page(self) -> pn.viewable.Viewable:
-        boarding_data = self.state.get_summary_table_set(
+class TransitValidationPage(MultiSelectorComparisonPage):
+    def selector_specs(self) -> tuple[SelectorSpec, ...]:
+        return (
+            SelectorSpec(
+                selector_id="technology",
+                label="Transit Technology",
+                attr_name="technology_sel",
+                options_factory=lambda page: page._technology_options(),
+                widget_factory=lambda page, options, value: pn.widgets.Select(
+                    name="Transit Technology",
+                    options=options,
+                    value=value,
+                ),
+            ),
+            SelectorSpec(
+                selector_id="access_mode",
+                label="Access Mode",
+                attr_name="access_mode_sel",
+                options_factory=lambda page: page._access_mode_options(),
+                widget_factory=lambda page, options, value: pn.widgets.Select(
+                    name="Access Mode",
+                    options=options,
+                    value=value,
+                ),
+            ),
+        )
+
+    def _technology_options(self) -> list[object]:
+        boarding_list = self.get_refresh_summary(
             "transit_boardings_by_operator_and_technology",
-            "weighted",
+            optional=True,
         )
-        transfer_data = self.state.get_summary_table_set(
+        transfer_list = self.get_refresh_summary(
             "transit_transfer_rate",
-            "weighted",
+            optional=True,
         )
-        tech_opts = column_options(boarding_data or [], "technology")
-        access_opts = column_options(transfer_data or [], "access_mode")
-        self.technology_sel = self.selector(
-            "technology",
-            widget=pn.widgets.Select(
-                name="Transit Technology",
-                options=tech_opts,
-                value=tech_opts[0],
-            ),
-            label="Transit Technology",
+        return column_options(boarding_list or transfer_list or [], "technology")
+
+    def _access_mode_options(self) -> list[object]:
+        transfer_list = self.get_refresh_summary(
+            "transit_transfer_rate",
+            optional=True,
         )
-        self.access_mode_sel = self.selector(
-            "access_mode",
-            widget=pn.widgets.Select(
-                name="Access Mode",
-                options=access_opts,
-                value=access_opts[0],
-            ),
-            label="Access Mode",
-        )
-        self._body = self.section(
-            "transit_body",
-            selectors=("technology", "access_mode"),
-            render=self.render_body,
+        return column_options(transfer_list or [], "access_mode")
+
+    def build_page(self) -> pn.viewable.Viewable:
+        self.register_selectors(*self.selector_specs())
+        self.register_sections(
+            SectionSpec(
+                section_id="transit_body",
+                selector_ids=("technology", "access_mode"),
+                render=lambda page: page.render_body(),
+                attr_name="_body",
+            )
         )
         return self.new_section(
             pn.pane.Markdown("## Transit Validation"),
-            pn.Row(
-                pn.pane.Markdown("**Transit Technology:**"),
-                self.technology_sel,
-            ),
+            self.selector_row("technology"),
             self._body,
             sizing_mode="stretch_width",
         )
 
-    def sync_controls(self) -> None:
-        boarding_list = self.state.get_summary_table_set(
-            "transit_boardings_by_operator_and_technology",
-            self.weighting_key,
-        )
-        transfer_list = self.state.get_summary_table_set(
-            "transit_transfer_rate",
-            self.weighting_key,
-        )
-        tech_opts = column_options(boarding_list or transfer_list or [], "technology")
-        self.technology_sel.options = tech_opts
-        if self.technology_sel.value not in tech_opts:
-            self.technology_sel.value = tech_opts[0]
-        access_opts = column_options(transfer_list or [], "access_mode")
-        self.access_mode_sel.options = access_opts
-        if self.access_mode_sel.value not in access_opts:
-            self.access_mode_sel.value = access_opts[0]
-
     def render_body(self):
-        if not self.state.run_labels:
-            return [pn.pane.Markdown("No runs loaded.")]
-
-        boarding_list = self.state.get_summary_table_set(
-            "transit_boardings_by_operator_and_technology",
-            self.weighting_key,
-        )
-        transfer_list = self.state.get_summary_table_set(
-            "transit_transfer_rate",
-            self.weighting_key,
-        )
-        technology = self.technology_sel.value
-        access_mode = self.access_mode_sel.value
-
-        if boarding_list is not None:
-            boarding_data = self.get_filtered_view(
-                "transit_boardings",
-                technology,
-                factory=lambda: _filter_transit(
-                    boarding_list,
-                    technology,
-                ),
+        def _ready(_summaries):
+            boarding_list = self.get_refresh_summary(
+                "transit_boardings_by_operator_and_technology",
+                optional=True,
             )
-            boarding_chart: pn.viewable.Viewable = bar_chart(
-                boarding_data,
-                x_col="operator",
-                y_col="boardings",
-                title=f"Total Transit Boardings by Operator - {technology}",
-                xaxis_title="Operator",
-                yaxis_title="Transit Boardings",
-                pct_col="pct",
-                as_percent=self.as_percent,
-            )
-        else:
-            boarding_chart = self.data_not_available_card(
-                detail="Transit boarding summaries are unavailable.",
-                missing_items=["transit_boardings_by_operator_and_technology"],
-            )
-
-        if transfer_list is not None:
-            transfer_data = self.get_filtered_view(
+            transfer_list = self.get_refresh_summary(
                 "transit_transfer_rate",
-                (technology, access_mode),
-                factory=lambda: _filter_transit(
-                    transfer_list,
-                    technology,
-                    access_mode,
-                ),
+                optional=True,
             )
-            transfer_chart: pn.viewable.Viewable = bar_chart(
-                transfer_data,
-                x_col="operator",
-                y_col="transfer_rate",
-                title=f"Transit Transfer Rate - {technology}, {access_mode}",
-                xaxis_title="Operator",
-                yaxis_title="Boardings per Linked Trip",
-                as_percent=False,
-            )
-        else:
-            transfer_chart = self.data_not_available_card(
-                detail="Transit transfer summaries are unavailable.",
-                missing_items=["transit_transfer_rate"],
-            )
+            technology = self.technology_sel.value
+            access_mode = self.access_mode_sel.value
 
-        return [
-            pn.Row(
-                pn.Column(control_row_spacer(), boarding_chart),
-                pn.Column(
+            if boarding_list is not None:
+                boarding_data = self.filtered_view(
+                    "transit_boardings",
+                    technology,
+                    factory=lambda: _filter_transit(
+                        boarding_list,
+                        technology,
+                    ),
+                )
+                boarding_chart: pn.viewable.Viewable = bar_chart(
+                    boarding_data,
+                    x_col="operator",
+                    y_col="boardings",
+                    title=f"Total Transit Boardings by Operator - {technology}",
+                    xaxis_title="Operator",
+                    yaxis_title="Transit Boardings",
+                    pct_col="pct",
+                    as_percent=self.as_percent,
+                )
+            else:
+                boarding_chart = self.data_not_available_card(
+                    detail="Transit boarding summaries are unavailable.",
+                    missing_items=["transit_boardings_by_operator_and_technology"],
+                )
+
+            if transfer_list is not None:
+                transfer_data = self.filtered_view(
+                    "transit_transfer_rate",
+                    (technology, access_mode),
+                    factory=lambda: _filter_transit(
+                        transfer_list,
+                        technology,
+                        access_mode,
+                    ),
+                )
+                transfer_chart: pn.viewable.Viewable = bar_chart(
+                    transfer_data,
+                    x_col="operator",
+                    y_col="transfer_rate",
+                    title=f"Transit Transfer Rate - {technology}, {access_mode}",
+                    xaxis_title="Operator",
+                    yaxis_title="Boardings per Linked Trip",
+                    as_percent=False,
+                )
+            else:
+                transfer_chart = self.data_not_available_card(
+                    detail="Transit transfer summaries are unavailable.",
+                    missing_items=["transit_transfer_rate"],
+                )
+
+            return [
+                self.aligned_dual_column(
+                    control_row_spacer(),
+                    boarding_chart,
                     control_row(
                         pn.pane.Markdown("**Access Mode:**"),
                         self.access_mode_sel,
                     ),
                     transfer_chart,
                 ),
-                sizing_mode="stretch_width",
-            ),
-        ]
+            ]
+
+        return self.render_summary_page(
+            _ready,
+            required_summary_ids=(),
+            detail="Transit validation summaries are unavailable.",
+        )
 
 
 PAGE = DashboardPageDefinition(

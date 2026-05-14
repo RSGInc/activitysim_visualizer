@@ -6,7 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart
-from dashboard.page_base import DashboardPage
+from dashboard.page_base import SelectorSpec, SingleSelectorSummaryPage
 from dashboard.page_definitions import DashboardPageDefinition
 from dashboard.pages._shared.common import column_options, nonempty_runs
 from dashboard.pages._shared.purposes import raw_tour_purpose
@@ -50,70 +50,37 @@ def _filtered_trip_mode_data(
     return out
 
 
-class TripModePage(DashboardPage):
-    def build_page(self) -> pn.viewable.Viewable:
-        trip_mode_data = self.state.get_summary_table_set(
-            "trip_mode_by_tour_purpose_and_tour_mode",
-            "weighted",
+class TripModePage(SingleSelectorSummaryPage):
+    body_section_id = "trip_summary_mode_body"
+
+    def selector_specs(self) -> tuple[SelectorSpec, ...]:
+        return (
+            SelectorSpec(
+                selector_id="tour_purpose",
+                label="Tour Purpose",
+                attr_name="tour_purpose_sel",
+                options_factory=lambda page: page._purpose_options(),
+                widget_factory=lambda page, options, value: pn.widgets.Select(
+                    name="Tour Purpose",
+                    options=options,
+                    value=value,
+                ),
+            ),
         )
-        purpose_opts = column_options(
+
+    def _purpose_options(self) -> list[str]:
+        trip_mode_data = self.get_refresh_summary(
+            "trip_mode_by_tour_purpose_and_tour_mode",
+            optional=True,
+        )
+        return column_options(
             trip_mode_data or [],
             "tour_purpose",
             total_label="All",
             exclude=("all_tour_purposes",),
         )
-        self.tour_purpose_sel = self.selector(
-            "tour_purpose",
-            widget=pn.widgets.Select(
-                name="Tour Purpose",
-                options=purpose_opts,
-                value=purpose_opts[0],
-            ),
-            label="Tour Purpose",
-        )
-        self._body = self.section(
-            "trip_summary_mode_body",
-            selectors=("tour_purpose",),
-            render=self.render_body,
-        )
-        return self.new_section(
-            pn.pane.Markdown("## Trip Mode"),
-            pn.Row(
-                pn.pane.Markdown("**Tour Purpose:**"),
-                self.tour_purpose_sel,
-            ),
-            self._body,
-            sizing_mode="stretch_width",
-        )
 
-    def sync_controls(self) -> None:
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
-            return
-        trip_mode_list = summaries["trip_mode_by_tour_purpose_and_tour_mode"]
-        purpose_opts = column_options(
-            trip_mode_list,
-            "tour_purpose",
-            total_label="All",
-            exclude=("all_tour_purposes",),
-        )
-        self.tour_purpose_sel.options = purpose_opts
-        if self.tour_purpose_sel.value not in purpose_opts:
-            self.tour_purpose_sel.value = purpose_opts[0]
-
-    def render_body(self):
-        if not self.state.run_labels:
-            return [pn.pane.Markdown("No runs loaded.")]
-
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
-            return [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
-                )
-            ]
-
+    def render_ready(self, summaries: dict[str, object]):
         trip_mode_list = summaries["trip_mode_by_tour_purpose_and_tour_mode"]
         tour_purpose = self.tour_purpose_sel.value
         raw_purpose = raw_tour_purpose(
@@ -122,7 +89,7 @@ class TripModePage(DashboardPage):
         )
         mode_labels = _tour_mode_labels(trip_mode_list)
 
-        overall_data = self.get_filtered_view(
+        overall_data = self.filtered_view(
             "trip_mode_overall",
             raw_purpose,
             factory=lambda: _filtered_trip_mode_data(
@@ -133,7 +100,7 @@ class TripModePage(DashboardPage):
 
         grid_cards: list[pn.viewable.Viewable] = []
         for tour_mode in mode_labels:
-            mode_data = self.get_filtered_view(
+            mode_data = self.filtered_view(
                 "trip_mode_grid",
                 (raw_purpose, tour_mode),
                 factory=lambda tm=tour_mode: _filtered_trip_mode_data(

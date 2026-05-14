@@ -6,51 +6,74 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import data_table, scatter_chart
-from dashboard.page_base import DashboardPage, SectionContent
+from dashboard.page_base import (
+    CollectedStatePage,
+    SectionContent,
+    SectionSpec,
+    SelectorSpec,
+)
 from dashboard.page_definitions import DashboardPageDefinition
 from dashboard.pages._shared.common import column_options, filter_runs_by_column
 
 
-class ShadowPricingPage(DashboardPage):
+class ShadowPricingPage(CollectedStatePage):
+    def selector_specs(self) -> tuple[SelectorSpec, ...]:
+        return (
+            SelectorSpec(
+                selector_id="geography_level",
+                label="Geography Level",
+                attr_name="geo_level_sel",
+                options_factory=lambda page: list(
+                    page._current_data.get("geo_opts", ["All"])
+                ),
+                widget_factory=lambda page, options, value: pn.widgets.Select(
+                    name="Geography Level",
+                    options=options,
+                    value=value,
+                ),
+            ),
+            SelectorSpec(
+                selector_id="student_type",
+                label="Student Type",
+                attr_name="student_type_sel",
+                options_factory=lambda page: list(
+                    page._current_data.get("student_opts", ["All"])
+                ),
+                widget_factory=lambda page, options, value: pn.widgets.Select(
+                    name="Student Type",
+                    options=options,
+                    value=value,
+                ),
+            ),
+        )
+
     def build_page(self) -> pn.viewable.Viewable:
-        self._current_data: dict[str, object] = {}
-        self.geo_level_sel = self.selector(
-            "geography_level",
-            widget=pn.widgets.Select(
-                name="Geography Level",
-                options=["All"],
-                value="All",
+        self.register_selectors(*self.selector_specs())
+        self.register_sections(
+            SectionSpec(
+                section_id="workplace_plot",
+                selector_ids=("geography_level",),
+                render=lambda page: page.render_workplace_plot(),
+                attr_name="_workplace_plot_section",
             ),
-            label="Geography Level",
-        )
-        self.student_type_sel = self.selector(
-            "student_type",
-            widget=pn.widgets.Select(
-                name="Student Type",
-                options=["All"],
-                value="All",
+            SectionSpec(
+                section_id="workplace_table",
+                selector_ids=("geography_level",),
+                render=lambda page: page.render_workplace_table(),
+                attr_name="_workplace_table_section",
             ),
-            label="Student Type",
-        )
-        self._workplace_plot_section = self.section(
-            "workplace_plot",
-            selectors=("geography_level",),
-            render=self.render_workplace_plot,
-        )
-        self._workplace_table_section = self.section(
-            "workplace_table",
-            selectors=("geography_level",),
-            render=self.render_workplace_table,
-        )
-        self._school_plot_section = self.section(
-            "school_plot",
-            selectors=("geography_level", "student_type"),
-            render=self.render_school_plot,
-        )
-        self._school_table_section = self.section(
-            "school_table",
-            selectors=("geography_level", "student_type"),
-            render=self.render_school_table,
+            SectionSpec(
+                section_id="school_plot",
+                selector_ids=("geography_level", "student_type"),
+                render=lambda page: page.render_school_plot(),
+                attr_name="_school_plot_section",
+            ),
+            SectionSpec(
+                section_id="school_table",
+                selector_ids=("geography_level", "student_type"),
+                render=lambda page: page.render_school_table(),
+                attr_name="_school_table_section",
+            ),
         )
         self._workplace_section = self.new_section(
             self._workplace_plot_section,
@@ -66,28 +89,21 @@ class ShadowPricingPage(DashboardPage):
             self._school_section,
         )
 
-    def sync_controls(self) -> None:
-        self._current_data = self._collect_data()
-        geo_opts = self._current_data["geo_opts"]
-        self.geo_level_sel.options = geo_opts
-        if self.geo_level_sel.value not in geo_opts:
-            self.geo_level_sel.value = geo_opts[0]
-        student_opts = self._current_data["student_opts"]
-        self.student_type_sel.options = student_opts
-        if self.student_type_sel.value not in student_opts:
-            self.student_type_sel.value = student_opts[0]
-
-    def _collect_data(self) -> dict[str, object]:
+    def collect_base_state(self) -> dict[str, object]:
         if not self.state.run_labels:
             return {
                 "mode": "no_runs",
                 "geo_opts": ["All"],
                 "student_opts": ["All"],
             }
-        workplace_summary = self.optional_summary(
-            "workplace_location_employment_comparison"
+        workplace_summary = self.get_refresh_summary(
+            "workplace_location_employment_comparison",
+            optional=True,
         )
-        school_summary = self.optional_summary("school_location_enrollment_comparison")
+        school_summary = self.get_refresh_summary(
+            "school_location_enrollment_comparison",
+            optional=True,
+        )
         return {
             "mode": "ready",
             "geo_opts": column_options(
@@ -97,6 +113,12 @@ class ShadowPricingPage(DashboardPage):
             "workplace_summary": workplace_summary,
             "school_summary": school_summary,
         }
+
+    def collect_selector_state(self, base_state: dict[str, object]) -> dict[str, object]:
+        return dict(base_state)
+
+    def collect_page_state(self) -> dict[str, object]:
+        return self.collect_base_state()
 
     def render_workplace_plot(self) -> SectionContent:
         if self._current_data["mode"] == "no_runs":

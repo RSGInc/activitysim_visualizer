@@ -6,7 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import density_chart
-from dashboard.page_base import DashboardPage
+from dashboard.page_base import SelectorSpec, SingleSelectorSummaryPage
 from dashboard.page_definitions import DashboardPageDefinition
 from dashboard.pages._shared.common import nonempty_runs
 from dashboard.pages._shared.purposes import raw_tour_purpose, tour_purpose_options
@@ -40,66 +40,38 @@ def distance_chart_data(
     return out
 
 
-class TripStopDistancePage(DashboardPage):
-    def build_page(self) -> pn.viewable.Viewable:
+class TripStopDistancePage(SingleSelectorSummaryPage):
+    body_section_id = "trip_stop_distance_body"
+
+    def selector_specs(self) -> tuple[SelectorSpec, ...]:
+        return (
+            SelectorSpec(
+                selector_id="tour_purpose",
+                label="Tour Purpose",
+                attr_name="tour_purpose_sel",
+                options_factory=lambda page: page._purpose_options(),
+                widget_factory=lambda page, options, value: pn.widgets.Select(
+                    name="Tour Purpose",
+                    options=options,
+                    value=value,
+                ),
+            ),
+        )
+
+    def _purpose_options(self) -> list[str]:
         trip_dist_data = self.state.get_summary_table_set(
             "trip_distance_by_purpose",
-            "weighted",
+            self.weighting_key,
         )
-        purpose_opts = tour_purpose_options(trip_dist_data or [])
-        self.tour_purpose_sel = self.selector(
-            "tour_purpose",
-            widget=pn.widgets.Select(
-                name="Tour Purpose",
-                options=purpose_opts,
-                value=purpose_opts[0],
-            ),
-            label="Tour Purpose",
-        )
-        self._body = self.section(
-            "trip_stop_distance_body",
-            selectors=("tour_purpose",),
-            render=self.render_body,
-        )
-        return self.new_section(
-            pn.pane.Markdown("## Trip and Stop Distance"),
-            pn.Row(
-                pn.pane.Markdown("**Tour Purpose:**"),
-                self.tour_purpose_sel,
-            ),
-            self._body,
-            sizing_mode="stretch_width",
-        )
+        return tour_purpose_options(trip_dist_data or [])
 
-    def sync_controls(self) -> None:
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
-            return
-        trip_dist_list = summaries["trip_distance_by_purpose"]
-        purpose_opts = tour_purpose_options(trip_dist_list)
-        self.tour_purpose_sel.options = purpose_opts
-        if self.tour_purpose_sel.value not in purpose_opts:
-            self.tour_purpose_sel.value = purpose_opts[0]
-
-    def render_body(self):
-        if not self.state.run_labels:
-            return [pn.pane.Markdown("No runs loaded.")]
-
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
-            return [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
-                )
-            ]
-
+    def render_ready(self, summaries: dict[str, object]):
         trip_dist_list = summaries["trip_distance_by_purpose"]
         stop_ood_list = summaries["stop_out_of_direction_distance_by_tour_purpose"]
         tour_purpose = self.tour_purpose_sel.value
         raw_purpose = raw_tour_purpose(tour_purpose)
 
-        trip_distance_data = self.get_filtered_view(
+        trip_distance_data = self.filtered_view(
             "trip_distance",
             raw_purpose,
             factory=lambda: distance_chart_data(
@@ -109,7 +81,7 @@ class TripStopDistancePage(DashboardPage):
                 y_col="trip_count",
             ),
         )
-        stop_ood_data = self.get_filtered_view(
+        stop_ood_data = self.filtered_view(
             "stop_out_of_direction_distance",
             raw_purpose,
             factory=lambda: distance_chart_data(

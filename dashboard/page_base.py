@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Any, Callable, TYPE_CHECKING
 
 import panel as pn
@@ -28,6 +29,12 @@ SectionContent = (
     pn.viewable.Viewable | list[pn.viewable.Viewable] | tuple[pn.viewable.Viewable, ...]
 )
 
+SelectorOptionsFactory = Callable[["DashboardPage"], list[object]]
+SelectorDefaultFactory = Callable[["DashboardPage", list[object]], object | None]
+SelectorWidgetFactory = Callable[
+    ["DashboardPage", list[object], object | None], pn.widgets.Widget
+]
+
 
 @dataclass(frozen=True)
 class RegisteredPageSelector:
@@ -35,6 +42,28 @@ class RegisteredPageSelector:
     widget: pn.widgets.Widget
     label: str
     exportable: bool = True
+
+
+@dataclass(frozen=True)
+class SelectorSpec:
+    selector_id: str
+    label: str
+    widget_factory: SelectorWidgetFactory
+    options_factory: SelectorOptionsFactory
+    default_factory: SelectorDefaultFactory | None = None
+    exportable: bool = True
+    attr_name: str | None = None
+    option_depends_on_selectors: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class SectionSpec:
+    section_id: str
+    selector_ids: tuple[str, ...]
+    render: Callable[["DashboardPage"], SectionContent]
+    export: bool = True
+    export_data_mode: "PreparedDataMode" = "none"
+    attr_name: str | None = None
 
 
 @dataclass
@@ -82,11 +111,16 @@ class DashboardPage:
         self._page_state = state.get_page_state(name)
         self.view: pn.viewable.Viewable | None = None
         self._registered_selectors: dict[str, RegisteredPageSelector] = {}
+        self._selector_specs: dict[str, SelectorSpec] = {}
         self._registered_sections: dict[str, RegisteredPageSection] = {}
         self._selector_ids_by_widget_id: dict[int, str] = {}
         self._is_refreshing = False
         self._queued_selector_ids: set[str] = set()
+        self._pending_selector_ids: set[str] = set()
         self._active_section_id: str | None = None
+        self._refresh_global_state_changed = False
+        self._refresh_changed_selector_ids: set[str] = set()
+        self._refresh_context: dict[str, Any] | None = None
 
         if type(self).build_page is not DashboardPage.build_page:
             self.view = self.build_page()
@@ -99,6 +133,7 @@ class DashboardPage:
 
     def refresh(self, force: bool = False) -> None:
         """Refresh the page content."""
+        refresh_started = perf_counter()
         current_state_key = self.state.global_state_key()
         last_state_key = self._page_state.get("last_rendered_state")
         global_state_changed = force or last_state_key != current_state_key
@@ -110,11 +145,26 @@ class DashboardPage:
                 self.on_global_state_changed()
                 for section in self._registered_sections.values():
                     section.dirty = True
-            self._refresh_registered_sections()
+            changed_selector_ids = set(self._pending_selector_ids)
+            self._pending_selector_ids.clear()
+            self.begin_refresh_context()
+            try:
+                self._refresh_registered_sections(
+                    global_state_changed=global_state_changed,
+                    changed_selector_ids=changed_selector_ids,
+                )
+            finally:
+                self.end_refresh_context()
         else:
             self._active_section_id = None
-            self._refresh()
+            self.begin_refresh_context()
+            try:
+                self._refresh()
+            finally:
+                self.end_refresh_context()
         self._page_state["last_rendered_state"] = current_state_key
+        timings = self._page_state.setdefault("refresh_timings_ms", [])
+        timings.append((perf_counter() - refresh_started) * 1000.0)
 
     def mark_stale(self) -> None:
         """Mark the page stale so the next activation refreshes it."""
@@ -168,6 +218,77 @@ class DashboardPage:
         )
         return widget
 
+    def register_selectors(
+        self,
+        *specs: SelectorSpec,
+    ) -> dict[str, pn.widgets.Widget]:
+        widgets: dict[str, pn.widgets.Widget] = {}
+        for spec in specs:
+            if spec.selector_id in self._selector_specs:
+                raise ValueError(
+                    f"Dashboard page {self.name!r} declares duplicate selector spec {spec.selector_id!r}."
+                )
+            options = list(spec.options_factory(self))
+            default_value = (
+                spec.default_factory(self, options)
+                if spec.default_factory is not None
+                else (options[0] if options else None)
+            )
+            widget = spec.widget_factory(self, options, default_value)
+            widgets[spec.selector_id] = self.selector(
+                spec.selector_id,
+                widget=widget,
+                label=spec.label,
+                exportable=spec.exportable,
+            )
+            self._selector_specs[spec.selector_id] = spec
+            self._page_state.setdefault("selector_options", {})[spec.selector_id] = tuple(
+                options
+            )
+            if spec.attr_name:
+                setattr(self, spec.attr_name, widgets[spec.selector_id])
+        return widgets
+
+    def selector_widget(self, selector_id: str) -> pn.widgets.Widget:
+        selector = self._registered_selectors.get(selector_id)
+        if selector is None:
+            raise KeyError(f"Unknown selector id {selector_id!r} on page {self.name!r}.")
+        return selector.widget
+
+    def sync_registered_selectors(self, *selector_ids: str) -> None:
+        target_ids = selector_ids or tuple(self._selector_specs)
+        option_cache = self._page_state.setdefault("selector_options", {})
+        recompute_counts = self._page_state.setdefault(
+            "selector_option_recompute_counts", {}
+        )
+        for selector_id in target_ids:
+            spec = self._selector_specs.get(selector_id)
+            selector = self._registered_selectors.get(selector_id)
+            if spec is None or selector is None:
+                raise KeyError(
+                    f"Unknown selector id {selector_id!r} on page {self.name!r}."
+                )
+            recompute_counts[selector_id] = recompute_counts.get(selector_id, 0) + 1
+            options = list(spec.options_factory(self))
+            option_tuple = tuple(options)
+            if option_cache.get(selector_id) != option_tuple:
+                selector.widget.options = options
+                option_cache[selector_id] = option_tuple
+            if not options:
+                selector.widget.value = None
+                continue
+            current_value = selector.widget.value
+            if current_value in options:
+                continue
+            next_value = (
+                spec.default_factory(self, options)
+                if spec.default_factory is not None
+                else options[0]
+            )
+            if next_value not in options:
+                next_value = options[0]
+            selector.widget.value = next_value
+
     def section(
         self,
         section_id: str,
@@ -203,6 +324,24 @@ class DashboardPage:
         )
         return container
 
+    def register_sections(
+        self,
+        *specs: SectionSpec,
+    ) -> dict[str, pn.Column]:
+        sections: dict[str, pn.Column] = {}
+        for spec in specs:
+            container = self.section(
+                spec.section_id,
+                selectors=spec.selector_ids,
+                export=spec.export,
+                export_data_mode=spec.export_data_mode,
+                render=lambda spec=spec: spec.render(self),
+            )
+            sections[spec.section_id] = container
+            if spec.attr_name:
+                setattr(self, spec.attr_name, container)
+        return sections
+
     def section_view(self, section_id: str) -> pn.Column:
         section = self._registered_sections.get(section_id)
         if section is None:
@@ -226,6 +365,7 @@ class DashboardPage:
         if self._is_refreshing:
             self._queued_selector_ids.add(selector_id)
             return
+        self._pending_selector_ids.add(selector_id)
         self._mark_sections_for_selectors({selector_id})
         self.refresh(force=False)
 
@@ -234,12 +374,20 @@ class DashboardPage:
             if selector_ids.intersection(section.selector_ids):
                 section.dirty = True
 
-    def _refresh_registered_sections(self) -> None:
+    def _refresh_registered_sections(
+        self,
+        *,
+        global_state_changed: bool,
+        changed_selector_ids: set[str],
+    ) -> None:
         self._is_refreshing = True
         try:
             rerun_requested = False
+            current_selector_changes = set(changed_selector_ids)
             for _ in range(2):
                 self._queued_selector_ids.clear()
+                self._refresh_global_state_changed = global_state_changed
+                self._refresh_changed_selector_ids = set(current_selector_changes)
                 self.sync_controls()
                 dirty_sections = list(self._dirty_sections())
                 if not dirty_sections and not self._queued_selector_ids:
@@ -251,9 +399,13 @@ class DashboardPage:
                     break
                 self._mark_sections_for_selectors(set(self._queued_selector_ids))
                 rerun_requested = True
+                current_selector_changes = set(self._queued_selector_ids)
+                global_state_changed = False
             if rerun_requested:
                 self._queued_selector_ids.clear()
         finally:
+            self._refresh_global_state_changed = False
+            self._refresh_changed_selector_ids.clear()
             self._is_refreshing = False
 
     def _render_section(self, section: RegisteredPageSection) -> None:
@@ -287,6 +439,126 @@ class DashboardPage:
         """Create a stable page section container that can be refreshed in place."""
         kwargs.setdefault("sizing_mode", "stretch_width")
         return pn.Column(*objects, **kwargs)
+
+    def selector_row(
+        self,
+        *selector_ids: str,
+        title_map: dict[str, str] | None = None,
+        sizing_mode: str = "stretch_width",
+    ) -> pn.Row:
+        objects: list[pn.viewable.Viewable] = []
+        for selector_id in selector_ids:
+            selector = self._registered_selectors.get(selector_id)
+            if selector is None:
+                raise KeyError(
+                    f"Unknown selector id {selector_id!r} on page {self.name!r}."
+                )
+            title = (
+                title_map.get(selector_id)
+                if title_map is not None and selector_id in title_map
+                else selector.label
+            )
+            objects.extend([pn.pane.Markdown(f"**{title}:**"), selector.widget])
+        return pn.Row(*objects, sizing_mode=sizing_mode)
+
+    def labeled_selector_row(self, *selector_ids: str) -> pn.Row:
+        return self.selector_row(*selector_ids)
+
+    def begin_refresh_context(self) -> None:
+        self._refresh_context = {
+            "summary_selections": {},
+            "summary_tables": {},
+        }
+
+    def end_refresh_context(self) -> None:
+        self._refresh_context = None
+
+    def _summary_selection_from_context(
+        self,
+        summary_name: str,
+        *,
+        required_columns: tuple[str, ...] = (),
+    ) -> DashboardDataSelection:
+        required_columns = tuple(required_columns)
+        if self._refresh_context is None:
+            return self.state.inspect_summary_table(
+                summary_name,
+                weighting_key=self.weighting_key,
+                required_columns=required_columns,
+            )
+        cache = self._refresh_context["summary_selections"]
+        key = (summary_name, required_columns)
+        if key not in cache:
+            cache[key] = self.state.inspect_summary_table(
+                summary_name,
+                weighting_key=self.weighting_key,
+                required_columns=required_columns,
+            )
+        return cache[key]
+
+    def get_refresh_summary(
+        self,
+        summary_name: str,
+        *,
+        required_columns: tuple[str, ...] = (),
+        optional: bool = False,
+    ):
+        required_columns = tuple(required_columns)
+        selection = self._summary_selection_from_context(
+            summary_name,
+            required_columns=required_columns,
+        )
+        self._page_state.setdefault("required_summary_selections", {})[
+            summary_name
+        ] = selection
+        if not selection.has_usable_runs:
+            return None
+        if self._refresh_context is None:
+            return [(label, table) for label, table in selection.usable_runs]
+        table_cache = self._refresh_context["summary_tables"]
+        key = (summary_name, required_columns)
+        if key not in table_cache:
+            table_cache[key] = [(label, table) for label, table in selection.usable_runs]
+        return table_cache[key]
+
+    def get_refresh_summaries(self, *summary_names: str) -> dict[str, Any] | None:
+        summaries = {
+            summary_name: self.get_refresh_summary(summary_name)
+            for summary_name in summary_names
+        }
+        if any(summary is None for summary in summaries.values()):
+            return None
+        return summaries
+
+    def two_up(
+        self,
+        left: pn.viewable.Viewable,
+        right: pn.viewable.Viewable,
+    ) -> pn.Row:
+        return pn.Row(left, right, sizing_mode="stretch_width")
+
+    def section_heading(self, title: str) -> pn.pane.Markdown:
+        return pn.pane.Markdown(f"### {title}")
+
+    def plot_plus_table(
+        self,
+        plot: pn.viewable.Viewable,
+        table: pn.viewable.Viewable,
+    ) -> pn.Row:
+        return pn.Row(plot, table, sizing_mode="stretch_width")
+
+    def aligned_dual_column(
+        self,
+        left_control_or_spacer: pn.viewable.Viewable,
+        left_body: pn.viewable.Viewable,
+        right_controls: pn.viewable.Viewable,
+        right_body: pn.viewable.Viewable,
+    ) -> pn.Row:
+        return pn.Row(
+            pn.Column(left_control_or_spacer, left_body),
+            pn.Column(right_controls, right_body),
+            sizing_mode="stretch_width",
+        )
 
     @property
     def as_percent(self) -> bool:
@@ -490,21 +762,18 @@ class DashboardPage:
 
     def get_summary(self, summary_name: str):
         """Return one summary table per run for the current weighting mode."""
-        return self.state.get_summary_table_set(summary_name, self.weighting_key)
+        return self.get_refresh_summary(summary_name, optional=True)
 
     def has_summary(self, summary_name: str) -> bool:
         return self.state.has_summary_table_set(summary_name, self.weighting_key)
 
     def require_summary(self, summary_name: str):
         """Return one summary table per run, warning once when unavailable."""
-        selection = self.state.inspect_summary_table(
-            summary_name,
-            weighting_key=self.weighting_key,
-        )
-        self._page_state.setdefault("required_summary_selections", {})[
+        summary = self.get_refresh_summary(summary_name, optional=True)
+        selection = self._page_state.setdefault("required_summary_selections", {}).get(
             summary_name
-        ] = selection
-        if not selection.has_usable_runs:
+        )
+        if summary is None or selection is None or not selection.has_usable_runs:
             self._warn_once(
                 f"missing-summary:{summary_name}",
                 (
@@ -514,7 +783,7 @@ class DashboardPage:
                 ),
             )
             return None
-        return [(label, table) for label, table in selection.usable_runs]
+        return summary
 
     def inspect_summary(
         self,
@@ -523,9 +792,8 @@ class DashboardPage:
         required_columns: tuple[str, ...] = (),
     ):
         """Inspect one summary table and store its availability for page diagnostics."""
-        selection = self.state.inspect_summary_table(
+        selection = self._summary_selection_from_context(
             summary_name,
-            weighting_key=self.weighting_key,
             required_columns=required_columns,
         )
         self._page_state.setdefault("required_summary_selections", {})[
@@ -540,24 +808,19 @@ class DashboardPage:
         required_columns: tuple[str, ...] = (),
     ):
         """Return usable rows for one summary or ``None`` when unavailable."""
-        selection = self.inspect_summary(
+        summary = self.get_refresh_summary(
             summary_name,
             required_columns=required_columns,
+            optional=True,
         )
-        if not selection.has_usable_runs:
-            return None
-        return [(label, table) for label, table in selection.usable_runs]
+        return summary
 
     def require_summaries(self, *summary_names: str) -> dict[str, Any] | None:
         """Return multiple summary tables or ``None`` when any are missing."""
         selections = {
-            summary_name: self.state.inspect_summary_table(
-                summary_name,
-                weighting_key=self.weighting_key,
-            )
+            summary_name: self.inspect_summary(summary_name)
             for summary_name in summary_names
         }
-        self._page_state["required_summary_selections"] = selections
         missing = [
             summary_name
             for summary_name in summary_names
@@ -575,9 +838,7 @@ class DashboardPage:
                 )
             return None
         return {
-            summary_name: [
-                (label, table) for label, table in selections[summary_name].usable_runs
-            ]
+            summary_name: self.get_refresh_summary(summary_name, optional=True)
             for summary_name in summary_names
         }
 
@@ -674,6 +935,10 @@ class DashboardPage:
         )
         return None
 
+    def filtered_view(self, view_name: str, *filters: Any, factory):
+        """Thin alias around ``get_filtered_view`` for declarative page code."""
+        return self.get_filtered_view(view_name, *filters, factory=factory)
+
     def get_filtered_view(self, view_name: str, *filters: Any, factory):
         """Return a cached chart-ready filtered view for the current page state."""
         page_cache_id = self.page_id() or self.name
@@ -700,8 +965,166 @@ class DashboardPage:
         for key in stale_keys:
             cache.pop(key, None)
 
+    def render_summary_page(
+        self,
+        render_ready: Callable[[dict[str, Any]], SectionContent],
+        *,
+        required_summary_ids: tuple[str, ...] | None = None,
+        detail: str = "This page only renders from precomputed summary tables.",
+    ) -> SectionContent:
+        if not self.state.run_labels:
+            return [pn.pane.Markdown("No runs loaded.")]
+        summary_ids = (
+            self.required_summary_ids
+            if required_summary_ids is None
+            else required_summary_ids
+        )
+        summaries = self.require_summaries(*summary_ids) if summary_ids else {}
+        if summary_ids and summaries is None:
+            return [
+                self.data_not_available_card(
+                    detail=detail,
+                    missing_items=list(summary_ids),
+                )
+            ]
+        return render_ready(summaries)
+
+    def render_optional_summary_block(
+        self,
+        summary_name: str,
+        detail: str,
+        render_ready: Callable[[list[tuple[str, Any]]], SectionContent],
+        *,
+        required_columns: tuple[str, ...] = (),
+    ) -> SectionContent:
+        summary = self.optional_summary(
+            summary_name,
+            required_columns=required_columns,
+        )
+        if summary is None:
+            return self.data_not_available_card(
+                detail=detail,
+                missing_items=[summary_name],
+            )
+        return render_ready(summary)
+
+    def render_section_with_result(
+        self,
+        result: VisualizationInputResult,
+        render_ready: Callable[[VisualizationInputResult], SectionContent],
+        *,
+        detail: str,
+        title: str = "Data Not Available",
+    ) -> SectionContent:
+        if not result.has_usable_runs:
+            return self.unavailable_visualization(
+                result,
+                detail=detail,
+                title=title,
+            )
+        return render_ready(result)
+
     def _refresh(self) -> None:
         raise NotImplementedError
+
+
+class SpecDrivenDashboardPage(DashboardPage):
+    """DashboardPage variant that defines selectors declaratively."""
+
+    def selector_specs(self) -> tuple[SelectorSpec, ...]:
+        return ()
+
+    def _selectors_requiring_sync(self) -> tuple[str, ...]:
+        if not self._selector_specs:
+            return ()
+        if self._refresh_global_state_changed:
+            return tuple(self._selector_specs)
+        changed_selector_ids = set(self._refresh_changed_selector_ids)
+        if not changed_selector_ids:
+            return ()
+        return tuple(
+            selector_id
+            for selector_id, spec in self._selector_specs.items()
+            if changed_selector_ids.intersection(spec.option_depends_on_selectors)
+        )
+
+    def sync_declarative_controls(self) -> None:
+        selector_ids = self._selectors_requiring_sync()
+        if selector_ids:
+            self.sync_registered_selectors(*selector_ids)
+
+    def sync_controls(self) -> None:
+        self.sync_declarative_controls()
+
+
+class SingleSelectorSummaryPage(SpecDrivenDashboardPage):
+    """Shared controller pattern for one-selector summary-backed pages."""
+
+    body_section_id = "body"
+    summary_detail = "This page only renders from precomputed summary tables."
+
+    def build_page(self) -> pn.viewable.Viewable:
+        self.register_selectors(*self.selector_specs())
+        body = self.section(
+            self.body_section_id,
+            selectors=tuple(self._selector_specs),
+            render=self.render_body,
+        )
+        self._body = body
+        return self.build_single_selector_layout(body)
+
+    def build_single_selector_layout(
+        self,
+        body: pn.Column,
+    ) -> pn.viewable.Viewable:
+        return self.new_section(
+            pn.pane.Markdown(f"## {self.name}"),
+            self.selector_row(*tuple(self._selector_specs)),
+            body,
+            sizing_mode="stretch_width",
+        )
+
+    def render_body(self) -> SectionContent:
+        return self.render_summary_page(
+            self.render_ready,
+            detail=self.summary_detail,
+        )
+
+    def render_ready(self, summaries: dict[str, Any]) -> SectionContent:
+        raise NotImplementedError
+
+
+class MultiSelectorComparisonPage(SpecDrivenDashboardPage):
+    """Spec-driven page family for pages with multiple interdependent selectors."""
+
+
+class CollectedStatePage(SpecDrivenDashboardPage):
+    """Spec-driven page family that derives one shared state bundle per refresh."""
+
+    def __init__(self, *args) -> None:
+        self._current_base_state: dict[str, Any] = {}
+        self._current_data: dict[str, Any] = {}
+        super().__init__(*args)
+
+    def collect_page_state(self) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def collect_base_state(self) -> dict[str, Any]:
+        return self.collect_page_state()
+
+    def collect_selector_state(self, base_state: dict[str, Any]) -> dict[str, Any]:
+        return dict(base_state)
+
+    def sync_controls(self) -> None:
+        if self._refresh_global_state_changed or not self._current_base_state:
+            self._current_base_state = self.collect_base_state()
+        if (
+            self._refresh_global_state_changed
+            or bool(self._refresh_changed_selector_ids)
+            or not self._current_data
+        ):
+            self._current_data = self.collect_selector_state(self._current_base_state)
+        self.sync_declarative_controls()
 
 
 class GroupedDashboardPage:

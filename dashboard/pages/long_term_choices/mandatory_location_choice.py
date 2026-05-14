@@ -248,6 +248,7 @@ def distance_chart_data(
 
 class MandatoryLocationChoicePage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
+        self._current_base_data: dict[str, object] = {}
         self._current_data: dict[str, object] = {}
         self.geo_level_sel = self.selector(
             "geography_level",
@@ -313,12 +314,13 @@ class MandatoryLocationChoicePage(DashboardPage):
         )
 
     def _geo_level_options(self) -> list[str]:
-        data = self.state.get_summary_table_set(
-            "internal_external_worker_by_geography", "weighted"
+        data = self.get_refresh_summary(
+            "internal_external_worker_by_geography",
+            optional=True,
         )
         if data is not None:
             return geo_level_options(_adapt_internal_external(data))
-        commuting = self.state.get_summary_table_set("commuting_flows", "weighted")
+        commuting = self.get_refresh_summary("commuting_flows", optional=True)
         if commuting is not None:
             return geo_level_options(
                 _adapt_commuting_flows(commuting),
@@ -328,48 +330,60 @@ class MandatoryLocationChoicePage(DashboardPage):
         return ["Total"]
 
     def sync_controls(self) -> None:
-        self._current_data = self._collect_data()
+        if self._refresh_global_state_changed or not self._current_base_data:
+            self._current_base_data = self._collect_base_data()
+        if (
+            self._refresh_global_state_changed
+            or bool(self._refresh_changed_selector_ids)
+            or not self._current_data
+        ):
+            self._current_data = self._collect_selector_data(self._current_base_data)
         geo_opts = self._current_data["geo_opts"]
-        self.geo_level_sel.options = geo_opts
+        if tuple(self.geo_level_sel.options) != tuple(geo_opts):
+            self.geo_level_sel.options = geo_opts
         if self.geo_level_sel.value not in geo_opts:
             self.geo_level_sel.value = geo_opts[0]
 
-    def _collect_data(self) -> dict[str, object]:
+    def _collect_base_data(self) -> dict[str, object]:
         if not self.state.run_labels:
             return {
                 "mode": "no_runs",
                 "geo_opts": ["Total"],
             }
-        internal_external = self.state.get_summary_table_set(
+        internal_external = self.get_refresh_summary(
             "internal_external_worker_by_geography",
-            self.weighting_key,
+            optional=True,
         )
-        external_workplace = self.state.get_summary_table_set(
+        external_workplace = self.get_refresh_summary(
             "external_worker_workplace_locations",
-            self.weighting_key,
+            optional=True,
         )
-        commuting_flows = self.state.get_summary_table_set(
+        commuting_flows = self.get_refresh_summary(
             "commuting_flows",
-            self.weighting_key,
+            optional=True,
         )
-        wfh_summary = self.state.get_summary_table_set(
+        wfh_summary = self.get_refresh_summary(
             "work_from_home_rate_by_geography",
-            self.weighting_key,
+            optional=True,
         )
-        telecommute = self.state.get_summary_table_set(
+        telecommute = self.get_refresh_summary(
             "telecommute_frequency_distribution",
-            self.weighting_key,
+            optional=True,
         )
-
-        dist_summary_id = {
-            "Workplace": "work_location_distance_distribution_by_geography",
-            "School": "school_location_distance_distribution_by_geography",
-            "University": "university_location_distance_distribution_by_geography",
-        }[self.location_type_sel.value]
-        distance_summary = self.state.get_summary_table_set(
-            dist_summary_id,
-            self.weighting_key,
-        )
+        distance_summaries = {
+            "Workplace": self.get_refresh_summary(
+                "work_location_distance_distribution_by_geography",
+                optional=True,
+            ),
+            "School": self.get_refresh_summary(
+                "school_location_distance_distribution_by_geography",
+                optional=True,
+            ),
+            "University": self.get_refresh_summary(
+                "university_location_distance_distribution_by_geography",
+                optional=True,
+            ),
+        }
 
         if not any(
             summary is not None
@@ -381,7 +395,7 @@ class MandatoryLocationChoicePage(DashboardPage):
                 commuting_flows,
                 wfh_summary,
                 telecommute,
-                distance_summary,
+                *distance_summaries.values(),
             )
         ):
             return {
@@ -414,9 +428,23 @@ class MandatoryLocationChoicePage(DashboardPage):
             "commuting_flows": commuting_flows,
             "wfh_summary": wfh_summary,
             "telecommute": telecommute,
-            "distance_summary": distance_summary,
-            "dist_summary_id": dist_summary_id,
+            "distance_summaries": distance_summaries,
         }
+
+    def _collect_selector_data(self, base_data: dict[str, object]) -> dict[str, object]:
+        data = dict(base_data)
+        if data["mode"] != "ready":
+            return data
+        location_type = str(self.location_type_sel.value)
+        dist_summary_id = {
+            "Workplace": "work_location_distance_distribution_by_geography",
+            "School": "school_location_distance_distribution_by_geography",
+            "University": "university_location_distance_distribution_by_geography",
+        }[location_type]
+        distance_summaries = data.get("distance_summaries", {})
+        data["distance_summary"] = distance_summaries.get(location_type)
+        data["dist_summary_id"] = dist_summary_id
+        return data
 
     def render_worker_geography(self) -> SectionContent:
         if self._current_data["mode"] == "no_runs":

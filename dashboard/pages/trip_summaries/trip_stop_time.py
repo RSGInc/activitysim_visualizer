@@ -6,7 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import density_chart
-from dashboard.page_base import DashboardPage
+from dashboard.page_base import SelectorSpec, SingleSelectorSummaryPage
 from dashboard.page_definitions import DashboardPageDefinition
 from dashboard.pages._shared.common import nonempty_runs
 from dashboard.pages._shared.purposes import tour_purpose_mapping
@@ -65,70 +65,37 @@ def trip_stop_time_chart_data(
     return trip_data, stop_data
 
 
-class TripStopTimePage(DashboardPage):
-    def build_page(self) -> pn.viewable.Viewable:
+class TripStopTimePage(SingleSelectorSummaryPage):
+    body_section_id = "trip_stop_time_body"
+
+    def selector_specs(self) -> tuple[SelectorSpec, ...]:
+        return (
+            SelectorSpec(
+                selector_id="tour_purpose",
+                label="Tour Purpose",
+                attr_name="tour_purpose_sel",
+                options_factory=lambda page: page._display_purpose_options(),
+                widget_factory=lambda page, options, value: pn.widgets.Select(
+                    name="Tour Purpose",
+                    options=options,
+                    value=value,
+                ),
+            ),
+        )
+
+    def _display_purpose_options(self) -> list[str]:
         tod_data = self.state.get_summary_table_set(
             "trip_departure_time_by_purpose",
-            "weighted",
+            self.weighting_key,
         )
         raw_purposes = purpose_options(tod_data or [])
         purpose_opts, self._purpose_to_raw = tour_purpose_mapping(raw_purposes)
         if not purpose_opts:
             purpose_opts = ["Total"]
             self._purpose_to_raw = {"Total": "all_tour_purposes"}
-        self.tour_purpose_sel = self.selector(
-            "tour_purpose",
-            widget=pn.widgets.Select(
-                name="Tour Purpose",
-                options=purpose_opts,
-                value=purpose_opts[0],
-            ),
-            label="Tour Purpose",
-        )
-        self._body = self.section(
-            "trip_stop_time_body",
-            selectors=("tour_purpose",),
-            render=self.render_body,
-        )
-        return self.new_section(
-            pn.pane.Markdown("## Trip and Stop Time"),
-            pn.Row(
-                pn.pane.Markdown("**Tour Purpose:**"),
-                self.tour_purpose_sel,
-            ),
-            self._body,
-            sizing_mode="stretch_width",
-        )
+        return purpose_opts
 
-    def sync_controls(self) -> None:
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
-            return
-        tod_list = summaries["trip_departure_time_by_purpose"]
-        raw_purposes = purpose_options(tod_list)
-        purpose_opts, self._purpose_to_raw = tour_purpose_mapping(raw_purposes)
-        if not purpose_opts:
-            purpose_opts = sorted(
-                purpose for purpose in raw_purposes if purpose != "all_tour_purposes"
-            )
-            self._purpose_to_raw = {purpose: purpose for purpose in purpose_opts}
-        if purpose_opts:
-            self.tour_purpose_sel.options = purpose_opts
-            if self.tour_purpose_sel.value not in purpose_opts:
-                self.tour_purpose_sel.value = purpose_opts[0]
-
-    def render_body(self):
-        if not self.state.run_labels:
-            return [pn.pane.Markdown("No runs loaded.")]
-
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
-            return [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
-                )
-            ]
+    def render_ready(self, summaries: dict[str, object]):
 
         tod_list = summaries["trip_departure_time_by_purpose"]
         raw_purposes = purpose_options(tod_list)
@@ -149,7 +116,7 @@ class TripStopTimePage(DashboardPage):
         tour_purpose = self.tour_purpose_sel.value
         raw_purpose = self._purpose_to_raw.get(tour_purpose, tour_purpose)
 
-        trip_data, stop_data = self.get_filtered_view(
+        trip_data, stop_data = self.filtered_view(
             "trip_stop_departure_time",
             raw_purpose,
             tuple(label for label, _ in tod_list),

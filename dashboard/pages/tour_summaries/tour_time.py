@@ -6,7 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import density_chart
-from dashboard.page_base import DashboardPage
+from dashboard.page_base import SelectorSpec, SingleSelectorSummaryPage
 from dashboard.page_definitions import DashboardPageDefinition
 from dashboard.pages._shared.common import nonempty_runs
 from dashboard.pages._shared.purposes import raw_tour_purpose, tour_purpose_options
@@ -72,24 +72,22 @@ def tour_time_chart_data(data_list: list[tuple[str, pl.DataFrame]], purpose: str
     return dep_data, arr_data, dur_data
 
 
-class TourTimePage(DashboardPage):
-    def build_page(self) -> pn.viewable.Viewable:
-        purpose_opts = self._purpose_options()
-        self.purpose_sel = self.selector(
-            "tour_purpose",
-            widget=pn.widgets.Select(
-                name="Tour Purpose", options=purpose_opts, value=purpose_opts[0]
+class TourTimePage(SingleSelectorSummaryPage):
+    body_section_id = "tour_time_body"
+
+    def selector_specs(self) -> tuple[SelectorSpec, ...]:
+        return (
+            SelectorSpec(
+                selector_id="tour_purpose",
+                label="Tour Purpose",
+                attr_name="purpose_sel",
+                options_factory=lambda page: page._purpose_options(),
+                widget_factory=lambda page, options, value: pn.widgets.Select(
+                    name="Tour Purpose",
+                    options=options,
+                    value=value,
+                ),
             ),
-            label="Tour Purpose",
-        )
-        self._body = self.section(
-            "tour_time_body", selectors=("tour_purpose",), render=self.render_body
-        )
-        return self.new_section(
-            pn.pane.Markdown("## Tour Time"),
-            pn.Row(pn.pane.Markdown("**Tour Purpose:**"), self.purpose_sel),
-            self._body,
-            sizing_mode="stretch_width",
         )
 
     def _purpose_options(self) -> list[str]:
@@ -98,31 +96,10 @@ class TourTimePage(DashboardPage):
         )
         return tour_purpose_options(data) if data is not None else ["Total"]
 
-    def sync_controls(self) -> None:
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
-            return
-        purpose_opts = tour_purpose_options(
-            summaries["tour_time_of_day_by_tour_purpose"]
-        )
-        self.purpose_sel.options = purpose_opts
-        if self.purpose_sel.value not in purpose_opts:
-            self.purpose_sel.value = purpose_opts[0]
-
-    def render_body(self):
-        if not self.state.run_labels:
-            return [pn.pane.Markdown("No runs loaded.")]
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
-            return [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
-                )
-            ]
+    def render_ready(self, summaries: dict[str, object]):
         tod_list = summaries["tour_time_of_day_by_tour_purpose"]
         purpose = self.purpose_sel.value
-        dep_data, arr_data, dur_data = self.get_filtered_view(
+        dep_data, arr_data, dur_data = self.filtered_view(
             "tour_time",
             raw_tour_purpose(purpose),
             factory=lambda: tour_time_chart_data(tod_list, raw_tour_purpose(purpose)),

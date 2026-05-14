@@ -6,7 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart
-from dashboard.page_base import DashboardPage
+from dashboard.page_base import MultiSelectorComparisonPage, SectionSpec, SelectorSpec
 from dashboard.page_definitions import DashboardPageDefinition
 from dashboard.pages._shared.common import column_options, nonempty_runs
 from dashboard.pages._shared.purposes import tour_purpose_options
@@ -116,50 +116,88 @@ def tour_mode_chart_data(
     return out
 
 
-class TourModePage(DashboardPage):
+class TourModePage(MultiSelectorComparisonPage):
+    def selector_specs(self) -> tuple[SelectorSpec, ...]:
+        return (
+            SelectorSpec(
+                selector_id="tour_purpose",
+                label="Tour Purpose",
+                attr_name="purpose_sel",
+                options_factory=lambda page: page._purpose_options(),
+                widget_factory=lambda page, options, value: pn.widgets.Select(
+                    name="Tour Purpose",
+                    options=options,
+                    value=value,
+                ),
+            ),
+            SelectorSpec(
+                selector_id="auto_sufficiency",
+                label="Household Auto Sufficiency",
+                attr_name="auto_suff_sel",
+                options_factory=lambda page: page._auto_sufficiency_options(),
+                widget_factory=lambda page, options, value: pn.widgets.Select(
+                    name="Household Auto Sufficiency",
+                    options=options,
+                    value=value,
+                ),
+            ),
+            SelectorSpec(
+                selector_id="vehicle_occupancy",
+                label="Vehicle Occupancy",
+                attr_name="occupancy_sel",
+                options_factory=lambda page: page._occupancy_options(),
+                widget_factory=lambda page, options, value: pn.widgets.Select(
+                    name="Vehicle Occupancy",
+                    options=options,
+                    value=value,
+                ),
+            ),
+        )
+
+    def _purpose_options(self) -> list[object]:
+        mode_data = self.get_refresh_summary(
+            "tour_mode_by_tour_purpose_and_auto_sufficiency",
+            optional=True,
+        )
+        return tour_purpose_options(mode_data or [])
+
+    def _auto_sufficiency_options(self) -> list[object]:
+        mode_data = self.get_refresh_summary(
+            "tour_mode_by_tour_purpose_and_auto_sufficiency",
+            optional=True,
+        )
+        return _options(mode_data or [], "auto_sufficiency")
+
+    def _occupancy_options(self) -> list[object]:
+        age_summary = self.get_refresh_summary(
+            "allocated_vehicle_age_by_occupancy",
+            optional=True,
+        )
+        fuel_summary = self.get_refresh_summary(
+            "allocated_vehicle_fuel_type_by_occupancy",
+            optional=True,
+        )
+        body_summary = self.get_refresh_summary(
+            "allocated_vehicle_body_type_by_occupancy",
+            optional=True,
+        )
+        return column_options(age_summary or fuel_summary or body_summary or [], "occupancy")
+
     def build_page(self) -> pn.viewable.Viewable:
-        mode_data = self.state.get_summary_table_set(
-            "tour_mode_by_tour_purpose_and_auto_sufficiency", "weighted"
-        )
-        veh_data = self.state.get_summary_table_set(
-            "allocated_vehicle_age_by_occupancy", "weighted"
-        )
-        self.purpose_sel = self.selector(
-            "tour_purpose",
-            widget=pn.widgets.Select(
-                name="Tour Purpose",
-                options=tour_purpose_options(mode_data or []),
-                value=tour_purpose_options(mode_data or [])[0],
+        self.register_selectors(*self.selector_specs())
+        self.register_sections(
+            SectionSpec(
+                section_id="tour_mode_modes",
+                selector_ids=("tour_purpose", "auto_sufficiency"),
+                render=lambda page: page.render_modes(),
+                attr_name="_mode_section",
             ),
-            label="Tour Purpose",
-        )
-        self.auto_suff_sel = self.selector(
-            "auto_sufficiency",
-            widget=pn.widgets.Select(
-                name="Household Auto Sufficiency",
-                options=_options(mode_data or [], "auto_sufficiency"),
-                value=_options(mode_data or [], "auto_sufficiency")[0],
+            SectionSpec(
+                section_id="tour_mode_vehicles",
+                selector_ids=("vehicle_occupancy",),
+                render=lambda page: page.render_vehicles(),
+                attr_name="_vehicle_section",
             ),
-            label="Household Auto Sufficiency",
-        )
-        self.occupancy_sel = self.selector(
-            "vehicle_occupancy",
-            widget=pn.widgets.Select(
-                name="Vehicle Occupancy",
-                options=column_options(veh_data or [], "occupancy"),
-                value=column_options(veh_data or [], "occupancy")[0],
-            ),
-            label="Vehicle Occupancy",
-        )
-        self._mode_section = self.section(
-            "tour_mode_modes",
-            selectors=("tour_purpose", "auto_sufficiency"),
-            render=self.render_modes,
-        )
-        self._vehicle_section = self.section(
-            "tour_mode_vehicles",
-            selectors=("vehicle_occupancy",),
-            render=self.render_vehicles,
         )
         return self.new_section(
             pn.pane.Markdown("## Tour Mode"),
@@ -176,27 +214,20 @@ class TourModePage(DashboardPage):
 
     def _summaries(self):
         return (
-            self.optional_summary("tour_mode_by_tour_purpose_and_auto_sufficiency"),
-            self.optional_summary("allocated_vehicle_age_by_occupancy"),
-            self.optional_summary("allocated_vehicle_fuel_type_by_occupancy"),
-            self.optional_summary("allocated_vehicle_body_type_by_occupancy"),
-        )
-
-    def sync_controls(self) -> None:
-        mode_summary, age_summary, fuel_summary, body_summary = self._summaries()
-        for widget, opts in [
-            (self.purpose_sel, tour_purpose_options(mode_summary or [])),
-            (self.auto_suff_sel, _options(mode_summary or [], "auto_sufficiency")),
-            (
-                self.occupancy_sel,
-                column_options(
-                    age_summary or fuel_summary or body_summary or [], "occupancy"
-                ),
+            self.get_refresh_summary(
+                "tour_mode_by_tour_purpose_and_auto_sufficiency",
+                optional=True,
             ),
-        ]:
-            widget.options = opts
-            if widget.value not in opts:
-                widget.value = opts[0]
+            self.get_refresh_summary("allocated_vehicle_age_by_occupancy", optional=True),
+            self.get_refresh_summary(
+                "allocated_vehicle_fuel_type_by_occupancy",
+                optional=True,
+            ),
+            self.get_refresh_summary(
+                "allocated_vehicle_body_type_by_occupancy",
+                optional=True,
+            ),
+        )
 
     def render_modes(self):
         if not self.state.run_labels:

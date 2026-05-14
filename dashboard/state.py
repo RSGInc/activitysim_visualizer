@@ -118,12 +118,13 @@ class DashboardState(param.Parameterized):
         """Return usable summary tables for the requested weighting mode."""
         if not self._summary_runs:
             return None
-        selection = self.inspect_summary_table(
-            summary_name, weighting_key=weighting_key
+        mode = weighting_key or self.weighting_key()
+        return self.get_or_create_cached(
+            "summary_table_set",
+            summary_name,
+            mode,
+            factory=lambda: self._build_summary_table_set(summary_name, mode),
         )
-        if not selection.has_usable_runs:
-            return None
-        return [(label, table) for label, table in selection.usable_runs]
 
     def has_summary_table_set(
         self,
@@ -137,6 +138,41 @@ class DashboardState(param.Parameterized):
         summary_name: str,
         *,
         weighting_key: str | None = None,
+        required_columns: tuple[str, ...] = (),
+    ) -> DashboardDataSelection:
+        """Return usable and excluded runs for one summary table."""
+        mode = weighting_key or self.weighting_key()
+        normalized_columns = tuple(required_columns)
+        return self.get_or_create_cached(
+            "summary_selection",
+            summary_name,
+            mode,
+            normalized_columns,
+            factory=lambda: self._inspect_summary_table_uncached(
+                summary_name,
+                weighting_key=mode,
+                required_columns=normalized_columns,
+            ),
+        )
+
+    def _build_summary_table_set(
+        self,
+        summary_name: str,
+        weighting_key: str,
+    ) -> list[tuple[str, pl.DataFrame]] | None:
+        selection = self.inspect_summary_table(
+            summary_name,
+            weighting_key=weighting_key,
+        )
+        if not selection.has_usable_runs:
+            return None
+        return [(label, table) for label, table in selection.usable_runs]
+
+    def _inspect_summary_table_uncached(
+        self,
+        summary_name: str,
+        *,
+        weighting_key: str,
         required_columns: tuple[str, ...] = (),
     ) -> DashboardDataSelection:
         """Return usable and excluded runs for one summary table."""
@@ -248,6 +284,28 @@ class DashboardState(param.Parameterized):
         table_name: str,
         *,
         weighted: bool | None = None,
+        required_columns: tuple[str, ...] = (),
+    ) -> DashboardDataSelection:
+        """Return usable and excluded runs for one prepared table."""
+        effective_weighted = self.weight_mode == "Weighted" if weighted is None else weighted
+        normalized_columns = tuple(required_columns)
+        return self.get_or_create_cached(
+            "prepared_selection",
+            table_name,
+            effective_weighted,
+            normalized_columns,
+            factory=lambda: self._inspect_prepared_table_uncached(
+                table_name,
+                weighted=effective_weighted,
+                required_columns=normalized_columns,
+            ),
+        )
+
+    def _inspect_prepared_table_uncached(
+        self,
+        table_name: str,
+        *,
+        weighted: bool,
         required_columns: tuple[str, ...] = (),
     ) -> DashboardDataSelection:
         """Return usable and excluded runs for one prepared table."""

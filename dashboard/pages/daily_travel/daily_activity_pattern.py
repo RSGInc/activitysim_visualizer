@@ -6,7 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart
-from dashboard.page_base import DashboardPage
+from dashboard.page_base import SelectorSpec, SingleSelectorSummaryPage
 from dashboard.page_definitions import DashboardPageDefinition
 from dashboard.pages._shared.common import nonempty_runs
 from dashboard.pages._shared.person_types import (
@@ -88,37 +88,29 @@ def filter_person_type_rates(
     return out
 
 
-class DailyActivityPatternPage(DashboardPage):
-    def build_page(self) -> pn.viewable.Viewable:
-        person_type_opts = self._person_type_options()
+class DailyActivityPatternPage(SingleSelectorSummaryPage):
+    body_section_id = "activity_pattern_body"
+
+    def selector_specs(self) -> tuple[SelectorSpec, ...]:
         self._person_type_to_raw = {"Total": "all_person_types"}
-        self.person_type_sel = self.selector(
-            "person_type",
-            widget=pn.widgets.Select(
-                name="Person Type",
-                options=person_type_opts,
-                value=person_type_opts[0],
+        return (
+            SelectorSpec(
+                selector_id="person_type",
+                label="Person Type",
+                attr_name="person_type_sel",
+                options_factory=lambda page: page._person_type_options(),
+                widget_factory=lambda page, options, value: pn.widgets.Select(
+                    name="Person Type",
+                    options=options,
+                    value=value,
+                ),
             ),
-            label="Person Type",
-        )
-        self._body = self.section(
-            "activity_pattern_body",
-            selectors=("person_type",),
-            render=self.render_body,
-        )
-        return self.new_section(
-            pn.pane.Markdown("## Daily Activity Pattern"),
-            pn.Row(
-                pn.pane.Markdown("**Person Type:**"),
-                self.person_type_sel,
-            ),
-            self._body,
-            sizing_mode="stretch_width",
         )
 
     def _person_type_options(self) -> list[str]:
-        data = self.state.get_summary_table_set(
-            "daily_activity_pattern_by_person_type", "weighted"
+        data = self.get_refresh_summary(
+            "daily_activity_pattern_by_person_type",
+            optional=True,
         )
         if data is None:
             return ["Total"]
@@ -128,54 +120,28 @@ class DailyActivityPatternPage(DashboardPage):
         )
         return opts or ["Total"]
 
-    def sync_controls(self) -> None:
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
-            return
-        raw_opts = person_type_options(
-            summaries["daily_activity_pattern_by_person_type"]
-        )
-        display_opts, self._person_type_to_raw = person_type_display_mapping(
-            raw_opts, self.config
-        )
-        self.person_type_sel.options = display_opts
-        if self.person_type_sel.value not in display_opts:
-            self.person_type_sel.value = display_opts[0]
-
-    def render_body(self):
-        if not self.state.run_labels:
-            return [pn.pane.Markdown("No runs loaded.")]
-
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
-            return [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
-                )
-            ]
-
+    def render_ready(self, summaries: dict[str, object]):
         person_type = self.person_type_sel.value
         raw_person_type = self._person_type_to_raw.get(person_type)
         person_weights = _person_weights_by_run(
             summaries["daily_activity_pattern_by_person_type"]
         )
 
-        dap_data = self.get_filtered_view(
+        dap_data = self.filtered_view(
             "daily_activity_pattern",
             raw_person_type,
             factory=lambda: filter_person_type_runs(
                 summaries["daily_activity_pattern_by_person_type"], raw_person_type
             ),
         )
-        mand_tour_freq_data = self.get_filtered_view(
+        mand_tour_freq_data = self.filtered_view(
             "mandatory_tour_frequency",
             raw_person_type,
             factory=lambda: filter_person_type_runs(
                 summaries["mandatory_tour_frequency_by_person_type"], raw_person_type
             ),
         )
-        nonmand_tour_freq_data = self.get_filtered_view(
+        nonmand_tour_freq_data = self.filtered_view(
             "nonmandatory_tour_frequency",
             raw_person_type,
             factory=lambda: filter_person_type_runs(
@@ -183,7 +149,7 @@ class DailyActivityPatternPage(DashboardPage):
                 raw_person_type,
             ),
         )
-        tour_rate_data = self.get_filtered_view(
+        tour_rate_data = self.filtered_view(
             "tour_rate_per_person",
             raw_person_type,
             factory=lambda: filter_person_type_rates(
@@ -194,7 +160,7 @@ class DailyActivityPatternPage(DashboardPage):
                 person_weights=person_weights,
             ),
         )
-        trip_rate_data = self.get_filtered_view(
+        trip_rate_data = self.filtered_view(
             "trip_rate_per_person",
             raw_person_type,
             factory=lambda: filter_person_type_rates(
@@ -217,7 +183,7 @@ class DailyActivityPatternPage(DashboardPage):
                 pct_col="pct",
                 as_percent=self.as_percent,
             ),
-            pn.Row(
+            self.two_up(
                 bar_chart(
                     mand_tour_freq_data,
                     x_col="mandatory_tour_frequency",
@@ -239,7 +205,7 @@ class DailyActivityPatternPage(DashboardPage):
                     as_percent=self.as_percent,
                 ),
             ),
-            pn.Row(
+            self.two_up(
                 bar_chart(
                     tour_rate_data,
                     x_col="tour_purpose",
