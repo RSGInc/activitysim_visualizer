@@ -83,17 +83,18 @@ class SkimStore:
         if key in self._keyed_cache:
             return self._keyed_cache[key]
 
-        table = pl.read_csv(file_path).select([key_column_name, value_column_name])
-        values: dict[int, float] = {}
-        for row in table.iter_rows(named=True):
-            raw_key = row.get(key_column_name)
-            raw_value = row.get(value_column_name)
-            if raw_key is None or raw_value is None:
-                continue
-            try:
-                values[int(raw_key)] = float(raw_value)
-            except (TypeError, ValueError):
-                continue
+        table = self.get_keyed_table(
+            file_path,
+            key_column_name=key_column_name,
+            value_column_name=value_column_name,
+        )
+        values = dict(
+            zip(
+                table.get_column("__lookup_key").cast(pl.Int64).to_list(),
+                table.get_column("__lookup_value").to_list(),
+                strict=True,
+            )
+        )
         self._keyed_cache[key] = values
         return values
 
@@ -110,11 +111,15 @@ class SkimStore:
 
         table = (
             pl.read_csv(file_path)
+            .with_row_index("__row_id")
             .select(
+                pl.col("__row_id"),
                 pl.col(key_column_name).cast(pl.Float64).alias("__lookup_key"),
                 pl.col(value_column_name).cast(pl.Float64).alias("__lookup_value"),
             )
             .filter(pl.col("__lookup_key").is_not_null() & pl.col("__lookup_value").is_not_null())
+            .group_by("__lookup_key", maintain_order=True)
+            .agg(pl.col("__lookup_value").sort_by("__row_id").last())
         )
         self._keyed_table_cache[key] = table
         return table
@@ -127,23 +132,21 @@ class SkimStore:
         key_column_name: str,
         value_column_name: str,
     ) -> tuple[np.ndarray, np.ndarray]:
-        lookup = self.get_keyed_values(
+        table = self.get_keyed_table(
             file_path,
             key_column_name=key_column_name,
             value_column_name=value_column_name,
         )
         key_arr = np.asarray(keys, dtype=np.float64)
-        values = np.full(len(key_arr), np.nan, dtype=float)
-        valid = np.zeros(len(key_arr), dtype=bool)
-        for idx, raw_key in enumerate(key_arr):
-            if np.isnan(raw_key):
-                continue
-            key_value = int(raw_key)
-            if key_value not in lookup:
-                continue
-            values[idx] = lookup[key_value]
-            valid[idx] = True
-        return values, valid
+        work = pl.DataFrame(
+            {
+                "__row_id": np.arange(len(key_arr), dtype=np.int64),
+                "__lookup_key": key_arr,
+            }
+        )
+        joined = work.join(table, on="__lookup_key", how="left").sort("__row_id")
+        value_series = joined.get_column("__lookup_value")
+        return value_series.to_numpy(), value_series.is_not_null().to_numpy()
 
     def lookup_keyed_frame(
         self,
@@ -184,20 +187,23 @@ class SkimStore:
         if key in self._od_table_cache:
             return self._od_table_cache[key]
 
-        table = pl.read_csv(file_path).select(
-            [origin_column_name, destination_column_name, value_column_name]
+        table = self.get_od_table_frame(
+            file_path,
+            origin_column_name=origin_column_name,
+            destination_column_name=destination_column_name,
+            value_column_name=value_column_name,
         )
-        values: dict[tuple[int, int], float] = {}
-        for row in table.iter_rows(named=True):
-            raw_origin = row.get(origin_column_name)
-            raw_destination = row.get(destination_column_name)
-            raw_value = row.get(value_column_name)
-            if raw_origin is None or raw_destination is None or raw_value is None:
-                continue
-            try:
-                values[(int(raw_origin), int(raw_destination))] = float(raw_value)
-            except (TypeError, ValueError):
-                continue
+        values = dict(
+            zip(
+                zip(
+                    table.get_column("__lookup_origin").cast(pl.Int64).to_list(),
+                    table.get_column("__lookup_destination").cast(pl.Int64).to_list(),
+                    strict=True,
+                ),
+                table.get_column("__lookup_value").to_list(),
+                strict=True,
+            )
+        )
         self._od_table_cache[key] = values
         return values
 
@@ -215,7 +221,9 @@ class SkimStore:
 
         table = (
             pl.read_csv(file_path)
+            .with_row_index("__row_id")
             .select(
+                pl.col("__row_id"),
                 pl.col(origin_column_name).cast(pl.Float64).alias("__lookup_origin"),
                 pl.col(destination_column_name).cast(pl.Float64).alias("__lookup_destination"),
                 pl.col(value_column_name).cast(pl.Float64).alias("__lookup_value"),
@@ -225,6 +233,11 @@ class SkimStore:
                 & pl.col("__lookup_destination").is_not_null()
                 & pl.col("__lookup_value").is_not_null()
             )
+            .group_by(
+                ["__lookup_origin", "__lookup_destination"],
+                maintain_order=True,
+            )
+            .agg(pl.col("__lookup_value").sort_by("__row_id").last())
         )
         self._od_table_frame_cache[key] = table
         return table
@@ -239,7 +252,7 @@ class SkimStore:
         destination_column_name: str,
         value_column_name: str,
     ) -> tuple[np.ndarray, np.ndarray]:
-        lookup = self.get_od_table_values(
+        table = self.get_od_table_frame(
             file_path,
             origin_column_name=origin_column_name,
             destination_column_name=destination_column_name,
@@ -247,17 +260,23 @@ class SkimStore:
         )
         o_arr = np.asarray(origins, dtype=np.float64)
         d_arr = np.asarray(destinations, dtype=np.float64)
-        values = np.full(len(o_arr), np.nan, dtype=float)
-        valid = np.zeros(len(o_arr), dtype=bool)
-        for idx, (raw_origin, raw_destination) in enumerate(zip(o_arr, d_arr, strict=False)):
-            if np.isnan(raw_origin) or np.isnan(raw_destination):
-                continue
-            key = (int(raw_origin), int(raw_destination))
-            if key not in lookup:
-                continue
-            values[idx] = lookup[key]
-            valid[idx] = True
-        return values, valid
+        work = pl.DataFrame(
+            {
+                "__row_id": np.arange(len(o_arr), dtype=np.int64),
+                "__lookup_origin": o_arr,
+                "__lookup_destination": d_arr,
+            }
+        )
+        joined = (
+            work.join(
+                table,
+                on=["__lookup_origin", "__lookup_destination"],
+                how="left",
+            )
+            .sort("__row_id")
+        )
+        value_series = joined.get_column("__lookup_value")
+        return value_series.to_numpy(), value_series.is_not_null().to_numpy()
 
     def lookup_od_table_frame(
         self,
@@ -299,16 +318,8 @@ def _zone_indices(
     o_arr = np.asarray(origins, dtype=np.int64)
     d_arr = np.asarray(destinations, dtype=np.int64)
     if zone_map:
-        o_idx = np.fromiter(
-            (zone_map.get(int(value), -1) for value in o_arr),
-            dtype=np.int64,
-            count=len(o_arr),
-        )
-        d_idx = np.fromiter(
-            (zone_map.get(int(value), -1) for value in d_arr),
-            dtype=np.int64,
-            count=len(d_arr),
-        )
+        o_idx = _map_with_zone_map(o_arr, zone_map)
+        d_idx = _map_with_zone_map(d_arr, zone_map)
         return o_idx, d_idx
 
     o_min = int(np.min(o_arr)) if len(o_arr) else 0
@@ -322,3 +333,22 @@ def _zone_indices(
     ):
         return o_arr, d_arr
     return o_arr - 1, d_arr - 1
+
+
+def _map_with_zone_map(values: np.ndarray, zone_map: dict[int, int]) -> np.ndarray:
+    if not zone_map:
+        return np.full(len(values), -1, dtype=np.int64)
+
+    keys = np.fromiter(zone_map.keys(), dtype=np.int64)
+    mapped = np.fromiter(zone_map.values(), dtype=np.int64)
+    order = np.argsort(keys)
+    keys = keys[order]
+    mapped = mapped[order]
+
+    positions = np.searchsorted(keys, values)
+    valid = (positions < len(keys)) & (keys[np.clip(positions, 0, len(keys) - 1)] == values)
+
+    result = np.full(len(values), -1, dtype=np.int64)
+    if valid.any():
+        result[valid] = mapped[positions[valid]]
+    return result
