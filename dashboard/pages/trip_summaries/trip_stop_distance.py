@@ -8,8 +8,8 @@ import polars as pl
 from dashboard.components import density_chart
 from dashboard.page_base import SelectorSpec, SingleSelectorSummaryPage
 from dashboard.page_definitions import DashboardPageDefinition
-from dashboard.pages._shared.common import nonempty_runs
-from dashboard.pages._shared.purposes import raw_tour_purpose, tour_purpose_options
+from dashboard.pages._shared.common import column_value_union, nonempty_runs
+from dashboard.pages._shared.purposes import tour_purpose_mapping
 from dashboard.pages._shared.time_distance import distance_bin_sort_expr
 
 
@@ -19,6 +19,12 @@ def distance_chart_data(
     x_col: str,
     y_col: str,
 ) -> list[tuple[str, pl.DataFrame]]:
+    ordered_bins = (
+        pl.DataFrame({"distance_bin": column_value_union(data_list, x_col)})
+        .with_columns(distance_bin_sort_expr("distance_bin").alias("_sort_distance"))
+        .sort("_sort_distance")
+        .drop("_sort_distance")
+    )
     out = []
     for label, df in nonempty_runs(data_list):
         df = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
@@ -26,15 +32,14 @@ def distance_chart_data(
         out.append(
             (
                 label,
-                df.select(
-                    pl.col(x_col).alias("distance_bin"),
-                    pl.col(y_col).alias("freq"),
-                )
-                .with_columns(
-                    distance_bin_sort_expr("distance_bin").alias("_sort_distance")
-                )
-                .sort("_sort_distance")
-                .drop("_sort_distance"),
+                ordered_bins.join(
+                    df.select(
+                        pl.col(x_col).cast(pl.Utf8).alias("distance_bin"),
+                        pl.col(y_col).alias("freq"),
+                    ),
+                    on="distance_bin",
+                    how="left",
+                ).with_columns(pl.col("freq").fill_null(0.0)),
             )
         )
     return out
@@ -44,6 +49,7 @@ class TripStopDistancePage(SingleSelectorSummaryPage):
     body_section_id = "trip_stop_distance_body"
 
     def selector_specs(self) -> tuple[SelectorSpec, ...]:
+        self._tour_purpose_to_raw = {"Total": "all_tour_purposes"}
         return (
             SelectorSpec(
                 selector_id="tour_purpose",
@@ -59,17 +65,22 @@ class TripStopDistancePage(SingleSelectorSummaryPage):
         )
 
     def _purpose_options(self) -> list[str]:
-        trip_dist_data = self.state.get_summary_table_set(
+        raw_values = self.state.get_summary_column_values(
             "trip_distance_by_purpose",
+            "tour_purpose",
             self.weighting_key,
         )
-        return tour_purpose_options(trip_dist_data or [])
+        options, self._tour_purpose_to_raw = tour_purpose_mapping(
+            raw_values,
+            config=self.config,
+        )
+        return options or ["Total"]
 
     def render_ready(self, summaries: dict[str, object]):
         trip_dist_list = summaries["trip_distance_by_purpose"]
         stop_ood_list = summaries["stop_out_of_direction_distance_by_tour_purpose"]
         tour_purpose = self.tour_purpose_sel.value
-        raw_purpose = raw_tour_purpose(tour_purpose)
+        raw_purpose = self._tour_purpose_to_raw.get(str(tour_purpose), str(tour_purpose))
 
         trip_distance_data = self.filtered_view(
             "trip_distance",

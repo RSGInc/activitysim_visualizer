@@ -133,6 +133,50 @@ class DashboardState(param.Parameterized):
     ) -> bool:
         return self.get_summary_table_set(summary_name, weighting_key) is not None
 
+    def get_summary_column_values(
+        self,
+        summary_name: str,
+        column: str,
+        weighting_key: str | None = None,
+    ) -> list[str]:
+        """Return the union of one string-like summary column across usable runs."""
+        mode = weighting_key or self.weighting_key()
+        return self.get_or_create_cached(
+            "summary_column_values",
+            summary_name,
+            column,
+            mode,
+            factory=lambda: self._build_summary_column_values(
+                summary_name,
+                column,
+                mode,
+            ),
+        )
+
+    def _build_summary_column_values(
+        self,
+        summary_name: str,
+        column: str,
+        weighting_key: str,
+    ) -> list[str]:
+        data_list = self.get_summary_table_set(summary_name, weighting_key)
+        if data_list is None:
+            return []
+        values: list[str] = []
+        for _, table in data_list:
+            if column not in table.columns:
+                continue
+            for value in (
+                table.select(column)
+                .drop_nulls()
+                .to_series()
+                .cast(pl.Utf8)
+                .to_list()
+            ):
+                if value not in values:
+                    values.append(value)
+        return values
+
     def inspect_summary_table(
         self,
         summary_name: str,

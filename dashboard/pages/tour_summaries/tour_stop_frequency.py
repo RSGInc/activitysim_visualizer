@@ -8,8 +8,8 @@ import polars as pl
 from dashboard.components import bar_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
-from dashboard.pages._shared.common import nonempty_runs
-from dashboard.pages._shared.purposes import tour_purpose_options
+from dashboard.pages._shared.common import column_value_union, nonempty_runs
+from dashboard.pages._shared.purposes import tour_purpose_mapping
 
 
 def _options(
@@ -23,18 +23,6 @@ def _options(
     vals = (
         first_df.select(col).drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
     )
-    if col == "tour_purpose":
-        options = []
-        if "all_tour_purposes" in vals:
-            options.append("All")
-        options.extend(
-            sorted(
-                v for v in vals if v not in {total_label, "Total", "all_tour_purposes"}
-            )
-        )
-        if "All" not in options:
-            options.insert(0, "All")
-        return options
     return [total_label] + sorted(v for v in vals if v != total_label)
 
 
@@ -49,7 +37,7 @@ def stop_frequency_chart_data(
     out = []
     for label, df in nonempty_runs(data_list):
         df = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
-        if purpose == "All":
+        if purpose == "all_tour_purposes":
             if (
                 "all_tour_purposes"
                 in df["tour_purpose"].cast(pl.Utf8).unique().to_list()
@@ -79,22 +67,29 @@ def stop_frequency_chart_data(
 
 
 class TourStopFrequencyPage(DashboardPage):
+    def _purpose_options_and_mapping(
+        self,
+        data_list: list[tuple[str, pl.DataFrame]],
+    ) -> tuple[list[str], dict[str, str]]:
+        return tour_purpose_mapping(
+            column_value_union(data_list, "tour_purpose"),
+            total_display="All",
+            config=self.config,
+        )
+
     def build_page(self) -> pn.viewable.Viewable:
         stop_data = self.state.get_summary_table_set(
             "tour_stop_frequency_by_tour_purpose", "weighted"
+        )
+        purpose_opts, self._purpose_to_raw = self._purpose_options_and_mapping(
+            stop_data or []
         )
         self.purpose_sel = self.selector(
             "tour_purpose",
             widget=pn.widgets.Select(
                 name="Tour Purpose",
-                options=tour_purpose_options(
-                    stop_data or [],
-                    total_display="All",
-                ),
-                value=tour_purpose_options(
-                    stop_data or [],
-                    total_display="All",
-                )[0],
+                options=purpose_opts,
+                value=purpose_opts[0],
             ),
             label="Tour Purpose",
         )
@@ -123,7 +118,9 @@ class TourStopFrequencyPage(DashboardPage):
         if summaries is None:
             return
         stop_list = summaries["tour_stop_frequency_by_tour_purpose"]
-        purpose_opts = tour_purpose_options(stop_list, total_display="All")
+        purpose_opts, self._purpose_to_raw = self._purpose_options_and_mapping(
+            stop_list
+        )
         self.purpose_sel.options = purpose_opts
         if self.purpose_sel.value not in purpose_opts:
             self.purpose_sel.value = purpose_opts[0]
@@ -146,11 +143,12 @@ class TourStopFrequencyPage(DashboardPage):
         stop_list = summaries["tour_stop_frequency_by_tour_purpose"]
         atwork_list = nonempty_runs(summaries["atwork_subtour_frequency_distribution"])
         purpose = self.purpose_sel.value
+        raw_purpose = self._purpose_to_raw.get(str(purpose), str(purpose))
         direction = self.direction_sel.value
         stop_data = self.get_filtered_view(
             "tour_stop_frequency",
-            (purpose, direction),
-            factory=lambda: stop_frequency_chart_data(stop_list, purpose, direction),
+            (raw_purpose, direction),
+            factory=lambda: stop_frequency_chart_data(stop_list, raw_purpose, direction),
         )
         return [
             pn.pane.Markdown("### Tour Stop Frequency"),

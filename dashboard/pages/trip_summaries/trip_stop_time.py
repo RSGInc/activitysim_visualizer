@@ -13,30 +13,25 @@ from dashboard.pages._shared.purposes import tour_purpose_mapping
 from dashboard.pages._shared.time_distance import max_timebin, time_label
 
 
-def purpose_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
-    purposes_set = set()
-    for _, df in nonempty_runs(data_list):
-        if "tour_purpose" in df.columns:
-            purposes_set.update(
-                df["tour_purpose"].drop_nulls().cast(pl.Utf8).unique().to_list()
-            )
-    return sorted(str(purpose) for purpose in purposes_set) if purposes_set else []
-
-
 def _profile(
     df: pl.DataFrame,
     val_col: str,
     purpose: str,
     maxbin: int,
 ) -> pl.DataFrame:
+    base = pl.DataFrame({"time_bin": list(range(1, maxbin + 1))})
     return (
-        df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
-        .filter(pl.col("tour_purpose") == purpose)
-        .select(
-            pl.col("time_bin"),
-            pl.col(val_col),
+        base.join(
+            df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
+            .filter(pl.col("tour_purpose") == purpose)
+            .select(
+                pl.col("time_bin"),
+                pl.col(val_col),
+            ),
+            on="time_bin",
+            how="left",
         )
-        .sort("time_bin")
+        .with_columns(pl.col(val_col).fill_null(0.0))
         .with_columns(
             pl.col("time_bin")
             .map_elements(
@@ -69,6 +64,7 @@ class TripStopTimePage(SingleSelectorSummaryPage):
     body_section_id = "trip_stop_time_body"
 
     def selector_specs(self) -> tuple[SelectorSpec, ...]:
+        self._purpose_to_raw = {"Total": "all_tour_purposes"}
         return (
             SelectorSpec(
                 selector_id="tour_purpose",
@@ -84,12 +80,15 @@ class TripStopTimePage(SingleSelectorSummaryPage):
         )
 
     def _display_purpose_options(self) -> list[str]:
-        tod_data = self.state.get_summary_table_set(
+        raw_purposes = self.state.get_summary_column_values(
             "trip_departure_time_by_purpose",
+            "tour_purpose",
             self.weighting_key,
         )
-        raw_purposes = purpose_options(tod_data or [])
-        purpose_opts, self._purpose_to_raw = tour_purpose_mapping(raw_purposes)
+        purpose_opts, self._purpose_to_raw = tour_purpose_mapping(
+            raw_purposes,
+            config=self.config,
+        )
         if not purpose_opts:
             purpose_opts = ["Total"]
             self._purpose_to_raw = {"Total": "all_tour_purposes"}
@@ -98,16 +97,15 @@ class TripStopTimePage(SingleSelectorSummaryPage):
     def render_ready(self, summaries: dict[str, object]):
 
         tod_list = summaries["trip_departure_time_by_purpose"]
-        raw_purposes = purpose_options(tod_list)
         if not self.tour_purpose_sel.options:
-            purpose_opts, self._purpose_to_raw = tour_purpose_mapping(raw_purposes)
-            if not purpose_opts:
-                purpose_opts = sorted(
-                    purpose
-                    for purpose in raw_purposes
-                    if purpose != "all_tour_purposes"
-                )
-                self._purpose_to_raw = {purpose: purpose for purpose in purpose_opts}
+            purpose_opts, self._purpose_to_raw = tour_purpose_mapping(
+                self.state.get_summary_column_values(
+                    "trip_departure_time_by_purpose",
+                    "tour_purpose",
+                    self.weighting_key,
+                ),
+                config=self.config,
+            )
             if not purpose_opts:
                 return [pn.pane.Markdown("No trip/stop time data available.")]
             self.tour_purpose_sel.options = purpose_opts

@@ -8,28 +8,8 @@ import polars as pl
 from dashboard.components import bar_chart, control_row, control_row_spacer
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
-
-
-def _nonempty(
-    data_list: list[tuple[str, pl.DataFrame]],
-) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, df) for label, df in data_list if df is not None and len(df) > 0]
-
-
-def purpose_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
-    first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
-    if first_df is None or "tour_purpose" not in first_df.columns:
-        return ["All"]
-
-    vals = (
-        first_df.select("tour_purpose")
-        .drop_nulls()
-        .unique()
-        .to_series()
-        .cast(pl.Utf8)
-        .to_list()
-    )
-    return ["All"] + sorted(v for v in vals if v != "All")
+from dashboard.pages._shared.common import column_value_union, nonempty_runs
+from dashboard.pages._shared.purposes import tour_purpose_mapping
 
 
 def stop_purpose_chart_data(
@@ -37,15 +17,21 @@ def stop_purpose_chart_data(
     tour_purpose: str,
 ) -> list[tuple[str, pl.DataFrame]]:
     out = []
-    for label, df in _nonempty(data_list):
+    for label, df in nonempty_runs(data_list):
         df = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
-        if tour_purpose == "All":
-            df = (
-                df.group_by("stop_destination_purpose")
-                .agg(stop_count=pl.col("stop_count").sum())
-                .with_columns(pl.col("stop_destination_purpose").cast(pl.Utf8))
-                .sort("stop_destination_purpose")
-            )
+        if tour_purpose == "all_tour_purposes":
+            if (
+                "all_tour_purposes"
+                in df["tour_purpose"].cast(pl.Utf8).unique().to_list()
+            ):
+                df = df.filter(pl.col("tour_purpose") == "all_tour_purposes")
+            else:
+                df = (
+                    df.group_by("stop_destination_purpose")
+                    .agg(stop_count=pl.col("stop_count").sum())
+                    .with_columns(pl.col("stop_destination_purpose").cast(pl.Utf8))
+                    .sort("stop_destination_purpose")
+                )
         else:
             df = df.filter(pl.col("tour_purpose") == tour_purpose)
         out.append((label, df))
@@ -53,12 +39,24 @@ def stop_purpose_chart_data(
 
 
 class TripStopPurposePage(DashboardPage):
+    def _purpose_options_and_mapping(
+        self,
+        data_list: list[tuple[str, pl.DataFrame]],
+    ) -> tuple[list[str], dict[str, str]]:
+        return tour_purpose_mapping(
+            column_value_union(data_list, "tour_purpose"),
+            total_display="All",
+            config=self.config,
+        )
+
     def build_page(self) -> pn.viewable.Viewable:
         stop_data = self.state.get_summary_table_set(
             "stop_destination_purpose_by_tour_purpose",
             "weighted",
         )
-        purpose_opts = purpose_options(stop_data or [])
+        purpose_opts, self._tour_purpose_to_raw = self._purpose_options_and_mapping(
+            stop_data or []
+        )
         self.tour_purpose_sel = self.selector(
             "tour_purpose",
             widget=pn.widgets.Select(
@@ -84,7 +82,9 @@ class TripStopPurposePage(DashboardPage):
         if summaries is None:
             return
         stop_purpose_list = summaries["stop_destination_purpose_by_tour_purpose"]
-        purpose_opts = purpose_options(stop_purpose_list)
+        purpose_opts, self._tour_purpose_to_raw = self._purpose_options_and_mapping(
+            stop_purpose_list
+        )
         self.tour_purpose_sel.options = purpose_opts
         if self.tour_purpose_sel.value not in purpose_opts:
             self.tour_purpose_sel.value = purpose_opts[0]
@@ -102,16 +102,17 @@ class TripStopPurposePage(DashboardPage):
                 )
             ]
 
-        trip_purpose_data = _nonempty(summaries["trip_purpose_distribution"])
+        trip_purpose_data = nonempty_runs(summaries["trip_purpose_distribution"])
         stop_purpose_list = summaries["stop_destination_purpose_by_tour_purpose"]
         tour_purpose = self.tour_purpose_sel.value
+        raw_purpose = self._tour_purpose_to_raw.get(str(tour_purpose), str(tour_purpose))
 
         stop_purpose_data = self.get_filtered_view(
             "stop_destination_purpose",
-            tour_purpose,
+            raw_purpose,
             factory=lambda: stop_purpose_chart_data(
                 stop_purpose_list,
-                tour_purpose,
+                raw_purpose,
             ),
         )
 

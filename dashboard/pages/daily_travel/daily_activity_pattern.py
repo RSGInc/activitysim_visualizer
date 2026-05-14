@@ -8,7 +8,12 @@ import polars as pl
 from dashboard.components import bar_chart
 from dashboard.page_base import SelectorSpec, SingleSelectorSummaryPage
 from dashboard.page_definitions import DashboardPageDefinition
-from dashboard.pages._shared.common import nonempty_runs
+from dashboard.pages._shared.common import (
+    category_axis_order,
+    category_order,
+    nonempty_runs,
+    relabel_runs_by_column,
+)
 from dashboard.pages._shared.person_types import (
     filter_person_type_runs,
     person_type_display_mapping,
@@ -16,6 +21,8 @@ from dashboard.pages._shared.person_types import (
 )
 
 PERSON_TYPE_COL = "person_type"
+MANDATORY_TOUR_FREQ_CATEGORY_COL = "mandatory_tour_frequency"
+MANDATORY_TOUR_FREQ_LABEL_COL = "mandatory_tour_frequency_label"
 
 
 def _person_weights_by_run(
@@ -88,6 +95,55 @@ def filter_person_type_rates(
     return out
 
 
+def _mandatory_tour_frequency_chart_data(
+    data_list: list[tuple[str, pl.DataFrame]],
+    person_type: str | None,
+    config,
+) -> tuple[list[tuple[str, pl.DataFrame]], list[str]]:
+    category_col = MANDATORY_TOUR_FREQ_LABEL_COL
+    raw_category_values = category_order(
+        data_list,
+        MANDATORY_TOUR_FREQ_CATEGORY_COL,
+        category_id="mandatory_tour_frequency",
+        config=config,
+    )
+    if raw_category_values:
+        display_order = [
+            config.label_value("mandatory_tour_frequency", raw_value)
+            for raw_value in raw_category_values
+        ]
+    else:
+        display_order = category_order(data_list, category_col)
+    filtered = filter_person_type_runs(
+        data_list,
+        person_type,
+    )
+    base = pl.DataFrame({category_col: display_order})
+    out: list[tuple[str, pl.DataFrame]] = []
+    for label, df in filtered:
+        working = df
+        if category_col not in working.columns and MANDATORY_TOUR_FREQ_CATEGORY_COL in working.columns:
+            working = working.with_columns(
+                pl.col(MANDATORY_TOUR_FREQ_CATEGORY_COL)
+                .cast(pl.Utf8)
+                .alias(category_col)
+            )
+        completed = base.join(
+            working.select(
+                pl.col(category_col).cast(pl.Utf8).alias(category_col),
+                pl.col("person_count"),
+                *( [pl.col("pct")] if "pct" in working.columns else [] ),
+            ),
+            on=category_col,
+            how="left",
+        ).with_columns(
+            pl.col("person_count").fill_null(0.0),
+            pl.col("pct").fill_null(0.0) if "pct" in working.columns else pl.lit(0.0).alias("pct"),
+        )
+        out.append((label, completed))
+    return out, display_order
+
+
 class DailyActivityPatternPage(SingleSelectorSummaryPage):
     body_section_id = "activity_pattern_body"
 
@@ -108,13 +164,13 @@ class DailyActivityPatternPage(SingleSelectorSummaryPage):
         )
 
     def _person_type_options(self) -> list[str]:
-        data = self.get_refresh_summary(
+        raw_opts = self.state.get_summary_column_values(
             "daily_activity_pattern_by_person_type",
-            optional=True,
+            PERSON_TYPE_COL,
+            "weighted",
         )
-        if data is None:
+        if not raw_opts:
             return ["Total"]
-        raw_opts = person_type_options(data)
         opts, self._person_type_to_raw = person_type_display_mapping(
             raw_opts, self.config
         )
@@ -137,8 +193,10 @@ class DailyActivityPatternPage(SingleSelectorSummaryPage):
         mand_tour_freq_data = self.filtered_view(
             "mandatory_tour_frequency",
             raw_person_type,
-            factory=lambda: filter_person_type_runs(
-                summaries["mandatory_tour_frequency_by_person_type"], raw_person_type
+            factory=lambda: _mandatory_tour_frequency_chart_data(
+                summaries["mandatory_tour_frequency_by_person_type"],
+                raw_person_type,
+                self.config,
             ),
         )
         nonmand_tour_freq_data = self.filtered_view(
@@ -171,6 +229,12 @@ class DailyActivityPatternPage(SingleSelectorSummaryPage):
                 person_weights=person_weights,
             ),
         )
+        display_tour_rate_data = relabel_runs_by_column(
+            tour_rate_data,
+            "tour_purpose",
+            category_id="tour_purpose",
+            config=self.config,
+        )
 
         return [
             bar_chart(
@@ -185,14 +249,15 @@ class DailyActivityPatternPage(SingleSelectorSummaryPage):
             ),
             self.two_up(
                 bar_chart(
-                    mand_tour_freq_data,
-                    x_col="mandatory_tour_frequency",
+                    mand_tour_freq_data[0],
+                    x_col=MANDATORY_TOUR_FREQ_LABEL_COL,
                     y_col="person_count",
                     title=f"Mandatory Tour Frequency - {person_type}",
                     xaxis_title="Mandatory Tour Frequency",
                     yaxis_title="Persons",
                     pct_col="pct",
                     as_percent=self.as_percent,
+                    xaxis_categoryarray=mand_tour_freq_data[1],
                 ),
                 bar_chart(
                     nonmand_tour_freq_data,
@@ -207,13 +272,19 @@ class DailyActivityPatternPage(SingleSelectorSummaryPage):
             ),
             self.two_up(
                 bar_chart(
-                    tour_rate_data,
+                    display_tour_rate_data,
                     x_col="tour_purpose",
                     y_col="tour_rate",
                     title=f"Daily Tour Rate per Person by Tour Purpose - {person_type}",
                     xaxis_title="Tour Purpose",
                     yaxis_title="Tours per Person-Day",
                     as_percent=False,
+                    xaxis_categoryarray=category_axis_order(
+                        tour_rate_data,
+                        column="tour_purpose",
+                        category_id="tour_purpose",
+                        config=self.config,
+                    ),
                 ),
                 bar_chart(
                     trip_rate_data,

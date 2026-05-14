@@ -10,6 +10,20 @@ from processor.summarize.summaries.tour_purpose_helpers import (
 )
 
 _CHILD_PERSON_TYPES = {"6", "7", "8"}
+# _MANDATORY_TOUR_FREQUENCY_CODES = {
+#     1: "work1",
+#     2: "work2",
+#     3: "school1",
+#     4: "school2",
+#     5: "work_and_school",
+# }
+_MANDATORY_TOUR_FREQUENCY_LABELS = {
+    "work1": "1 Work Tour",
+    "work2": "2 Work Tours",
+    "school1": "1 School Tour",
+    "school2": "2 School Tours",
+    "work_and_school": "Work and School",
+}
 
 
 def _parent_only_escorted_tours(rd: RunData) -> pl.DataFrame:
@@ -81,10 +95,7 @@ def _trip_direction_expr(df: pl.DataFrame) -> pl.Expr | None:
     if "inbound" in df.columns:
         return (
             pl.when(
-                pl.col("inbound")
-                .cast(pl.Utf8)
-                .str.to_lowercase()
-                .is_in(["1", "true"])
+                pl.col("inbound").cast(pl.Utf8).str.to_lowercase().is_in(["1", "true"])
             )
             .then(pl.lit("inbound"))
             .otherwise(pl.lit("outbound"))
@@ -103,6 +114,36 @@ def _trip_direction_expr(df: pl.DataFrame) -> pl.Expr | None:
             .alias("direction")
         )
     return None
+
+
+def _mandatory_tour_frequency_code_expr() -> pl.Expr:
+    return (
+        pl.when(pl.col("imf_choice") == 1)
+        .then(pl.lit("work1"))
+        .when(pl.col("imf_choice") == 2)
+        .then(pl.lit("work2"))
+        .when(pl.col("imf_choice") == 3)
+        .then(pl.lit("school1"))
+        .when(pl.col("imf_choice") == 4)
+        .then(pl.lit("school2"))
+        .when(pl.col("imf_choice") == 5)
+        .then(pl.lit("work_and_school"))
+        .otherwise(None)
+        .alias("mandatory_tour_frequency")
+    )
+
+
+def _mandatory_tour_frequency_labeler(config: Config):
+    def _label(value) -> str | None:
+        if value is None:
+            return None
+        value_str = str(value)
+        configured = config.label_value("mandatory_tour_frequency", value_str)
+        if configured != value_str:
+            return configured
+        return _MANDATORY_TOUR_FREQUENCY_LABELS.get(value_str, value_str)
+
+    return _label
 
 
 @summary_contract(
@@ -145,7 +186,8 @@ def dap_summary(rd: RunData, config: Config) -> pl.DataFrame:
 @summary_contract(
     schema={
         "person_type": pl.Utf8,
-        "mandatory_tour_frequency": pl.Int32,
+        "mandatory_tour_frequency": pl.Utf8,
+        "mandatory_tour_frequency_label": pl.Utf8,
         "person_count": pl.Float64,
     },
     required_columns={"per": ("person_type", "imf_choice", "finalweight")},
@@ -157,18 +199,39 @@ def mandatory_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
 
     df = (
         rd.per.filter(pl.col("imf_choice") > 0)
-        .group_by(["person_type", "imf_choice"])
+        .with_columns(_mandatory_tour_frequency_code_expr())
+        .group_by(["person_type", "mandatory_tour_frequency"])
         .agg(person_count=pl.col("finalweight").sum())
-        .rename({"imf_choice": "mandatory_tour_frequency"})
-        .with_columns(pl.col("person_type").cast(pl.Utf8).alias("person_type"))
-        .select("person_type", "mandatory_tour_frequency", "person_count")
+        .with_columns(
+            pl.col("person_type").cast(pl.Utf8).alias("person_type"),
+            pl.col("mandatory_tour_frequency")
+            .map_elements(
+                _mandatory_tour_frequency_labeler(config),
+                return_dtype=pl.Utf8,
+            )
+            .alias("mandatory_tour_frequency_label"),
+        )
+        .select(
+            "person_type",
+            "mandatory_tour_frequency",
+            "mandatory_tour_frequency_label",
+            "person_count",
+        )
     )
 
     total = (
         df.group_by("mandatory_tour_frequency")
-        .agg(person_count=pl.col("person_count").sum())
+        .agg(
+            pl.col("mandatory_tour_frequency_label").first(),
+            person_count=pl.col("person_count").sum(),
+        )
         .with_columns(pl.lit("all_person_types").alias("person_type"))
-        .select("person_type", "mandatory_tour_frequency", "person_count")
+        .select(
+            "person_type",
+            "mandatory_tour_frequency",
+            "mandatory_tour_frequency_label",
+            "person_count",
+        )
     )
 
     return pl.concat([df, total], how="vertical").sort(
@@ -431,26 +494,30 @@ def adult_escorted_tour_purposes_by_direction(
                     pl.col("school_esc_outbound"),
                     pl.col(purpose_col).alias("tour_purpose"),
                     pl.col("finalweight"),
-                ).filter(
+                )
+                .filter(
                     pl.col("tour_purpose").is_not_null()
                     & pl.col("school_esc_outbound").is_not_null()
                     & (
                         pl.col("school_esc_outbound").cast(pl.Utf8).str.to_lowercase()
                         != "none"
                     )
-                ).select("tour_purpose", "finalweight"),
+                )
+                .select("tour_purpose", "finalweight"),
                 escorted.select(
                     pl.col("school_esc_inbound"),
                     pl.col(purpose_col).alias("tour_purpose"),
                     pl.col("finalweight"),
-                ).filter(
+                )
+                .filter(
                     pl.col("tour_purpose").is_not_null()
                     & pl.col("school_esc_inbound").is_not_null()
                     & (
                         pl.col("school_esc_inbound").cast(pl.Utf8).str.to_lowercase()
                         != "none"
                     )
-                ).select("tour_purpose", "finalweight"),
+                )
+                .select("tour_purpose", "finalweight"),
             ],
             how="vertical",
         )
@@ -533,18 +600,22 @@ def adult_escorted_tours_by_person_type_and_direction(
                     "person_type",
                     pl.col("school_esc_outbound").alias("escort_type"),
                     "finalweight",
-                ).filter(
+                )
+                .filter(
                     pl.col("escort_type").is_not_null()
                     & (pl.col("escort_type").cast(pl.Utf8).str.to_lowercase() != "none")
-                ).select("person_type", "finalweight"),
+                )
+                .select("person_type", "finalweight"),
                 escorted.select(
                     "person_type",
                     pl.col("school_esc_inbound").alias("escort_type"),
                     "finalweight",
-                ).filter(
+                )
+                .filter(
                     pl.col("escort_type").is_not_null()
                     & (pl.col("escort_type").cast(pl.Utf8).str.to_lowercase() != "none")
-                ).select("person_type", "finalweight"),
+                )
+                .select("person_type", "finalweight"),
             ],
             how="vertical",
         )
@@ -590,17 +661,23 @@ def adult_escorted_tour_distance_distribution_by_direction(
         "finalweight",
     }
     if not required.issubset(set(rd.tours.columns)):
-        return empty_summary_frame(adult_escorted_tour_distance_distribution_by_direction)
+        return empty_summary_frame(
+            adult_escorted_tour_distance_distribution_by_direction
+        )
 
     escorted = _adult_side_escorted_tours(rd)
     if escorted.is_empty():
-        return empty_summary_frame(adult_escorted_tour_distance_distribution_by_direction)
+        return empty_summary_frame(
+            adult_escorted_tour_distance_distribution_by_direction
+        )
 
     base = escorted.filter(pl.col("SKIMDIST").is_not_null()).with_columns(
         _distance_bin_expr("SKIMDIST")
     )
     if base.is_empty():
-        return empty_summary_frame(adult_escorted_tour_distance_distribution_by_direction)
+        return empty_summary_frame(
+            adult_escorted_tour_distance_distribution_by_direction
+        )
 
     outbound = (
         base.filter(_escort_label_present("school_esc_outbound"))
@@ -665,27 +742,41 @@ def adult_escorted_trip_distance_distribution_by_direction(
     rd: RunData, config: Config
 ) -> pl.DataFrame:
     if "tour_id" not in rd.tours.columns or "tour_id" not in rd.trips.columns:
-        return empty_summary_frame(adult_escorted_trip_distance_distribution_by_direction)
+        return empty_summary_frame(
+            adult_escorted_trip_distance_distribution_by_direction
+        )
 
     direction_expr = _trip_direction_expr(rd.trips)
     if direction_expr is None:
-        return empty_summary_frame(adult_escorted_trip_distance_distribution_by_direction)
+        return empty_summary_frame(
+            adult_escorted_trip_distance_distribution_by_direction
+        )
 
     escorted_tours = _adult_side_escorted_tours(rd)
     if escorted_tours.is_empty():
-        return empty_summary_frame(adult_escorted_trip_distance_distribution_by_direction)
+        return empty_summary_frame(
+            adult_escorted_trip_distance_distribution_by_direction
+        )
 
     escorted_trip_ids = escorted_tours.select("tour_id").unique()
     trips = rd.trips.join(escorted_trip_ids, on="tour_id", how="inner")
-    if trips.is_empty() or "od_dist" not in trips.columns or "finalweight" not in trips.columns:
-        return empty_summary_frame(adult_escorted_trip_distance_distribution_by_direction)
+    if (
+        trips.is_empty()
+        or "od_dist" not in trips.columns
+        or "finalweight" not in trips.columns
+    ):
+        return empty_summary_frame(
+            adult_escorted_trip_distance_distribution_by_direction
+        )
 
     base = trips.filter(pl.col("od_dist").is_not_null()).with_columns(
         direction_expr,
         _distance_bin_expr("od_dist"),
     )
     if base.is_empty():
-        return empty_summary_frame(adult_escorted_trip_distance_distribution_by_direction)
+        return empty_summary_frame(
+            adult_escorted_trip_distance_distribution_by_direction
+        )
 
     by_direction = (
         base.group_by(["distance_bin", "direction"])
@@ -763,15 +854,18 @@ def adult_escort_trip_stop_frequency(rd: RunData, config: Config) -> pl.DataFram
         .with_columns(
             [
                 pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"),
-                pl.col("num_ob_stops").clip(0, 3).cast(pl.Int32).alias(
-                    "outbound_stop_count"
-                ),
-                pl.col("num_ib_stops").clip(0, 3).cast(pl.Int32).alias(
-                    "inbound_stop_count"
-                ),
-                pl.col("num_tot_stops").clip(0, 6).cast(pl.Int32).alias(
-                    "total_stop_count"
-                ),
+                pl.col("num_ob_stops")
+                .clip(0, 3)
+                .cast(pl.Int32)
+                .alias("outbound_stop_count"),
+                pl.col("num_ib_stops")
+                .clip(0, 3)
+                .cast(pl.Int32)
+                .alias("inbound_stop_count"),
+                pl.col("num_tot_stops")
+                .clip(0, 6)
+                .cast(pl.Int32)
+                .alias("total_stop_count"),
             ]
         )
         .group_by(

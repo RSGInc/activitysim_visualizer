@@ -9,7 +9,7 @@ from dashboard.components import density_chart
 from dashboard.page_base import SelectorSpec, SingleSelectorSummaryPage
 from dashboard.page_definitions import DashboardPageDefinition
 from dashboard.pages._shared.common import nonempty_runs
-from dashboard.pages._shared.purposes import raw_tour_purpose, tour_purpose_options
+from dashboard.pages._shared.purposes import tour_purpose_mapping
 from dashboard.pages._shared.time_distance import (
     duration_hours,
     max_timebin,
@@ -19,6 +19,7 @@ from dashboard.pages._shared.time_distance import (
 
 def tour_time_chart_data(data_list: list[tuple[str, pl.DataFrame]], purpose: str):
     maxbin = max_timebin(data_list)
+    all_bins = list(range(1, maxbin + 1))
     dep_data = []
     arr_data = []
     dur_data = []
@@ -26,12 +27,20 @@ def tour_time_chart_data(data_list: list[tuple[str, pl.DataFrame]], purpose: str
         df = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8)).filter(
             pl.col("tour_purpose") == purpose
         )
+        dep_frame = (
+            pl.DataFrame({"time_bin": all_bins})
+            .join(
+                df.select(pl.col("time_bin"), pl.col("departure_tour_count")),
+                on="time_bin",
+                how="left",
+            )
+            .with_columns(pl.col("departure_tour_count").fill_null(0.0))
+            .sort("time_bin")
+        )
         dep_data.append(
             (
                 label,
-                df.select(pl.col("time_bin"), pl.col("departure_tour_count"))
-                .sort("time_bin")
-                .with_columns(
+                dep_frame.with_columns(
                     pl.col("time_bin")
                     .map_elements(
                         lambda tb: time_label(int(tb), maxbin), return_dtype=pl.Utf8
@@ -39,13 +48,21 @@ def tour_time_chart_data(data_list: list[tuple[str, pl.DataFrame]], purpose: str
                     .alias("clock_time")
                 ),
             )
+        )
+        arr_frame = (
+            pl.DataFrame({"time_bin": all_bins})
+            .join(
+                df.select(pl.col("time_bin"), pl.col("arrival_tour_count")),
+                on="time_bin",
+                how="left",
+            )
+            .with_columns(pl.col("arrival_tour_count").fill_null(0.0))
+            .sort("time_bin")
         )
         arr_data.append(
             (
                 label,
-                df.select(pl.col("time_bin"), pl.col("arrival_tour_count"))
-                .sort("time_bin")
-                .with_columns(
+                arr_frame.with_columns(
                     pl.col("time_bin")
                     .map_elements(
                         lambda tb: time_label(int(tb), maxbin), return_dtype=pl.Utf8
@@ -54,12 +71,20 @@ def tour_time_chart_data(data_list: list[tuple[str, pl.DataFrame]], purpose: str
                 ),
             )
         )
+        dur_frame = (
+            pl.DataFrame({"time_bin": all_bins})
+            .join(
+                df.select(pl.col("time_bin"), pl.col("duration_tour_count")),
+                on="time_bin",
+                how="left",
+            )
+            .with_columns(pl.col("duration_tour_count").fill_null(0.0))
+            .sort("time_bin")
+        )
         dur_data.append(
             (
                 label,
-                df.select(pl.col("time_bin"), pl.col("duration_tour_count"))
-                .sort("time_bin")
-                .with_columns(
+                dur_frame.with_columns(
                     pl.col("time_bin")
                     .map_elements(
                         lambda tb: duration_hours(int(tb), maxbin),
@@ -76,6 +101,7 @@ class TourTimePage(SingleSelectorSummaryPage):
     body_section_id = "tour_time_body"
 
     def selector_specs(self) -> tuple[SelectorSpec, ...]:
+        self._tour_purpose_to_raw = {"Total": "all_tour_purposes"}
         return (
             SelectorSpec(
                 selector_id="tour_purpose",
@@ -91,18 +117,25 @@ class TourTimePage(SingleSelectorSummaryPage):
         )
 
     def _purpose_options(self) -> list[str]:
-        data = self.state.get_summary_table_set(
-            "tour_time_of_day_by_tour_purpose", "weighted"
+        raw_values = self.state.get_summary_column_values(
+            "tour_time_of_day_by_tour_purpose",
+            "tour_purpose",
+            self.weighting_key,
         )
-        return tour_purpose_options(data) if data is not None else ["Total"]
+        options, self._tour_purpose_to_raw = tour_purpose_mapping(
+            raw_values,
+            config=self.config,
+        )
+        return options or ["Total"]
 
     def render_ready(self, summaries: dict[str, object]):
         tod_list = summaries["tour_time_of_day_by_tour_purpose"]
         purpose = self.purpose_sel.value
+        raw_purpose = self._tour_purpose_to_raw.get(str(purpose), str(purpose))
         dep_data, arr_data, dur_data = self.filtered_view(
             "tour_time",
-            raw_tour_purpose(purpose),
-            factory=lambda: tour_time_chart_data(tod_list, raw_tour_purpose(purpose)),
+            raw_purpose,
+            factory=lambda: tour_time_chart_data(tod_list, raw_purpose),
         )
         return [
             density_chart(

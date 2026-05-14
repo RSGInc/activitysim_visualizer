@@ -12,6 +12,7 @@ from dashboard.pages._shared.common import (
     category_order,
     complete_category_counts,
     nonempty_runs,
+    relabel_runs_by_column,
 )
 from dashboard.pages._shared.person_types import (
     filter_person_type_runs,
@@ -113,14 +114,17 @@ class IndividualChoicesPage(DashboardPage):
         )
         raw_opts: set[str] = set()
         for summary_name in summary_names:
-            data = self.state.get_summary_table_set(summary_name, self.weighting_key)
-            if data is None:
-                continue
-            raw_opts.update(person_type_options(data))
+            raw_opts.update(
+                self.state.get_summary_column_values(
+                    summary_name,
+                    PERSON_TYPE_COL,
+                    self.weighting_key,
+                )
+            )
         if not raw_opts:
             return ["Total"]
         opts, self._person_type_to_raw = person_type_display_mapping(
-            sorted(raw_opts),
+            self.config.ordered_values("person_type", sorted(raw_opts)),
             self.config,
             all_value=ALL_PERSON_TYPES,
         )
@@ -286,7 +290,21 @@ class IndividualChoicesPage(DashboardPage):
             else "transit_subsidy_status"
         )
         normalized_summary = _cast_category(summary, subsidy_category_col)
-        x_values = category_order(normalized_summary, subsidy_category_col)
+        if subsidy_category_col == "transit_subsidy_status":
+            normalized_summary = relabel_runs_by_column(
+                normalized_summary,
+                subsidy_category_col,
+                category_id="transit_subsidy",
+                config=self.config,
+            )
+        x_values = (
+            self.config.ordered_labels(
+                "transit_subsidy",
+                category_order(summary, "transit_subsidy_status"),
+            )
+            if subsidy_category_col == "transit_subsidy_status"
+            else category_order(normalized_summary, subsidy_category_col)
+        )
         subsidy_list = self.get_filtered_view(
             "transit_subsidy_by_person_type",
             raw_person_type,

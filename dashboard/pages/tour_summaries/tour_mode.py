@@ -8,32 +8,27 @@ import polars as pl
 from dashboard.components import bar_chart
 from dashboard.page_base import MultiSelectorComparisonPage, SectionSpec, SelectorSpec
 from dashboard.page_definitions import DashboardPageDefinition
-from dashboard.pages._shared.common import column_options, nonempty_runs
-from dashboard.pages._shared.purposes import tour_purpose_options
+from dashboard.pages._shared.common import column_options, column_value_union, nonempty_runs
+from dashboard.pages._shared.purposes import tour_purpose_mapping
 
 
 def _options(
-    data_list: list[tuple[str, pl.DataFrame]], col: str, total_label: str = "All"
+    data_list: list[tuple[str, pl.DataFrame]],
+    col: str,
+    *,
+    total_label: str = "All",
+    category_id: str | None = None,
+    config=None,
 ) -> list[str]:
     if col == "auto_sufficiency":
         return ["All", "Zero Auto", "Auto Deficient", "Auto Sufficient"]
-    first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
-    if first_df is None or col not in first_df.columns:
-        return [total_label]
-    vals = (
-        first_df.select(col).drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
+    return column_options(
+        data_list,
+        col,
+        total_label=total_label,
+        category_id=category_id,
+        config=config,
     )
-    if col == "tour_purpose":
-        options = []
-        if "all_tour_purposes" in vals:
-            options.append("Total")
-        options.extend(
-            sorted(
-                v for v in vals if v not in {total_label, "Total", "all_tour_purposes"}
-            )
-        )
-        return options or ["Total"]
-    return [total_label] + sorted(v for v in vals if v != total_label)
 
 
 def _filter_col(
@@ -90,7 +85,11 @@ def _filter_col(
 
 
 def tour_mode_chart_data(
-    data_list: list[tuple[str, pl.DataFrame]], purpose: str, auto_sufficiency: str
+    data_list: list[tuple[str, pl.DataFrame]],
+    purpose: str,
+    auto_sufficiency: str,
+    *,
+    config,
 ):
     value_col = {
         "All": "tour_count_all_households",
@@ -98,6 +97,8 @@ def tour_mode_chart_data(
         "Auto Deficient": "tour_count_auto_deficient",
         "Auto Sufficient": "tour_count_auto_sufficient",
     }[auto_sufficiency]
+    ordered_modes = config.ordered_values("mode", column_value_union(data_list, "tour_mode"))
+    base = pl.DataFrame({"tour_mode": ordered_modes})
     out = []
     for label, df in nonempty_runs(data_list):
         df = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
@@ -108,9 +109,13 @@ def tour_mode_chart_data(
         out.append(
             (
                 label,
-                df.select(
-                    pl.col("tour_mode"), pl.col(value_col).alias("tour_count")
-                ).sort("tour_mode"),
+                base.join(
+                    df.select(
+                        pl.col("tour_mode"), pl.col(value_col).alias("tour_count")
+                    ),
+                    on="tour_mode",
+                    how="left",
+                ).with_columns(pl.col("tour_count").fill_null(0.0)),
             )
         )
     return out
@@ -118,6 +123,7 @@ def tour_mode_chart_data(
 
 class TourModePage(MultiSelectorComparisonPage):
     def selector_specs(self) -> tuple[SelectorSpec, ...]:
+        self._tour_purpose_to_raw = {"Total": "all_tour_purposes"}
         return (
             SelectorSpec(
                 selector_id="tour_purpose",
@@ -155,11 +161,16 @@ class TourModePage(MultiSelectorComparisonPage):
         )
 
     def _purpose_options(self) -> list[object]:
-        mode_data = self.get_refresh_summary(
+        raw_values = self.state.get_summary_column_values(
             "tour_mode_by_tour_purpose_and_auto_sufficiency",
-            optional=True,
+            "tour_purpose",
+            self.weighting_key,
         )
-        return tour_purpose_options(mode_data or [])
+        options, self._tour_purpose_to_raw = tour_purpose_mapping(
+            raw_values,
+            config=self.config,
+        )
+        return options or ["Total"]
 
     def _auto_sufficiency_options(self) -> list[object]:
         mode_data = self.get_refresh_summary(
@@ -181,7 +192,10 @@ class TourModePage(MultiSelectorComparisonPage):
             "allocated_vehicle_body_type_by_occupancy",
             optional=True,
         )
-        return column_options(age_summary or fuel_summary or body_summary or [], "occupancy")
+        return column_options(
+            age_summary or fuel_summary or body_summary or [],
+            "occupancy",
+        )
 
     def build_page(self) -> pn.viewable.Viewable:
         self.register_selectors(*self.selector_specs())
@@ -252,7 +266,12 @@ class TourModePage(MultiSelectorComparisonPage):
         mode_data = self.get_filtered_view(
             "tour_mode",
             (purpose, auto_suff),
-            factory=lambda: tour_mode_chart_data(mode_summary, purpose, auto_suff),
+            factory=lambda: tour_mode_chart_data(
+                mode_summary,
+                self._tour_purpose_to_raw.get(str(purpose), str(purpose)),
+                auto_suff,
+                config=self.config,
+            ),
         )
         return [
             pn.pane.Markdown("### Tour Mode"),
@@ -271,6 +290,10 @@ class TourModePage(MultiSelectorComparisonPage):
                 yaxis_title="Tours",
                 pct_col="pct",
                 as_percent=self.as_percent,
+                xaxis_categoryarray=self.config.ordered_values(
+                    "mode",
+                    column_value_union(mode_data, "tour_mode"),
+                ),
             ),
         ]
 

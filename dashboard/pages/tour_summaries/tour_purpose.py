@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import panel as pn
-import polars as pl
 
 from dashboard.components import bar_chart, data_table
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
+from dashboard.pages._shared.common import (
+    category_axis_order,
+    nonempty_runs,
+    relabel_runs_by_column,
+)
 from runtime.config import Config
-
-
-def _nonempty(
-    data_list: list[tuple[str, pl.DataFrame]],
-) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, df) for label, df in data_list if df is not None and len(df) > 0]
 
 
 class TourPurposePage(DashboardPage):
@@ -43,8 +41,14 @@ class TourPurposePage(DashboardPage):
             ]
             return
 
-        category_data = _nonempty(summaries["tour_category_distribution"])
-        purpose_data = _nonempty(summaries["tour_purpose_distribution"])
+        category_data = nonempty_runs(summaries["tour_category_distribution"])
+        purpose_data = nonempty_runs(summaries["tour_purpose_distribution"])
+        purpose_display_data = relabel_runs_by_column(
+            purpose_data,
+            "tour_purpose",
+            category_id="tour_purpose",
+            config=self.config,
+        )
 
         category_chart = bar_chart(
             category_data,
@@ -58,7 +62,7 @@ class TourPurposePage(DashboardPage):
         )
 
         purpose_chart = bar_chart(
-            purpose_data,
+            purpose_display_data,
             x_col="tour_purpose",
             y_col="tour_count",
             title="Tour Purpose",
@@ -66,6 +70,12 @@ class TourPurposePage(DashboardPage):
             yaxis_title="Tours",
             pct_col="pct",
             as_percent=self.as_percent,
+            xaxis_categoryarray=category_axis_order(
+                purpose_data,
+                column="tour_purpose",
+                category_id="tour_purpose",
+                config=self.config,
+            ),
         )
 
         self._body.objects = [

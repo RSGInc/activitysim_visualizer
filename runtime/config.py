@@ -167,6 +167,20 @@ class PrepareVotBinsSettings:
         return self.mappings.get(_normalize_run_selector_key(run_label))
 
 
+@dataclass(frozen=True)
+class CategorySpec:
+    """Canonical raw/display vocabulary and ordering for one category family."""
+
+    category_id: str
+    mapping_items: tuple[tuple[str, str], ...] = field(default_factory=tuple)
+    raw_values_in_order: tuple[str, ...] = field(default_factory=tuple)
+    fallback_order: str = "data"
+
+    @property
+    def labels_by_raw(self) -> dict[str, str]:
+        return {raw_value: display_label for raw_value, display_label in self.mapping_items}
+
+
 def _normalize_run_selector_key(value: str) -> str:
     normalized = re.sub(r"[^a-z0-9]+", "-", str(value).strip().lower()).strip("-")
     return normalized or str(value).strip().lower()
@@ -650,6 +664,56 @@ def _normalize_label_mapping(
     return normalized or None
 
 
+def _normalize_category_specs(
+    raw_value,
+    *,
+    field_name: str,
+) -> dict[str, CategorySpec]:
+    """Normalize shared category display/order settings."""
+    if raw_value in (None, {}):
+        return {}
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{field_name} must be a mapping when provided.")
+
+    normalized: dict[str, CategorySpec] = {}
+    for raw_category_id, raw_spec in raw_value.items():
+        category_id = str(raw_category_id).strip()
+        if not category_id:
+            raise ValueError(f"{field_name} contains an empty category id.")
+        entry_name = f"{field_name}.{category_id}"
+        mapping_raw = raw_spec
+        order_raw = "data"
+        if not isinstance(raw_spec, dict):
+            raise ValueError(f"{entry_name} must be a mapping.")
+        if "mapping" in raw_spec or "order" in raw_spec:
+            mapping_raw = raw_spec.get("mapping", {})
+            order_raw = raw_spec.get("order", "data")
+        if mapping_raw is None:
+            mapping_raw = {}
+        if not isinstance(mapping_raw, dict):
+            raise ValueError(f"{entry_name}.mapping must be a mapping.")
+        mapping_items = tuple(
+            (str(raw_value_key), str(display_label))
+            for raw_value_key, display_label in mapping_raw.items()
+        )
+        if isinstance(order_raw, str):
+            fallback_order = order_raw.strip().lower() or "data"
+        else:
+            raise ValueError(f"{entry_name}.order must be a string when provided.")
+        if fallback_order not in {"ascending", "descending", "data"}:
+            raise ValueError(
+                f"{entry_name}.order must be one of 'ascending', 'descending', or 'data'."
+            )
+        raw_values_in_order = tuple(raw_value_key for raw_value_key, _ in mapping_items)
+        normalized[category_id] = CategorySpec(
+            category_id=category_id,
+            mapping_items=mapping_items,
+            raw_values_in_order=raw_values_in_order,
+            fallback_order=fallback_order,
+        )
+    return normalized
+
+
 _DEFAULT_RUN_COLORS = [
     "#1f77b4",
     "#ff7f0e",
@@ -872,6 +936,7 @@ class Config:
     col_trip_depart: list[str]
     col_total_employment: list[str]
     col_income_segment: list[str]
+    categories: dict[str, CategorySpec]
     person_type_labels: Optional[dict[str, str]]
     transit_subsidy_labels: Optional[dict[str, str]]
     group_joint_tour_purposes: bool
@@ -965,6 +1030,10 @@ class Config:
             outputs_cfg = {}
         if not isinstance(outputs_cfg, dict):
             raise ValueError("outputs must be a mapping when provided.")
+        categories = _normalize_category_specs(
+            raw.get("categories"),
+            field_name="categories",
+        )
 
         if "dashboard_title" in raw and "dashboard_title" in visualizer_cfg:
             _warn_ignored_legacy_key(
@@ -1268,6 +1337,7 @@ class Config:
                 field_name="columns.income_segment",
                 default=["income_segment", "income_broad", "income"],
             ),
+            categories=categories,
             person_type_labels=person_type_labels,
             transit_subsidy_labels=transit_subsidy_labels,
             group_joint_tour_purposes=group_joint_tour_purposes,
@@ -1335,6 +1405,7 @@ class Config:
                 "total_employment": list(self.col_total_employment),
                 "income_segment": list(self.col_income_segment),
             },
+            "categories": self.category_mapping_payload(),
             "tour_purpose_grouping": {
                 "group_joint_tour_purposes": self.group_joint_tour_purposes,
                 "group_atwork_tour_purposes": self.group_atwork_tour_purposes,
@@ -1442,6 +1513,7 @@ class Config:
                 if self.transit_subsidy_labels
                 else None
             ),
+            "categories": self.category_mapping_payload(),
             "tour_purpose_grouping": {
                 "group_joint_tour_purposes": self.group_joint_tour_purposes,
                 "group_atwork_tour_purposes": self.group_atwork_tour_purposes,
@@ -1523,6 +1595,7 @@ class Config:
             ),
             "run_colors": list(self.run_colors),
             "missing_data_display": self.missing_data_display,
+            "categories": self.category_mapping_payload(),
             "export_html": {
                 "enabled": self.export_html.enabled,
                 "dashboard": {
@@ -1557,19 +1630,169 @@ class Config:
         """Return the configured display color for one run index."""
         return self.run_colors[idx % len(self.run_colors)]
 
+    def category_spec(self, category_id: str) -> CategorySpec | None:
+        """Return the configured or legacy-backed category spec."""
+        normalized_id = str(category_id).strip()
+        if not normalized_id:
+            return None
+        configured = self.categories.get(normalized_id)
+        if configured is not None:
+            return configured
+        if normalized_id == "person_type" and self.person_type_labels:
+            mapping_items = tuple(
+                (str(raw_value), str(display_label))
+                for raw_value, display_label in self.person_type_labels.items()
+            )
+            return CategorySpec(
+                category_id=normalized_id,
+                mapping_items=mapping_items,
+                raw_values_in_order=tuple(raw_value for raw_value, _ in mapping_items),
+                fallback_order="data",
+            )
+        if normalized_id == "transit_subsidy" and self.transit_subsidy_labels:
+            mapping_items = tuple(
+                (str(raw_value), str(display_label))
+                for raw_value, display_label in self.transit_subsidy_labels.items()
+            )
+            return CategorySpec(
+                category_id=normalized_id,
+                mapping_items=mapping_items,
+                raw_values_in_order=tuple(raw_value for raw_value, _ in mapping_items),
+                fallback_order="data",
+            )
+        if normalized_id == "geography" and self.geography_mapping:
+            mapping_items = tuple(
+                (str(raw_value), str(display_label))
+                for raw_value, display_label in self.geography_mapping.items()
+            )
+            return CategorySpec(
+                category_id=normalized_id,
+                mapping_items=mapping_items,
+                raw_values_in_order=tuple(raw_value for raw_value, _ in mapping_items),
+                fallback_order="data",
+            )
+        if normalized_id == "mode" and self.mode_order:
+            return CategorySpec(
+                category_id=normalized_id,
+                raw_values_in_order=tuple(str(value) for value in self.mode_order),
+                fallback_order="data",
+            )
+        return None
+
+    def _normalize_category_values(self, raw_values: list[str] | tuple[str, ...]) -> list[str]:
+        values: list[str] = []
+        for raw_value in raw_values:
+            value_str = str(raw_value)
+            if value_str not in values:
+                values.append(value_str)
+        return values
+
+    def _order_remaining_values(
+        self,
+        values: list[str],
+        fallback_order: str,
+    ) -> list[str]:
+        if fallback_order == "ascending":
+            return sorted(values)
+        if fallback_order == "descending":
+            return sorted(values, reverse=True)
+        return list(values)
+
+    def label_value(self, category_id: str, raw_value) -> str:
+        """Return the configured display label for one raw category value."""
+        raw_value_str = str(raw_value)
+        spec = self.category_spec(category_id)
+        if spec is not None and raw_value_str in spec.labels_by_raw:
+            return spec.labels_by_raw[raw_value_str]
+        return raw_value_str
+
+    def ordered_values(
+        self,
+        category_id: str,
+        raw_values: list[str] | tuple[str, ...],
+    ) -> list[str]:
+        """Return raw category values in configured display order."""
+        normalized_values = self._normalize_category_values(raw_values)
+        spec = self.category_spec(category_id)
+        if spec is None:
+            return normalized_values
+        ordered = [value for value in spec.raw_values_in_order if value in normalized_values]
+        remaining = [value for value in normalized_values if value not in ordered]
+        ordered.extend(self._order_remaining_values(remaining, spec.fallback_order))
+        return ordered
+
+    def ordered_labels(
+        self,
+        category_id: str,
+        raw_values: list[str] | tuple[str, ...],
+    ) -> list[str]:
+        """Return display labels corresponding to ordered raw category values."""
+        return [
+            self.label_value(category_id, raw_value)
+            for raw_value in self.ordered_values(category_id, raw_values)
+        ]
+
+    def selector_values(
+        self,
+        category_id: str,
+        raw_values: list[str] | tuple[str, ...],
+        *,
+        include_total: bool = True,
+        total_raw: str | None = None,
+        total_display: str = "All",
+        exclude: tuple[str, ...] = (),
+    ) -> list[str]:
+        """Return ordered display values for a selector built from raw values."""
+        ordered_raw_values = self.ordered_values(category_id, raw_values)
+        excluded = {str(value) for value in exclude}
+        options: list[str] = []
+        if include_total and total_raw is not None and total_raw in ordered_raw_values:
+            options.append(self.label_value(category_id, total_raw) or total_display)
+        elif include_total:
+            options.append(total_display)
+        for raw_value in ordered_raw_values:
+            if raw_value in excluded or raw_value == total_raw:
+                continue
+            label = self.label_value(category_id, raw_value)
+            if label not in options:
+                options.append(label)
+        return options
+
+    def category_mapping_payload(self) -> dict[str, Any]:
+        """Return a normalized serialization of shared category specs."""
+        payload: dict[str, Any] = {}
+        category_ids = sorted(
+            {
+                *self.categories.keys(),
+                "person_type" if self.person_type_labels else "",
+                "transit_subsidy" if self.transit_subsidy_labels else "",
+                "geography" if self.geography_mapping else "",
+                "mode" if self.mode_order else "",
+            }
+        )
+        for category_id in category_ids:
+            if not category_id:
+                continue
+            spec = self.category_spec(category_id)
+            if spec is None:
+                continue
+            payload[category_id] = {
+                "mapping": list(spec.mapping_items),
+                "ordered_values": list(spec.raw_values_in_order),
+                "fallback_order": spec.fallback_order,
+            }
+        return payload
+
     def ordered_modes(self, modes_in_data: list[str]) -> list[str]:
         """Return modes in display order. Unknown modes appended at end."""
-        if not self.mode_order:
-            return modes_in_data
-        ordered = [mode for mode in self.mode_order if mode in modes_in_data]
-        remaining = [mode for mode in modes_in_data if mode not in ordered]
-        return ordered + remaining
+        return self.ordered_values("mode", modes_in_data)
 
     def apply_geo_mapping(self, series: pl.Series) -> pl.Series:
         """Apply geography mapping (value->name) to a string series."""
-        if not self.geography_mapping:
+        spec = self.category_spec("geography")
+        if spec is None or not spec.labels_by_raw:
             return series.cast(pl.Utf8)
-        mapping = self.geography_mapping
+        mapping = spec.labels_by_raw
         return series.cast(pl.Utf8).map_elements(
             lambda value: (
                 mapping.get(str(value), str(value)) if value is not None else None
@@ -1579,11 +1802,11 @@ class Config:
 
     def person_type_label(self, value) -> str:
         """Return the display label for a person type value."""
-        return self._lookup_label(value, self.person_type_labels)
+        return self.label_value("person_type", value)
 
     def transit_subsidy_label(self, value) -> str:
         """Return the display label for a transit subsidy value."""
-        return self._lookup_label(value, self.transit_subsidy_labels)
+        return self.label_value("transit_subsidy", value)
 
     @staticmethod
     def _lookup_label(value, labels: dict[str, str] | None) -> str:

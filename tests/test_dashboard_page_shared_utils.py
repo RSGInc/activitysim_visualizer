@@ -41,13 +41,18 @@ from dashboard.pages.long_term_choices.shadow_pricing import ShadowPricingPage
 from dashboard.pages.tour_summaries.internal_external_tours import (
     InternalExternalToursPage,
 )
+from dashboard.pages.tour_summaries.tour_distance import TourDistancePage
 from dashboard.pages.tour_summaries.tour_mode import TourModePage
+from dashboard.pages.tour_summaries.tour_purpose import TourPurposePage
+from dashboard.pages.tour_summaries.tour_stop_frequency import TourStopFrequencyPage
 from dashboard.pages.tour_summaries.tour_time import TourTimePage
 from dashboard.pages.trip_summaries.trip_mode import TripModePage
+from dashboard.pages.trip_summaries.trip_stop_purpose import TripStopPurposePage
 from dashboard.pages.trip_summaries.trip_stop_time import TripStopTimePage
 from dashboard.pages.validation.traffic import TrafficValidationPage
 from dashboard.pages.validation.transit import TransitValidationPage
 from processor.summarize.cache import create_summary_run
+from runtime.config import Config
 from test_export_html import _full_summary_run, _scale_table, _write_config
 
 
@@ -189,6 +194,151 @@ def _summary_run_for_controller_pages():
         summaries_by_mode={"weighted": weighted, "unweighted": unweighted},
         source_run_dir=str(Path("C:/runs/controller")),
     )
+
+
+def _summary_run_for_tour_purpose_category_pages():
+    weighted = {
+        "tour_category_distribution": pl.DataFrame(
+            {
+                "tour_category": ["mandatory", "non-mandatory"],
+                "tour_count": [12.0, 8.0],
+            }
+        ),
+        "tour_purpose_distribution": pl.DataFrame(
+            {
+                "tour_purpose": ["social", "shop", "work"],
+                "tour_count": [5.0, 2.0, 7.0],
+            }
+        ),
+        "tour_stop_frequency_by_tour_purpose": pl.DataFrame(
+            {
+                "tour_purpose": [
+                    "all_tour_purposes",
+                    "all_tour_purposes",
+                    "work",
+                    "social",
+                ],
+                "outbound_stop_count": [0, 1, 0, 1],
+                "inbound_stop_count": [0, 1, 0, 1],
+                "total_stop_count": [0, 2, 0, 2],
+                "tour_count": [10.0, 4.0, 6.0, 3.0],
+            }
+        ),
+        "atwork_subtour_frequency_distribution": pl.DataFrame(
+            {
+                "atwork_subtour_frequency_category": ["0", "1"],
+                "atwork_subtour_count": [4.0, 2.0],
+            }
+        ),
+        "tour_distance_by_tour_purpose": pl.DataFrame(
+            {
+                "tour_purpose": [
+                    "all_tour_purposes",
+                    "all_tour_purposes",
+                    "work",
+                    "social",
+                ],
+                "distance_bin": ["1", "2", "1", "2"],
+                "tour_count": [8.0, 6.0, 5.0, 3.0],
+            }
+        ),
+        "average_mandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
+            {
+                "mandatory_tour_purpose": ["work", "school"],
+                "geography": ["all_geographies", "all_geographies"],
+                "average_tour_distance": [8.5, 5.0],
+            }
+        ),
+        "average_nonmandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
+            {
+                "nonmandatory_tour_purpose": ["shop", "social"],
+                "geography": ["all_geographies", "all_geographies"],
+                "average_tour_distance": [3.5, 4.0],
+            }
+        ),
+        "trip_purpose_distribution": pl.DataFrame(
+            {
+                "trip_purpose": ["work", "shop"],
+                "trip_count": [9.0, 4.0],
+            }
+        ),
+        "stop_destination_purpose_by_tour_purpose": pl.DataFrame(
+            {
+                "tour_purpose": [
+                    "all_tour_purposes",
+                    "work",
+                    "social",
+                ],
+                "stop_destination_purpose": ["shop", "shop", "visit"],
+                "stop_count": [4.0, 3.0, 2.0],
+            }
+        ),
+    }
+    unweighted = {name: _scale_table(df, 0.5) for name, df in weighted.items()}
+    return create_summary_run(
+        label="Categories",
+        run_key="categories",
+        summaries_by_mode={"weighted": weighted, "unweighted": unweighted},
+        source_run_dir=str(Path("C:/runs/categories")),
+    )
+
+
+def _write_category_config(tmp_path: Path) -> Config:
+    config_path = tmp_path / "category_config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'name: "Category Config"',
+                "runs: []",
+                "summaries:",
+                "  root: summary_cache",
+                "  weighting_modes:",
+                "    - weighted",
+                "    - unweighted",
+                "visualizer:",
+                '  dashboard_title: "Category Dashboard"',
+                "modes:",
+                "  order:",
+                "    - LEGACY_DRIVE",
+                "person_types:",
+                "  worker: Legacy Worker",
+                "transit_subsidies:",
+                '  "yes": Legacy Yes',
+                "geography:",
+                "  enabled: true",
+                "  landuse_col: COUNTY",
+                "  mapping:",
+                "    A: Legacy A",
+                "categories:",
+                "  person_type:",
+                "    mapping:",
+                "      worker: Config Worker",
+                "      student: Config Student",
+                "    order: descending",
+                "  transit_subsidy:",
+                "    mapping:",
+                '      "yes": Config Yes',
+                '      "no": Config No',
+                "  geography:",
+                "    mapping:",
+                "      A: Config A",
+                "      B: Config B",
+                "  mode:",
+                "    mapping:",
+                "      WALK: Walk Label",
+                "      DRIVE: Drive Label",
+                "    order: descending",
+                "  tour_purpose:",
+                "    mapping:",
+                "      all_tour_purposes: Total Tours",
+                "      work: Work Tours",
+                "      social: Social Tours",
+                "    order: ascending",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return Config.from_yaml(config_path)
 
 
 class _SelectorSpecTestPage(MultiSelectorComparisonPage):
@@ -469,6 +619,23 @@ def test_selector_spec_defaults_and_sync(tmp_path: Path) -> None:
     assert page.choice_sel.value == "C"
 
 
+def test_category_specs_override_legacy_labels_and_preserve_order(tmp_path: Path) -> None:
+    config = _write_category_config(tmp_path)
+
+    assert config.person_type_label("worker") == "Config Worker"
+    assert config.transit_subsidy_label("yes") == "Config Yes"
+    assert config.apply_geo_mapping(pl.Series(["A", "B"])).to_list() == [
+        "Config A",
+        "Config B",
+    ]
+    assert config.ordered_modes(["DRIVE", "WALK", "BIKE"]) == ["WALK", "DRIVE", "BIKE"]
+    assert config.ordered_values("tour_purpose", ["social", "shop", "work"]) == [
+        "work",
+        "social",
+        "shop",
+    ]
+
+
 def test_summary_selection_lookups_use_state_cache(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
     state = DashboardState(
@@ -484,6 +651,82 @@ def test_summary_selection_lookups_use_state_cache(tmp_path: Path) -> None:
     assert summary_table_set is not None
     assert state.cache_stats["summary_selection"] == {"hits": 2, "misses": 1}
     assert state.cache_stats["summary_table_set"] == {"hits": 0, "misses": 1}
+
+
+def test_summary_column_values_use_union_cache(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    state = DashboardState(
+        summary_runs=[
+            create_summary_run(
+                label="Base",
+                run_key="base",
+                summaries_by_mode={
+                    "weighted": {
+                        "trip_mode_by_tour_purpose_and_tour_mode": pl.DataFrame(
+                            {
+                                "tour_purpose": ["eatout", "all_tour_purposes"],
+                                "tour_mode": ["DRIVE", "all_tour_modes"],
+                                "trip_mode": ["DRIVEALONE", "WALK"],
+                                "trip_count": [2.0, 1.0],
+                            }
+                        )
+                    },
+                    "unweighted": {
+                        "trip_mode_by_tour_purpose_and_tour_mode": pl.DataFrame(
+                            {
+                                "tour_purpose": ["eatout", "all_tour_purposes"],
+                                "tour_mode": ["DRIVE", "all_tour_modes"],
+                                "trip_mode": ["DRIVEALONE", "WALK"],
+                                "trip_count": [1.0, 1.0],
+                            }
+                        )
+                    },
+                },
+                source_run_dir="C:/runs/base",
+            ),
+            create_summary_run(
+                label="Build",
+                run_key="build",
+                summaries_by_mode={
+                    "weighted": {
+                        "trip_mode_by_tour_purpose_and_tour_mode": pl.DataFrame(
+                            {
+                                "tour_purpose": ["social", "all_tour_purposes"],
+                                "tour_mode": ["WALK", "all_tour_modes"],
+                                "trip_mode": ["WALK", "WALK"],
+                                "trip_count": [3.0, 1.0],
+                            }
+                        )
+                    },
+                    "unweighted": {
+                        "trip_mode_by_tour_purpose_and_tour_mode": pl.DataFrame(
+                            {
+                                "tour_purpose": ["social", "all_tour_purposes"],
+                                "tour_mode": ["WALK", "all_tour_modes"],
+                                "trip_mode": ["WALK", "WALK"],
+                                "trip_count": [1.0, 1.0],
+                            }
+                        )
+                    },
+                },
+                source_run_dir="C:/runs/build",
+            ),
+        ],
+        weighting_modes=config.weighting_modes,
+    )
+
+    first = state.get_summary_column_values(
+        "trip_mode_by_tour_purpose_and_tour_mode",
+        "tour_purpose",
+    )
+    second = state.get_summary_column_values(
+        "trip_mode_by_tour_purpose_and_tour_mode",
+        "tour_purpose",
+    )
+
+    assert first == ["eatout", "all_tour_purposes", "social"]
+    assert second == first
+    assert state.cache_stats["summary_column_values"] == {"hits": 1, "misses": 1}
 
 
 def test_selector_sync_recomputes_only_dependent_options(tmp_path: Path) -> None:
@@ -640,6 +883,148 @@ def test_pages_keep_expected_selector_options_after_shared_helper_refactor(
     shadow_page.refresh(force=True)
     assert list(shadow_page.geo_level_sel.options) == ["All", "district", "taz"]
     assert list(shadow_page.student_type_sel.options) == ["All", "grade", "university"]
+
+
+def test_trip_mode_selector_uses_union_across_runs_and_zero_fills_missing_run(
+    tmp_path: Path,
+) -> None:
+    config = _write_category_config(tmp_path)
+    state = DashboardState(
+        summary_runs=[
+            create_summary_run(
+                label="Base",
+                run_key="base",
+                summaries_by_mode={
+                    "weighted": {
+                        "trip_mode_by_tour_purpose_and_tour_mode": pl.DataFrame(
+                            {
+                                "tour_purpose": [
+                                    "work",
+                                    "all_tour_purposes",
+                                ],
+                                "tour_mode": [
+                                    "all_tour_modes",
+                                    "all_tour_modes",
+                                ],
+                                "trip_mode": ["DRIVE", "DRIVE"],
+                                "trip_count": [5.0, 5.0],
+                            }
+                        )
+                    },
+                    "unweighted": {
+                        "trip_mode_by_tour_purpose_and_tour_mode": pl.DataFrame(
+                            {
+                                "tour_purpose": ["work", "all_tour_purposes"],
+                                "tour_mode": ["all_tour_modes", "all_tour_modes"],
+                                "trip_mode": ["DRIVE", "DRIVE"],
+                                "trip_count": [2.0, 2.0],
+                            }
+                        )
+                    },
+                },
+                source_run_dir="C:/runs/base",
+            ),
+            create_summary_run(
+                label="Build",
+                run_key="build",
+                summaries_by_mode={
+                    "weighted": {
+                        "trip_mode_by_tour_purpose_and_tour_mode": pl.DataFrame(
+                            {
+                                "tour_purpose": [
+                                    "social",
+                                    "all_tour_purposes",
+                                ],
+                                "tour_mode": [
+                                    "all_tour_modes",
+                                    "all_tour_modes",
+                                ],
+                                "trip_mode": ["WALK", "WALK"],
+                                "trip_count": [7.0, 7.0],
+                            }
+                        )
+                    },
+                    "unweighted": {
+                        "trip_mode_by_tour_purpose_and_tour_mode": pl.DataFrame(
+                            {
+                                "tour_purpose": ["social", "all_tour_purposes"],
+                                "tour_mode": ["all_tour_modes", "all_tour_modes"],
+                                "trip_mode": ["WALK", "WALK"],
+                                "trip_count": [3.0, 3.0],
+                            }
+                        )
+                    },
+                },
+                source_run_dir="C:/runs/build",
+            ),
+        ],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = TripModePage(state, config)
+    page.refresh(force=True)
+
+    assert list(page.tour_purpose_sel.options) == [
+        "Total Tours",
+        "Work Tours",
+        "Social Tours",
+    ]
+    page.tour_purpose_sel.value = "Social Tours"
+    summary = page.get_refresh_summary(
+        "trip_mode_by_tour_purpose_and_tour_mode",
+        optional=True,
+    )
+    assert summary is not None
+    from dashboard.pages.trip_summaries.trip_mode import _filtered_trip_mode_data
+
+    filtered = _filtered_trip_mode_data(
+        summary,
+        page._tour_purpose_to_raw["Social Tours"],
+    )
+    assert [label for label, _ in filtered] == ["Base", "Build"]
+    assert filtered[0][1]["trip_count"].sum() == 0.0
+    assert filtered[1][1]["trip_count"].sum() == 7.0
+
+
+def test_tour_purpose_pages_apply_shared_category_mapping(tmp_path: Path) -> None:
+    config = _write_category_config(tmp_path)
+    state = DashboardState(
+        summary_runs=[_summary_run_for_tour_purpose_category_pages()],
+        weighting_modes=config.weighting_modes,
+    )
+
+    tour_purpose_page = TourPurposePage(state, config)
+    tour_purpose_page.refresh(force=True)
+    purpose_chart = tour_purpose_page._body.objects[0].objects[1]
+    assert list(purpose_chart.object.layout.xaxis.categoryarray) == [
+        "Work Tours",
+        "Social Tours",
+        "shop",
+    ]
+
+    tour_stop_frequency_page = TourStopFrequencyPage(state, config)
+    tour_stop_frequency_page.refresh(force=True)
+    assert list(tour_stop_frequency_page.purpose_sel.options) == [
+        "Total Tours",
+        "Work Tours",
+        "Social Tours",
+    ]
+
+    tour_distance_page = TourDistancePage(state, config)
+    tour_distance_page.refresh(force=True)
+    assert list(tour_distance_page.tour_purpose_sel.options) == [
+        "Total Tours",
+        "Work Tours",
+        "Social Tours",
+    ]
+
+    trip_stop_purpose_page = TripStopPurposePage(state, config)
+    trip_stop_purpose_page.refresh(force=True)
+    assert list(trip_stop_purpose_page.tour_purpose_sel.options) == [
+        "Total Tours",
+        "Work Tours",
+        "Social Tours",
+    ]
 
 
 def test_individual_choices_page_keeps_person_type_options(tmp_path: Path) -> None:

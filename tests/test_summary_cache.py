@@ -55,7 +55,7 @@ from processor.summarize.schema import SUMMARY_OUTPUT_COLUMNS
 from processor.summarize.summary_specs import SUMMARY_SPECS, SummarySpec
 from processor.summarize.summary_specs import SUMMARY_SPEC_BY_ID
 from runtime.config import Config
-from processor.summarize.summaries import legacy
+from processor.summarize.summaries import daily_travel, legacy
 
 
 def _write_config(
@@ -926,6 +926,60 @@ def test_daily_activity_pattern_live_page_uses_shared_summary_helpers(
     assert page._body.objects
 
 
+def test_mandatory_tour_frequency_summary_emits_category_and_label_columns(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        visualizer_lines=[
+            "dummy: true",
+        ],
+    )
+    result = daily_travel.mandatory_tour_freq(_daily_travel_run_with_imf(), config).sort(
+        ["person_type", "mandatory_tour_frequency"]
+    )
+
+    assert result.columns == [
+        "person_type",
+        "mandatory_tour_frequency",
+        "mandatory_tour_frequency_label",
+        "person_count",
+    ]
+    assert result.to_dict(as_series=False) == {
+        "person_type": [
+            "all_person_types",
+            "all_person_types",
+            "all_person_types",
+            "all_person_types",
+            "student",
+            "student",
+            "worker",
+            "worker",
+        ],
+        "mandatory_tour_frequency": [
+            "school1",
+            "work1",
+            "work2",
+            "work_and_school",
+            "school1",
+            "work_and_school",
+            "work1",
+            "work2",
+        ],
+        "mandatory_tour_frequency_label": [
+            "1 School Tour",
+            "1 Work Tour",
+            "2 Work Tours",
+            "Work and School",
+            "1 School Tour",
+            "Work and School",
+            "1 Work Tour",
+            "2 Work Tours",
+        ],
+        "person_count": [4.0, 2.0, 3.0, 5.0, 4.0, 5.0, 2.0, 3.0],
+    }
+
+
 def test_escorted_tours_live_page_renders_stop_frequency_controls_and_chart(
     tmp_path: Path,
 ) -> None:
@@ -972,6 +1026,28 @@ def test_escorted_tours_live_page_renders_stop_frequency_controls_and_chart(
                 }
             ),
         },
+    )
+
+
+def _daily_travel_run_with_imf() -> RunData:
+    return RunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame(),
+        per=pl.DataFrame(
+            {
+                "person_type": ["worker", "worker", "student", "student"],
+                "imf_choice": [1, 2, 3, 5],
+                "finalweight": [2.0, 3.0, 4.0, 5.0],
+            }
+        ),
+        tours=pl.DataFrame(),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
     )
     state = DashboardState(
         summary_runs=[escorted_summary_run],

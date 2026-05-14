@@ -9,11 +9,12 @@ from dashboard.components import bar_chart
 from dashboard.page_base import SelectorSpec, SingleSelectorSummaryPage
 from dashboard.page_definitions import DashboardPageDefinition
 from dashboard.pages._shared.common import column_options, nonempty_runs
-from dashboard.pages._shared.purposes import raw_tour_purpose
+from dashboard.pages._shared.purposes import tour_purpose_mapping
 
 
 def _tour_mode_labels(
     data_list: list[tuple[str, pl.DataFrame]],
+    config,
 ) -> list[str]:
     first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
     if first_df is None or "tour_mode" not in first_df.columns:
@@ -26,7 +27,10 @@ def _tour_mode_labels(
         .cast(pl.Utf8)
         .to_list()
     )
-    return sorted(v for v in vals if v not in {"All", "all_tour_modes"})
+    return config.ordered_values(
+        "mode",
+        [v for v in vals if v not in {"All", "all_tour_modes"}],
+    )
 
 
 def _filtered_trip_mode_data(
@@ -35,6 +39,12 @@ def _filtered_trip_mode_data(
     *,
     tour_mode: str | None = None,
 ) -> list[tuple[str, pl.DataFrame]]:
+    ordered_trip_modes = column_options(
+        data_list,
+        "trip_mode",
+        include_total=False,
+    )
+    base = pl.DataFrame({"trip_mode": ordered_trip_modes})
     out: list[tuple[str, pl.DataFrame]] = []
     for label, df in nonempty_runs(data_list):
         filtered = df.with_columns(
@@ -46,7 +56,12 @@ def _filtered_trip_mode_data(
             filtered = filtered.filter(pl.col("tour_mode") == "all_tour_modes")
         else:
             filtered = filtered.filter(pl.col("tour_mode") == tour_mode)
-        out.append((label, filtered.sort("trip_mode")))
+        filtered = base.join(
+            filtered.select("trip_mode", "trip_count"),
+            on="trip_mode",
+            how="left",
+        ).with_columns(pl.col("trip_count").fill_null(0.0))
+        out.append((label, filtered))
     return out
 
 
@@ -54,6 +69,7 @@ class TripModePage(SingleSelectorSummaryPage):
     body_section_id = "trip_summary_mode_body"
 
     def selector_specs(self) -> tuple[SelectorSpec, ...]:
+        self._tour_purpose_to_raw = {"All": "all_tour_purposes"}
         return (
             SelectorSpec(
                 selector_id="tour_purpose",
@@ -69,25 +85,23 @@ class TripModePage(SingleSelectorSummaryPage):
         )
 
     def _purpose_options(self) -> list[str]:
-        trip_mode_data = self.get_refresh_summary(
+        raw_values = self.state.get_summary_column_values(
             "trip_mode_by_tour_purpose_and_tour_mode",
-            optional=True,
-        )
-        return column_options(
-            trip_mode_data or [],
             "tour_purpose",
-            total_label="All",
-            exclude=("all_tour_purposes",),
+            self.weighting_key,
         )
+        options, self._tour_purpose_to_raw = tour_purpose_mapping(
+            raw_values,
+            total_display="All",
+            config=self.config,
+        )
+        return options or ["All"]
 
     def render_ready(self, summaries: dict[str, object]):
         trip_mode_list = summaries["trip_mode_by_tour_purpose_and_tour_mode"]
         tour_purpose = self.tour_purpose_sel.value
-        raw_purpose = raw_tour_purpose(
-            tour_purpose,
-            total_display="All",
-        )
-        mode_labels = _tour_mode_labels(trip_mode_list)
+        raw_purpose = self._tour_purpose_to_raw.get(str(tour_purpose), str(tour_purpose))
+        mode_labels = _tour_mode_labels(trip_mode_list, self.config)
 
         overall_data = self.filtered_view(
             "trip_mode_overall",
@@ -120,6 +134,14 @@ class TripModePage(SingleSelectorSummaryPage):
                     pct_col="pct",
                     as_percent=self.as_percent,
                     height=320,
+                    xaxis_categoryarray=self.config.ordered_values(
+                        "mode",
+                        column_options(
+                            mode_data,
+                            "trip_mode",
+                            include_total=False,
+                        ),
+                    ),
                 )
             )
 
@@ -139,6 +161,14 @@ class TripModePage(SingleSelectorSummaryPage):
                 yaxis_title="Trips",
                 pct_col="pct",
                 as_percent=self.as_percent,
+                xaxis_categoryarray=self.config.ordered_values(
+                    "mode",
+                    column_options(
+                        overall_data,
+                        "trip_mode",
+                        include_total=False,
+                    ),
+                ),
             ),
             pn.pane.Markdown("### Trip Mode by Tour Mode"),
             *grid_rows,
