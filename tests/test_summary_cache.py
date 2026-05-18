@@ -68,6 +68,16 @@ def _collect_cards(viewable) -> list[pn.Card]:
     return cards
 
 
+def _collect_plotly_panes(viewable) -> list[pn.pane.Plotly]:
+    plots: list[pn.pane.Plotly] = []
+    if isinstance(viewable, pn.pane.Plotly):
+        plots.append(viewable)
+    if hasattr(viewable, "objects"):
+        for child in viewable.objects:
+            plots.extend(_collect_plotly_panes(child))
+    return plots
+
+
 def _write_config(
     tmp_path: Path,
     *,
@@ -1094,6 +1104,43 @@ def test_escorted_tours_live_page_renders_stop_frequency_controls_and_chart(
                     "tour_count": [6.0, 3.0, 2.0],
                 }
             ),
+            "student_school_escort_status_by_direction": pl.DataFrame(
+                {
+                    "direction": [
+                        "outbound",
+                        "outbound",
+                        "inbound",
+                        "both",
+                    ],
+                    "escort_type": [
+                        "not_escorted",
+                        "pure_escort",
+                        "ride_share",
+                        "ride_share",
+                    ],
+                    "tour_count": [4.0, 3.0, 2.0, 1.0],
+                }
+            ),
+            "student_households_by_student_count": pl.DataFrame(
+                {
+                    "student_count": [1, 2],
+                    "household_count": [10.0, 5.0],
+                }
+            ),
+            "households_with_school_escorting_by_student_count_and_direction": pl.DataFrame(
+                {
+                    "student_count": [1, 2, 1, 2, 1, 2],
+                    "direction": [
+                        "outbound",
+                        "outbound",
+                        "inbound",
+                        "inbound",
+                        "both",
+                        "both",
+                    ],
+                    "household_count": [4.0, 1.0, 3.0, 0.0, 2.0, 1.0],
+                }
+            ),
             "adult_escorted_tour_distance_distribution_by_direction": pl.DataFrame(
                 {
                     "distance_bin": ["12", "40+", "12"],
@@ -1122,6 +1169,26 @@ def test_escorted_tours_live_page_renders_stop_frequency_controls_and_chart(
     page.direction_sel.value = "Outbound"
     page.refresh(force=True)
     assert page._body.objects
+    student_titles = [
+        str(plot.object.layout.title.text)
+        for plot in _collect_plotly_panes(page._body)
+        if "Student School Escort Status" in str(plot.object.layout.title.text)
+    ]
+    assert sorted(student_titles) == [
+        "Student School Escort Status - Both Directions",
+        "Student School Escort Status - Inbound",
+        "Student School Escort Status - Outbound",
+    ]
+    household_titles = [
+        str(plot.object.layout.title.text)
+        for plot in _collect_plotly_panes(page._body)
+        if "Households With School Escorting" in str(plot.object.layout.title.text)
+    ]
+    assert sorted(household_titles) == [
+        "Households With School Escorting - Both Directions",
+        "Households With School Escorting - Inbound",
+        "Households With School Escorting - Outbound",
+    ]
 
 
 def test_filter_person_type_rates_total_uses_full_person_denominator() -> None:

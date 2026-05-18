@@ -16,6 +16,16 @@ from dashboard.page_definitions import DashboardPageDefinition
 
 DIRECTION_COL = "direction"
 DISTANCE_BINS = [str(i) for i in range(40)] + ["40+"]
+STUDENT_ESCORT_TYPE_ORDER = [
+    "not_escorted",
+    "pure_escort",
+    "ride_share",
+]
+STUDENT_ESCORT_TYPE_LABELS = {
+    "not_escorted": "Not Escorted",
+    "pure_escort": "Pure Escort",
+    "ride_share": "Rideshare Escort",
+}
 
 
 def direction_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
@@ -137,6 +147,84 @@ def _escort_total_kpi_values(
     return out
 
 
+def student_school_escort_chart_data(
+    data_list: list[tuple[str, pl.DataFrame]],
+    direction: str,
+) -> list[tuple[str, pl.DataFrame]]:
+    out: list[tuple[str, pl.DataFrame]] = []
+    for label, df in nonempty(data_list):
+        filtered = (
+            df.with_columns(pl.col(DIRECTION_COL).cast(pl.Utf8))
+            .filter(pl.col(DIRECTION_COL) == direction)
+            .select("escort_type", "tour_count")
+        )
+        out.append((label, filtered))
+    return out
+
+
+def household_school_escort_chart_data(
+    numerator_data_list: list[tuple[str, pl.DataFrame]],
+    denominator_data_list: list[tuple[str, pl.DataFrame]],
+    direction: str,
+) -> list[tuple[str, pl.DataFrame]]:
+    denominator_by_label = {
+        label: df.select(
+            pl.col("student_count").cast(pl.Int64),
+            pl.col("household_count").cast(pl.Float64).alias("total_household_count"),
+        )
+        for label, df in nonempty(denominator_data_list)
+    }
+    out: list[tuple[str, pl.DataFrame]] = []
+    for label, df in numerator_data_list:
+        denominator = denominator_by_label.get(label)
+        if denominator is None or denominator.is_empty():
+            continue
+        filtered = (
+            df.with_columns(pl.col(DIRECTION_COL).cast(pl.Utf8))
+            .filter(pl.col(DIRECTION_COL) == direction)
+            .select(
+                pl.col("student_count").cast(pl.Int64),
+                pl.col("household_count").cast(pl.Float64),
+            )
+        )
+        out.append(
+            (
+                label,
+                denominator.join(filtered, on="student_count", how="left")
+                .with_columns(
+                    pl.col("household_count").fill_null(0.0),
+                    pl.when(pl.col("total_household_count") > 0)
+                    .then(
+                        pl.col("household_count")
+                        / pl.col("total_household_count")
+                        * 100.0
+                    )
+                    .otherwise(0.0)
+                    .alias("pct"),
+                )
+                .select("student_count", "household_count", "pct"),
+            )
+        )
+    return out
+
+
+def _student_count_category_values(
+    data_list: list[tuple[str, pl.DataFrame]],
+) -> list[str]:
+    values: set[int] = set()
+    for _, df in nonempty(data_list):
+        if "student_count" not in df.columns:
+            continue
+        values.update(
+            value
+            for value in df.select(pl.col("student_count").cast(pl.Int64))
+            .to_series()
+            .to_list()
+            if value is not None
+        )
+    return [str(value) for value in sorted(values)]
+
+
 class EscortedToursPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
         direction_opts = self._direction_options()
@@ -212,6 +300,9 @@ class EscortedToursPage(DashboardPage):
             category_id="person_type",
             config=self.config,
         )
+        household_student_count_values = _student_count_category_values(
+            summaries["student_households_by_student_count"]
+        )
 
         school_escort_data = self.get_filtered_view(
             "school_escorted_tours",
@@ -269,6 +360,117 @@ class EscortedToursPage(DashboardPage):
                 summaries["adult_escorted_trip_distance_distribution_by_direction"],
                 raw_direction,
                 y_col="trip_count",
+            ),
+        )
+        student_school_escort_outbound = self.get_filtered_view(
+            "student_school_escort_status",
+            "outbound",
+            factory=lambda: complete_category_counts(
+                student_school_escort_chart_data(
+                    summaries["student_school_escort_status_by_direction"],
+                    "outbound",
+                ),
+                category_col="escort_type",
+                category_values=STUDENT_ESCORT_TYPE_ORDER,
+                value_cols=("tour_count", "pct"),
+            ),
+        )
+        student_school_escort_inbound = self.get_filtered_view(
+            "student_school_escort_status",
+            "inbound",
+            factory=lambda: complete_category_counts(
+                student_school_escort_chart_data(
+                    summaries["student_school_escort_status_by_direction"],
+                    "inbound",
+                ),
+                category_col="escort_type",
+                category_values=STUDENT_ESCORT_TYPE_ORDER,
+                value_cols=("tour_count", "pct"),
+            ),
+        )
+        student_school_escort_both = self.get_filtered_view(
+            "student_school_escort_status",
+            "both",
+            factory=lambda: complete_category_counts(
+                student_school_escort_chart_data(
+                    summaries["student_school_escort_status_by_direction"],
+                    "both",
+                ),
+                category_col="escort_type",
+                category_values=STUDENT_ESCORT_TYPE_ORDER,
+                value_cols=("tour_count", "pct"),
+            ),
+        )
+        household_school_escort_outbound = self.get_filtered_view(
+            "household_school_escort_status",
+            "outbound",
+            factory=lambda: complete_category_counts(
+                [
+                    (
+                        label,
+                        df.with_columns(
+                            pl.col("student_count").cast(pl.Utf8).alias("student_count")
+                        ),
+                    )
+                    for label, df in household_school_escort_chart_data(
+                        summaries[
+                            "households_with_school_escorting_by_student_count_and_direction"
+                        ],
+                        summaries["student_households_by_student_count"],
+                        "outbound",
+                    )
+                ],
+                category_col="student_count",
+                category_values=household_student_count_values,
+                value_cols=("household_count", "pct"),
+            ),
+        )
+        household_school_escort_inbound = self.get_filtered_view(
+            "household_school_escort_status",
+            "inbound",
+            factory=lambda: complete_category_counts(
+                [
+                    (
+                        label,
+                        df.with_columns(
+                            pl.col("student_count").cast(pl.Utf8).alias("student_count")
+                        ),
+                    )
+                    for label, df in household_school_escort_chart_data(
+                        summaries[
+                            "households_with_school_escorting_by_student_count_and_direction"
+                        ],
+                        summaries["student_households_by_student_count"],
+                        "inbound",
+                    )
+                ],
+                category_col="student_count",
+                category_values=household_student_count_values,
+                value_cols=("household_count", "pct"),
+            ),
+        )
+        household_school_escort_both = self.get_filtered_view(
+            "household_school_escort_status",
+            "both",
+            factory=lambda: complete_category_counts(
+                [
+                    (
+                        label,
+                        df.with_columns(
+                            pl.col("student_count").cast(pl.Utf8).alias("student_count")
+                        ),
+                    )
+                    for label, df in household_school_escort_chart_data(
+                        summaries[
+                            "households_with_school_escorting_by_student_count_and_direction"
+                        ],
+                        summaries["student_households_by_student_count"],
+                        "both",
+                    )
+                ],
+                category_col="student_count",
+                category_values=household_student_count_values,
+                value_cols=("household_count", "pct"),
             ),
         )
 
@@ -346,6 +548,132 @@ class EscortedToursPage(DashboardPage):
             xaxis_tickvals=DISTANCE_BINS,
             xaxis_ticktext=DISTANCE_BINS,
         )
+        student_school_escort_outbound_chart = bar_chart(
+            [
+                (
+                    label,
+                    df.with_columns(
+                        pl.col("escort_type")
+                        .cast(pl.Utf8)
+                        .replace_strict(
+                            STUDENT_ESCORT_TYPE_LABELS,
+                            default=pl.col("escort_type"),
+                        )
+                        .alias("escort_type_label")
+                    ),
+                )
+                for label, df in student_school_escort_outbound
+            ],
+            x_col="escort_type_label",
+            y_col="tour_count",
+            title="Student School Escort Status - Outbound",
+            xaxis_title="Escort Type",
+            yaxis_title="Student School Tours",
+            pct_col="pct",
+            as_percent=self.as_percent,
+            xaxis_categoryarray=[
+                STUDENT_ESCORT_TYPE_LABELS[value]
+                for value in STUDENT_ESCORT_TYPE_ORDER
+            ],
+        )
+        student_school_escort_inbound_chart = bar_chart(
+            [
+                (
+                    label,
+                    df.with_columns(
+                        pl.col("escort_type")
+                        .cast(pl.Utf8)
+                        .replace_strict(
+                            STUDENT_ESCORT_TYPE_LABELS,
+                            default=pl.col("escort_type"),
+                        )
+                        .alias("escort_type_label")
+                    ),
+                )
+                for label, df in student_school_escort_inbound
+            ],
+            x_col="escort_type_label",
+            y_col="tour_count",
+            title="Student School Escort Status - Inbound",
+            xaxis_title="Escort Type",
+            yaxis_title="Student School Tours",
+            pct_col="pct",
+            as_percent=self.as_percent,
+            xaxis_categoryarray=[
+                STUDENT_ESCORT_TYPE_LABELS[value]
+                for value in STUDENT_ESCORT_TYPE_ORDER
+            ],
+        )
+        student_school_escort_both_chart = bar_chart(
+            [
+                (
+                    label,
+                    df.with_columns(
+                        pl.col("escort_type")
+                        .cast(pl.Utf8)
+                        .replace_strict(
+                            STUDENT_ESCORT_TYPE_LABELS,
+                            default=pl.col("escort_type"),
+                        )
+                        .alias("escort_type_label")
+                    ),
+                )
+                for label, df in student_school_escort_both
+            ],
+            x_col="escort_type_label",
+            y_col="tour_count",
+            title="Student School Escort Status - Both Directions",
+            xaxis_title="Escort Type",
+            yaxis_title="Student School Tours",
+            pct_col="pct",
+            as_percent=self.as_percent,
+            xaxis_categoryarray=[
+                STUDENT_ESCORT_TYPE_LABELS[value]
+                for value in STUDENT_ESCORT_TYPE_ORDER
+            ],
+        )
+        household_school_escort_outbound_chart = bar_chart(
+            household_school_escort_outbound,
+            x_col="student_count",
+            y_col="pct" if self.as_percent else "household_count",
+            title="Households With School Escorting - Outbound",
+            xaxis_title="Students in Household",
+            yaxis_title=(
+                "Student Households With School Escorting (%)"
+                if self.as_percent
+                else "Student Households With School Escorting"
+            ),
+            as_percent=False,
+            xaxis_categoryarray=household_student_count_values,
+        )
+        household_school_escort_inbound_chart = bar_chart(
+            household_school_escort_inbound,
+            x_col="student_count",
+            y_col="pct" if self.as_percent else "household_count",
+            title="Households With School Escorting - Inbound",
+            xaxis_title="Students in Household",
+            yaxis_title=(
+                "Student Households With School Escorting (%)"
+                if self.as_percent
+                else "Student Households With School Escorting"
+            ),
+            as_percent=False,
+            xaxis_categoryarray=household_student_count_values,
+        )
+        household_school_escort_both_chart = bar_chart(
+            household_school_escort_both,
+            x_col="student_count",
+            y_col="pct" if self.as_percent else "household_count",
+            title="Households With School Escorting - Both Directions",
+            xaxis_title="Students in Household",
+            yaxis_title=(
+                "Student Households With School Escorting (%)"
+                if self.as_percent
+                else "Student Households With School Escorting"
+            ),
+            as_percent=False,
+            xaxis_categoryarray=household_student_count_values,
+        )
 
         return [
             total_kpi,
@@ -361,6 +689,20 @@ class EscortedToursPage(DashboardPage):
                 ),
                 pn.Row(
                     escort_person_type_chart,
+                    sizing_mode="stretch_width",
+                ),
+                pn.pane.Markdown("### Student School Escort Status"),
+                pn.Row(
+                    student_school_escort_outbound_chart,
+                    student_school_escort_inbound_chart,
+                    student_school_escort_both_chart,
+                    sizing_mode="stretch_width",
+                ),
+                pn.pane.Markdown("### Households With School Escorting"),
+                pn.Row(
+                    household_school_escort_outbound_chart,
+                    household_school_escort_inbound_chart,
+                    household_school_escort_both_chart,
                     sizing_mode="stretch_width",
                 ),
                 escorted_tour_distance_chart,
@@ -380,6 +722,9 @@ PAGE = DashboardPageDefinition(
         "school_escorted_tours_by_escort_type_and_direction",
         "adult_escort_trip_stop_frequency",
         "adult_escorted_tours_by_person_type_and_direction",
+        "student_school_escort_status_by_direction",
+        "student_households_by_student_count",
+        "households_with_school_escorting_by_student_count_and_direction",
         "adult_escorted_tour_distance_distribution_by_direction",
         "adult_escorted_trip_distance_distribution_by_direction",
     ),
