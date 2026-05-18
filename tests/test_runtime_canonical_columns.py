@@ -1070,6 +1070,78 @@ def test_households_with_school_escorting_by_student_count_and_direction_summari
     }
 
 
+def test_schoolkids_per_escorted_tour_by_student_count_and_direction_summarizes_weighted_average(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    rd = RunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame(
+            {
+                "household_id": [1, 2, 3, 4],
+                "finalweight": [10.0, 20.0, 30.0, 40.0],
+            }
+        ),
+        per=pl.DataFrame(
+            {
+                "person_id": [101, 102, 103, 104, 105, 106],
+                "household_id": [1, 1, 2, 3, 3, 4],
+                "person_type": [1, 6, 2, 4, 7, 4],
+                "finalweight": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [2001, 2002, 2003, 2004, 2005, 2006],
+                "person_id": [101, 101, 103, 104, 104, 106],
+                "tour_purpose": ["escort", "escort", "escort", "escort", "shopping", "escort"],
+                "school_esc_outbound": [
+                    "pure_escort",
+                    "ride_share",
+                    "pure_escort",
+                    "none",
+                    "pure_escort",
+                    "ride_share",
+                ],
+                "school_esc_inbound": [
+                    "none",
+                    "ride_share",
+                    "pure_escort",
+                    "pure_escort",
+                    "pure_escort",
+                    "ride_share",
+                ],
+                "num_escorted": [1.0, 2.0, 3.0, 4.0, 9.0, None],
+                "finalweight": [2.0, 1.0, 3.0, 4.0, 5.0, 6.0],
+            }
+        ),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    summary = (
+        daily_travel.schoolkids_per_escorted_tour_by_student_count_and_direction(
+            rd, config
+        ).sort(["direction", "student_count"])
+    )
+
+    assert summary.to_dict(as_series=False) == {
+        "student_count": [1, 1, 1],
+        "direction": [
+            "both",
+            "inbound",
+            "outbound",
+        ],
+        "avg_schoolkids_per_tour": [2.0, 3.6, 1.3333333333333333],
+        "tour_count": [1.0, 5.0, 3.0],
+    }
+
+
 def test_prepare_data_uses_default_fallbacks_for_purpose_timing_and_employment(
     tmp_path: Path,
 ) -> None:

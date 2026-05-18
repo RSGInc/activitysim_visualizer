@@ -1141,6 +1141,21 @@ def test_escorted_tours_live_page_renders_stop_frequency_controls_and_chart(
                     "household_count": [4.0, 1.0, 3.0, 0.0, 2.0, 1.0],
                 }
             ),
+            "schoolkids_per_escorted_tour_by_student_count_and_direction": pl.DataFrame(
+                {
+                    "student_count": [1, 2, 1, 2, 1, 2],
+                    "direction": [
+                        "outbound",
+                        "outbound",
+                        "inbound",
+                        "inbound",
+                        "both",
+                        "both",
+                    ],
+                    "avg_schoolkids_per_tour": [1.5, 2.0, 1.0, 2.5, 1.0, 2.0],
+                    "tour_count": [4.0, 2.0, 3.0, 1.0, 2.0, 1.0],
+                }
+            ),
             "adult_escorted_tour_distance_distribution_by_direction": pl.DataFrame(
                 {
                     "distance_bin": ["12", "40+", "12"],
@@ -1189,6 +1204,81 @@ def test_escorted_tours_live_page_renders_stop_frequency_controls_and_chart(
         "Households With School Escorting - Inbound",
         "Households With School Escorting - Outbound",
     ]
+    schoolkids_titles = [
+        str(plot.object.layout.title.text)
+        for plot in _collect_plotly_panes(page._body)
+        if "Schoolkids Per Escorted Tour" in str(plot.object.layout.title.text)
+    ]
+    assert sorted(schoolkids_titles) == [
+        "Schoolkids Per Escorted Tour - Both Directions",
+        "Schoolkids Per Escorted Tour - Inbound",
+        "Schoolkids Per Escorted Tour - Outbound",
+    ]
+
+
+def test_escorted_tours_page_renders_core_charts_when_optional_summaries_missing(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    escorted_summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "escorted_tour_totals": pl.DataFrame({"tour_count": [5.0]}),
+            "school_escorted_tours_by_escort_type_and_direction": pl.DataFrame(
+                {
+                    "escort_type": ["pure_escort", "ride_share"],
+                    "direction": ["all_directions", "all_directions"],
+                    "tour_count": [6.0, 2.0],
+                }
+            ),
+            "adult_escort_trip_stop_frequency": pl.DataFrame(
+                {
+                    "tour_purpose": ["escort"],
+                    "outbound_stop_count": [1],
+                    "inbound_stop_count": [0],
+                    "total_stop_count": [1],
+                    "tour_count": [2.0],
+                }
+            ),
+            "adult_escorted_tours_by_person_type_and_direction": pl.DataFrame(
+                {
+                    "person_type": ["2", "4"],
+                    "direction": ["all_directions", "all_directions"],
+                    "tour_count": [6.0, 2.0],
+                }
+            ),
+            "adult_escorted_tour_distance_distribution_by_direction": pl.DataFrame(
+                {
+                    "distance_bin": ["12", "40+"],
+                    "direction": ["all_directions", "all_directions"],
+                    "tour_count": [2.0, 3.0],
+                }
+            ),
+            "adult_escorted_trip_distance_distribution_by_direction": pl.DataFrame(
+                {
+                    "distance_bin": ["5", "6"],
+                    "direction": ["all_directions", "all_directions"],
+                    "trip_count": [2.0, 2.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[escorted_summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = EscortedToursPage(state, config)
+    page.refresh(force=True)
+
+    assert page._body.objects
+    titles = [
+        str(plot.object.layout.title.text)
+        for plot in _collect_plotly_panes(page._body)
+    ]
+    assert "Escorted Tours To / From School - Both" in titles
+    assert "Adult Escort Trip Stop Frequency - Both" in titles
+    assert all("Schoolkids Per Escorted Tour" not in title for title in titles)
 
 
 def test_filter_person_type_rates_total_uses_full_person_denominator() -> None:
