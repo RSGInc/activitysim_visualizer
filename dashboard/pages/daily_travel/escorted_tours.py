@@ -6,6 +6,11 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart, density_chart, kpi_box
+from dashboard.helpers.category_helpers import (
+    complete_category_counts,
+    nonempty,
+    ordered_category_values,
+)
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
@@ -13,29 +18,14 @@ DIRECTION_COL = "direction"
 DISTANCE_BINS = [str(i) for i in range(40)] + ["40+"]
 
 
-def _nonempty(
-    data_list: list[tuple[str, pl.DataFrame]],
-) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, df) for label, df in data_list if df is not None and len(df) > 0]
-
-
 def direction_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
-    first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
-    if first_df is None or DIRECTION_COL not in first_df.columns:
+    directions = ordered_category_values(data_list, DIRECTION_COL)
+    if not directions:
         return ["Both"]
-
-    vals = (
-        first_df.select(DIRECTION_COL)
-        .drop_nulls()
-        .unique()
-        .to_series()
-        .cast(pl.Utf8)
-        .to_list()
-    )
     options = ["Both"]
-    if "outbound" in vals:
+    if "outbound" in directions:
         options.append("Outbound")
-    if "inbound" in vals:
+    if "inbound" in directions:
         options.append("Inbound")
     return options
 
@@ -53,7 +43,7 @@ def escort_school_chart_data(
     direction: str,
 ) -> list[tuple[str, pl.DataFrame]]:
     out = []
-    for label, df in _nonempty(data_list):
+    for label, df in nonempty(data_list):
         df = df.with_columns(pl.col(DIRECTION_COL).cast(pl.Utf8))
         df = df.filter(pl.col(DIRECTION_COL) == direction)
         out.append((label, df))
@@ -69,7 +59,7 @@ def escort_stop_frequency_chart_data(
         "Inbound": "inbound_stop_count",
     }[direction]
     out = []
-    for label, df in _nonempty(data_list):
+    for label, df in nonempty(data_list):
         df = df.group_by(stop_col).agg(tour_count=pl.col("tour_count").sum())
         df = (
             df.with_columns(pl.col(stop_col).cast(pl.Utf8).alias("stop_frequency"))
@@ -87,18 +77,12 @@ def escort_person_type_chart_data(
     person_type_labeler,
 ) -> list[tuple[str, pl.DataFrame]]:
     out = []
-    for label, df in _nonempty(data_list):
+    for label, df in nonempty(data_list):
         filtered = (
             df.with_columns(pl.col(DIRECTION_COL).cast(pl.Utf8))
             .filter(pl.col(DIRECTION_COL) == direction)
-            .with_columns(
-                pl.col("person_type")
-                .cast(pl.Utf8)
-                .map_elements(person_type_labeler, return_dtype=pl.Utf8)
-                .alias("person_type_label")
-            )
-            .select("person_type", "person_type_label", "tour_count")
-            .sort("person_type")
+            .with_columns(pl.col("person_type").cast(pl.Utf8))
+            .select("person_type", "tour_count")
         )
         out.append((label, filtered))
     return out
@@ -119,7 +103,7 @@ def escort_distance_chart_data(
     y_col: str,
 ) -> list[tuple[str, pl.DataFrame]]:
     out = []
-    for label, df in _nonempty(data_list):
+    for label, df in nonempty(data_list):
         filtered = (
             df.with_columns(pl.col(DIRECTION_COL).cast(pl.Utf8))
             .filter(pl.col(DIRECTION_COL) == direction)
@@ -208,33 +192,65 @@ class EscortedToursPage(DashboardPage):
                 )
             ]
 
-        total_escorted_tours = _nonempty(summaries["escorted_tour_totals"])
+        total_escorted_tours = nonempty(summaries["escorted_tour_totals"])
         direction = self.direction_sel.value
         raw_direction = _raw_direction(direction)
+        escort_type_values = ordered_category_values(
+            summaries["school_escorted_tours_by_escort_type_and_direction"],
+            "escort_type",
+        )
+        stop_frequency_values = ordered_category_values(
+            escort_stop_frequency_chart_data(
+                summaries["adult_escort_trip_stop_frequency"],
+                direction,
+            ),
+            "stop_frequency",
+        )
+        person_type_values = ordered_category_values(
+            summaries["adult_escorted_tours_by_person_type_and_direction"],
+            "person_type",
+            category_id="person_type",
+            config=self.config,
+        )
 
         school_escort_data = self.get_filtered_view(
             "school_escorted_tours",
             raw_direction,
-            factory=lambda: escort_school_chart_data(
-                summaries["school_escorted_tours_by_escort_type_and_direction"],
-                raw_direction,
+            factory=lambda: complete_category_counts(
+                escort_school_chart_data(
+                    summaries["school_escorted_tours_by_escort_type_and_direction"],
+                    raw_direction,
+                ),
+                category_col="escort_type",
+                category_values=escort_type_values,
+                value_cols=("tour_count", "pct"),
             ),
         )
         escort_stop_data = self.get_filtered_view(
             "adult_escort_trip_stop_frequency",
             direction,
-            factory=lambda: escort_stop_frequency_chart_data(
-                summaries["adult_escort_trip_stop_frequency"],
-                direction,
+            factory=lambda: complete_category_counts(
+                escort_stop_frequency_chart_data(
+                    summaries["adult_escort_trip_stop_frequency"],
+                    direction,
+                ),
+                category_col="stop_frequency",
+                category_values=stop_frequency_values,
+                value_cols=("tour_count",),
             ),
         )
         escort_person_type_data = self.get_filtered_view(
             "adult_escorted_tours_by_person_type_and_direction",
             raw_direction,
-            factory=lambda: escort_person_type_chart_data(
-                summaries["adult_escorted_tours_by_person_type_and_direction"],
-                raw_direction,
-                person_type_labeler=self.config.person_type_label,
+            factory=lambda: complete_category_counts(
+                escort_person_type_chart_data(
+                    summaries["adult_escorted_tours_by_person_type_and_direction"],
+                    raw_direction,
+                    person_type_labeler=self.config.person_type_label,
+                ),
+                category_col="person_type",
+                category_values=person_type_values,
+                value_cols=("tour_count",),
             ),
         )
         escorted_tour_distance_data = self.get_filtered_view(
@@ -269,6 +285,7 @@ class EscortedToursPage(DashboardPage):
             yaxis_title="School Tours",
             pct_col="pct",
             as_percent=self.as_percent,
+            xaxis_categoryarray=escort_type_values,
         )
         escort_stop_chart = bar_chart(
             escort_stop_data,
@@ -279,9 +296,21 @@ class EscortedToursPage(DashboardPage):
             yaxis_title="Adult Escort Trips",
             pct_col="pct",
             as_percent=self.as_percent,
+            xaxis_categoryarray=stop_frequency_values,
         )
         escort_person_type_chart = bar_chart(
-            escort_person_type_data,
+            [
+                (
+                    label,
+                    df.with_columns(
+                        pl.col("person_type")
+                        .cast(pl.Utf8)
+                        .map_elements(self.config.person_type_label, return_dtype=pl.Utf8)
+                        .alias("person_type_label")
+                    ),
+                )
+                for label, df in escort_person_type_data
+            ],
             x_col="person_type_label",
             y_col="tour_count",
             title=f"Adult Escorted Tours by Person Type - {direction}",
@@ -289,6 +318,7 @@ class EscortedToursPage(DashboardPage):
             yaxis_title="Adult Escort Tours",
             pct_col="pct",
             as_percent=self.as_percent,
+            xaxis_categoryarray=self.config.ordered_labels("person_type", person_type_values),
         )
         escorted_tour_distance_chart = density_chart(
             escorted_tour_distance_data,

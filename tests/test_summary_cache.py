@@ -58,10 +58,21 @@ from runtime.config import Config
 from processor.summarize.summaries import legacy
 
 
+def _collect_cards(viewable) -> list[pn.Card]:
+    cards: list[pn.Card] = []
+    if isinstance(viewable, pn.Card):
+        cards.append(viewable)
+    if hasattr(viewable, "objects"):
+        for child in viewable.objects:
+            cards.extend(_collect_cards(child))
+    return cards
+
+
 def _write_config(
     tmp_path: Path,
     *,
     visualizer_lines: list[str] | None = None,
+    extra_lines: list[str] | None = None,
 ) -> Config:
     tmp_path.mkdir(parents=True, exist_ok=True)
     config_path = tmp_path / "config.yaml"
@@ -81,6 +92,13 @@ def _write_config(
         ),
         encoding="utf-8",
     )
+    if extra_lines:
+        config_path.write_text(
+            config_path.read_text(encoding="utf-8")
+            + "\n"
+            + "\n".join(extra_lines),
+            encoding="utf-8",
+        )
     if visualizer_lines:
         config_path.write_text(
             config_path.read_text(encoding="utf-8")
@@ -749,6 +767,125 @@ def test_trip_mode_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None
     assert page._body.objects
 
 
+def test_trip_mode_selector_uses_union_across_runs_and_zero_fills_missing_modes(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    run_a = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "trip_mode_by_tour_purpose_and_tour_mode": pl.DataFrame(
+                {
+                    "tour_purpose": ["eatout", "all_tour_purposes"],
+                    "tour_mode": ["all_tour_modes", "all_tour_modes"],
+                    "trip_mode": ["WALK", "WALK"],
+                    "trip_count": [2.0, 2.0],
+                }
+            ),
+        },
+    )
+    run_b = _summary_run_with_tables(
+        label="Build",
+        weighted={
+            "trip_mode_by_tour_purpose_and_tour_mode": pl.DataFrame(
+                {
+                    "tour_purpose": ["social", "social", "all_tour_purposes"],
+                    "tour_mode": [
+                        "all_tour_modes",
+                        "all_tour_modes",
+                        "all_tour_modes",
+                    ],
+                    "trip_mode": ["SHARED2", "WALK", "SHARED2"],
+                    "trip_count": [5.0, 1.0, 5.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[run_a, run_b],
+        weighting_modes=config.weighting_modes,
+    )
+    state.value_mode = "Count"
+
+    page = TripModePage(state, config)
+    page.refresh(force=True)
+
+    assert list(page.tour_purpose_sel.options) == ["All", "eatout", "social"]
+    page.tour_purpose_sel.value = "social"
+    charts = page.render_body()
+    overall_chart = charts[0]
+    traces = {trace.name: trace for trace in overall_chart.object.data}
+
+    assert set(traces) == {"Base", "Build"}
+    assert list(traces["Base"].x) == ["WALK", "SHARED2"]
+    assert list(traces["Base"].y) == [0.0, 0.0]
+    assert list(traces["Build"].x) == ["WALK", "SHARED2"]
+    assert list(traces["Build"].y) == [1.0, 5.0]
+
+
+def test_tour_purpose_selectors_use_category_labels_from_config(tmp_path: Path) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "categories:",
+            "  tour_purpose:",
+            "    mapping:",
+            "      all_tour_purposes: Total",
+            "      eatout: Eat Out",
+            "      social: Social Time",
+        ],
+    )
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "tour_time_of_day_by_tour_purpose": pl.DataFrame(
+                {
+                    "tour_purpose": [
+                        "all_tour_purposes",
+                        "all_tour_purposes",
+                        "eatout",
+                        "eatout",
+                        "social",
+                        "social",
+                    ],
+                    "time_bin": [1, 2, 1, 2, 1, 2],
+                    "departure_tour_count": [5.0, 6.0, 3.0, 4.0, 2.0, 2.0],
+                    "arrival_tour_count": [4.0, 5.0, 2.0, 3.0, 1.0, 1.0],
+                    "duration_tour_count": [2.0, 3.0, 1.0, 2.0, 1.0, 1.0],
+                }
+            ),
+            "trip_departure_time_by_purpose": pl.DataFrame(
+                {
+                    "tour_purpose": [
+                        "all_tour_purposes",
+                        "eatout",
+                        "social",
+                    ],
+                    "time_bin": [1, 1, 1],
+                    "departure_trip_count": [5.0, 3.0, 2.0],
+                    "departure_stop_count": [2.0, 1.0, 1.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    tour_time_page = TourTimePage(state, config)
+    tour_time_page.refresh(force=True)
+    assert list(tour_time_page.purpose_sel.options) == ["Total", "Eat Out", "Social Time"]
+
+    trip_stop_time_page = TripStopTimePage(state, config)
+    trip_stop_time_page.refresh(force=True)
+    assert list(trip_stop_time_page.tour_purpose_sel.options) == [
+        "Total",
+        "Eat Out",
+        "Social Time",
+    ]
+
+
 def test_trip_stop_time_live_page_uses_shared_summary_helpers(
     tmp_path: Path,
 ) -> None:
@@ -1192,17 +1329,7 @@ def test_individual_choices_page_renders_partial_content_when_some_summaries_mis
     page.refresh(force=True)
 
     assert isinstance(page.view, pn.Column)
-    cards = [
-        obj
-        for row in page.view.objects
-        if isinstance(row, pn.Row)
-        for column in row.objects
-        if isinstance(column, pn.Column)
-        for section in column.objects
-        if isinstance(section, pn.Column)
-        for obj in section.objects
-        if isinstance(obj, pn.Card)
-    ]
+    cards = _collect_cards(page.view)
     assert len(cards) == 2
     assert sorted(card.title for card in cards) == ["Data Empty", "Data Empty"]
     assert any(isinstance(obj, pn.Row) for obj in page.view.objects)

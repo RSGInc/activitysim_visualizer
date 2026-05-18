@@ -6,14 +6,9 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart
+from dashboard.helpers.category_helpers import column_options, nonempty
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
-
-
-def _nonempty(
-    data_list: list[tuple[str, pl.DataFrame]],
-) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, df) for label, df in data_list if df is not None and len(df) > 0]
 
 
 def _options(
@@ -27,16 +22,6 @@ def _options(
     vals = (
         first_df.select(col).drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
     )
-    if col == "tour_purpose":
-        options = []
-        if "all_tour_purposes" in vals:
-            options.append("Total")
-        options.extend(
-            sorted(
-                v for v in vals if v not in {total_label, "Total", "all_tour_purposes"}
-            )
-        )
-        return options or ["Total"]
     return [total_label] + sorted(v for v in vals if v != total_label)
 
 
@@ -64,7 +49,7 @@ def _filter_col(
         return df.sort(sort_cols[0]) if sort_cols else df
 
     out = []
-    for label, df in _nonempty(data_list):
+    for label, df in nonempty(data_list):
         if col in df.columns:
             df = df.with_columns(pl.col(col).cast(pl.Utf8))
             if value == total_label:
@@ -103,11 +88,11 @@ def tour_mode_chart_data(
         "Auto Sufficient": "tour_count_auto_sufficient",
     }[auto_sufficiency]
     out = []
-    for label, df in _nonempty(data_list):
+    for label, df in nonempty(data_list):
         df = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
         df = df.filter(
             pl.col("tour_purpose")
-            == ("all_tour_purposes" if purpose == "Total" else purpose)
+            == purpose
         )
         out.append(
             (
@@ -128,12 +113,29 @@ class TourModePage(DashboardPage):
         veh_data = self.state.get_summary_table_set(
             "allocated_vehicle_age_by_occupancy", "weighted"
         )
+        purpose_opts, self._purpose_to_raw = column_options(
+            mode_data or [],
+            "tour_purpose",
+            category_id="tour_purpose",
+            config=self.config,
+            state=self.state,
+            cache_key=(
+                "tour_mode",
+                "tour_mode_by_tour_purpose_and_auto_sufficiency",
+                "tour_purpose",
+                "weighted",
+            ),
+            total_raw="all_tour_purposes",
+            total_label="Total",
+        )
+        if not purpose_opts:
+            purpose_opts = ["Total"]
         self.purpose_sel = self.selector(
             "tour_purpose",
             widget=pn.widgets.Select(
                 name="Tour Purpose",
-                options=_options(mode_data or [], "tour_purpose"),
-                value=_options(mode_data or [], "tour_purpose")[0],
+                options=purpose_opts,
+                value=purpose_opts[0],
             ),
             label="Tour Purpose",
         )
@@ -188,8 +190,23 @@ class TourModePage(DashboardPage):
 
     def sync_controls(self) -> None:
         mode_summary, age_summary, fuel_summary, body_summary = self._summaries()
+        purpose_opts, self._purpose_to_raw = column_options(
+            mode_summary or [],
+            "tour_purpose",
+            category_id="tour_purpose",
+            config=self.config,
+            state=self.state,
+            cache_key=(
+                "tour_mode",
+                "tour_mode_by_tour_purpose_and_auto_sufficiency",
+                "tour_purpose",
+                self.weighting_key,
+            ),
+            total_raw="all_tour_purposes",
+            total_label="Total",
+        )
         for widget, opts in [
-            (self.purpose_sel, _options(mode_summary or [], "tour_purpose")),
+            (self.purpose_sel, purpose_opts),
             (self.auto_suff_sel, _options(mode_summary or [], "auto_sufficiency")),
             (
                 self.occupancy_sel,
@@ -207,6 +224,7 @@ class TourModePage(DashboardPage):
             return [pn.pane.Markdown("No runs loaded.")]
         mode_summary, _, _, _ = self._summaries()
         purpose = self.purpose_sel.value
+        raw_purpose = self._purpose_to_raw.get(purpose, "all_tour_purposes")
         auto_suff = self.auto_suff_sel.value
         if mode_summary is None:
             return [
@@ -224,8 +242,8 @@ class TourModePage(DashboardPage):
             ]
         mode_data = self.get_filtered_view(
             "tour_mode",
-            (purpose, auto_suff),
-            factory=lambda: tour_mode_chart_data(mode_summary, purpose, auto_suff),
+            (raw_purpose, auto_suff),
+            factory=lambda: tour_mode_chart_data(mode_summary, raw_purpose, auto_suff),
         )
         return [
             pn.pane.Markdown("### Tour Mode"),

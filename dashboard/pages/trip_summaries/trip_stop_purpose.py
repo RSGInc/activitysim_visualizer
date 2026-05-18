@@ -6,30 +6,9 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart, control_row, control_row_spacer
+from dashboard.helpers.category_helpers import column_options, nonempty
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
-
-
-def _nonempty(
-    data_list: list[tuple[str, pl.DataFrame]],
-) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, df) for label, df in data_list if df is not None and len(df) > 0]
-
-
-def purpose_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
-    first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
-    if first_df is None or "tour_purpose" not in first_df.columns:
-        return ["All"]
-
-    vals = (
-        first_df.select("tour_purpose")
-        .drop_nulls()
-        .unique()
-        .to_series()
-        .cast(pl.Utf8)
-        .to_list()
-    )
-    return ["All"] + sorted(v for v in vals if v != "All")
 
 
 def stop_purpose_chart_data(
@@ -37,9 +16,9 @@ def stop_purpose_chart_data(
     tour_purpose: str,
 ) -> list[tuple[str, pl.DataFrame]]:
     out = []
-    for label, df in _nonempty(data_list):
+    for label, df in nonempty(data_list):
         df = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
-        if tour_purpose == "All":
+        if tour_purpose is None:
             df = (
                 df.group_by("stop_destination_purpose")
                 .agg(stop_count=pl.col("stop_count").sum())
@@ -58,7 +37,23 @@ class TripStopPurposePage(DashboardPage):
             "stop_destination_purpose_by_tour_purpose",
             "weighted",
         )
-        purpose_opts = purpose_options(stop_data or [])
+        purpose_opts, self._tour_purpose_to_raw = column_options(
+            stop_data or [],
+            "tour_purpose",
+            category_id="tour_purpose",
+            config=self.config,
+            state=self.state,
+            cache_key=(
+                "trip_stop_purpose",
+                "stop_destination_purpose_by_tour_purpose",
+                "tour_purpose",
+                "weighted",
+            ),
+            total_raw=None,
+            total_label="All",
+        )
+        if not purpose_opts:
+            purpose_opts = ["All"]
         self.tour_purpose_sel = self.selector(
             "tour_purpose",
             widget=pn.widgets.Select(
@@ -84,7 +79,21 @@ class TripStopPurposePage(DashboardPage):
         if summaries is None:
             return
         stop_purpose_list = summaries["stop_destination_purpose_by_tour_purpose"]
-        purpose_opts = purpose_options(stop_purpose_list)
+        purpose_opts, self._tour_purpose_to_raw = column_options(
+            stop_purpose_list,
+            "tour_purpose",
+            category_id="tour_purpose",
+            config=self.config,
+            state=self.state,
+            cache_key=(
+                "trip_stop_purpose",
+                "stop_destination_purpose_by_tour_purpose",
+                "tour_purpose",
+                self.weighting_key,
+            ),
+            total_raw=None,
+            total_label="All",
+        )
         self.tour_purpose_sel.options = purpose_opts
         if self.tour_purpose_sel.value not in purpose_opts:
             self.tour_purpose_sel.value = purpose_opts[0]
@@ -102,16 +111,17 @@ class TripStopPurposePage(DashboardPage):
                 )
             ]
 
-        trip_purpose_data = _nonempty(summaries["trip_purpose_distribution"])
+        trip_purpose_data = nonempty(summaries["trip_purpose_distribution"])
         stop_purpose_list = summaries["stop_destination_purpose_by_tour_purpose"]
         tour_purpose = self.tour_purpose_sel.value
+        raw_tour_purpose = self._tour_purpose_to_raw.get(tour_purpose)
 
         stop_purpose_data = self.get_filtered_view(
             "stop_destination_purpose",
-            tour_purpose,
+            raw_tour_purpose,
             factory=lambda: stop_purpose_chart_data(
                 stop_purpose_list,
-                tour_purpose,
+                raw_tour_purpose,
             ),
         )
 

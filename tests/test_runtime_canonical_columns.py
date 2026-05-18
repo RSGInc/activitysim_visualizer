@@ -372,6 +372,98 @@ def test_config_summary_signature_changes_when_transit_subsidy_labels_change(
     assert config_a.summary_config_digest != config_b.summary_config_digest
 
 
+def test_config_categories_preserve_mapping_order_and_fallback_order(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "categories:",
+            "  mode:",
+            "    mapping:",
+            "      WALK: Walk",
+            "      DRIVEALONE: Drive Alone",
+            "    order: descending",
+        ],
+    )
+
+    spec = config.category_spec("mode")
+    assert spec is not None
+    assert list(spec.mapping_items) == [
+        ("WALK", "Walk"),
+        ("DRIVEALONE", "Drive Alone"),
+    ]
+    assert spec.fallback_order == "descending"
+
+
+def test_category_specs_apply_ascending_descending_and_data_fallbacks(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "categories:",
+            "  alpha:",
+            "    order: ascending",
+            "  omega:",
+            "    order: descending",
+            "  seen:",
+            "    order: data",
+        ],
+    )
+
+    assert config.ordered_values("alpha", ["b", "c", "a"]) == ["a", "b", "c"]
+    assert config.ordered_values("omega", ["b", "c", "a"]) == ["c", "b", "a"]
+    assert config.ordered_values("seen", ["b", "c", "a"]) == ["b", "c", "a"]
+
+
+def test_categories_override_legacy_label_and_order_settings(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "person_types:",
+            "  1: Worker Legacy",
+            "transit_subsidies:",
+            "  1: Subsidy Legacy",
+            "geography:",
+            "  enabled: true",
+            "  landuse_col: COUNTY",
+            "  mapping:",
+            "    1: Legacy County",
+            "modes:",
+            "  order:",
+            "    - LEGACY_MODE",
+            "categories:",
+            "  person_type:",
+            "    mapping:",
+            "      1: Worker New",
+            "  transit_subsidy:",
+            "    mapping:",
+            "      1: Subsidy New",
+            "  geography:",
+            "    mapping:",
+            "      1: New County",
+            "  mode:",
+            "    mapping:",
+            "      NEW_MODE: New Mode",
+        ],
+    )
+
+    assert config.person_type_label("1") == "Worker New"
+    assert config.transit_subsidy_label("1") == "Subsidy New"
+    assert config.apply_geo_mapping(pl.Series(["1", "9"])).to_list() == [
+        "New County",
+        "9",
+    ]
+    assert config.ordered_modes(["LEGACY_MODE", "NEW_MODE", "OTHER"]) == [
+        "NEW_MODE",
+        "LEGACY_MODE",
+        "OTHER",
+    ]
+
+
 def test_config_summary_signature_changes_when_tour_purpose_grouping_changes(
     tmp_path: Path,
 ) -> None:

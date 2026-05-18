@@ -167,6 +167,16 @@ class PrepareVotBinsSettings:
         return self.mappings.get(_normalize_run_selector_key(run_label))
 
 
+@dataclass(frozen=True)
+class CategorySpec:
+    """Canonical display labels and ordering rules for one categorical domain."""
+
+    mapping_items: tuple[tuple[str, str], ...] = ()
+    labels_by_raw: dict[str, str] = field(default_factory=dict)
+    raw_values_in_order: tuple[str, ...] = ()
+    fallback_order: str = "data"
+
+
 def _normalize_run_selector_key(value: str) -> str:
     normalized = re.sub(r"[^a-z0-9]+", "-", str(value).strip().lower()).strip("-")
     return normalized or str(value).strip().lower()
@@ -650,6 +660,104 @@ def _normalize_label_mapping(
     return normalized or None
 
 
+def _normalize_category_order(
+    raw_value,
+    *,
+    field_name: str,
+) -> str:
+    if raw_value is None:
+        return "data"
+    token = str(raw_value).strip().lower()
+    if token not in {"ascending", "descending", "data"}:
+        raise ValueError(
+            f"{field_name} must be one of 'ascending', 'descending', or 'data'."
+        )
+    return token
+
+
+def _normalize_categories(
+    raw_value,
+    *,
+    field_name: str,
+) -> dict[str, CategorySpec]:
+    if raw_value is None:
+        return {}
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{field_name} must be a mapping when provided.")
+
+    categories: dict[str, CategorySpec] = {}
+    for raw_category_id, raw_spec in raw_value.items():
+        category_id = str(raw_category_id).strip()
+        if not category_id:
+            raise ValueError(f"{field_name} contains an empty category id.")
+        if not isinstance(raw_spec, dict):
+            raise ValueError(f"{field_name}.{category_id} must be a mapping.")
+
+        mapping_raw = raw_spec.get("mapping")
+        if mapping_raw is None:
+            mapping_items: list[tuple[str, str]] = []
+        else:
+            if not isinstance(mapping_raw, dict):
+                raise ValueError(f"{field_name}.{category_id}.mapping must be a mapping.")
+            mapping_items = [
+                (str(raw_key), str(display_label))
+                for raw_key, display_label in mapping_raw.items()
+            ]
+        spec = CategorySpec(
+            mapping_items=tuple(mapping_items),
+            labels_by_raw={raw_key: display_label for raw_key, display_label in mapping_items},
+            raw_values_in_order=tuple(raw_key for raw_key, _ in mapping_items),
+            fallback_order=_normalize_category_order(
+                raw_spec.get("order"),
+                field_name=f"{field_name}.{category_id}.order",
+            ),
+        )
+        categories[category_id] = spec
+    return categories
+
+
+def _category_spec_from_mapping(
+    mapping: dict[str, str] | None,
+    *,
+    fallback_order: str = "data",
+) -> CategorySpec | None:
+    if not mapping:
+        return None
+    mapping_items = [(str(raw_key), str(display_label)) for raw_key, display_label in mapping.items()]
+    return CategorySpec(
+        mapping_items=tuple(mapping_items),
+        labels_by_raw={raw_key: display_label for raw_key, display_label in mapping_items},
+        raw_values_in_order=tuple(raw_key for raw_key, _ in mapping_items),
+        fallback_order=fallback_order,
+    )
+
+
+def _category_spec_from_sequence(values: list[str] | tuple[str, ...] | None) -> CategorySpec | None:
+    if not values:
+        return None
+    normalized = tuple(str(value) for value in values)
+    return CategorySpec(
+        mapping_items=(),
+        labels_by_raw={},
+        raw_values_in_order=normalized,
+        fallback_order="data",
+    )
+
+
+def _category_specs_payload(categories: dict[str, CategorySpec]) -> list[dict[str, Any]]:
+    return [
+        {
+            "category_id": category_id,
+            "mapping": [
+                {"raw": raw_value, "label": display_label}
+                for raw_value, display_label in spec.mapping_items
+            ],
+            "order": spec.fallback_order,
+        }
+        for category_id, spec in categories.items()
+    ]
+
+
 _DEFAULT_RUN_COLORS = [
     "#1f77b4",
     "#ff7f0e",
@@ -872,6 +980,7 @@ class Config:
     col_trip_depart: list[str]
     col_total_employment: list[str]
     col_income_segment: list[str]
+    categories: dict[str, CategorySpec]
     person_type_labels: Optional[dict[str, str]]
     transit_subsidy_labels: Optional[dict[str, str]]
     group_joint_tour_purposes: bool
@@ -1134,6 +1243,28 @@ class Config:
             raw.get("transit_subsidies"),
             field_name="transit_subsidies",
         )
+        categories = _normalize_categories(
+            raw.get("categories"),
+            field_name="categories",
+        )
+        if "person_type" not in categories:
+            legacy_person_type_spec = _category_spec_from_mapping(person_type_labels)
+            if legacy_person_type_spec is not None:
+                categories["person_type"] = legacy_person_type_spec
+        if "transit_subsidy" not in categories:
+            legacy_transit_subsidy_spec = _category_spec_from_mapping(
+                transit_subsidy_labels
+            )
+            if legacy_transit_subsidy_spec is not None:
+                categories["transit_subsidy"] = legacy_transit_subsidy_spec
+        if "geography" not in categories and geo_mapping:
+            legacy_geography_spec = _category_spec_from_mapping(geo_mapping)
+            if legacy_geography_spec is not None:
+                categories["geography"] = legacy_geography_spec
+        if "mode" not in categories:
+            legacy_mode_spec = _category_spec_from_sequence(modes_cfg.get("order"))
+            if legacy_mode_spec is not None:
+                categories["mode"] = legacy_mode_spec
         group_joint_tour_purposes = (
             _normalize_optional_bool(
                 raw.get("group_joint_tour_purposes"),
@@ -1268,6 +1399,7 @@ class Config:
                 field_name="columns.income_segment",
                 default=["income_segment", "income_broad", "income"],
             ),
+            categories=categories,
             person_type_labels=person_type_labels,
             transit_subsidy_labels=transit_subsidy_labels,
             group_joint_tour_purposes=group_joint_tour_purposes,
@@ -1301,15 +1433,33 @@ class Config:
         """Return the config subset that changes prepared-table contents."""
         geography_payload: dict[str, Any] = {"enabled": self.geography_enabled}
         if self.geography_enabled:
+            geography_spec = self.category_spec("geography")
             geography_payload["landuse_col"] = self.geography_landuse_col
             geography_payload["mapping"] = (
-                {
-                    key: self.geography_mapping[key]
-                    for key in sorted(self.geography_mapping)
-                }
-                if self.geography_mapping
-                else None
+                dict(geography_spec.mapping_items)
+                if geography_spec is not None and geography_spec.mapping_items
+                else (
+                    {
+                        key: self.geography_mapping[key]
+                        for key in sorted(self.geography_mapping)
+                    }
+                    if self.geography_mapping
+                    else None
+                )
             )
+        effective_person_type_labels = (
+            None
+            if self.category_spec("person_type") is not None
+            else self.person_type_labels
+        )
+        effective_transit_subsidy_labels = (
+            None
+            if self.category_spec("transit_subsidy") is not None
+            else self.transit_subsidy_labels
+        )
+        effective_mode_order = (
+            None if self.category_spec("mode") is not None else self.mode_order
+        )
         return {
             "files": {key: self.files[key] for key in sorted(self.files)},
             "columns": {
@@ -1334,6 +1484,26 @@ class Config:
                 "trip_depart": list(self.col_trip_depart),
                 "total_employment": list(self.col_total_employment),
                 "income_segment": list(self.col_income_segment),
+            },
+            "categories": _category_specs_payload(self.categories),
+            "legacy_categories": {
+                "person_type_labels": (
+                    {
+                        key: effective_person_type_labels[key]
+                        for key in sorted(effective_person_type_labels)
+                    }
+                    if effective_person_type_labels
+                    else None
+                ),
+                "transit_subsidy_labels": (
+                    {
+                        key: effective_transit_subsidy_labels[key]
+                        for key in sorted(effective_transit_subsidy_labels)
+                    }
+                    if effective_transit_subsidy_labels
+                    else None
+                ),
+                "mode_order": list(effective_mode_order) if effective_mode_order else None,
             },
             "tour_purpose_grouping": {
                 "group_joint_tour_purposes": self.group_joint_tour_purposes,
@@ -1391,15 +1561,33 @@ class Config:
         """Return the config subset that changes summary cache contents."""
         geography_payload: dict[str, Any] = {"enabled": self.geography_enabled}
         if self.geography_enabled:
+            geography_spec = self.category_spec("geography")
             geography_payload["landuse_col"] = self.geography_landuse_col
             geography_payload["mapping"] = (
-                {
-                    key: self.geography_mapping[key]
-                    for key in sorted(self.geography_mapping)
-                }
-                if self.geography_mapping
-                else None
+                dict(geography_spec.mapping_items)
+                if geography_spec is not None and geography_spec.mapping_items
+                else (
+                    {
+                        key: self.geography_mapping[key]
+                        for key in sorted(self.geography_mapping)
+                    }
+                    if self.geography_mapping
+                    else None
+                )
             )
+        effective_person_type_labels = (
+            None
+            if self.category_spec("person_type") is not None
+            else self.person_type_labels
+        )
+        effective_transit_subsidy_labels = (
+            None
+            if self.category_spec("transit_subsidy") is not None
+            else self.transit_subsidy_labels
+        )
+        effective_mode_order = (
+            None if self.category_spec("mode") is not None else self.mode_order
+        )
         return {
             "weighting_modes": list(self.weighting_modes),
             "files": {key: self.files[key] for key in sorted(self.files)},
@@ -1426,20 +1614,21 @@ class Config:
                 "total_employment": list(self.col_total_employment),
                 "income_segment": list(self.col_income_segment),
             },
+            "categories": _category_specs_payload(self.categories),
             "person_type_labels": (
                 {
-                    key: self.person_type_labels[key]
-                    for key in sorted(self.person_type_labels)
+                    key: effective_person_type_labels[key]
+                    for key in sorted(effective_person_type_labels)
                 }
-                if self.person_type_labels
+                if effective_person_type_labels
                 else None
             ),
             "transit_subsidy_labels": (
                 {
-                    key: self.transit_subsidy_labels[key]
-                    for key in sorted(self.transit_subsidy_labels)
+                    key: effective_transit_subsidy_labels[key]
+                    for key in sorted(effective_transit_subsidy_labels)
                 }
-                if self.transit_subsidy_labels
+                if effective_transit_subsidy_labels
                 else None
             ),
             "tour_purpose_grouping": {
@@ -1472,7 +1661,7 @@ class Config:
             "geography": geography_payload,
             "skim": {"matrix": self.skim_matrix},
             "modes": {
-                "order": list(self.mode_order) if self.mode_order else None,
+                "order": list(effective_mode_order) if effective_mode_order else None,
                 "groups": (
                     [
                         (group_name, list(mode_names))
@@ -1523,6 +1712,7 @@ class Config:
             ),
             "run_colors": list(self.run_colors),
             "missing_data_display": self.missing_data_display,
+            "categories": _category_specs_payload(self.categories),
             "export_html": {
                 "enabled": self.export_html.enabled,
                 "dashboard": {
@@ -1557,33 +1747,71 @@ class Config:
         """Return the configured display color for one run index."""
         return self.run_colors[idx % len(self.run_colors)]
 
+    def category_spec(self, category_id: str) -> CategorySpec | None:
+        """Return the canonical category spec for one category id."""
+        return self.categories.get(str(category_id))
+
+    def label_value(self, category_id: str, raw_value) -> str:
+        """Return the display label for one raw categorical value."""
+        raw_value_str = str(raw_value)
+        spec = self.category_spec(category_id)
+        if spec is not None and raw_value_str in spec.labels_by_raw:
+            return spec.labels_by_raw[raw_value_str]
+        return raw_value_str
+
+    def ordered_values(self, category_id: str, raw_values: list[str]) -> list[str]:
+        """Return raw values in configured display order with extras appended."""
+        spec = self.category_spec(category_id)
+        values = [str(value) for value in raw_values]
+        if spec is None:
+            return values
+
+        seen: set[str] = set()
+        unique_values: list[str] = []
+        for value in values:
+            if value in seen:
+                continue
+            unique_values.append(value)
+            seen.add(value)
+
+        ordered = [value for value in spec.raw_values_in_order if value in seen]
+        extras = [value for value in unique_values if value not in ordered]
+        if spec.fallback_order == "ascending":
+            extras = sorted(extras)
+        elif spec.fallback_order == "descending":
+            extras = sorted(extras, reverse=True)
+        return ordered + extras
+
+    def ordered_labels(self, category_id: str, raw_values: list[str]) -> list[str]:
+        """Return display labels for raw values in canonical order."""
+        return [
+            self.label_value(category_id, raw_value)
+            for raw_value in self.ordered_values(category_id, raw_values)
+        ]
+
     def ordered_modes(self, modes_in_data: list[str]) -> list[str]:
         """Return modes in display order. Unknown modes appended at end."""
-        if not self.mode_order:
-            return modes_in_data
-        ordered = [mode for mode in self.mode_order if mode in modes_in_data]
-        remaining = [mode for mode in modes_in_data if mode not in ordered]
-        return ordered + remaining
+        return self.ordered_values("mode", modes_in_data)
 
     def apply_geo_mapping(self, series: pl.Series) -> pl.Series:
         """Apply geography mapping (value->name) to a string series."""
-        if not self.geography_mapping:
+        spec = self.category_spec("geography")
+        if spec is None:
             return series.cast(pl.Utf8)
-        mapping = self.geography_mapping
         return series.cast(pl.Utf8).map_elements(
             lambda value: (
-                mapping.get(str(value), str(value)) if value is not None else None
+                self.label_value("geography", value) if value is not None else None
             ),
             return_dtype=pl.Utf8,
         )
 
     def person_type_label(self, value) -> str:
         """Return the display label for a person type value."""
-        return self._lookup_label(value, self.person_type_labels)
+        return self.label_value("person_type", value)
 
     def transit_subsidy_label(self, value) -> str:
         """Return the display label for a transit subsidy value."""
-        return self._lookup_label(value, self.transit_subsidy_labels)
+        return self.label_value("transit_subsidy", value)
 
     @staticmethod
     def _lookup_label(value, labels: dict[str, str] | None) -> str:

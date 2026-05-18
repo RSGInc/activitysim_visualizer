@@ -6,16 +6,11 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import data_table, density_chart
+from dashboard.helpers.category_helpers import column_options, nonempty
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
 GEO_LEVEL_COL = "geography_level"
-
-
-def _nonempty(
-    data_list: list[tuple[str, pl.DataFrame]],
-) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, df) for label, df in data_list if df is not None and len(df) > 0]
 
 
 def _options(
@@ -27,21 +22,7 @@ def _options(
     vals = (
         first_df.select(col).drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
     )
-    if col == "tour_purpose":
-        options = []
-        if "all_tour_purposes" in vals:
-            options.append("Total")
-        options.extend(
-            sorted(
-                v for v in vals if v not in {total_label, "Total", "all_tour_purposes"}
-            )
-        )
-        return options or ["Total"]
     return [total_label] + sorted(v for v in vals if v != total_label)
-
-
-def _raw_tour_purpose(value: str) -> str:
-    return "all_tour_purposes" if value == "Total" else value
 
 
 def _distance_sort_expr(column: str) -> pl.Expr:
@@ -54,7 +35,7 @@ def _distance_sort_expr(column: str) -> pl.Expr:
 
 def tour_distance_chart_data(data_list: list[tuple[str, pl.DataFrame]], purpose: str):
     out = []
-    for label, df in _nonempty(data_list):
+    for label, df in nonempty(data_list):
         df = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8)).filter(
             pl.col("tour_purpose") == purpose
         )
@@ -79,7 +60,7 @@ def avg_distance_table_data(
     purpose: str,
 ):
     out = []
-    for label, df in _nonempty(data_list):
+    for label, df in nonempty(data_list):
         if GEO_LEVEL_COL in df.columns and geo_level != "All":
             df = df.with_columns(pl.col(GEO_LEVEL_COL).cast(pl.Utf8)).filter(
                 pl.col(GEO_LEVEL_COL) == geo_level
@@ -103,12 +84,29 @@ class TourDistancePage(DashboardPage):
         nonmand_data = self.state.get_summary_table_set(
             "average_nonmandatory_tour_distance_by_purpose_and_geography", "weighted"
         )
+        purpose_opts, self._tour_purpose_to_raw = column_options(
+            dist_data or [],
+            "tour_purpose",
+            category_id="tour_purpose",
+            config=self.config,
+            state=self.state,
+            cache_key=(
+                "tour_distance",
+                "tour_distance_by_tour_purpose",
+                "tour_purpose",
+                "weighted",
+            ),
+            total_raw="all_tour_purposes",
+            total_label="Total",
+        )
+        if not purpose_opts:
+            purpose_opts = ["Total"]
         self.tour_purpose_sel = self.selector(
             "tour_purpose",
             widget=pn.widgets.Select(
                 name="Tour Purpose",
-                options=_options(dist_data or [], "tour_purpose"),
-                value=_options(dist_data or [], "tour_purpose")[0],
+                options=purpose_opts,
+                value=purpose_opts[0],
             ),
             label="Tour Purpose",
         )
@@ -173,8 +171,23 @@ class TourDistancePage(DashboardPage):
         nonmand_list = summaries[
             "average_nonmandatory_tour_distance_by_purpose_and_geography"
         ]
+        purpose_opts, self._tour_purpose_to_raw = column_options(
+            dist_list,
+            "tour_purpose",
+            category_id="tour_purpose",
+            config=self.config,
+            state=self.state,
+            cache_key=(
+                "tour_distance",
+                "tour_distance_by_tour_purpose",
+                "tour_purpose",
+                self.weighting_key,
+            ),
+            total_raw="all_tour_purposes",
+            total_label="Total",
+        )
         for widget, opts in [
-            (self.tour_purpose_sel, _options(dist_list, "tour_purpose")),
+            (self.tour_purpose_sel, purpose_opts),
             (self.geo_level_sel, _options(mand_list, GEO_LEVEL_COL)),
             (self.mand_purpose_sel, _options(mand_list, "mandatory_tour_purpose")),
             (
@@ -198,12 +211,15 @@ class TourDistancePage(DashboardPage):
                 )
             ]
         tour_purpose = self.tour_purpose_sel.value
+        raw_tour_purpose = self._tour_purpose_to_raw.get(
+            tour_purpose, "all_tour_purposes"
+        )
         distance_data = self.get_filtered_view(
             "tour_distance",
-            _raw_tour_purpose(tour_purpose),
+            raw_tour_purpose,
             factory=lambda: tour_distance_chart_data(
                 summaries["tour_distance_by_tour_purpose"],
-                _raw_tour_purpose(tour_purpose),
+                raw_tour_purpose,
             ),
         )
         return [
