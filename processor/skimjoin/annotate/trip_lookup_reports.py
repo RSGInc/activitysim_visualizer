@@ -78,6 +78,9 @@ def _empty_lookup_results_frame() -> pl.DataFrame:
             "mode": pl.String,
             "component": pl.String,
             "output": pl.String,
+            "lookup_chain_id": pl.String,
+            "lookup_step_index": pl.Int64,
+            "lookup_role": pl.String,
             "lookup_origin": pl.Float64,
             "lookup_destination": pl.Float64,
             "matrix_name": pl.String,
@@ -121,6 +124,20 @@ def _apply_rule_sentinel_values(
             )
         )
     return pl.concat(adjusted_frames, how="vertical")
+
+
+def _select_resolved_chain_results(results: pl.DataFrame) -> pl.DataFrame:
+    if results.is_empty():
+        return results
+    valid = results.filter(pl.col("valid"))
+    if valid.is_empty():
+        return valid
+    return (
+        valid.sort(["_row_id", "output", "lookup_step_index"])
+        .group_by(["_row_id", "output"], maintain_order=True)
+        .agg(pl.all().sort_by("lookup_step_index").first())
+        .select(results.columns)
+    )
 
 
 def _build_lookup_summary_frame(

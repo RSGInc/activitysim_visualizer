@@ -4,7 +4,7 @@ import polars as pl
 
 from processor.skimjoin.config.schema import NormalizedConfig, NormalizedLookupRule
 from processor.skimjoin.skimstore.base import SkimStore
-from processor.skimjoin.annotate.trip_lookup_reports import _missing_report_schema, _row_trip_id
+from processor.skimjoin.annotate.trip_lookup_reports import _row_trip_id
 
 
 def _inventory_metadata_frame(
@@ -39,6 +39,7 @@ def _missing_matrix_frame(
     return pl.DataFrame(
         [
             {
+                "_row_id": row.get("_row_id"),
                 "rule_name": rule.name,
                 "trip_id": _row_trip_id(row),
                 "origin": row.get("lookup_origin"),
@@ -48,7 +49,6 @@ def _missing_matrix_frame(
             }
             for row in group.to_dicts()
         ],
-        schema=_missing_report_schema(),
         infer_schema_length=None,
     )
 

@@ -729,6 +729,175 @@ def test_annotate_trips_supports_keyed_csv_lookup(tmp_path: Path) -> None:
     assert missing["origin"].to_list() == [999]
 
 
+def test_annotate_trips_uses_fallback_after_missing_keyed_lookup(tmp_path: Path) -> None:
+    skim_path = tmp_path / "skims.omx"
+    csv_path = tmp_path / "maz_stop_walk.csv"
+    _write_omx(skim_path, matrix_name="WALK_FALLBACK")
+    _write_csv_skim(
+        csv_path,
+        rows=[
+            {
+                "maz": 101,
+                "walk_dist_local_bus": 0.25,
+                "walk_dist_premium_transit": 0.5,
+            }
+        ],
+    )
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[skim_path, csv_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  WALK_TRANSIT:",
+            "    maz_stop_walk:",
+            "      output: skim_transit_maz_stop_walk",
+            "      lookup: key",
+            "      key_column: o_maz",
+            "      matrix: maz_stop_walk__walk_dist_local_bus",
+            "      fallbacks:",
+            "        - matrix: WALK_FALLBACK",
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1, 2],
+            "trip_mode": ["WALK_TRANSIT", "WALK_TRANSIT"],
+            "o_maz": [101, 999],
+            "OTAZ": [101, 101],
+            "DTAZ": [102, 102],
+        }
+    )
+    inventory = inventory_skim_files(normalized.skim_files)
+
+    annotated, lookup_summary, missing = annotate_trips(
+        trips,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+    )
+
+    assert annotated["skim_transit_maz_stop_walk"].to_list() == [0.25, 2.0]
+    assert lookup_summary.sort("matrix_name")["matrix_name"].to_list() == [
+        "WALK_FALLBACK",
+        "maz_stop_walk__walk_dist_local_bus",
+    ]
+    assert lookup_summary.sort("matrix_name")["n_missing"].to_list() == [0, 1]
+    assert missing.is_empty()
+
+
+def test_annotate_trips_uses_fallback_when_primary_key_column_is_missing(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    csv_path = tmp_path / "maz_stop_walk.csv"
+    _write_omx(skim_path, matrix_name="WALK_FALLBACK")
+    _write_csv_skim(csv_path)
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[skim_path, csv_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  WALK_TRANSIT:",
+            "    maz_stop_walk:",
+            "      output: skim_transit_maz_stop_walk",
+            "      lookup: key",
+            "      key_column: o_maz",
+            "      matrix: maz_stop_walk__walk_dist_local_bus",
+            "      fallbacks:",
+            "        - matrix: WALK_FALLBACK",
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1],
+            "trip_mode": ["WALK_TRANSIT"],
+            "OTAZ": [101],
+            "DTAZ": [102],
+        }
+    )
+    inventory = inventory_skim_files(normalized.skim_files)
+
+    annotated, lookup_summary, missing = annotate_trips(
+        trips,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+    )
+
+    assert annotated["skim_transit_maz_stop_walk"].to_list() == [2.0]
+    assert lookup_summary["matrix_name"].to_list() == ["WALK_FALLBACK"]
+    assert missing.is_empty()
+
+
+def test_annotate_trips_uses_fallback_after_primary_sentinel_value(tmp_path: Path) -> None:
+    skim_path = tmp_path / "skims.omx"
+    csv_path = tmp_path / "maz_stop_walk.csv"
+    _write_omx(skim_path, matrix_name="WALK_FALLBACK")
+    _write_csv_skim(
+        csv_path,
+        rows=[
+            {
+                "maz": 101,
+                "walk_dist_local_bus": 999999.0,
+                "walk_dist_premium_transit": 0.5,
+            }
+        ],
+    )
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[skim_path, csv_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  WALK_TRANSIT:",
+            "    maz_stop_walk:",
+            "      output: skim_transit_maz_stop_walk",
+            "      lookup: key",
+            "      key_column: o_maz",
+            "      matrix: maz_stop_walk__walk_dist_local_bus",
+            "      sentinel_values:",
+            "        - 999999",
+            "      fallbacks:",
+            "        - matrix: WALK_FALLBACK",
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1],
+            "trip_mode": ["WALK_TRANSIT"],
+            "o_maz": [101],
+            "OTAZ": [101],
+            "DTAZ": [102],
+        }
+    )
+    inventory = inventory_skim_files(normalized.skim_files)
+
+    annotated, lookup_summary, missing = annotate_trips(
+        trips,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+    )
+
+    assert annotated["skim_transit_maz_stop_walk"].to_list() == [2.0]
+    assert lookup_summary.sort("matrix_name")["n_missing"].to_list() == [0, 1]
+    assert missing.is_empty()
+
+
 def test_annotate_trips_supports_csv_od_lookup(tmp_path: Path) -> None:
     csv_path = tmp_path / "maz_maz_walk.csv"
     _write_csv_od_skim(csv_path)

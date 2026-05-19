@@ -37,6 +37,7 @@ def _resolve_rule_work_items(
     )
 
     errors = work.filter(pl.col("__missing_reason").is_not_null()).select(
+        pl.col("_row_id").cast(pl.Int64),
         pl.col("rule_name"),
         pl.col("trip_id"),
         pl.col("lookup_origin").cast(pl.Int64, strict=False).alias("origin"),
@@ -52,6 +53,9 @@ def _resolve_rule_work_items(
         "mode",
         "component",
         "output",
+        "lookup_chain_id",
+        "lookup_step_index",
+        "lookup_role",
         "lookup_origin",
         "lookup_destination",
         "matrix_name",
@@ -68,6 +72,9 @@ def _base_rule_work_frame(
         "mode",
         "component",
         "output",
+        "lookup_chain_id",
+        "lookup_step_index",
+        "lookup_role",
         "lookup_origin",
         "trip_id",
     }
@@ -77,6 +84,9 @@ def _base_rule_work_frame(
         pl.lit(rule.mode).alias("mode"),
         pl.lit(rule.component).alias("component"),
         pl.lit(rule.output).alias("output"),
+        pl.lit(rule.lookup_chain_id).alias("lookup_chain_id"),
+        pl.lit(rule.lookup_step_index).cast(pl.Int64).alias("lookup_step_index"),
+        pl.lit(rule.lookup_role).alias("lookup_role"),
         pl.col(_rule_origin_column(rule)).cast(pl.Float64).alias("lookup_origin"),
     ]
     if "trip_id" in subset.columns:
