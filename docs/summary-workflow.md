@@ -21,8 +21,8 @@ python run.py --prepare-only
 High-level path:
 
 1. `run.py` parses CLI flags.
-2. `runtime_workflows.resolve_run_entries()` chooses run inputs from CLI or config.
-3. `runtime_workflows.run_prepare_workflow()` tries prepared-cache reuse first.
+2. `runtime.workflows.resolve_run_entries()` chooses run inputs from CLI or config.
+3. `runtime.workflows.run_prepare_workflow()` tries prepared-cache reuse first.
 4. On a miss, raw runs are read by `processor.prepare.reader` and normalized by `processor.prepare.enrichment.pipeline`.
 5. `processor.prepare.cache.write_prepared_run_cache()` writes one prepared cache directory per run.
 
@@ -51,7 +51,7 @@ python run.py --summarize
 High-level path:
 
 1. `run.py` resolves the summarize step.
-2. `runtime_workflows.run_summary_workflow()` tries summary-cache reuse first.
+2. `runtime.workflows.run_summary_workflow()` tries summary-cache reuse first.
 3. On a summary-cache miss, summarize reuses in-memory prepared runs, then tries prepared cache, then rebuilds prepare from raw inputs only if needed.
 4. `processor.summarize.cache.build_mode_summaries_with_metadata()` builds weighted and optionally unweighted tables.
 5. `processor.summarize.cache.write_summary_run_cache()` writes one cache directory per run unless `--skip-summary-cache-write` is set.
@@ -90,7 +90,7 @@ python run.py --from-csvs
 High-level path:
 
 1. `run.py` loads config.
-2. `runtime_workflows.load_summary_runs_from_cache()` reads each cache directory and validates its manifest.
+2. `runtime.workflows.load_summary_runs_from_cache()` reads each cache directory and validates its manifest.
 3. `dashboard.page_registry` resolves the enabled live pages from config.
 4. `dashboard.app.build_dashboard()` builds the shared `DashboardState`, the sidebar controls, and the page controllers.
 5. Each page pulls one summary table per run from `DashboardState`.
@@ -120,7 +120,7 @@ python run.py --from-csvs --export-html output.html
 
 High-level path:
 
-1. `runtime_workflows.load_summary_runs_from_cache()` loads the same summary inputs used by live mode.
+1. `runtime.workflows.load_summary_runs_from_cache()` loads the same summary inputs used by live mode.
 2. `dashboard.page_registry` resolves the export page set.
 3. `dashboard.export.html.build_export_html_document()` creates a client-side payload that contains:
    - dashboard-level state combinations
@@ -148,7 +148,7 @@ Summary builders should always aggregate `finalweight` rather than switching beh
 | Question | Start here |
 |---|---|
 | How are runs loaded and normalized? | `processor/prepare/reader.py`, `processor/prepare/enrichment/pipeline.py` |
-| Why was a prepared or summary cache reused or rejected? | `runtime_workflows.py`, `processor/prepare/cache.py`, `processor/summarize/cache.py` |
+| Why was a prepared or summary cache reused or rejected? | `runtime/workflows/`, `processor/prepare/cache.py`, `processor/summarize/cache.py` |
 | Which summary ids exist? | `processor/summarize/summary_specs.py` |
 | Which output columns are considered canonical? | `processor/summarize/schema.py`, derived from builder contracts |
 | How does a page get discovered? | `dashboard/page_registry.py` |

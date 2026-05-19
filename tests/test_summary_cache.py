@@ -691,6 +691,95 @@ def test_summary_cache_round_trip_preserves_summary_states_and_diagnostics(
     ]
 
 
+def test_summary_cache_writes_sentinel_csvs_for_empty_unavailable_and_failed_summaries(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode={
+            "weighted": {
+                "destination_distance": pl.DataFrame(),
+                "destination_average_distance": pl.DataFrame(),
+            },
+            "unweighted": {
+                "destination_distance": pl.DataFrame(),
+                "destination_average_distance": pl.DataFrame(),
+            },
+        },
+        summary_metadata_by_mode={
+            "weighted": {
+                "destination_distance": {
+                    "state": "unavailable",
+                    "detail": "tours (missing required columns: SKIMDIST)",
+                },
+                "destination_average_distance": {
+                    "state": "failed",
+                    "detail": "boom",
+                },
+            },
+            "unweighted": {
+                "destination_distance": {
+                    "state": "empty",
+                },
+                "destination_average_distance": {
+                    "state": "failed",
+                    "detail": "boom",
+                },
+            },
+        },
+        source_run_dir="C:/runs/base",
+    )
+    fingerprint = {"label": "Base", "run_dir": "C:/runs/base"}
+
+    cache_dir = write_summary_run_cache(
+        summary_run,
+        config,
+        run_fingerprint=fingerprint,
+        prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="base",
+            fingerprint=fingerprint,
+        ),
+    )
+
+    assert (
+        cache_dir / "weighted" / "destinationDistByPurpose.csv"
+    ).read_text(encoding="utf-8") == "__empty__\n"
+    assert (
+        cache_dir / "weighted" / "destinationAvgDistance.csv"
+    ).read_text(encoding="utf-8") == "__empty__\n"
+
+    loaded = load_summary_run_cache(
+        cache_dir,
+        config,
+        expected_modes=config.weighting_modes,
+        expected_summary_ids=[
+            "destination_distance",
+            "destination_average_distance",
+        ],
+        expected_summary_config_digest=config.summary_config_digest,
+        expected_run_fingerprint=fingerprint,
+        expected_prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="base",
+            fingerprint=fingerprint,
+        ),
+        expected_label="Base",
+        expected_run_key="base",
+    )
+
+    assert (
+        loaded.summaries_by_mode["weighted"]["destination_distance"].schema
+        == empty_summary_frame(legacy.distance_distribution).schema
+    )
+    assert (
+        loaded.summaries_by_mode["weighted"]["destination_average_distance"].schema
+        == empty_summary_frame(legacy.average_distance).schema
+    )
+
+
 def test_tour_stop_frequency_live_page_uses_shared_summary_helpers(
     tmp_path: Path,
 ) -> None:
@@ -724,7 +813,7 @@ def test_tour_stop_frequency_live_page_uses_shared_summary_helpers(
     page.refresh(force=True)
 
     assert list(page.purpose_sel.options) == ["All", "eatout", "social"]
-    assert list(page.direction_sel.options) == ["Both Directions", "Outbound", "Inbound"]
+    assert list(page.direction_sel.options) == ["Both", "Outbound", "Inbound"]
     page.purpose_sel.value = "social"
     page.refresh(force=True)
     assert page._body.objects

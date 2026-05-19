@@ -285,7 +285,8 @@ Use `null`, `None`, or an empty string in `--run-skim` to fall back to the globa
 ```text
 activitysim_visualizer/
 |-- run.py
-|-- runtime_workflows.py
+|-- runtime/
+|   |-- workflows/
 |-- runtime/
 |   `-- config.py
 |-- processor/

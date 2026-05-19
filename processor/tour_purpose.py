@@ -124,3 +124,12 @@ def summary_tour_purpose_expr(
             )
 
     return expr.cast(pl.Utf8)
+
+
+__all__ = [
+    "ALL_TOUR_PURPOSES",
+    "SUMMARY_TOUR_PURPOSE",
+    "purpose_column",
+    "summary_tour_purpose_expr",
+    "with_summary_tour_purpose",
+]

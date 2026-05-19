@@ -8,10 +8,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from processor.models import RunData
+from processor.models import RunData, TableAvailabilityMetadata
 from processor.prepare.availability import (
     attach_table_availability,
+    has_usable_loaded_tables,
     table_availability,
+    table_diagnostics,
     table_failure_reasons,
     table_unavailable_reasons,
 )
@@ -129,6 +131,100 @@ def _raw_run() -> RunData:
 
 def _prepared_run(config: Config) -> RunData:
     return prepare_data(_raw_run(), config)
+
+
+def test_table_availability_infers_states_without_attached_metadata() -> None:
+    inferred = RunData(
+        label="Inferred",
+        run_dir="C:/runs/inferred",
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1]}),
+        per=pl.DataFrame(),
+        tours=pl.DataFrame(),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    states = table_availability(inferred)
+
+    assert states == {
+        "households": "available",
+        "persons": "empty",
+        "tours": "empty",
+        "trips": "empty",
+        "joint_tour_participants": "empty",
+        "land_use": "empty",
+    }
+    assert table_unavailable_reasons(inferred) == {}
+    assert table_failure_reasons(inferred) == {}
+    assert table_diagnostics(inferred) == {}
+    assert has_usable_loaded_tables(inferred) is True
+
+    unavailable = attach_table_availability(
+        RunData(
+            label="Unavailable",
+            run_dir="C:/runs/unavailable",
+            skim_file=None,
+            hh=pl.DataFrame(),
+            per=pl.DataFrame(),
+            tours=pl.DataFrame(),
+            trips=pl.DataFrame(),
+            joint_participants=pl.DataFrame(),
+            land_use=pl.DataFrame(),
+            skim_matrix=None,
+            skim_zone_map=None,
+        ),
+        table_states={
+            "households": "unavailable",
+            "persons": "failed",
+            "tours": "unavailable",
+            "trips": "failed",
+            "joint_tour_participants": "unavailable",
+            "land_use": "failed",
+        },
+        table_reasons={
+            "households": "missing households",
+            "persons": "person transform failed",
+        },
+    )
+
+    assert has_usable_loaded_tables(unavailable) is False
+
+
+def test_attach_table_availability_sets_explicit_rundata_metadata() -> None:
+    run = attach_table_availability(
+        RunData(
+            label="Metadata",
+            run_dir="C:/runs/metadata",
+            skim_file=None,
+            hh=pl.DataFrame(),
+            per=pl.DataFrame(),
+            tours=pl.DataFrame(),
+            trips=pl.DataFrame(),
+            joint_participants=pl.DataFrame(),
+            land_use=pl.DataFrame(),
+            skim_matrix=None,
+            skim_zone_map=None,
+        ),
+        table_states={"households": "unavailable", "persons": "failed"},
+        table_reasons={
+            "households": "missing households",
+            "persons": "person transform failed",
+        },
+    )
+
+    assert run.table_availability_metadata == TableAvailabilityMetadata(
+        states={"households": "unavailable", "persons": "failed"},
+        diagnostics={
+            "households": "missing households",
+            "persons": "person transform failed",
+        },
+    )
+    assert table_availability(run)["households"] == "unavailable"
+    assert table_diagnostics(run)["persons"] == "person transform failed"
 
 
 def test_prepared_cache_round_trip_creates_default_layout(tmp_path: Path) -> None:
@@ -482,6 +578,54 @@ def test_prepared_cache_round_trip_preserves_failed_table_state_and_diagnostic(
     assert loaded.tours.is_empty()
 
 
+def test_prepared_cache_writes_sentinel_tables_for_non_available_states(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    prepared = _prepared_run(config)
+    prepared = RunData(
+        label=prepared.label,
+        run_dir=prepared.run_dir,
+        skim_file=prepared.skim_file,
+        hh=prepared.hh,
+        per=prepared.per,
+        tours=pl.DataFrame(),
+        trips=prepared.trips,
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=prepared.skim_matrix,
+        skim_zone_map=prepared.skim_zone_map,
+        hh_weight_col=prepared.hh_weight_col,
+        person_weight_col=prepared.person_weight_col,
+        trip_weight_col=prepared.trip_weight_col,
+    )
+    prepared = attach_table_availability(
+        prepared,
+        table_states={
+            "households": "available",
+            "persons": "available",
+            "tours": "failed",
+            "trips": "available",
+            "joint_tour_participants": "empty",
+            "land_use": "unavailable",
+        },
+        table_reasons={
+            "tours": "tour enrichment failed",
+            "land_use": "configured file was missing",
+        },
+    )
+
+    entry = write_prepared_run_cache(prepared, config, run_key="base")
+
+    assert pl.read_parquet(entry.cache_dir / "tours.parquet").columns == ["__empty__"]
+    assert pl.read_parquet(
+        entry.cache_dir / "joint_tour_participants.parquet"
+    ).columns == ["__empty__"]
+    assert pl.read_parquet(entry.cache_dir / "land_use.parquet").columns == [
+        "__empty__"
+    ]
+
+
 def test_prepared_cache_loads_schema_version_2_manifest_without_failed_metadata(
     tmp_path: Path,
 ) -> None:
@@ -512,8 +656,12 @@ def test_prepared_cache_rejects_old_schema_version(tmp_path: Path) -> None:
     entry = write_prepared_run_cache(prepared, config, run_key="base")
     manifest_path = entry.cache_dir / "manifest.json"
     manifest = manifest_path.read_text(encoding="utf-8")
+    current_schema_version = entry.manifest["schema_version"]
     manifest_path.write_text(
-        manifest.replace('"schema_version": 4', '"schema_version": 1'),
+        manifest.replace(
+            f'"schema_version": {current_schema_version}',
+            '"schema_version": 1',
+        ),
         encoding="utf-8",
     )
 
