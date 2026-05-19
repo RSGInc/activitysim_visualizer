@@ -79,7 +79,7 @@ def validate_config(
     failures.extend(_validate_mode_coverage(normalized, trips))
     failures.extend(_validate_segment_coverage(normalized, trips))
 
-    output_masks: dict[str, pl.Series] = {}
+    output_masks: dict[str, list[tuple[NormalizedLookupRule, pl.Series]]] = {}
     referenced_matrices: set[str] = set()
     mode_column_available = normalized.activitysim.mode_column in trips.columns
 
@@ -98,11 +98,23 @@ def validate_config(
         if rule_failures:
             continue
 
-        if rule.output in output_masks:
-            overlap = output_masks[rule.output] & mask
-            if int(overlap.sum()) > 0:
-                failures.append(f"Output collision on {rule.output!r}: overlapping rows include {rule.name}")
-        output_masks[rule.output] = mask if rule.output not in output_masks else (output_masks[rule.output] | mask)
+        prior_entries = output_masks.get(rule.output, [])
+        for prior_rule, prior_mask in prior_entries:
+            overlap = prior_mask & mask
+            if int(overlap.sum()) <= 0:
+                continue
+            if prior_rule.lookup_chain_id == rule.lookup_chain_id:
+                continue
+            if (
+                prior_rule.combine_method == "sum"
+                and rule.combine_method == "sum"
+            ):
+                continue
+            failures.append(
+                f"Output collision on {rule.output!r}: overlapping rows include {rule.name}"
+            )
+        prior_entries.append((rule, mask))
+        output_masks[rule.output] = prior_entries
 
         subset = trips.filter(mask)
         if subset.is_empty():

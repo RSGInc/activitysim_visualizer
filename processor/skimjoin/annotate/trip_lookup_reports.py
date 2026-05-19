@@ -49,9 +49,24 @@ def _apply_output_columns(
     if results.is_empty():
         return trips
 
+    outputs_long = (
+        results.group_by(["_row_id", "output", "combine_method"], maintain_order=True)
+        .agg(
+            pl.when(pl.col("combine_method").first() == "sum")
+            .then(pl.col("value").sum())
+            .otherwise(pl.col("value").first())
+            .alias("value")
+        )
+        .select("_row_id", "output", "value")
+    )
+
     outputs_wide = (
-        results.select("_row_id", "output", "value")
-        .pivot(on="output", index="_row_id", values="value", aggregate_function="first")
+        outputs_long.pivot(
+            on="output",
+            index="_row_id",
+            values="value",
+            aggregate_function="first",
+        )
         .with_columns(pl.col("_row_id").cast(pl.Int64))
     )
     value_columns = [column for column in outputs_wide.columns if column != "_row_id"]
@@ -78,6 +93,7 @@ def _empty_lookup_results_frame() -> pl.DataFrame:
             "mode": pl.String,
             "component": pl.String,
             "output": pl.String,
+            "combine_method": pl.String,
             "lookup_chain_id": pl.String,
             "lookup_step_index": pl.Int64,
             "lookup_role": pl.String,
@@ -133,8 +149,8 @@ def _select_resolved_chain_results(results: pl.DataFrame) -> pl.DataFrame:
     if valid.is_empty():
         return valid
     return (
-        valid.sort(["_row_id", "output", "lookup_step_index"])
-        .group_by(["_row_id", "output"], maintain_order=True)
+        valid.sort(["_row_id", "output", "lookup_chain_id", "lookup_step_index"])
+        .group_by(["_row_id", "output", "lookup_chain_id"], maintain_order=True)
         .agg(pl.all().sort_by("lookup_step_index").first())
         .select(results.columns)
     )

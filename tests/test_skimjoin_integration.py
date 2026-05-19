@@ -495,6 +495,95 @@ def test_validate_config_rejects_duplicate_matrix_names_across_sources(tmp_path:
         validate_config(config_data, inventory, trips, tours=tours)
 
 
+def test_validate_config_allows_summed_output_overlap_but_rejects_replace_overlap(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    _write_omx_with_lookup(
+        skim_path,
+        matrix_name="WTW_ACC",
+        lookup_name="taz",
+        values=np.array([[1.0, 2.0], [3.0, 4.0]]),
+    )
+    handle = omx.open_file(str(skim_path), "a")
+    handle["WTW_EGR"] = np.array([[10.0, 20.0], [30.0, 40.0]])
+    handle.close()
+
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1],
+            "tour_id": [1001],
+            "trip_mode": ["WALK_TRANSIT"],
+            "OTAZ": [1],
+            "DTAZ": [2],
+            "outbound": [True],
+        }
+    )
+    tours = pl.DataFrame({"tour_id": [1001]})
+    inventory = inventory_skim_files([skim_path])
+
+    summed_config = {
+        "project": {"skim_files": [str(skim_path)]},
+        "activitysim": {
+            "trips_table": "ignored_trips.parquet",
+            "tours_table": "ignored_tours.parquet",
+            "mode_column": "trip_mode",
+            "tour_id_column": "tour_id",
+            "outbound_column": "outbound",
+        },
+        "defaults": {"origin": "OTAZ", "destination": "DTAZ"},
+        "modes": {
+            "WALK_TRANSIT": {
+                "walk_access": {
+                    "output": "skim_walk_time",
+                    "combine": "sum",
+                    "matrix": "WTW_ACC",
+                },
+                "walk_egress": {
+                    "output": "skim_walk_time",
+                    "combine": "sum",
+                    "matrix": "WTW_EGR",
+                },
+            }
+        },
+    }
+    artifacts = validate_config(
+        summed_config,
+        inventory,
+        trips,
+        tours=tours,
+        strict=True,
+    )
+    assert [rule.output for rule in artifacts.normalized.lookups] == [
+        "skim_walk_time",
+        "skim_walk_time",
+    ]
+
+    replace_config = {
+        **summed_config,
+        "modes": {
+            "WALK_TRANSIT": {
+                "walk_access": {
+                    "output": "skim_walk_time",
+                    "matrix": "WTW_ACC",
+                },
+                "walk_egress": {
+                    "output": "skim_walk_time",
+                    "matrix": "WTW_EGR",
+                },
+            }
+        },
+    }
+    with pytest.raises(ConfigValidationError, match="Output collision"):
+        validate_config(
+            replace_config,
+            inventory,
+            trips,
+            tours=tours,
+            strict=True,
+        )
+
+
 def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> None:
     run_dir = tmp_path / "run"
     _write_prepare_run_inputs(run_dir)
@@ -1059,6 +1148,60 @@ def test_annotate_trips_supports_multiple_outputs_in_one_pass(tmp_path: Path) ->
     ]
     assert missing["reason"].to_list() == ["missing_od"]
     assert missing["trip_id"].to_list() == [3]
+
+
+def test_annotate_trips_sums_multiple_rules_into_one_output(tmp_path: Path) -> None:
+    skim_path = tmp_path / "skims.omx"
+    handle = omx.open_file(str(skim_path), "w")
+    handle["WTW_ACC"] = np.array([[1.0, 2.0], [3.0, 4.0]])
+    handle["WTW_EGR"] = np.array([[10.0, 20.0], [30.0, 40.0]])
+    handle.create_mapping("taz", np.array([101, 102], dtype=np.uint32))
+    handle.close()
+
+    _write_skimjoin_config(
+        tmp_path,
+        skim_file=skim_path,
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  WALK_TRANSIT:",
+            "    walk_access:",
+            "      output: skim_walk_time",
+            "      combine: sum",
+            "      matrix: WTW_ACC",
+            "    walk_egress:",
+            "      output: skim_walk_time",
+            "      combine: sum",
+            "      matrix: WTW_EGR",
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1, 2],
+            "trip_mode": ["WALK_TRANSIT", "WALK_TRANSIT"],
+            "OTAZ": [101, 102],
+            "DTAZ": [102, 101],
+        }
+    )
+    inventory = inventory_skim_files(normalized.skim_files)
+
+    annotated, lookup_summary, missing = annotate_trips(
+        trips,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+    )
+
+    assert annotated["skim_walk_time"].to_list() == [22.0, 33.0]
+    assert lookup_summary.sort("matrix_name")["matrix_name"].to_list() == [
+        "WTW_ACC",
+        "WTW_EGR",
+    ]
+    assert missing.is_empty()
 
 
 def test_run_prepare_workflow_supports_keyed_csv_skims_in_integrated_runtime(
