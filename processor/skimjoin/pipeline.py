@@ -6,7 +6,7 @@ from activitysim_viz_logging import get_logger
 import polars as pl
 
 from processor.models import RunData, SkimjoinArtifacts
-from processor.skimjoin.annotate.tours import aggregate_tours_from_trips
+from processor.skimjoin.annotate.tours import annotate_tours
 from processor.skimjoin.annotate.trips import annotate_trips
 from processor.skimjoin.runtime_execution import _run_integrated_skimjoin
 from processor.skimjoin.runtime_reports import (
@@ -41,7 +41,7 @@ def apply_skimjoin(rd: RunData, config: Config) -> RunData:
             rd=rd,
             normalized=normalized,
             annotate_trips_fn=annotate_trips,
-            aggregate_tours_from_trips_fn=aggregate_tours_from_trips,
+            annotate_tours_fn=annotate_tours,
         )
     except Exception as exc:
         return _package_failed_skimjoin(rd, config, exc)

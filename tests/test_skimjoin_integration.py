@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import runtime.workflows as runtime_workflows
 from processor.models import RunData
 from processor.prepare.cache import load_prepared_run_cache, write_prepared_run_cache
+from processor.skimjoin.annotate.tours import annotate_tours
 from processor.skimjoin.annotate.trips import annotate_trips
 from processor.skimjoin.config.validation import ConfigValidationError, validate_config
 from processor.skimjoin.inventory import inventory_skim_files
@@ -342,10 +343,12 @@ def test_normalize_config_preserves_trip_lookups_and_adds_tour_lookup_metadata(
         "inbound",
         "inbound",
     ]
-    assert normalized.tour_lookups[0].origin == "tour_origin"
-    assert normalized.tour_lookups[0].destination == "primary_dest"
-    assert normalized.tour_lookups[2].origin == "primary_dest"
-    assert normalized.tour_lookups[2].destination == "tour_origin"
+    assert normalized.tour_lookups[0].origin == "origin"
+    assert normalized.tour_lookups[0].destination == "destination"
+    assert normalized.tour_lookups[2].origin == "origin"
+    assert normalized.tour_lookups[2].destination == "destination"
+    assert normalized.tour_lookups[0].when["__skimjoin_tour_direction"] == "outbound"
+    assert normalized.tour_lookups[2].when["__skimjoin_tour_direction"] == "inbound"
     assert normalized.tour_lookups[0].output == "skim_walk_time_outbound"
     assert normalized.tour_lookups[2].output == "skim_walk_time_inbound"
 
@@ -603,7 +606,8 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
 
     prepared = result.prepared_runs[0][1]
     assert prepared.trips["skim_time"].to_list() == [2.0]
-    assert prepared.tours["skim_time"].to_list() == [2.0]
+    assert prepared.tours["skim_time_outbound"].to_list() == [2.0]
+    assert prepared.tours["skim_time_inbound"].to_list() == [3.0]
     assert prepared.skimjoin_manifest["skimjoin_status"] == "applied"
     manifest = json.loads((prepared_root / "run-a" / "manifest.json").read_text())
     assert manifest["skimjoin_enabled"] is True
@@ -642,7 +646,21 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
     assert tour_stats.to_dicts() == [
         {
             "tour_mode": "SOV",
-            "component": "skim_time",
+            "component": "skim_time_inbound",
+            "n_total": 1.0,
+            "n_valid": 1.0,
+            "mean": 3.0,
+            "std": 0.0,
+            "min": 3.0,
+            "max": 3.0,
+            "median": 3.0,
+            "mode": 3.0,
+            "zero_share": 0.0,
+            "missing_share": 0.0,
+        },
+        {
+            "tour_mode": "SOV",
+            "component": "skim_time_outbound",
             "n_total": 1.0,
             "n_valid": 1.0,
             "mean": 2.0,
@@ -656,9 +674,9 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
         }
     ]
     assert trip_ecdf.height == 101
-    assert tour_ecdf.height == 101
+    assert tour_ecdf.height == 202
     assert trip_ecdf["value"].unique().to_list() == [2.0]
-    assert tour_ecdf["value"].unique().to_list() == [2.0]
+    assert sorted(tour_ecdf["value"].unique().to_list()) == [2.0, 3.0]
 
 
 def test_run_prepare_workflow_supports_file_specific_zone_lookup_overrides(
@@ -704,7 +722,8 @@ def test_run_prepare_workflow_supports_file_specific_zone_lookup_overrides(
     prepared = result.prepared_runs[0][1]
     assert prepared.skimjoin_manifest["skimjoin_status"] == "applied"
     assert prepared.trips["skim_fare"].to_list() == [7.5]
-    assert prepared.tours["skim_fare"].to_list() == [7.5]
+    assert prepared.tours["skim_fare_outbound"].to_list() == [7.5]
+    assert prepared.tours["skim_fare_inbound"].to_list() == [8.5]
 
 
 def test_apply_skimjoin_skips_missing_prepare_columns_gracefully(tmp_path: Path) -> None:
@@ -767,7 +786,8 @@ def test_run_prepare_workflow_handles_trips_without_canonical_trip_id(tmp_path: 
     prepared = result.prepared_runs[0][1]
     assert "trip_id" not in prepared.trips.columns
     assert prepared.trips["skim_time"].to_list() == [2.0]
-    assert prepared.tours["skim_time"].to_list() == [2.0]
+    assert prepared.tours["skim_time_outbound"].to_list() == [2.0]
+    assert prepared.tours["skim_time_inbound"].to_list() == [3.0]
     assert prepared.skimjoin_manifest["skimjoin_status"] == "applied"
 
 
@@ -1279,6 +1299,79 @@ def test_annotate_trips_sums_multiple_rules_into_one_output(tmp_path: Path) -> N
     assert missing.is_empty()
 
 
+def test_annotate_tours_produces_directional_outputs_and_reuses_segmentation(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    handle = omx.open_file(str(skim_path), "w")
+    handle["OUTBOUND_TIME"] = np.array([[1.0, 2.0], [3.0, 4.0]])
+    handle["INBOUND_TIME"] = np.array([[10.0, 20.0], [30.0, 40.0]])
+    handle.create_mapping("taz", np.array([101, 102], dtype=np.uint32))
+    handle.close()
+
+    config_path = tmp_path / "skimjoin.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "project:",
+                "  skim_files:",
+                f"    - {skim_path.name}",
+                "activitysim:",
+                "  mode_column: trip_mode",
+                "  tour_mode_column: tour_mode",
+                "  tour_id_column: tour_id",
+                "  outbound_column: outbound",
+                "  tour_origin_column: origin",
+                "  tour_destination_column: destination",
+                "defaults:",
+                "  origin: OTAZ",
+                "  destination: DTAZ",
+                "zone_mapping:",
+                "  lookup_name: taz",
+                "modes:",
+                "  TEST_TRANSIT:",
+                "    segment_on: outbound",
+                "    segments:",
+                "      true:",
+                "        time:",
+                "          matrix: OUTBOUND_TIME",
+                "      false:",
+                "        time:",
+                "          matrix: INBOUND_TIME",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+    inventory = inventory_skim_files(normalized.skim_files)
+
+    tours = pl.DataFrame(
+        {
+            "tour_id": [1],
+            "tour_mode": ["TEST_TRANSIT"],
+            "origin": [101],
+            "destination": [102],
+        }
+    )
+
+    annotated, lookup_summary, missing = annotate_tours(
+        tours,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+    )
+
+    assert annotated["skim_time_outbound"].to_list() == [2.0]
+    assert annotated["skim_time_inbound"].to_list() == [30.0]
+    assert lookup_summary.sort("output")["output"].to_list() == [
+        "skim_time_inbound",
+        "skim_time_outbound",
+    ]
+    assert missing.is_empty()
+
+
 def test_run_prepare_workflow_supports_keyed_csv_skims_in_integrated_runtime(
     tmp_path: Path,
 ) -> None:
@@ -1319,7 +1412,8 @@ def test_run_prepare_workflow_supports_keyed_csv_skims_in_integrated_runtime(
     prepared = result.prepared_runs[0][1]
     assert prepared.skimjoin_manifest["skimjoin_status"] == "applied"
     assert prepared.trips["skim_transit_maz_stop_walk"].to_list() == [0.25]
-    assert prepared.tours["skim_transit_maz_stop_walk"].to_list() == [0.25]
+    assert prepared.tours["skim_transit_maz_stop_walk_outbound"].to_list() == [0.25]
+    assert prepared.tours["skim_transit_maz_stop_walk_inbound"].to_list() == [0.75]
 
 
 def test_run_prepare_workflow_records_fallback_manifest_and_report(
@@ -1339,6 +1433,7 @@ def test_run_prepare_workflow_records_fallback_manifest_and_report(
             "modes:",
             "  SOV:",
             "    time:",
+            "      apply_to: trips",
             "      output: skim_time",
             "      lookup: key",
             "      key_column: o_maz",
@@ -1428,7 +1523,8 @@ def test_run_prepare_workflow_supports_csv_od_skims_in_integrated_runtime(
     prepared = result.prepared_runs[0][1]
     assert prepared.skimjoin_manifest["skimjoin_status"] == "applied"
     assert prepared.trips["skim_walk_maz_distance"].to_list() == [0.5]
-    assert prepared.tours["skim_walk_maz_distance"].to_list() == [0.5]
+    assert prepared.tours["skim_walk_maz_distance_outbound"].to_list() == [0.5]
+    assert prepared.tours["skim_walk_maz_distance_inbound"].to_list() == [0.75]
 
 
 def test_annotate_trips_nullifies_configured_omx_sentinel_values(tmp_path: Path) -> None:
@@ -1650,7 +1746,7 @@ def test_apply_skimjoin_disabled_resets_manifest_and_reports(tmp_path: Path) -> 
     assert result.skimjoin_artifacts.reports == result.skimjoin_reports
 
 
-def test_apply_skimjoin_records_failure_and_keeps_base_tables_when_tour_aggregation_raises(
+def test_apply_skimjoin_records_failure_and_keeps_base_tables_when_tour_annotation_raises(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1663,16 +1759,16 @@ def test_apply_skimjoin_records_failure_and_keeps_base_tables_when_tour_aggregat
     original_tours = prepared.tours.clone()
 
     def _boom(*args, **kwargs):
-        raise RuntimeError("tour aggregation exploded")
+        raise RuntimeError("tour annotation exploded")
 
-    monkeypatch.setattr("processor.skimjoin.pipeline.aggregate_tours_from_trips", _boom)
+    monkeypatch.setattr("processor.skimjoin.pipeline.annotate_tours", _boom)
 
     result = apply_skimjoin(prepared, config)
 
     assert result.trips.to_dicts() == original_trips.to_dicts()
     assert result.tours.to_dicts() == original_tours.to_dicts()
     assert result.skimjoin_manifest["skimjoin_status"] == "failed"
-    assert "tour aggregation exploded" in str(
+    assert "tour annotation exploded" in str(
         result.skimjoin_manifest["skimjoin_failure_detail"]
     )
     assert result.skimjoin_reports["failure_report"]["error_type"].to_list() == [

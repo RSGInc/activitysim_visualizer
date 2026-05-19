@@ -12,7 +12,7 @@ from processor.skimjoin.activitysim_scan import (
     scan_activitysim_tables,
     summarize_table_columns,
 )
-from processor.skimjoin.annotate.tours import aggregate_tours_from_trips
+from processor.skimjoin.annotate.tours import annotate_tours
 from processor.skimjoin.annotate.trips import annotate_trips
 from processor.skimjoin.config.io import load_config_file
 from processor.skimjoin.config.normalize import normalize_config
@@ -50,9 +50,8 @@ def build_parser() -> argparse.ArgumentParser:
     annotate_parser.add_argument("--out")
     annotate_parser.add_argument("--preview", action="store_true")
 
-    aggregate_parser = subparsers.add_parser("aggregate-tours")
+    aggregate_parser = subparsers.add_parser("annotate-tours")
     aggregate_parser.add_argument("--config", required=True)
-    aggregate_parser.add_argument("--trips")
     aggregate_parser.add_argument("--out")
     aggregate_parser.add_argument("--preview", action="store_true")
 
@@ -133,28 +132,25 @@ def main(argv: list[str] | None = None) -> int:
             _write_table_preview(qa_dir / "annotated_trips_columns.csv", annotated, table_name="annotated_trips")
         return 0
 
-    if args.command == "aggregate-tours":
+    if args.command == "annotate-tours":
         out_path = _resolve_output_path(
             parser,
             args.out,
             default_output_dir,
             "tours_with_skims.parquet",
-            "aggregate-tours",
+            "annotate-tours",
         )
-        trips_path = _resolve_existing_input_path(
-            parser,
-            args.trips,
-            default_output_dir / "trips_with_skims.parquet" if default_output_dir is not None else None,
-            "aggregate-tours",
-            "trips",
-        )
-        trips = load_table(trips_path)
         tours = load_table(artifacts.config.activitysim.tours_table)
-        aggregated, summary = aggregate_tours_from_trips(trips, tours, artifacts.normalized)
-        _write_dataframe(out_path, aggregated)
+        annotated_tours, summary, missing = annotate_tours(
+            tours,
+            artifacts.normalized,
+            artifacts.inventory,
+        )
+        _write_dataframe(out_path, annotated_tours)
         write_table(out_path.parent / "tour_aggregation_summary.csv", summary)
+        write_table(out_path.parent / "missing_lookup_report.csv", missing)
         if args.preview:
-            _write_table_preview(out_path.parent / "aggregated_tours_columns.csv", aggregated, table_name="aggregated_tours")
+            _write_table_preview(out_path.parent / "annotated_tours_columns.csv", annotated_tours, table_name="annotated_tours")
         return 0
 
     if args.command == "run":
@@ -176,16 +172,21 @@ def main(argv: list[str] | None = None) -> int:
         tours = load_table(artifacts.config.activitysim.tours_table)
         annotated, lookup_summary, missing = annotate_trips(trips, artifacts.normalized, artifacts.inventory)
         _write_dataframe(out_trips, annotated)
-        aggregated, summary = aggregate_tours_from_trips(annotated, tours, artifacts.normalized)
-        _write_dataframe(out_tours, aggregated)
+        annotated_tours, tour_summary, tour_missing = annotate_tours(
+            tours,
+            artifacts.normalized,
+            artifacts.inventory,
+        )
+        _write_dataframe(out_tours, annotated_tours)
         qa_dir = out_trips.parent
         _write_validation_artifacts(artifacts, qa_dir)
         write_table(qa_dir / "skim_lookup_summary.csv", lookup_summary)
         write_table(qa_dir / "missing_lookup_report.csv", missing)
-        write_table(qa_dir / "tour_aggregation_summary.csv", summary)
+        write_table(qa_dir / "tour_aggregation_summary.csv", tour_summary)
+        write_table(qa_dir / "tour_missing_lookup_report.csv", tour_missing)
         if args.preview:
             _write_table_preview(qa_dir / "annotated_trips_columns.csv", annotated, table_name="annotated_trips")
-            _write_table_preview(qa_dir / "aggregated_tours_columns.csv", aggregated, table_name="aggregated_tours")
+            _write_table_preview(qa_dir / "annotated_tours_columns.csv", annotated_tours, table_name="annotated_tours")
         return 0
 
     return 0

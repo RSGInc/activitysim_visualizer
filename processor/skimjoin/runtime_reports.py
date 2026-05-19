@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import re
+
 import polars as pl
+
+
+_DIRECTION_SUFFIX_RE = re.compile(r"\.(outbound|inbound)$")
+_FALLBACK_SUFFIX_RE = re.compile(r"\.fallback_\d+$")
 
 
 def _skimjoin_manifest(
@@ -141,7 +147,13 @@ def _skipped_rule_report(missing: pl.DataFrame) -> pl.DataFrame:
         return _empty_skipped_rule_report()
 
     return (
-        skip_rows.group_by(["rule_name", "reason"])
+        skip_rows.with_columns(
+            pl.col("rule_name")
+            .cast(pl.Utf8)
+            .map_elements(_canonical_rule_name, return_dtype=pl.String)
+            .alias("rule_name")
+        )
+        .group_by(["rule_name", "reason"])
         .agg(n_rows=pl.len())
         .with_columns(
             pl.col("rule_name").cast(pl.String),
@@ -150,3 +162,11 @@ def _skipped_rule_report(missing: pl.DataFrame) -> pl.DataFrame:
         )
         .sort(["rule_name", "reason"])
     )
+
+
+def _canonical_rule_name(rule_name: str | None) -> str | None:
+    if rule_name is None:
+        return None
+    canonical = _DIRECTION_SUFFIX_RE.sub("", rule_name)
+    canonical = _FALLBACK_SUFFIX_RE.sub("", canonical)
+    return canonical

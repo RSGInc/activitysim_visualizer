@@ -14,6 +14,7 @@ from processor.skimjoin.config.schema import (
 
 
 PLACEHOLDER_RE = re.compile(r"{([A-Za-z_][A-Za-z0-9_]*)}")
+TOUR_DIRECTION_COLUMN = "__skimjoin_tour_direction"
 RESERVED_KEYS = {
     "output_prefix",
     "origin",
@@ -363,6 +364,9 @@ def _build_lookup_rule(
     matrix = str(component_block["matrix"])
     dimensions_used = extract_placeholders(matrix)
     output = str(output_override or component_block.get("output") or f"{context['output_prefix']}{component_name}")
+    when = dict(context["when"])
+    if target_table == "tours" and direction is not None:
+        when = _merge_when(when, {TOUR_DIRECTION_COLUMN: direction})
     origin, destination = _resolve_lookup_columns(
         component_block=component_block,
         context=context,
@@ -386,7 +390,7 @@ def _build_lookup_rule(
         ),
         origin=origin,
         destination=destination,
-        when=context["when"],
+        when=when,
         dimensions_used=dimensions_used,
         dimensions=context["dimensions"],
         missing_matrix_policy=str(component_block.get("missing_matrix_policy", context["missing_matrix_policy"])),
@@ -409,18 +413,7 @@ def _resolve_lookup_columns(
     target_table: str,
     direction: str | None,
 ) -> tuple[str, str]:
-    if target_table != "tours":
-        return (
-            str(component_block.get("origin", context["origin"])),
-            str(component_block.get("destination", context["destination"])),
-        )
-
-    outbound_origin = str(
-        component_block.get("tour_origin", activitysim.tour_origin_column)
+    return (
+        str(component_block.get("origin", context["origin"])),
+        str(component_block.get("destination", context["destination"])),
     )
-    outbound_destination = str(
-        component_block.get("tour_destination", activitysim.tour_destination_column)
-    )
-    if direction == "inbound":
-        return outbound_destination, outbound_origin
-    return outbound_origin, outbound_destination

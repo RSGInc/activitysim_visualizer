@@ -8,7 +8,7 @@ from typing import Callable
 import polars as pl
 
 from processor.models import RunData
-from processor.skimjoin.annotate.tours import aggregate_tours_from_trips
+from processor.skimjoin.annotate.tours import annotate_tours
 from processor.skimjoin.annotate.trips import annotate_trips
 from processor.skimjoin.inventory import inventory_skim_files
 from processor.skimjoin.runtime_types import _RuntimeSkimjoinResult
@@ -60,7 +60,7 @@ def _run_integrated_skimjoin(
     rd: RunData,
     normalized: object,
     annotate_trips_fn: Callable[..., tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]] = annotate_trips,
-    aggregate_tours_from_trips_fn: Callable[..., tuple[pl.DataFrame, pl.DataFrame]] = aggregate_tours_from_trips,
+    annotate_tours_fn: Callable[..., tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]] = annotate_tours,
 ) -> _RuntimeSkimjoinResult:
     inventory = _resolved_runtime_inventory(normalized)
     trip_outputs = annotate_trips_fn(
@@ -71,16 +71,28 @@ def _run_integrated_skimjoin(
         include_fallback_report=True,
     )
     annotated_trips, lookup_summary, missing_lookup_report, fallback_lookup_report = trip_outputs
-    enriched_tours, tour_aggregation_summary = aggregate_tours_from_trips_fn(
-        annotated_trips,
+    tour_outputs = annotate_tours_fn(
         rd.tours,
         normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+        include_fallback_report=True,
     )
+    enriched_tours, tour_lookup_summary, tour_missing_lookup_report, tour_fallback_lookup_report = tour_outputs
     return _RuntimeSkimjoinResult(
         annotated_trips=annotated_trips,
         enriched_tours=enriched_tours,
-        lookup_summary=lookup_summary,
-        missing_lookup_report=missing_lookup_report,
-        fallback_lookup_report=fallback_lookup_report,
-        tour_aggregation_summary=tour_aggregation_summary,
+        lookup_summary=pl.concat(
+            [lookup_summary, tour_lookup_summary],
+            how="vertical_relaxed",
+        ),
+        missing_lookup_report=pl.concat(
+            [missing_lookup_report, tour_missing_lookup_report],
+            how="vertical_relaxed",
+        ),
+        fallback_lookup_report=pl.concat(
+            [fallback_lookup_report, tour_fallback_lookup_report],
+            how="vertical_relaxed",
+        ),
+        tour_aggregation_summary=tour_lookup_summary,
     )
