@@ -522,7 +522,14 @@ def test_validate_config_allows_summed_output_overlap_but_rejects_replace_overla
             "outbound": [True],
         }
     )
-    tours = pl.DataFrame({"tour_id": [1001]})
+    tours = pl.DataFrame(
+        {
+            "tour_id": [1001],
+            "tour_mode": ["WALK_TRANSIT"],
+            "origin": [1],
+            "destination": [2],
+        }
+    )
     inventory = inventory_skim_files([skim_path])
 
     summed_config = {
@@ -531,8 +538,11 @@ def test_validate_config_allows_summed_output_overlap_but_rejects_replace_overla
             "trips_table": "ignored_trips.parquet",
             "tours_table": "ignored_tours.parquet",
             "mode_column": "trip_mode",
+            "tour_mode_column": "tour_mode",
             "tour_id_column": "tour_id",
             "outbound_column": "outbound",
+            "tour_origin_column": "origin",
+            "tour_destination_column": "destination",
         },
         "defaults": {"origin": "OTAZ", "destination": "DTAZ"},
         "modes": {
@@ -580,6 +590,191 @@ def test_validate_config_allows_summed_output_overlap_but_rejects_replace_overla
     with pytest.raises(ConfigValidationError, match="Output collision"):
         validate_config(
             replace_config,
+            inventory,
+            trips,
+            tours=tours,
+            strict=True,
+        )
+
+
+def test_validate_config_allows_missing_trip_maz_column_when_fallback_is_usable(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    csv_path = tmp_path / "maz_stop_walk.csv"
+    _write_omx(skim_path, matrix_name="SOV_TIME")
+    _write_csv_skim(csv_path)
+    inventory = inventory_skim_files([skim_path, csv_path])
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1],
+            "tour_id": [1001],
+            "trip_mode": ["SOV"],
+            "OTAZ": [1],
+            "DTAZ": [2],
+            "outbound": [True],
+        }
+    )
+    tours = pl.DataFrame(
+        {
+            "tour_id": [1001],
+            "tour_mode": ["SOV"],
+            "origin": [1],
+            "destination": [2],
+        }
+    )
+    config_data = {
+        "project": {"skim_files": [str(skim_path), str(csv_path)]},
+        "activitysim": {
+            "trips_table": "ignored_trips.parquet",
+            "mode_column": "trip_mode",
+            "tour_mode_column": "tour_mode",
+            "tour_id_column": "tour_id",
+            "outbound_column": "outbound",
+        },
+        "defaults": {"origin": "OTAZ", "destination": "DTAZ"},
+        "modes": {
+            "SOV": {
+                "time": {
+                    "lookup": "key",
+                    "key_column": "o_maz",
+                    "matrix": "maz_stop_walk__walk_dist_local_bus",
+                    "fallbacks": [{"matrix": "SOV_TIME"}],
+                    "apply_to": "trips",
+                }
+            }
+        },
+    }
+
+    artifacts = validate_config(
+        config_data,
+        inventory,
+        trips,
+        tours=tours,
+        strict=True,
+    )
+
+    assert artifacts.normalized.failures == []
+
+
+def test_validate_config_allows_missing_tour_maz_column_when_fallback_is_usable(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    csv_path = tmp_path / "maz_stop_walk.csv"
+    _write_omx(skim_path, matrix_name="SOV_TIME")
+    _write_csv_skim(csv_path)
+    inventory = inventory_skim_files([skim_path, csv_path])
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1],
+            "tour_id": [1001],
+            "trip_mode": ["SOV"],
+            "OTAZ": [1],
+            "DTAZ": [2],
+            "outbound": [True],
+        }
+    )
+    tours = pl.DataFrame(
+        {
+            "tour_id": [1001],
+            "tour_mode": ["SOV"],
+            "origin": [1],
+            "destination": [2],
+        }
+    )
+    config_data = {
+        "project": {"skim_files": [str(skim_path), str(csv_path)]},
+        "activitysim": {
+            "trips_table": "ignored_trips.parquet",
+            "mode_column": "trip_mode",
+            "tour_mode_column": "tour_mode",
+            "tour_id_column": "tour_id",
+            "outbound_column": "outbound",
+            "tour_origin_column": "origin",
+            "tour_destination_column": "destination",
+        },
+        "defaults": {"origin": "OTAZ", "destination": "DTAZ"},
+        "modes": {
+            "SOV": {
+                "time": {
+                    "lookup": "key",
+                    "key_column": "origin_parking_zone",
+                    "matrix": "maz_stop_walk__walk_dist_local_bus",
+                    "fallbacks": [{"matrix": "SOV_TIME"}],
+                    "apply_to": "tours",
+                }
+            }
+        },
+    }
+
+    artifacts = validate_config(
+        config_data,
+        inventory,
+        trips,
+        tours=tours,
+        strict=True,
+    )
+
+    assert artifacts.normalized.failures == []
+
+
+def test_validate_config_rejects_tour_lookup_when_no_usable_step_remains(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    csv_path = tmp_path / "maz_stop_walk.csv"
+    _write_omx(skim_path, matrix_name="SOV_TIME")
+    _write_csv_skim(csv_path)
+    inventory = inventory_skim_files([skim_path, csv_path])
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1],
+            "tour_id": [1001],
+            "trip_mode": ["SOV"],
+            "OTAZ": [101],
+            "DTAZ": [102],
+            "outbound": [True],
+        }
+    )
+    tours = pl.DataFrame(
+        {
+            "tour_id": [1001],
+            "tour_mode": ["SOV"],
+            "origin": [101],
+            "destination": [102],
+        }
+    )
+    config_data = {
+        "project": {"skim_files": [str(skim_path), str(csv_path)]},
+        "activitysim": {
+            "trips_table": "ignored_trips.parquet",
+            "mode_column": "trip_mode",
+            "tour_mode_column": "tour_mode",
+            "tour_id_column": "tour_id",
+            "outbound_column": "outbound",
+            "tour_origin_column": "origin",
+            "tour_destination_column": "destination",
+        },
+        "defaults": {"origin": "OTAZ", "destination": "DTAZ"},
+        "modes": {
+            "SOV": {
+                "time": {
+                    "lookup": "key",
+                    "key_column": "origin_parking_zone",
+                    "matrix": "maz_stop_walk__walk_dist_local_bus",
+                    "apply_to": "tours",
+                }
+            }
+        },
+    }
+
+    with pytest.raises(
+        ConfigValidationError,
+        match="no usable tours lookup step remains",
+    ):
+        validate_config(
+            config_data,
             inventory,
             trips,
             tours=tours,
@@ -1082,6 +1277,144 @@ def test_annotate_trips_can_return_fallback_lookup_report(tmp_path: Path) -> Non
     ]
 
 
+def test_annotate_trips_primary_lookup_success_does_not_emit_fallback_report(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    csv_path = tmp_path / "maz_stop_walk.csv"
+    _write_omx(skim_path, matrix_name="WALK_FALLBACK")
+    _write_csv_skim(csv_path)
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[skim_path, csv_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  WALK_TRANSIT:",
+            "    maz_stop_walk:",
+            "      output: skim_transit_maz_stop_walk",
+            "      lookup: key",
+            "      key_column: o_maz",
+            "      matrix: maz_stop_walk__walk_dist_local_bus",
+            "      fallbacks:",
+            "        - matrix: WALK_FALLBACK",
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1],
+            "trip_mode": ["WALK_TRANSIT"],
+            "o_maz": [101],
+            "OTAZ": [101],
+            "DTAZ": [102],
+        }
+    )
+    inventory = inventory_skim_files(normalized.skim_files)
+
+    annotated, lookup_summary, missing, fallback_report = annotate_trips(
+        trips,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+        include_fallback_report=True,
+    )
+
+    assert annotated["skim_transit_maz_stop_walk"].to_list() == [0.25]
+    assert lookup_summary.height == 1
+    assert missing.is_empty()
+    assert fallback_report.is_empty()
+
+
+def test_annotate_trips_reports_missing_when_primary_and_fallback_both_fail(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    csv_path = tmp_path / "maz_stop_walk.csv"
+    _write_omx(skim_path, matrix_name="WALK_FALLBACK")
+    _write_csv_skim(
+        csv_path,
+        rows=[
+            {
+                "maz": 101,
+                "walk_dist_local_bus": 0.25,
+                "walk_dist_premium_transit": 0.5,
+            }
+        ],
+    )
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[skim_path, csv_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  WALK_TRANSIT:",
+            "    maz_stop_walk:",
+            "      output: skim_transit_maz_stop_walk",
+            "      lookup: key",
+            "      key_column: o_maz",
+            "      matrix: maz_stop_walk__walk_dist_local_bus",
+            "      fallbacks:",
+            "        - matrix: WALK_FALLBACK",
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1],
+            "trip_mode": ["WALK_TRANSIT"],
+            "o_maz": [999],
+            "OTAZ": [999],
+            "DTAZ": [999],
+        }
+    )
+    inventory = inventory_skim_files(normalized.skim_files)
+
+    annotated, lookup_summary, missing, fallback_report = annotate_trips(
+        trips,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+        include_fallback_report=True,
+    )
+
+    assert "skim_transit_maz_stop_walk" not in annotated.columns
+    assert lookup_summary.sort("matrix_name")["n_missing"].to_list() == [1, 1]
+    assert missing.to_dicts() == [
+        {
+            "rule_name": "WALK_TRANSIT.maz_stop_walk.fallback_1",
+            "trip_id": 1,
+            "origin": 999,
+            "destination": 999,
+            "matrix_name": "WALK_FALLBACK",
+            "reason": "missing_od",
+        }
+    ]
+    assert fallback_report.to_dicts() == [
+        {
+            "table_name": "trips",
+            "rule_name": "WALK_TRANSIT.maz_stop_walk.fallback_1",
+            "output": "skim_transit_maz_stop_walk",
+            "logical_id": 1,
+            "direction": None,
+            "primary_matrix_name": "maz_stop_walk__walk_dist_local_bus",
+            "fallback_matrix_name": "WALK_FALLBACK",
+            "fallback_step_index": 1,
+            "fallback_reason": "missing_od",
+            "fallback_eligible": True,
+            "fallback_attempted": True,
+            "fallback_succeeded": False,
+            "fallback_exhausted": True,
+        }
+    ]
+
+
 def test_annotate_trips_supports_csv_od_lookup(tmp_path: Path) -> None:
     csv_path = tmp_path / "maz_maz_walk.csv"
     _write_csv_od_skim(csv_path)
@@ -1365,6 +1698,73 @@ def test_annotate_tours_produces_directional_outputs_and_reuses_segmentation(
 
     assert annotated["skim_time_outbound"].to_list() == [2.0]
     assert annotated["skim_time_inbound"].to_list() == [30.0]
+    assert lookup_summary.sort("output")["output"].to_list() == [
+        "skim_time_inbound",
+        "skim_time_outbound",
+    ]
+    assert missing.is_empty()
+
+
+def test_annotate_tours_runs_without_any_trip_inputs_or_trip_skim_columns(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    handle = omx.open_file(str(skim_path), "w")
+    handle["SOV_TIME"] = np.array([[1.0, 2.0], [3.0, 4.0]])
+    handle.create_mapping("taz", np.array([101, 102], dtype=np.uint32))
+    handle.close()
+
+    config_path = tmp_path / "skimjoin.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "project:",
+                "  skim_files:",
+                f"    - {skim_path.name}",
+                "activitysim:",
+                "  mode_column: trip_mode",
+                "  tour_mode_column: tour_mode",
+                "  tour_id_column: tour_id",
+                "  outbound_column: outbound",
+                "  tour_origin_column: origin",
+                "  tour_destination_column: destination",
+                "defaults:",
+                "  origin: OTAZ",
+                "  destination: DTAZ",
+                "zone_mapping:",
+                "  lookup_name: taz",
+                "modes:",
+                "  SOV:",
+                "    time:",
+                "      matrix: SOV_TIME",
+                "      apply_to: tours",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+    inventory = inventory_skim_files(normalized.skim_files)
+
+    tours = pl.DataFrame(
+        {
+            "tour_id": [1],
+            "tour_mode": ["SOV"],
+            "origin": [101],
+            "destination": [102],
+        }
+    )
+
+    annotated, lookup_summary, missing = annotate_tours(
+        tours,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+    )
+
+    assert annotated["skim_time_outbound"].to_list() == [2.0]
+    assert annotated["skim_time_inbound"].to_list() == [3.0]
     assert lookup_summary.sort("output")["output"].to_list() == [
         "skim_time_inbound",
         "skim_time_outbound",
