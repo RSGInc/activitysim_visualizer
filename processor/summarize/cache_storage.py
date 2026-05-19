@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import json
 from pathlib import Path
 
 import polars as pl
 
+from processor.cache_infra import (
+    discover_manifest_cache_dirs,
+    empty_sentinel_frame,
+    is_empty_sentinel_frame,
+    read_manifest,
+    validate_schema_version,
+    write_manifest,
+)
 from processor.summarize.cache_types import (
     SummaryCacheError,
     SummaryRun,
@@ -51,7 +58,7 @@ def _summary_storage_state(
 
 
 def _sentinel_summary_frame() -> pl.DataFrame:
-    return pl.DataFrame({"__empty__": []})
+    return empty_sentinel_frame()
 
 
 def _build_mode_cache_payload(
@@ -193,23 +200,9 @@ def write_summary_run_cache(
         prepared_manifest_identity=prepared_manifest_identity,
         summary_filename_by_id=summary_filename_by_id,
     )
-    (run_dir / "manifest.json").write_text(
-        json.dumps(manifest, indent=2), encoding="utf-8"
-    )
+    write_manifest(run_dir, manifest)
     summary_run.manifest = manifest
     return run_dir
-
-
-def _read_manifest(cache_dir: Path) -> dict[str, object]:
-    manifest_path = cache_dir / "manifest.json"
-    if not manifest_path.exists():
-        raise SummaryCacheError(f"Missing manifest: {manifest_path}")
-    try:
-        return json.loads(manifest_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise SummaryCacheError(
-            f"Invalid manifest JSON in {manifest_path}: {exc}"
-        ) from exc
 
 
 def _validate_manifest_identity(
@@ -362,7 +355,7 @@ def _loaded_summary_table(
     state = manifest_summary_states.get(mode, {}).get(summary_id)
     if state is None:
         state = "empty" if summary_id in empty_summaries.get(mode, []) else "available"
-    if summary_id in empty_summaries.get(mode, []) and table.columns == ["__empty__"]:
+    if summary_id in empty_summaries.get(mode, []) and is_empty_sentinel_frame(table):
         table = _empty_summary_result(
             summary_id,
             summary_spec_by_id=summary_spec_by_id,
@@ -423,12 +416,13 @@ def load_summary_run_cache(
 ) -> SummaryRun:
     """Load and validate one run's summary cache directory."""
     cache_dir = Path(cache_dir)
-    manifest = _read_manifest(cache_dir)
-    schema_version = int(manifest.get("schema_version", 0))
-    if schema_version not in {SCHEMA_VERSION, 6, 5, 2}:
-        raise SummaryCacheError(
-            f"Unsupported cache schema_version {schema_version} in {cache_dir}"
-        )
+    manifest = read_manifest(cache_dir, error_cls=SummaryCacheError)
+    validate_schema_version(
+        cache_dir=cache_dir,
+        manifest=manifest,
+        supported_versions={SCHEMA_VERSION, 6, 5, 2},
+        error_factory=SummaryCacheError,
+    )
 
     _validate_manifest_identity(
         cache_dir=cache_dir,
@@ -481,15 +475,4 @@ def load_summary_run_cache(
 
 def discover_cache_dirs(root: str | Path) -> list[Path]:
     """Return child cache directories that contain a manifest."""
-    root = Path(root)
-    if not root.exists():
-        return []
-    return sorted(
-        [
-            child
-            for child in root.iterdir()
-            if child.is_dir() and (child / "manifest.json").exists()
-        ],
-        key=lambda path: path.name,
-    )
-
+    return discover_manifest_cache_dirs(root)

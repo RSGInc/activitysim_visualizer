@@ -4,11 +4,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import json
 from pathlib import Path
 
 import polars as pl
 
+from processor.cache_infra import (
+    discover_manifest_cache_dirs,
+    empty_sentinel_frame,
+    is_empty_sentinel_frame,
+    read_manifest,
+    validate_schema_version,
+    write_manifest,
+)
 from processor.cache_identity import (
     build_run_fingerprint,
     build_run_keys,
@@ -84,18 +91,6 @@ def _manifest_table_map(manifest: dict[str, object]) -> dict[str, str]:
     }
 
 
-def _read_manifest(cache_dir: Path) -> dict[str, object]:
-    manifest_path = cache_dir / "manifest.json"
-    if not manifest_path.exists():
-        raise PreparedCacheError(f"Missing manifest: {manifest_path}")
-    try:
-        return json.loads(manifest_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise PreparedCacheError(
-            f"Invalid manifest JSON in {manifest_path}: {exc}"
-        ) from exc
-
-
 def _write_skimjoin_outputs(cache_dir: Path, rd: RunData, config: Config) -> None:
     if not rd.skimjoin_manifest:
         return
@@ -158,7 +153,7 @@ def write_prepared_run_cache(
         if state is None:
             state = "empty" if table.width == 0 else "available"
         if state in {"empty", "unavailable", "failed"}:
-            tables_to_write[stem] = pl.DataFrame({"__empty__": []})
+            tables_to_write[stem] = empty_sentinel_frame()
         else:
             tables_to_write[stem] = table
 
@@ -221,9 +216,7 @@ def write_prepared_run_cache(
             "skimjoin_failure_detail"
         ),
     }
-    (cache_dir / "manifest.json").write_text(
-        json.dumps(manifest, indent=2), encoding="utf-8"
-    )
+    write_manifest(cache_dir, manifest)
     return PreparedRunCacheEntry(
         label=rd.label,
         run_key=run_key,
@@ -243,12 +236,18 @@ def load_prepared_run_cache(
 ) -> RunData:
     """Load and validate one prepared-run cache directory."""
     cache_dir = Path(cache_dir)
-    manifest = _read_manifest(cache_dir)
-    schema_version = int(manifest.get("schema_version", 0))
-    if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
-        raise PreparedCacheError(
-            f"Unsupported prepared cache schema_version {schema_version} in {cache_dir}"
-        )
+    manifest = read_manifest(cache_dir, error_cls=PreparedCacheError)
+    validate_schema_version(
+        cache_dir=cache_dir,
+        manifest=manifest,
+        supported_versions=SUPPORTED_SCHEMA_VERSIONS,
+        error_factory=lambda message: PreparedCacheError(
+            message.replace(
+                "Unsupported cache schema_version",
+                "Unsupported prepared cache schema_version",
+            )
+        ),
+    )
 
     if expected_label is not None and manifest.get("label") != expected_label:
         raise PreparedCacheError(
@@ -315,7 +314,7 @@ def load_prepared_run_cache(
             "empty",
             "unavailable",
             "failed",
-        } and table.columns == ["__empty__"]:
+        } and is_empty_sentinel_frame(table):
             table = pl.DataFrame()
         loaded_tables[attr_name] = table
 
@@ -358,14 +357,4 @@ def load_prepared_run_cache(
 
 def discover_cache_dirs(root: str | Path) -> list[Path]:
     """Return child prepared-cache directories that contain a manifest."""
-    root = Path(root)
-    if not root.exists():
-        return []
-    return sorted(
-        [
-            child
-            for child in root.iterdir()
-            if child.is_dir() and (child / "manifest.json").exists()
-        ],
-        key=lambda path: path.name,
-    )
+    return discover_manifest_cache_dirs(root)
