@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import runtime_workflows
+import runtime.workflows as runtime_workflows
 from processor.models import RunData
 from processor.prepare.cache import load_prepared_run_cache, write_prepared_run_cache
 from processor.skimjoin.annotate.trips import annotate_trips

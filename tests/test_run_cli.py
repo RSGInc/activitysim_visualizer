@@ -10,7 +10,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import run
-import runtime_workflows
+import runtime.workflows as runtime_workflows
 from dashboard import app as dashboard_app
 from dashboard.export.html import ExportBuildError
 from processor.models import RunData

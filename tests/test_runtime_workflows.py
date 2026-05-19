@@ -7,7 +7,7 @@ import polars as pl
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import runtime_workflows
+import runtime.workflows as runtime_workflows
 from processor.models import ProcessorWorkflowResult
 from processor.models import RunData
 from processor.prepare.availability import attach_table_availability

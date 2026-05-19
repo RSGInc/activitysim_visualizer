@@ -12,7 +12,7 @@ The codebase is organized around those jobs rather than around one monolithic ap
 
 | Area | Purpose | Key files |
 |---|---|---|
-| CLI and workflow orchestration | Parse step selections, choose cache-first vs rebuild flow, and hand off to prepare/summarize/dashboard workflows | `run.py`, `runtime_workflows.py` |
+| CLI and workflow orchestration | Parse step selections, choose cache-first vs rebuild flow, and hand off to prepare/summarize/dashboard workflows | `run.py`, `runtime/workflows/` |
 | Shared runtime contracts | Normalize YAML config and expose shared cross-cutting contracts used by both processor and dashboard | `runtime/config.py` |
 | Processor prepare step | Read raw ActivitySim outputs, materialize canonical prepared columns, and manage prepared-table cache I/O | `processor/models.py`, `processor/prepare/*` |
 | Summary generation and cache I/O | Register summary builders, compute weighted/unweighted tables, write/load cache manifests and CSVs | `processor/summarize/cache.py`, `processor/summarize/schema.py`, `processor/summarize/summaries/*.py` |
@@ -23,8 +23,8 @@ The codebase is organized around those jobs rather than around one monolithic ap
 
 ```text
 run.py
-  -> runtime_workflows.load_runtime_config()
-  -> runtime_workflows.resolve_run_entries()
+  -> runtime.workflows.load_runtime_config()
+  -> runtime.workflows.resolve_run_entries()
   -> zero or more explicit steps:
        A. run_prepare_workflow()
           -> processor.prepare.cache.load_prepared_run_cache()
@@ -102,7 +102,8 @@ That means live refresh behavior and export behavior both derive from the same s
 ```text
 activitysim_visualizer/
 |-- run.py
-|-- runtime_workflows.py
+|-- runtime/
+|   |-- workflows/
 |-- config.yaml
 |-- runtime/
 |   `-- config.py
