@@ -13,6 +13,8 @@ def _skimjoin_manifest(
     applied_outputs: list[str] | None = None,
     skipped_rules: list[dict[str, object]] | None = None,
     warning_count: int = 0,
+    fallback_count: int = 0,
+    fallback_outputs: list[str] | None = None,
     failure_detail: str | None = None,
 ) -> dict[str, object]:
     return {
@@ -22,6 +24,8 @@ def _skimjoin_manifest(
         "skimjoin_applied_outputs": list(applied_outputs or []),
         "skimjoin_skipped_rules": list(skipped_rules or []),
         "skimjoin_warning_count": int(warning_count),
+        "skimjoin_fallback_count": int(fallback_count),
+        "skimjoin_fallback_outputs": list(fallback_outputs or []),
         "skimjoin_failure_detail": failure_detail,
     }
 
@@ -64,6 +68,26 @@ def _empty_skipped_rule_report() -> pl.DataFrame:
             "rule_name": pl.String,
             "reason": pl.String,
             "n_rows": pl.Int64,
+        }
+    )
+
+
+def _empty_fallback_lookup_report() -> pl.DataFrame:
+    return pl.DataFrame(
+        schema={
+            "table_name": pl.String,
+            "rule_name": pl.String,
+            "output": pl.String,
+            "logical_id": pl.Int64,
+            "direction": pl.String,
+            "primary_matrix_name": pl.String,
+            "fallback_matrix_name": pl.String,
+            "fallback_step_index": pl.Int64,
+            "fallback_reason": pl.String,
+            "fallback_eligible": pl.Boolean,
+            "fallback_attempted": pl.Boolean,
+            "fallback_succeeded": pl.Boolean,
+            "fallback_exhausted": pl.Boolean,
         }
     )
 

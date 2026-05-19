@@ -11,6 +11,7 @@ from processor.skimjoin.annotate.trips import annotate_trips
 from processor.skimjoin.runtime_execution import _run_integrated_skimjoin
 from processor.skimjoin.runtime_reports import (
     _empty_failure_report,
+    _empty_fallback_lookup_report,
     _empty_lookup_summary,
     _empty_missing_lookup_report,
     _empty_skipped_rule_report,
@@ -69,11 +70,14 @@ def _package_failed_skimjoin(rd: RunData, config: Config, exc: Exception) -> Run
         enabled=True,
         status="failed",
         config_digest=config.skimjoin.config_digest,
+        fallback_count=0,
+        fallback_outputs=[],
         failure_detail=failure_detail,
     )
     reports = {
         "skim_lookup_summary": _empty_lookup_summary(),
         "missing_lookup_report": _empty_missing_lookup_report(),
+        "fallback_lookup_report": _empty_fallback_lookup_report(),
         "skipped_rule_report": _empty_skipped_rule_report(),
         "tour_aggregation_summary": _empty_tour_aggregation_summary(),
         "failure_report": _failure_report("integrated_skimjoin", exc),
@@ -98,6 +102,17 @@ def _package_applied_skimjoin(rd: RunData, config: Config, result: object) -> Ru
         result.annotated_trips,
         result.enriched_tours,
     )
+    fallback_outputs = (
+        sorted(
+            set(
+                result.fallback_lookup_report.filter(pl.col("fallback_succeeded"))[
+                    "output"
+                ].drop_nulls().to_list()
+            )
+        )
+        if not result.fallback_lookup_report.is_empty()
+        else []
+    )
     status = "applied" if applied_outputs else "no_outputs"
 
     rd.trips = result.annotated_trips
@@ -109,10 +124,13 @@ def _package_applied_skimjoin(rd: RunData, config: Config, result: object) -> Ru
         applied_outputs=applied_outputs,
         skipped_rules=skipped_rules.to_dicts(),
         warning_count=int(result.missing_lookup_report.height),
+        fallback_count=int(result.fallback_lookup_report.height),
+        fallback_outputs=fallback_outputs,
     )
     reports = {
         "skim_lookup_summary": result.lookup_summary,
         "missing_lookup_report": result.missing_lookup_report,
+        "fallback_lookup_report": result.fallback_lookup_report,
         "skipped_rule_report": skipped_rules,
         "tour_aggregation_summary": result.tour_aggregation_summary,
         "failure_report": _empty_failure_report(),

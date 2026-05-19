@@ -109,6 +109,7 @@ def _write_skimjoin_outputs(cache_dir: Path, rd: RunData, config: Config) -> Non
         report_filenames = {
             "skim_lookup_summary": "skim_lookup_summary.csv",
             "missing_lookup_report": "missing_lookup_report.csv",
+            "fallback_lookup_report": "fallback_lookup_report.csv",
             "skipped_rule_report": "skipped_rule_report.csv",
             "tour_aggregation_summary": "tour_aggregation_summary.csv",
             "failure_report": "failure_report.csv",
@@ -211,6 +212,12 @@ def write_prepared_run_cache(
         ),
         "skimjoin_warning_count": int(
             rd.skimjoin_manifest.get("skimjoin_warning_count", 0)
+        ),
+        "skimjoin_fallback_count": int(
+            rd.skimjoin_manifest.get("skimjoin_fallback_count", 0)
+        ),
+        "skimjoin_fallback_outputs": list(
+            rd.skimjoin_manifest.get("skimjoin_fallback_outputs", [])
         ),
         "skimjoin_failure_detail": rd.skimjoin_manifest.get(
             "skimjoin_failure_detail"
@@ -346,6 +353,12 @@ def load_prepared_run_cache(
                 ),
                 "skimjoin_warning_count": int(
                     manifest.get("skimjoin_warning_count", 0)
+                ),
+                "skimjoin_fallback_count": int(
+                    manifest.get("skimjoin_fallback_count", 0)
+                ),
+                "skimjoin_fallback_outputs": list(
+                    manifest.get("skimjoin_fallback_outputs", [])
                 ),
                 "skimjoin_failure_detail": manifest.get("skimjoin_failure_detail"),
             },

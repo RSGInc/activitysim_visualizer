@@ -987,6 +987,81 @@ def test_annotate_trips_uses_fallback_after_primary_sentinel_value(tmp_path: Pat
     assert missing.is_empty()
 
 
+def test_annotate_trips_can_return_fallback_lookup_report(tmp_path: Path) -> None:
+    skim_path = tmp_path / "skims.omx"
+    csv_path = tmp_path / "maz_stop_walk.csv"
+    _write_omx(skim_path, matrix_name="WALK_FALLBACK")
+    _write_csv_skim(
+        csv_path,
+        rows=[
+            {
+                "maz": 101,
+                "walk_dist_local_bus": 0.25,
+                "walk_dist_premium_transit": 0.5,
+            }
+        ],
+    )
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[skim_path, csv_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  WALK_TRANSIT:",
+            "    maz_stop_walk:",
+            "      output: skim_transit_maz_stop_walk",
+            "      lookup: key",
+            "      key_column: o_maz",
+            "      matrix: maz_stop_walk__walk_dist_local_bus",
+            "      fallbacks:",
+            "        - matrix: WALK_FALLBACK",
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1, 2],
+            "trip_mode": ["WALK_TRANSIT", "WALK_TRANSIT"],
+            "o_maz": [101, 999],
+            "OTAZ": [101, 101],
+            "DTAZ": [102, 102],
+        }
+    )
+    inventory = inventory_skim_files(normalized.skim_files)
+
+    annotated, lookup_summary, missing, fallback_report = annotate_trips(
+        trips,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+        include_fallback_report=True,
+    )
+
+    assert annotated["skim_transit_maz_stop_walk"].to_list() == [0.25, 2.0]
+    assert lookup_summary.height == 2
+    assert missing.is_empty()
+    assert fallback_report.to_dicts() == [
+        {
+            "table_name": "trips",
+            "rule_name": "WALK_TRANSIT.maz_stop_walk.fallback_1",
+            "output": "skim_transit_maz_stop_walk",
+            "logical_id": 2,
+            "direction": None,
+            "primary_matrix_name": "maz_stop_walk__walk_dist_local_bus",
+            "fallback_matrix_name": "WALK_FALLBACK",
+            "fallback_step_index": 1,
+            "fallback_reason": "missing_od",
+            "fallback_eligible": True,
+            "fallback_attempted": True,
+            "fallback_succeeded": True,
+            "fallback_exhausted": False,
+        }
+    ]
+
+
 def test_annotate_trips_supports_csv_od_lookup(tmp_path: Path) -> None:
     csv_path = tmp_path / "maz_maz_walk.csv"
     _write_csv_od_skim(csv_path)
@@ -1247,6 +1322,66 @@ def test_run_prepare_workflow_supports_keyed_csv_skims_in_integrated_runtime(
     assert prepared.tours["skim_transit_maz_stop_walk"].to_list() == [0.25]
 
 
+def test_run_prepare_workflow_records_fallback_manifest_and_report(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "run"
+    _write_prepare_run_inputs(run_dir)
+    skim_path = tmp_path / "skims.omx"
+    csv_path = tmp_path / "maz_stop_walk.csv"
+    _write_omx(skim_path, matrix_name="SOV_TIME")
+    _write_csv_skim(csv_path)
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[skim_path, csv_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  SOV:",
+            "    time:",
+            "      output: skim_time",
+            "      lookup: key",
+            "      key_column: o_maz",
+            "      matrix: maz_stop_walk__walk_dist_local_bus",
+            "      fallbacks:",
+            "        - matrix: SOV_TIME",
+        ],
+    )
+
+    config = _write_main_config(tmp_path, run_dir=run_dir, skimjoin_enabled=True)
+    prepared_root = runtime_workflows.prepared_cache_root(config, create=True)
+    result = runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=prepared_root,
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=True,
+    )
+
+    prepared = result.prepared_runs[0][1]
+    assert prepared.trips["skim_time"].to_list() == [2.0]
+    assert prepared.skimjoin_manifest["skimjoin_fallback_count"] == 1
+    assert prepared.skimjoin_manifest["skimjoin_fallback_outputs"] == ["skim_time"]
+    assert prepared.skimjoin_reports["fallback_lookup_report"].to_dicts() == [
+        {
+            "table_name": "trips",
+            "rule_name": "SOV.time.fallback_1",
+            "output": "skim_time",
+            "logical_id": 5001,
+            "direction": None,
+            "primary_matrix_name": None,
+            "fallback_matrix_name": "SOV_TIME",
+            "fallback_step_index": 1,
+            "fallback_reason": "missing_trip_column:o_maz",
+            "fallback_eligible": True,
+            "fallback_attempted": True,
+            "fallback_succeeded": True,
+            "fallback_exhausted": False,
+        }
+    ]
+    assert (prepared_root / "run-a" / "skimjoin" / "fallback_lookup_report.csv").exists()
+
+
 def test_run_prepare_workflow_supports_csv_od_skims_in_integrated_runtime(
     tmp_path: Path,
 ) -> None:
@@ -1467,13 +1602,17 @@ def test_apply_skimjoin_records_failure_and_keeps_base_tables_when_annotation_ra
     assert result.skimjoin_manifest["skimjoin_applied_outputs"] == []
     assert result.skimjoin_manifest["skimjoin_skipped_rules"] == []
     assert result.skimjoin_manifest["skimjoin_warning_count"] == 0
+    assert result.skimjoin_manifest["skimjoin_fallback_count"] == 0
+    assert result.skimjoin_manifest["skimjoin_fallback_outputs"] == []
     assert set(result.skimjoin_reports) == {
+        "fallback_lookup_report",
         "skim_lookup_summary",
         "missing_lookup_report",
         "skipped_rule_report",
         "tour_aggregation_summary",
         "failure_report",
     }
+    assert result.skimjoin_reports["fallback_lookup_report"].is_empty()
     assert result.skimjoin_reports["skim_lookup_summary"].is_empty()
     assert result.skimjoin_reports["missing_lookup_report"].is_empty()
     assert result.skimjoin_reports["skipped_rule_report"].is_empty()
@@ -1502,6 +1641,8 @@ def test_apply_skimjoin_disabled_resets_manifest_and_reports(tmp_path: Path) -> 
         "skimjoin_applied_outputs": [],
         "skimjoin_skipped_rules": [],
         "skimjoin_warning_count": 0,
+        "skimjoin_fallback_count": 0,
+        "skimjoin_fallback_outputs": [],
         "skimjoin_failure_detail": None,
     }
     assert result.skimjoin_reports == {}

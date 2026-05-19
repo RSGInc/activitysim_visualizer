@@ -63,12 +63,14 @@ def _run_integrated_skimjoin(
     aggregate_tours_from_trips_fn: Callable[..., tuple[pl.DataFrame, pl.DataFrame]] = aggregate_tours_from_trips,
 ) -> _RuntimeSkimjoinResult:
     inventory = _resolved_runtime_inventory(normalized)
-    annotated_trips, lookup_summary, missing_lookup_report = annotate_trips_fn(
+    trip_outputs = annotate_trips_fn(
         rd.trips,
         normalized,
         inventory,
         skim_store=OmxSkimStore(),
+        include_fallback_report=True,
     )
+    annotated_trips, lookup_summary, missing_lookup_report, fallback_lookup_report = trip_outputs
     enriched_tours, tour_aggregation_summary = aggregate_tours_from_trips_fn(
         annotated_trips,
         rd.tours,
@@ -79,5 +81,6 @@ def _run_integrated_skimjoin(
         enriched_tours=enriched_tours,
         lookup_summary=lookup_summary,
         missing_lookup_report=missing_lookup_report,
+        fallback_lookup_report=fallback_lookup_report,
         tour_aggregation_summary=tour_aggregation_summary,
     )

@@ -15,4 +15,5 @@ class _RuntimeSkimjoinResult:
     enriched_tours: pl.DataFrame
     lookup_summary: pl.DataFrame
     missing_lookup_report: pl.DataFrame
+    fallback_lookup_report: pl.DataFrame
     tour_aggregation_summary: pl.DataFrame
