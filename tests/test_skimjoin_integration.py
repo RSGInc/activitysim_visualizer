@@ -1088,6 +1088,8 @@ def test_apply_skimjoin_disabled_resets_manifest_and_reports(tmp_path: Path) -> 
         "skimjoin_failure_detail": None,
     }
     assert result.skimjoin_reports == {}
+    assert result.skimjoin_artifacts.manifest == result.skimjoin_manifest
+    assert result.skimjoin_artifacts.reports == result.skimjoin_reports
 
 
 def test_apply_skimjoin_records_failure_and_keeps_base_tables_when_tour_aggregation_raises(
@@ -1152,6 +1154,28 @@ def test_prepared_cache_round_trip_preserves_skimjoin_failure_detail(
 
     assert loaded.skimjoin_manifest["skimjoin_status"] == "failed"
     assert loaded.skimjoin_manifest["skimjoin_failure_detail"] == "ValueError: annotation exploded"
+
+
+def test_apply_skimjoin_updates_typed_artifacts_sidecar(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    _write_omx(skim_path)
+    _write_skimjoin_config(tmp_path, skim_file=skim_path)
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    prepared = _skimjoin_ready_run_data()
+
+    def _boom(*args, **kwargs):
+        raise ValueError("annotation exploded")
+
+    monkeypatch.setattr("processor.skimjoin.pipeline.annotate_trips", _boom)
+
+    result = apply_skimjoin(prepared, config)
+
+    assert result.skimjoin_artifacts.manifest == result.skimjoin_manifest
+    assert set(result.skimjoin_artifacts.reports) == set(result.skimjoin_reports)
+    assert result.skimjoin_artifacts.manifest["skimjoin_status"] == "failed"
 
 
 def _skimjoin_ready_run_data() -> RunData:

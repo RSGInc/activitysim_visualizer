@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-from processor.models import RunData
+from processor.models import RunData, TableAvailabilityMetadata
 
 TABLE_STATE_AVAILABLE = "available"
 TABLE_STATE_EMPTY = "empty"
@@ -38,14 +36,6 @@ _TABLE_AVAILABILITY_ATTR = "_table_availability"
 _TABLE_DIAGNOSTICS_ATTR = "_table_diagnostics"
 
 
-@dataclass(frozen=True)
-class TableAvailabilityMetadata:
-    """Explicit per-run availability metadata attached to ``RunData``."""
-
-    states: dict[str, str]
-    diagnostics: dict[str, str]
-
-
 def _coerce_mapping(values: dict[str, object] | None) -> dict[str, str]:
     return {str(key): str(value) for key, value in dict(values or {}).items()}
 
@@ -61,6 +51,15 @@ def _infer_table_states(rd: RunData) -> dict[str, str]:
 
 
 def _attached_metadata(rd: RunData) -> TableAvailabilityMetadata | None:
+    explicit = getattr(rd, "table_availability_metadata", None)
+    if isinstance(explicit, TableAvailabilityMetadata) and (
+        explicit.states or explicit.diagnostics
+    ):
+        return TableAvailabilityMetadata(
+            states=_coerce_mapping(explicit.states),
+            diagnostics=_coerce_mapping(explicit.diagnostics),
+        )
+
     states = getattr(rd, _TABLE_AVAILABILITY_ATTR, None)
     diagnostics = getattr(rd, _TABLE_DIAGNOSTICS_ATTR, None)
     if not isinstance(states, dict) and not isinstance(diagnostics, dict):
@@ -99,6 +98,7 @@ def attach_table_availability(
         states=_coerce_mapping(table_states),
         diagnostics=_coerce_mapping(table_reasons),
     )
+    rd.table_availability_metadata = metadata
     setattr(rd, _TABLE_AVAILABILITY_ATTR, metadata.states)
     setattr(rd, _TABLE_DIAGNOSTICS_ATTR, metadata.diagnostics)
     return rd

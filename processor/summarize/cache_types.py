@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 import polars as pl
 
-from processor.models import RunData
+from processor.models import RunData, SkimjoinArtifacts, TableAvailabilityMetadata
 
 SUPPORTED_WEIGHTING_MODES = ("weighted", "unweighted")
 
@@ -70,6 +70,14 @@ def strip_weights(rd: RunData) -> RunData:
         hh_weight_col=None,
         person_weight_col=None,
         trip_weight_col=None,
+        table_availability_metadata=TableAvailabilityMetadata(
+            states=dict(rd.table_availability_metadata.states),
+            diagnostics=dict(rd.table_availability_metadata.diagnostics),
+        ),
+        skimjoin_artifacts=SkimjoinArtifacts(
+            manifest=dict(rd.skimjoin_artifacts.manifest),
+            reports=dict(rd.skimjoin_artifacts.reports),
+        ),
         skimjoin_manifest=dict(rd.skimjoin_manifest),
         skimjoin_reports=dict(rd.skimjoin_reports),
     )

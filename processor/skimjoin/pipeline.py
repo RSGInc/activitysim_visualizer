@@ -5,7 +5,7 @@ from __future__ import annotations
 from activitysim_viz_logging import get_logger
 import polars as pl
 
-from processor.models import RunData
+from processor.models import RunData, SkimjoinArtifacts
 from processor.skimjoin.annotate.tours import aggregate_tours_from_trips
 from processor.skimjoin.annotate.trips import annotate_trips
 from processor.skimjoin.runtime_execution import _run_integrated_skimjoin
@@ -48,30 +48,42 @@ def apply_skimjoin(rd: RunData, config: Config) -> RunData:
 
 
 def _package_disabled_skimjoin(rd: RunData) -> RunData:
-    rd.skimjoin_manifest = _skimjoin_manifest(
+    manifest = _skimjoin_manifest(
         enabled=False,
         status="disabled",
         config_digest=None,
     )
-    rd.skimjoin_reports = {}
+    reports: dict[str, pl.DataFrame] = {}
+    rd.skimjoin_artifacts = SkimjoinArtifacts(
+        manifest=dict(manifest),
+        reports=dict(reports),
+    )
+    rd.skimjoin_manifest = dict(manifest)
+    rd.skimjoin_reports = dict(reports)
     return rd
 
 
 def _package_failed_skimjoin(rd: RunData, config: Config, exc: Exception) -> RunData:
     failure_detail = f"{type(exc).__name__}: {exc}"
-    rd.skimjoin_manifest = _skimjoin_manifest(
+    manifest = _skimjoin_manifest(
         enabled=True,
         status="failed",
         config_digest=config.skimjoin.config_digest,
         failure_detail=failure_detail,
     )
-    rd.skimjoin_reports = {
+    reports = {
         "skim_lookup_summary": _empty_lookup_summary(),
         "missing_lookup_report": _empty_missing_lookup_report(),
         "skipped_rule_report": _empty_skipped_rule_report(),
         "tour_aggregation_summary": _empty_tour_aggregation_summary(),
         "failure_report": _failure_report("integrated_skimjoin", exc),
     }
+    rd.skimjoin_artifacts = SkimjoinArtifacts(
+        manifest=dict(manifest),
+        reports=dict(reports),
+    )
+    rd.skimjoin_manifest = dict(manifest)
+    rd.skimjoin_reports = dict(reports)
     LOGGER.warning(
         "[skimjoin] Skipping skim enrichment for '%s' after failure: %s",
         rd.label,
@@ -90,7 +102,7 @@ def _package_applied_skimjoin(rd: RunData, config: Config, result: object) -> Ru
 
     rd.trips = result.annotated_trips
     rd.tours = result.enriched_tours
-    rd.skimjoin_manifest = _skimjoin_manifest(
+    manifest = _skimjoin_manifest(
         enabled=True,
         status=status,
         config_digest=config.skimjoin.config_digest,
@@ -98,13 +110,19 @@ def _package_applied_skimjoin(rd: RunData, config: Config, result: object) -> Ru
         skipped_rules=skipped_rules.to_dicts(),
         warning_count=int(result.missing_lookup_report.height),
     )
-    rd.skimjoin_reports = {
+    reports = {
         "skim_lookup_summary": result.lookup_summary,
         "missing_lookup_report": result.missing_lookup_report,
         "skipped_rule_report": skipped_rules,
         "tour_aggregation_summary": result.tour_aggregation_summary,
         "failure_report": _empty_failure_report(),
     }
+    rd.skimjoin_artifacts = SkimjoinArtifacts(
+        manifest=dict(manifest),
+        reports=dict(reports),
+    )
+    rd.skimjoin_manifest = dict(manifest)
+    rd.skimjoin_reports = dict(reports)
     LOGGER.info(
         "[skimjoin] Completed skim enrichment for '%s' with status=%s, outputs=%s",
         rd.label,

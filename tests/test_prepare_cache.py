@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from processor.models import RunData
+from processor.models import RunData, TableAvailabilityMetadata
 from processor.prepare.availability import (
     attach_table_availability,
     has_usable_loaded_tables,
@@ -192,6 +192,39 @@ def test_table_availability_infers_states_without_attached_metadata() -> None:
     )
 
     assert has_usable_loaded_tables(unavailable) is False
+
+
+def test_attach_table_availability_sets_explicit_rundata_metadata() -> None:
+    run = attach_table_availability(
+        RunData(
+            label="Metadata",
+            run_dir="C:/runs/metadata",
+            skim_file=None,
+            hh=pl.DataFrame(),
+            per=pl.DataFrame(),
+            tours=pl.DataFrame(),
+            trips=pl.DataFrame(),
+            joint_participants=pl.DataFrame(),
+            land_use=pl.DataFrame(),
+            skim_matrix=None,
+            skim_zone_map=None,
+        ),
+        table_states={"households": "unavailable", "persons": "failed"},
+        table_reasons={
+            "households": "missing households",
+            "persons": "person transform failed",
+        },
+    )
+
+    assert run.table_availability_metadata == TableAvailabilityMetadata(
+        states={"households": "unavailable", "persons": "failed"},
+        diagnostics={
+            "households": "missing households",
+            "persons": "person transform failed",
+        },
+    )
+    assert table_availability(run)["households"] == "unavailable"
+    assert table_diagnostics(run)["persons"] == "person transform failed"
 
 
 def test_prepared_cache_round_trip_creates_default_layout(tmp_path: Path) -> None:

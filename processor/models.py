@@ -28,6 +28,22 @@ PREPARED_TABLE_NAMES: tuple[PreparedTableName, ...] = (
 )
 
 
+@dataclass(frozen=True)
+class TableAvailabilityMetadata:
+    """Explicit per-run prepared-table availability metadata."""
+
+    states: dict[str, str] = field(default_factory=dict)
+    diagnostics: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class SkimjoinArtifacts:
+    """Typed container for skimjoin manifest/report sidecar data."""
+
+    manifest: dict[str, Any] = field(default_factory=dict)
+    reports: dict[str, pl.DataFrame] = field(default_factory=dict)
+
+
 @dataclass
 class RunData:
     """Holds all data for one ActivitySim run after processor preparation.
@@ -65,8 +81,34 @@ class RunData:
     hh_weight_col: Optional[str] = None
     person_weight_col: Optional[str] = None
     trip_weight_col: Optional[str] = None
+    table_availability_metadata: TableAvailabilityMetadata = field(
+        default_factory=TableAvailabilityMetadata
+    )
+    skimjoin_artifacts: SkimjoinArtifacts = field(default_factory=SkimjoinArtifacts)
     skimjoin_manifest: dict[str, Any] = field(default_factory=dict)
     skimjoin_reports: dict[str, pl.DataFrame] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        metadata = self.table_availability_metadata
+        self.table_availability_metadata = TableAvailabilityMetadata(
+            states=dict(metadata.states),
+            diagnostics=dict(metadata.diagnostics),
+        )
+
+        if self.skimjoin_manifest or self.skimjoin_reports:
+            self.skimjoin_manifest = dict(self.skimjoin_manifest)
+            self.skimjoin_reports = dict(self.skimjoin_reports)
+            self.skimjoin_artifacts = SkimjoinArtifacts(
+                manifest=dict(self.skimjoin_manifest),
+                reports=dict(self.skimjoin_reports),
+            )
+        else:
+            self.skimjoin_artifacts = SkimjoinArtifacts(
+                manifest=dict(self.skimjoin_artifacts.manifest),
+                reports=dict(self.skimjoin_artifacts.reports),
+            )
+            self.skimjoin_manifest = dict(self.skimjoin_artifacts.manifest)
+            self.skimjoin_reports = dict(self.skimjoin_artifacts.reports)
 
 
 def prune_prepared_run(
@@ -94,6 +136,14 @@ def prune_prepared_run(
         hh_weight_col=prepared_run.hh_weight_col,
         person_weight_col=prepared_run.person_weight_col,
         trip_weight_col=prepared_run.trip_weight_col,
+        table_availability_metadata=TableAvailabilityMetadata(
+            states=dict(prepared_run.table_availability_metadata.states),
+            diagnostics=dict(prepared_run.table_availability_metadata.diagnostics),
+        ),
+        skimjoin_artifacts=SkimjoinArtifacts(
+            manifest=dict(prepared_run.skimjoin_artifacts.manifest),
+            reports=dict(prepared_run.skimjoin_artifacts.reports),
+        ),
         skimjoin_manifest=dict(prepared_run.skimjoin_manifest),
         skimjoin_reports=dict(prepared_run.skimjoin_reports),
     )
