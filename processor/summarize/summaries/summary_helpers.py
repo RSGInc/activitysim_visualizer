@@ -7,6 +7,7 @@ import polars as pl
 from processor.tour_purpose import purpose_column
 
 ALL_TOUR_PURPOSES = "all_tour_purposes"
+ALL_PERSON_TYPES = "all_person_types"
 
 
 def _summary_purpose_column(df: pl.DataFrame) -> str:
@@ -36,6 +37,20 @@ def _all_purpose_rollup(
         df.group_by(group_cols)
         .agg(pl.col(value_col).sum().alias(value_col))
         .with_columns(pl.lit(ALL_TOUR_PURPOSES).alias("tour_purpose"))
+    )
+
+
+def _all_person_types_rollup(
+    df: pl.DataFrame,
+    *,
+    group_cols: list[str],
+    value_col: str,
+) -> pl.DataFrame:
+    """Aggregate a pre-grouped frame across all person types."""
+    return (
+        df.group_by(group_cols)
+        .agg(pl.col(value_col).sum().alias(value_col))
+        .with_columns(pl.lit(ALL_PERSON_TYPES).alias("person_type"))
     )
 
 
@@ -79,9 +94,36 @@ def _aggregate_counts_by_geography(
 
 def _rounded_distance_bin_expr(distance_col: str) -> pl.Expr:
     """Return the common 0-decimal distance bin label expression with 40+ cap."""
+    rounded = pl.col(distance_col).cast(pl.Float64).round(0)
     return (
-        pl.when(pl.col(distance_col) >= 40)
+        pl.when(rounded >= 40)
         .then(pl.lit("40+"))
-        .otherwise(pl.col(distance_col).cast(pl.Int64, strict=False).cast(pl.Utf8))
+        .otherwise(rounded.cast(pl.Int64, strict=False).cast(pl.Utf8))
         .alias("distance_bin")
     )
+
+
+def _trip_direction_expr(df: pl.DataFrame) -> pl.Expr | None:
+    """Infer a standard outbound/inbound direction label from trip flags."""
+    if "inbound" in df.columns:
+        return (
+            pl.when(
+                pl.col("inbound").cast(pl.Utf8).str.to_lowercase().is_in(["1", "true"])
+            )
+            .then(pl.lit("inbound"))
+            .otherwise(pl.lit("outbound"))
+            .alias("direction")
+        )
+    if "outbound" in df.columns:
+        return (
+            pl.when(
+                pl.col("outbound")
+                .cast(pl.Utf8)
+                .str.to_lowercase()
+                .is_in(["false", "0"])
+            )
+            .then(pl.lit("inbound"))
+            .otherwise(pl.lit("outbound"))
+            .alias("direction")
+        )
+    return None
