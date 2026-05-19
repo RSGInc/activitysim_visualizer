@@ -6,11 +6,11 @@ import polars as pl
 
 from processor.models import RunData
 from processor.summarize.contracts import empty_summary_frame, summary_contract
-from processor.summarize.summaries.trip_helpers import (
+from processor.summarize.summaries.summary_helpers import (
     ALL_TOUR_PURPOSES,
-    _all_tour_purpose_rollup,
+    _all_purpose_rollup as _all_tour_purpose_rollup,
     _dense_zero_fill,
-    _trip_purpose_column,
+    _summary_purpose_column as _trip_purpose_column,
     _weighted_group_sum,
 )
 from runtime.config import Config

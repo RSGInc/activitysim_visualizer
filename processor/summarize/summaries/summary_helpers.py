@@ -1,4 +1,4 @@
-"""Shared helper patterns for trip summaries."""
+"""Shared helper patterns across summary modules."""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ from processor.tour_purpose import purpose_column
 ALL_TOUR_PURPOSES = "all_tour_purposes"
 
 
-def _trip_purpose_column(trips: pl.DataFrame) -> str:
-    """Return the prepared trip purpose grouping column, or an empty string."""
-    return purpose_column(trips)
+def _summary_purpose_column(df: pl.DataFrame) -> str:
+    """Return the prepared purpose grouping column, or an empty string."""
+    return purpose_column(df)
 
 
 def _weighted_group_sum(
@@ -25,13 +25,13 @@ def _weighted_group_sum(
     return df.group_by(group_cols).agg(pl.col(weight_col).sum().alias(output_col))
 
 
-def _all_tour_purpose_rollup(
+def _all_purpose_rollup(
     df: pl.DataFrame,
     *,
     group_cols: list[str],
     value_col: str,
 ) -> pl.DataFrame:
-    """Aggregate a pre-grouped frame across all tour purposes."""
+    """Aggregate a pre-grouped frame across all purposes."""
     return (
         df.group_by(group_cols)
         .agg(pl.col(value_col).sum().alias(value_col))
@@ -60,16 +60,28 @@ def _aggregate_counts_by_geography(
     *,
     geography_type: str,
     geography_id_col: str,
+    value_col: str = "trip_count",
+    weight_col: str = "finalweight",
 ) -> pl.DataFrame:
-    """Aggregate weighted trip counts for one geography dimension."""
+    """Aggregate weighted counts for one geography dimension."""
     return (
         df.group_by(geography_id_col)
-        .agg(trip_count=pl.col("finalweight").sum())
+        .agg(pl.col(weight_col).sum().alias(value_col))
         .rename({geography_id_col: "geography_id"})
         .with_columns(
             pl.lit(geography_type).alias("geography_type"),
             pl.col("geography_id").cast(pl.Utf8),
-            pl.col("trip_count").cast(pl.Float64),
+            pl.col(value_col).cast(pl.Float64),
         )
-        .select("geography_type", "geography_id", "trip_count")
+        .select("geography_type", "geography_id", value_col)
+    )
+
+
+def _rounded_distance_bin_expr(distance_col: str) -> pl.Expr:
+    """Return the common 0-decimal distance bin label expression with 40+ cap."""
+    return (
+        pl.when(pl.col(distance_col) >= 40)
+        .then(pl.lit("40+"))
+        .otherwise(pl.col(distance_col).cast(pl.Int64, strict=False).cast(pl.Utf8))
+        .alias("distance_bin")
     )

@@ -9,11 +9,11 @@ from processor.summarize.summaries.trip_distributions import (
     trip_distance,
     trip_stop_tod,
 )
-from processor.summarize.summaries.trip_helpers import (
+from processor.summarize.summaries.summary_helpers import (
     ALL_TOUR_PURPOSES,
     _aggregate_counts_by_geography,
-    _all_tour_purpose_rollup,
-    _trip_purpose_column,
+    _all_purpose_rollup as _all_tour_purpose_rollup,
+    _summary_purpose_column as _trip_purpose_column,
     _weighted_group_sum,
 )
 from runtime.config import Config
