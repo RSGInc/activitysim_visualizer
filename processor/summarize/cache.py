@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-from typing import Callable
+from typing import Any
 
 import polars as pl
 
@@ -23,6 +23,7 @@ from processor.summarize.summary_specs import (
     DEFAULT_SUMMARY_IDS,
     SUMMARY_SPEC_BY_ID,
     SUMMARY_FILENAME_BY_ID,
+    SummarySpec,
 )
 from processor.summarize.writer import write_all
 
@@ -33,22 +34,6 @@ SUPPORTED_WEIGHTING_MODES = ("weighted", "unweighted")
 
 class SummaryCacheError(RuntimeError):
     """Raised when a summary cache directory is invalid or incomplete."""
-
-
-@dataclass(frozen=True)
-class SummarySpec:
-    """One registered summary table in the cache layer.
-
-    Attributes:
-        summary_id: Stable identifier used by dashboard pages and tests.
-        filename: CSV filename stem written under each weighting mode directory.
-        builder: Callable that produces the summary table from prepared runtime
-            inputs.
-    """
-
-    summary_id: str
-    filename: str
-    builder: Callable[[RunData, Config], pl.DataFrame]
 
 
 @dataclass
@@ -116,18 +101,100 @@ def requested_summary_ids(config: Config) -> list[str]:
     return list(DEFAULT_SUMMARY_IDS)
 
 
+def _resolved_summary_ids(
+    config: Config,
+    summary_ids: list[str] | None,
+) -> list[str]:
+    """Return explicit summary ids or the configured defaults."""
+    return summary_ids or requested_summary_ids(config)
+
+
+def _summary_spec(summary_id: str) -> SummarySpec:
+    """Return one registered summary spec or raise for unknown ids."""
+    spec = SUMMARY_SPEC_BY_ID.get(summary_id)
+    if spec is None:
+        raise KeyError(f"Unknown summary id: {summary_id}")
+    return spec
+
+
+def _empty_summary_result(summary_id: str) -> pl.DataFrame:
+    """Return the typed empty result frame for one registered summary."""
+    return empty_summary_frame(_summary_spec(summary_id).builder)
+
+
+def _detail_from_missing_inputs(missing_inputs: dict[str, str]) -> str:
+    """Render missing-input diagnostics into stable metadata text."""
+    return "; ".join(
+        f"{table_name} ({reason})"
+        for table_name, reason in sorted(missing_inputs.items())
+    )
+
+
+def _summary_state_for_table(table: pl.DataFrame) -> str:
+    """Return the availability state for a built summary table."""
+    return "empty" if table.is_empty() else "available"
+
+
+def _run_data_by_weighting_mode(
+    rd: RunData,
+    weighting_modes: list[str],
+) -> dict[str, RunData]:
+    """Build per-mode runtime inputs, stripping weights only when needed."""
+    mode_runs: dict[str, RunData] = {"weighted": rd}
+    if "unweighted" in weighting_modes:
+        mode_runs["unweighted"] = strip_weights(rd)
+    return mode_runs
+
+
+def _build_one_summary_with_metadata(
+    summary_id: str,
+    *,
+    rd: RunData,
+    config: Config,
+) -> tuple[pl.DataFrame, dict[str, object]]:
+    """Build one summary table with resilient metadata packaging."""
+    spec = _summary_spec(summary_id)
+    missing_inputs = missing_summary_inputs(spec.builder, rd)
+    if missing_inputs:
+        detail = _detail_from_missing_inputs(missing_inputs)
+        LOGGER.warning(
+            "Skipping summary %r for run %r because required prepared inputs are unavailable: %s",
+            summary_id,
+            rd.label,
+            detail,
+        )
+        return _empty_summary_result(summary_id), {
+            "state": "unavailable",
+            "detail": detail,
+        }
+
+    try:
+        table = spec.builder(rd, config)
+    except Exception as exc:
+        LOGGER.warning(
+            "Summary %r failed for run %r: %s",
+            summary_id,
+            rd.label,
+            exc,
+        )
+        return _empty_summary_result(summary_id), {
+            "state": "failed",
+            "detail": str(exc),
+        }
+
+    return table, {"state": _summary_state_for_table(table)}
+
+
 def build_summaries(
     rd: RunData,
     config: Config,
     summary_ids: list[str] | None = None,
 ) -> dict[str, pl.DataFrame]:
     """Build the requested summary tables for one prepared run."""
-    summary_ids = summary_ids or requested_summary_ids(config)
+    summary_ids = _resolved_summary_ids(config, summary_ids)
     tables: dict[str, pl.DataFrame] = {}
     for summary_id in summary_ids:
-        spec = SUMMARY_SPEC_BY_ID.get(summary_id)
-        if spec is None:
-            raise KeyError(f"Unknown summary id: {summary_id}")
+        spec = _summary_spec(summary_id)
         tables[summary_id] = spec.builder(rd, config)
     return tables
 
@@ -138,52 +205,17 @@ def build_summaries_with_metadata(
     summary_ids: list[str] | None = None,
 ) -> tuple[dict[str, pl.DataFrame], dict[str, dict[str, object]]]:
     """Build summaries plus per-summary execution metadata."""
-    summary_ids = summary_ids or requested_summary_ids(config)
+    summary_ids = _resolved_summary_ids(config, summary_ids)
     tables: dict[str, pl.DataFrame] = {}
     metadata: dict[str, dict[str, object]] = {}
     for summary_id in summary_ids:
-        spec = SUMMARY_SPEC_BY_ID.get(summary_id)
-        if spec is None:
-            raise KeyError(f"Unknown summary id: {summary_id}")
-
-        missing_inputs = missing_summary_inputs(spec.builder, rd)
-        if missing_inputs:
-            detail = "; ".join(
-                f"{table_name} ({reason})"
-                for table_name, reason in sorted(missing_inputs.items())
-            )
-            LOGGER.warning(
-                "Skipping summary %r for run %r because required prepared inputs are unavailable: %s",
-                summary_id,
-                rd.label,
-                detail,
-            )
-            tables[summary_id] = empty_summary_frame(spec.builder)
-            metadata[summary_id] = {
-                "state": "unavailable",
-                "detail": detail,
-            }
-            continue
-
-        try:
-            table = spec.builder(rd, config)
-        except Exception as exc:
-            LOGGER.warning(
-                "Summary %r failed for run %r: %s",
-                summary_id,
-                rd.label,
-                exc,
-            )
-            tables[summary_id] = empty_summary_frame(spec.builder)
-            metadata[summary_id] = {
-                "state": "failed",
-                "detail": str(exc),
-            }
-            continue
-
-        state = "empty" if table.is_empty() else "available"
+        table, summary_metadata = _build_one_summary_with_metadata(
+            summary_id,
+            rd=rd,
+            config=config,
+        )
         tables[summary_id] = table
-        metadata[summary_id] = {"state": state}
+        metadata[summary_id] = summary_metadata
 
     return tables, metadata
 
@@ -199,12 +231,8 @@ def build_mode_summaries(
     Weighted and unweighted behavior is centralized here. Summary builders only
     ever read ``finalweight``; they do not branch on weighting mode.
     """
-    weighting_modes = normalize_weighting_modes(
-        weighting_modes or config.weighting_modes
-    )
-    mode_runs: dict[str, RunData] = {"weighted": rd}
-    if "unweighted" in weighting_modes:
-        mode_runs["unweighted"] = strip_weights(rd)
+    weighting_modes = normalize_weighting_modes(weighting_modes or config.weighting_modes)
+    mode_runs = _run_data_by_weighting_mode(rd, weighting_modes)
 
     summaries_by_mode: dict[str, dict[str, pl.DataFrame]] = {}
     for mode in weighting_modes:
@@ -225,12 +253,8 @@ def build_mode_summaries_with_metadata(
     dict[str, dict[str, dict[str, object]]],
 ]:
     """Build requested summaries plus per-mode execution metadata."""
-    weighting_modes = normalize_weighting_modes(
-        weighting_modes or config.weighting_modes
-    )
-    mode_runs: dict[str, RunData] = {"weighted": rd}
-    if "unweighted" in weighting_modes:
-        mode_runs["unweighted"] = strip_weights(rd)
+    weighting_modes = normalize_weighting_modes(weighting_modes or config.weighting_modes)
+    mode_runs = _run_data_by_weighting_mode(rd, weighting_modes)
 
     summaries_by_mode: dict[str, dict[str, pl.DataFrame]] = {}
     metadata_by_mode: dict[str, dict[str, dict[str, object]]] = {}
@@ -277,6 +301,102 @@ def create_summary_run(
     )
 
 
+def _summary_storage_state(
+    table: pl.DataFrame,
+    metadata: dict[str, object],
+) -> tuple[str, str]:
+    """Return persisted summary state and optional diagnostic detail."""
+    state = str(metadata.get("state", _summary_state_for_table(table)))
+    detail = str(metadata.get("detail", "")).strip()
+    return state, detail
+
+
+def _sentinel_summary_frame() -> pl.DataFrame:
+    """Return the sentinel frame used to persist empty/unavailable/failed outputs."""
+    return pl.DataFrame({"__empty__": []})
+
+
+def _build_mode_cache_payload(
+    *,
+    mode_tables: dict[str, pl.DataFrame],
+    mode_metadata: dict[str, dict[str, object]],
+) -> dict[str, Any]:
+    """Build persisted tables and manifest metadata for one weighting mode."""
+    file_tables: dict[str, pl.DataFrame] = {}
+    summary_ids = list(mode_tables.keys())
+    empty_summaries: list[str] = []
+    summary_states: dict[str, str] = {}
+    unavailable_summaries: list[str] = []
+    failed_summaries: list[str] = []
+    summary_diagnostics: dict[str, str] = {}
+
+    for summary_id, table in mode_tables.items():
+        filename = Path(summary_file_map([summary_id])[summary_id]).stem
+        state, detail = _summary_storage_state(
+            table,
+            mode_metadata.get(summary_id, {}),
+        )
+        summary_states[summary_id] = state
+        if detail:
+            summary_diagnostics[summary_id] = detail
+        if state == "unavailable":
+            unavailable_summaries.append(summary_id)
+        if state == "failed":
+            failed_summaries.append(summary_id)
+        if state in {"empty", "unavailable", "failed"} or table.width == 0:
+            file_tables[filename] = _sentinel_summary_frame()
+            empty_summaries.append(summary_id)
+        else:
+            file_tables[filename] = table
+
+    return {
+        "summary_ids": summary_ids,
+        "file_tables": file_tables,
+        "empty_summaries": empty_summaries,
+        "summary_states": summary_states,
+        "unavailable_summaries": unavailable_summaries,
+        "failed_summaries": failed_summaries,
+        "summary_diagnostics": summary_diagnostics,
+    }
+
+
+def _summary_manifest(
+    *,
+    summary_run: SummaryRun,
+    config: Config,
+    weighting_modes: list[str],
+    summary_ids: list[str],
+    empty_summaries: dict[str, list[str]],
+    summary_states: dict[str, dict[str, str]],
+    unavailable_summaries: dict[str, list[str]],
+    failed_summaries: dict[str, list[str]],
+    summary_diagnostics: dict[str, dict[str, str]],
+    run_fingerprint: dict[str, object] | None,
+    prepared_manifest_identity: dict[str, object] | None,
+) -> dict[str, object]:
+    """Build the summary cache manifest payload."""
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "source": "activitysim-visualizer-summary-cache",
+        "label": summary_run.label,
+        "run_key": summary_run.run_key,
+        "source_run_dir": summary_run.source_run_dir,
+        "config_path": config.config_path,
+        "summary_config_digest": config.summary_config_digest,
+        "weighting_modes": weighting_modes,
+        "summary_ids": summary_ids,
+        "summary_files": summary_file_map(summary_ids),
+        "empty_summaries": empty_summaries,
+        "summary_states": summary_states,
+        "unavailable_summaries": unavailable_summaries,
+        "failed_summaries": failed_summaries,
+        "summary_diagnostics": summary_diagnostics,
+        "run_fingerprint": run_fingerprint or {},
+        "prepared_manifest_identity": prepared_manifest_identity,
+    }
+
+
 def write_summary_run_cache(
     summary_run: SummaryRun,
     config: Config,
@@ -301,60 +421,34 @@ def write_summary_run_cache(
     summary_diagnostics: dict[str, dict[str, str]] = {}
     for mode in weighting_modes:
         mode_tables = summary_run.summaries_by_mode[mode]
-        summary_ids = list(mode_tables.keys())
-        file_tables = {}
-        empty_summaries[mode] = []
-        summary_states[mode] = {}
-        unavailable_summaries[mode] = []
-        failed_summaries[mode] = []
-        summary_diagnostics[mode] = {}
-        mode_metadata = summary_run.summary_metadata_by_mode.get(mode, {})
-        for summary_id, table in mode_tables.items():
-            filename = Path(summary_file_map([summary_id])[summary_id]).stem
-            metadata = mode_metadata.get(summary_id, {})
-            state = str(
-                metadata.get("state", "empty" if table.is_empty() else "available")
-            )
-            summary_states[mode][summary_id] = state
-            detail = str(metadata.get("detail", "")).strip()
-            if detail:
-                summary_diagnostics[mode][summary_id] = detail
-            if state == "unavailable":
-                unavailable_summaries[mode].append(summary_id)
-            if state == "failed":
-                failed_summaries[mode].append(summary_id)
-            if state in {"empty", "unavailable", "failed"} or table.width == 0:
-                # Persist empty summaries with a sentinel file so cache loading
-                # can distinguish "empty but expected" from "missing".
-                file_tables[filename] = pl.DataFrame({"__empty__": []})
-                empty_summaries[mode].append(summary_id)
-            else:
-                file_tables[filename] = table
-        write_all(file_tables, run_dir / mode)
+        mode_payload = _build_mode_cache_payload(
+            mode_tables=mode_tables,
+            mode_metadata=summary_run.summary_metadata_by_mode.get(mode, {}),
+        )
+        summary_ids = mode_payload["summary_ids"]
+        empty_summaries[mode] = mode_payload["empty_summaries"]
+        summary_states[mode] = mode_payload["summary_states"]
+        unavailable_summaries[mode] = mode_payload["unavailable_summaries"]
+        failed_summaries[mode] = mode_payload["failed_summaries"]
+        summary_diagnostics[mode] = mode_payload["summary_diagnostics"]
+        write_all(mode_payload["file_tables"], run_dir / mode)
 
     # The manifest is the compatibility boundary for cache reuse. Presentation
     # changes can keep reusing the same summary outputs, but summary-input
     # changes should invalidate the cache.
-    manifest = {
-        "schema_version": SCHEMA_VERSION,
-        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
-        "source": "activitysim-visualizer-summary-cache",
-        "label": summary_run.label,
-        "run_key": summary_run.run_key,
-        "source_run_dir": summary_run.source_run_dir,
-        "config_path": config.config_path,
-        "summary_config_digest": config.summary_config_digest,
-        "weighting_modes": weighting_modes,
-        "summary_ids": summary_ids,
-        "summary_files": summary_file_map(summary_ids),
-        "empty_summaries": empty_summaries,
-        "summary_states": summary_states,
-        "unavailable_summaries": unavailable_summaries,
-        "failed_summaries": failed_summaries,
-        "summary_diagnostics": summary_diagnostics,
-        "run_fingerprint": run_fingerprint or {},
-        "prepared_manifest_identity": prepared_manifest_identity,
-    }
+    manifest = _summary_manifest(
+        summary_run=summary_run,
+        config=config,
+        weighting_modes=weighting_modes,
+        summary_ids=summary_ids,
+        empty_summaries=empty_summaries,
+        summary_states=summary_states,
+        unavailable_summaries=unavailable_summaries,
+        failed_summaries=failed_summaries,
+        summary_diagnostics=summary_diagnostics,
+        run_fingerprint=run_fingerprint,
+        prepared_manifest_identity=prepared_manifest_identity,
+    )
     (run_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2), encoding="utf-8"
     )
@@ -374,27 +468,17 @@ def _read_manifest(cache_dir: Path) -> dict[str, object]:
         ) from exc
 
 
-def load_summary_run_cache(
-    cache_dir: str | Path,
-    config: Config,
+def _validate_manifest_identity(
     *,
-    expected_modes: list[str] | None = None,
-    expected_summary_ids: list[str] | None = None,
-    expected_summary_config_digest: str | None = None,
-    expected_run_fingerprint: dict[str, object] | None = None,
-    expected_prepared_manifest_identity: dict[str, object] | None = None,
-    expected_label: str | None = None,
-    expected_run_key: str | None = None,
-) -> SummaryRun:
-    """Load and validate one run's summary cache directory."""
-    cache_dir = Path(cache_dir)
-    manifest = _read_manifest(cache_dir)
-    schema_version = int(manifest.get("schema_version", 0))
-    if schema_version not in {SCHEMA_VERSION, 6, 5, 2}:
-        raise SummaryCacheError(
-            f"Unsupported cache schema_version {schema_version} in {cache_dir}"
-        )
-
+    cache_dir: Path,
+    manifest: dict[str, object],
+    expected_summary_config_digest: str | None,
+    expected_run_fingerprint: dict[str, object] | None,
+    expected_prepared_manifest_identity: dict[str, object] | None,
+    expected_label: str | None,
+    expected_run_key: str | None,
+) -> None:
+    """Validate manifest identity fields before loading cached tables."""
     if expected_label is not None and manifest.get("label") != expected_label:
         raise SummaryCacheError(
             f"Cache label mismatch in {cache_dir}: expected {expected_label!r}, found {manifest.get('label')!r}"
@@ -437,21 +521,33 @@ def load_summary_run_cache(
                 f"Cache prepared manifest identity mismatch in {cache_dir}; summaries were built from different prepared inputs."
             )
 
-    expected_modes = normalize_weighting_modes(expected_modes or config.weighting_modes)
+
+def _validated_mode_and_summary_ids(
+    *,
+    manifest: dict[str, object],
+    config: Config,
+    cache_dir: Path,
+    expected_modes: list[str] | None,
+    expected_summary_ids: list[str] | None,
+) -> tuple[list[str], list[str]]:
+    """Validate requested modes and summary ids against the manifest."""
+    resolved_expected_modes = normalize_weighting_modes(
+        expected_modes or config.weighting_modes
+    )
     manifest_modes = normalize_weighting_modes(
         [str(mode) for mode in manifest.get("weighting_modes", [])]
     )
-    missing_modes = [mode for mode in expected_modes if mode not in manifest_modes]
+    missing_modes = [mode for mode in resolved_expected_modes if mode not in manifest_modes]
     if missing_modes:
         raise SummaryCacheError(
             f"Cache {cache_dir} is missing weighting modes: {missing_modes}"
         )
 
     manifest_summary_ids = [str(item) for item in manifest.get("summary_ids", [])]
-    expected_summary_ids = expected_summary_ids or manifest_summary_ids
+    resolved_summary_ids = expected_summary_ids or manifest_summary_ids
     missing_summary_ids = [
         summary_id
-        for summary_id in expected_summary_ids
+        for summary_id in resolved_summary_ids
         if summary_id not in manifest_summary_ids
     ]
     if missing_summary_ids:
@@ -459,6 +555,18 @@ def load_summary_run_cache(
             f"Cache {cache_dir} is missing summary tables: {missing_summary_ids}"
         )
 
+    return resolved_expected_modes, resolved_summary_ids
+
+
+def _manifest_summary_metadata(
+    manifest: dict[str, object],
+) -> tuple[
+    dict[str, str],
+    dict[str, list[str]],
+    dict[str, dict[str, str]],
+    dict[str, dict[str, str]],
+]:
+    """Normalize manifest summary file/state/diagnostic maps."""
     summary_files = {
         str(summary_id): str(filename)
         for summary_id, filename in dict(manifest.get("summary_files", {})).items()
@@ -481,43 +589,126 @@ def load_summary_run_cache(
         }
         for mode, mode_details in dict(manifest.get("summary_diagnostics", {})).items()
     }
+    return (
+        summary_files,
+        empty_summaries,
+        manifest_summary_states,
+        manifest_summary_diagnostics,
+    )
+
+
+def _loaded_summary_table(
+    *,
+    path: Path,
+    mode: str,
+    summary_id: str,
+    summary_files: dict[str, str],
+    empty_summaries: dict[str, list[str]],
+    manifest_summary_states: dict[str, dict[str, str]],
+) -> tuple[pl.DataFrame, str]:
+    """Load one summary table and derive its restored state."""
+    table = pl.read_csv(path, infer_schema_length=10000)
+    state = manifest_summary_states.get(mode, {}).get(summary_id)
+    if state is None:
+        state = "empty" if summary_id in empty_summaries.get(mode, []) else "available"
+    if summary_id in empty_summaries.get(mode, []) and table.columns == ["__empty__"]:
+        table = _empty_summary_result(summary_id)
+    return table, state
+
+
+def _load_mode_tables(
+    *,
+    cache_dir: Path,
+    mode: str,
+    expected_summary_ids: list[str],
+    summary_files: dict[str, str],
+    empty_summaries: dict[str, list[str]],
+    manifest_summary_states: dict[str, dict[str, str]],
+    manifest_summary_diagnostics: dict[str, dict[str, str]],
+) -> tuple[dict[str, pl.DataFrame], dict[str, dict[str, object]]]:
+    """Load all summary tables and metadata for one weighting mode."""
+    mode_dir = cache_dir / mode
+    if not mode_dir.exists():
+        raise SummaryCacheError(f"Missing mode directory: {mode_dir}")
+
+    mode_tables: dict[str, pl.DataFrame] = {}
+    mode_metadata: dict[str, dict[str, object]] = {}
+    for summary_id in expected_summary_ids:
+        filename = summary_files.get(summary_id, f"{summary_id}.csv")
+        path = mode_dir / filename
+        if not path.exists():
+            raise SummaryCacheError(f"Missing summary CSV: {path}")
+        table, state = _loaded_summary_table(
+            path=path,
+            mode=mode,
+            summary_id=summary_id,
+            summary_files=summary_files,
+            empty_summaries=empty_summaries,
+            manifest_summary_states=manifest_summary_states,
+        )
+        mode_tables[summary_id] = table
+        mode_metadata[summary_id] = {"state": state}
+        detail = manifest_summary_diagnostics.get(mode, {}).get(summary_id)
+        if detail:
+            mode_metadata[summary_id]["detail"] = detail
+    return mode_tables, mode_metadata
+
+
+def load_summary_run_cache(
+    cache_dir: str | Path,
+    config: Config,
+    *,
+    expected_modes: list[str] | None = None,
+    expected_summary_ids: list[str] | None = None,
+    expected_summary_config_digest: str | None = None,
+    expected_run_fingerprint: dict[str, object] | None = None,
+    expected_prepared_manifest_identity: dict[str, object] | None = None,
+    expected_label: str | None = None,
+    expected_run_key: str | None = None,
+) -> SummaryRun:
+    """Load and validate one run's summary cache directory."""
+    cache_dir = Path(cache_dir)
+    manifest = _read_manifest(cache_dir)
+    schema_version = int(manifest.get("schema_version", 0))
+    if schema_version not in {SCHEMA_VERSION, 6, 5, 2}:
+        raise SummaryCacheError(
+            f"Unsupported cache schema_version {schema_version} in {cache_dir}"
+        )
+
+    _validate_manifest_identity(
+        cache_dir=cache_dir,
+        manifest=manifest,
+        expected_summary_config_digest=expected_summary_config_digest,
+        expected_run_fingerprint=expected_run_fingerprint,
+        expected_prepared_manifest_identity=expected_prepared_manifest_identity,
+        expected_label=expected_label,
+        expected_run_key=expected_run_key,
+    )
+    expected_modes, expected_summary_ids = _validated_mode_and_summary_ids(
+        manifest=manifest,
+        config=config,
+        cache_dir=cache_dir,
+        expected_modes=expected_modes,
+        expected_summary_ids=expected_summary_ids,
+    )
+    (
+        summary_files,
+        empty_summaries,
+        manifest_summary_states,
+        manifest_summary_diagnostics,
+    ) = _manifest_summary_metadata(manifest)
     summaries_by_mode: dict[str, dict[str, pl.DataFrame]] = {}
     summary_metadata_by_mode: dict[str, dict[str, dict[str, object]]] = {}
     for mode in expected_modes:
-        mode_dir = cache_dir / mode
-        if not mode_dir.exists():
-            raise SummaryCacheError(f"Missing mode directory: {mode_dir}")
-        mode_tables: dict[str, pl.DataFrame] = {}
-        mode_metadata: dict[str, dict[str, object]] = {}
-        for summary_id in expected_summary_ids:
-            filename = summary_files.get(summary_id, f"{summary_id}.csv")
-            path = mode_dir / filename
-            if not path.exists():
-                raise SummaryCacheError(f"Missing summary CSV: {path}")
-            table = pl.read_csv(path, infer_schema_length=10000)
-            state = manifest_summary_states.get(mode, {}).get(summary_id)
-            if state is None:
-                state = (
-                    "empty"
-                    if summary_id in empty_summaries.get(mode, [])
-                    else "available"
-                )
-            if summary_id in empty_summaries.get(mode, []) and table.columns == [
-                "__empty__"
-            ]:
-                # Restore the sentinel representation back to a real empty frame
-                # before handing summary tables to the rest of the app.
-                spec = SUMMARY_SPEC_BY_ID.get(summary_id)
-                table = (
-                    empty_summary_frame(spec.builder)
-                    if spec is not None
-                    else pl.DataFrame()
-                )
-            mode_tables[summary_id] = table
-            mode_metadata[summary_id] = {"state": state}
-            detail = manifest_summary_diagnostics.get(mode, {}).get(summary_id)
-            if detail:
-                mode_metadata[summary_id]["detail"] = detail
+        mode_tables, mode_metadata = _load_mode_tables(
+            cache_dir=cache_dir,
+            mode=mode,
+            expected_summary_ids=expected_summary_ids,
+            summary_files=summary_files,
+            empty_summaries=empty_summaries,
+            manifest_summary_states=manifest_summary_states,
+            manifest_summary_diagnostics=manifest_summary_diagnostics,
+        )
         summaries_by_mode[mode] = mode_tables
         summary_metadata_by_mode[mode] = mode_metadata
 
