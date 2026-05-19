@@ -7,6 +7,7 @@ from typing import Any
 
 from activitysim_viz_logging import get_logger
 from dashboard.page_registry import export_data_requirements, live_data_requirements
+from processor.cache_identity import build_run_fingerprint, build_run_keys
 from processor.models import (
     PreparedTableName,
     ProcessorWorkflowResult,
@@ -21,8 +22,6 @@ from processor.prepare.availability import (
 from processor.prepare.cache import (
     PreparedCacheError,
     build_prepared_manifest_identity,
-    build_run_fingerprint,
-    build_run_keys,
     load_prepared_run_cache,
     prepared_root,
     write_prepared_run_cache,
