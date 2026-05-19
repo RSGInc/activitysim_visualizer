@@ -13,7 +13,7 @@ from processor.models import RunData
 from processor.prepare.enrichment.pipeline import prepare_data
 from processor.summarize.schema import SUMMARY_OUTPUT_COLUMNS
 from processor.summarize.summaries import daily_travel, legacy, long_term, tour, trip
-from processor.summarize.summaries.tour_purpose_helpers import with_summary_tour_purpose
+from processor.tour_purpose import with_summary_tour_purpose
 
 
 def _write_config(

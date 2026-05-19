@@ -1,12 +1,10 @@
 """Tour summaries."""
 
 import polars as pl
-from runtime.config import Config
 from processor.models import RunData
+from processor.tour_purpose import purpose_column
 from processor.summarize.contracts import empty_summary_frame, summary_contract
-from processor.summarize.summaries.tour_purpose_helpers import (
-    purpose_column,
-)
+from runtime.config import Config
 
 
 @summary_contract(

@@ -6,11 +6,11 @@ from activitysim_viz_logging import get_logger
 import numpy as np
 import polars as pl
 
+from processor.tour_purpose import with_summary_tour_purpose
 from processor.prepare.enrichment.columns import _has_columns
 from processor.prepare.enrichment.columns import _resolve_source_column
 from processor.prepare.enrichment.types import _PrepareState, _ZoneContext
 from processor.prepare.enrichment.zones import _skim_lookup, _to_taz
-from processor.summarize.summaries.tour_purpose_helpers import with_summary_tour_purpose
 from runtime.config import Config
 
 LOGGER = get_logger("processor.prepare")
