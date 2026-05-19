@@ -233,6 +233,8 @@ class DailyActivityPatternPage(DashboardPage):
         dap_x_values = ordered_category_values(
             summaries["daily_activity_pattern_by_person_type"],
             "daily_activity_pattern",
+            category_id="daily_activity_pattern",
+            config=self.config,
         )
         mandatory_x_values = ordered_category_values(
             summaries["mandatory_tour_frequency_by_person_type"],

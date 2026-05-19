@@ -155,36 +155,44 @@ def joint_tour_freq(rd: RunData, config: Config | None = None) -> pl.DataFrame:
 @summary_contract(
     schema={
         "household_size": pl.Int32,
-        "joint_tour_count": pl.Float64,
+        "household_count": pl.Float64,
+        "joint_tour_hh_count": pl.Float64,
     },
     required_columns={
-        "tours": ("tour_category", "household_id", "finalweight"),
-        "hh": ("household_id", "HHSIZE"),
+        "tours": ("tour_category", "household_id"),
+        "hh": ("household_id", "HHSIZE", "finalweight"),
     },
 )
 def joint_tours_hhsize(rd: RunData, config: Config | None = None) -> pl.DataFrame:
-    """Returns DataFrame: household_size, joint_tour_count."""
-    if "tour_category" not in rd.tours.columns or "HHSIZE" not in rd.hh.columns:
+    """Returns DataFrame: household_size, household_count, joint_tour_hh_count."""
+    if (
+        "tour_category" not in rd.tours.columns
+        or "household_id" not in rd.tours.columns
+        or "HHSIZE" not in rd.hh.columns
+        or "household_id" not in rd.hh.columns
+        or "finalweight" not in rd.hh.columns
+    ):
         return empty_summary_frame(joint_tours_hhsize)
 
-    joint_tours = rd.tours.filter(pl.col("tour_category") == "joint")
-
-    if joint_tours.is_empty():
-        return pl.DataFrame(
-            {
-                "household_size": [],
-                "joint_tour_count": [],
-            }
-        )
+    joint_tour_hhs = (
+        rd.tours.filter(pl.col("tour_category") == "joint")
+        .select("household_id")
+        .unique()
+        .with_columns(has_joint_tour=pl.lit(True))
+    )
 
     return (
-        joint_tours.join(
-            rd.hh.select(["household_id", "HHSIZE"]),
-            on="household_id",
-            how="left",
-        )
+        rd.hh.select(["household_id", "HHSIZE", "finalweight"])
+        .join(joint_tour_hhs, on="household_id", how="left")
+        .with_columns(has_joint_tour=pl.col("has_joint_tour").fill_null(False))
         .group_by("HHSIZE")
-        .agg(joint_tour_count=pl.col("finalweight").sum())
+        .agg(
+            household_count=pl.col("finalweight").sum(),
+            joint_tour_hh_count=pl.when(pl.col("has_joint_tour"))
+            .then(pl.col("finalweight"))
+            .otherwise(0.0)
+            .sum(),
+        )
         .rename({"HHSIZE": "household_size"})
         .sort("household_size")
     )
