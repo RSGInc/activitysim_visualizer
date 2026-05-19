@@ -145,7 +145,7 @@ class ExportHTMLSettings:
 
 @dataclass(frozen=True)
 class SkimjoinSettings:
-    """Optional runtime wiring for late-prepare skim enrichment."""
+    """Optional runtime wiring for skim enrichment."""
 
     enabled: bool = False
     config_path: str | None = None
@@ -380,7 +380,9 @@ def _normalize_skimjoin_settings(
         )
 
     if resolved_config_path is None:
-        raise ValueError("skimjoin.config_path is required when skimjoin.enabled is true.")
+        raise ValueError(
+            "skimjoin.config_path is required when skimjoin.enabled is true."
+        )
 
     from processor.skimjoin.config.io import load_config_file
     from processor.skimjoin.config.normalize import normalize_config
@@ -698,14 +700,18 @@ def _normalize_categories(
             mapping_items: list[tuple[str, str]] = []
         else:
             if not isinstance(mapping_raw, dict):
-                raise ValueError(f"{field_name}.{category_id}.mapping must be a mapping.")
+                raise ValueError(
+                    f"{field_name}.{category_id}.mapping must be a mapping."
+                )
             mapping_items = [
                 (str(raw_key), str(display_label))
                 for raw_key, display_label in mapping_raw.items()
             ]
         spec = CategorySpec(
             mapping_items=tuple(mapping_items),
-            labels_by_raw={raw_key: display_label for raw_key, display_label in mapping_items},
+            labels_by_raw={
+                raw_key: display_label for raw_key, display_label in mapping_items
+            },
             raw_values_in_order=tuple(raw_key for raw_key, _ in mapping_items),
             fallback_order=_normalize_category_order(
                 raw_spec.get("order"),
@@ -723,16 +729,22 @@ def _category_spec_from_mapping(
 ) -> CategorySpec | None:
     if not mapping:
         return None
-    mapping_items = [(str(raw_key), str(display_label)) for raw_key, display_label in mapping.items()]
+    mapping_items = [
+        (str(raw_key), str(display_label)) for raw_key, display_label in mapping.items()
+    ]
     return CategorySpec(
         mapping_items=tuple(mapping_items),
-        labels_by_raw={raw_key: display_label for raw_key, display_label in mapping_items},
+        labels_by_raw={
+            raw_key: display_label for raw_key, display_label in mapping_items
+        },
         raw_values_in_order=tuple(raw_key for raw_key, _ in mapping_items),
         fallback_order=fallback_order,
     )
 
 
-def _category_spec_from_sequence(values: list[str] | tuple[str, ...] | None) -> CategorySpec | None:
+def _category_spec_from_sequence(
+    values: list[str] | tuple[str, ...] | None,
+) -> CategorySpec | None:
     if not values:
         return None
     normalized = tuple(str(value) for value in values)
@@ -744,7 +756,9 @@ def _category_spec_from_sequence(values: list[str] | tuple[str, ...] | None) -> 
     )
 
 
-def _category_specs_payload(categories: dict[str, CategorySpec]) -> list[dict[str, Any]]:
+def _category_specs_payload(
+    categories: dict[str, CategorySpec],
+) -> list[dict[str, Any]]:
     return [
         {
             "category_id": category_id,
@@ -1503,7 +1517,9 @@ class Config:
                     if effective_transit_subsidy_labels
                     else None
                 ),
-                "mode_order": list(effective_mode_order) if effective_mode_order else None,
+                "mode_order": list(effective_mode_order)
+                if effective_mode_order
+                else None,
             },
             "tour_purpose_grouping": {
                 "group_joint_tour_purposes": self.group_joint_tour_purposes,
@@ -1546,8 +1562,7 @@ class Config:
                     "fallback_value": self.prepare_vot_bins.fallback_value,
                     "mappings": {
                         run_name: {
-                            key: value
-                            for key, value in sorted(run_mapping.items())
+                            key: value for key, value in sorted(run_mapping.items())
                         }
                         for run_name, run_mapping in sorted(
                             self.prepare_vot_bins.mappings.items()
@@ -1683,8 +1698,7 @@ class Config:
                     "fallback_value": self.prepare_vot_bins.fallback_value,
                     "mappings": {
                         run_name: {
-                            key: value
-                            for key, value in sorted(run_mapping.items())
+                            key: value for key, value in sorted(run_mapping.items())
                         }
                         for run_name, run_mapping in sorted(
                             self.prepare_vot_bins.mappings.items()

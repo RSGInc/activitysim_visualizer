@@ -11,6 +11,7 @@ from processor.summarize.contracts import empty_summary_frame, summary_contract
 from runtime.config import Config
 
 _PERCENTILES = [index / 100 for index in range(101)]
+_ALL_MODES = "All Modes"
 
 
 def _is_numeric_dtype(dtype: pl.DataType | None) -> bool:
@@ -71,100 +72,17 @@ def _weighted_stats_rows(df: pl.DataFrame, *, mode_column: str) -> list[dict[str
     if mode_column not in df.columns or "finalweight" not in df.columns:
         return rows
 
-    for mode_value in (
-        df.filter(pl.col(mode_column).is_not_null())
-        .select(pl.col(mode_column).cast(pl.Utf8))
-        .unique()
-        .sort(mode_column)
-        .get_column(mode_column)
-        .to_list()
-    ):
-        mode_df = df.filter(pl.col(mode_column).cast(pl.Utf8) == mode_value)
-        n_total = float(
-            mode_df.select(pl.col("finalweight").sum().alias("n_total"))["n_total"][0]
-            or 0.0
-        )
-
-        for component in component_columns:
-            valid_df = mode_df.filter(pl.col(component).is_not_null())
-            if valid_df.is_empty():
-                rows.append(
-                    {
-                        mode_column: mode_value,
-                        "component": component,
-                        "n_total": n_total,
-                        "n_valid": 0.0,
-                        "mean": None,
-                        "std": None,
-                        "min": None,
-                        "max": None,
-                        "median": None,
-                        "mode": None,
-                        "zero_share": None,
-                        "missing_share": (
-                            None if n_total == 0 else (n_total - 0.0) / n_total
-                        ),
-                    }
-                )
-                continue
-
-            values = [
-                float(value)
-                for value in valid_df.get_column(component).cast(pl.Float64).to_list()
-            ]
-            weights = [
-                float(value)
-                for value in valid_df.get_column("finalweight").cast(pl.Float64).to_list()
-            ]
-            n_valid = float(sum(weights))
-            if n_valid <= 0:
-                rows.append(
-                    {
-                        mode_column: mode_value,
-                        "component": component,
-                        "n_total": n_total,
-                        "n_valid": 0.0,
-                        "mean": None,
-                        "std": None,
-                        "min": None,
-                        "max": None,
-                        "median": None,
-                        "mode": None,
-                        "zero_share": None,
-                        "missing_share": None if n_total == 0 else 1.0,
-                    }
-                )
-                continue
-
-            mean = sum(value * weight for value, weight in zip(values, weights, strict=False)) / n_valid
-            variance = (
-                sum(
-                    weight * ((value - mean) ** 2)
-                    for value, weight in zip(values, weights, strict=False)
-                )
-                / n_valid
-            )
-            zero_weight = sum(
-                weight
-                for value, weight in zip(values, weights, strict=False)
-                if value == 0.0
-            )
-
+    mode_groups = _mode_groups(df, mode_column=mode_column)
+    for component in component_columns:
+        pertinent_df = _pertinent_component_df(df, component=component, mode_column=mode_column)
+        for mode_value, mode_df in [(_ALL_MODES, pertinent_df), *mode_groups]:
             rows.append(
-                {
-                    mode_column: mode_value,
-                    "component": component,
-                    "n_total": n_total,
-                    "n_valid": n_valid,
-                    "mean": mean,
-                    "std": math.sqrt(variance),
-                    "min": min(values),
-                    "max": max(values),
-                    "median": _weighted_quantile(values, weights, 0.5),
-                    "mode": _mode_value(values, weights),
-                    "zero_share": zero_weight / n_valid,
-                    "missing_share": None if n_total == 0 else (n_total - n_valid) / n_total,
-                }
+                _weighted_stats_row(
+                    mode_df,
+                    mode_column=mode_column,
+                    mode_value=mode_value,
+                    component=component,
+                )
             )
 
     return rows
@@ -179,17 +97,10 @@ def _weighted_ecdf_rows(df: pl.DataFrame, *, mode_column: str) -> list[dict[str,
     if mode_column not in df.columns or "finalweight" not in df.columns:
         return rows
 
-    for mode_value in (
-        df.filter(pl.col(mode_column).is_not_null())
-        .select(pl.col(mode_column).cast(pl.Utf8))
-        .unique()
-        .sort(mode_column)
-        .get_column(mode_column)
-        .to_list()
-    ):
-        mode_df = df.filter(pl.col(mode_column).cast(pl.Utf8) == mode_value)
-
-        for component in component_columns:
+    mode_groups = _mode_groups(df, mode_column=mode_column)
+    for component in component_columns:
+        pertinent_df = _pertinent_component_df(df, component=component, mode_column=mode_column)
+        for mode_value, mode_df in [(_ALL_MODES, pertinent_df), *mode_groups]:
             valid_df = mode_df.filter(pl.col(component).is_not_null())
             if valid_df.is_empty():
                 continue
@@ -229,7 +140,14 @@ def _stats_frame(df: pl.DataFrame, *, mode_column: str, builder) -> pl.DataFrame
         pl.DataFrame(rows, infer_schema_length=None)
         .select(*empty_frame.columns)
         .cast(empty_frame.schema)
-        .sort([mode_column, "component"])
+        .with_columns(
+            pl.when(pl.col(mode_column) == _ALL_MODES)
+            .then(0)
+            .otherwise(1)
+            .alias("__mode_sort")
+        )
+        .sort(["__mode_sort", mode_column, "component"])
+        .drop("__mode_sort")
     )
 
 
@@ -242,8 +160,138 @@ def _ecdf_frame(df: pl.DataFrame, *, mode_column: str, builder) -> pl.DataFrame:
         pl.DataFrame(rows, infer_schema_length=None)
         .select(*empty_frame.columns)
         .cast(empty_frame.schema)
-        .sort([mode_column, "component", "percentile"])
+        .with_columns(
+            pl.when(pl.col(mode_column) == _ALL_MODES)
+            .then(0)
+            .otherwise(1)
+            .alias("__mode_sort")
+        )
+        .sort(["__mode_sort", mode_column, "component", "percentile"])
+        .drop("__mode_sort")
     )
+
+
+def _mode_groups(
+    df: pl.DataFrame,
+    *,
+    mode_column: str,
+) -> list[tuple[str, pl.DataFrame]]:
+    mode_values = (
+        df.filter(pl.col(mode_column).is_not_null())
+        .select(pl.col(mode_column).cast(pl.Utf8))
+        .unique()
+        .sort(mode_column)
+        .get_column(mode_column)
+        .to_list()
+    )
+    groups: list[tuple[str, pl.DataFrame]] = []
+    groups.extend(
+        (
+            str(mode_value),
+            df.filter(pl.col(mode_column).cast(pl.Utf8) == mode_value),
+        )
+        for mode_value in mode_values
+    )
+    return groups
+
+
+def _pertinent_component_df(
+    df: pl.DataFrame,
+    *,
+    component: str,
+    mode_column: str,
+) -> pl.DataFrame:
+    pertinent_modes = (
+        df.filter(pl.col(component).is_not_null() & pl.col(mode_column).is_not_null())
+        .select(pl.col(mode_column).cast(pl.Utf8))
+        .unique()
+        .get_column(mode_column)
+        .to_list()
+    )
+    if not pertinent_modes:
+        return df.head(0)
+    return df.filter(pl.col(mode_column).cast(pl.Utf8).is_in(pertinent_modes))
+
+
+def _weighted_stats_row(
+    df: pl.DataFrame,
+    *,
+    mode_column: str,
+    mode_value: str,
+    component: str,
+) -> dict[str, object]:
+    n_total = float(
+        df.select(pl.col("finalweight").sum().alias("n_total"))["n_total"][0] or 0.0
+    )
+    valid_df = df.filter(pl.col(component).is_not_null())
+    if valid_df.is_empty():
+        return {
+            mode_column: mode_value,
+            "component": component,
+            "n_total": n_total,
+            "n_valid": 0.0,
+            "mean": None,
+            "std": None,
+            "min": None,
+            "max": None,
+            "median": None,
+            "mode": None,
+            "zero_share": None,
+            "missing_share": (None if n_total == 0 else (n_total - 0.0) / n_total),
+        }
+
+    values = [
+        float(value)
+        for value in valid_df.get_column(component).cast(pl.Float64).to_list()
+    ]
+    weights = [
+        float(value)
+        for value in valid_df.get_column("finalweight").cast(pl.Float64).to_list()
+    ]
+    n_valid = float(sum(weights))
+    if n_valid <= 0:
+        return {
+            mode_column: mode_value,
+            "component": component,
+            "n_total": n_total,
+            "n_valid": 0.0,
+            "mean": None,
+            "std": None,
+            "min": None,
+            "max": None,
+            "median": None,
+            "mode": None,
+            "zero_share": None,
+            "missing_share": None if n_total == 0 else 1.0,
+        }
+
+    mean = sum(value * weight for value, weight in zip(values, weights, strict=False)) / n_valid
+    variance = (
+        sum(
+            weight * ((value - mean) ** 2)
+            for value, weight in zip(values, weights, strict=False)
+        )
+        / n_valid
+    )
+    zero_weight = sum(
+        weight
+        for value, weight in zip(values, weights, strict=False)
+        if value == 0.0
+    )
+    return {
+        mode_column: mode_value,
+        "component": component,
+        "n_total": n_total,
+        "n_valid": n_valid,
+        "mean": mean,
+        "std": math.sqrt(variance),
+        "min": min(values),
+        "max": max(values),
+        "median": _weighted_quantile(values, weights, 0.5),
+        "mode": _mode_value(values, weights),
+        "zero_share": zero_weight / n_valid,
+        "missing_share": None if n_total == 0 else (n_total - n_valid) / n_total,
+    }
 
 
 @summary_contract(

@@ -59,16 +59,28 @@ def _directional_tour_context(
     context_destination = (
         pl.col(destination_column) if outbound else pl.col(origin_column)
     )
+    depart_expr = _tour_departure_expr(tours)
     return tours.with_columns(
         pl.col("_row_id").cast(pl.Int64),
         pl.col(activitysim.tour_id_column).cast(pl.Int64, strict=False).alias("trip_id"),
         pl.lit(outbound).alias(activitysim.outbound_column),
         pl.lit("outbound" if outbound else "inbound").alias(TOUR_DIRECTION_COLUMN),
+        depart_expr.alias("depart"),
         context_origin.cast(pl.Float64).alias("OTAZ"),
         context_destination.cast(pl.Float64).alias("DTAZ"),
         context_origin.cast(pl.Float64).alias("o_maz"),
         context_destination.cast(pl.Float64).alias("d_maz"),
     )
+
+
+def _tour_departure_expr(tours: pl.DataFrame) -> pl.Expr:
+    if "depart" in tours.columns:
+        return pl.col("depart")
+    if "start" in tours.columns:
+        return pl.col("start")
+    if "start_hour" in tours.columns:
+        return pl.col("start_hour")
+    return pl.lit(None, dtype=pl.Int64)
 
 
 def aggregate_tours_from_trips(

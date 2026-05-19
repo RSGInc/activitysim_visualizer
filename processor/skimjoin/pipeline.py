@@ -30,7 +30,7 @@ def apply_skimjoin(rd: RunData, config: Config) -> RunData:
     if not config.skimjoin.enabled:
         return _package_disabled_skimjoin(rd)
 
-    LOGGER.info("[skimjoin] Starting late-prepare skim enrichment for '%s'", rd.label)
+    LOGGER.info("[skimjoin] Starting skim enrichment for '%s'", rd.label)
     normalized = config.skimjoin.normalized_config
     try:
         if normalized is None:
@@ -107,7 +107,9 @@ def _package_applied_skimjoin(rd: RunData, config: Config, result: object) -> Ru
             set(
                 result.fallback_lookup_report.filter(pl.col("fallback_succeeded"))[
                     "output"
-                ].drop_nulls().to_list()
+                ]
+                .drop_nulls()
+                .to_list()
             )
         )
         if not result.fallback_lookup_report.is_empty()

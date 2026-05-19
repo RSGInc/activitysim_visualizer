@@ -824,6 +824,20 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
 
     assert trip_stats.to_dicts() == [
         {
+            "trip_mode": "All Modes",
+            "component": "skim_time",
+            "n_total": 1.0,
+            "n_valid": 1.0,
+            "mean": 2.0,
+            "std": 0.0,
+            "min": 2.0,
+            "max": 2.0,
+            "median": 2.0,
+            "mode": 2.0,
+            "zero_share": 0.0,
+            "missing_share": 0.0,
+        },
+        {
             "trip_mode": "SOV",
             "component": "skim_time",
             "n_total": 1.0,
@@ -836,9 +850,37 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "mode": 2.0,
             "zero_share": 0.0,
             "missing_share": 0.0,
-        }
+        },
     ]
     assert tour_stats.to_dicts() == [
+        {
+            "tour_mode": "All Modes",
+            "component": "skim_time_inbound",
+            "n_total": 1.0,
+            "n_valid": 1.0,
+            "mean": 3.0,
+            "std": 0.0,
+            "min": 3.0,
+            "max": 3.0,
+            "median": 3.0,
+            "mode": 3.0,
+            "zero_share": 0.0,
+            "missing_share": 0.0,
+        },
+        {
+            "tour_mode": "All Modes",
+            "component": "skim_time_outbound",
+            "n_total": 1.0,
+            "n_valid": 1.0,
+            "mean": 2.0,
+            "std": 0.0,
+            "min": 2.0,
+            "max": 2.0,
+            "median": 2.0,
+            "mode": 2.0,
+            "zero_share": 0.0,
+            "missing_share": 0.0,
+        },
         {
             "tour_mode": "SOV",
             "component": "skim_time_inbound",
@@ -866,10 +908,10 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "mode": 2.0,
             "zero_share": 0.0,
             "missing_share": 0.0,
-        }
+        },
     ]
-    assert trip_ecdf.height == 101
-    assert tour_ecdf.height == 202
+    assert trip_ecdf.height == 202
+    assert tour_ecdf.height == 404
     assert trip_ecdf["value"].unique().to_list() == [2.0]
     assert sorted(tour_ecdf["value"].unique().to_list()) == [2.0, 3.0]
 
@@ -2306,6 +2348,9 @@ def test_trip_skim_component_stats_and_ecdf_follow_weighted_contract(tmp_path: P
     drive_cost = weighted_stats.filter(
         (pl.col("trip_mode") == "DRIVE") & (pl.col("component") == "skim_cost")
     ).to_dicts()[0]
+    all_modes_time = weighted_stats.filter(
+        (pl.col("trip_mode") == "All Modes") & (pl.col("component") == "skim_time")
+    ).to_dicts()[0]
 
     assert drive_time == {
         "trip_mode": "DRIVE",
@@ -2335,15 +2380,37 @@ def test_trip_skim_component_stats_and_ecdf_follow_weighted_contract(tmp_path: P
         "zero_share": 0.0,
         "missing_share": 0.0,
     }
+    assert all_modes_time == {
+        "trip_mode": "All Modes",
+        "component": "skim_time",
+        "n_total": 8.0,
+        "n_valid": 5.0,
+        "mean": 6.0,
+        "std": pytest.approx(math.sqrt(14.0)),
+        "min": 0.0,
+        "max": 10.0,
+        "median": 5.0,
+        "mode": 5.0,
+        "zero_share": 0.2,
+        "missing_share": 0.375,
+    }
 
     drive_time_ecdf = weighted_ecdf.filter(
         (pl.col("trip_mode") == "DRIVE") & (pl.col("component") == "skim_time")
+    )
+    all_modes_time_ecdf = weighted_ecdf.filter(
+        (pl.col("trip_mode") == "All Modes") & (pl.col("component") == "skim_time")
     )
     assert drive_time_ecdf.height == 101
     assert drive_time_ecdf.filter(pl.col("percentile") == 0.0)["value"].to_list() == [0.0]
     assert drive_time_ecdf.filter(pl.col("percentile") == 0.34)["value"].to_list() == [10.0]
     assert drive_time_ecdf.filter(pl.col("percentile") == 1.0)["value"].to_list() == [10.0]
     assert drive_time_ecdf["n_valid"].unique().to_list() == [3.0]
+    assert all_modes_time_ecdf.height == 101
+    assert all_modes_time_ecdf.filter(pl.col("percentile") == 0.0)["value"].to_list() == [0.0]
+    assert all_modes_time_ecdf.filter(pl.col("percentile") == 0.5)["value"].to_list() == [5.0]
+    assert all_modes_time_ecdf.filter(pl.col("percentile") == 1.0)["value"].to_list() == [10.0]
+    assert all_modes_time_ecdf["n_valid"].unique().to_list() == [5.0]
 
 
 def test_skimjoin_failure_keeps_non_skim_summaries_available_and_skim_summaries_empty(
@@ -2393,18 +2460,130 @@ def test_tour_skim_component_summaries_follow_unweighted_mode(tmp_path: Path) ->
     drive_time = stats.filter(
         (pl.col("tour_mode") == "DRIVE") & (pl.col("component") == "skim_time")
     ).to_dicts()[0]
+    all_modes_time = stats.filter(
+        (pl.col("tour_mode") == "All Modes") & (pl.col("component") == "skim_time")
+    ).to_dicts()[0]
     assert drive_time["n_total"] == 3.0
     assert drive_time["n_valid"] == 2.0
     assert drive_time["mean"] == 5.0
     assert drive_time["mode"] == 0.0
     assert drive_time["zero_share"] == 0.5
     assert drive_time["missing_share"] == pytest.approx(1.0 / 3.0)
+    assert all_modes_time["n_total"] == 5.0
+    assert all_modes_time["n_valid"] == 4.0
+    assert all_modes_time["mean"] == 5.0
+    assert all_modes_time["mode"] == 5.0
+    assert all_modes_time["zero_share"] == 0.25
+    assert all_modes_time["missing_share"] == 0.2
 
     drive_time_ecdf = ecdf.filter(
         (pl.col("tour_mode") == "DRIVE") & (pl.col("component") == "skim_time")
     )
+    all_modes_time_ecdf = ecdf.filter(
+        (pl.col("tour_mode") == "All Modes") & (pl.col("component") == "skim_time")
+    )
     assert drive_time_ecdf.filter(pl.col("percentile") == 0.5)["value"].to_list() == [0.0]
     assert drive_time_ecdf.filter(pl.col("percentile") == 0.51)["value"].to_list() == [10.0]
+    assert all_modes_time_ecdf.filter(pl.col("percentile") == 0.5)["value"].to_list() == [5.0]
+    assert all_modes_time_ecdf.filter(pl.col("percentile") == 1.0)["value"].to_list() == [10.0]
+
+
+def test_all_modes_summary_uses_only_pertinent_modes_for_each_component(tmp_path: Path) -> None:
+    config = _write_main_config(tmp_path, skimjoin_enabled=False)
+    prepared = RunData(
+        label="Pertinent Modes Test",
+        run_dir="C:/runs/pertinent-modes",
+        skim_file=None,
+        hh=pl.DataFrame(),
+        per=pl.DataFrame(),
+        tours=pl.DataFrame(),
+        trips=pl.DataFrame(
+            {
+                "trip_mode": ["DRIVE", "DRIVE", "WALK", "WALK"],
+                "skim_time": [10.0, None, None, None],
+                "skim_walk": [None, None, 5.0, None],
+                "finalweight": [2.0, 3.0, 4.0, 5.0],
+            }
+        ),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    stats = skimjoin_summaries.trip_skim_component_stats(prepared, config)
+
+    all_modes_time = stats.filter(
+        (pl.col("trip_mode") == "All Modes") & (pl.col("component") == "skim_time")
+    ).to_dicts()[0]
+    all_modes_walk = stats.filter(
+        (pl.col("trip_mode") == "All Modes") & (pl.col("component") == "skim_walk")
+    ).to_dicts()[0]
+
+    assert all_modes_time["n_total"] == 5.0
+    assert all_modes_time["n_valid"] == 2.0
+    assert all_modes_time["missing_share"] == pytest.approx(3.0 / 5.0)
+    assert all_modes_walk["n_total"] == 9.0
+    assert all_modes_walk["n_valid"] == 4.0
+    assert all_modes_walk["missing_share"] == pytest.approx(5.0 / 9.0)
+
+
+def test_tour_annotation_uses_start_as_departure_fallback_for_period_dimensions(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    _write_omx_with_lookup(
+        skim_path,
+        matrix_name="SOV_TIME__AM",
+        lookup_name="taz",
+        values=np.array([[1.0, 2.0], [3.0, 4.0]]),
+    )
+    config_path = tmp_path / "skimjoin.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "project:",
+                "  skim_files:",
+                f"    - {skim_path.name}",
+                "activitysim:",
+                "  mode_column: trip_mode",
+                "  tour_mode_column: tour_mode",
+                "  tour_id_column: tour_id",
+                "  outbound_column: outbound",
+                "dimensions:",
+                "  PERIOD:",
+                "    source_column: depart",
+                "    values:",
+                "      8: AM",
+                "defaults:",
+                "  origin: OTAZ",
+                "  destination: DTAZ",
+                "modes:",
+                "  SOV:",
+                "    time: SOV_TIME__{PERIOD}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+    inventory = inventory_skim_files(normalized.skim_files)
+    tours = pl.DataFrame(
+        {
+            "tour_id": [1],
+            "tour_mode": ["SOV"],
+            "origin": [101],
+            "destination": [102],
+            "start": [8],
+        }
+    )
+
+    annotated, _, missing = annotate_tours(tours, normalized, inventory)
+
+    assert missing.is_empty()
+    assert annotated["skim_time_outbound"].to_list() == [2.0]
+    assert annotated["skim_time_inbound"].to_list() == [3.0]
 
 
 def test_skim_component_summaries_return_typed_empty_frames_without_numeric_skim_columns(
@@ -2478,6 +2657,8 @@ def test_skim_component_summaries_handle_late_float_values_without_schema_infere
     drive_time = stats.to_dicts()[0]
     assert drive_time["component"] == "skim_time"
     assert drive_time["max"] == pytest.approx(15.69609)
-    assert ecdf.filter(pl.col("percentile") == 1.0)["value"].to_list() == [
+    assert ecdf.filter(
+        (pl.col("trip_mode") == "DRIVE") & (pl.col("percentile") == 1.0)
+    )["value"].to_list() == [
         pytest.approx(15.69609)
     ]
