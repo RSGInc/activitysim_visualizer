@@ -1048,9 +1048,46 @@ def test_apply_skimjoin_records_failure_and_keeps_base_tables_when_annotation_ra
     assert result.skimjoin_manifest["skimjoin_status"] == "failed"
     assert "annotation exploded" in str(result.skimjoin_manifest["skimjoin_failure_detail"])
     assert result.skimjoin_manifest["skimjoin_applied_outputs"] == []
+    assert result.skimjoin_manifest["skimjoin_skipped_rules"] == []
+    assert result.skimjoin_manifest["skimjoin_warning_count"] == 0
+    assert set(result.skimjoin_reports) == {
+        "skim_lookup_summary",
+        "missing_lookup_report",
+        "skipped_rule_report",
+        "tour_aggregation_summary",
+        "failure_report",
+    }
+    assert result.skimjoin_reports["skim_lookup_summary"].is_empty()
+    assert result.skimjoin_reports["missing_lookup_report"].is_empty()
+    assert result.skimjoin_reports["skipped_rule_report"].is_empty()
+    assert result.skimjoin_reports["tour_aggregation_summary"].is_empty()
     assert result.skimjoin_reports["failure_report"]["stage"].to_list() == [
         "integrated_skimjoin"
     ]
+
+
+def test_apply_skimjoin_disabled_resets_manifest_and_reports(tmp_path: Path) -> None:
+    config = _write_main_config(tmp_path, skimjoin_enabled=False)
+    prepared = _skimjoin_ready_run_data()
+    prepared.skimjoin_manifest = {"skimjoin_status": "applied"}
+    prepared.skimjoin_reports = {
+        "failure_report": pl.DataFrame(
+            {"stage": ["old"], "error_type": ["ValueError"], "detail": ["old"]}
+        )
+    }
+
+    result = apply_skimjoin(prepared, config)
+
+    assert result.skimjoin_manifest == {
+        "skimjoin_enabled": False,
+        "skimjoin_status": "disabled",
+        "skimjoin_config_digest": None,
+        "skimjoin_applied_outputs": [],
+        "skimjoin_skipped_rules": [],
+        "skimjoin_warning_count": 0,
+        "skimjoin_failure_detail": None,
+    }
+    assert result.skimjoin_reports == {}
 
 
 def test_apply_skimjoin_records_failure_and_keeps_base_tables_when_tour_aggregation_raises(

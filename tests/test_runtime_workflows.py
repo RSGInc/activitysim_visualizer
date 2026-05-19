@@ -442,6 +442,83 @@ def test_run_summary_workflow_uses_cache_hit_without_raw_read_or_summary_rebuild
     assert result.prepared_runs_by_key == {}
 
 
+def test_run_summary_workflow_cache_hit_keeps_existing_prepared_run_by_key(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+    )
+    summary_run = _simple_summary_run("Run A", "run-a")
+    prepared_run = _fake_run_data("Run A", str(run_dir))
+    fingerprint = build_run_fingerprint(
+        label="Run A",
+        run_dir=config.runs[0]["dir"],
+        skim_file=None,
+        hh_weight_col=None,
+        person_weight_col=None,
+        trip_weight_col=None,
+    )
+    write_summary_run_cache(
+        summary_run,
+        config,
+        run_fingerprint=fingerprint,
+        prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="run-a",
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+        ),
+    )
+
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(
+        runtime_workflows,
+        "read_run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("read_run should not be called on a summary-cache hit")
+        ),
+    )
+    monkeypatch.setattr(
+        runtime_workflows,
+        "prepare_data",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("prepare_data should not be called on a summary-cache hit")
+        ),
+    )
+    monkeypatch.setattr(
+        summary_cache,
+        "build_mode_summaries_with_metadata",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError(
+                "build_mode_summaries_with_metadata should not be called on a summary-cache hit"
+            )
+        ),
+    )
+
+    existing_result = ProcessorWorkflowResult(
+        prepared_runs=[("Run A", prepared_run)],
+        prepared_runs_by_key={"run-a": ("Run A", prepared_run)},
+        run_keys=["run-a"],
+        run_fingerprints_by_key={"run-a": fingerprint},
+    )
+
+    result = runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=True,
+        write_cache=False,
+        existing_result=existing_result,
+    )
+
+    assert [summary_run.label for summary_run in result.summary_runs] == ["Run A"]
+    assert [label for label, _ in result.prepared_runs] == ["Run A"]
+    assert result.prepared_runs_by_key["run-a"][1] is prepared_run
+
+
 def test_run_summary_workflow_rebuilds_and_writes_cache_on_cache_miss(
     tmp_path: Path,
     monkeypatch,
