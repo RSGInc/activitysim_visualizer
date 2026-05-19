@@ -179,6 +179,11 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         daily_travel.adult_escort_trip_stop_frequency,
     ),
     SummarySpec(
+        "adult_escort_event_stop_distribution",
+        "adult_escort_event_stop_distribution",
+        daily_travel.adult_escort_event_stop_distribution,
+    ),
+    SummarySpec(
         "adult_escorted_tours_by_person_type_and_direction",
         "adult_escorted_tours_by_person_type_and_direction",
         daily_travel.adult_escorted_tours_by_person_type_and_direction,

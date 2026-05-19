@@ -29,7 +29,7 @@ STUDENT_ESCORT_TYPE_LABELS = {
 CORE_SUMMARY_IDS = (
     "escorted_tour_totals",
     "school_escorted_tours_by_escort_type_and_direction",
-    "adult_escort_trip_stop_frequency",
+    "adult_escort_event_stop_distribution",
     "adult_escorted_tours_by_person_type_and_direction",
     "adult_escorted_tour_distance_distribution_by_direction",
     "adult_escorted_trip_distance_distribution_by_direction",
@@ -41,13 +41,19 @@ OPTIONAL_SUMMARY_IDS = (
     "schoolkids_per_escorted_tour_by_student_count_and_direction",
 )
 PAGE_SUMMARY_IDS = (*CORE_SUMMARY_IDS, *OPTIONAL_SUMMARY_IDS)
+STOP_SEGMENT_LABELS = {
+    "outbound_before_dropoff": "Adult Escort Stops Before Dropoff - Outbound",
+    "outbound_after_dropoff": "Adult Escort Stops After Dropoff - Outbound",
+    "inbound_before_pickup": "Adult Escort Stops Before Pickup - Inbound",
+    "inbound_after_pickup": "Adult Escort Stops After Pickup - Inbound",
+}
 
 
 def direction_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
     directions = ordered_category_values(data_list, DIRECTION_COL)
     if not directions:
-        return ["Both"]
-    options = ["Both"]
+        return ["Both Directions"]
+    options = ["Both Directions"]
     if "outbound" in directions:
         options.append("Outbound")
     if "inbound" in directions:
@@ -57,10 +63,24 @@ def direction_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
 
 def _raw_direction(value: str) -> str:
     return {
-        "Both": "all_directions",
+        "Both Directions": "all_directions",
         "Outbound": "outbound",
         "Inbound": "inbound",
     }.get(value, "all_directions")
+
+
+def _adult_raw_direction(value: str) -> str:
+    return {
+        "Both Directions": "both",
+        "Outbound": "outbound",
+        "Inbound": "inbound",
+    }.get(value, "both")
+
+
+def _default_direction_option(options: list[str]) -> str:
+    if "Outbound" in options:
+        return "Outbound"
+    return options[0] if options else "Both Directions"
 
 
 def escort_school_chart_data(
@@ -75,21 +95,19 @@ def escort_school_chart_data(
     return out
 
 
-def escort_stop_frequency_chart_data(
-    data_list: list[tuple[str, pl.DataFrame]], direction: str
+def adult_escort_event_stop_chart_data(
+    data_list: list[tuple[str, pl.DataFrame]], segment: str
 ) -> list[tuple[str, pl.DataFrame]]:
-    stop_col = {
-        "Both": "total_stop_count",
-        "Outbound": "outbound_stop_count",
-        "Inbound": "inbound_stop_count",
-    }[direction]
     out = []
     for label, df in nonempty(data_list):
-        df = df.group_by(stop_col).agg(tour_count=pl.col("tour_count").sum())
         df = (
-            df.with_columns(pl.col(stop_col).cast(pl.Utf8).alias("stop_frequency"))
-            .select("stop_frequency", "tour_count")
-            .sort("stop_frequency")
+            df.with_columns(pl.col("segment").cast(pl.Utf8))
+            .filter(pl.col("segment") == segment)
+            .group_by("stop_count")
+            .agg(tour_count=pl.col("tour_count").sum())
+            .with_columns(pl.col("stop_count").cast(pl.Utf8))
+            .select("stop_count", "tour_count")
+            .sort(pl.col("stop_count").cast(pl.Int64, strict=False))
         )
         out.append((label, df))
     return out
@@ -140,7 +158,9 @@ def escort_distance_chart_data(
             .sort("_sort_distance")
             .drop("_sort_distance")
         )
-        bins_df = pl.DataFrame({"distance_bin": DISTANCE_BINS}, schema={"distance_bin": pl.Utf8})
+        bins_df = pl.DataFrame(
+            {"distance_bin": DISTANCE_BINS}, schema={"distance_bin": pl.Utf8}
+        )
         filtered = (
             bins_df.join(filtered, on="distance_bin", how="left")
             .with_columns(pl.col("freq").fill_null(0.0))
@@ -259,17 +279,34 @@ def _student_count_category_values(
     return [str(value) for value in sorted(values)]
 
 
+def _stop_count_category_values(
+    data_list: list[tuple[str, pl.DataFrame]],
+) -> list[str]:
+    values: set[int] = set()
+    for _, df in nonempty(data_list):
+        if "stop_count" not in df.columns:
+            continue
+        values.update(
+            value
+            for value in df.select(pl.col("stop_count").cast(pl.Int64))
+            .to_series()
+            .to_list()
+            if value is not None
+        )
+    return [str(value) for value in sorted(values)]
+
+
 class EscortedToursPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
         direction_opts = self._direction_options()
         self.direction_sel = self.selector(
             "direction",
             widget=pn.widgets.Select(
-                name="Stop Direction",
+                name="Direction",
                 options=direction_opts,
-                value=direction_opts[0],
+                value=_default_direction_option(direction_opts),
             ),
-            label="Stop Direction",
+            label="Direction",
         )
         self._body = self.section(
             "escorted_tours_body",
@@ -287,7 +324,7 @@ class EscortedToursPage(DashboardPage):
             "school_escorted_tours_by_escort_type_and_direction", "weighted"
         )
         if data is None:
-            return ["Both"]
+            return ["Both Directions"]
         return direction_options(data)
 
     def sync_controls(self) -> None:
@@ -299,7 +336,7 @@ class EscortedToursPage(DashboardPage):
         )
         self.direction_sel.options = direction_opts
         if self.direction_sel.value not in direction_opts:
-            self.direction_sel.value = direction_opts[0]
+            self.direction_sel.value = _default_direction_option(direction_opts)
 
     def render_body(self):
         if not self.state.run_labels:
@@ -332,16 +369,13 @@ class EscortedToursPage(DashboardPage):
         total_escorted_tours = nonempty(summaries["escorted_tour_totals"])
         direction = self.direction_sel.value
         raw_direction = _raw_direction(direction)
+        adult_raw_direction = _adult_raw_direction(direction)
         escort_type_values = ordered_category_values(
             summaries["school_escorted_tours_by_escort_type_and_direction"],
             "escort_type",
         )
-        stop_frequency_values = ordered_category_values(
-            escort_stop_frequency_chart_data(
-                summaries["adult_escort_trip_stop_frequency"],
-                direction,
-            ),
-            "stop_frequency",
+        stop_frequency_values = _stop_count_category_values(
+            summaries["adult_escort_event_stop_distribution"]
         )
         person_type_values = ordered_category_values(
             summaries["adult_escorted_tours_by_person_type_and_direction"],
@@ -366,26 +400,29 @@ class EscortedToursPage(DashboardPage):
                 value_cols=("tour_count", "pct"),
             ),
         )
-        escort_stop_data = self.get_filtered_view(
-            "adult_escort_trip_stop_frequency",
-            direction,
-            factory=lambda: complete_category_counts(
-                escort_stop_frequency_chart_data(
-                    summaries["adult_escort_trip_stop_frequency"],
-                    direction,
+        escort_stop_data_by_segment = {
+            segment: self.get_filtered_view(
+                "adult_escort_event_stop_distribution",
+                segment,
+                factory=lambda segment=segment: complete_category_counts(
+                    adult_escort_event_stop_chart_data(
+                        summaries["adult_escort_event_stop_distribution"],
+                        segment,
+                    ),
+                    category_col="stop_count",
+                    category_values=stop_frequency_values,
+                    value_cols=("tour_count",),
                 ),
-                category_col="stop_frequency",
-                category_values=stop_frequency_values,
-                value_cols=("tour_count",),
-            ),
-        )
+            )
+            for segment in STOP_SEGMENT_LABELS
+        }
         escort_person_type_data = self.get_filtered_view(
             "adult_escorted_tours_by_person_type_and_direction",
-            raw_direction,
+            adult_raw_direction,
             factory=lambda: complete_category_counts(
                 escort_person_type_chart_data(
                     summaries["adult_escorted_tours_by_person_type_and_direction"],
-                    raw_direction,
+                    adult_raw_direction,
                     person_type_labeler=self.config.person_type_label,
                 ),
                 category_col="person_type",
@@ -395,19 +432,19 @@ class EscortedToursPage(DashboardPage):
         )
         escorted_tour_distance_data = self.get_filtered_view(
             "adult_escorted_tour_distance_distribution_by_direction",
-            raw_direction,
+            adult_raw_direction,
             factory=lambda: escort_distance_chart_data(
                 summaries["adult_escorted_tour_distance_distribution_by_direction"],
-                raw_direction,
+                adult_raw_direction,
                 y_col="tour_count",
             ),
         )
         escorted_trip_distance_data = self.get_filtered_view(
             "adult_escorted_trip_distance_distribution_by_direction",
-            raw_direction,
+            adult_raw_direction,
             factory=lambda: escort_distance_chart_data(
                 summaries["adult_escorted_trip_distance_distribution_by_direction"],
-                raw_direction,
+                adult_raw_direction,
                 y_col="trip_count",
             ),
         )
@@ -460,7 +497,9 @@ class EscortedToursPage(DashboardPage):
         household_school_escort_both = None
         if (
             summaries["student_households_by_student_count"] is not None
-            and summaries["households_with_school_escorting_by_student_count_and_direction"]
+            and summaries[
+                "households_with_school_escorting_by_student_count_and_direction"
+            ]
             is not None
         ):
             household_school_escort_outbound = self.get_filtered_view(
@@ -471,7 +510,9 @@ class EscortedToursPage(DashboardPage):
                         (
                             label,
                             df.with_columns(
-                                pl.col("student_count").cast(pl.Utf8).alias("student_count")
+                                pl.col("student_count")
+                                .cast(pl.Utf8)
+                                .alias("student_count")
                             ),
                         )
                         for label, df in household_school_escort_chart_data(
@@ -495,7 +536,9 @@ class EscortedToursPage(DashboardPage):
                         (
                             label,
                             df.with_columns(
-                                pl.col("student_count").cast(pl.Utf8).alias("student_count")
+                                pl.col("student_count")
+                                .cast(pl.Utf8)
+                                .alias("student_count")
                             ),
                         )
                         for label, df in household_school_escort_chart_data(
@@ -519,7 +562,9 @@ class EscortedToursPage(DashboardPage):
                         (
                             label,
                             df.with_columns(
-                                pl.col("student_count").cast(pl.Utf8).alias("student_count")
+                                pl.col("student_count")
+                                .cast(pl.Utf8)
+                                .alias("student_count")
                             ),
                         )
                         for label, df in household_school_escort_chart_data(
@@ -539,7 +584,10 @@ class EscortedToursPage(DashboardPage):
         schoolkids_per_escorted_tour_outbound = None
         schoolkids_per_escorted_tour_inbound = None
         schoolkids_per_escorted_tour_both = None
-        if summaries["schoolkids_per_escorted_tour_by_student_count_and_direction"] is not None:
+        if (
+            summaries["schoolkids_per_escorted_tour_by_student_count_and_direction"]
+            is not None
+        ):
             schoolkids_per_escorted_tour_outbound = self.get_filtered_view(
                 "schoolkids_per_escorted_tour",
                 "outbound",
@@ -548,11 +596,15 @@ class EscortedToursPage(DashboardPage):
                         (
                             label,
                             df.with_columns(
-                                pl.col("student_count").cast(pl.Utf8).alias("student_count")
+                                pl.col("student_count")
+                                .cast(pl.Utf8)
+                                .alias("student_count")
                             ),
                         )
                         for label, df in schoolkids_per_escorted_tour_chart_data(
-                            summaries["schoolkids_per_escorted_tour_by_student_count_and_direction"],
+                            summaries[
+                                "schoolkids_per_escorted_tour_by_student_count_and_direction"
+                            ],
                             "outbound",
                         )
                     ],
@@ -569,11 +621,15 @@ class EscortedToursPage(DashboardPage):
                         (
                             label,
                             df.with_columns(
-                                pl.col("student_count").cast(pl.Utf8).alias("student_count")
+                                pl.col("student_count")
+                                .cast(pl.Utf8)
+                                .alias("student_count")
                             ),
                         )
                         for label, df in schoolkids_per_escorted_tour_chart_data(
-                            summaries["schoolkids_per_escorted_tour_by_student_count_and_direction"],
+                            summaries[
+                                "schoolkids_per_escorted_tour_by_student_count_and_direction"
+                            ],
                             "inbound",
                         )
                     ],
@@ -590,11 +646,15 @@ class EscortedToursPage(DashboardPage):
                         (
                             label,
                             df.with_columns(
-                                pl.col("student_count").cast(pl.Utf8).alias("student_count")
+                                pl.col("student_count")
+                                .cast(pl.Utf8)
+                                .alias("student_count")
                             ),
                         )
                         for label, df in schoolkids_per_escorted_tour_chart_data(
-                            summaries["schoolkids_per_escorted_tour_by_student_count_and_direction"],
+                            summaries[
+                                "schoolkids_per_escorted_tour_by_student_count_and_direction"
+                            ],
                             "both",
                         )
                     ],
@@ -604,32 +664,35 @@ class EscortedToursPage(DashboardPage):
                 ),
             )
 
-        total_kpi = kpi_box(
-            "Total Escorted Tours",
-            _escort_total_kpi_values(total_escorted_tours),
-        )
-        school_escort_chart = bar_chart(
-            school_escort_data,
-            x_col="escort_type",
-            y_col="tour_count",
-            title=f"Escorted Tours To / From School - {direction}",
-            xaxis_title="Escort Type",
-            yaxis_title="School Tours",
-            pct_col="pct",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=escort_type_values,
-        )
-        escort_stop_chart = bar_chart(
-            escort_stop_data,
-            x_col="stop_frequency",
-            y_col="tour_count",
-            title=f"Adult Escort Trip Stop Frequency - {direction}",
-            xaxis_title="Stop Count",
-            yaxis_title="Adult Escort Trips",
-            pct_col="pct",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=stop_frequency_values,
-        )
+        # total_kpi = kpi_box(
+        #     "Total Escorted Tours",
+        #     _escort_total_kpi_values(total_escorted_tours),
+        # )
+        # school_escort_chart = bar_chart(
+        #     school_escort_data,
+        #     x_col="escort_type",
+        #     y_col="tour_count",
+        #     title=f"Escorted Tours To / From School - {direction}",
+        #     xaxis_title="Escort Type",
+        #     yaxis_title="School Tours",
+        #     pct_col="pct",
+        #     as_percent=self.as_percent,
+        #     xaxis_categoryarray=escort_type_values,
+        # )
+        escort_stop_charts = [
+            bar_chart(
+                escort_stop_data_by_segment[segment],
+                x_col="stop_count",
+                y_col="tour_count",
+                title=title,
+                xaxis_title="Stop Count",
+                yaxis_title="Chauffer Escorting Tour-Legs",
+                pct_col="pct",
+                as_percent=self.as_percent,
+                xaxis_categoryarray=stop_frequency_values,
+            )
+            for segment, title in STOP_SEGMENT_LABELS.items()
+        ]
         escort_person_type_chart = bar_chart(
             [
                 (
@@ -637,7 +700,9 @@ class EscortedToursPage(DashboardPage):
                     df.with_columns(
                         pl.col("person_type")
                         .cast(pl.Utf8)
-                        .map_elements(self.config.person_type_label, return_dtype=pl.Utf8)
+                        .map_elements(
+                            self.config.person_type_label, return_dtype=pl.Utf8
+                        )
                         .alias("person_type_label")
                     ),
                 )
@@ -645,20 +710,22 @@ class EscortedToursPage(DashboardPage):
             ],
             x_col="person_type_label",
             y_col="tour_count",
-            title=f"Adult Escorted Tours by Person Type - {direction}",
+            title=f"Chauffer Escorting Tours by Person Type - {direction}",
             xaxis_title="Person Type",
-            yaxis_title="Adult Escort Tours",
+            yaxis_title="Chauffer Escorting Tours",
             pct_col="pct",
             as_percent=self.as_percent,
-            xaxis_categoryarray=self.config.ordered_labels("person_type", person_type_values),
+            xaxis_categoryarray=self.config.ordered_labels(
+                "person_type", person_type_values
+            ),
         )
         escorted_tour_distance_chart = density_chart(
             escorted_tour_distance_data,
             x_col="distance_bin",
             y_col="freq",
-            title=f"Adult Escorted Tour Distance Distribution - {direction}",
+            title=f"Chauffer Escorting Tour Distance Distribution - {direction}",
             xaxis_title="Distance (miles)",
-            yaxis_title="Adult Escort Tours",
+            yaxis_title="Chauffer Escorting Tours",
             normalize=False,
             as_percent=self.as_percent,
             xaxis_categoryarray=DISTANCE_BINS,
@@ -669,9 +736,9 @@ class EscortedToursPage(DashboardPage):
             escorted_trip_distance_data,
             x_col="distance_bin",
             y_col="freq",
-            title=f"Adult Escorted Trip Distance Distribution - {direction}",
+            title=f"Chauffer Escorting Trip Distance Distribution - {direction}",
             xaxis_title="Distance (miles)",
-            yaxis_title="Adult Escort Trips",
+            yaxis_title="Chauffer Escorting Trips",
             normalize=False,
             as_percent=self.as_percent,
             xaxis_categoryarray=DISTANCE_BINS,
@@ -778,9 +845,9 @@ class EscortedToursPage(DashboardPage):
                 title="Households With School Escorting - Outbound",
                 xaxis_title="Students in Household",
                 yaxis_title=(
-                    "Student Households With School Escorting (%)"
+                    "Percent of Households with Students (%)"
                     if self.as_percent
-                    else "Student Households With School Escorting"
+                    else "Number of Households with Students"
                 ),
                 as_percent=False,
                 xaxis_categoryarray=household_student_count_values,
@@ -792,9 +859,9 @@ class EscortedToursPage(DashboardPage):
                 title="Households With School Escorting - Inbound",
                 xaxis_title="Students in Household",
                 yaxis_title=(
-                    "Student Households With School Escorting (%)"
+                    "Percent of Households with Students (%)"
                     if self.as_percent
-                    else "Student Households With School Escorting"
+                    else "Number of Households with Students"
                 ),
                 as_percent=False,
                 xaxis_categoryarray=household_student_count_values,
@@ -806,9 +873,9 @@ class EscortedToursPage(DashboardPage):
                 title="Households With School Escorting - Both Directions",
                 xaxis_title="Students in Household",
                 yaxis_title=(
-                    "Student Households With School Escorting (%)"
+                    "Percent of Households with Students (%)"
                     if self.as_percent
-                    else "Student Households With School Escorting"
+                    else "Number of Households with Students"
                 ),
                 as_percent=False,
                 xaxis_categoryarray=household_student_count_values,
@@ -849,25 +916,14 @@ class EscortedToursPage(DashboardPage):
                 xaxis_categoryarray=household_student_count_values,
             )
 
-        body_objects: list[pn.viewable.Viewable] = [
-            pn.Row(
-                pn.pane.Markdown("**Stop Direction:**"),
-                self.direction_sel,
-            ),
-            pn.Row(
-                school_escort_chart,
-                escort_stop_chart,
-                sizing_mode="stretch_width",
-            ),
-            pn.Row(
-                escort_person_type_chart,
-                sizing_mode="stretch_width",
-            ),
-        ]
+        body_objects: list[pn.viewable.Viewable] = []
         if student_school_escort_outbound_chart is not None:
             body_objects.extend(
                 [
-                    pn.pane.Markdown("### Student School Escort Status"),
+                    pn.pane.Markdown("### Student School Tour Escort Status"),
+                    pn.pane.Markdown(
+                        "Student school tours by escort type. `Both Directions` means the same child school tour is escorted outbound and inbound."
+                    ),
                     pn.Row(
                         student_school_escort_outbound_chart,
                         student_school_escort_inbound_chart,
@@ -879,7 +935,10 @@ class EscortedToursPage(DashboardPage):
         else:
             body_objects.extend(
                 [
-                    pn.pane.Markdown("### Student School Escort Status"),
+                    pn.pane.Markdown("### Student School Tour Escort Status"),
+                    pn.pane.Markdown(
+                        "Student school tours by escort type. `Both Directions` means the same child school tour is escorted outbound and inbound."
+                    ),
                     self.data_not_available_card(
                         detail="This section only renders when the student school escort summary is available.",
                         missing_items=["student_school_escort_status_by_direction"],
@@ -890,6 +949,9 @@ class EscortedToursPage(DashboardPage):
             body_objects.extend(
                 [
                     pn.pane.Markdown("### Households With School Escorting"),
+                    pn.pane.Markdown(
+                        "Households with school escorting by number of students per household. A household counts if it has at least one escorted school tour in the selected direction."
+                    ),
                     pn.Row(
                         household_school_escort_outbound_chart,
                         household_school_escort_inbound_chart,
@@ -902,6 +964,9 @@ class EscortedToursPage(DashboardPage):
             body_objects.extend(
                 [
                     pn.pane.Markdown("### Households With School Escorting"),
+                    pn.pane.Markdown(
+                        "Households with school escorting  number of students per household. A household counts if it has at least one escorted school tour in the selected direction."
+                    ),
                     self.data_not_available_card(
                         detail="This section only renders when the household school escort summaries are available.",
                         missing_items=[
@@ -915,6 +980,9 @@ class EscortedToursPage(DashboardPage):
             body_objects.extend(
                 [
                     pn.pane.Markdown("### Schoolkids Per Escorted Tour"),
+                    pn.pane.Markdown(
+                        "Average `num_escortees` on adult escort tours, grouped by number of students in the household. `Both Directions` only counts adult tour rows flagged in both directions."
+                    ),
                     pn.Row(
                         schoolkids_per_escorted_tour_outbound_chart,
                         schoolkids_per_escorted_tour_inbound_chart,
@@ -927,6 +995,9 @@ class EscortedToursPage(DashboardPage):
             body_objects.extend(
                 [
                     pn.pane.Markdown("### Schoolkids Per Escorted Tour"),
+                    pn.pane.Markdown(
+                        "Average `num_escortees` on adult escort tours, grouped by number of students in the household. `Both Directions` only counts adult/chauffer tours where escorting occurred in both directions."
+                    ),
                     self.data_not_available_card(
                         detail="This section only renders when the schoolkids-per-escorted-tour summary is available.",
                         missing_items=[
@@ -935,15 +1006,54 @@ class EscortedToursPage(DashboardPage):
                     ),
                 ]
             )
+
         body_objects.extend(
             [
+                # pn.Row(
+                #     school_escort_chart,
+                #     sizing_mode="stretch_width",
+                # ),
+                pn.pane.Markdown("### Chauffer Escorting Stop Distribution"),
+                pn.pane.Markdown(
+                    "Number of stops before and after each adult chauffeur trips. Matched `escort_participants` to child school and home trips to determine the stop count."
+                ),
+                pn.Row(
+                    *escort_stop_charts[:2],
+                    sizing_mode="stretch_width",
+                ),
+                pn.Row(
+                    *escort_stop_charts[2:],
+                    sizing_mode="stretch_width",
+                ),
+                pn.Row(
+                    pn.pane.Markdown("**Stop Direction:**"),
+                    self.direction_sel,
+                ),
+                pn.pane.Markdown("### Chauffer Escorting Person Type Distribution"),
+                pn.pane.Markdown(
+                    "Adult chauffeur escort tours by person type. `Both Directions` means the chauffer escorted in both outbound and inbound directions."
+                ),
+                pn.Row(
+                    escort_person_type_chart,
+                    sizing_mode="stretch_width",
+                ),
+            ]
+        )
+        body_objects.extend(
+            [
+                pn.pane.Markdown(
+                    "### Chauffer Escorting Tour and Trip Distance Distributions"
+                ),
+                pn.pane.Markdown(
+                    "Distance distributions for adult chauffeur escort tours and trips. `Both Directions` means the chauffer escorted in both outbound and inbound directions."
+                ),
                 escorted_tour_distance_chart,
                 escorted_trip_distance_chart,
             ]
         )
 
         return [
-            total_kpi,
+            # total_kpi,
             pn.Column(*body_objects),
         ]
 
@@ -954,9 +1064,7 @@ PAGE = DashboardPageDefinition(
     group_id="daily_travel",
     order=29,
     page_cls=EscortedToursPage,
-    required_summary_ids=(
-        *PAGE_SUMMARY_IDS,
-    ),
+    required_summary_ids=(*PAGE_SUMMARY_IDS,),
 )
 
 EscortedToursPage.definition = PAGE

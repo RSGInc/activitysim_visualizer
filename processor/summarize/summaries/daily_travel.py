@@ -11,6 +11,7 @@ from processor.summarize.summaries.tour_purpose_helpers import (
 
 _CHILD_PERSON_TYPES = {"6", "7", "8"}
 _STUDENT_SCHOOL_ESCORT_TYPES = ("not_escorted", "pure_escort", "ride_share")
+_EXPLICIT_ESCORT_TYPES = ("pure_escort", "ride_share")
 
 
 def _parent_only_escorted_tours(rd: RunData) -> pl.DataFrame:
@@ -60,6 +61,29 @@ def _adult_side_escorted_tours(rd: RunData) -> pl.DataFrame:
         pl.col(purpose_col).cast(pl.Utf8).str.to_lowercase() == "escort"
     )
     return adult_escort if not adult_escort.is_empty() else escorted
+
+
+def _escort_type_matches(column: str, escort_type: str) -> pl.Expr:
+    normalized = pl.col(column).cast(pl.Utf8).str.to_lowercase()
+    if escort_type == "ride_share":
+        return normalized.is_in(["ride_share", "rideshare", "ride share"])
+    return normalized == escort_type
+
+
+def _explicit_escort_label_present(column: str) -> pl.Expr:
+    return _escort_type_matches(column, "pure_escort") | _escort_type_matches(
+        column, "ride_share"
+    )
+
+
+def _adult_side_explicit_escorted_tours(rd: RunData) -> pl.DataFrame:
+    escorted = _adult_side_escorted_tours(rd)
+    if escorted.is_empty():
+        return escorted
+    return escorted.filter(
+        _explicit_escort_label_present("school_esc_outbound")
+        | _explicit_escort_label_present("school_esc_inbound")
+    )
 
 
 def _student_school_tours(rd: RunData) -> pl.DataFrame:
@@ -177,6 +201,18 @@ def _escort_label_present(column: str) -> pl.Expr:
     )
 
 
+def _both_escort_labels_present() -> pl.Expr:
+    return _escort_label_present("school_esc_outbound") & _escort_label_present(
+        "school_esc_inbound"
+    )
+
+
+def _both_explicit_escort_labels_present() -> pl.Expr:
+    return _explicit_escort_label_present(
+        "school_esc_outbound"
+    ) & _explicit_escort_label_present("school_esc_inbound")
+
+
 def _distance_bin_expr(column: str) -> pl.Expr:
     rounded = pl.col(column).cast(pl.Float64).round(0)
     return (
@@ -289,7 +325,11 @@ def mandatory_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
         "nonmandatory_tour_frequency": pl.Utf8,
         "person_count": pl.Float64,
     },
-    required_columns={"per": ("person_id", "person_type", "finalweight")},
+    required_columns={
+        "per": ("person_id", "person_type", "finalweight"),
+        "tours": ("person_id", "tour_category"),
+        "joint_participants": ("person_id",),
+    },
 )
 def indiv_nm_summary(rd: RunData, config: Config) -> pl.DataFrame:
     """Returns DataFrame: person_type, nonmandatory_tour_frequency, person_count."""
@@ -637,39 +677,15 @@ def adult_escorted_tours_by_person_type_and_direction(
         .with_columns(pl.lit("inbound").alias("direction"))
     )
 
-    all_directions = (
-        pl.concat(
-            [
-                escorted.select(
-                    "person_type",
-                    pl.col("school_esc_outbound").alias("escort_type"),
-                    "finalweight",
-                )
-                .filter(
-                    pl.col("escort_type").is_not_null()
-                    & (pl.col("escort_type").cast(pl.Utf8).str.to_lowercase() != "none")
-                )
-                .select("person_type", "finalweight"),
-                escorted.select(
-                    "person_type",
-                    pl.col("school_esc_inbound").alias("escort_type"),
-                    "finalweight",
-                )
-                .filter(
-                    pl.col("escort_type").is_not_null()
-                    & (pl.col("escort_type").cast(pl.Utf8).str.to_lowercase() != "none")
-                )
-                .select("person_type", "finalweight"),
-            ],
-            how="vertical",
-        )
+    both = (
+        escorted.filter(_both_escort_labels_present())
         .group_by("person_type")
         .agg(tour_count=pl.col("finalweight").sum())
-        .with_columns(pl.lit("all_directions").alias("direction"))
+        .with_columns(pl.lit("both").alias("direction"))
     )
 
     return (
-        pl.concat([outbound, inbound, all_directions], how="vertical")
+        pl.concat([outbound, inbound, both], how="vertical")
         .with_columns(
             pl.col("person_type").cast(pl.Utf8),
             pl.col("direction").cast(pl.Utf8),
@@ -1032,38 +1048,28 @@ def adult_escorted_tour_distance_distribution_by_direction(
         )
 
     outbound = (
-        base.filter(_escort_label_present("school_esc_outbound"))
+        base.filter(_explicit_escort_label_present("school_esc_outbound"))
         .group_by("distance_bin")
         .agg(tour_count=pl.col("finalweight").sum())
         .with_columns(pl.lit("outbound").alias("direction"))
     )
 
     inbound = (
-        base.filter(_escort_label_present("school_esc_inbound"))
+        base.filter(_explicit_escort_label_present("school_esc_inbound"))
         .group_by("distance_bin")
         .agg(tour_count=pl.col("finalweight").sum())
         .with_columns(pl.lit("inbound").alias("direction"))
     )
 
-    all_directions = (
-        pl.concat(
-            [
-                base.filter(_escort_label_present("school_esc_outbound")).select(
-                    "distance_bin", "finalweight"
-                ),
-                base.filter(_escort_label_present("school_esc_inbound")).select(
-                    "distance_bin", "finalweight"
-                ),
-            ],
-            how="vertical",
-        )
+    both = (
+        base.filter(_both_explicit_escort_labels_present())
         .group_by("distance_bin")
         .agg(tour_count=pl.col("finalweight").sum())
-        .with_columns(pl.lit("all_directions").alias("direction"))
+        .with_columns(pl.lit("both").alias("direction"))
     )
 
     return (
-        pl.concat([outbound, inbound, all_directions], how="vertical")
+        pl.concat([outbound, inbound, both], how="vertical")
         .with_columns(
             pl.col("distance_bin").cast(pl.Utf8),
             pl.col("direction").cast(pl.Utf8),
@@ -1104,13 +1110,15 @@ def adult_escorted_trip_distance_distribution_by_direction(
             adult_escorted_trip_distance_distribution_by_direction
         )
 
-    escorted_tours = _adult_side_escorted_tours(rd)
+    escorted_tours = _adult_side_explicit_escorted_tours(rd)
     if escorted_tours.is_empty():
         return empty_summary_frame(
             adult_escorted_trip_distance_distribution_by_direction
         )
 
-    escorted_trip_ids = escorted_tours.select("tour_id").unique()
+    escorted_trip_ids = escorted_tours.select(
+        "tour_id", "school_esc_outbound", "school_esc_inbound"
+    ).unique()
     trips = rd.trips.join(escorted_trip_ids, on="tour_id", how="inner")
     if (
         trips.is_empty()
@@ -1130,34 +1138,163 @@ def adult_escorted_trip_distance_distribution_by_direction(
             adult_escorted_trip_distance_distribution_by_direction
         )
 
-    by_direction = (
-        base.group_by(["distance_bin", "direction"])
-        .agg(trip_count=pl.col("finalweight").sum())
-        .with_columns(
-            pl.col("distance_bin").cast(pl.Utf8),
-            pl.col("direction").cast(pl.Utf8),
-            pl.col("trip_count").cast(pl.Float64),
+    outbound = (
+        base.filter(
+            (pl.col("direction") == "outbound")
+            & _explicit_escort_label_present("school_esc_outbound")
         )
+        .group_by("distance_bin")
+        .agg(trip_count=pl.col("finalweight").sum())
+        .with_columns(pl.lit("outbound").alias("direction"))
+        .select("distance_bin", "direction", "trip_count")
     )
 
-    all_directions = (
-        base.group_by("distance_bin")
+    inbound = (
+        base.filter(
+            (pl.col("direction") == "inbound")
+            & _explicit_escort_label_present("school_esc_inbound")
+        )
+        .group_by("distance_bin")
         .agg(trip_count=pl.col("finalweight").sum())
-        .with_columns(pl.lit("all_directions").alias("direction"))
+        .with_columns(pl.lit("inbound").alias("direction"))
+        .select("distance_bin", "direction", "trip_count")
+    )
+
+    both = (
+        base.filter(_both_explicit_escort_labels_present())
+        .group_by("distance_bin")
+        .agg(trip_count=pl.col("finalweight").sum())
+        .with_columns(pl.lit("both").alias("direction"))
         .select("distance_bin", "direction", "trip_count")
     )
 
     return (
-        pl.concat([by_direction, all_directions], how="vertical")
+        pl.concat([outbound, inbound, both], how="vertical")
         .with_columns(
+            pl.col("distance_bin").cast(pl.Utf8),
+            pl.col("direction").cast(pl.Utf8),
+            pl.col("trip_count").cast(pl.Float64),
             pl.when(pl.col("distance_bin") == "40+")
             .then(999)
             .otherwise(pl.col("distance_bin").cast(pl.Int64, strict=False))
-            .alias("_sort_distance")
+            .alias("_sort_distance"),
         )
         .select("distance_bin", "direction", "trip_count", "_sort_distance")
         .sort(["direction", "_sort_distance"])
         .select("distance_bin", "direction", "trip_count")
+    )
+
+@summary_contract(
+    schema={
+        "segment": pl.Utf8,
+        "stop_count": pl.Int32,
+        "tour_count": pl.Float64,
+    },
+    required_columns={
+        "tours": ("tour_id", "school_esc_outbound", "school_esc_inbound"),
+        "trips": (
+            "tour_id",
+            "escort_event_role",
+            "escort_stops_before_event",
+            "escort_stops_after_event",
+            "finalweight",
+        ),
+    },
+)
+def adult_escort_event_stop_distribution(rd: RunData, config: Config) -> pl.DataFrame:
+    if "tour_id" not in rd.tours.columns or "tour_id" not in rd.trips.columns:
+        return empty_summary_frame(adult_escort_event_stop_distribution)
+
+    escorted = _adult_side_explicit_escorted_tours(rd)
+    if escorted.is_empty():
+        return empty_summary_frame(adult_escort_event_stop_distribution)
+
+    required_trip_cols = {
+        "tour_id",
+        "escort_event_role",
+        "escort_stops_before_event",
+        "escort_stops_after_event",
+        "finalweight",
+    }
+    if not required_trip_cols.issubset(set(rd.trips.columns)):
+        return empty_summary_frame(adult_escort_event_stop_distribution)
+
+    escorted_trip_ids = escorted.select(
+        "tour_id", "school_esc_outbound", "school_esc_inbound"
+    ).unique()
+    trips = rd.trips.join(escorted_trip_ids, on="tour_id", how="inner")
+    if trips.is_empty():
+        return empty_summary_frame(adult_escort_event_stop_distribution)
+
+    events = (
+        trips.filter(pl.col("escort_event_role").is_not_null())
+        .with_columns(
+            pl.col("escort_event_role").cast(pl.Utf8).str.to_lowercase(),
+            pl.col("escort_stops_before_event").cast(pl.Int32),
+            pl.col("escort_stops_after_event").cast(pl.Int32),
+            pl.col("finalweight").cast(pl.Float64),
+        )
+        .filter(pl.col("escort_event_role").is_in(["dropoff", "pickup"]))
+        .filter(
+            (
+                (pl.col("escort_event_role") == "dropoff")
+                & _explicit_escort_label_present("school_esc_outbound")
+            )
+            | (
+                (pl.col("escort_event_role") == "pickup")
+                & _explicit_escort_label_present("school_esc_inbound")
+            )
+        )
+    )
+    if events.is_empty():
+        return empty_summary_frame(adult_escort_event_stop_distribution)
+
+    empty_segment_schema = {
+        "segment": pl.Utf8,
+        "stop_count": pl.Int32,
+        "tour_count": pl.Float64,
+    }
+
+    def _segment_counts(segment: str, stop_col: str, role: str) -> pl.DataFrame:
+        filtered = events.filter(pl.col("escort_event_role") == role)
+        if filtered.is_empty():
+            return pl.DataFrame(schema=empty_segment_schema)
+        return (
+            filtered.group_by(stop_col)
+            .agg(tour_count=pl.col("finalweight").sum())
+            .rename({stop_col: "stop_count"})
+            .with_columns(pl.lit(segment).alias("segment"))
+            .select("segment", "stop_count", "tour_count")
+        )
+
+    result = pl.concat(
+        [
+            _segment_counts(
+                "outbound_before_dropoff", "escort_stops_before_event", "dropoff"
+            ),
+            _segment_counts(
+                "outbound_after_dropoff", "escort_stops_after_event", "dropoff"
+            ),
+            _segment_counts(
+                "inbound_before_pickup", "escort_stops_before_event", "pickup"
+            ),
+            _segment_counts(
+                "inbound_after_pickup", "escort_stops_after_event", "pickup"
+            ),
+        ],
+        how="vertical",
+    )
+    if result.is_empty():
+        return empty_summary_frame(adult_escort_event_stop_distribution)
+
+    return (
+        result.with_columns(
+            pl.col("segment").cast(pl.Utf8),
+            pl.col("stop_count").cast(pl.Int32),
+            pl.col("tour_count").cast(pl.Float64),
+        )
+        .sort(["segment", "stop_count"])
+        .select("segment", "stop_count", "tour_count")
     )
 
 

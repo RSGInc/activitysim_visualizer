@@ -21,8 +21,8 @@ from processor.prepare.availability import (
 from processor.prepare.writer import write_all
 from runtime.config import Config
 
-SCHEMA_VERSION = 4
-SUPPORTED_SCHEMA_VERSIONS = {2, 3, 4}
+SCHEMA_VERSION = 5
+SUPPORTED_SCHEMA_VERSIONS = {2, 3, 4, 5}
 SUPPORTED_FILE_FORMATS = ("parquet", "csv")
 PREPARED_TABLE_ATTRS: tuple[tuple[str, str, str], ...] = (
     ("hh", "households", "households"),

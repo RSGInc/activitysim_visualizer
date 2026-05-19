@@ -14,6 +14,195 @@ from processor.summarize.summaries.tour_purpose_helpers import with_summary_tour
 from runtime.config import Config
 
 LOGGER = get_logger("processor.prepare")
+_CHILD_PERSON_TYPES = {"6", "7", "8"}
+
+
+def _ensure_escort_event_columns(trips: pl.DataFrame) -> pl.DataFrame:
+    derived_schema = {
+        "escort_event_role": pl.Utf8,
+        "escort_event_trip_num": pl.Int32,
+        "escort_stops_before_event": pl.Int32,
+        "escort_stops_after_event": pl.Int32,
+        "escort_event_match_status": pl.Utf8,
+    }
+    expressions: list[pl.Expr] = []
+    for column, dtype in derived_schema.items():
+        if column not in trips.columns:
+            expressions.append(pl.lit(None, dtype=dtype).alias(column))
+    if not expressions:
+        return trips
+    return trips.with_columns(expressions)
+
+
+def _derive_escort_event_position(state: _PrepareState) -> _PrepareState:
+    state.trips = _ensure_escort_event_columns(state.trips)
+
+    trip_required = {
+        "person_id",
+        "trip_num",
+        "outbound",
+        "escort_participants",
+        "max_trip_num",
+        "summary_tour_purpose",
+    }
+    if not trip_required.issubset(set(state.trips.columns)) or not {
+        "person_id",
+        "person_type",
+    }.issubset(set(state.per.columns)):
+        return state
+
+    trip_purpose_col = "trip_purpose" if "trip_purpose" in state.trips.columns else None
+    if trip_purpose_col is None:
+        return state
+
+    trips = state.trips.with_row_index("_trip_row_id").join(
+        state.per.select(
+            "person_id",
+            pl.col("person_type").cast(pl.Utf8).alias("_person_type"),
+        ),
+        on="person_id",
+        how="left",
+    )
+    trips = trips.with_columns(
+        pl.when(pl.col("outbound").is_null())
+        .then(None)
+        .when(
+            pl.col("outbound")
+            .cast(pl.Utf8)
+            .str.to_lowercase()
+            .is_in(["false", "0"])
+        )
+        .then(False)
+        .otherwise(True)
+        .alias("_outbound_bool"),
+        pl.col("summary_tour_purpose")
+        .cast(pl.Utf8)
+        .str.to_lowercase()
+        .alias("_summary_tour_purpose"),
+        pl.col(trip_purpose_col).cast(pl.Utf8).str.to_lowercase().alias("_trip_purpose"),
+    )
+
+    adult_candidates = (
+        trips.filter(
+            pl.col("escort_participants").is_not_null()
+            & pl.col("_person_type").is_not_null()
+            & ~pl.col("_person_type").is_in(sorted(_CHILD_PERSON_TYPES))
+            & (pl.col("_summary_tour_purpose") == "escort")
+            & pl.col("_outbound_bool").is_not_null()
+        )
+        .with_columns(
+            pl.when(pl.col("_outbound_bool"))
+            .then(pl.lit("dropoff"))
+            .otherwise(pl.lit("pickup"))
+            .alias("_escort_event_role_candidate")
+        )
+    )
+    if adult_candidates.is_empty():
+        return state
+
+    child_candidates = (
+        trips.filter(
+            pl.col("escort_participants").is_not_null()
+            & pl.col("_person_type").is_not_null()
+            & pl.col("_person_type").is_in(sorted(_CHILD_PERSON_TYPES))
+            & pl.col("_outbound_bool").is_not_null()
+            & (
+                (
+                    pl.col("_outbound_bool")
+                    & (pl.col("_trip_purpose") == "school")
+                )
+                | (
+                    (~pl.col("_outbound_bool"))
+                    & (pl.col("_trip_purpose") == "home")
+                )
+            )
+        )
+        .with_columns(
+            pl.when(pl.col("_outbound_bool"))
+            .then(pl.lit("dropoff"))
+            .otherwise(pl.lit("pickup"))
+            .alias("_escort_event_role_candidate")
+        )
+    )
+
+    match_keys = [
+        "escort_participants",
+        "_outbound_bool",
+        "_escort_event_role_candidate",
+    ]
+    adult_counts = adult_candidates.group_by(match_keys).agg(
+        pl.len().alias("_adult_match_count")
+    )
+    child_counts = child_candidates.group_by(match_keys).agg(
+        pl.len().alias("_child_match_count")
+    )
+
+    derived = (
+        adult_candidates.join(adult_counts, on=match_keys, how="left")
+        .join(child_counts, on=match_keys, how="left")
+        .with_columns(
+            pl.when(
+                (pl.col("_adult_match_count") == 1)
+                & (pl.col("_child_match_count") == 1)
+            )
+            .then(pl.lit("matched"))
+            .when(
+                (pl.col("_adult_match_count") > 1)
+                | (pl.col("_child_match_count") > 1)
+            )
+            .then(pl.lit("ambiguous"))
+            .otherwise(pl.lit("unmatched"))
+            .alias("escort_event_match_status"),
+        )
+        .with_columns(
+            pl.when(pl.col("escort_event_match_status") == "matched")
+            .then(pl.col("_escort_event_role_candidate"))
+            .otherwise(None)
+            .cast(pl.Utf8)
+            .alias("escort_event_role"),
+            pl.when(pl.col("escort_event_match_status") == "matched")
+            .then(pl.col("trip_num"))
+            .otherwise(None)
+            .cast(pl.Int32)
+            .alias("escort_event_trip_num"),
+            pl.when(pl.col("escort_event_match_status") == "matched")
+            .then(pl.col("trip_num") - 1)
+            .otherwise(None)
+            .cast(pl.Int32)
+            .alias("escort_stops_before_event"),
+            pl.when(pl.col("escort_event_match_status") == "matched")
+            .then(pl.col("max_trip_num") - pl.col("trip_num"))
+            .otherwise(None)
+            .cast(pl.Int32)
+            .alias("escort_stops_after_event"),
+        )
+        .select(
+            "_trip_row_id",
+            "escort_event_role",
+            "escort_event_trip_num",
+            "escort_stops_before_event",
+            "escort_stops_after_event",
+            "escort_event_match_status",
+        )
+    )
+
+    state.trips = (
+        state.trips.with_row_index("_trip_row_id")
+        .drop(
+            [
+                "escort_event_role",
+                "escort_event_trip_num",
+                "escort_stops_before_event",
+                "escort_stops_after_event",
+                "escort_event_match_status",
+            ],
+            strict=False,
+        )
+        .join(derived, on="_trip_row_id", how="left")
+        .drop("_trip_row_id")
+    )
+    state.trips = _ensure_escort_event_columns(state.trips)
+    return state
 
 
 def _enrich_trips(
@@ -192,5 +381,6 @@ def _enrich_trips(
             state.trips = state.trips.with_columns(pl.lit(0.0).alias("out_dir_dist"))
 
     state.trips = with_summary_tour_purpose(state.trips, config)
+    state = _derive_escort_event_position(state)
 
     return state

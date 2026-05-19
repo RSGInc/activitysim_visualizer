@@ -249,6 +249,185 @@ def _raw_run_with_student_enrollment_inputs() -> ProcessorRunData:
     )
 
 
+def _raw_run_with_escort_event_inputs() -> ProcessorRunData:
+    return ProcessorRunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame(
+            {
+                "household_id": [1, 2, 3],
+                "home_zone_id": [10, 20, 30],
+                "auto_ownership": [2, 1, 1],
+                "hhsize": [2, 2, 1],
+                "num_workers": [1, 1, 1],
+                "num_adults": [1, 1, 1],
+            }
+        ),
+        per=pl.DataFrame(
+            {
+                "person_id": [101, 102, 103, 201, 202],
+                "household_id": [1, 2, 3, 1, 2],
+                "ptype": [1, 2, 1, 6, 7],
+                "home_zone_id": [10, 20, 30, 10, 20],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [1001, 1002, 1003, 2001, 2002],
+                "person_id": [101, 102, 103, 201, 202],
+                "household_id": [1, 2, 3, 1, 2],
+                "primary_purpose": ["escort", "escort", "escort", "school", "school"],
+                "tour_type": ["escort", "escort", "escort", "school", "school"],
+                "tour_mode": ["DRIVE", "DRIVE", "DRIVE", "WALK", "WALK"],
+                "tour_category": [
+                    "non-mandatory",
+                    "non-mandatory",
+                    "non-mandatory",
+                    "mandatory",
+                    "mandatory",
+                ],
+                "start": [8, 8, 8, 8, 8],
+                "end": [10, 10, 10, 10, 10],
+                "duration": [2, 2, 2, 2, 2],
+                "origin": [10, 20, 30, 10, 20],
+                "destination": [20, 30, 40, 20, 30],
+                "stop_frequency": ["2out_2in", "2out_0in", "0out_1in", "0out_0in", "0out_0in"],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "trip_id": [
+                    5001,
+                    5002,
+                    5003,
+                    5004,
+                    5005,
+                    5006,
+                    6001,
+                    6002,
+                    7001,
+                    7002,
+                    7003,
+                    8001,
+                    9001,
+                    9002,
+                ],
+                "tour_id": [
+                    1001,
+                    1001,
+                    1001,
+                    1001,
+                    1001,
+                    1001,
+                    2001,
+                    2001,
+                    1002,
+                    1002,
+                    1002,
+                    2002,
+                    1003,
+                    1003,
+                ],
+                "person_id": [
+                    101,
+                    101,
+                    101,
+                    101,
+                    101,
+                    101,
+                    201,
+                    201,
+                    102,
+                    102,
+                    102,
+                    202,
+                    103,
+                    103,
+                ],
+                "household_id": [1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3],
+                "trip_mode": [
+                    "DRIVEALONE",
+                    "DRIVEALONE",
+                    "DRIVEALONE",
+                    "DRIVEALONE",
+                    "DRIVEALONE",
+                    "DRIVEALONE",
+                    "WALK",
+                    "WALK",
+                    "DRIVEALONE",
+                    "DRIVEALONE",
+                    "DRIVEALONE",
+                    "WALK",
+                    "DRIVEALONE",
+                    "DRIVEALONE",
+                ],
+                "purpose": [
+                    "eatout",
+                    "escort",
+                    "eatout",
+                    "shopping",
+                    "home",
+                    "eatout",
+                    "school",
+                    "home",
+                    "escort",
+                    "escort",
+                    "home",
+                    "school",
+                    "home",
+                    "shopping",
+                ],
+                "depart": [8, 9, 10, 11, 12, 13, 8, 15, 8, 9, 10, 8, 8, 9],
+                "outbound": [
+                    True,
+                    True,
+                    True,
+                    False,
+                    False,
+                    False,
+                    True,
+                    False,
+                    True,
+                    True,
+                    True,
+                    True,
+                    False,
+                    False,
+                ],
+                "trip_num": [1, 2, 3, 1, 2, 3, 1, 1, 1, 2, 3, 1, 1, 2],
+                "origin": [10, 11, 12, 20, 21, 22, 10, 20, 20, 21, 22, 20, 30, 31],
+                "destination": [11, 12, 20, 21, 22, 10, 20, 10, 21, 22, 30, 30, 31, 30],
+                "escort_participants": [
+                    None,
+                    "201",
+                    None,
+                    None,
+                    "201",
+                    None,
+                    "201",
+                    "201",
+                    "202",
+                    "202",
+                    None,
+                    "202",
+                    "999",
+                    None,
+                ],
+            }
+        ),
+        joint_participants=pl.DataFrame(
+            {"tour_id": [], "person_id": []},
+            schema={"tour_id": pl.Int64, "person_id": pl.Int64},
+        ),
+        land_use=pl.DataFrame(
+            {"zone_id": [10, 20, 30, 40], "TAZ": [10, 20, 30, 40], "EMPLOY_TOT": [7, 8, 9, 10]}
+        ),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+
 def _raw_run_with_income_segment(
     *,
     label: str,
@@ -301,6 +480,53 @@ def test_processor_prepare_data_carries_atwork_subtour_frequency_to_trips(
     prepared = processor_prepare_data(_raw_run_with_atwork_subtour_frequency(), config)
 
     assert prepared.trips["atwork_subtour_frequency"].to_list() == ["1_eat"]
+
+
+def test_processor_prepare_data_derives_exact_escort_event_fields_conservatively(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+
+    prepared = processor_prepare_data(_raw_run_with_escort_event_inputs(), config)
+    trips = prepared.trips.sort("trip_id")
+
+    by_trip = {
+        row["trip_id"]: row
+        for row in trips.select(
+            [
+                "trip_id",
+                "escort_event_role",
+                "escort_event_trip_num",
+                "escort_stops_before_event",
+                "escort_stops_after_event",
+                "escort_event_match_status",
+            ]
+        ).to_dicts()
+    }
+
+    assert by_trip[5002] == {
+        "trip_id": 5002,
+        "escort_event_role": "dropoff",
+        "escort_event_trip_num": 2,
+        "escort_stops_before_event": 1,
+        "escort_stops_after_event": 1,
+        "escort_event_match_status": "matched",
+    }
+    assert by_trip[5005] == {
+        "trip_id": 5005,
+        "escort_event_role": "pickup",
+        "escort_event_trip_num": 2,
+        "escort_stops_before_event": 1,
+        "escort_stops_after_event": 1,
+        "escort_event_match_status": "matched",
+    }
+    assert by_trip[7001]["escort_event_match_status"] == "ambiguous"
+    assert by_trip[7001]["escort_event_role"] is None
+    assert by_trip[7002]["escort_event_match_status"] == "ambiguous"
+    assert by_trip[7002]["escort_event_trip_num"] is None
+    assert by_trip[9001]["escort_event_match_status"] == "unmatched"
+    assert by_trip[9001]["escort_event_role"] is None
+    assert by_trip[6001]["escort_event_match_status"] is None
 
 
 def test_processor_prepare_data_can_normalize_vot_bins_by_run_label(

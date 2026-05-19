@@ -214,13 +214,13 @@ class IndividualChoicesPage(DashboardPage):
                 category_col="license_holding_status",
                 category_values=x_values,
                 value_cols=("person_count", "pct"),
-            )
+            ),
         )
         return bar_chart(
             license_list,
             x_col="license_holding_status",
             y_col="person_count",
-            title=f"License Holding Status - {display_person_type}",
+            title=f"License Holding Status Among Persons Aged 16+ - {display_person_type}",
             xaxis_title="License Status",
             yaxis_title="Persons Age 16+",
             pct_col="pct",
@@ -330,13 +330,20 @@ class IndividualChoicesPage(DashboardPage):
         )
         normalized_summary = _cast_category(summary, subsidy_category_col)
         raw_subsidy_values = ordered_category_values(
-            summary if any("transit_subsidy_status" in df.columns for _, df in summary) else normalized_summary,
-            "transit_subsidy_status" if any("transit_subsidy_status" in df.columns for _, df in summary) else subsidy_category_col,
+            summary
+            if any("transit_subsidy_status" in df.columns for _, df in summary)
+            else normalized_summary,
+            "transit_subsidy_status"
+            if any("transit_subsidy_status" in df.columns for _, df in summary)
+            else subsidy_category_col,
             category_id="transit_subsidy",
             config=self.config,
         )
         x_values = (
-            [self.config.label_value("transit_subsidy", value) for value in raw_subsidy_values]
+            [
+                self.config.label_value("transit_subsidy", value)
+                for value in raw_subsidy_values
+            ]
             if subsidy_category_col == "transit_subsidy_label"
             else raw_subsidy_values
         )
@@ -354,7 +361,7 @@ class IndividualChoicesPage(DashboardPage):
             subsidy_list,
             x_col=subsidy_category_col,
             y_col="person_count",
-            title=f"Transit Subsidy - {display_person_type}",
+            title=f"Transit Subsidy Type Among Workers - {'All Workers' if display_person_type == 'Total' else display_person_type}",
             xaxis_title="Transit Subsidy Status",
             yaxis_title=(
                 "All Workers"

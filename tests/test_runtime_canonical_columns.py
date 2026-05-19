@@ -885,40 +885,36 @@ def test_escorted_tour_summaries_exclude_child_person_types(tmp_path: Path) -> N
         "tour_count": [8.0, 3.0, 5.0],
     }
     assert person_types.to_dict(as_series=False) == {
-        "person_type": ["2", "2", "2", "4", "4"],
+        "person_type": ["2", "2", "2", "4"],
         "direction": [
-            "all_directions",
+            "both",
             "inbound",
             "outbound",
-            "all_directions",
             "outbound",
         ],
-        "tour_count": [6.0, 3.0, 3.0, 2.0, 2.0],
+        "tour_count": [3.0, 3.0, 3.0, 2.0],
     }
     assert tour_distance.to_dict(as_series=False) == {
-        "distance_bin": ["12", "40+", "40+", "12", "40+"],
+        "distance_bin": ["40+", "40+", "12", "40+"],
         "direction": [
-            "all_directions",
-            "all_directions",
+            "both",
             "inbound",
             "outbound",
             "outbound",
         ],
-        "tour_count": [2.0, 6.0, 3.0, 2.0, 3.0],
+        "tour_count": [3.0, 3.0, 2.0, 3.0],
     }
     assert trip_distance.to_dict(as_series=False) == {
-        "distance_bin": ["40+", "5", "6", "9", "40+", "6", "5", "9"],
+        "distance_bin": ["40+", "9", "40+", "6", "5", "9"],
         "direction": [
-            "all_directions",
-            "all_directions",
-            "all_directions",
-            "all_directions",
+            "both",
+            "both",
             "inbound",
             "inbound",
             "outbound",
             "outbound",
         ],
-        "trip_count": [3.0, 2.0, 2.0, 3.0, 3.0, 2.0, 2.0, 3.0],
+        "trip_count": [3.0, 3.0, 3.0, 2.0, 2.0, 3.0],
     }
     assert stop_frequency.to_dict(as_series=False) == {
         "tour_purpose": ["escort", "escort"],
@@ -926,6 +922,153 @@ def test_escorted_tour_summaries_exclude_child_person_types(tmp_path: Path) -> N
         "inbound_stop_count": [0, 3],
         "total_stop_count": [1, 6],
         "tour_count": [2.0, 3.0],
+    }
+
+
+def test_adult_escort_event_stop_distribution_filters_to_explicit_escort_types(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    rd = RunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame(),
+        per=pl.DataFrame(
+            {
+                "person_id": [101, 102, 103],
+                "person_type": [4, 2, 7],
+                "finalweight": [1.0, 1.0, 1.0],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [1001, 1002, 1003, 1004],
+                "person_id": [101, 101, 102, 103],
+                "person_type": [4, 4, 2, 7],
+                "tour_purpose": ["escort", "escort", "escort", "school"],
+                "summary_tour_purpose": ["escort", "escort", "escort", "school"],
+                "school_esc_outbound": [
+                    "ride_share",
+                    "mystery_mode",
+                    "pure_escort",
+                    "pure_escort",
+                ],
+                "school_esc_inbound": [None, "ride_share", "pure_escort", "ride_share"],
+                "finalweight": [2.0, 5.0, 3.0, 7.0],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "tour_id": [1001, 1001, 1002, 1003, 1004],
+                "escort_event_role": [
+                    "dropoff",
+                    "pickup",
+                    "dropoff",
+                    "pickup",
+                    "dropoff",
+                ],
+                "escort_stops_before_event": [1, 2, 0, 0, 9],
+                "escort_stops_after_event": [0, 1, 1, 0, 9],
+                "finalweight": [2.0, 2.0, 5.0, 3.0, 7.0],
+            }
+        ),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    summary = daily_travel.adult_escort_event_stop_distribution(rd, config).sort(
+        ["segment", "stop_count"]
+    )
+
+    assert summary.to_dict(as_series=False) == {
+        "segment": [
+            "inbound_after_pickup",
+            "inbound_before_pickup",
+            "outbound_after_dropoff",
+            "outbound_before_dropoff",
+        ],
+        "stop_count": [0, 0, 0, 1],
+        "tour_count": [3.0, 3.0, 2.0, 2.0],
+    }
+
+
+def test_adult_escort_distance_distributions_filter_to_explicit_escort_types(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    rd = RunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame(),
+        per=pl.DataFrame(
+            {
+                "person_id": [101, 102, 103],
+                "person_type": [4, 2, 7],
+                "finalweight": [1.0, 1.0, 1.0],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [1001, 1002, 1003, 1004],
+                "person_id": [101, 101, 102, 103],
+                "person_type": [4, 4, 2, 7],
+                "tour_purpose": ["escort", "escort", "escort", "school"],
+                "summary_tour_purpose": ["escort", "escort", "escort", "school"],
+                "school_esc_outbound": [
+                    "ride_share",
+                    "mystery_mode",
+                    "pure_escort",
+                    "pure_escort",
+                ],
+                "school_esc_inbound": [None, "ride_share", "pure_escort", "ride_share"],
+                "SKIMDIST": [12.2, 18.7, 44.4, 9.1],
+                "finalweight": [2.0, 5.0, 3.0, 7.0],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "tour_id": [1001, 1001, 1002, 1003, 1003, 1004],
+                "od_dist": [5.4, 6.2, 18.0, 8.8, 41.1, 9.9],
+                "inbound": [0, 1, 0, 0, 1, 0],
+                "finalweight": [2.0, 2.0, 5.0, 3.0, 3.0, 7.0],
+            }
+        ),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    tour_distance = (
+        daily_travel.adult_escorted_tour_distance_distribution_by_direction(
+            rd, config
+        ).sort(["direction", "distance_bin"])
+    )
+    trip_distance = (
+        daily_travel.adult_escorted_trip_distance_distribution_by_direction(
+            rd, config
+        ).sort(["direction", "distance_bin"])
+    )
+
+    assert tour_distance.to_dict(as_series=False) == {
+        "distance_bin": ["40+", "19", "40+", "12", "40+"],
+        "direction": ["both", "inbound", "inbound", "outbound", "outbound"],
+        "tour_count": [3.0, 5.0, 3.0, 2.0, 3.0],
+    }
+    assert trip_distance.to_dict(as_series=False) == {
+        "distance_bin": ["40+", "9", "40+", "5", "9"],
+        "direction": [
+            "both",
+            "both",
+            "inbound",
+            "outbound",
+            "outbound",
+        ],
+        "trip_count": [3.0, 3.0, 3.0, 2.0, 3.0],
     }
 
 

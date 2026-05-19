@@ -712,7 +712,7 @@ def test_tour_stop_frequency_live_page_uses_shared_summary_helpers(
     page.refresh(force=True)
 
     assert list(page.purpose_sel.options) == ["All", "eatout", "social"]
-    assert list(page.direction_sel.options) == ["Both", "Outbound", "Inbound"]
+    assert list(page.direction_sel.options) == ["Both Directions", "Outbound", "Inbound"]
     page.purpose_sel.value = "social"
     page.refresh(force=True)
     assert page._body.objects
@@ -1073,7 +1073,7 @@ def test_daily_activity_pattern_live_page_uses_shared_summary_helpers(
     assert page._body.objects
 
 
-def test_escorted_tours_live_page_renders_stop_frequency_controls_and_chart(
+def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -1088,19 +1088,22 @@ def test_escorted_tours_live_page_renders_stop_frequency_controls_and_chart(
                     "tour_count": [6.0, 3.0, 2.0],
                 }
             ),
-            "adult_escort_trip_stop_frequency": pl.DataFrame(
+            "adult_escort_event_stop_distribution": pl.DataFrame(
                 {
-                    "tour_purpose": ["escort", "escort"],
-                    "outbound_stop_count": [1, 3],
-                    "inbound_stop_count": [0, 3],
-                    "total_stop_count": [1, 6],
-                    "tour_count": [2.0, 3.0],
+                    "segment": [
+                        "outbound_before_dropoff",
+                        "outbound_after_dropoff",
+                        "inbound_before_pickup",
+                        "inbound_after_pickup",
+                    ],
+                    "stop_count": [1, 0, 0, 1],
+                    "tour_count": [2.0, 3.0, 4.0, 1.0],
                 }
             ),
             "adult_escorted_tours_by_person_type_and_direction": pl.DataFrame(
                 {
                     "person_type": ["2", "2", "4"],
-                    "direction": ["all_directions", "outbound", "all_directions"],
+                    "direction": ["both", "outbound", "both"],
                     "tour_count": [6.0, 3.0, 2.0],
                 }
             ),
@@ -1159,14 +1162,14 @@ def test_escorted_tours_live_page_renders_stop_frequency_controls_and_chart(
             "adult_escorted_tour_distance_distribution_by_direction": pl.DataFrame(
                 {
                     "distance_bin": ["12", "40+", "12"],
-                    "direction": ["all_directions", "all_directions", "outbound"],
+                    "direction": ["both", "both", "outbound"],
                     "tour_count": [2.0, 3.0, 2.0],
                 }
             ),
             "adult_escorted_trip_distance_distribution_by_direction": pl.DataFrame(
                 {
                     "distance_bin": ["5", "6", "5"],
-                    "direction": ["all_directions", "all_directions", "outbound"],
+                    "direction": ["both", "both", "outbound"],
                     "trip_count": [2.0, 2.0, 2.0],
                 }
             ),
@@ -1180,7 +1183,7 @@ def test_escorted_tours_live_page_renders_stop_frequency_controls_and_chart(
     page = EscortedToursPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.direction_sel.options) == ["Both", "Outbound"]
+    assert list(page.direction_sel.options) == ["Both Directions", "Outbound"]
     page.direction_sel.value = "Outbound"
     page.refresh(force=True)
     assert page._body.objects
@@ -1214,6 +1217,17 @@ def test_escorted_tours_live_page_renders_stop_frequency_controls_and_chart(
         "Schoolkids Per Escorted Tour - Inbound",
         "Schoolkids Per Escorted Tour - Outbound",
     ]
+    stop_titles = [
+        str(plot.object.layout.title.text)
+        for plot in _collect_plotly_panes(page._body)
+        if "Adult Escort Stops" in str(plot.object.layout.title.text)
+    ]
+    assert sorted(stop_titles) == [
+        "Adult Escort Stops After Dropoff - Outbound",
+        "Adult Escort Stops After Pickup - Inbound",
+        "Adult Escort Stops Before Dropoff - Outbound",
+        "Adult Escort Stops Before Pickup - Inbound",
+    ]
 
 
 def test_escorted_tours_page_renders_core_charts_when_optional_summaries_missing(
@@ -1231,33 +1245,31 @@ def test_escorted_tours_page_renders_core_charts_when_optional_summaries_missing
                     "tour_count": [6.0, 2.0],
                 }
             ),
-            "adult_escort_trip_stop_frequency": pl.DataFrame(
+            "adult_escort_event_stop_distribution": pl.DataFrame(
                 {
-                    "tour_purpose": ["escort"],
-                    "outbound_stop_count": [1],
-                    "inbound_stop_count": [0],
-                    "total_stop_count": [1],
+                    "segment": ["outbound_before_dropoff"],
+                    "stop_count": [1],
                     "tour_count": [2.0],
                 }
             ),
             "adult_escorted_tours_by_person_type_and_direction": pl.DataFrame(
                 {
                     "person_type": ["2", "4"],
-                    "direction": ["all_directions", "all_directions"],
+                    "direction": ["both", "both"],
                     "tour_count": [6.0, 2.0],
                 }
             ),
             "adult_escorted_tour_distance_distribution_by_direction": pl.DataFrame(
                 {
                     "distance_bin": ["12", "40+"],
-                    "direction": ["all_directions", "all_directions"],
+                    "direction": ["both", "both"],
                     "tour_count": [2.0, 3.0],
                 }
             ),
             "adult_escorted_trip_distance_distribution_by_direction": pl.DataFrame(
                 {
                     "distance_bin": ["5", "6"],
-                    "direction": ["all_directions", "all_directions"],
+                    "direction": ["both", "both"],
                     "trip_count": [2.0, 2.0],
                 }
             ),
@@ -1276,8 +1288,11 @@ def test_escorted_tours_page_renders_core_charts_when_optional_summaries_missing
         str(plot.object.layout.title.text)
         for plot in _collect_plotly_panes(page._body)
     ]
-    assert "Escorted Tours To / From School - Both" in titles
-    assert "Adult Escort Trip Stop Frequency - Both" in titles
+    assert "Chauffer Escorting Tours by Person Type - Both Directions" in titles
+    assert "Chauffer Escorting Tour Distance Distribution - Both Directions" in titles
+    assert "Chauffer Escorting Trip Distance Distribution - Both Directions" in titles
+    assert "Adult Escort Stops Before Dropoff - Outbound" in titles
+    assert "Adult Escort Trip Stop Frequency - Both Directions" not in titles
     assert all("Schoolkids Per Escorted Tour" not in title for title in titles)
 
 

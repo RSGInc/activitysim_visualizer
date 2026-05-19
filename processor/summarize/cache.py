@@ -24,7 +24,7 @@ from processor.summarize.summary_specs import (
 from processor.summarize.writer import write_all
 
 LOGGER = get_logger("processor.summarize.cache")
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 11
 SUPPORTED_WEIGHTING_MODES = ("weighted", "unweighted")
 
 
