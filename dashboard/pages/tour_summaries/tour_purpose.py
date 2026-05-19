@@ -6,6 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart, data_table
+from dashboard.helpers.category_helpers import ordered_category_values
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 from runtime.config import Config
@@ -45,6 +46,31 @@ class TourPurposePage(DashboardPage):
 
         category_data = _nonempty(summaries["tour_category_distribution"])
         purpose_data = _nonempty(summaries["tour_purpose_distribution"])
+        purpose_x_values = ordered_category_values(
+            purpose_data,
+            "tour_purpose",
+            category_id="tour_purpose",
+            config=self.config,
+        )
+        purpose_label_values = self.config.ordered_labels(
+            "tour_purpose",
+            purpose_x_values,
+        )
+        labeled_purpose_data = [
+            (
+                label,
+                df.with_columns(
+                    pl.col("tour_purpose")
+                    .cast(pl.Utf8)
+                    .map_elements(
+                        lambda value: self.config.label_value("tour_purpose", value),
+                        return_dtype=pl.Utf8,
+                    )
+                    .alias("tour_purpose_label")
+                ),
+            )
+            for label, df in purpose_data
+        ]
 
         category_chart = bar_chart(
             category_data,
@@ -58,14 +84,15 @@ class TourPurposePage(DashboardPage):
         )
 
         purpose_chart = bar_chart(
-            purpose_data,
-            x_col="tour_purpose",
+            labeled_purpose_data,
+            x_col="tour_purpose_label",
             y_col="tour_count",
             title="Tour Purpose",
             xaxis_title="Tour Purpose",
             yaxis_title="Tours",
             pct_col="pct",
             as_percent=self.as_percent,
+            xaxis_categoryarray=purpose_label_values,
         )
 
         self._body.objects = [

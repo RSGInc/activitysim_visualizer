@@ -16,6 +16,7 @@ from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
 PERSON_TYPE_COL = "person_type"
+TOUR_PURPOSE_LABEL_COL = "tour_purpose_label"
 
 
 def _person_type_filter(df: pl.DataFrame, person_type: str | None) -> pl.DataFrame:
@@ -105,6 +106,35 @@ def filter_person_type_rates(
             .sort(purpose_col)
         )
         out.append((label, aggregated))
+    return out
+
+
+def label_tour_purpose_rates(
+    data_list: list[tuple[str, pl.DataFrame]],
+    config,
+    *,
+    source_col: str = "tour_purpose",
+    target_col: str = TOUR_PURPOSE_LABEL_COL,
+) -> list[tuple[str, pl.DataFrame]]:
+    out = []
+    for label, df in nonempty(data_list):
+        if source_col not in df.columns:
+            out.append((label, df))
+            continue
+        out.append(
+            (
+                label,
+                df.with_columns(
+                    pl.col(source_col)
+                    .cast(pl.Utf8)
+                    .map_elements(
+                        lambda value: config.label_value("tour_purpose", value),
+                        return_dtype=pl.Utf8,
+                    )
+                    .alias(target_col)
+                ),
+            )
+        )
     return out
 
 
@@ -224,6 +254,10 @@ class DailyActivityPatternPage(DashboardPage):
             summaries["trip_rates_by_person_type_and_trip_purpose"],
             "trip_purpose",
         )
+        tour_purpose_label_values = self.config.ordered_labels(
+            "tour_purpose",
+            tour_purpose_x_values,
+        )
 
         dap_data = self.get_filtered_view(
             "daily_activity_pattern",
@@ -266,17 +300,20 @@ class DailyActivityPatternPage(DashboardPage):
         tour_rate_data = self.get_filtered_view(
             "tour_rate_per_person",
             raw_person_type,
-            factory=lambda: complete_category_counts(
-                filter_person_type_rates(
-                    summaries["tour_rates_by_person_type_and_tour_purpose"],
-                    raw_person_type,
-                    purpose_col="tour_purpose",
-                    rate_col="tour_rate",
-                    person_weights=person_weights,
+            factory=lambda: label_tour_purpose_rates(
+                complete_category_counts(
+                    filter_person_type_rates(
+                        summaries["tour_rates_by_person_type_and_tour_purpose"],
+                        raw_person_type,
+                        purpose_col="tour_purpose",
+                        rate_col="tour_rate",
+                        person_weights=person_weights,
+                    ),
+                    category_col="tour_purpose",
+                    category_values=tour_purpose_x_values,
+                    value_cols=("tour_rate",),
                 ),
-                category_col="tour_purpose",
-                category_values=tour_purpose_x_values,
-                value_cols=("tour_rate",),
+                self.config,
             ),
         )
         trip_rate_data = self.get_filtered_view(
@@ -335,13 +372,13 @@ class DailyActivityPatternPage(DashboardPage):
             pn.Row(
                 bar_chart(
                     tour_rate_data,
-                    x_col="tour_purpose",
+                    x_col=TOUR_PURPOSE_LABEL_COL,
                     y_col="tour_rate",
                     title=f"Daily Tour Rate per Person by Tour Purpose - {person_type}",
                     xaxis_title="Tour Purpose",
                     yaxis_title="Tours per Person-Day",
                     as_percent=False,
-                    xaxis_categoryarray=tour_purpose_x_values,
+                    xaxis_categoryarray=tour_purpose_label_values,
                 ),
                 bar_chart(
                     trip_rate_data,

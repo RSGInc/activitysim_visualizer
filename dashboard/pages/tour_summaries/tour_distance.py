@@ -6,7 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import data_table, density_chart
-from dashboard.helpers.category_helpers import column_options, nonempty
+from dashboard.helpers.category_helpers import column_options, nonempty, ordered_category_values
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
@@ -23,6 +23,29 @@ def _options(
         first_df.select(col).drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
     )
     return [total_label] + sorted(v for v in vals if v != total_label)
+
+
+def _purpose_options(
+    data_list: list[tuple[str, pl.DataFrame]],
+    column: str,
+    *,
+    config,
+    state=None,
+    cache_key: tuple[object, ...] | None = None,
+    total_label: str = "All",
+) -> tuple[list[str], dict[str, str]]:
+    raw_values = ordered_category_values(
+        data_list,
+        column,
+        category_id="tour_purpose",
+        config=config,
+        state=state,
+        cache_key=cache_key,
+    )
+    display_to_raw = {total_label: total_label}
+    for raw_value in raw_values:
+        display_to_raw[config.label_value("tour_purpose", raw_value)] = raw_value
+    return list(display_to_raw), display_to_raw
 
 
 def _distance_sort_expr(column: str) -> pl.Expr:
@@ -58,6 +81,7 @@ def avg_distance_table_data(
     geo_level: str,
     purpose_col: str,
     purpose: str,
+    config=None,
 ):
     out = []
     for label, df in nonempty(data_list):
@@ -68,6 +92,16 @@ def avg_distance_table_data(
         if purpose_col in df.columns and purpose != "All":
             df = df.with_columns(pl.col(purpose_col).cast(pl.Utf8)).filter(
                 pl.col(purpose_col) == purpose
+            )
+        if config is not None and purpose_col in df.columns:
+            df = df.with_columns(
+                pl.col(purpose_col)
+                .cast(pl.Utf8)
+                .map_elements(
+                    lambda value: config.label_value("tour_purpose", value),
+                    return_dtype=pl.Utf8,
+                )
+                .alias(purpose_col)
             )
         out.append((label, df))
     return out
@@ -84,6 +118,8 @@ class TourDistancePage(DashboardPage):
         nonmand_data = self.state.get_summary_table_set(
             "average_nonmandatory_tour_distance_by_purpose_and_geography", "weighted"
         )
+        self._mand_purpose_to_raw = {"All": "All"}
+        self._nonmand_purpose_to_raw = {"All": "All"}
         purpose_opts, self._tour_purpose_to_raw = column_options(
             dist_data or [],
             "tour_purpose",
@@ -123,8 +159,30 @@ class TourDistancePage(DashboardPage):
             "mandatory_tour_purpose",
             widget=pn.widgets.Select(
                 name="Mandatory Tour Purpose",
-                options=_options(mand_data or [], "mandatory_tour_purpose"),
-                value=_options(mand_data or [], "mandatory_tour_purpose")[0],
+                options=_purpose_options(
+                    mand_data or [],
+                    "mandatory_tour_purpose",
+                    config=self.config,
+                    state=self.state,
+                    cache_key=(
+                        "tour_distance",
+                        "average_mandatory_tour_distance_by_purpose_and_geography",
+                        "mandatory_tour_purpose",
+                        "weighted",
+                    ),
+                )[0],
+                value=_purpose_options(
+                    mand_data or [],
+                    "mandatory_tour_purpose",
+                    config=self.config,
+                    state=self.state,
+                    cache_key=(
+                        "tour_distance",
+                        "average_mandatory_tour_distance_by_purpose_and_geography",
+                        "mandatory_tour_purpose",
+                        "weighted",
+                    ),
+                )[0][0],
             ),
             label="Mandatory Tour Purpose",
         )
@@ -132,8 +190,30 @@ class TourDistancePage(DashboardPage):
             "nonmandatory_tour_purpose",
             widget=pn.widgets.Select(
                 name="Non-Mandatory Tour Purpose",
-                options=_options(nonmand_data or [], "nonmandatory_tour_purpose"),
-                value=_options(nonmand_data or [], "nonmandatory_tour_purpose")[0],
+                options=_purpose_options(
+                    nonmand_data or [],
+                    "nonmandatory_tour_purpose",
+                    config=self.config,
+                    state=self.state,
+                    cache_key=(
+                        "tour_distance",
+                        "average_nonmandatory_tour_distance_by_purpose_and_geography",
+                        "nonmandatory_tour_purpose",
+                        "weighted",
+                    ),
+                )[0],
+                value=_purpose_options(
+                    nonmand_data or [],
+                    "nonmandatory_tour_purpose",
+                    config=self.config,
+                    state=self.state,
+                    cache_key=(
+                        "tour_distance",
+                        "average_nonmandatory_tour_distance_by_purpose_and_geography",
+                        "nonmandatory_tour_purpose",
+                        "weighted",
+                    ),
+                )[0][0],
             ),
             label="Non-Mandatory Tour Purpose",
         )
@@ -186,14 +266,35 @@ class TourDistancePage(DashboardPage):
             total_raw="all_tour_purposes",
             total_label="Total",
         )
+        mand_purpose_opts, self._mand_purpose_to_raw = _purpose_options(
+            mand_list,
+            "mandatory_tour_purpose",
+            config=self.config,
+            state=self.state,
+            cache_key=(
+                "tour_distance",
+                "average_mandatory_tour_distance_by_purpose_and_geography",
+                "mandatory_tour_purpose",
+                self.weighting_key,
+            ),
+        )
+        nonmand_purpose_opts, self._nonmand_purpose_to_raw = _purpose_options(
+            nonmand_list,
+            "nonmandatory_tour_purpose",
+            config=self.config,
+            state=self.state,
+            cache_key=(
+                "tour_distance",
+                "average_nonmandatory_tour_distance_by_purpose_and_geography",
+                "nonmandatory_tour_purpose",
+                self.weighting_key,
+            ),
+        )
         for widget, opts in [
             (self.tour_purpose_sel, purpose_opts),
             (self.geo_level_sel, _options(mand_list, GEO_LEVEL_COL)),
-            (self.mand_purpose_sel, _options(mand_list, "mandatory_tour_purpose")),
-            (
-                self.nonmand_purpose_sel,
-                _options(nonmand_list, "nonmandatory_tour_purpose"),
-            ),
+            (self.mand_purpose_sel, mand_purpose_opts),
+            (self.nonmand_purpose_sel, nonmand_purpose_opts),
         ]:
             widget.options = opts
             if widget.value not in opts:
@@ -242,8 +343,12 @@ class TourDistancePage(DashboardPage):
         if summaries is None:
             return []
         geo_level = self.geo_level_sel.value
-        mand_purpose = self.mand_purpose_sel.value
-        nonmand_purpose = self.nonmand_purpose_sel.value
+        mand_purpose = self._mand_purpose_to_raw.get(
+            self.mand_purpose_sel.value, self.mand_purpose_sel.value
+        )
+        nonmand_purpose = self._nonmand_purpose_to_raw.get(
+            self.nonmand_purpose_sel.value, self.nonmand_purpose_sel.value
+        )
         mand_avg_data = self.get_filtered_view(
             "average_mandatory_tour_distance",
             (geo_level, mand_purpose),
@@ -252,6 +357,7 @@ class TourDistancePage(DashboardPage):
                 geo_level,
                 "mandatory_tour_purpose",
                 mand_purpose,
+                self.config,
             ),
         )
         nonmand_avg_data = self.get_filtered_view(
@@ -264,6 +370,7 @@ class TourDistancePage(DashboardPage):
                 geo_level,
                 "nonmandatory_tour_purpose",
                 nonmand_purpose,
+                self.config,
             ),
         )
         return [

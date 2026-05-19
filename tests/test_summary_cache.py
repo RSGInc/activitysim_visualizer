@@ -29,6 +29,8 @@ from dashboard.pages.tour_summaries.tour_mode import (
     TourModePage as TourSummariesTourModePage,
 )
 from dashboard.pages.tour_summaries.tour_mode import _filter_col
+from dashboard.pages.tour_summaries.tour_distance import TourDistancePage
+from dashboard.pages.tour_summaries.tour_purpose import TourPurposePage
 from dashboard.pages.tour_summaries.tour_stop_frequency import (
     TourStopFrequencyPage,
 )
@@ -76,6 +78,16 @@ def _collect_plotly_panes(viewable) -> list[pn.pane.Plotly]:
         for child in viewable.objects:
             plots.extend(_collect_plotly_panes(child))
     return plots
+
+
+def _collect_tabulators(viewable) -> list[pn.widgets.Tabulator]:
+    tables: list[pn.widgets.Tabulator] = []
+    if isinstance(viewable, pn.widgets.Tabulator):
+        tables.append(viewable)
+    if hasattr(viewable, "objects"):
+        for child in viewable.objects:
+            tables.extend(_collect_tabulators(child))
+    return tables
 
 
 def _write_config(
@@ -1071,6 +1083,158 @@ def test_daily_activity_pattern_live_page_uses_shared_summary_helpers(
     page.person_type_sel.value = "worker"
     page.refresh(force=True)
     assert page._body.objects
+
+
+def test_tour_purpose_labels_render_consistently_across_pages(tmp_path: Path) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "categories:",
+            "  tour_purpose:",
+            "    mapping:",
+            "      all_tour_purposes: Total",
+            "      work: Work Trips",
+            "      shop: Shopping",
+            "      eatout: Eat Out",
+            "      social: Social Time",
+        ],
+    )
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "daily_activity_pattern_by_person_type": pl.DataFrame(
+                {
+                    "person_type": [
+                        "all_person_types",
+                        "all_person_types",
+                        "worker",
+                        "worker",
+                    ],
+                    "daily_activity_pattern": ["M", "N", "M", "N"],
+                    "person_count": [10.0, 8.0, 6.0, 4.0],
+                }
+            ),
+            "mandatory_tour_frequency_by_person_type": pl.DataFrame(
+                {
+                    "person_type": ["all_person_types", "worker"],
+                    "mandatory_tour_frequency": [1, 1],
+                    "person_count": [7.0, 4.0],
+                }
+            ),
+            "nonmandatory_tour_frequency_by_person_type": pl.DataFrame(
+                {
+                    "person_type": ["all_person_types", "worker"],
+                    "nonmandatory_tour_frequency": ["0", "1"],
+                    "person_count": [3.0, 6.0],
+                }
+            ),
+            "tour_rates_by_person_type_and_tour_purpose": pl.DataFrame(
+                {
+                    "person_type": [
+                        "all_person_types",
+                        "all_person_types",
+                        "worker",
+                        "worker",
+                    ],
+                    "tour_purpose": ["work", "shop", "work", "shop"],
+                    "tour_rate": [1.8, 0.7, 2.0, 0.5],
+                }
+            ),
+            "trip_rates_by_person_type_and_trip_purpose": pl.DataFrame(
+                {
+                    "person_type": [
+                        "all_person_types",
+                        "all_person_types",
+                        "worker",
+                        "worker",
+                    ],
+                    "trip_purpose": ["work", "shop", "work", "shop"],
+                    "trip_rate": [2.4, 1.1, 2.8, 0.9],
+                }
+            ),
+            "tour_category_distribution": pl.DataFrame(
+                {
+                    "tour_category": ["mandatory", "non_mandatory"],
+                    "tour_count": [10.0, 8.0],
+                }
+            ),
+            "tour_purpose_distribution": pl.DataFrame(
+                {
+                    "tour_purpose": ["work", "shop"],
+                    "tour_count": [12.0, 6.0],
+                }
+            ),
+            "tour_distance_by_tour_purpose": pl.DataFrame(
+                {
+                    "tour_purpose": ["all_tour_purposes", "work", "shop"],
+                    "distance_bin": ["10", "10", "20"],
+                    "tour_count": [5.0, 3.0, 2.0],
+                }
+            ),
+            "average_mandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
+                {
+                    "mandatory_tour_purpose": ["work"],
+                    "geography_level": ["Region"],
+                    "average_tour_distance": [8.5],
+                }
+            ),
+            "average_nonmandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
+                {
+                    "nonmandatory_tour_purpose": ["eatout", "social"],
+                    "geography_level": ["Region", "Region"],
+                    "average_tour_distance": [4.2, 6.1],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    daily_activity_page = DailyActivityPatternPage(state, config)
+    daily_activity_page.refresh(force=True)
+    daily_activity_plots = _collect_plotly_panes(daily_activity_page._body)
+    daily_tour_rate_chart = next(
+        plot
+        for plot in daily_activity_plots
+        if plot.object.layout.title.text
+        == "Daily Tour Rate per Person by Tour Purpose - Total"
+    )
+    assert list(daily_tour_rate_chart.object.layout.xaxis.categoryarray) == [
+        "Work Trips",
+        "Shopping",
+    ]
+    assert list(daily_tour_rate_chart.object.data[0].x) == ["Work Trips", "Shopping"]
+
+    tour_purpose_page = TourPurposePage(state, config)
+    tour_purpose_page.refresh(force=True)
+    tour_purpose_plots = _collect_plotly_panes(tour_purpose_page._body)
+    purpose_chart = next(
+        plot for plot in tour_purpose_plots if plot.object.layout.title.text == "Tour Purpose"
+    )
+    assert list(purpose_chart.object.layout.xaxis.categoryarray) == [
+        "Work Trips",
+        "Shopping",
+    ]
+    assert list(purpose_chart.object.data[0].x) == ["Work Trips", "Shopping"]
+
+    tour_distance_page = TourDistancePage(state, config)
+    tour_distance_page.refresh(force=True)
+    assert list(tour_distance_page.mand_purpose_sel.options) == ["All", "Work Trips"]
+    assert list(tour_distance_page.nonmand_purpose_sel.options) == [
+        "All",
+        "Eat Out",
+        "Social Time",
+    ]
+    tabulators = _collect_tabulators(tour_distance_page._average_section)
+    mandatory_table = tabulators[0].value
+    nonmandatory_table = tabulators[1].value
+    assert mandatory_table["mandatory_tour_purpose"].tolist() == ["Work Trips"]
+    assert nonmandatory_table["nonmandatory_tour_purpose"].tolist() == [
+        "Eat Out",
+        "Social Time",
+    ]
 
 
 def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
