@@ -10,6 +10,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 MissingPolicy = Literal["error", "warn", "set_null"]
 AggregationMethod = Literal["sum", "mean", "min", "max", "first", "last"]
 LookupType = Literal["od", "key"]
+CombineMethod = Literal["replace", "sum"]
+ApplyTarget = Literal["trips", "tours", "both"]
+LookupRole = Literal["primary", "fallback"]
+LookupTargetTable = Literal["trips", "tours"]
+LookupDirection = Literal["outbound", "inbound"]
 
 
 class DimensionConfig(BaseModel):
@@ -34,8 +39,11 @@ class ActivitySimConfig(BaseModel):
     trips_table: str | None = None
     tours_table: str | None = None
     mode_column: str = "trip_mode"
+    tour_mode_column: str = "tour_mode"
     tour_id_column: str = "tour_id"
     outbound_column: str = "outbound"
+    tour_origin_column: str = "origin"
+    tour_destination_column: str = "destination"
 
 
 class DefaultsConfig(BaseModel):
@@ -167,12 +175,20 @@ class NormalizedLookupRule(BaseModel):
     missing_matrix_policy: MissingPolicy = "error"
     missing_od_policy: MissingPolicy = "error"
     sentinel_values: list[float] = Field(default_factory=list)
+    combine_method: CombineMethod = "replace"
+    lookup_chain_id: str
+    lookup_step_index: int = 0
+    lookup_role: LookupRole = "primary"
+    target_table: LookupTargetTable = "trips"
+    direction: LookupDirection | None = None
 
     @model_validator(mode="after")
     def _validate_lookup_fields(self) -> "NormalizedLookupRule":
         if self.lookup == "key":
             if not self.key_column:
                 raise ValueError("key lookups require key_column.")
+        if self.lookup_step_index < 0:
+            raise ValueError("lookup_step_index must be non-negative.")
         return self
 
 
@@ -186,6 +202,8 @@ class NormalizedConfig(BaseModel):
     ignore_modes: list[str]
     tour_aggregation: TourAggregationConfig
     lookups: list[NormalizedLookupRule]
+    trip_lookups: list[NormalizedLookupRule] = Field(default_factory=list)
+    tour_lookups: list[NormalizedLookupRule] = Field(default_factory=list)
     segment_validations: dict[str, dict[str, Any]] = Field(default_factory=dict)
     failures: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)

@@ -277,6 +277,111 @@ def test_config_loads_integrated_skimjoin_without_activitysim_table_paths(
     assert config.skimjoin.normalized_config is not None
 
 
+def test_normalize_config_preserves_trip_lookups_and_adds_tour_lookup_metadata(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    _write_omx(skim_path, matrix_name="WTW_ACC__AM")
+    config_path = tmp_path / "skimjoin.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "project:",
+                "  skim_files:",
+                f"    - {skim_path.name}",
+                "activitysim:",
+                "  mode_column: trip_mode",
+                "  tour_mode_column: tour_mode",
+                "  tour_id_column: tour_id",
+                "  outbound_column: outbound",
+                "  tour_origin_column: tour_origin",
+                "  tour_destination_column: primary_dest",
+                "dimensions:",
+                "  PERIOD:",
+                "    source_column: period",
+                "modes:",
+                "  WALK_TRANSIT:",
+                "    walk_time:",
+                "      output: skim_walk_time",
+                "      combine: sum",
+                "      matrix: WTW_ACC__{PERIOD}",
+                "      fallbacks:",
+                "        - matrix: WTW_ACC__MD",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+
+    assert normalized.lookups == normalized.trip_lookups
+    assert [rule.name for rule in normalized.trip_lookups] == [
+        "WALK_TRANSIT.walk_time",
+        "WALK_TRANSIT.walk_time.fallback_1",
+    ]
+    assert [rule.lookup_step_index for rule in normalized.trip_lookups] == [0, 1]
+    assert [rule.lookup_role for rule in normalized.trip_lookups] == [
+        "primary",
+        "fallback",
+    ]
+    assert [rule.combine_method for rule in normalized.trip_lookups] == ["sum", "sum"]
+    assert normalized.trip_lookups[0].lookup_chain_id == "WALK_TRANSIT.walk_time"
+    assert normalized.trip_lookups[1].lookup_chain_id == "WALK_TRANSIT.walk_time"
+
+    assert [rule.target_table for rule in normalized.tour_lookups] == [
+        "tours",
+        "tours",
+        "tours",
+        "tours",
+    ]
+    assert [rule.direction for rule in normalized.tour_lookups] == [
+        "outbound",
+        "outbound",
+        "inbound",
+        "inbound",
+    ]
+    assert normalized.tour_lookups[0].origin == "tour_origin"
+    assert normalized.tour_lookups[0].destination == "primary_dest"
+    assert normalized.tour_lookups[2].origin == "primary_dest"
+    assert normalized.tour_lookups[2].destination == "tour_origin"
+    assert normalized.tour_lookups[0].output == "skim_walk_time_outbound"
+    assert normalized.tour_lookups[2].output == "skim_walk_time_inbound"
+
+
+def test_normalize_config_respects_apply_to_targets(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    _write_omx(skim_path, matrix_name="SOV_TIME")
+    _write_skimjoin_config(
+        tmp_path,
+        skim_file=skim_path,
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  SOV:",
+            "    trip_only_time:",
+            "      apply_to: trips",
+            "      matrix: SOV_TIME",
+            "    tour_only_time:",
+            "      apply_to: tours",
+            "      matrix: SOV_TIME",
+        ],
+    )
+
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+
+    assert [rule.component for rule in normalized.trip_lookups] == ["trip_only_time"]
+    assert [rule.component for rule in normalized.tour_lookups] == [
+        "tour_only_time",
+        "tour_only_time",
+    ]
+
+
 def test_inventory_supports_csv_keyed_columns(tmp_path: Path) -> None:
     csv_path = tmp_path / "maz_stop_walk.csv"
     _write_csv_skim(csv_path)

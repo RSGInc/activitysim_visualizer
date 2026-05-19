@@ -5,6 +5,7 @@ from typing import Any
 
 from processor.skimjoin.config.network_los import load_network_los_period_mapping
 from processor.skimjoin.config.schema import (
+    ActivitySimConfig,
     DimensionConfig,
     ExplicitConfig,
     NormalizedConfig,
@@ -26,6 +27,11 @@ RESERVED_KEYS = {
     "missing_od_policy",
     "sentinel_values",
     "skip",
+    "apply_to",
+    "combine",
+    "fallbacks",
+    "tour_origin",
+    "tour_destination",
 }
 
 
@@ -50,7 +56,8 @@ def normalize_config(config: ExplicitConfig) -> NormalizedConfig:
         "missing_od_policy": config.defaults.missing_od_policy,
         "sentinel_values": list(config.defaults.sentinel_values),
     }
-    lookups: list[NormalizedLookupRule] = []
+    trip_lookups: list[NormalizedLookupRule] = []
+    tour_lookups: list[NormalizedLookupRule] = []
     segment_validations: dict[str, dict[str, Any]] = {}
 
     for mode_name, raw_mode_block in config.modes.items():
@@ -73,21 +80,71 @@ def normalize_config(config: ExplicitConfig) -> NormalizedConfig:
                     raise ValueError(f"modes.{mode_name}.segments.{segment_key} must be a mapping.")
                 segment_context = _merge_context(mode_context, segment_block)
                 segment_context["when"] = _merge_when(segment_context["when"], {str(segment_on): segment_key})
-                lookups.extend(
+                trip_lookups.extend(
                     _normalize_components(
                         mode_name=mode_name,
                         component_source=segment_block,
                         context=segment_context,
                         rule_prefix=f"{mode_name}.{segment_key}",
+                        activitysim=config.activitysim,
+                        target_table="trips",
+                        direction=None,
+                    )
+                )
+                tour_lookups.extend(
+                    _normalize_components(
+                        mode_name=mode_name,
+                        component_source=segment_block,
+                        context=segment_context,
+                        rule_prefix=f"{mode_name}.{segment_key}",
+                        activitysim=config.activitysim,
+                        target_table="tours",
+                        direction="outbound",
+                    )
+                )
+                tour_lookups.extend(
+                    _normalize_components(
+                        mode_name=mode_name,
+                        component_source=segment_block,
+                        context=segment_context,
+                        rule_prefix=f"{mode_name}.{segment_key}",
+                        activitysim=config.activitysim,
+                        target_table="tours",
+                        direction="inbound",
                     )
                 )
         else:
-            lookups.extend(
+            trip_lookups.extend(
                 _normalize_components(
                     mode_name=mode_name,
                     component_source=raw_mode_block,
                     context=mode_context,
                     rule_prefix=mode_name,
+                    activitysim=config.activitysim,
+                    target_table="trips",
+                    direction=None,
+                )
+            )
+            tour_lookups.extend(
+                _normalize_components(
+                    mode_name=mode_name,
+                    component_source=raw_mode_block,
+                    context=mode_context,
+                    rule_prefix=mode_name,
+                    activitysim=config.activitysim,
+                    target_table="tours",
+                    direction="outbound",
+                )
+            )
+            tour_lookups.extend(
+                _normalize_components(
+                    mode_name=mode_name,
+                    component_source=raw_mode_block,
+                    context=mode_context,
+                    rule_prefix=mode_name,
+                    activitysim=config.activitysim,
+                    target_table="tours",
+                    direction="inbound",
                 )
             )
 
@@ -98,7 +155,9 @@ def normalize_config(config: ExplicitConfig) -> NormalizedConfig:
         zone_mapping=config.zone_mapping,
         ignore_modes=config.ignore_modes,
         tour_aggregation=config.tour_aggregation,
-        lookups=lookups,
+        lookups=trip_lookups,
+        trip_lookups=trip_lookups,
+        tour_lookups=tour_lookups,
         segment_validations=segment_validations,
     )
 
@@ -180,19 +239,25 @@ def _normalize_components(
     component_source: dict[str, Any],
     context: dict[str, Any],
     rule_prefix: str,
+    activitysim: ActivitySimConfig,
+    target_table: str,
+    direction: str | None,
 ) -> list[NormalizedLookupRule]:
     lookups: list[NormalizedLookupRule] = []
     for component_name, raw_component in component_source.items():
         if component_name in RESERVED_KEYS:
             continue
-        rule = _normalize_component(
+        rules = _normalize_component(
             mode_name=mode_name,
             component_name=str(component_name),
             raw_component=raw_component,
             parent_context=context,
             rule_name=f"{rule_prefix}.{component_name}",
+            activitysim=activitysim,
+            target_table=target_table,
+            direction=direction,
         )
-        lookups.append(rule)
+        lookups.extend(rules)
     return lookups
 
 
@@ -203,7 +268,62 @@ def _normalize_component(
     raw_component: Any,
     parent_context: dict[str, Any],
     rule_name: str,
-) -> NormalizedLookupRule:
+    activitysim: ActivitySimConfig,
+    target_table: str,
+    direction: str | None,
+) -> list[NormalizedLookupRule]:
+    component_block = _component_block(raw_component, rule_name)
+    apply_to = str(component_block.get("apply_to", "both"))
+    if not _applies_to_target(apply_to, target_table):
+        return []
+
+    fallback_blocks = component_block.get("fallbacks") or []
+    if not isinstance(fallback_blocks, list):
+        raise ValueError(f"{rule_name}.fallbacks must be a list.")
+
+    chain_id = rule_name
+    combine_method = str(component_block.get("combine", "replace"))
+    rules = [
+        _build_lookup_rule(
+            mode_name=mode_name,
+            component_name=component_name,
+            component_block=component_block,
+            parent_context=parent_context,
+            rule_name=rule_name,
+            chain_id=chain_id,
+            lookup_step_index=0,
+            lookup_role="primary",
+            combine_method=combine_method,
+            activitysim=activitysim,
+            target_table=target_table,
+            direction=direction,
+        )
+    ]
+    for index, fallback_raw in enumerate(fallback_blocks, start=1):
+        fallback_block = _component_block(fallback_raw, f"{rule_name}.fallback_{index}")
+        rules.append(
+            _build_lookup_rule(
+                mode_name=mode_name,
+                component_name=component_name,
+                component_block=fallback_block,
+                parent_context=parent_context,
+                rule_name=f"{rule_name}.fallback_{index}",
+                chain_id=chain_id,
+                lookup_step_index=index,
+                lookup_role="fallback",
+                combine_method=combine_method,
+                activitysim=activitysim,
+                target_table=target_table,
+                direction=direction,
+                output_override=str(component_block.get("output"))
+                if component_block.get("output") is not None
+                else None,
+            )
+        )
+    return rules
+
+
+def _component_block(raw_component: Any, rule_name: str) -> dict[str, Any]:
     if isinstance(raw_component, str):
         component_block: dict[str, Any] = {"matrix": raw_component}
     elif isinstance(raw_component, dict):
@@ -212,13 +332,48 @@ def _normalize_component(
         raise ValueError(f"{rule_name} must be a string or mapping.")
     if "matrix" not in component_block:
         raise ValueError(f"{rule_name} requires matrix.")
+    return component_block
 
+
+def _applies_to_target(apply_to: str, target_table: str) -> bool:
+    if apply_to not in {"trips", "tours", "both"}:
+        raise ValueError(f"Unsupported apply_to value: {apply_to!r}")
+    if apply_to == "both":
+        return True
+    return apply_to == target_table
+
+
+def _build_lookup_rule(
+    *,
+    mode_name: str,
+    component_name: str,
+    component_block: dict[str, Any],
+    parent_context: dict[str, Any],
+    rule_name: str,
+    chain_id: str,
+    lookup_step_index: int,
+    lookup_role: str,
+    combine_method: str,
+    activitysim: ActivitySimConfig,
+    target_table: str,
+    direction: str | None,
+    output_override: str | None = None,
+) -> NormalizedLookupRule:
     context = _merge_context(parent_context, component_block)
     matrix = str(component_block["matrix"])
     dimensions_used = extract_placeholders(matrix)
-    output = str(component_block.get("output") or f"{context['output_prefix']}{component_name}")
+    output = str(output_override or component_block.get("output") or f"{context['output_prefix']}{component_name}")
+    origin, destination = _resolve_lookup_columns(
+        component_block=component_block,
+        context=context,
+        activitysim=activitysim,
+        target_table=target_table,
+        direction=direction,
+    )
+    if target_table == "tours" and direction is not None:
+        output = f"{output}_{direction}"
     return NormalizedLookupRule(
-        name=rule_name,
+        name=rule_name if direction is None else f"{rule_name}.{direction}",
         mode=mode_name,
         component=component_name,
         output=output,
@@ -229,12 +384,43 @@ def _normalize_component(
             if component_block.get("key_column") is not None
             else None
         ),
-        origin=str(component_block.get("origin", context["origin"])),
-        destination=str(component_block.get("destination", context["destination"])),
+        origin=origin,
+        destination=destination,
         when=context["when"],
         dimensions_used=dimensions_used,
         dimensions=context["dimensions"],
         missing_matrix_policy=str(component_block.get("missing_matrix_policy", context["missing_matrix_policy"])),
         missing_od_policy=str(component_block.get("missing_od_policy", context["missing_od_policy"])),
         sentinel_values=list(context.get("sentinel_values", [])),
+        combine_method=combine_method,
+        lookup_chain_id=chain_id if direction is None else f"{chain_id}.{direction}",
+        lookup_step_index=lookup_step_index,
+        lookup_role=lookup_role,
+        target_table=target_table,
+        direction=direction,
     )
+
+
+def _resolve_lookup_columns(
+    *,
+    component_block: dict[str, Any],
+    context: dict[str, Any],
+    activitysim: ActivitySimConfig,
+    target_table: str,
+    direction: str | None,
+) -> tuple[str, str]:
+    if target_table != "tours":
+        return (
+            str(component_block.get("origin", context["origin"])),
+            str(component_block.get("destination", context["destination"])),
+        )
+
+    outbound_origin = str(
+        component_block.get("tour_origin", activitysim.tour_origin_column)
+    )
+    outbound_destination = str(
+        component_block.get("tour_destination", activitysim.tour_destination_column)
+    )
+    if direction == "inbound":
+        return outbound_destination, outbound_origin
+    return outbound_origin, outbound_destination
