@@ -1135,6 +1135,57 @@ def test_student_school_escort_status_by_direction_summarizes_student_school_tou
     }
 
 
+def test_student_school_escort_status_treats_blank_labels_as_not_escorted(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    rd = RunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame(),
+        per=pl.DataFrame(
+            {
+                "person_id": [201, 202],
+                "person_type": [6, 7],
+                "finalweight": [1.0, 1.0],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [2001, 2002],
+                "person_id": [201, 202],
+                "person_type": [6, 7],
+                "tour_purpose": ["school", "school"],
+                "school_esc_outbound": ["", "   "],
+                "school_esc_inbound": ["", None],
+                "finalweight": [2.0, 3.0],
+            }
+        ),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    summary = daily_travel.student_school_escort_status_by_direction(rd, config).sort(
+        ["direction", "escort_type"]
+    )
+
+    assert summary.to_dict(as_series=False) == {
+        "direction": [
+            "inbound",
+            "outbound",
+        ],
+        "escort_type": [
+            "not_escorted",
+            "not_escorted",
+        ],
+        "tour_count": [5.0, 5.0],
+    }
+
+
 def test_households_with_school_escorting_by_student_count_and_direction_summarizes_weighted_households(
     tmp_path: Path,
 ) -> None:

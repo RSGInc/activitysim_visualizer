@@ -248,10 +248,10 @@ class JointTravelPage(DashboardPage):
                     bar_chart(
                         joint_tours_hhsize_data,
                         "household_size",
-                        "joint_tour_count",
+                        "joint_tour_hh_count",
                         "Joint Tours by Household Size",
                         "Household Size",
-                        yaxis_title="Joint Tours",
+                        yaxis_title="Households with a Joint Tour",
                         as_percent=self.as_percent,
                     ),
                     bar_chart(

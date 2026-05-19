@@ -75,8 +75,11 @@ def _explicit_escort_label_present(column: str) -> pl.Expr:
 
 
 def _escort_label_present(column: str) -> pl.Expr:
-    return pl.col(column).is_not_null() & (
-        pl.col(column).cast(pl.Utf8).str.to_lowercase() != "none"
+    normalized = pl.col(column).cast(pl.Utf8).str.to_lowercase()
+    return (
+        pl.col(column).is_not_null()
+        & (normalized != "none")
+        & (normalized.str.strip_chars() != "")
     )
 
 
@@ -201,7 +204,11 @@ def _adult_escorted_tours_with_household(rd: RunData) -> pl.DataFrame:
 def _escort_type_expr(column: str) -> pl.Expr:
     normalized = pl.col(column).cast(pl.Utf8).str.to_lowercase()
     return (
-        pl.when(pl.col(column).is_null() | (normalized == "none"))
+        pl.when(
+            pl.col(column).is_null()
+            | (normalized == "none")
+            | (normalized.str.strip_chars() == "")
+        )
         .then(pl.lit("not_escorted"))
         .when(normalized == "pure_escort")
         .then(pl.lit("pure_escort"))

@@ -37,6 +37,7 @@ def _all_purpose_rollup(
         df.group_by(group_cols)
         .agg(pl.col(value_col).sum().alias(value_col))
         .with_columns(pl.lit(ALL_TOUR_PURPOSES).alias("tour_purpose"))
+        .select(*group_cols, "tour_purpose", value_col)
     )
 
 
@@ -51,6 +52,7 @@ def _all_person_types_rollup(
         df.group_by(group_cols)
         .agg(pl.col(value_col).sum().alias(value_col))
         .with_columns(pl.lit(ALL_PERSON_TYPES).alias("person_type"))
+        .select("person_type", *group_cols, value_col)
     )
 
 
