@@ -10,6 +10,12 @@ from processor.summarize.summaries.long_term_shared import (
     _student_filter_expr,
     _worker_filter_expr,
 )
+from processor.summarize.summaries.summary_helpers import (
+    _aggregate_counts_across_geographies,
+    _configured_geography_columns,
+    _configured_geography_dimensions,
+    _configured_land_use_geography_dimensions,
+)
 from runtime.config import Config
 
 
@@ -95,7 +101,12 @@ def wfh(rd: RunData, config: Config) -> pl.DataFrame:
     else:
         workers = workers.with_columns(pl.lit(False).alias("_is_wfh"))
 
-    base = workers.select("home_zone_id", "_is_wfh", "finalweight")
+    base = workers.select(
+        "home_zone_id",
+        "_is_wfh",
+        "finalweight",
+        *_configured_geography_columns(workers, config=config, role_prefix="home"),
+    )
 
     def _aggregate_wfh_counts(
         df: pl.DataFrame,
@@ -125,7 +136,16 @@ def wfh(rd: RunData, config: Config) -> pl.DataFrame:
             )
         )
 
-    outputs = [_aggregate_wfh_counts(base, geography_type="maz", geography_id_col="home_zone_id")]
+    outputs = [
+        _aggregate_wfh_counts(base, geography_type=geography_type, geography_id_col=geography_col)
+        for geography_type, geography_col in _configured_geography_dimensions(
+            base,
+            config=config,
+            base_type="maz" if config.use_maz else "taz",
+            base_col="home_zone_id",
+            role_prefix="home",
+        )
+    ]
     all_geographies = base.select(
         pl.lit("all_geographies").alias("geography_type"),
         pl.lit("all_geographies").alias("geography_id"),
@@ -178,12 +198,31 @@ def internal_vs_external(rd: RunData, config: Config) -> pl.DataFrame:
             .alias("is_external_worker")
         )
         .select("home_zone_id", "is_external_worker", "finalweight")
+        .select(
+            "home_zone_id",
+            "is_external_worker",
+            "finalweight",
+            *_configured_geography_columns(rd.per, config=config, role_prefix="home"),
+        )
     )
     if base.is_empty():
         return empty_summary_frame(internal_vs_external)
 
     outputs = [
-        _aggregate_internal_external_counts(base, geography_type="maz", geography_id_col="home_zone_id"),
+        *[
+            _aggregate_internal_external_counts(
+                base,
+                geography_type=geography_type,
+                geography_id_col=geography_col,
+            )
+            for geography_type, geography_col in _configured_geography_dimensions(
+                base,
+                config=config,
+                base_type="maz" if config.use_maz else "taz",
+                base_col="home_zone_id",
+                role_prefix="home",
+            )
+        ],
         _aggregate_internal_external_counts(
             base.with_columns(pl.lit("all_geographies").alias("_all_geographies")),
             geography_type="all_geographies",
@@ -225,10 +264,10 @@ def external_workplace_loc(rd: RunData, config: Config) -> pl.DataFrame:
         return empty_summary_frame(external_workplace_loc)
 
     return (
-        _aggregate_external_worker_counts(
+        _aggregate_counts_across_geographies(
             base,
-            geography_type="maz",
-            geography_id_col="external_workplace_zone_id",
+            geography_dimensions=[("maz" if config.use_maz else "taz", "external_workplace_zone_id")],
+            value_col="external_worker_count",
         )
         .with_columns(
             pl.col("geography_type").cast(pl.Utf8),
@@ -257,28 +296,68 @@ def workplace_vs_land_use_employment(rd: RunData, config: Config) -> pl.DataFram
     if not land_use_required.issubset(set(rd.land_use.columns)) or not person_required.issubset(set(rd.per.columns)):
         return empty_summary_frame(workplace_vs_land_use_employment)
 
-    land_use_maz = (
-        rd.land_use.filter(pl.col("MAZ").is_not_null() & pl.col("employment_count").is_not_null())
-        .group_by("MAZ")
-        .agg(employment_count=pl.col("employment_count").sum())
-        .rename({"MAZ": "geography_id"})
-        .with_columns(
-            pl.lit("maz").alias("geography_type"),
-            pl.col("geography_id").cast(pl.Utf8),
-            pl.col("employment_count").cast(pl.Float64),
+    land_use_base = rd.land_use.select(
+        *[
+            column
+            for _, column in _configured_land_use_geography_dimensions(
+                rd.land_use,
+                config=config,
+            )
+        ],
+        "employment_count",
+    ).filter(pl.col("employment_count").is_not_null())
+    worker_base = rd.per.filter(
+        _worker_filter_expr() & pl.col("workplace_zone_id").is_not_null()
+    ).select(
+        "workplace_zone_id",
+        "finalweight",
+        *_configured_geography_columns(rd.per, config=config, role_prefix="work"),
+    )
+    land_use_dimensions = _configured_land_use_geography_dimensions(
+        rd.land_use,
+        config=config,
+    )
+    worker_dimensions = dict(
+        _configured_geography_dimensions(
+            worker_base,
+            config=config,
+            base_type="maz" if config.use_maz else "taz",
+            base_col="workplace_zone_id",
+            role_prefix="work",
         )
     )
-    worker_maz = (
-        rd.per.filter(_worker_filter_expr() & pl.col("workplace_zone_id").is_not_null())
-        .group_by("workplace_zone_id")
-        .agg(worker_count=pl.col("finalweight").sum())
-        .rename({"workplace_zone_id": "geography_id"})
-        .with_columns(
-            pl.lit("maz").alias("geography_type"),
-            pl.col("geography_id").cast(pl.Utf8),
-            pl.col("worker_count").cast(pl.Float64),
+    land_use_outputs = []
+    worker_outputs = []
+    for geography_type, geography_col in land_use_dimensions:
+        worker_col = worker_dimensions.get(geography_type)
+        if worker_col is None:
+            continue
+        land_use_outputs.append(
+            land_use_base.filter(pl.col(geography_col).is_not_null())
+            .group_by(geography_col)
+            .agg(employment_count=pl.col("employment_count").sum())
+            .rename({geography_col: "geography_id"})
+            .with_columns(
+                pl.lit(geography_type).alias("geography_type"),
+                pl.col("geography_id").cast(pl.Utf8),
+                pl.col("employment_count").cast(pl.Float64),
+            )
         )
-    )
+        worker_outputs.append(
+            worker_base.filter(pl.col(worker_col).is_not_null())
+            .group_by(worker_col)
+            .agg(worker_count=pl.col("finalweight").sum())
+            .rename({worker_col: "geography_id"})
+            .with_columns(
+                pl.lit(geography_type).alias("geography_type"),
+                pl.col("geography_id").cast(pl.Utf8),
+                pl.col("worker_count").cast(pl.Float64),
+            )
+        )
+    if not land_use_outputs or not worker_outputs:
+        return empty_summary_frame(workplace_vs_land_use_employment)
+    land_use_maz = pl.concat(land_use_outputs, how="vertical")
+    worker_maz = pl.concat(worker_outputs, how="vertical")
 
     return (
         land_use_maz.join(
@@ -351,18 +430,43 @@ def commuting_flows(rd: RunData, config: Config) -> pl.DataFrame:
         _worker_filter_expr()
         & pl.col("home_zone_id").is_not_null()
         & pl.col("workplace_zone_id").is_not_null()
-    ).select("home_zone_id", "workplace_zone_id", "finalweight")
+    ).select(
+        "home_zone_id",
+        "workplace_zone_id",
+        "finalweight",
+        *_configured_geography_columns(rd.per, config=config, role_prefix="home"),
+        *_configured_geography_columns(rd.per, config=config, role_prefix="work"),
+    )
     if base.is_empty():
         return empty_summary_frame(commuting_flows)
 
+    home_dimensions = _configured_geography_dimensions(
+        base,
+        config=config,
+        base_type="maz" if config.use_maz else "taz",
+        base_col="home_zone_id",
+        role_prefix="home",
+    )
+    work_dimensions = dict(
+        _configured_geography_dimensions(
+            base,
+            config=config,
+            base_type="maz" if config.use_maz else "taz",
+            base_col="workplace_zone_id",
+            role_prefix="work",
+        )
+    )
     outputs = [
         aggregate_flows(
-            base,
-            origin_type="maz",
-            origin_col="home_zone_id",
-            destination_type="maz",
-            destination_col="workplace_zone_id",
-        ),
+            base.filter(pl.col(origin_col).is_not_null() & pl.col(destination_col).is_not_null()),
+            origin_type=origin_type,
+            origin_col=origin_col,
+            destination_type=origin_type,
+            destination_col=destination_col,
+        )
+        for origin_type, origin_col in home_dimensions
+        if (destination_col := work_dimensions.get(origin_type)) is not None
+    ] + [
         base.select(
             pl.lit("all_geographies").alias("origin_geography_type"),
             pl.lit("all_geographies").alias("origin_geography_id"),
@@ -423,36 +527,77 @@ def school_loc_vs_land_use_enrollment(rd: RunData, config: Config) -> pl.DataFra
     else:
         return empty_summary_frame(school_loc_vs_land_use_enrollment)
 
-    land_use_maz = (
-        rd.land_use.filter(
-            pl.col("MAZ").is_not_null()
-            & pl.col("student_type").is_not_null()
-            & pl.col("enrollment_count").is_not_null()
-        )
-        .group_by(["MAZ", "student_type"])
-        .agg(enrollment_count=pl.col("enrollment_count").sum())
-        .rename({"MAZ": "geography_id"})
-        .with_columns(
-            pl.lit("maz").alias("geography_type"),
-            pl.col("geography_id").cast(pl.Utf8),
-            pl.col("student_type").cast(pl.Utf8),
-            pl.col("enrollment_count").cast(pl.Float64),
-        )
+    land_use_base = rd.land_use.filter(
+        pl.col("student_type").is_not_null() & pl.col("enrollment_count").is_not_null()
+    ).select(
+        "student_type",
+        "enrollment_count",
+        *[
+            column
+            for _, column in _configured_land_use_geography_dimensions(
+                rd.land_use,
+                config=config,
+            )
+        ],
     )
-    student_maz = (
+    student_base = (
         rd.per.filter(_student_filter_expr() & pl.col("school_zone_id").is_not_null())
         .with_columns(student_type=student_type_expr.alias("student_type"))
         .filter(pl.col("student_type").is_not_null())
-        .group_by(["school_zone_id", "student_type"])
-        .agg(student_count=pl.col("finalweight").sum())
-        .rename({"school_zone_id": "geography_id"})
-        .with_columns(
-            pl.lit("maz").alias("geography_type"),
-            pl.col("geography_id").cast(pl.Utf8),
-            pl.col("student_type").cast(pl.Utf8),
-            pl.col("student_count").cast(pl.Float64),
+        .select(
+            "school_zone_id",
+            "student_type",
+            "finalweight",
+            *_configured_geography_columns(rd.per, config=config, role_prefix="school"),
         )
     )
+    land_use_dimensions = _configured_land_use_geography_dimensions(
+        rd.land_use,
+        config=config,
+    )
+    student_dimensions = dict(
+        _configured_geography_dimensions(
+            student_base,
+            config=config,
+            base_type="maz" if config.use_maz else "taz",
+            base_col="school_zone_id",
+            role_prefix="school",
+        )
+    )
+    land_use_outputs = []
+    student_outputs = []
+    for geography_type, geography_col in land_use_dimensions:
+        student_col = student_dimensions.get(geography_type)
+        if student_col is None:
+            continue
+        land_use_outputs.append(
+            land_use_base.filter(pl.col(geography_col).is_not_null())
+            .group_by([geography_col, "student_type"])
+            .agg(enrollment_count=pl.col("enrollment_count").sum())
+            .rename({geography_col: "geography_id"})
+            .with_columns(
+                pl.lit(geography_type).alias("geography_type"),
+                pl.col("geography_id").cast(pl.Utf8),
+                pl.col("student_type").cast(pl.Utf8),
+                pl.col("enrollment_count").cast(pl.Float64),
+            )
+        )
+        student_outputs.append(
+            student_base.filter(pl.col(student_col).is_not_null())
+            .group_by([student_col, "student_type"])
+            .agg(student_count=pl.col("finalweight").sum())
+            .rename({student_col: "geography_id"})
+            .with_columns(
+                pl.lit(geography_type).alias("geography_type"),
+                pl.col("geography_id").cast(pl.Utf8),
+                pl.col("student_type").cast(pl.Utf8),
+                pl.col("student_count").cast(pl.Float64),
+            )
+        )
+    if not land_use_outputs or not student_outputs:
+        return empty_summary_frame(school_loc_vs_land_use_enrollment)
+    land_use_maz = pl.concat(land_use_outputs, how="vertical")
+    student_maz = pl.concat(student_outputs, how="vertical")
 
     return (
         land_use_maz.join(
@@ -536,15 +681,32 @@ def free_parking(rd: RunData, config: Config) -> pl.DataFrame:
         _worker_filter_expr()
         & pl.col("workplace_zone_id").is_not_null()
         & pl.col("free_parking_at_work").is_not_null()
-    ).select("workplace_zone_id", "free_parking_at_work", "finalweight")
+    ).select(
+        "workplace_zone_id",
+        "free_parking_at_work",
+        "finalweight",
+        *_configured_geography_columns(rd.per, config=config, role_prefix="work"),
+    )
     if base.is_empty():
         return empty_summary_frame(free_parking)
 
     return (
-        aggregate_counts(
-            base,
-            geography_type="maz",
-            geography_id_col="workplace_zone_id",
+        pl.concat(
+            [
+                aggregate_counts(
+                    base,
+                    geography_type=geography_type,
+                    geography_id_col=geography_col,
+                )
+                for geography_type, geography_col in _configured_geography_dimensions(
+                    base,
+                    config=config,
+                    base_type="maz" if config.use_maz else "taz",
+                    base_col="workplace_zone_id",
+                    role_prefix="work",
+                )
+            ],
+            how="vertical",
         )
         .with_columns(
             pl.col("geography_type").cast(pl.Utf8),

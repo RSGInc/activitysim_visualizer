@@ -11,8 +11,10 @@ from processor.summarize.summaries.trip_distributions import (
 )
 from processor.summarize.summaries.summary_helpers import (
     ALL_TOUR_PURPOSES,
+    _aggregate_counts_across_geographies,
     _aggregate_counts_by_geography,
     _all_purpose_rollup as _all_tour_purpose_rollup,
+    _configured_geography_dimensions,
     _summary_purpose_column as _trip_purpose_column,
     _weighted_group_sum,
 )
@@ -178,10 +180,15 @@ def parking_locations(rd: RunData, config: Config) -> pl.DataFrame:
         return empty_summary_frame(parking_locations)
 
     outputs = [
-        _aggregate_counts_by_geography(
+        _aggregate_counts_across_geographies(
             base,
-            geography_type="maz",
-            geography_id_col="parking_zone",
+            geography_dimensions=_configured_geography_dimensions(
+                base,
+                config=config,
+                base_type="maz" if config.use_maz else "taz",
+                base_col="parking_zone",
+                role_prefix="parking",
+            ),
         )
     ]
 

@@ -981,6 +981,130 @@ def test_long_term_comparisons_use_prepare_time_employment_and_student_derivatio
     assert set(school["student_type"].unique().to_list()) == {"School", "University"}
 
 
+def test_processor_prepare_adds_configured_geography_aggregation_columns(
+    tmp_path: Path,
+) -> None:
+    geography_csv = tmp_path / "district_lookup.csv"
+    geography_csv.write_text(
+        "\n".join(["MAZ,district", "10,North", "20,South"]),
+        encoding="utf-8",
+    )
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "geography:",
+            "  enabled: true",
+            "  aggregations:",
+            "    county:",
+            "      source_zone_system: taz",
+            "      mapping:",
+            "        Urban: [10]",
+            "        Rural: [20]",
+            "    district:",
+            "      source_zone_system: maz",
+            f"      file: {geography_csv.name}",
+            "      zone_id_col: MAZ",
+            "      geography_col: district",
+        ],
+    )
+
+    prepared = processor_prepare_data(_raw_run(), config)
+
+    assert prepared.hh["home_geo__county"].to_list() == ["Urban"]
+    assert prepared.hh["home_geo__district"].to_list() == ["North"]
+    assert prepared.per["home_geo__county"].to_list() == ["Urban"]
+    assert prepared.per["home_geo__district"].to_list() == ["North"]
+    assert prepared.land_use["land_use_geo__county"].to_list() == ["Urban", "Rural"]
+    assert prepared.land_use["land_use_geo__district"].to_list() == ["North", "South"]
+    assert prepared.tours["origin_geo__county"].to_list() == ["Urban"]
+    assert prepared.tours["destination_geo__county"].to_list() == ["Rural"]
+    assert prepared.tours["origin_geo__district"].to_list() == ["North"]
+    assert prepared.tours["destination_geo__district"].to_list() == ["South"]
+    assert prepared.trips["origin_geo__county"].to_list() == ["Urban"]
+    assert prepared.trips["destination_geo__district"].to_list() == ["South"]
+
+
+def test_long_term_comparison_summaries_emit_configured_geography_levels(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "geography:",
+            "  enabled: true",
+            "  aggregations:",
+            "    county:",
+            "      source_zone_system: taz",
+            "      mapping:",
+            "        West: [10]",
+            "        Central: [20]",
+            "        East: [30]",
+        ],
+    )
+    prepared = processor_prepare_data(_raw_run_with_student_enrollment_inputs(), config)
+
+    workplace = workplace_vs_land_use_employment(prepared, config)
+    school = school_loc_vs_land_use_enrollment(prepared, config)
+
+    assert "county" in workplace["geography_type"].to_list()
+    assert (
+        workplace.filter(pl.col("geography_type") == "county")
+        .sort("geography_id")
+        .select(["geography_id", "employment_count", "worker_count"])
+        .to_dicts()
+        == [
+            {"geography_id": "Central", "employment_count": 8.0, "worker_count": 0.0},
+            {"geography_id": "East", "employment_count": 9.0, "worker_count": 0.0},
+            {"geography_id": "West", "employment_count": 7.0, "worker_count": 1.0},
+        ]
+    )
+    assert "county" in school["geography_type"].to_list()
+    assert (
+        school.filter(pl.col("geography_type") == "county")
+        .sort(["geography_id", "student_type"])
+        .select(["geography_id", "student_type", "enrollment_count", "student_count"])
+        .to_dicts()
+        == [
+            {
+                "geography_id": "Central",
+                "student_type": "School",
+                "enrollment_count": 75.0,
+                "student_count": 1.0,
+            },
+            {
+                "geography_id": "Central",
+                "student_type": "University",
+                "enrollment_count": 0.0,
+                "student_count": 0.0,
+            },
+            {
+                "geography_id": "East",
+                "student_type": "School",
+                "enrollment_count": 0.0,
+                "student_count": 0.0,
+            },
+            {
+                "geography_id": "East",
+                "student_type": "University",
+                "enrollment_count": 100.0,
+                "student_count": 1.0,
+            },
+            {
+                "geography_id": "West",
+                "student_type": "School",
+                "enrollment_count": 0.0,
+                "student_count": 0.0,
+            },
+            {
+                "geography_id": "West",
+                "student_type": "University",
+                "enrollment_count": 0.0,
+                "student_count": 0.0,
+            },
+        ]
+    )
+
+
 def test_student_type_config_supports_custom_person_segmentation(
     tmp_path: Path,
 ) -> None:

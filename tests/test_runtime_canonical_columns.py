@@ -471,6 +471,136 @@ def test_categories_override_legacy_label_and_order_settings(
     ]
 
 
+def test_geography_aggregations_support_inline_and_file_mappings(
+    tmp_path: Path,
+) -> None:
+    geography_csv = tmp_path / "district_lookup.csv"
+    geography_csv.write_text(
+        "\n".join(["MAZ,district", "10,North", "20,South"]),
+        encoding="utf-8",
+    )
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "geography:",
+            "  enabled: true",
+            "  aggregations:",
+            "    county:",
+            "      source_zone_system: taz",
+            "      mapping:",
+            "        Urban: [10]",
+            "        Rural: [20]",
+            "    district:",
+            "      source_zone_system: maz",
+            f"      file: {geography_csv.name}",
+            "      zone_id_col: MAZ",
+            "      geography_col: district",
+        ],
+    )
+
+    assert [aggregation.name for aggregation in config.geography_aggregations.aggregations] == [
+        "county",
+        "district",
+    ]
+    county = config.geography_aggregations.aggregations[0]
+    district = config.geography_aggregations.aggregations[1]
+    assert county.lookup_rows == ((10, "Urban"), (20, "Rural"))
+    assert district.file == str(geography_csv.resolve())
+    assert district.lookup_rows == ((10, "North"), (20, "South"))
+
+
+def test_geography_aggregation_digest_changes_when_lookup_changes(
+    tmp_path: Path,
+) -> None:
+    config_a = _write_config(
+        tmp_path / "a",
+        extra_lines=[
+            "geography:",
+            "  enabled: true",
+            "  aggregations:",
+            "    county:",
+            "      source_zone_system: taz",
+            "      mapping:",
+            "        Urban: [10]",
+        ],
+    )
+    config_b = _write_config(
+        tmp_path / "b",
+        extra_lines=[
+            "geography:",
+            "  enabled: true",
+            "  aggregations:",
+            "    county:",
+            "      source_zone_system: taz",
+            "      mapping:",
+            "        Rural: [10]",
+        ],
+    )
+
+    assert config_a.prepare_config_digest != config_b.prepare_config_digest
+    assert config_a.summary_config_digest != config_b.summary_config_digest
+
+
+def test_typed_geography_summaries_include_configured_aggregation_levels(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "geography:",
+            "  enabled: true",
+            "  aggregations:",
+            "    county:",
+            "      source_zone_system: taz",
+            "      mapping:",
+            "        Urban: [10]",
+            "        Rural: [20, 30]",
+        ],
+    )
+
+    prepared = RunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame(),
+        per=pl.DataFrame(
+            {
+                "is_worker": [True],
+                "home_zone_id": [10],
+                "workplace_zone_id": [20],
+                "home_geo__county": ["Urban"],
+                "work_geo__county": ["Rural"],
+                "finalweight": [1.0],
+            }
+        ),
+        tours=pl.DataFrame(),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+    wfh = long_term.wfh(prepared, config)
+    flows = long_term.commuting_flows(prepared, config)
+    assert ("county" in wfh["geography_type"].to_list()) is True
+    assert (
+        wfh.filter(pl.col("geography_type") == "county")["geography_id"].to_list()
+        == ["Urban"]
+    )
+    assert (
+        flows.filter(pl.col("origin_geography_type") == "county")[
+            "origin_geography_id"
+        ].to_list()
+        == ["Urban"]
+    )
+    assert (
+        flows.filter(pl.col("destination_geography_type") == "county")[
+            "destination_geography_id"
+        ].to_list()
+        == ["Rural"]
+    )
+
+
 def test_config_summary_signature_changes_when_tour_purpose_grouping_changes(
     tmp_path: Path,
 ) -> None:

@@ -7,10 +7,38 @@ import polars as pl
 
 from processor.prepare.enrichment.columns import _has_columns
 from processor.prepare.enrichment.types import _PrepareState, _ZoneContext
-from processor.prepare.enrichment.zones import _add_geo, _skim_lookup, _to_taz
+from processor.prepare.enrichment.zones import (
+    _add_aggregated_geography,
+    _add_geo,
+    _skim_lookup,
+    _to_taz,
+)
 from runtime.config import Config
 
 LOGGER = get_logger("processor.prepare")
+
+
+def _add_configured_geographies(
+    df: pl.DataFrame,
+    *,
+    role_name: str,
+    maz_col: str,
+    taz_col: str,
+    config: Config,
+    zone_context: _ZoneContext,
+) -> pl.DataFrame:
+    result = df
+    for aggregation in config.geography_aggregations.aggregations:
+        zone_col = maz_col if aggregation.source_zone_system == "maz" else taz_col
+        result = _add_aggregated_geography(
+            result,
+            zone_col,
+            f"{role_name}_geo__{aggregation.name}",
+            aggregation_name=aggregation.name,
+            source_zone_system=aggregation.source_zone_system,
+            zone_context=zone_context,
+        )
+    return result
 
 
 def _licensed_driver_expr(column_name: str = "has_license") -> pl.Expr:
@@ -76,6 +104,14 @@ def _enrich_households(
         config=config,
         zone_context=zone_context,
     )
+    state.hh = _add_configured_geographies(
+        state.hh,
+        role_name="home",
+        maz_col="home_zone_id",
+        taz_col="home_taz",
+        config=config,
+        zone_context=zone_context,
+    )
 
 
 def _enrich_persons(
@@ -130,6 +166,30 @@ def _enrich_persons(
         state.per,
         "work_taz",
         "WGEO",
+        config=config,
+        zone_context=zone_context,
+    )
+    state.per = _add_configured_geographies(
+        state.per,
+        role_name="home",
+        maz_col="home_zone_id",
+        taz_col="home_taz",
+        config=config,
+        zone_context=zone_context,
+    )
+    state.per = _add_configured_geographies(
+        state.per,
+        role_name="work",
+        maz_col="workplace_zone_id",
+        taz_col="work_taz",
+        config=config,
+        zone_context=zone_context,
+    )
+    state.per = _add_configured_geographies(
+        state.per,
+        role_name="school",
+        maz_col="school_zone_id",
+        taz_col="school_taz",
         config=config,
         zone_context=zone_context,
     )

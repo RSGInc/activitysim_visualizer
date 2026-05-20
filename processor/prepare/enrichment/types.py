@@ -32,3 +32,4 @@ class _PrepareState:
 class _ZoneContext:
     maz_taz: pl.DataFrame | None
     zone_geo: pl.DataFrame | None
+    aggregation_lookups: dict[str, pl.DataFrame]

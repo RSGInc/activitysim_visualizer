@@ -900,6 +900,26 @@ class StudentTypeConfig:
     person: StudentTypePersonSelector | None = None
 
 
+@dataclass(frozen=True)
+class GeographyAggregationDefinition:
+    """Normalized custom geography aggregation definition."""
+
+    name: str
+    source_zone_system: str
+    lookup_rows: tuple[tuple[int, str], ...] = ()
+    file: str | None = None
+    zone_id_col: str | None = None
+    geography_col: str | None = None
+
+
+@dataclass(frozen=True)
+class GeographyAggregationSettings:
+    """Normalized geography aggregation settings."""
+
+    enabled: bool = False
+    aggregations: tuple[GeographyAggregationDefinition, ...] = ()
+
+
 def _student_type_defaults_to_university(
     label: str,
     land_use_columns: tuple[str, ...],
@@ -1022,6 +1042,221 @@ def _normalize_student_types(
     return normalized
 
 
+def _normalize_geography_zone_id(
+    raw_value,
+    *,
+    field_name: str,
+) -> int:
+    if isinstance(raw_value, bool):
+        raise ValueError(f"{field_name} must be an integer zone id.")
+    if isinstance(raw_value, int):
+        return raw_value
+    if isinstance(raw_value, float):
+        if raw_value.is_integer():
+            return int(raw_value)
+        raise ValueError(f"{field_name} must be an integer zone id.")
+    token = str(raw_value).strip()
+    if not token:
+        raise ValueError(f"{field_name} must be a non-empty zone id.")
+    try:
+        return int(token)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be an integer zone id.") from exc
+
+
+def _normalize_geography_lookup_rows(
+    rows: list[tuple[int, str]],
+    *,
+    field_name: str,
+) -> tuple[tuple[int, str], ...]:
+    if not rows:
+        raise ValueError(f"{field_name} resolved to no geography mappings.")
+
+    seen_zone_labels: dict[int, str] = {}
+    normalized: list[tuple[int, str]] = []
+    for zone_id, geography_label in rows:
+        prior = seen_zone_labels.get(zone_id)
+        if prior is not None and prior != geography_label:
+            raise ValueError(
+                f"{field_name} assigns zone id {zone_id} to multiple geography labels."
+            )
+        if prior is None:
+            seen_zone_labels[zone_id] = geography_label
+            normalized.append((zone_id, geography_label))
+    normalized.sort(key=lambda item: (item[0], item[1]))
+    return tuple(normalized)
+
+
+def _normalize_inline_geography_mapping(
+    raw_value,
+    *,
+    field_name: str,
+) -> tuple[tuple[int, str], ...]:
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{field_name} must be a mapping.")
+
+    rows: list[tuple[int, str]] = []
+    for raw_label, raw_zone_ids in raw_value.items():
+        geography_label = str(raw_label).strip()
+        if not geography_label:
+            raise ValueError(f"{field_name} contains a blank geography label.")
+        if isinstance(raw_zone_ids, list):
+            zone_values = raw_zone_ids
+        else:
+            zone_values = [raw_zone_ids]
+        if not zone_values:
+            raise ValueError(f"{field_name}.{geography_label} must list at least one zone id.")
+        for idx, zone_id in enumerate(zone_values):
+            rows.append(
+                (
+                    _normalize_geography_zone_id(
+                        zone_id,
+                        field_name=f"{field_name}.{geography_label}[{idx}]",
+                    ),
+                    geography_label,
+                )
+            )
+    return _normalize_geography_lookup_rows(rows, field_name=field_name)
+
+
+def _normalize_file_geography_mapping(
+    raw_value: dict[str, Any],
+    *,
+    field_name: str,
+    config_dir: Path,
+) -> tuple[str, str, str, tuple[tuple[int, str], ...]]:
+    file_raw = raw_value.get("file")
+    zone_id_col = str(raw_value.get("zone_id_col", "")).strip()
+    geography_col = str(raw_value.get("geography_col", "")).strip()
+    if not isinstance(file_raw, str) or not file_raw.strip():
+        raise ValueError(f"{field_name}.file must be a non-empty string.")
+    if not zone_id_col:
+        raise ValueError(f"{field_name}.zone_id_col is required with file-based mappings.")
+    if not geography_col:
+        raise ValueError(f"{field_name}.geography_col is required with file-based mappings.")
+
+    resolved_path = Path(file_raw).expanduser()
+    if not resolved_path.is_absolute():
+        resolved_path = (config_dir / resolved_path).resolve()
+    if not resolved_path.exists():
+        raise ValueError(f"{field_name}.file does not exist: {resolved_path}")
+
+    lookup = pl.read_csv(resolved_path)
+    required_columns = {zone_id_col, geography_col}
+    missing_columns = sorted(required_columns - set(lookup.columns))
+    if missing_columns:
+        raise ValueError(
+            f"{field_name}.file is missing required columns: {', '.join(missing_columns)}"
+        )
+
+    rows: list[tuple[int, str]] = []
+    for idx, row in enumerate(
+        lookup.select([zone_id_col, geography_col]).iter_rows(named=True)
+    ):
+        geography_label = str(row[geography_col]).strip() if row[geography_col] is not None else ""
+        if not geography_label:
+            raise ValueError(
+                f"{field_name}.file contains a blank geography label at row {idx + 1}."
+            )
+        rows.append(
+            (
+                _normalize_geography_zone_id(
+                    row[zone_id_col],
+                    field_name=f"{field_name}.file row {idx + 1} zone id",
+                ),
+                geography_label,
+            )
+        )
+
+    return (
+        str(resolved_path),
+        zone_id_col,
+        geography_col,
+        _normalize_geography_lookup_rows(rows, field_name=f"{field_name}.file"),
+    )
+
+
+def _normalize_geography_aggregations(
+    raw_value,
+    *,
+    field_name: str,
+    config_dir: Path,
+) -> GeographyAggregationSettings:
+    if raw_value is None:
+        return GeographyAggregationSettings()
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{field_name} must be a mapping when provided.")
+
+    enabled = raw_value.get("enabled", False)
+    if not isinstance(enabled, bool):
+        raise ValueError(f"{field_name}.enabled must be true or false when provided.")
+
+    aggregations_raw = raw_value.get("aggregations")
+    if aggregations_raw is None:
+        return GeographyAggregationSettings(enabled=enabled)
+    if not isinstance(aggregations_raw, dict):
+        raise ValueError(f"{field_name}.aggregations must be a mapping when provided.")
+
+    aggregations: list[GeographyAggregationDefinition] = []
+    for raw_name, raw_definition in aggregations_raw.items():
+        name = str(raw_name).strip()
+        entry_name = f"{field_name}.aggregations.{name or raw_name}"
+        if not name:
+            raise ValueError(f"{field_name}.aggregations contains a blank aggregation name.")
+        if not isinstance(raw_definition, dict):
+            raise ValueError(f"{entry_name} must be a mapping.")
+
+        source_zone_system = str(
+            raw_definition.get("source_zone_system", "")
+        ).strip().lower()
+        if source_zone_system not in {"maz", "taz"}:
+            raise ValueError(f"{entry_name}.source_zone_system must be 'maz' or 'taz'.")
+
+        has_inline_mapping = "mapping" in raw_definition
+        has_file_mapping = "file" in raw_definition
+        if has_inline_mapping == has_file_mapping:
+            raise ValueError(
+                f"{entry_name} must define exactly one of 'mapping' or 'file'."
+            )
+
+        if has_inline_mapping:
+            aggregations.append(
+                GeographyAggregationDefinition(
+                    name=name,
+                    source_zone_system=source_zone_system,
+                    lookup_rows=_normalize_inline_geography_mapping(
+                        raw_definition["mapping"],
+                        field_name=f"{entry_name}.mapping",
+                    ),
+                )
+            )
+            continue
+
+        file_path, zone_id_col, geography_col, lookup_rows = (
+            _normalize_file_geography_mapping(
+                raw_definition,
+                field_name=entry_name,
+                config_dir=config_dir,
+            )
+        )
+        aggregations.append(
+            GeographyAggregationDefinition(
+                name=name,
+                source_zone_system=source_zone_system,
+                lookup_rows=lookup_rows,
+                file=file_path,
+                zone_id_col=zone_id_col,
+                geography_col=geography_col,
+            )
+        )
+
+    aggregations.sort(key=lambda entry: entry.name)
+    return GeographyAggregationSettings(
+        enabled=enabled,
+        aggregations=tuple(aggregations),
+    )
+
+
 @dataclass
 class Config:
     """Normalized runtime configuration shared by summarize and dashboard code.
@@ -1094,6 +1329,7 @@ class Config:
     geography_enabled: bool
     geography_landuse_col: Optional[str]
     geography_mapping: Optional[dict]
+    geography_aggregations: GeographyAggregationSettings
 
     skim_file: Optional[str]
     skim_matrix: str
@@ -1153,6 +1389,11 @@ class Config:
         geo_mapping = None
         if geo_enabled and "mapping" in geo:
             geo_mapping = {str(k): str(v) for k, v in geo["mapping"].items()}
+        geography_aggregations = _normalize_geography_aggregations(
+            geo,
+            field_name="geography",
+            config_dir=config_path.parent,
+        )
 
         skim_cfg = raw.get("skim", {})
         if not isinstance(skim_cfg, dict):
@@ -1567,6 +1808,7 @@ class Config:
             geography_enabled=geo_enabled,
             geography_landuse_col=geo.get("landuse_col") if geo_enabled else None,
             geography_mapping=geo_mapping,
+            geography_aggregations=geography_aggregations,
             skim_file=skim_cfg.get("file"),
             skim_matrix=skim_cfg.get("matrix", "SOV_DIST__MD"),
             mode_order=modes_cfg.get("order"),
@@ -1602,6 +1844,20 @@ class Config:
                     else None
                 )
             )
+        geography_payload["aggregations"] = [
+            {
+                "name": aggregation.name,
+                "source_zone_system": aggregation.source_zone_system,
+                "file": aggregation.file,
+                "zone_id_col": aggregation.zone_id_col,
+                "geography_col": aggregation.geography_col,
+                "lookup_rows": [
+                    {"zone_id": zone_id, "geography_id": geography_id}
+                    for zone_id, geography_id in aggregation.lookup_rows
+                ],
+            }
+            for aggregation in self.geography_aggregations.aggregations
+        ]
         effective_person_type_labels = (
             None
             if self.category_spec("person_type") is not None
@@ -1740,6 +1996,20 @@ class Config:
                     else None
                 )
             )
+        geography_payload["aggregations"] = [
+            {
+                "name": aggregation.name,
+                "source_zone_system": aggregation.source_zone_system,
+                "file": aggregation.file,
+                "zone_id_col": aggregation.zone_id_col,
+                "geography_col": aggregation.geography_col,
+                "lookup_rows": [
+                    {"zone_id": zone_id, "geography_id": geography_id}
+                    for zone_id, geography_id in aggregation.lookup_rows
+                ],
+            }
+            for aggregation in self.geography_aggregations.aggregations
+        ]
         effective_person_type_labels = (
             None
             if self.category_spec("person_type") is not None

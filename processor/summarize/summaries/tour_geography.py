@@ -7,7 +7,10 @@ import polars as pl
 from processor.models import RunData
 from processor.summarize.contracts import empty_summary_frame, summary_contract
 from processor.summarize.summaries.summary_helpers import (
+    _aggregate_counts_across_geographies,
     _aggregate_counts_by_geography,
+    _configured_geography_columns,
+    _configured_geography_dimensions,
     _summary_purpose_column,
 )
 from runtime.config import Config
@@ -226,16 +229,43 @@ def int_vs_ext_non_mand_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
             & pl.col("person_id").is_not_null()
             & pl.col("is_external_tour").is_not_null()
         )
-        .join(rd.per.select("person_id", "home_zone_id"), on="person_id", how="inner")
+        .join(
+            rd.per.select(
+                "person_id",
+                "home_zone_id",
+                *_configured_geography_columns(
+                    rd.per,
+                    config=config,
+                    role_prefix="home",
+                ),
+            ),
+            on="person_id",
+            how="inner",
+        )
         .filter(pl.col("home_zone_id").is_not_null())
         .select("home_zone_id", "is_external_tour", "finalweight")
+        .select(
+            "home_zone_id",
+            "is_external_tour",
+            "finalweight",
+            *_configured_geography_columns(rd.per, config=config, role_prefix="home"),
+        )
     )
     if base.is_empty():
         return empty_summary_frame(int_vs_ext_non_mand_tour_freq)
 
-    outputs = [
-        (
-            base.group_by("home_zone_id")
+    geography_dimensions = _configured_geography_dimensions(
+        base,
+        config=config,
+        base_type="maz" if config.use_maz else "taz",
+        base_col="home_zone_id",
+        role_prefix="home",
+    )
+    outputs = []
+    for geography_type, geography_col in geography_dimensions:
+        outputs.append(
+            base.filter(pl.col(geography_col).is_not_null())
+            .group_by(geography_col)
             .agg(
                 internal_nonmandatory_tour_count=pl.when(~pl.col("is_external_tour"))
                 .then(pl.col("finalweight"))
@@ -246,9 +276,9 @@ def int_vs_ext_non_mand_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
                 .otherwise(0.0)
                 .sum(),
             )
-            .rename({"home_zone_id": "geography_id"})
+            .rename({geography_col: "geography_id"})
             .with_columns(
-                pl.lit("maz").alias("geography_type"),
+                pl.lit(geography_type).alias("geography_type"),
                 pl.col("geography_id").cast(pl.Utf8),
                 pl.col("internal_nonmandatory_tour_count").cast(pl.Float64),
                 pl.col("external_nonmandatory_tour_count").cast(pl.Float64),
@@ -260,7 +290,6 @@ def int_vs_ext_non_mand_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
                 "external_nonmandatory_tour_count",
             )
         )
-    ]
 
     return (
         pl.concat(outputs, how="vertical")
@@ -304,15 +333,24 @@ def ext_non_mand_tour_loc(rd: RunData, config: Config) -> pl.DataFrame:
         (pl.col("tour_category").cast(pl.Utf8).str.to_lowercase() == "non_mandatory")
         & (pl.col("is_external_tour") == True)
         & pl.col("destination").is_not_null()
-    ).select("destination", "finalweight")
+    ).select(
+        "destination",
+        "finalweight",
+        *_configured_geography_columns(rd.tours, config=config, role_prefix="destination"),
+    )
     if base.is_empty():
         return empty_summary_frame(ext_non_mand_tour_loc)
 
     outputs = [
-        _aggregate_counts_by_geography(
+        _aggregate_counts_across_geographies(
             base,
-            geography_type="maz",
-            geography_id_col="destination",
+            geography_dimensions=_configured_geography_dimensions(
+                base,
+                config=config,
+                base_type="maz" if config.use_maz else "taz",
+                base_col="destination",
+                role_prefix="destination",
+            ),
             value_col="external_nonmandatory_tour_count",
         )
     ]

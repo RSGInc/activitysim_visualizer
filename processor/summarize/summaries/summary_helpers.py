@@ -94,6 +94,93 @@ def _aggregate_counts_by_geography(
     )
 
 
+def _configured_geography_dimensions(
+    df: pl.DataFrame,
+    *,
+    config,
+    base_type: str,
+    base_col: str,
+    role_prefix: str,
+) -> list[tuple[str, str]]:
+    """Return available geography dimensions for one semantic role."""
+    dimensions: list[tuple[str, str]] = []
+    if base_col in df.columns:
+        dimensions.append((base_type, base_col))
+    for aggregation in config.geography_aggregations.aggregations:
+        column = f"{role_prefix}_geo__{aggregation.name}"
+        if column in df.columns:
+            dimensions.append((aggregation.name, column))
+    return dimensions
+
+
+def _configured_geography_columns(
+    df: pl.DataFrame,
+    *,
+    config,
+    role_prefix: str,
+) -> list[str]:
+    """Return configured prepared geography columns present for one role."""
+    return [
+        column
+        for _, column in _configured_geography_dimensions(
+            df,
+            config=config,
+            base_type="",
+            base_col="",
+            role_prefix=role_prefix,
+        )
+        if column
+    ]
+
+
+def _configured_land_use_geography_dimensions(
+    df: pl.DataFrame,
+    *,
+    config,
+) -> list[tuple[str, str]]:
+    """Return available geography dimensions for prepared land use."""
+    base_dimensions: list[tuple[str, str]] = []
+    base_col = "MAZ" if config.use_maz else "TAZ"
+    base_type = "maz" if config.use_maz else "taz"
+    if base_col in df.columns:
+        base_dimensions.append((base_type, base_col))
+    for aggregation in config.geography_aggregations.aggregations:
+        column = f"land_use_geo__{aggregation.name}"
+        if column in df.columns:
+            base_dimensions.append((aggregation.name, column))
+    return base_dimensions
+
+
+def _aggregate_counts_across_geographies(
+    df: pl.DataFrame,
+    *,
+    geography_dimensions: list[tuple[str, str]],
+    value_col: str = "trip_count",
+    weight_col: str = "finalweight",
+) -> pl.DataFrame:
+    """Aggregate one frame across multiple geography dimensions."""
+    outputs = [
+        _aggregate_counts_by_geography(
+            df.filter(pl.col(column).is_not_null()),
+            geography_type=geography_type,
+            geography_id_col=column,
+            value_col=value_col,
+            weight_col=weight_col,
+        )
+        for geography_type, column in geography_dimensions
+        if column in df.columns
+    ]
+    if not outputs:
+        return pl.DataFrame(
+            schema={
+                "geography_type": pl.Utf8,
+                "geography_id": pl.Utf8,
+                value_col: pl.Float64,
+            }
+        )
+    return pl.concat(outputs, how="vertical")
+
+
 def _rounded_distance_bin_expr(distance_col: str) -> pl.Expr:
     """Return the common 0-decimal distance bin label expression with 40+ cap."""
     rounded = pl.col(distance_col).cast(pl.Float64).round(0)

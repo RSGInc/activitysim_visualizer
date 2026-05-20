@@ -15,6 +15,30 @@ from runtime.config import Config
 LOGGER = get_logger("processor.prepare")
 
 
+def _build_aggregation_lookup_table(config: Config) -> dict[str, pl.DataFrame]:
+    lookups: dict[str, pl.DataFrame] = {}
+    for aggregation in config.geography_aggregations.aggregations:
+        if not aggregation.lookup_rows:
+            continue
+        zone_ids = [zone_id for zone_id, _ in aggregation.lookup_rows]
+        geography_ids = [geography_id for _, geography_id in aggregation.lookup_rows]
+        lookups[aggregation.name] = pl.DataFrame(
+            {
+                "_zone_id": zone_ids,
+                "_geography_id": geography_ids,
+                "_geography_type": [aggregation.name] * len(zone_ids),
+                "_source_zone_system": [aggregation.source_zone_system] * len(zone_ids),
+            },
+            schema={
+                "_zone_id": pl.Int64,
+                "_geography_id": pl.Utf8,
+                "_geography_type": pl.Utf8,
+                "_source_zone_system": pl.Utf8,
+            },
+        )
+    return lookups
+
+
 def _skim_lookup(
     skim: np.ndarray,
     otaz: np.ndarray,
@@ -101,7 +125,11 @@ def _build_zone_context(state: _PrepareState, config: Config) -> _ZoneContext:
                 config.apply_geo_mapping(pl.col(geo_col)).alias(geo_col)
             )
 
-    return _ZoneContext(maz_taz=maz_taz, zone_geo=zone_geo)
+    return _ZoneContext(
+        maz_taz=maz_taz,
+        zone_geo=zone_geo,
+        aggregation_lookups=_build_aggregation_lookup_table(config),
+    )
 
 
 def _to_taz(
@@ -141,3 +169,44 @@ def _add_geo(
         on=taz_col,
         how="left",
     )
+
+
+def _add_aggregated_geography(
+    df: pl.DataFrame,
+    zone_col: str,
+    out_col: str,
+    *,
+    aggregation_name: str,
+    source_zone_system: str,
+    zone_context: _ZoneContext,
+) -> pl.DataFrame:
+    lookup = zone_context.aggregation_lookups.get(aggregation_name)
+    if lookup is None or zone_col not in df.columns:
+        return df
+    return df.join(
+        lookup.filter(pl.col("_source_zone_system") == source_zone_system)
+        .rename({"_zone_id": zone_col, "_geography_id": out_col})
+        .select([zone_col, out_col]),
+        on=zone_col,
+        how="left",
+    )
+
+
+def _add_land_use_aggregated_geographies(
+    land_use: pl.DataFrame,
+    *,
+    config: Config,
+    zone_context: _ZoneContext,
+) -> pl.DataFrame:
+    result = land_use
+    for aggregation in config.geography_aggregations.aggregations:
+        zone_col = "MAZ" if aggregation.source_zone_system == "maz" else "TAZ"
+        result = _add_aggregated_geography(
+            result,
+            zone_col,
+            f"land_use_geo__{aggregation.name}",
+            aggregation_name=aggregation.name,
+            source_zone_system=aggregation.source_zone_system,
+            zone_context=zone_context,
+        )
+    return result

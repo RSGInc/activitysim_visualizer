@@ -20,7 +20,10 @@ from processor.prepare.enrichment.trips import _enrich_trips
 from processor.prepare.enrichment.types import _PrepareState
 from processor.prepare.enrichment.vot_bins import _normalize_vot_bins
 from processor.prepare.enrichment.weights import _apply_weights
-from processor.prepare.enrichment.zones import _build_zone_context
+from processor.prepare.enrichment.zones import (
+    _add_land_use_aggregated_geographies,
+    _build_zone_context,
+)
 
 
 def _run_prepare_core_stages(state: _PrepareState, config: Config) -> _PrepareState:
@@ -37,6 +40,11 @@ def _run_prepare_person_and_tour_stages(
     zone_context = _build_zone_context(state, config)
     state = _enrich_households_and_persons(state, config, zone_context)
     state = _derive_student_enrollment(state, config)
+    state.land_use = _add_land_use_aggregated_geographies(
+        state.land_use,
+        config=config,
+        zone_context=zone_context,
+    )
     state = _enrich_tours(state, config, zone_context)
     state = _enrich_trips(state, config, zone_context)
     return state

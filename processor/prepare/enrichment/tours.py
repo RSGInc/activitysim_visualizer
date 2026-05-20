@@ -8,7 +8,11 @@ import polars as pl
 from processor.tour_purpose import with_summary_tour_purpose
 from processor.prepare.enrichment.columns import _resolve_source_column
 from processor.prepare.enrichment.types import _PrepareState, _ZoneContext
-from processor.prepare.enrichment.zones import _skim_lookup, _to_taz
+from processor.prepare.enrichment.zones import (
+    _add_aggregated_geography,
+    _skim_lookup,
+    _to_taz,
+)
 from runtime.config import Config
 
 LOGGER = get_logger("processor.prepare")
@@ -105,6 +109,27 @@ def _enrich_tours(
         config=config,
         zone_context=zone_context,
     )
+    for aggregation in config.geography_aggregations.aggregations:
+        origin_zone_col = "origin" if aggregation.source_zone_system == "maz" else "OTAZ"
+        destination_zone_col = (
+            "destination" if aggregation.source_zone_system == "maz" else "DTAZ"
+        )
+        state.tours = _add_aggregated_geography(
+            state.tours,
+            origin_zone_col,
+            f"origin_geo__{aggregation.name}",
+            aggregation_name=aggregation.name,
+            source_zone_system=aggregation.source_zone_system,
+            zone_context=zone_context,
+        )
+        state.tours = _add_aggregated_geography(
+            state.tours,
+            destination_zone_col,
+            f"destination_geo__{aggregation.name}",
+            aggregation_name=aggregation.name,
+            source_zone_system=aggregation.source_zone_system,
+            zone_context=zone_context,
+        )
 
     if (
         state.skim is not None
