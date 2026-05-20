@@ -41,11 +41,8 @@ def _adult_side_escorted_tours(rd: RunData) -> pl.DataFrame:
         return tours
 
     escorted = tours.filter(
-        pl.col("school_esc_outbound").is_not_null()
-        | pl.col("school_esc_inbound").is_not_null()
-    ).filter(
-        (pl.col("school_esc_outbound").cast(pl.Utf8).str.to_lowercase() != "none")
-        | (pl.col("school_esc_inbound").cast(pl.Utf8).str.to_lowercase() != "none")
+        _escort_label_present("school_esc_outbound")
+        | _escort_label_present("school_esc_inbound")
     )
 
     if escorted.is_empty():
@@ -62,10 +59,17 @@ def _adult_side_escorted_tours(rd: RunData) -> pl.DataFrame:
 
 
 def _escort_type_matches(column: str, escort_type: str) -> pl.Expr:
-    normalized = pl.col(column).cast(pl.Utf8).str.to_lowercase()
+    normalized = pl.col(column).cast(pl.Utf8).str.to_lowercase().str.strip_chars()
+    compact = normalized.str.replace_all("_", "").str.replace_all(" ", "")
+    if escort_type == "not_escorted":
+        return pl.col(column).is_null() | compact.is_in(
+            ["", "0", "none", "null", "nan", "notescorted", "noescort"]
+        )
+    if escort_type == "pure_escort":
+        return compact.is_in(["1", "pureescort"])
     if escort_type == "ride_share":
-        return normalized.is_in(["ride_share", "rideshare", "ride share"])
-    return normalized == escort_type
+        return compact.is_in(["2", "rideshare"])
+    return compact == escort_type.replace("_", "")
 
 
 def _explicit_escort_label_present(column: str) -> pl.Expr:
@@ -75,11 +79,9 @@ def _explicit_escort_label_present(column: str) -> pl.Expr:
 
 
 def _escort_label_present(column: str) -> pl.Expr:
-    normalized = pl.col(column).cast(pl.Utf8).str.to_lowercase()
     return (
         pl.col(column).is_not_null()
-        & (normalized != "none")
-        & (normalized.str.strip_chars() != "")
+        & ~_escort_type_matches(column, "not_escorted")
     )
 
 
@@ -202,17 +204,12 @@ def _adult_escorted_tours_with_household(rd: RunData) -> pl.DataFrame:
 
 
 def _escort_type_expr(column: str) -> pl.Expr:
-    normalized = pl.col(column).cast(pl.Utf8).str.to_lowercase()
     return (
-        pl.when(
-            pl.col(column).is_null()
-            | (normalized == "none")
-            | (normalized.str.strip_chars() == "")
-        )
+        pl.when(_escort_type_matches(column, "not_escorted"))
         .then(pl.lit("not_escorted"))
-        .when(normalized == "pure_escort")
+        .when(_escort_type_matches(column, "pure_escort"))
         .then(pl.lit("pure_escort"))
-        .when(normalized.is_in(["ride_share", "rideshare", "ride share"]))
+        .when(_escort_type_matches(column, "ride_share"))
         .then(pl.lit("ride_share"))
         .otherwise(pl.lit("ride_share"))
     )

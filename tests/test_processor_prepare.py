@@ -449,6 +449,79 @@ def _raw_run_with_income_segment(
     )
 
 
+def _raw_run_with_escort_linkage_inputs() -> ProcessorRunData:
+    return ProcessorRunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame(
+            {
+                "household_id": [1],
+                "home_zone_id": [10],
+                "auto_ownership": [1],
+                "hhsize": [2],
+                "num_workers": [1],
+                "num_adults": [1],
+            }
+        ),
+        per=pl.DataFrame(
+            {
+                "person_id": [101, 201],
+                "household_id": [1, 1],
+                "ptype": [1, 6],
+                "home_zone_id": [10, 10],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [1001, 2001],
+                "person_id": [101, 201],
+                "household_id": [1, 1],
+                "primary_purpose": ["escort", "school"],
+                "tour_type": ["escort", "school"],
+                "tour_mode": ["DRIVE", "WALK"],
+                "tour_category": ["non-mandatory", "mandatory"],
+                "start": [8, 8],
+                "end": [10, 10],
+                "duration": [2, 2],
+                "origin": [10, 10],
+                "destination": [20, 20],
+                "out_escort_type": ["pure_escort", None],
+                "inb_escort_type": ["pure_escort", None],
+                "out_escorted_tour_ids": ["2001", None],
+                "inb_escorted_tour_ids": ["2001", None],
+                "out_chauffeur_tour_id": [None, 1001],
+                "inb_chauffeur_tour_id": [None, 1001],
+                "stop_frequency": ["1out_0in", "0out_0in"],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "trip_id": [5001, 5002, 5003, 6001, 6002],
+                "tour_id": [1001, 1001, 1001, 2001, 2001],
+                "person_id": [101, 101, 101, 201, 201],
+                "household_id": [1, 1, 1, 1, 1],
+                "trip_mode": ["DRIVE", "DRIVE", "DRIVE", "WALK", "WALK"],
+                "purpose": ["shopping", "escort", "home", "school", "home"],
+                "depart": [8, 9, 15, 8, 15],
+                "outbound": [True, True, False, True, False],
+                "trip_num": [1, 2, 1, 1, 1],
+                "origin": [10, 15, 20, 10, 20],
+                "destination": [15, 20, 10, 20, 10],
+            }
+        ),
+        joint_participants=pl.DataFrame(
+            {"tour_id": [], "person_id": []},
+            schema={"tour_id": pl.Int64, "person_id": pl.Int64},
+        ),
+        land_use=pl.DataFrame(
+            {"zone_id": [10, 15, 20], "TAZ": [10, 15, 20], "EMPLOY_TOT": [1, 1, 1]}
+        ),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+
 def test_processor_prepare_feature_modules_expose_canonical_prepare_helpers() -> None:
     assert callable(processor_prepare_data)
     assert callable(processor_read_run)
@@ -529,6 +602,46 @@ def test_processor_prepare_data_derives_exact_escort_event_fields_conservatively
     assert by_trip[6001]["escort_event_match_status"] is None
 
 
+def test_processor_prepare_data_can_fallback_to_escort_tour_linkages_for_event_fields(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+
+    prepared = processor_prepare_data(_raw_run_with_escort_linkage_inputs(), config)
+    trips = prepared.trips.sort("trip_id")
+
+    by_trip = {
+        row["trip_id"]: row
+        for row in trips.select(
+            [
+                "trip_id",
+                "escort_event_role",
+                "escort_event_trip_num",
+                "escort_stops_before_event",
+                "escort_stops_after_event",
+                "escort_event_match_status",
+            ]
+        ).to_dicts()
+    }
+
+    assert by_trip[5002] == {
+        "trip_id": 5002,
+        "escort_event_role": "dropoff",
+        "escort_event_trip_num": 2,
+        "escort_stops_before_event": 1,
+        "escort_stops_after_event": 0,
+        "escort_event_match_status": "matched",
+    }
+    assert by_trip[5003] == {
+        "trip_id": 5003,
+        "escort_event_role": "pickup",
+        "escort_event_trip_num": 1,
+        "escort_stops_before_event": 0,
+        "escort_stops_after_event": 0,
+        "escort_event_match_status": "matched",
+    }
+
+
 def test_processor_prepare_data_can_normalize_vot_bins_by_run_label(
     tmp_path: Path,
 ) -> None:
@@ -571,6 +684,82 @@ def test_processor_prepare_data_can_normalize_vot_bins_by_run_label(
     assert estimation_prepared.tours["vot_bin"].to_list() == ["M"]
     assert filtered_prepared.trips["vot_bin"].to_list() == ["L"]
     assert filtered_prepared.tours["vot_bin"].to_list() == ["L"]
+
+
+def test_config_normalizes_escort_aliases_and_default_category(tmp_path: Path) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "columns:",
+            "  school_esc_outbound: [school_esc_outbound, school_escort_outbound]",
+            "  school_esc_inbound: school_escort_inbound",
+            "  num_escortees: [num_escortees, num_escorted]",
+            "  out_escorted_tour_ids: out_ids",
+            "  inb_escorted_tour_ids: in_ids",
+            "  out_escorting_type: out_parent_code",
+            "  inb_escorting_type: in_parent_code",
+        ],
+    )
+
+    assert config.col_school_esc_outbound == [
+        "school_esc_outbound",
+        "school_escort_outbound",
+    ]
+    assert config.col_school_esc_inbound == ["school_escort_inbound"]
+    assert config.col_num_escortees == ["num_escortees", "num_escorted"]
+    assert config.col_out_escorted_tour_ids == ["out_ids"]
+    assert config.col_inb_escorted_tour_ids == ["in_ids"]
+    assert config.col_out_escorting_type == ["out_parent_code"]
+    assert config.col_inb_escorting_type == ["in_parent_code"]
+    assert config.label_value("escort", "not_escorted") == "No Escort"
+    assert config.label_value("escort", "pure_escort") == "Pure Escort"
+    assert config.label_value("escort", "ride_share") == "Ride Share"
+
+
+def test_processor_prepare_normalizes_escort_fields_and_derives_num_escortees(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    raw = _raw_run()
+    raw.tours = pl.DataFrame(
+        {
+            "tour_id": [1001, 1002, 1003, 1004],
+            "person_id": [101, 101, 101, 101],
+            "household_id": [1, 1, 1, 1],
+            "primary_purpose": ["escort", "escort", "school", "school"],
+            "tour_type": ["escort", "escort", "school", "school"],
+            "tour_mode": ["DRIVE", "DRIVE", "WALK", "WALK"],
+            "tour_category": ["non-mandatory", "non-mandatory", "mandatory", "mandatory"],
+            "start": [8, 9, 10, 11],
+            "end": [9, 10, 11, 12],
+            "duration": [1, 1, 1, 1],
+            "school_esc_outbound": ["ride_share", "   ", "pure_escort", None],
+            "school_esc_inbound": [None, None, None, ""],
+            "out_escort_type": [None, "pure_escort", "ride_share", None],
+            "inb_escort_type": [None, None, "ride_share", None],
+            "out_escorting_type": [0, 2, 0, 1],
+            "inb_escorting_type": [0, 0, 0, 2],
+            "out_escorted_tour_ids": [None, "11_12", None, ""],
+            "inb_escorted_tour_ids": [None, None, None, "21_22_23"],
+            "num_escortees": [None, None, 5, None],
+        }
+    )
+
+    prepared = processor_prepare_data(raw, config).tours.sort("tour_id")
+
+    assert prepared["school_esc_outbound"].to_list() == [
+        "ride_share",
+        "pure_escort",
+        "pure_escort",
+        "pure_escort",
+    ]
+    assert prepared["school_esc_inbound"].to_list() == [
+        "not_escorted",
+        "not_escorted",
+        "ride_share",
+        "ride_share",
+    ]
+    assert prepared["num_escortees"].to_list() == [0, 2, 5, 3]
 
 
 def test_processor_read_run_returns_partial_data_when_optional_tables_are_missing(

@@ -905,16 +905,15 @@ def test_escorted_tour_summaries_exclude_child_person_types(tmp_path: Path) -> N
         "tour_count": [3.0, 3.0, 2.0, 3.0],
     }
     assert trip_distance.to_dict(as_series=False) == {
-        "distance_bin": ["40+", "9", "40+", "6", "5", "9"],
+        "distance_bin": ["40+", "9", "40+", "5", "9"],
         "direction": [
             "both",
             "both",
             "inbound",
-            "inbound",
             "outbound",
             "outbound",
         ],
-        "trip_count": [3.0, 3.0, 3.0, 2.0, 2.0, 3.0],
+        "trip_count": [3.0, 3.0, 3.0, 2.0, 3.0],
     }
     assert stop_frequency.to_dict(as_series=False) == {
         "tour_purpose": ["escort", "escort"],

@@ -56,6 +56,8 @@ def _cast_tours(tours: pl.DataFrame) -> pl.DataFrame:
             "tour_mode": pl.Utf8,
             "tour_purpose": pl.Utf8,
             "summary_tour_purpose": pl.Utf8,
+            "school_esc_outbound": pl.Utf8,
+            "school_esc_inbound": pl.Utf8,
             "start_hour": pl.Int32,
             "end_hour": pl.Int32,
             "tourdur": pl.Int32,
@@ -67,6 +69,7 @@ def _cast_tours(tours: pl.DataFrame) -> pl.DataFrame:
             "NUMBER_HH": pl.Int32,
             "AUTOSUFF": pl.Int32,
             "LICENSEDDRIVERS": pl.Int32,
+            "num_escortees": pl.Int64,
             "finalweight": pl.Float64,
         },
     )

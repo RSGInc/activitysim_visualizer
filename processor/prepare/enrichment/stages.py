@@ -7,6 +7,7 @@ from runtime.config import Config
 from processor.prepare.enrichment.canonicalize import (
     _canonicalize_identifiers_and_core_columns,
 )
+from processor.prepare.enrichment.escort import _normalize_escort_fields
 from processor.prepare.enrichment.finalize import _cast_prepared_tables
 from processor.prepare.enrichment.households_persons import (
     _enrich_households_and_persons,
@@ -25,6 +26,7 @@ from processor.prepare.enrichment.zones import _build_zone_context
 def _run_prepare_core_stages(state: _PrepareState, config: Config) -> _PrepareState:
     """Run identifier cleanup and shared weighting steps."""
     state = _canonicalize_identifiers_and_core_columns(state, config)
+    state = _normalize_escort_fields(state, config)
     return _apply_weights(state, config)
 
 

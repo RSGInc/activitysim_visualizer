@@ -1437,9 +1437,27 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
     page.refresh(force=True)
 
     assert list(page.direction_sel.options) == ["Both Directions", "Outbound"]
-    page.direction_sel.value = "Outbound"
-    page.refresh(force=True)
+    assert len(page._body.objects) == 2
+    render_calls = {"static": 0, "directional": 0}
+    static_section = page._registered_sections["escorted_tours_static_body"]
+    directional_section = page._registered_sections["escorted_tours_directional_body"]
+    original_static_render = static_section.render
+    original_directional_render = directional_section.render
+
+    def counted_static_render():
+        render_calls["static"] += 1
+        return original_static_render()
+
+    def counted_directional_render():
+        render_calls["directional"] += 1
+        return original_directional_render()
+
+    static_section.render = counted_static_render
+    directional_section.render = counted_directional_render
+    page.direction_sel.value = "Both Directions"
+    page.refresh(force=False)
     assert page._body.objects
+    assert render_calls == {"static": 0, "directional": 1}
     student_titles = [
         str(plot.object.layout.title.text)
         for plot in _collect_plotly_panes(page._body)
@@ -1547,6 +1565,89 @@ def test_escorted_tours_page_renders_core_charts_when_optional_summaries_missing
     assert "Adult Escort Stops Before Dropoff - Outbound" in titles
     assert "Adult Escort Trip Stop Frequency - Both Directions" not in titles
     assert all("Schoolkids Per Escorted Tour" not in title for title in titles)
+
+
+def test_escorted_tours_page_uses_configured_escort_labels_for_student_status(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "categories:",
+            "  escort:",
+            "    mapping:",
+            "      not_escorted: Unescorted",
+            "      pure_escort: Driven Solo",
+            "      ride_share: Shared Ride",
+        ],
+    )
+    escorted_summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "escorted_tour_totals": pl.DataFrame({"tour_count": [5.0]}),
+            "school_escorted_tours_by_escort_type_and_direction": pl.DataFrame(
+                {
+                    "escort_type": ["pure_escort", "ride_share"],
+                    "direction": ["outbound", "outbound"],
+                    "tour_count": [2.0, 3.0],
+                }
+            ),
+            "adult_escort_event_stop_distribution": pl.DataFrame(
+                {
+                    "segment": ["outbound_before_dropoff"],
+                    "stop_count": [1],
+                    "tour_count": [2.0],
+                }
+            ),
+            "adult_escorted_tours_by_person_type_and_direction": pl.DataFrame(
+                {
+                    "person_type": ["1"],
+                    "direction": ["outbound"],
+                    "tour_count": [2.0],
+                }
+            ),
+            "adult_escorted_tour_distance_distribution_by_direction": pl.DataFrame(
+                {
+                    "distance_bin": ["5"],
+                    "direction": ["outbound"],
+                    "tour_count": [2.0],
+                }
+            ),
+            "adult_escorted_trip_distance_distribution_by_direction": pl.DataFrame(
+                {
+                    "distance_bin": ["5"],
+                    "direction": ["outbound"],
+                    "trip_count": [2.0],
+                }
+            ),
+            "student_school_escort_status_by_direction": pl.DataFrame(
+                {
+                    "direction": ["outbound", "outbound", "outbound"],
+                    "escort_type": ["not_escorted", "pure_escort", "ride_share"],
+                    "tour_count": [1.0, 2.0, 3.0],
+                }
+            ),
+        },
+    )
+
+    state = DashboardState(
+        summary_runs=[escorted_summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+    page = EscortedToursPage(state, config)
+    page.refresh(force=True)
+    plots = _collect_plotly_panes(page._body)
+
+    student_plot = next(
+        plot
+        for plot in plots
+        if str(plot.object.layout.title.text) == "Student School Escort Status - Outbound"
+    )
+    assert list(student_plot.object.layout.xaxis.categoryarray) == [
+        "Unescorted",
+        "Driven Solo",
+        "Shared Ride",
+    ]
 
 
 def test_filter_person_type_rates_total_uses_full_person_denominator() -> None:

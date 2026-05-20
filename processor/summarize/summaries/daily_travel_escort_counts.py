@@ -450,13 +450,21 @@ def schoolkids_per_escorted_tour_by_student_count_and_direction(
         )
 
     escorted_tours = _adult_escorted_tours_with_household(rd)
-    if escorted_tours.is_empty() or "num_escortees" not in escorted_tours.columns:
+    if escorted_tours.is_empty():
+        return empty_summary_frame(
+            schoolkids_per_escorted_tour_by_student_count_and_direction
+        )
+    if "num_escortees" in escorted_tours.columns:
+        num_escortees_col = "num_escortees"
+    elif "num_escorted" in escorted_tours.columns:
+        num_escortees_col = "num_escorted"
+    else:
         return empty_summary_frame(
             schoolkids_per_escorted_tour_by_student_count_and_direction
         )
 
     base = (
-        escorted_tours.filter(pl.col("num_escortees").is_not_null())
+        escorted_tours.filter(pl.col(num_escortees_col).is_not_null())
         .join(
             households.select("household_id", "student_count"),
             on="household_id",
@@ -465,7 +473,7 @@ def schoolkids_per_escorted_tour_by_student_count_and_direction(
         .with_columns(
             pl.col("student_count").cast(pl.Int64),
             pl.col("finalweight").cast(pl.Float64),
-            pl.col("num_escortees").cast(pl.Float64),
+            pl.col(num_escortees_col).cast(pl.Float64).alias("num_escortees"),
         )
     )
     if base.is_empty():

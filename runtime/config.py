@@ -177,6 +177,82 @@ class CategorySpec:
     fallback_order: str = "data"
 
 
+_ESCORT_CANONICAL_DEFAULT_LABELS: dict[str, str] = {
+    "not_escorted": "No Escort",
+    "pure_escort": "Pure Escort",
+    "ride_share": "Ride Share",
+}
+
+
+def _escort_normalization_key(raw_value) -> str | None:
+    if raw_value is None:
+        return "not_escorted"
+    if isinstance(raw_value, str):
+        stripped = raw_value.strip()
+        if not stripped:
+            return "not_escorted"
+        lowered = stripped.lower()
+        compact = lowered.replace("_", "").replace(" ", "")
+        if lowered in {"none", "null", "nan"}:
+            return "not_escorted"
+        if compact in {"0", "notescorted", "noescort"}:
+            return "not_escorted"
+        if compact in {"1", "pureescort"}:
+            return "pure_escort"
+        if compact in {"2", "rideshare"}:
+            return "ride_share"
+        return None
+    return _escort_normalization_key(str(raw_value))
+
+
+def _normalize_escort_category_spec(spec: CategorySpec | None) -> CategorySpec:
+    canonical_labels = dict(_ESCORT_CANONICAL_DEFAULT_LABELS)
+    extras: list[tuple[str, str]] = []
+    seen_extras: set[str] = set()
+
+    if spec is not None:
+        for raw_key, display_label in spec.mapping_items:
+            normalized = _escort_normalization_key(raw_key)
+            if normalized is not None:
+                if raw_key == normalized and normalized not in canonical_labels:
+                    canonical_labels[normalized] = display_label
+                elif raw_key == normalized:
+                    canonical_labels[normalized] = display_label
+                continue
+            if raw_key not in seen_extras:
+                extras.append((raw_key, display_label))
+                seen_extras.add(raw_key)
+        for canonical in _ESCORT_CANONICAL_DEFAULT_LABELS:
+            for raw_key, display_label in spec.mapping_items:
+                if raw_key == canonical:
+                    canonical_labels[canonical] = display_label
+                    break
+
+    mapping_items = [
+        (canonical, canonical_labels[canonical])
+        for canonical in ("not_escorted", "pure_escort", "ride_share")
+    ]
+    if spec is not None:
+        for raw_key, display_label in spec.mapping_items:
+            if raw_key in {key for key, _ in mapping_items}:
+                continue
+            if raw_key not in seen_extras and _escort_normalization_key(raw_key) is None:
+                extras.append((raw_key, display_label))
+                seen_extras.add(raw_key)
+            elif _escort_normalization_key(raw_key) is not None and raw_key not in seen_extras:
+                extras.append((raw_key, display_label))
+                seen_extras.add(raw_key)
+    mapping_items.extend(extras)
+
+    labels_by_raw = {raw_key: display_label for raw_key, display_label in mapping_items}
+    return CategorySpec(
+        mapping_items=tuple(mapping_items),
+        labels_by_raw=labels_by_raw,
+        raw_values_in_order=tuple(raw_key for raw_key, _ in mapping_items),
+        fallback_order="data" if spec is None else spec.fallback_order,
+    )
+
+
 def _normalize_run_selector_key(value: str) -> str:
     normalized = re.sub(r"[^a-z0-9]+", "-", str(value).strip().lower()).strip("-")
     return normalized or str(value).strip().lower()
@@ -994,6 +1070,15 @@ class Config:
     col_trip_depart: list[str]
     col_total_employment: list[str]
     col_income_segment: list[str]
+    col_school_esc_outbound: list[str]
+    col_school_esc_inbound: list[str]
+    col_num_escortees: list[str]
+    col_out_escorted_tour_ids: list[str]
+    col_inb_escorted_tour_ids: list[str]
+    col_out_escorting_type: list[str]
+    col_inb_escorting_type: list[str]
+    col_out_chauffeur_tour_id: list[str]
+    col_inb_chauffeur_tour_id: list[str]
     categories: dict[str, CategorySpec]
     person_type_labels: Optional[dict[str, str]]
     transit_subsidy_labels: Optional[dict[str, str]]
@@ -1279,6 +1364,9 @@ class Config:
             legacy_mode_spec = _category_spec_from_sequence(modes_cfg.get("order"))
             if legacy_mode_spec is not None:
                 categories["mode"] = legacy_mode_spec
+        categories["escort"] = _normalize_escort_category_spec(
+            categories.get("escort")
+        )
         group_joint_tour_purposes = (
             _normalize_optional_bool(
                 raw.get("group_joint_tour_purposes"),
@@ -1413,6 +1501,51 @@ class Config:
                 field_name="columns.income_segment",
                 default=["income_segment", "income_broad", "income"],
             ),
+            col_school_esc_outbound=_normalize_column_aliases(
+                cols.get("school_esc_outbound"),
+                field_name="columns.school_esc_outbound",
+                default=["school_esc_outbound"],
+            ),
+            col_school_esc_inbound=_normalize_column_aliases(
+                cols.get("school_esc_inbound"),
+                field_name="columns.school_esc_inbound",
+                default=["school_esc_inbound"],
+            ),
+            col_num_escortees=_normalize_column_aliases(
+                cols.get("num_escortees"),
+                field_name="columns.num_escortees",
+                default=["num_escortees", "num_escorted"],
+            ),
+            col_out_escorted_tour_ids=_normalize_column_aliases(
+                cols.get("out_escorted_tour_ids"),
+                field_name="columns.out_escorted_tour_ids",
+                default=["out_escorted_tour_ids"],
+            ),
+            col_inb_escorted_tour_ids=_normalize_column_aliases(
+                cols.get("inb_escorted_tour_ids"),
+                field_name="columns.inb_escorted_tour_ids",
+                default=["inb_escorted_tour_ids"],
+            ),
+            col_out_escorting_type=_normalize_column_aliases(
+                cols.get("out_escorting_type"),
+                field_name="columns.out_escorting_type",
+                default=["out_escorting_type"],
+            ),
+            col_inb_escorting_type=_normalize_column_aliases(
+                cols.get("inb_escorting_type"),
+                field_name="columns.inb_escorting_type",
+                default=["inb_escorting_type"],
+            ),
+            col_out_chauffeur_tour_id=_normalize_column_aliases(
+                cols.get("out_chauffeur_tour_id"),
+                field_name="columns.out_chauffeur_tour_id",
+                default=["out_chauffeur_tour_id"],
+            ),
+            col_inb_chauffeur_tour_id=_normalize_column_aliases(
+                cols.get("inb_chauffeur_tour_id"),
+                field_name="columns.inb_chauffeur_tour_id",
+                default=["inb_chauffeur_tour_id"],
+            ),
             categories=categories,
             person_type_labels=person_type_labels,
             transit_subsidy_labels=transit_subsidy_labels,
@@ -1498,6 +1631,15 @@ class Config:
                 "trip_depart": list(self.col_trip_depart),
                 "total_employment": list(self.col_total_employment),
                 "income_segment": list(self.col_income_segment),
+                "school_esc_outbound": list(self.col_school_esc_outbound),
+                "school_esc_inbound": list(self.col_school_esc_inbound),
+                "num_escortees": list(self.col_num_escortees),
+                "out_escorted_tour_ids": list(self.col_out_escorted_tour_ids),
+                "inb_escorted_tour_ids": list(self.col_inb_escorted_tour_ids),
+                "out_escorting_type": list(self.col_out_escorting_type),
+                "inb_escorting_type": list(self.col_inb_escorting_type),
+                "out_chauffeur_tour_id": list(self.col_out_chauffeur_tour_id),
+                "inb_chauffeur_tour_id": list(self.col_inb_chauffeur_tour_id),
             },
             "categories": _category_specs_payload(self.categories),
             "legacy_categories": {
@@ -1628,6 +1770,15 @@ class Config:
                 "trip_depart": list(self.col_trip_depart),
                 "total_employment": list(self.col_total_employment),
                 "income_segment": list(self.col_income_segment),
+                "school_esc_outbound": list(self.col_school_esc_outbound),
+                "school_esc_inbound": list(self.col_school_esc_inbound),
+                "num_escortees": list(self.col_num_escortees),
+                "out_escorted_tour_ids": list(self.col_out_escorted_tour_ids),
+                "inb_escorted_tour_ids": list(self.col_inb_escorted_tour_ids),
+                "out_escorting_type": list(self.col_out_escorting_type),
+                "inb_escorting_type": list(self.col_inb_escorting_type),
+                "out_chauffeur_tour_id": list(self.col_out_chauffeur_tour_id),
+                "inb_chauffeur_tour_id": list(self.col_inb_chauffeur_tour_id),
             },
             "categories": _category_specs_payload(self.categories),
             "person_type_labels": (
@@ -1764,6 +1915,20 @@ class Config:
     def category_spec(self, category_id: str) -> CategorySpec | None:
         """Return the canonical category spec for one category id."""
         return self.categories.get(str(category_id))
+
+    def normalize_escort_value(self, raw_value) -> str:
+        """Normalize one raw escort value to a canonical internal token."""
+        normalized = _escort_normalization_key(raw_value)
+        if normalized is None:
+            return str(raw_value).strip()
+        return normalized
+
+    def escort_display_labels(self) -> dict[str, str]:
+        """Return canonical escort-token display labels."""
+        return {
+            token: self.label_value("escort", token)
+            for token in ("not_escorted", "pure_escort", "ride_share")
+        }
 
     def label_value(self, category_id: str, raw_value) -> str:
         """Return the display label for one raw categorical value."""
