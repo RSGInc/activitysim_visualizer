@@ -107,8 +107,8 @@ def load_summary_runs_from_cache(
             resolve_skim_path_fn=resolve_skim_path,
             build_prepared_manifest_identity_fn=build_prepared_manifest_identity,
         ) or {}
-        summary_runs.append(
-            summary_cache.load_summary_run_cache(
+        summary_runs.extend(
+            summary_cache.load_summary_run_bundle(
                 cache_dir,
                 config,
                 expected_modes=config.weighting_modes,

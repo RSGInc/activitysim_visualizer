@@ -124,6 +124,21 @@ def prune_summary_runs(
                 }
                 for mode in summary_run.summaries_by_mode
             },
+            segment_id=getattr(summary_run, "segment_id", "full"),
+            segment_label=getattr(summary_run, "segment_label", "Full"),
+            is_full_segment=getattr(summary_run, "is_full_segment", True),
+            segment_source_type=getattr(summary_run, "segment_source_type", None),
+            segment_column=getattr(summary_run, "segment_column", None),
+            segment_values=getattr(summary_run, "segment_values", ()),
+            segment_source_table=getattr(summary_run, "segment_source_table", None),
+            segment_source_key_column=getattr(
+                summary_run, "segment_source_key_column", None
+            ),
+            segment_csv_file=getattr(summary_run, "segment_csv_file", None),
+            segment_csv_key_column=getattr(summary_run, "segment_csv_key_column", None),
+            segment_csv_value_column=getattr(
+                summary_run, "segment_csv_value_column", None
+            ),
             source_run_dir=summary_run.source_run_dir,
             manifest=summary_run.manifest,
         )

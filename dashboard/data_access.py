@@ -88,6 +88,11 @@ class DashboardSummarySeries:
     )
     run_key: str | None = None
     source_run_dir: str | None = None
+    segment_id: str = "full"
+    segment_label: str = "Full"
+    is_full_segment: bool = True
+    segment_column: str | None = None
+    segment_values: tuple[object, ...] = ()
 
     @classmethod
     def from_summary_run(
@@ -100,7 +105,17 @@ class DashboardSummarySeries:
             summary_metadata_by_mode=summary_run.summary_metadata_by_mode,
             run_key=summary_run.run_key,
             source_run_dir=summary_run.source_run_dir,
+            segment_id=summary_run.segment_id,
+            segment_label=summary_run.segment_label,
+            is_full_segment=summary_run.is_full_segment,
+            segment_column=summary_run.segment_column,
+            segment_values=summary_run.segment_values,
         )
+
+    def display_label(self, *, include_segment: bool) -> str:
+        if not include_segment:
+            return self.label
+        return f"{self.label} ({self.segment_label})"
 
     def has_table(self, summary_name: str, weighting_key: str) -> bool:
         mode_tables = self.summaries_by_mode.get(weighting_key)

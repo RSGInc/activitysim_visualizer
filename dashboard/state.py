@@ -32,6 +32,7 @@ class DashboardState(param.Parameterized):
         summary_runs: list[SummaryRun] | None = None,
         weighting_modes: list[str] | None = None,
         prepared_run_provider: DashboardPreparedRunProvider | None = None,
+        default_segmentation_visibility: str = "full_and_segments",
         **params: Any,
     ) -> None:
         super().__init__(**params)
@@ -50,6 +51,8 @@ class DashboardState(param.Parameterized):
         self._summary_runs: list[DashboardSummarySeries] = self._build_summary_series(
             summary_runs
         )
+        self._segmentation_display_mode = str(default_segmentation_visibility).strip().lower()
+        self._configure_segmentation_controls()
 
     def _build_summary_series(
         self,
@@ -67,13 +70,23 @@ class DashboardState(param.Parameterized):
         return list(self._weighting_modes)
 
     @property
+    def has_segmented_summary_series(self) -> bool:
+        return any(not run.is_full_segment for run in self._summary_runs)
+
+    @property
     def prepared_run_availability(self) -> str:
         return self._prepared_run_provider.availability
 
     @property
     def run_labels(self) -> list[str]:
         if self._summary_runs:
-            return [run.label for run in self._summary_runs]
+            include_segment = self.has_segmented_summary_series and (
+                self._segmentation_display_mode != "full_only"
+            )
+            return [
+                run.display_label(include_segment=include_segment)
+                for run in self._visible_summary_runs()
+            ]
         return self._prepared_run_provider.labels()
 
     @property
@@ -97,9 +110,25 @@ class DashboardState(param.Parameterized):
     def value_key(self) -> str:
         return "percent" if self.value_mode == "Percent" else "count"
 
-    def global_state_key(self) -> tuple[str, str]:
+    def global_state_key(self) -> tuple[str, str, str]:
         """Return a stable key for the current global display state."""
-        return (self.weighting_key(), self.value_key())
+        return (
+            self.weighting_key(),
+            self.value_key(),
+            self._segmentation_display_mode,
+        )
+
+    def _configure_segmentation_controls(self) -> None:
+        return None
+
+    def _visible_summary_runs(self) -> list[DashboardSummarySeries]:
+        runs = list(self._summary_runs)
+        visibility = self._segmentation_display_mode
+        if visibility == "full_only":
+            runs = [run for run in runs if run.is_full_segment]
+        elif visibility == "segments_only":
+            runs = [run for run in runs if not run.is_full_segment]
+        return runs
 
     def get_prepared_runs_if_loaded(
         self,
@@ -143,7 +172,11 @@ class DashboardState(param.Parameterized):
         mode = weighting_key or self.weighting_key()
         usable_runs: list[tuple[str, pl.DataFrame]] = []
         excluded_runs: list[VisualizationRunAvailability] = []
-        for run in self._summary_runs:
+        visible_runs = self._visible_summary_runs()
+        include_segment = self.has_segmented_summary_series and (
+            self._segmentation_display_mode != "full_only"
+        )
+        for run in visible_runs:
             table = run.get_table(summary_name, mode)
             metadata = run.get_summary_metadata(summary_name, mode) or {}
             state = str(metadata.get("state", "")).strip().lower()
@@ -154,7 +187,7 @@ class DashboardState(param.Parameterized):
                 )
                 excluded_runs.append(
                     VisualizationRunAvailability(
-                        label=run.label,
+                        label=run.display_label(include_segment=include_segment),
                         run_key=run.run_key,
                         source_run_dir=run.source_run_dir,
                         status="missing",
@@ -171,7 +204,7 @@ class DashboardState(param.Parameterized):
                 )
                 excluded_runs.append(
                     VisualizationRunAvailability(
-                        label=run.label,
+                        label=run.display_label(include_segment=include_segment),
                         run_key=run.run_key,
                         source_run_dir=run.source_run_dir,
                         status="unavailable",
@@ -188,7 +221,7 @@ class DashboardState(param.Parameterized):
                 )
                 excluded_runs.append(
                     VisualizationRunAvailability(
-                        label=run.label,
+                        label=run.display_label(include_segment=include_segment),
                         run_key=run.run_key,
                         source_run_dir=run.source_run_dir,
                         status="failed",
@@ -204,7 +237,7 @@ class DashboardState(param.Parameterized):
                 )
                 excluded_runs.append(
                     VisualizationRunAvailability(
-                        label=run.label,
+                        label=run.display_label(include_segment=include_segment),
                         run_key=run.run_key,
                         source_run_dir=run.source_run_dir,
                         status="empty",
@@ -220,7 +253,7 @@ class DashboardState(param.Parameterized):
             if missing_columns:
                 excluded_runs.append(
                     VisualizationRunAvailability(
-                        label=run.label,
+                        label=run.display_label(include_segment=include_segment),
                         run_key=run.run_key,
                         source_run_dir=run.source_run_dir,
                         status="schema_mismatch",
@@ -234,7 +267,7 @@ class DashboardState(param.Parameterized):
                     )
                 )
                 continue
-            usable_runs.append((run.label, table))
+            usable_runs.append((run.display_label(include_segment=include_segment), table))
 
         return DashboardDataSelection(
             source_kind="summary",

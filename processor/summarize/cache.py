@@ -17,9 +17,11 @@ from processor.summarize.cache_execution import (
 from processor.summarize.cache_storage import (
     SCHEMA_VERSION,
     discover_cache_dirs,
+    load_summary_run_bundle as _load_summary_run_bundle,
     load_summary_run_cache as _load_summary_run_cache,
     summary_file_map as _summary_file_map,
     summary_root,
+    write_summary_run_bundle as _write_summary_run_bundle,
     write_summary_run_cache as _write_summary_run_cache,
 )
 from processor.summarize.cache_types import (
@@ -165,6 +167,52 @@ def load_summary_run_cache(
     )
 
 
+def write_summary_run_bundle(
+    summary_runs: list[SummaryRun],
+    config: Config,
+    *,
+    output_root: str | Path | None = None,
+    run_fingerprint: dict[str, object] | None = None,
+    prepared_manifest_identity: dict[str, object] | None = None,
+) -> Path:
+    """Write one run cache directory containing all segment variants."""
+    return _write_summary_run_bundle(
+        summary_runs,
+        config,
+        output_root=output_root,
+        run_fingerprint=run_fingerprint,
+        prepared_manifest_identity=prepared_manifest_identity,
+        summary_filename_by_id=SUMMARY_FILENAME_BY_ID,
+    )
+
+
+def load_summary_run_bundle(
+    cache_dir: str | Path,
+    config: Config,
+    *,
+    expected_modes: list[str] | None = None,
+    expected_summary_ids: list[str] | None = None,
+    expected_summary_config_digest: str | None = None,
+    expected_run_fingerprint: dict[str, object] | None = None,
+    expected_prepared_manifest_identity: dict[str, object] | None = None,
+    expected_label: str | None = None,
+    expected_run_key: str | None = None,
+) -> list[SummaryRun]:
+    """Load one run cache directory and return all segment variants."""
+    return _load_summary_run_bundle(
+        cache_dir,
+        config,
+        expected_modes=expected_modes,
+        expected_summary_ids=expected_summary_ids,
+        expected_summary_config_digest=expected_summary_config_digest,
+        expected_run_fingerprint=expected_run_fingerprint,
+        expected_prepared_manifest_identity=expected_prepared_manifest_identity,
+        expected_label=expected_label,
+        expected_run_key=expected_run_key,
+        summary_spec_by_id=SUMMARY_SPEC_BY_ID,
+    )
+
+
 __all__ = [
     "DEFAULT_SUMMARY_IDS",
     "SCHEMA_VERSION",
@@ -183,6 +231,7 @@ __all__ = [
     "create_summary_run",
     "discover_cache_dirs",
     "load_summary_run_cache",
+    "load_summary_run_bundle",
     "normalize_weighting_modes",
     "requested_summary_ids",
     "slugify",
@@ -190,4 +239,5 @@ __all__ = [
     "summary_file_map",
     "summary_root",
     "write_summary_run_cache",
+    "write_summary_run_bundle",
 ]

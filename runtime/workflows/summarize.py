@@ -6,10 +6,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 from activitysim_viz_logging import get_logger
+from processor.analysis_units import AnalysisUnit
 from processor.models import ProcessorWorkflowResult, RunData
 from processor.prepare.cache import load_prepared_run_cache
 from processor.prepare.enrichment.pipeline import prepare_data
 from processor.prepare.reader import read_run
+from processor.segmentation import build_analysis_units_for_run
 from processor.skimjoin.pipeline import apply_skimjoin
 from processor.summarize import cache as summary_cache
 from runtime.config import Config
@@ -38,7 +40,7 @@ def _load_summary_run_from_cache(
 ) -> Any | None:
     """Load one summary run from cache when valid."""
     try:
-        cached_run = summary_cache.load_summary_run_cache(
+        cached_run = summary_cache.load_summary_run_bundle(
             cache_dir,
             config,
             expected_modes=config.weighting_modes,
@@ -71,24 +73,33 @@ def _build_summary_tables_for_run(
     return summary_cache.build_mode_summaries_with_metadata(prepared_run, config)
 
 
-def _build_summary_run_from_prepared(
+def _build_summary_run_from_analysis_unit(
     *,
-    label: str,
-    run_key: str,
-    prepared_loaded: tuple[str, RunData],
+    unit: AnalysisUnit,
     config: Config,
 ) -> Any:
-    """Build one summary run wrapper from an already prepared run."""
+    """Build one summary run wrapper from an already prepared analysis unit."""
     summaries_by_mode, summary_metadata_by_mode = _build_summary_tables_for_run(
-        prepared_run=prepared_loaded[1],
+        prepared_run=unit.prepared_run,
         config=config,
     )
     return summary_cache.create_summary_run(
-        label=label,
-        run_key=run_key,
+        label=unit.run_name,
+        run_key=unit.run_key,
         summaries_by_mode=summaries_by_mode,
         summary_metadata_by_mode=summary_metadata_by_mode,
-        source_run_dir=str(prepared_loaded[1].run_dir),
+        segment_id=unit.segment_id,
+        segment_label=unit.segment_label,
+        is_full_segment=unit.is_full,
+        segment_source_type=unit.segment_metadata.source_type,
+        segment_column=unit.segment_metadata.column,
+        segment_values=unit.segment_metadata.values,
+        segment_source_table=unit.segment_metadata.source_table,
+        segment_source_key_column=unit.segment_metadata.source_key_column,
+        segment_csv_file=unit.segment_metadata.csv_file,
+        segment_csv_key_column=unit.segment_metadata.csv_key_column,
+        segment_csv_value_column=unit.segment_metadata.csv_segment_value_column,
+        source_run_dir=str(unit.prepared_run.run_dir),
     )
 
 
@@ -151,7 +162,7 @@ def run_summary_workflow(
                 prepared_manifest_identity=prepared_manifest_identity,
             )
             if cached_run is not None:
-                summary_runs.append(cached_run)
+                summary_runs.extend(cached_run)
                 cached_prepared_run = existing_prepared_runs_by_key.get(run_key)
                 if cached_prepared_run is not None:
                     prepared_runs_by_key[run_key] = cached_prepared_run
@@ -179,18 +190,22 @@ def run_summary_workflow(
         existing_prepared_runs_by_key = dict(prepare_result.prepared_runs_by_key)
         prepared_runs_by_key[run_key] = prepared_loaded
 
-        summary_run = _build_summary_run_from_prepared(
-            label=label,
+        analysis_units = build_analysis_units_for_run(
             run_key=run_key,
-            prepared_loaded=prepared_loaded,
+            run_name=label,
+            prepared_run=prepared_loaded[1],
             config=config,
         )
-        summary_runs.append(summary_run)
+        run_summary_runs = [
+            _build_summary_run_from_analysis_unit(unit=unit, config=config)
+            for unit in analysis_units
+        ]
+        summary_runs.extend(run_summary_runs)
 
         if write_cache:
             LOGGER.info("Writing summary cache for run: %r", label)
-            cache_path = summary_cache.write_summary_run_cache(
-                summary_run,
+            cache_path = summary_cache.write_summary_run_bundle(
+                run_summary_runs,
                 config,
                 run_fingerprint=run_fingerprint,
                 prepared_manifest_identity=prepared_manifest_identity,

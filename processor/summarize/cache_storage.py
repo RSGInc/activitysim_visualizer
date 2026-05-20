@@ -24,7 +24,7 @@ from processor.summarize.contracts import empty_summary_frame
 from processor.summarize.writer import write_all
 from runtime.config import Config
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 
 def summary_root(config: Config) -> Path:
@@ -149,6 +149,35 @@ def _summary_manifest(
     }
 
 
+def _segment_manifest_entry(
+    *,
+    summary_run: SummaryRun,
+    weighting_modes: list[str],
+    summary_states: dict[str, dict[str, str]],
+    summary_diagnostics: dict[str, dict[str, str]],
+) -> dict[str, object]:
+    summary_roots = {
+        mode: mode if summary_run.is_full_segment else f"{mode}/segments/{summary_run.segment_id}"
+        for mode in weighting_modes
+    }
+    return {
+        "segment_id": summary_run.segment_id,
+        "segment_label": summary_run.segment_label,
+        "is_full": summary_run.is_full_segment,
+        "source_type": summary_run.segment_source_type,
+        "segment_column": summary_run.segment_column,
+        "segment_values": list(summary_run.segment_values),
+        "source_table": summary_run.segment_source_table,
+        "source_key_column": summary_run.segment_source_key_column,
+        "csv_file": summary_run.segment_csv_file,
+        "csv_key_column": summary_run.segment_csv_key_column,
+        "csv_segment_value_column": summary_run.segment_csv_value_column,
+        "summary_roots": summary_roots,
+        "summary_states": summary_states,
+        "summary_diagnostics": summary_diagnostics,
+    }
+
+
 def write_summary_run_cache(
     summary_run: SummaryRun,
     config: Config,
@@ -202,6 +231,89 @@ def write_summary_run_cache(
     )
     write_manifest(run_dir, manifest)
     summary_run.manifest = manifest
+    return run_dir
+
+
+def write_summary_run_bundle(
+    summary_runs: list[SummaryRun],
+    config: Config,
+    *,
+    output_root: str | Path | None = None,
+    run_fingerprint: dict[str, object] | None = None,
+    prepared_manifest_identity: dict[str, object] | None = None,
+    summary_filename_by_id: dict[str, str],
+) -> Path:
+    """Write one run cache directory containing full and segmented summary outputs."""
+    if not summary_runs:
+        raise ValueError("summary_runs must not be empty.")
+    output_root = Path(output_root) if output_root is not None else summary_root(config)
+    output_root.mkdir(parents=True, exist_ok=True)
+
+    run_key = summary_runs[0].run_key
+    run_dir = output_root / run_key
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    weighting_modes = list(summary_runs[0].summaries_by_mode.keys())
+    summary_ids = list(next(iter(summary_runs[0].summaries_by_mode.values())).keys())
+    full_run = next((run for run in summary_runs if run.is_full_segment), None)
+    empty_summaries: dict[str, list[str]] = {}
+    summary_states: dict[str, dict[str, str]] = {}
+    unavailable_summaries: dict[str, list[str]] = {}
+    failed_summaries: dict[str, list[str]] = {}
+    summary_diagnostics: dict[str, dict[str, str]] = {}
+    segment_entries: list[dict[str, object]] = []
+
+    for summary_run in summary_runs:
+        segment_states: dict[str, dict[str, str]] = {}
+        segment_diagnostics: dict[str, dict[str, str]] = {}
+        for mode in weighting_modes:
+            mode_payload = _build_mode_cache_payload(
+                mode_tables=summary_run.summaries_by_mode[mode],
+                mode_metadata=summary_run.summary_metadata_by_mode.get(mode, {}),
+                summary_filename_by_id=summary_filename_by_id,
+            )
+            if summary_run.is_full_segment:
+                empty_summaries[mode] = list(mode_payload["empty_summaries"])
+                summary_states[mode] = dict(mode_payload["summary_states"])
+                unavailable_summaries[mode] = list(mode_payload["unavailable_summaries"])
+                failed_summaries[mode] = list(mode_payload["failed_summaries"])
+                summary_diagnostics[mode] = dict(mode_payload["summary_diagnostics"])
+            segment_states[mode] = dict(mode_payload["summary_states"])
+            segment_diagnostics[mode] = dict(mode_payload["summary_diagnostics"])
+            mode_dir = (
+                run_dir / mode
+                if summary_run.is_full_segment
+                else run_dir / mode / "segments" / summary_run.segment_id
+            )
+            write_all(mode_payload["file_tables"], mode_dir)
+        segment_entries.append(
+            _segment_manifest_entry(
+                summary_run=summary_run,
+                weighting_modes=weighting_modes,
+                summary_states=segment_states,
+                summary_diagnostics=segment_diagnostics,
+            )
+        )
+
+    manifest = _summary_manifest(
+        summary_run=full_run or summary_runs[0],
+        config=config,
+        weighting_modes=weighting_modes,
+        summary_ids=summary_ids,
+        empty_summaries=empty_summaries,
+        summary_states=summary_states,
+        unavailable_summaries=unavailable_summaries,
+        failed_summaries=failed_summaries,
+        summary_diagnostics=summary_diagnostics,
+        run_fingerprint=run_fingerprint,
+        prepared_manifest_identity=prepared_manifest_identity,
+        summary_filename_by_id=summary_filename_by_id,
+    )
+    manifest["segmentation_enabled"] = len(summary_runs) > 1 or not summary_runs[0].is_full_segment
+    manifest["segments"] = segment_entries
+    write_manifest(run_dir, manifest)
+    for summary_run in summary_runs:
+        summary_run.manifest = manifest
     return run_dir
 
 
@@ -365,7 +477,7 @@ def _loaded_summary_table(
 
 def _load_mode_tables(
     *,
-    cache_dir: Path,
+    mode_dir: Path,
     mode: str,
     expected_summary_ids: list[str],
     summary_files: dict[str, str],
@@ -374,7 +486,6 @@ def _load_mode_tables(
     manifest_summary_diagnostics: dict[str, dict[str, str]],
     summary_spec_by_id: dict[str, object],
 ) -> tuple[dict[str, pl.DataFrame], dict[str, dict[str, object]]]:
-    mode_dir = cache_dir / mode
     if not mode_dir.exists():
         raise SummaryCacheError(f"Missing mode directory: {mode_dir}")
 
@@ -420,7 +531,7 @@ def load_summary_run_cache(
     validate_schema_version(
         cache_dir=cache_dir,
         manifest=manifest,
-        supported_versions={SCHEMA_VERSION, 6, 5, 2},
+        supported_versions={SCHEMA_VERSION, 11, 6, 5, 2},
         error_factory=SummaryCacheError,
     )
 
@@ -451,7 +562,7 @@ def load_summary_run_cache(
     summary_metadata_by_mode: dict[str, dict[str, dict[str, object]]] = {}
     for mode in expected_modes:
         mode_tables, mode_metadata = _load_mode_tables(
-            cache_dir=cache_dir,
+            mode_dir=cache_dir / mode,
             mode=mode,
             expected_summary_ids=expected_summary_ids,
             summary_files=summary_files,
@@ -471,6 +582,134 @@ def load_summary_run_cache(
         source_run_dir=manifest.get("source_run_dir"),
         manifest=manifest,
     )
+
+
+def load_summary_run_bundle(
+    cache_dir: str | Path,
+    config: Config,
+    *,
+    expected_modes: list[str] | None = None,
+    expected_summary_ids: list[str] | None = None,
+    expected_summary_config_digest: str | None = None,
+    expected_run_fingerprint: dict[str, object] | None = None,
+    expected_prepared_manifest_identity: dict[str, object] | None = None,
+    expected_label: str | None = None,
+    expected_run_key: str | None = None,
+    summary_spec_by_id: dict[str, object],
+) -> list[SummaryRun]:
+    """Load one run cache directory and return all persisted segment variants."""
+    cache_dir = Path(cache_dir)
+    manifest = read_manifest(cache_dir, error_cls=SummaryCacheError)
+    if "segments" not in manifest:
+        return [
+            load_summary_run_cache(
+                cache_dir,
+                config,
+                expected_modes=expected_modes,
+                expected_summary_ids=expected_summary_ids,
+                expected_summary_config_digest=expected_summary_config_digest,
+                expected_run_fingerprint=expected_run_fingerprint,
+                expected_prepared_manifest_identity=expected_prepared_manifest_identity,
+                expected_label=expected_label,
+                expected_run_key=expected_run_key,
+                summary_spec_by_id=summary_spec_by_id,
+            )
+        ]
+
+    validate_schema_version(
+        cache_dir=cache_dir,
+        manifest=manifest,
+        supported_versions={SCHEMA_VERSION},
+        error_factory=SummaryCacheError,
+    )
+    _validate_manifest_identity(
+        cache_dir=cache_dir,
+        manifest=manifest,
+        expected_summary_config_digest=expected_summary_config_digest,
+        expected_run_fingerprint=expected_run_fingerprint,
+        expected_prepared_manifest_identity=expected_prepared_manifest_identity,
+        expected_label=expected_label,
+        expected_run_key=expected_run_key,
+    )
+    expected_modes, expected_summary_ids = _validated_mode_and_summary_ids(
+        manifest=manifest,
+        config=config,
+        cache_dir=cache_dir,
+        expected_modes=expected_modes,
+        expected_summary_ids=expected_summary_ids,
+    )
+    summary_files = {
+        str(summary_id): str(filename)
+        for summary_id, filename in dict(manifest.get("summary_files", {})).items()
+    }
+
+    loaded_runs: list[SummaryRun] = []
+    for raw_segment in list(manifest.get("segments", [])):
+        segment = dict(raw_segment)
+        summary_roots = {
+            str(mode): str(path)
+            for mode, path in dict(segment.get("summary_roots", {})).items()
+        }
+        manifest_summary_states = {
+            str(mode): {
+                str(summary_id): str(state)
+                for summary_id, state in dict(mode_states).items()
+            }
+            for mode, mode_states in dict(segment.get("summary_states", {})).items()
+        }
+        manifest_summary_diagnostics = {
+            str(mode): {
+                str(summary_id): str(detail)
+                for summary_id, detail in dict(mode_details).items()
+            }
+            for mode, mode_details in dict(segment.get("summary_diagnostics", {})).items()
+        }
+        empty_summaries = {
+            mode: [
+                summary_id
+                for summary_id, state in manifest_summary_states.get(mode, {}).items()
+                if state in {"empty", "unavailable", "failed"}
+            ]
+            for mode in expected_modes
+        }
+        summaries_by_mode: dict[str, dict[str, pl.DataFrame]] = {}
+        summary_metadata_by_mode: dict[str, dict[str, dict[str, object]]] = {}
+        for mode in expected_modes:
+            mode_root = summary_roots.get(mode, mode)
+            mode_tables, mode_metadata = _load_mode_tables(
+                mode_dir=cache_dir / mode_root,
+                mode=mode,
+                expected_summary_ids=expected_summary_ids,
+                summary_files=summary_files,
+                empty_summaries=empty_summaries,
+                manifest_summary_states=manifest_summary_states,
+                manifest_summary_diagnostics=manifest_summary_diagnostics,
+                summary_spec_by_id=summary_spec_by_id,
+            )
+            summaries_by_mode[mode] = mode_tables
+            summary_metadata_by_mode[mode] = mode_metadata
+        loaded_runs.append(
+            SummaryRun(
+                label=str(manifest.get("label", cache_dir.name)),
+                run_key=str(manifest.get("run_key", cache_dir.name)),
+                summaries_by_mode=summaries_by_mode,
+                summary_metadata_by_mode=summary_metadata_by_mode,
+                segment_id=str(segment.get("segment_id", "full")),
+                segment_label=str(segment.get("segment_label", "Full")),
+                is_full_segment=bool(segment.get("is_full", False)),
+                segment_source_type=segment.get("source_type"),
+                segment_column=segment.get("segment_column"),
+                segment_values=tuple(segment.get("segment_values", [])),
+                segment_source_table=segment.get("source_table"),
+                segment_source_key_column=segment.get("source_key_column"),
+                segment_csv_file=segment.get("csv_file"),
+                segment_csv_key_column=segment.get("csv_key_column"),
+                segment_csv_value_column=segment.get("csv_segment_value_column"),
+                source_run_dir=manifest.get("source_run_dir"),
+                manifest=manifest,
+            )
+        )
+    return loaded_runs
 
 
 def discover_cache_dirs(root: str | Path) -> list[Path]:
