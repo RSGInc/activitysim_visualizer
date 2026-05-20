@@ -35,11 +35,12 @@ def _write_cli_config(
 ) -> Config:
     lines = [
         'name: "CLI Test Config"',
-        "summaries:",
+        "processor:",
         "  root: summary_cache",
-        "  weighting_modes:",
-        "    - weighted",
-        "    - unweighted",
+        "  summaries:",
+        "    weighting_modes:",
+        "      - weighted",
+        "      - unweighted",
         "visualizer:",
         '  dashboard_title: "CLI Test Dashboard"',
     ]
@@ -348,7 +349,7 @@ def test_main_prepare_only_writes_prepared_cache_and_exits(
 
     run.main()
 
-    prepared_dir = Path(config.summary_root).parent / "prepared_cache" / "run-a"
+    prepared_dir = Path(config.summary_root) / "run-a" / "prepared_tables"
     assert read_calls == ["Run A"]
     assert prepare_calls == ["Run A"]
     assert (prepared_dir / "manifest.json").exists()
@@ -417,7 +418,7 @@ def test_main_write_csvs_no_dashboard_writes_summary_cache_and_exits(
     assert read_calls == ["Run A"]
     assert built_summaries == ["Run A"]
     assert (cache_dir / "manifest.json").exists()
-    assert (cache_dir / "weighted" / "totals.csv").exists()
+    assert (cache_dir / "summary_tables" / "weighted" / "totals.csv").exists()
 
 
 def test_main_explicit_prepare_and_summarize_runs_processor_without_dashboard(
@@ -490,7 +491,7 @@ def test_main_explicit_prepare_and_summarize_runs_processor_without_dashboard(
     assert read_calls == ["Run A"]
     assert prepare_calls == ["Run A"]
     assert built_summaries == ["Run A"]
-    assert (Path(config.summary_root).parent / "prepared_cache" / "run-a").exists()
+    assert (Path(config.summary_root) / "run-a" / "prepared_tables").exists()
     assert (Path(config.summary_root) / "run-a" / "manifest.json").exists()
 
 
@@ -583,7 +584,7 @@ def test_main_refresh_prepared_cache_rebuilds_prepared_tables_before_summarize(
         tmp_path,
         runs=[{"dir": str(run_dir), "label": "Run A"}],
     )
-    prepared_dir = Path(config.summary_root).parent / "prepared_cache"
+    prepared_dir = Path(config.summary_root)
     write_prepared_run_cache(
         _fake_run_data("Run A", str(run_dir)),
         config,
@@ -598,7 +599,7 @@ def test_main_refresh_prepared_cache_rebuilds_prepared_tables_before_summarize(
             trip_weight_col=None,
         ),
     )
-    stale_marker = prepared_dir / "run-a" / "stale.txt"
+    stale_marker = prepared_dir / "run-a" / "prepared_tables" / "stale.txt"
     stale_marker.write_text("old", encoding="utf-8")
     read_calls: list[str] = []
     prepare_calls: list[str] = []
@@ -648,7 +649,7 @@ def test_main_refresh_prepared_cache_rebuilds_prepared_tables_before_summarize(
     assert prepare_calls == ["Run A"]
     assert summary_build_calls == ["Run A"]
     assert not stale_marker.exists()
-    assert (prepared_dir / "run-a" / "manifest.json").exists()
+    assert (prepared_dir / "run-a" / "prepared_tables" / "manifest.json").exists()
 
 
 def test_main_uses_cache_hit_for_one_run_and_raw_fallback_for_another(
@@ -731,11 +732,11 @@ def test_main_uses_cache_hit_for_one_run_and_raw_fallback_for_another(
 
     run.main()
 
-    assert read_calls == ["Run B"]
+    assert read_calls == ["Run B", "Run A"]
     assert built_summaries == ["Run B"]
     assert dashboard_calls == [
         {
-            "prepared_run_labels": [],
+            "prepared_run_labels": ["Run A", "Run B"],
             "summary_run_labels": ["Run A", "Run B"],
         }
     ]
@@ -750,7 +751,7 @@ def test_main_refresh_caches_rebuilds_prepared_and_summary_caches(
         tmp_path,
         runs=[{"dir": str(run_dir), "label": "Run A"}],
     )
-    prepared_dir = Path(config.summary_root).parent / "prepared_cache"
+    prepared_dir = Path(config.summary_root)
     summary_dir = Path(config.summary_root)
     write_prepared_run_cache(
         _fake_run_data("Run A", str(run_dir)),
@@ -784,7 +785,7 @@ def test_main_refresh_caches_rebuilds_prepared_and_summary_caches(
             run_dir=config.runs[0]["dir"],
         ),
     )
-    prepared_marker = prepared_dir / "run-a" / "stale.txt"
+    prepared_marker = prepared_dir / "run-a" / "prepared_tables" / "stale.txt"
     summary_marker = summary_dir / "run-a" / "stale.txt"
     prepared_marker.write_text("old", encoding="utf-8")
     summary_marker.write_text("old", encoding="utf-8")

@@ -25,6 +25,7 @@ class SummaryRun:
     summary_metadata_by_mode: dict[str, dict[str, dict[str, object]]] = field(
         default_factory=dict
     )
+    segmentation_type: str = "full"
     segment_id: str = "full"
     segment_label: str = "Full"
     is_full_segment: bool = True
@@ -100,6 +101,7 @@ def create_summary_run(
     run_key: str,
     summaries_by_mode: dict[str, dict[str, pl.DataFrame]],
     summary_metadata_by_mode: dict[str, dict[str, dict[str, object]]] | None = None,
+    segmentation_type: str = "full",
     segment_id: str = "full",
     segment_label: str = "Full",
     is_full_segment: bool = True,
@@ -120,6 +122,7 @@ def create_summary_run(
         run_key=run_key,
         summaries_by_mode=summaries_by_mode,
         summary_metadata_by_mode=dict(summary_metadata_by_mode or {}),
+        segmentation_type=segmentation_type,
         segment_id=segment_id,
         segment_label=segment_label,
         is_full_segment=is_full_segment,

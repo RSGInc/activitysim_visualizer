@@ -875,6 +875,21 @@ def _warn_ignored_legacy_key(
         )
 
 
+def _warn_supported_legacy_key(
+    *,
+    mapping: dict[str, Any],
+    key: str,
+    legacy_field_name: str,
+    replacement_field_name: str,
+) -> None:
+    if key in mapping:
+        LOGGER.warning(
+            "Config key '%s' is deprecated but still supported. Use '%s' instead.",
+            legacy_field_name,
+            replacement_field_name,
+        )
+
+
 def _digest_payload(payload: dict[str, Any]) -> str:
     return hashlib.sha256(
         json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
@@ -955,19 +970,48 @@ SegmentationSourceConfig = PreparedColumnSegmentationSource | CsvLookupSegmentat
 
 
 @dataclass(frozen=True)
-class SegmentationConfig:
-    """Normalized segmentation settings."""
+class DashboardSegmentationSettings:
+    """Presentation-only dashboard controls for segmented summaries."""
 
-    enabled: bool = False
-    include_full: bool = True
-    dashboard_visibility: Literal[
+    segmentation_type: str | None = None
+    visibility: Literal[
         "full_only", "segments_only", "full_and_segments"
     ] = "full_and_segments"
+
+
+@dataclass(frozen=True)
+class SegmentationDefinition:
+    """One named segmentation type and its slicing rules."""
+
+    name: str
+    include_full: bool = True
     persist_segmented_prepared_tables: bool = False
     allow_overlapping: bool = False
     on_empty_segment: Literal["error", "warn", "skip"] = "warn"
     source: SegmentationSourceConfig | None = None
     segments: tuple[SegmentSpec, ...] = ()
+
+
+@dataclass(frozen=True)
+class SegmentationSettings:
+    """Normalized multi-segmentation settings."""
+
+    enabled: bool = False
+    dashboard: DashboardSegmentationSettings = field(
+        default_factory=DashboardSegmentationSettings
+    )
+    definitions: tuple[SegmentationDefinition, ...] = ()
+
+    def definition_names(self) -> tuple[str, ...]:
+        return tuple(definition.name for definition in self.definitions)
+
+    def definition_by_name(self, name: str | None) -> SegmentationDefinition | None:
+        if name is None:
+            return None
+        for definition in self.definitions:
+            if definition.name == name:
+                return definition
+        return None
 
 
 def _student_type_defaults_to_university(
@@ -1441,9 +1485,9 @@ def _normalize_segmentation(
     *,
     field_name: str,
     config_dir: Path,
-) -> SegmentationConfig:
+) -> SegmentationSettings:
     if raw_value is None:
-        return SegmentationConfig()
+        return SegmentationSettings()
     if not isinstance(raw_value, dict):
         raise ValueError(f"{field_name} must be a mapping when provided.")
 
@@ -1451,96 +1495,157 @@ def _normalize_segmentation(
     if not isinstance(enabled, bool):
         raise ValueError(f"{field_name}.enabled must be true or false.")
     if not enabled:
-        return SegmentationConfig(enabled=False)
+        return SegmentationSettings(enabled=False)
 
-    include_full = raw_value.get("include_full", True)
-    if not isinstance(include_full, bool):
-        raise ValueError(f"{field_name}.include_full must be true or false.")
-
+    dashboard_raw = raw_value.get("dashboard", {})
+    if dashboard_raw is None:
+        dashboard_raw = {}
+    if not isinstance(dashboard_raw, dict):
+        raise ValueError(f"{field_name}.dashboard must be a mapping when provided.")
+    dashboard_segmentation_type = dashboard_raw.get("segmentation_type")
+    if dashboard_segmentation_type is not None:
+        dashboard_segmentation_type = str(dashboard_segmentation_type).strip().lower()
+        if not dashboard_segmentation_type:
+            dashboard_segmentation_type = None
     dashboard_visibility = str(
-        raw_value.get("dashboard_visibility", "full_and_segments")
+        dashboard_raw.get("visibility", "full_and_segments")
     ).strip().lower()
     if dashboard_visibility not in {"full_only", "segments_only", "full_and_segments"}:
         raise ValueError(
-            f"{field_name}.dashboard_visibility must be one of full_only, segments_only, or full_and_segments."
+            f"{field_name}.dashboard.visibility must be one of full_only, segments_only, or full_and_segments."
         )
-
-    persist_segmented_prepared_tables = raw_value.get(
-        "persist_segmented_prepared_tables", False
-    )
-    if not isinstance(persist_segmented_prepared_tables, bool):
+    definitions_raw = raw_value.get("definitions")
+    if not isinstance(definitions_raw, dict) or not definitions_raw:
         raise ValueError(
-            f"{field_name}.persist_segmented_prepared_tables must be true or false."
-        )
-    allow_overlapping = raw_value.get("allow_overlapping", False)
-    if not isinstance(allow_overlapping, bool):
-        raise ValueError(f"{field_name}.allow_overlapping must be true or false.")
-
-    on_empty_segment = str(raw_value.get("on_empty_segment", "warn")).strip().lower()
-    if on_empty_segment not in {"error", "warn", "skip"}:
-        raise ValueError(
-            f"{field_name}.on_empty_segment must be one of error, warn, or skip."
+            f"{field_name}.definitions must be a non-empty mapping when enabled."
         )
 
-    source = _normalize_segmentation_source(
-        raw_value.get("source"),
-        field_name=f"{field_name}.source",
-        config_dir=config_dir,
-    )
-
-    segments_raw = raw_value.get("segments")
-    if not isinstance(segments_raw, list) or not segments_raw:
-        raise ValueError(f"{field_name}.segments must be a non-empty list when enabled.")
-
-    normalized_segments: list[SegmentSpec] = []
-    seen_ids: set[str] = set()
-    seen_values: dict[str, str] = {}
-    for idx, raw_segment in enumerate(segments_raw):
-        entry_name = f"{field_name}.segments[{idx}]"
-        if not isinstance(raw_segment, dict):
+    normalized_definitions: list[SegmentationDefinition] = []
+    seen_definition_names: set[str] = set()
+    for raw_name, raw_definition in definitions_raw.items():
+        definition_name = str(raw_name).strip().lower()
+        entry_name = f"{field_name}.definitions.{raw_name}"
+        if not definition_name:
+            raise ValueError(f"{field_name}.definitions contains a blank name.")
+        if definition_name != str(raw_name).strip():
+            raise ValueError(f"{entry_name} name must already be normalized and lowercase.")
+        if (
+            re.sub(r"[^A-Za-z0-9._-]+", "-", definition_name)
+            .strip("-_.")
+            .lower()
+            != definition_name
+        ):
+            raise ValueError(f"{entry_name} name must be path-safe.")
+        if definition_name in seen_definition_names:
+            raise ValueError(f"{entry_name} name must be unique.")
+        seen_definition_names.add(definition_name)
+        if not isinstance(raw_definition, dict):
             raise ValueError(f"{entry_name} must be a mapping.")
-        raw_segment_id = str(raw_segment.get("id", "")).strip()
-        if not raw_segment_id:
-            raise ValueError(f"{entry_name}.id is required.")
-        normalized_id = raw_segment_id.lower()
-        if normalized_id != raw_segment_id:
-            raise ValueError(
-                f"{entry_name}.id must already be normalized and lowercase."
-            )
-        if re.sub(r"[^A-Za-z0-9._-]+", "-", normalized_id).strip("-_.").lower() != normalized_id:
-            raise ValueError(f"{entry_name}.id must be path-safe.")
-        if normalized_id in seen_ids:
-            raise ValueError(f"{entry_name}.id must be unique.")
-        seen_ids.add(normalized_id)
-        label = str(raw_segment.get("label", "")).strip()
-        if not label:
-            raise ValueError(f"{entry_name}.label is required.")
-        values = _normalize_segment_values(
-            raw_segment.get("values"),
-            field_name=f"{entry_name}.values",
+
+        include_full = raw_definition.get("include_full", True)
+        if not isinstance(include_full, bool):
+            raise ValueError(f"{entry_name}.include_full must be true or false.")
+
+        persist_segmented_prepared_tables = raw_definition.get(
+            "persist_segmented_prepared_tables", False
         )
-        if not allow_overlapping:
-            for raw_value_token in values:
-                overlap_key = json.dumps(raw_value_token, sort_keys=True, default=str)
-                prior_segment = seen_values.get(overlap_key)
-                if prior_segment is not None:
-                    raise ValueError(
-                        f"{entry_name}.values overlaps with segment {prior_segment!r} while allow_overlapping is false."
-                    )
-                seen_values[overlap_key] = normalized_id
-        normalized_segments.append(
-            SegmentSpec(id=normalized_id, label=label, values=values)
+        if not isinstance(persist_segmented_prepared_tables, bool):
+            raise ValueError(
+                f"{entry_name}.persist_segmented_prepared_tables must be true or false."
+            )
+        allow_overlapping = raw_definition.get("allow_overlapping", False)
+        if not isinstance(allow_overlapping, bool):
+            raise ValueError(f"{entry_name}.allow_overlapping must be true or false.")
+
+        on_empty_segment = str(raw_definition.get("on_empty_segment", "warn")).strip().lower()
+        if on_empty_segment not in {"error", "warn", "skip"}:
+            raise ValueError(
+                f"{entry_name}.on_empty_segment must be one of error, warn, or skip."
+            )
+
+        source = _normalize_segmentation_source(
+            raw_definition.get("source"),
+            field_name=f"{entry_name}.source",
+            config_dir=config_dir,
         )
 
-    return SegmentationConfig(
+        segments_raw = raw_definition.get("segments")
+        if not isinstance(segments_raw, list) or not segments_raw:
+            raise ValueError(f"{entry_name}.segments must be a non-empty list.")
+
+        normalized_segments: list[SegmentSpec] = []
+        seen_segment_ids: set[str] = set()
+        seen_values: dict[str, str] = {}
+        for idx, raw_segment in enumerate(segments_raw):
+            segment_name = f"{entry_name}.segments[{idx}]"
+            if not isinstance(raw_segment, dict):
+                raise ValueError(f"{segment_name} must be a mapping.")
+            raw_segment_id = str(raw_segment.get("id", "")).strip()
+            if not raw_segment_id:
+                raise ValueError(f"{segment_name}.id is required.")
+            normalized_id = raw_segment_id.lower()
+            if normalized_id != raw_segment_id:
+                raise ValueError(
+                    f"{segment_name}.id must already be normalized and lowercase."
+                )
+            if (
+                re.sub(r"[^A-Za-z0-9._-]+", "-", normalized_id)
+                .strip("-_.")
+                .lower()
+                != normalized_id
+            ):
+                raise ValueError(f"{segment_name}.id must be path-safe.")
+            if normalized_id in seen_segment_ids:
+                raise ValueError(f"{segment_name}.id must be unique.")
+            seen_segment_ids.add(normalized_id)
+            label = str(raw_segment.get("label", "")).strip()
+            if not label:
+                raise ValueError(f"{segment_name}.label is required.")
+            values = _normalize_segment_values(
+                raw_segment.get("values"),
+                field_name=f"{segment_name}.values",
+            )
+            if not allow_overlapping:
+                for raw_value_token in values:
+                    overlap_key = json.dumps(raw_value_token, sort_keys=True, default=str)
+                    prior_segment = seen_values.get(overlap_key)
+                    if prior_segment is not None:
+                        raise ValueError(
+                            f"{segment_name}.values overlaps with segment {prior_segment!r} while allow_overlapping is false."
+                        )
+                    seen_values[overlap_key] = normalized_id
+            normalized_segments.append(
+                SegmentSpec(id=normalized_id, label=label, values=values)
+            )
+
+        normalized_definitions.append(
+            SegmentationDefinition(
+                name=definition_name,
+                include_full=include_full,
+                persist_segmented_prepared_tables=persist_segmented_prepared_tables,
+                allow_overlapping=allow_overlapping,
+                on_empty_segment=on_empty_segment,
+                source=source,
+                segments=tuple(normalized_segments),
+            )
+        )
+
+    normalized_definitions.sort(key=lambda definition: definition.name)
+    available_definition_names = {definition.name for definition in normalized_definitions}
+    if dashboard_segmentation_type is None:
+        dashboard_segmentation_type = normalized_definitions[0].name
+    if dashboard_segmentation_type not in available_definition_names:
+        raise ValueError(
+            f"{field_name}.dashboard.segmentation_type must name one configured definition."
+        )
+
+    return SegmentationSettings(
         enabled=enabled,
-        include_full=include_full,
-        dashboard_visibility=dashboard_visibility,
-        persist_segmented_prepared_tables=persist_segmented_prepared_tables,
-        allow_overlapping=allow_overlapping,
-        on_empty_segment=on_empty_segment,
-        source=source,
-        segments=tuple(normalized_segments),
+        dashboard=DashboardSegmentationSettings(
+            segmentation_type=dashboard_segmentation_type,
+            visibility=dashboard_visibility,
+        ),
+        definitions=tuple(normalized_definitions),
     )
 
 
@@ -1618,7 +1723,7 @@ class Config:
     geography_landuse_col: Optional[str]
     geography_mapping: Optional[dict]
     geography_aggregations: GeographyAggregationSettings
-    segmentation: SegmentationConfig
+    segmentation: SegmentationSettings
 
     skim_file: Optional[str]
     skim_matrix: str
@@ -1637,9 +1742,16 @@ class Config:
         if not isinstance(raw, dict):
             raise ValueError("config file must parse to a mapping.")
 
+        processor_cfg = raw.get("processor") or {}
+        if not isinstance(processor_cfg, dict):
+            raise ValueError("processor must be a mapping when provided.")
+
         summaries_cfg = raw.get("summaries") or {}
         if not isinstance(summaries_cfg, dict):
             raise ValueError("summaries must be a mapping when provided.")
+        processor_summaries_cfg = processor_cfg.get("summaries") or {}
+        if not isinstance(processor_summaries_cfg, dict):
+            raise ValueError("processor.summaries must be a mapping when provided.")
 
         visualizer_cfg = raw.get("visualizer") or {}
         if not isinstance(visualizer_cfg, dict):
@@ -1732,19 +1844,31 @@ class Config:
             mapping=outputs_cfg,
             key="summary_root",
             legacy_field_name="outputs.summary_root",
-            replacement_field_name="summaries.root",
+            replacement_field_name="processor.root",
         )
         _warn_ignored_legacy_key(
             mapping=outputs_cfg,
             key="weighting_modes",
             legacy_field_name="outputs.weighting_modes",
-            replacement_field_name="summaries.weighting_modes",
+            replacement_field_name="processor.summaries.weighting_modes",
         )
         _warn_ignored_legacy_key(
             mapping=outputs_cfg,
             key="export_html",
             legacy_field_name="outputs.export_html",
             replacement_field_name="visualizer.export_html",
+        )
+        _warn_supported_legacy_key(
+            mapping=summaries_cfg,
+            key="root",
+            legacy_field_name="summaries.root",
+            replacement_field_name="processor.root",
+        )
+        _warn_supported_legacy_key(
+            mapping=summaries_cfg,
+            key="weighting_modes",
+            legacy_field_name="summaries.weighting_modes",
+            replacement_field_name="processor.summaries.weighting_modes",
         )
 
         dashboard_pages_cfg = visualizer_cfg.get("dashboard_pages")
@@ -1756,14 +1880,20 @@ class Config:
                 field_name="visualizer.dashboard_pages",
             )
 
-        summary_root_raw = summaries_cfg.get("root", "artifacts/summary_cache")
+        summary_root_raw = processor_cfg.get(
+            "root",
+            summaries_cfg.get("root", "artifacts/summary_cache"),
+        )
         summary_root = Path(summary_root_raw)
         if not summary_root.is_absolute():
             summary_root = (config_path.parent / summary_root).resolve()
 
-        weighting_modes_cfg = summaries_cfg.get(
+        weighting_modes_cfg = processor_summaries_cfg.get(
             "weighting_modes",
-            ["weighted", "unweighted"],
+            summaries_cfg.get(
+                "weighting_modes",
+                ["weighted", "unweighted"],
+            ),
         )
         raw_weighting_modes = [
             str(mode).strip().lower() for mode in weighting_modes_cfg
@@ -1776,7 +1906,7 @@ class Config:
         ]
         if invalid_weighting_modes:
             raise ValueError(
-                "Unsupported summaries.weighting_modes values: "
+                "Unsupported processor.summaries.weighting_modes values: "
                 + ", ".join(repr(mode) for mode in invalid_weighting_modes)
             )
         weighting_modes: list[str] = []
@@ -2326,29 +2456,30 @@ class Config:
         )
         segmentation_payload: dict[str, Any] = {"enabled": self.segmentation.enabled}
         if self.segmentation.enabled:
-            segmentation_payload.update(
+            segmentation_payload["definitions"] = [
                 {
-                    "include_full": self.segmentation.include_full,
-                    "persist_segmented_prepared_tables": self.segmentation.persist_segmented_prepared_tables,
-                    "allow_overlapping": self.segmentation.allow_overlapping,
-                    "on_empty_segment": self.segmentation.on_empty_segment,
+                    "name": definition.name,
+                    "include_full": definition.include_full,
+                    "persist_segmented_prepared_tables": definition.persist_segmented_prepared_tables,
+                    "allow_overlapping": definition.allow_overlapping,
+                    "on_empty_segment": definition.on_empty_segment,
                     "source": (
                         {
                             "type": "prepared_column",
-                            "column": self.segmentation.source.column,
-                            "source_table": self.segmentation.source.source_table,
+                            "column": definition.source.column,
+                            "source_table": definition.source.source_table,
                         }
-                        if isinstance(self.segmentation.source, PreparedColumnSegmentationSource)
+                        if isinstance(definition.source, PreparedColumnSegmentationSource)
                         else {
                             "type": "csv_lookup",
-                            "file": self.segmentation.source.file,
-                            "join_source_table": self.segmentation.source.join_source_table,
-                            "join_source_key_column": self.segmentation.source.join_source_key_column,
-                            "csv_key_column": self.segmentation.source.csv_key_column,
-                            "segment_value_column": self.segmentation.source.segment_value_column,
+                            "file": definition.source.file,
+                            "join_source_table": definition.source.join_source_table,
+                            "join_source_key_column": definition.source.join_source_key_column,
+                            "csv_key_column": definition.source.csv_key_column,
+                            "segment_value_column": definition.source.segment_value_column,
                             "lookup_rows": [
                                 {"key": key, "value": value}
-                                for key, value in self.segmentation.source.lookup_rows
+                                for key, value in definition.source.lookup_rows
                             ],
                         }
                     ),
@@ -2358,10 +2489,11 @@ class Config:
                             "label": segment.label,
                             "values": list(segment.values),
                         }
-                        for segment in self.segmentation.segments
+                        for segment in definition.segments
                     ],
                 }
-            )
+                for definition in self.segmentation.definitions
+            ]
         return {
             "weighting_modes": list(self.weighting_modes),
             "files": {key: self.files[key] for key in sorted(self.files)},
@@ -2498,7 +2630,10 @@ class Config:
             "missing_data_display": self.missing_data_display,
             "segmentation": {
                 "enabled": self.segmentation.enabled,
-                "dashboard_visibility": self.segmentation.dashboard_visibility,
+                "dashboard": {
+                    "segmentation_type": self.segmentation.dashboard.segmentation_type,
+                    "visibility": self.segmentation.dashboard.visibility,
+                },
             },
             "categories": _category_specs_payload(self.categories),
             "export_html": {

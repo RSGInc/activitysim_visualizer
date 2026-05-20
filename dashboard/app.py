@@ -45,7 +45,8 @@ def build_dashboard(
         summary_runs=summary_runs,
         weighting_modes=config.weighting_modes,
         prepared_run_provider=prepared_run_provider,
-        default_segmentation_visibility=config.segmentation.dashboard_visibility,
+        dashboard_segmentation_type=config.segmentation.dashboard.segmentation_type,
+        default_segmentation_visibility=config.segmentation.dashboard.visibility,
     )
     run_labels = state.run_labels
     set_run_label_order(run_labels)

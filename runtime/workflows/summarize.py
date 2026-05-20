@@ -88,6 +88,7 @@ def _build_summary_run_from_analysis_unit(
         run_key=unit.run_key,
         summaries_by_mode=summaries_by_mode,
         summary_metadata_by_mode=summary_metadata_by_mode,
+        segmentation_type=unit.segmentation_type,
         segment_id=unit.segment_id,
         segment_label=unit.segment_label,
         is_full_segment=unit.is_full,

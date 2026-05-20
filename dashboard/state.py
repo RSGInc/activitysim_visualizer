@@ -32,6 +32,7 @@ class DashboardState(param.Parameterized):
         summary_runs: list[SummaryRun] | None = None,
         weighting_modes: list[str] | None = None,
         prepared_run_provider: DashboardPreparedRunProvider | None = None,
+        dashboard_segmentation_type: str | None = None,
         default_segmentation_visibility: str = "full_and_segments",
         **params: Any,
     ) -> None:
@@ -50,6 +51,11 @@ class DashboardState(param.Parameterized):
         self._cache_stats: dict[str, dict[str, int]] = {}
         self._summary_runs: list[DashboardSummarySeries] = self._build_summary_series(
             summary_runs
+        )
+        self._dashboard_segmentation_type = (
+            str(dashboard_segmentation_type).strip().lower()
+            if dashboard_segmentation_type
+            else None
         )
         self._segmentation_display_mode = str(default_segmentation_visibility).strip().lower()
         self._configure_segmentation_controls()
@@ -110,11 +116,12 @@ class DashboardState(param.Parameterized):
     def value_key(self) -> str:
         return "percent" if self.value_mode == "Percent" else "count"
 
-    def global_state_key(self) -> tuple[str, str, str]:
+    def global_state_key(self) -> tuple[str, str, str | None, str]:
         """Return a stable key for the current global display state."""
         return (
             self.weighting_key(),
             self.value_key(),
+            self._dashboard_segmentation_type,
             self._segmentation_display_mode,
         )
 
@@ -123,6 +130,13 @@ class DashboardState(param.Parameterized):
 
     def _visible_summary_runs(self) -> list[DashboardSummarySeries]:
         runs = list(self._summary_runs)
+        if self.has_segmented_summary_series and self._dashboard_segmentation_type:
+            runs = [
+                run
+                for run in runs
+                if run.is_full_segment
+                or run.segmentation_type == self._dashboard_segmentation_type
+            ]
         visibility = self._segmentation_display_mode
         if visibility == "full_only":
             runs = [run for run in runs if run.is_full_segment]

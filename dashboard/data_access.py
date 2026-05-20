@@ -88,6 +88,7 @@ class DashboardSummarySeries:
     )
     run_key: str | None = None
     source_run_dir: str | None = None
+    segmentation_type: str = "full"
     segment_id: str = "full"
     segment_label: str = "Full"
     is_full_segment: bool = True
@@ -105,6 +106,7 @@ class DashboardSummarySeries:
             summary_metadata_by_mode=summary_run.summary_metadata_by_mode,
             run_key=summary_run.run_key,
             source_run_dir=summary_run.source_run_dir,
+            segmentation_type=summary_run.segmentation_type,
             segment_id=summary_run.segment_id,
             segment_label=summary_run.segment_label,
             is_full_segment=summary_run.is_full_segment,

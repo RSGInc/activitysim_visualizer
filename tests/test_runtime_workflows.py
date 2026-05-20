@@ -37,11 +37,12 @@ def _write_config(
     config_path = tmp_path / "config.yaml"
     lines = [
         'name: "Workflow Test Config"',
-        "summaries:",
+        "processor:",
         "  root: summary_cache",
-        "  weighting_modes:",
-        "    - weighted",
-        "    - unweighted",
+        "  summaries:",
+        "    weighting_modes:",
+        "      - weighted",
+        "      - unweighted",
         "visualizer:",
         '  dashboard_title: "Workflow Test Dashboard"',
     ]
@@ -218,7 +219,7 @@ def test_run_prepare_workflow_rebuilds_and_writes_prepared_cache_on_cache_miss(
     assert read_calls == ["Run A"]
     assert prepare_calls == ["Run A"]
     assert [label for label, _ in result.prepared_runs] == ["Run A"]
-    assert (prepared_root / "run-a" / "manifest.json").exists()
+    assert (prepared_root / "run-a" / "prepared_tables" / "manifest.json").exists()
 
 
 def test_run_prepare_workflow_skips_run_when_no_raw_tables_are_available(
@@ -574,7 +575,7 @@ def test_run_summary_workflow_rebuilds_and_writes_cache_on_cache_miss(
     assert list(result.prepared_runs_by_key) == ["run-a"]
     assert (Path(config.summary_root) / "run-a" / "manifest.json").exists()
     assert (
-        Path(config.summary_root).parent / "prepared_cache" / "run-a" / "manifest.json"
+        Path(config.summary_root) / "run-a" / "prepared_tables" / "manifest.json"
     ).exists()
 
 

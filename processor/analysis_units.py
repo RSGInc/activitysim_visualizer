@@ -11,6 +11,7 @@ from processor.models import RunData
 class SegmentMetadata:
     """Resolved segment metadata carried with one sliced analysis unit."""
 
+    segmentation_type: str
     segment_id: str
     segment_label: str
     is_full: bool
@@ -31,6 +32,7 @@ class AnalysisUnit:
     run_id: str
     run_name: str
     run_key: str
+    segmentation_type: str
     segment_id: str
     segment_label: str
     is_full: bool
@@ -38,9 +40,10 @@ class AnalysisUnit:
     prepared_run: RunData
 
 
-def full_segment_metadata() -> SegmentMetadata:
+def full_segment_metadata(*, segmentation_type: str) -> SegmentMetadata:
     """Return the canonical metadata for the full, unsegmented analysis unit."""
     return SegmentMetadata(
+        segmentation_type=segmentation_type,
         segment_id="full",
         segment_label="Full",
         is_full=True,
@@ -52,13 +55,15 @@ def full_analysis_unit(
     run_key: str,
     run_name: str,
     prepared_run: RunData,
+    segmentation_type: str,
 ) -> AnalysisUnit:
     """Wrap one prepared run as the full analysis unit."""
-    metadata = full_segment_metadata()
+    metadata = full_segment_metadata(segmentation_type=segmentation_type)
     return AnalysisUnit(
         run_id=run_key,
         run_name=run_name,
         run_key=run_key,
+        segmentation_type=segmentation_type,
         segment_id=metadata.segment_id,
         segment_label=metadata.segment_label,
         is_full=True,

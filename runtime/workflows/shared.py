@@ -124,6 +124,7 @@ def prune_summary_runs(
                 }
                 for mode in summary_run.summaries_by_mode
             },
+            segmentation_type=getattr(summary_run, "segmentation_type", "full"),
             segment_id=getattr(summary_run, "segment_id", "full"),
             segment_label=getattr(summary_run, "segment_label", "Full"),
             is_full_segment=getattr(summary_run, "is_full_segment", True),

@@ -31,8 +31,8 @@ from processor.prepare.availability import (
 from processor.prepare.writer import write_all
 from runtime.config import Config
 
-SCHEMA_VERSION = 5
-SUPPORTED_SCHEMA_VERSIONS = {2, 3, 4, 5}
+SCHEMA_VERSION = 6
+SUPPORTED_SCHEMA_VERSIONS = {2, 3, 4, 5, 6}
 SUPPORTED_FILE_FORMATS = ("parquet", "csv")
 PREPARED_TABLE_ATTRS: tuple[tuple[str, str, str], ...] = (
     ("hh", "households", "households"),
@@ -59,9 +59,8 @@ class PreparedRunCacheEntry:
 
 
 def prepared_root(config: Config) -> Path:
-    """Return the default prepared-table root next to the summary cache root."""
-    summary_root = Path(config.summary_root)
-    return summary_root.parent / "prepared_cache"
+    """Return the shared cache root used for both prepared and summary outputs."""
+    return Path(config.summary_root)
 
 
 def build_prepared_manifest_identity(
@@ -89,6 +88,19 @@ def _manifest_table_map(manifest: dict[str, object]) -> dict[str, str]:
         str(table_id): str(filename)
         for table_id, filename in dict(manifest.get("table_files", {})).items()
     }
+
+
+def _prepared_tables_dir(cache_dir: Path, manifest: dict[str, object] | None = None) -> Path:
+    if manifest is not None:
+        table_root = str(manifest.get("table_root", "")).strip()
+        if table_root:
+            if cache_dir.name == table_root:
+                return cache_dir
+            return cache_dir / table_root
+    candidate = cache_dir / "prepared_tables"
+    if candidate.exists():
+        return candidate
+    return cache_dir
 
 
 def _write_skimjoin_outputs(cache_dir: Path, rd: RunData, config: Config) -> None:
@@ -141,7 +153,7 @@ def write_prepared_run_cache(
     )
     output_root.mkdir(parents=True, exist_ok=True)
 
-    cache_dir = output_root / run_key
+    cache_dir = output_root / run_key / "prepared_tables"
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     tables_to_write: dict[str, pl.DataFrame] = {}
@@ -171,6 +183,7 @@ def write_prepared_run_cache(
         "config_path": config.config_path,
         "prepare_config_digest": config.prepare_config_digest,
         "table_format": file_format,
+        "table_root": "prepared_tables",
         "table_files": _table_file_map(file_format),
         "table_states": {
             table_id: table_states.get(
@@ -308,9 +321,10 @@ def load_prepared_run_cache(
             **failed_table_reasons,
         }
     loaded_tables: dict[str, pl.DataFrame] = {}
+    prepared_tables_dir = _prepared_tables_dir(cache_dir, manifest)
     for attr_name, table_id, stem in PREPARED_TABLE_ATTRS:
         filename = table_files.get(table_id, f"{stem}.{file_format}")
-        path = cache_dir / filename
+        path = prepared_tables_dir / filename
         if not path.exists():
             raise PreparedCacheError(f"Missing prepared table file: {path}")
         if file_format == "parquet":
@@ -370,4 +384,14 @@ def load_prepared_run_cache(
 
 def discover_cache_dirs(root: str | Path) -> list[Path]:
     """Return child prepared-cache directories that contain a manifest."""
-    return discover_manifest_cache_dirs(root)
+    root = Path(root)
+    direct_dirs = discover_manifest_cache_dirs(root)
+    if direct_dirs:
+        return direct_dirs
+    nested_dirs: list[Path] = []
+    if root.exists():
+        for run_dir in root.iterdir():
+            candidate = run_dir / "prepared_tables"
+            if candidate.is_dir() and (candidate / "manifest.json").exists():
+                nested_dirs.append(candidate)
+    return sorted(nested_dirs)

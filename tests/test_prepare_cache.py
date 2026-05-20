@@ -40,11 +40,12 @@ def _write_config(
     lines = [
         'name: "Prepared Cache Test"',
         "runs: []",
-        "summaries:",
+        "processor:",
         "  root: summary_cache",
-        "  weighting_modes:",
-        "    - weighted",
-        "    - unweighted",
+        "  summaries:",
+        "    weighting_modes:",
+        "      - weighted",
+        "      - unweighted",
         "visualizer:",
         '  dashboard_title: "Prepared Cache Test"',
     ]
@@ -127,6 +128,35 @@ def _raw_run() -> RunData:
         person_weight_col="person_weight",
         trip_weight_col="trip_weight",
     )
+
+
+def test_legacy_summaries_processor_keys_warn_but_still_load(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'name: "Legacy Processor Config"',
+                "runs: []",
+                "summaries:",
+                "  root: summary_cache",
+                "  weighting_modes:",
+                "    - weighted",
+                "visualizer:",
+                '  dashboard_title: "Legacy Processor Config"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = Config.from_yaml(config_path)
+
+    assert config.summary_root.endswith("summary_cache")
+    assert config.weighting_modes == ["weighted"]
+    assert "summaries.root" in caplog.text
+    assert "summaries.weighting_modes" in caplog.text
 
 
 def _prepared_run(config: Config) -> RunData:
@@ -246,9 +276,9 @@ def test_prepared_cache_round_trip_creates_default_layout(tmp_path: Path) -> Non
         run_fingerprint=fingerprint,
     )
 
-    expected_root = Path(config.summary_root).parent / "prepared_cache"
+    expected_root = Path(config.summary_root)
     assert prepared_root(config) == expected_root
-    assert entry.cache_dir == expected_root / "base"
+    assert entry.cache_dir == expected_root / "base" / "prepared_tables"
     assert (entry.cache_dir / "manifest.json").exists()
     assert (entry.cache_dir / "households.parquet").exists()
     assert (entry.cache_dir / "persons.parquet").exists()
@@ -621,9 +651,7 @@ def test_prepared_cache_writes_sentinel_tables_for_non_available_states(
     assert pl.read_parquet(
         entry.cache_dir / "joint_tour_participants.parquet"
     ).columns == ["__empty__"]
-    assert pl.read_parquet(entry.cache_dir / "land_use.parquet").columns == [
-        "__empty__"
-    ]
+    assert pl.read_parquet(entry.cache_dir / "land_use.parquet").columns == ["__empty__"]
 
 
 def test_prepared_cache_loads_schema_version_2_manifest_without_failed_metadata(

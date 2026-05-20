@@ -29,6 +29,11 @@ from runtime.workflows import shared
 LOGGER = get_logger("main")
 
 
+def prepared_cache_dir(prepared_root: Path, run_key: str) -> Path:
+    """Return the prepared-cache directory for one run under the shared root."""
+    return prepared_root / run_key / "prepared_tables"
+
+
 def _run_cache_metadata(
     *,
     entry: dict,
@@ -206,7 +211,7 @@ def _resolve_prepared_run(
     metadata = _run_cache_metadata(entry=entry, run_key=run_key, config=config)
     label = str(metadata["label"])
     run_fingerprint = dict(metadata["run_fingerprint"])
-    prepared_dir = prepared_root / run_key
+    prepared_dir = prepared_cache_dir(prepared_root, run_key)
 
     if prefer_cache:
         cached_prepared_run = _load_prepared_run_from_cache(

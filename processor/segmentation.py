@@ -16,6 +16,7 @@ from runtime.config import (
     Config,
     CsvLookupSegmentationSource,
     PreparedColumnSegmentationSource,
+    SegmentationDefinition,
 )
 
 
@@ -356,43 +357,62 @@ def build_analysis_units_for_run(
     prepared_run: RunData,
     config: Config,
 ) -> list[AnalysisUnit]:
-    """Expand one prepared run into one full unit plus configured segments."""
-    seg_cfg = config.segmentation
-    if not seg_cfg.enabled:
+    """Expand one prepared run into full and segmented units for every type."""
+    segmentation_settings = config.segmentation
+    if not segmentation_settings.enabled:
         return [
             full_analysis_unit(
                 run_key=run_key,
                 run_name=run_name,
                 prepared_run=prepared_run,
+                segmentation_type="full",
             )
         ]
 
-    units: list[AnalysisUnit] = []
-    if seg_cfg.include_full:
-        units.append(
-            full_analysis_unit(
+    units: list[AnalysisUnit] = [
+        full_analysis_unit(
+            run_key=run_key,
+            run_name=run_name,
+            prepared_run=prepared_run,
+            segmentation_type="full",
+        )
+    ]
+    for definition in segmentation_settings.definitions:
+        units.extend(
+            _build_definition_analysis_units(
                 run_key=run_key,
                 run_name=run_name,
                 prepared_run=prepared_run,
+                definition=definition,
             )
         )
 
-    source = resolve_segmentation_source(prepared_run=prepared_run, seg_cfg=seg_cfg)
+    return units
+
+
+def _build_definition_analysis_units(
+    *,
+    run_key: str,
+    run_name: str,
+    prepared_run: RunData,
+    definition: SegmentationDefinition,
+) -> list[AnalysisUnit]:
+    units: list[AnalysisUnit] = []
+    source = resolve_segmentation_source(prepared_run=prepared_run, seg_cfg=definition)
     source_df = build_segment_anchor_table(
         prepared_run=prepared_run,
-        seg_cfg=seg_cfg,
+        seg_cfg=definition,
         source=source,
     )
-
-    for segment in seg_cfg.segments:
+    for segment in definition.segments:
         matched_source_df = source_df.filter(
             pl.col(source.segment_value_column).is_in(list(segment.values))
         )
-        if matched_source_df.is_empty() and seg_cfg.on_empty_segment == "skip":
+        if matched_source_df.is_empty() and definition.on_empty_segment == "skip":
             continue
-        if matched_source_df.is_empty() and seg_cfg.on_empty_segment == "error":
+        if matched_source_df.is_empty() and definition.on_empty_segment == "error":
             raise ValueError(
-                f"Segment {segment.id!r} matched no rows in run {run_name!r}."
+                f"Segment {segment.id!r} in segmentation {definition.name!r} matched no rows in run {run_name!r}."
             )
         sliced_run = _slice_run_data_from_source_subset(
             prepared_run=prepared_run,
@@ -404,10 +424,12 @@ def build_analysis_units_for_run(
                 run_id=run_key,
                 run_name=run_name,
                 run_key=run_key,
+                segmentation_type=definition.name,
                 segment_id=segment.id,
                 segment_label=segment.label,
                 is_full=False,
                 segment_metadata=SegmentMetadata(
+                    segmentation_type=definition.name,
                     segment_id=segment.id,
                     segment_label=segment.label,
                     is_full=False,
@@ -423,5 +445,4 @@ def build_analysis_units_for_run(
                 prepared_run=sliced_run,
             )
         )
-
     return units

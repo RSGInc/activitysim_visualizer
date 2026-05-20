@@ -24,7 +24,7 @@ from processor.summarize.contracts import empty_summary_frame
 from processor.summarize.writer import write_all
 from runtime.config import Config
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 14
 
 
 def summary_root(config: Config) -> Path:
@@ -157,10 +157,11 @@ def _segment_manifest_entry(
     summary_diagnostics: dict[str, dict[str, str]],
 ) -> dict[str, object]:
     summary_roots = {
-        mode: mode if summary_run.is_full_segment else f"{mode}/segments/{summary_run.segment_id}"
+        mode: f"summary_tables/{mode}/segments/{summary_run.segmentation_type}/{summary_run.segment_id}"
         for mode in weighting_modes
     }
     return {
+        "segmentation_type": summary_run.segmentation_type,
         "segment_id": summary_run.segment_id,
         "segment_label": summary_run.segment_label,
         "is_full": summary_run.is_full_segment,
@@ -256,12 +257,14 @@ def write_summary_run_bundle(
     weighting_modes = list(summary_runs[0].summaries_by_mode.keys())
     summary_ids = list(next(iter(summary_runs[0].summaries_by_mode.values())).keys())
     full_run = next((run for run in summary_runs if run.is_full_segment), None)
+    if full_run is None:
+        raise ValueError("summary_runs must include one global full summary run.")
     empty_summaries: dict[str, list[str]] = {}
     summary_states: dict[str, dict[str, str]] = {}
     unavailable_summaries: dict[str, list[str]] = {}
     failed_summaries: dict[str, list[str]] = {}
     summary_diagnostics: dict[str, dict[str, str]] = {}
-    segment_entries: list[dict[str, object]] = []
+    segmentation_type_entries: dict[str, dict[str, object]] = {}
 
     for summary_run in summary_runs:
         segment_states: dict[str, dict[str, str]] = {}
@@ -272,7 +275,7 @@ def write_summary_run_bundle(
                 mode_metadata=summary_run.summary_metadata_by_mode.get(mode, {}),
                 summary_filename_by_id=summary_filename_by_id,
             )
-            if summary_run.is_full_segment:
+            if summary_run.is_full_segment and mode not in empty_summaries:
                 empty_summaries[mode] = list(mode_payload["empty_summaries"])
                 summary_states[mode] = dict(mode_payload["summary_states"])
                 unavailable_summaries[mode] = list(mode_payload["unavailable_summaries"])
@@ -281,12 +284,34 @@ def write_summary_run_bundle(
             segment_states[mode] = dict(mode_payload["summary_states"])
             segment_diagnostics[mode] = dict(mode_payload["summary_diagnostics"])
             mode_dir = (
-                run_dir / mode
+                run_dir / "summary_tables" / mode
                 if summary_run.is_full_segment
-                else run_dir / mode / "segments" / summary_run.segment_id
+                else run_dir
+                / "summary_tables"
+                / mode
+                / "segments"
+                / summary_run.segmentation_type
+                / summary_run.segment_id
             )
             write_all(mode_payload["file_tables"], mode_dir)
-        segment_entries.append(
+        if summary_run.is_full_segment:
+            continue
+        entry = segmentation_type_entries.setdefault(
+            summary_run.segmentation_type,
+            {
+                "segmentation_type": summary_run.segmentation_type,
+                "source_type": summary_run.segment_source_type,
+                "segment_column": summary_run.segment_column,
+                "source_table": summary_run.segment_source_table,
+                "source_key_column": summary_run.segment_source_key_column,
+                "csv_file": summary_run.segment_csv_file,
+                "csv_key_column": summary_run.segment_csv_key_column,
+                "csv_segment_value_column": summary_run.segment_csv_value_column,
+                "include_full": False,
+                "segments": [],
+            },
+        )
+        entry["segments"].append(
             _segment_manifest_entry(
                 summary_run=summary_run,
                 weighting_modes=weighting_modes,
@@ -296,7 +321,7 @@ def write_summary_run_bundle(
         )
 
     manifest = _summary_manifest(
-        summary_run=full_run or summary_runs[0],
+        summary_run=full_run,
         config=config,
         weighting_modes=weighting_modes,
         summary_ids=summary_ids,
@@ -309,8 +334,11 @@ def write_summary_run_bundle(
         prepared_manifest_identity=prepared_manifest_identity,
         summary_filename_by_id=summary_filename_by_id,
     )
-    manifest["segmentation_enabled"] = len(summary_runs) > 1 or not summary_runs[0].is_full_segment
-    manifest["segments"] = segment_entries
+    manifest["segmentation_enabled"] = len(summary_runs) > 1
+    manifest["segmentation_types"] = [
+        segmentation_type_entries[key]
+        for key in sorted(segmentation_type_entries)
+    ]
     write_manifest(run_dir, manifest)
     for summary_run in summary_runs:
         summary_run.manifest = manifest
@@ -531,7 +559,7 @@ def load_summary_run_cache(
     validate_schema_version(
         cache_dir=cache_dir,
         manifest=manifest,
-        supported_versions={SCHEMA_VERSION, 11, 6, 5, 2},
+        supported_versions={SCHEMA_VERSION, 13, 12, 11, 6, 5, 2},
         error_factory=SummaryCacheError,
     )
 
@@ -600,7 +628,7 @@ def load_summary_run_bundle(
     """Load one run cache directory and return all persisted segment variants."""
     cache_dir = Path(cache_dir)
     manifest = read_manifest(cache_dir, error_cls=SummaryCacheError)
-    if "segments" not in manifest:
+    if "segmentation_types" not in manifest and "segments" not in manifest:
         return [
             load_summary_run_cache(
                 cache_dir,
@@ -619,7 +647,7 @@ def load_summary_run_bundle(
     validate_schema_version(
         cache_dir=cache_dir,
         manifest=manifest,
-        supported_versions={SCHEMA_VERSION},
+        supported_versions={SCHEMA_VERSION, 13, 12},
         error_factory=SummaryCacheError,
     )
     _validate_manifest_identity(
@@ -638,14 +666,59 @@ def load_summary_run_bundle(
         expected_modes=expected_modes,
         expected_summary_ids=expected_summary_ids,
     )
-    summary_files = {
-        str(summary_id): str(filename)
-        for summary_id, filename in dict(manifest.get("summary_files", {})).items()
-    }
+    (
+        summary_files,
+        empty_summaries,
+        manifest_summary_states,
+        manifest_summary_diagnostics,
+    ) = _manifest_summary_metadata(manifest)
 
     loaded_runs: list[SummaryRun] = []
-    for raw_segment in list(manifest.get("segments", [])):
-        segment = dict(raw_segment)
+    full_summaries_by_mode: dict[str, dict[str, pl.DataFrame]] = {}
+    full_summary_metadata_by_mode: dict[str, dict[str, dict[str, object]]] = {}
+    for mode in expected_modes:
+        full_mode_dir = cache_dir / "summary_tables" / mode
+        if not full_mode_dir.exists():
+            full_mode_dir = cache_dir / mode
+        mode_tables, mode_metadata = _load_mode_tables(
+            mode_dir=full_mode_dir,
+            mode=mode,
+            expected_summary_ids=expected_summary_ids,
+            summary_files=summary_files,
+            empty_summaries=empty_summaries,
+            manifest_summary_states=manifest_summary_states,
+            manifest_summary_diagnostics=manifest_summary_diagnostics,
+            summary_spec_by_id=summary_spec_by_id,
+        )
+        full_summaries_by_mode[mode] = mode_tables
+        full_summary_metadata_by_mode[mode] = mode_metadata
+    loaded_runs.append(
+        SummaryRun(
+            label=str(manifest.get("label", cache_dir.name)),
+            run_key=str(manifest.get("run_key", cache_dir.name)),
+            summaries_by_mode=full_summaries_by_mode,
+            summary_metadata_by_mode=full_summary_metadata_by_mode,
+            segmentation_type="full",
+            segment_id="full",
+            segment_label="Full",
+            is_full_segment=True,
+            source_run_dir=manifest.get("source_run_dir"),
+            manifest=manifest,
+        )
+    )
+    if "segmentation_types" in manifest:
+        segment_groups = []
+        for raw_group in list(manifest.get("segmentation_types", [])):
+            group = dict(raw_group)
+            segmentation_type = str(group.get("segmentation_type", "full"))
+            for raw_segment in list(group.get("segments", [])):
+                segment_groups.append((segmentation_type, dict(raw_segment)))
+    else:
+        segment_groups = [
+            (str(dict(raw_segment).get("segmentation_type", "full")), dict(raw_segment))
+            for raw_segment in list(manifest.get("segments", []))
+        ]
+    for segmentation_type, segment in segment_groups:
         summary_roots = {
             str(mode): str(path)
             for mode, path in dict(segment.get("summary_roots", {})).items()
@@ -675,7 +748,7 @@ def load_summary_run_bundle(
         summaries_by_mode: dict[str, dict[str, pl.DataFrame]] = {}
         summary_metadata_by_mode: dict[str, dict[str, dict[str, object]]] = {}
         for mode in expected_modes:
-            mode_root = summary_roots.get(mode, mode)
+            mode_root = summary_roots.get(mode, f"summary_tables/{mode}")
             mode_tables, mode_metadata = _load_mode_tables(
                 mode_dir=cache_dir / mode_root,
                 mode=mode,
@@ -694,6 +767,7 @@ def load_summary_run_bundle(
                 run_key=str(manifest.get("run_key", cache_dir.name)),
                 summaries_by_mode=summaries_by_mode,
                 summary_metadata_by_mode=summary_metadata_by_mode,
+                segmentation_type=segmentation_type,
                 segment_id=str(segment.get("segment_id", "full")),
                 segment_label=str(segment.get("segment_label", "Full")),
                 is_full_segment=bool(segment.get("is_full", False)),

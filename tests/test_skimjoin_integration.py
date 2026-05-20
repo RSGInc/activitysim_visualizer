@@ -804,7 +804,9 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
     assert prepared.tours["skim_time_outbound"].to_list() == [2.0]
     assert prepared.tours["skim_time_inbound"].to_list() == [3.0]
     assert prepared.skimjoin_manifest["skimjoin_status"] == "applied"
-    manifest = json.loads((prepared_root / "run-a" / "manifest.json").read_text())
+    manifest = json.loads(
+        (prepared_root / "run-a" / "prepared_tables" / "manifest.json").read_text()
+    )
     assert manifest["skimjoin_enabled"] is True
 
     summaries = summary_cache.build_summaries(
@@ -1916,7 +1918,13 @@ def test_run_prepare_workflow_records_fallback_manifest_and_report(
             "fallback_exhausted": False,
         }
     ]
-    assert (prepared_root / "run-a" / "skimjoin" / "fallback_lookup_report.csv").exists()
+    assert (
+        prepared_root
+        / "run-a"
+        / "prepared_tables"
+        / "skimjoin"
+        / "fallback_lookup_report.csv"
+    ).exists()
 
 
 def test_run_prepare_workflow_supports_csv_od_skims_in_integrated_runtime(
