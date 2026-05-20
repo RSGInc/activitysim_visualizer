@@ -8,6 +8,7 @@ from activitysim_viz_logging import get_logger
 import numpy as np
 import polars as pl
 
+from processor.prepare.enrichment.columns import _resolve_source_column
 from processor.prepare.enrichment.types import _PrepareState, _ZoneContext
 from runtime.config import Config
 
@@ -55,26 +56,34 @@ def _skim_lookup(
 
 def _build_zone_context(state: _PrepareState, config: Config) -> _ZoneContext:
     maz_taz: pl.DataFrame | None = None
-    if (
-        config.use_maz
-        and config.maz_col in state.land_use.columns
-        and config.taz_col in state.land_use.columns
-    ):
+    maz_source_col = None
+    taz_source_col = _resolve_source_column(state.land_use, config.taz_col)
+    if config.use_maz and taz_source_col is not None:
+        maz_source_col = _resolve_source_column(state.land_use, config.maz_col)
+    if maz_source_col is not None:
         LOGGER.info("[prepare_data] Building MAZ->TAZ lookup for '%s'", state.label)
+        if maz_source_col != config.maz_col[0]:
+            LOGGER.warning(
+                "Warning: configured MAZ column '%s' not found for run '%s'; using '%s' for MAZ->TAZ lookup.",
+                config.maz_col[0],
+                state.label,
+                maz_source_col,
+            )
         maz_taz = (
-            state.land_use.select([config.maz_col, config.taz_col])
-            .rename({config.maz_col: "_maz", config.taz_col: "_taz"})
+            state.land_use.select([maz_source_col, taz_source_col])
+            .rename({maz_source_col: "_maz", taz_source_col: "_taz"})
             .unique("_maz")
         )
 
     zone_geo: pl.DataFrame | None = None
+    geography_zone_source = _resolve_source_column(
+        state.land_use,
+        config.taz_col if config.use_maz else config.maz_col,
+    )
     if (
         config.geography_enabled
         and config.geography_landuse_col
-        and (
-            (config.taz_col if config.use_maz else config.maz_col)
-            in state.land_use.columns
-        )
+        and geography_zone_source is not None
         and config.geography_landuse_col in state.land_use.columns
     ):
         LOGGER.info(
@@ -82,10 +91,9 @@ def _build_zone_context(state: _PrepareState, config: Config) -> _ZoneContext:
             config.geography_landuse_col,
         )
         geo_col = config.geography_landuse_col
-        zone_col = config.taz_col if config.use_maz else config.maz_col
         zone_geo = (
-            state.land_use.select([zone_col, geo_col])
-            .rename({zone_col: "_taz"})
+            state.land_use.select([geography_zone_source, geo_col])
+            .rename({geography_zone_source: "_taz"})
             .unique("_taz")
         )
         if config.geography_mapping:

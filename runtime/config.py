@@ -1088,8 +1088,8 @@ class Config:
     student_types: list[StudentTypeConfig]
 
     use_maz: bool
-    maz_col: str
-    taz_col: str
+    maz_col: list[str]
+    taz_col: list[str]
 
     geography_enabled: bool
     geography_landuse_col: Optional[str]
@@ -1554,8 +1554,16 @@ class Config:
             group_school_tour_purposes=group_school_tour_purposes,
             student_types=student_types,
             use_maz=bool(zones.get("use_maz", True)),
-            maz_col=zones.get("maz_col", "zone_id"),
-            taz_col=zones.get("taz_col", "TAZ"),
+            maz_col=_normalize_column_aliases(
+                zones.get("maz_col"),
+                field_name="zones.maz_col",
+                default=["MAZ", "zone_id"],
+            ),
+            taz_col=_normalize_column_aliases(
+                zones.get("taz_col"),
+                field_name="zones.taz_col",
+                default=["TAZ", "taz"],
+            ),
             geography_enabled=geo_enabled,
             geography_landuse_col=geo.get("landuse_col") if geo_enabled else None,
             geography_mapping=geo_mapping,
@@ -1687,8 +1695,8 @@ class Config:
             ],
             "zones": {
                 "use_maz": self.use_maz,
-                "maz_col": self.maz_col,
-                "taz_col": self.taz_col,
+                "maz_col": list(self.maz_col),
+                "taz_col": list(self.taz_col),
             },
             "geography": geography_payload,
             "skim": {"matrix": self.skim_matrix},
@@ -1821,8 +1829,8 @@ class Config:
             ],
             "zones": {
                 "use_maz": self.use_maz,
-                "maz_col": self.maz_col,
-                "taz_col": self.taz_col,
+                "maz_col": list(self.maz_col),
+                "taz_col": list(self.taz_col),
             },
             "geography": geography_payload,
             "skim": {"matrix": self.skim_matrix},

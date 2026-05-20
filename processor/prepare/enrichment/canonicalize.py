@@ -181,7 +181,7 @@ def _canonicalize_land_use(land_use: pl.DataFrame, config: Config) -> pl.DataFra
     land_use = _materialize_column(
         land_use,
         "MAZ",
-        _resolve_source_column(land_use, [config.maz_col, "MAZ"]),
+        _resolve_source_column(land_use, config.maz_col),
     )
     land_use = _materialize_column(
         land_use,

@@ -126,9 +126,11 @@ def _build_land_use_overlay(
     if state.land_use.is_empty() or not student_types:
         return None
 
+    maz_col = resolve_source_column(state.land_use, config.maz_col)
+    taz_col = resolve_source_column(state.land_use, config.taz_col)
     key_columns = [
         column
-        for column in [config.maz_col, config.taz_col, config.geography_landuse_col]
+        for column in [maz_col, taz_col, config.geography_landuse_col]
         if column and column in state.land_use.columns
     ]
     if not key_columns:

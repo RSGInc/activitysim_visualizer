@@ -22,6 +22,28 @@ def _licensed_driver_expr(column_name: str = "has_license") -> pl.Expr:
     )
 
 
+def _derive_num_joint_tours(state: _PrepareState) -> None:
+    if (
+        "num_joint_tours" in state.per.columns
+        or "person_id" not in state.per.columns
+        or "person_id" not in state.joint_participants.columns
+        or "tour_id" not in state.joint_participants.columns
+    ):
+        return
+
+    joint_counts = (
+        state.joint_participants.filter(
+            pl.col("person_id").is_not_null() & pl.col("tour_id").is_not_null()
+        )
+        .group_by("person_id")
+        .agg(pl.col("tour_id").n_unique().cast(pl.Int32).alias("num_joint_tours"))
+    )
+    state.per = (
+        state.per.join(joint_counts, on="person_id", how="left")
+        .with_columns(pl.col("num_joint_tours").fill_null(0).cast(pl.Int32))
+    )
+
+
 def _enrich_households(
     state: _PrepareState, config: Config, zone_context: _ZoneContext
 ) -> None:
@@ -59,6 +81,8 @@ def _enrich_households(
 def _enrich_persons(
     state: _PrepareState, config: Config, zone_context: _ZoneContext
 ) -> None:
+    _derive_num_joint_tours(state)
+
     if (
         "home_zone_id" not in state.per.columns
         and _has_columns(state.per, "household_id")

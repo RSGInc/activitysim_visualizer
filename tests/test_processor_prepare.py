@@ -555,6 +555,114 @@ def test_processor_prepare_data_carries_atwork_subtour_frequency_to_trips(
     assert prepared.trips["atwork_subtour_frequency"].to_list() == ["1_eat"]
 
 
+def test_processor_prepare_data_derives_num_joint_tours_from_joint_participants(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    raw = _raw_run()
+    raw = ProcessorRunData(
+        label=raw.label,
+        run_dir=raw.run_dir,
+        skim_file=raw.skim_file,
+        hh=raw.hh,
+        per=pl.DataFrame(
+            {
+                "person_id": [101, 102],
+                "household_id": [1, 1],
+                "ptype": [1, 2],
+                "home_zone_id": [10, 10],
+            }
+        ),
+        tours=raw.tours,
+        trips=raw.trips,
+        joint_participants=pl.DataFrame(
+            {
+                "tour_id": [2001, 2001, 2002],
+                "person_id": [101, 102, 101],
+            }
+        ),
+        land_use=raw.land_use,
+        skim_matrix=raw.skim_matrix,
+        skim_zone_map=raw.skim_zone_map,
+    )
+
+    prepared = processor_prepare_data(raw, config).per.sort("person_id")
+
+    assert prepared["num_joint_tours"].to_list() == [2, 1]
+
+
+def test_processor_prepare_data_uses_zone_id_as_maz_fallback_for_trip_skim_distance(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "zones:",
+            "  use_maz: true",
+            "  maz_col: [MAZ, zone_id]",
+            "  taz_col: [TAZ]",
+        ],
+    )
+    raw = _raw_run()
+    raw = ProcessorRunData(
+        label=raw.label,
+        run_dir=raw.run_dir,
+        skim_file=raw.skim_file,
+        hh=raw.hh,
+        per=raw.per,
+        tours=pl.DataFrame(
+            {
+                "tour_id": [1001],
+                "person_id": [101],
+                "household_id": [1],
+                "primary_purpose": ["work"],
+                "tour_type": ["work"],
+                "tour_mode": ["DRIVE"],
+                "tour_category": ["mandatory"],
+                "start": [8],
+                "end": [10],
+                "duration": [2],
+                "origin": [100],
+                "destination": [200],
+                "stop_frequency": ["0out_0in"],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "trip_id": [5001],
+                "tour_id": [1001],
+                "person_id": [101],
+                "household_id": [1],
+                "trip_mode": ["DRIVEALONE"],
+                "purpose": ["work"],
+                "depart": [8],
+                "outbound": [True],
+                "trip_num": [1],
+                "origin": [100],
+                "destination": [200],
+            }
+        ),
+        joint_participants=raw.joint_participants,
+        land_use=pl.DataFrame(
+            {
+                "zone_id": [100, 200],
+                "TAZ": [1, 2],
+                "EMPLOY_TOT": [7, 8],
+            }
+        ),
+        skim_matrix=pl.DataFrame([[0.0, 12.5], [12.5, 0.0]]).to_numpy(),
+        skim_zone_map=None,
+    )
+
+    prepared = processor_prepare_data(raw, config)
+
+    assert prepared.tours["OTAZ"].to_list() == [1]
+    assert prepared.tours["DTAZ"].to_list() == [2]
+    assert prepared.trips["OTAZ"].to_list() == [1]
+    assert prepared.trips["DTAZ"].to_list() == [2]
+    assert prepared.trips["od_dist"].to_list() == [12.5]
+
+
 def test_processor_prepare_data_derives_exact_escort_event_fields_conservatively(
     tmp_path: Path,
 ) -> None:
