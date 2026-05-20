@@ -6,6 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import data_table
+from dashboard.helpers.geography_helpers import ordered_visible_geography_levels
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
@@ -25,7 +26,11 @@ def _normalize_geography_columns(df: pl.DataFrame) -> pl.DataFrame:
     return df
 
 
-def geo_level_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
+def geo_level_options(
+    data_list: list[tuple[str, pl.DataFrame]],
+    *,
+    config,
+) -> list[str]:
     first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
     if first_df is None or GEO_LEVEL_COL not in first_df.columns:
         return ["All"]
@@ -38,7 +43,8 @@ def geo_level_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
         .cast(pl.Utf8)
         .to_list()
     )
-    return ["All"] + sorted(v for v in vals if v != "All")
+    vals = ordered_visible_geography_levels(vals, config=config)
+    return ["All"] + [v for v in vals if v != "All"]
 
 
 def filter_geo_level(
@@ -61,7 +67,7 @@ class InternalExternalToursPage(DashboardPage):
             "internal_external_nonmandatory_tour_frequency_by_home_geography",
             "weighted",
         )
-        geo_opts = geo_level_options(geo_data or [])
+        geo_opts = geo_level_options(geo_data or [], config=self.config)
         self.geo_level_sel = self.selector(
             "geography_level",
             widget=pn.widgets.Select(
@@ -106,7 +112,10 @@ class InternalExternalToursPage(DashboardPage):
             if external_loc_list is not None
             else []
         )
-        geo_opts = geo_level_options(normalized_int_ext or normalized_external_loc)
+        geo_opts = geo_level_options(
+            normalized_int_ext or normalized_external_loc,
+            config=self.config,
+        )
         self.geo_level_sel.options = geo_opts
         if self.geo_level_sel.value not in geo_opts:
             self.geo_level_sel.value = geo_opts[0]

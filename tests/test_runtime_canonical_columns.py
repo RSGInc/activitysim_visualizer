@@ -541,6 +541,35 @@ def test_geography_aggregation_digest_changes_when_lookup_changes(
     assert config_a.summary_config_digest != config_b.summary_config_digest
 
 
+def test_enable_maz_geographies_defaults_off_and_only_changes_presentation_digest(
+    tmp_path: Path,
+) -> None:
+    config_a = _write_config(tmp_path / "a")
+    config_path = tmp_path / "b" / "config.yaml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                'name: "Canonical Test Config"',
+                "runs: []",
+                "summaries:",
+                "  root: summary_cache",
+                "visualizer:",
+                '  dashboard_title: "Canonical Test Dashboard"',
+                "  enable_maz_geographies: true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config_b = Config.from_yaml(config_path)
+
+    assert config_a.enable_maz_geographies is False
+    assert config_b.enable_maz_geographies is True
+    assert config_a.prepare_config_digest == config_b.prepare_config_digest
+    assert config_a.summary_config_digest == config_b.summary_config_digest
+    assert config_a.presentation_config_digest != config_b.presentation_config_digest
+
+
 def test_typed_geography_summaries_include_configured_aggregation_levels(
     tmp_path: Path,
 ) -> None:

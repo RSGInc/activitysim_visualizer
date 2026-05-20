@@ -1274,6 +1274,7 @@ class Config:
     name: str
     dashboard_title: str
     dashboard_pages: list[DashboardPageConfigEntry] | None
+    enable_maz_geographies: bool
     run_colors: list[str]
     missing_data_display: str
     summary_root: str
@@ -1574,6 +1575,11 @@ class Config:
             raise ValueError(
                 "visualizer.missing_data_display must be either 'card' or 'blank'."
             )
+        enable_maz_geographies_raw = visualizer_cfg.get("enable_maz_geographies", False)
+        if not isinstance(enable_maz_geographies_raw, bool):
+            raise ValueError(
+                "visualizer.enable_maz_geographies must be true or false when provided."
+            )
 
         person_type_labels = _normalize_label_mapping(
             raw.get("person_types"),
@@ -1646,6 +1652,7 @@ class Config:
             name=raw.get("name", ""),
             dashboard_title=str(dashboard_title),
             dashboard_pages=dashboard_pages,
+            enable_maz_geographies=enable_maz_geographies_raw,
             run_colors=run_colors,
             missing_data_display=missing_data_display,
             summary_root=str(summary_root),
@@ -2153,6 +2160,7 @@ class Config:
                 if self.dashboard_pages is not None
                 else None
             ),
+            "enable_maz_geographies": self.enable_maz_geographies,
             "run_colors": list(self.run_colors),
             "missing_data_display": self.missing_data_display,
             "categories": _category_specs_payload(self.categories),

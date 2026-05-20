@@ -6,6 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import data_table, scatter_chart
+from dashboard.helpers.geography_helpers import ordered_visible_geography_levels
 from dashboard.page_base import DashboardPage, SectionContent
 from dashboard.page_definitions import DashboardPageDefinition
 from runtime.config import Config
@@ -21,6 +22,7 @@ def _options(
     data_list: list[tuple[str, pl.DataFrame]],
     col: str,
     *,
+    config: Config | None = None,
     total_label: str = "All",
 ) -> list[str]:
     first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
@@ -30,7 +32,11 @@ def _options(
     vals = (
         first_df.select(col).drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
     )
-    return [total_label] + sorted(v for v in vals if v != total_label)
+    if config is not None and col == "geography_type":
+        vals = ordered_visible_geography_levels(vals, config=config)
+    else:
+        vals = sorted(v for v in vals if v != total_label)
+    return [total_label] + [v for v in vals if v != total_label]
 
 
 def _filter_col(
@@ -126,7 +132,9 @@ class ShadowPricingPage(DashboardPage):
         return {
             "mode": "ready",
             "geo_opts": _options(
-                workplace_summary or school_summary or [], "geography_type"
+                workplace_summary or school_summary or [],
+                "geography_type",
+                config=self.config,
             ),
             "student_opts": _options(school_summary or [], "student_type"),
             "workplace_summary": workplace_summary,

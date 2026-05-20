@@ -2021,9 +2021,44 @@ def test_mandatory_location_choice_uses_commuting_flows_when_worker_geography_mi
     page = MandatoryLocationChoicePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["maz"]
+    assert list(page.geo_level_sel.options) == ["Total"]
     commuting_widget = page._commuting_flows_section.objects[0]
     assert not isinstance(commuting_widget, pn.Card)
+
+
+def test_mandatory_location_choice_can_show_maz_when_enabled(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        visualizer_lines=["enable_maz_geographies: true"],
+    )
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "internal_external_worker_by_geography": empty_summary_frame(
+                SUMMARY_SPEC_BY_ID["internal_external_worker_by_geography"].builder
+            ),
+            "commuting_flows": pl.DataFrame(
+                {
+                    "origin_geography_type": ["maz", "maz"],
+                    "origin_geography_id": ["10", "20"],
+                    "destination_geography_type": ["maz", "maz"],
+                    "destination_geography_id": ["30", "40"],
+                    "commuter_count": [5.0, 7.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = MandatoryLocationChoicePage(state, config)
+    page.refresh(force=True)
+
+    assert list(page.geo_level_sel.options) == ["maz"]
 
 
 def test_tour_mode_vehicle_filters_sort_categories_stably() -> None:

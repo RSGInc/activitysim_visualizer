@@ -12,6 +12,7 @@ from dashboard.components import (
     data_table,
     density_chart,
 )
+from dashboard.helpers.geography_helpers import ordered_visible_geography_levels
 from dashboard.page_base import DashboardPage
 from dashboard.page_base import SectionContent
 from dashboard.page_definitions import DashboardPageDefinition
@@ -112,10 +113,8 @@ PREFERRED_GEO_ORDER = [
 ]
 
 
-def _ordered_geo_options(values: set[str]) -> list[str]:
-    ordered = [v for v in PREFERRED_GEO_ORDER if v in values]
-    extras = sorted(v for v in values if v not in PREFERRED_GEO_ORDER)
-    return ordered + extras
+def _ordered_geo_options(values: set[str], *, config: Config) -> list[str]:
+    return ordered_visible_geography_levels(list(values), config=config)
 
 
 def geo_level_option_set(
@@ -170,6 +169,7 @@ def geo_level_option_set(
 
 def core_geo_level_options(
     *summary_lists: list[tuple[str, pl.DataFrame]] | None,
+    config: Config,
 ) -> list[str]:
     """Use only geography levels available in all provided core summaries."""
     available_sets = [
@@ -183,10 +183,14 @@ def core_geo_level_options(
         return ["Total"]
 
     common = set.intersection(*available_sets)
-    return _ordered_geo_options(common) or ["Total"]
+    return _ordered_geo_options(common, config=config) or ["Total"]
 
 
-def geo_level_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
+def geo_level_options(
+    data_list: list[tuple[str, pl.DataFrame]],
+    *,
+    config: Config,
+) -> list[str]:
     first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
     if first_df is None:
         return ["Total"]
@@ -217,11 +221,14 @@ def geo_level_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
         )
     else:
         return ["Total"]
-    return sorted(vals) if vals else ["Total"]
+    ordered = ordered_visible_geography_levels(vals, config=config)
+    return ordered if ordered else ["Total"]
 
 
 def wfh_geo_level_options(
     data_list: list[tuple[str, pl.DataFrame]],
+    *,
+    config: Config,
 ) -> list[str]:
     first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
     if first_df is None or GEO_TYPE_COL not in first_df.columns:
@@ -236,11 +243,7 @@ def wfh_geo_level_options(
         .to_list()
     )
 
-    preferred_order = ["all_geographies", "district", "taz", "maz"]
-    ordered = [v for v in preferred_order if v in vals]
-    extras = sorted(v for v in vals if v not in preferred_order)
-
-    return ordered + extras
+    return ordered_visible_geography_levels(vals, config=config)
 
 
 def filter_geo_level(
@@ -396,10 +399,10 @@ class MandatoryLocationChoicePage(DashboardPage):
             "internal_external_worker_by_geography", "weighted"
         )
         if data is not None:
-            return geo_level_options(_adapt_internal_external(data))
+            return geo_level_options(_adapt_internal_external(data), config=self.config)
         commuting = self.state.get_summary_table_set("commuting_flows", "weighted")
         if commuting is not None:
-            return geo_level_options(_adapt_commuting_flows(commuting))
+            return geo_level_options(_adapt_commuting_flows(commuting), config=self.config)
         return ["Total"]
 
     def sync_controls(self) -> None:
@@ -479,7 +482,7 @@ class MandatoryLocationChoicePage(DashboardPage):
         )
 
         geo_opts = core_geo_level_options(
-            internal_external, commuting_flows, wfh_summary
+            internal_external, commuting_flows, wfh_summary, config=self.config
         )
         return {
             "mode": "ready",

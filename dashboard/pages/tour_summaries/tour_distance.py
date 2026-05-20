@@ -6,6 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import data_table, density_chart
+from dashboard.helpers.geography_helpers import ordered_visible_geography_levels
 from dashboard.helpers.category_helpers import column_options, nonempty, ordered_category_values
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
@@ -14,7 +15,10 @@ GEO_LEVEL_COL = "geography_level"
 
 
 def _options(
-    data_list: list[tuple[str, pl.DataFrame]], col: str, total_label: str = "All"
+    data_list: list[tuple[str, pl.DataFrame]],
+    col: str,
+    total_label: str = "All",
+    config=None,
 ) -> list[str]:
     first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
     if first_df is None or col not in first_df.columns:
@@ -22,7 +26,11 @@ def _options(
     vals = (
         first_df.select(col).drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
     )
-    return [total_label] + sorted(v for v in vals if v != total_label)
+    if config is not None and col == GEO_LEVEL_COL:
+        vals = ordered_visible_geography_levels(vals, config=config)
+    else:
+        vals = sorted(v for v in vals if v != total_label)
+    return [total_label] + [v for v in vals if v != total_label]
 
 
 def _purpose_options(
@@ -150,8 +158,8 @@ class TourDistancePage(DashboardPage):
             "geography_level",
             widget=pn.widgets.Select(
                 name="Geography Level",
-                options=_options(mand_data or [], GEO_LEVEL_COL),
-                value=_options(mand_data or [], GEO_LEVEL_COL)[0],
+                options=_options(mand_data or [], GEO_LEVEL_COL, config=self.config),
+                value=_options(mand_data or [], GEO_LEVEL_COL, config=self.config)[0],
             ),
             label="Geography Level",
         )
@@ -292,7 +300,7 @@ class TourDistancePage(DashboardPage):
         )
         for widget, opts in [
             (self.tour_purpose_sel, purpose_opts),
-            (self.geo_level_sel, _options(mand_list, GEO_LEVEL_COL)),
+            (self.geo_level_sel, _options(mand_list, GEO_LEVEL_COL, config=self.config)),
             (self.mand_purpose_sel, mand_purpose_opts),
             (self.nonmand_purpose_sel, nonmand_purpose_opts),
         ]:
