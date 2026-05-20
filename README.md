@@ -80,6 +80,32 @@ files:
   land_use: final_land_use
 ```
 
+If runs use different raw filenames, keep `files:` as the default mapping and
+override only the differences inside `runs[*].file_map`:
+
+```yaml
+files:
+  households: final_households
+  persons: final_persons
+  tours: final_tours
+  trips: final_trips
+
+runs:
+  - dir: path\to\run1
+    label: Base
+    file_map:
+      households: final_hh
+      trips: trip_linked
+
+  - dir: path\to\run2
+    label: Build
+    file_map:
+      households: household
+      persons: person
+      tours: tour
+      trips: trip
+```
+
 Important path rules:
 
 - `summaries.root` is resolved relative to the config file if you give a relative path.
@@ -87,6 +113,7 @@ Important path rules:
 - `runs[*].dir` should point at an ActivitySim output directory.
 - `skim.file` may be absolute, or relative to each run directory.
 - File entries under `files` can be bare stems like `final_trips` or explicit filenames like `final_trips.csv`.
+- `runs[*].file_map` uses the same filename rules as `files`, but applies only to that run.
 
 ## Config Reference
 
@@ -96,10 +123,10 @@ These are the sections most people need to touch:
 |---|---|
 | `summaries.root` | Where summary caches are stored |
 | `summaries.weighting_modes` | Which cache variants to build: `weighted`, `unweighted`, or both |
-| `runs` | Run directories, display labels, and optional per-run skim/weight overrides |
+| `runs` | Run directories, display labels, and optional per-run skim, file-map, and weight overrides |
 | `skim` | Global skim file and default matrix name |
 | `zones` | MAZ/TAZ settings for skim joins and zone normalization |
-| `files` | ActivitySim output file stems or filenames |
+| `files` | Default ActivitySim output file stems or filenames used unless a run overrides them |
 | `columns` | Column aliases when outputs use non-default names |
 | `visualizer.dashboard_title` | Title used in the live dashboard and HTML export |
 | `visualizer.dashboard_pages` | Ordered list of live pages/groups to show |

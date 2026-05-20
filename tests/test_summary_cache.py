@@ -48,6 +48,7 @@ from processor.summarize import cache as summary_cache_module
 from processor.summarize.contracts import empty_summary_frame, summary_contract
 from processor.summarize.cache import (
     SummaryCacheError,
+    build_run_fingerprint,
     build_summaries_with_metadata,
     build_run_keys,
     create_summary_run,
@@ -340,6 +341,62 @@ def test_summary_cache_round_trip_creates_configured_layout(tmp_path: Path) -> N
         {"purpose": "shopping", "distbin": 1, "freq": 4.0},
     ]
     assert loaded.summaries_by_mode["weighted"]["geo_flows"].width == 0
+
+
+def test_summary_cache_detects_file_map_only_run_fingerprint_mismatch(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _sample_summary_run()
+    fingerprint = build_run_fingerprint(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        file_map={"households": "final_households", "trips": "final_trips"},
+        hh_weight_col=None,
+        person_weight_col=None,
+        trip_weight_col=None,
+    )
+
+    cache_dir = write_summary_run_cache(
+        summary_run,
+        config,
+        run_fingerprint=fingerprint,
+        prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="base",
+            fingerprint=fingerprint,
+        ),
+    )
+
+    with pytest.raises(SummaryCacheError, match="run fingerprint mismatch"):
+        load_summary_run_cache(
+            cache_dir,
+            config,
+            expected_modes=config.weighting_modes,
+            expected_summary_ids=[
+                "destination_distance",
+                "destination_average_distance",
+                "geo_flows",
+            ],
+            expected_summary_config_digest=config.summary_config_digest,
+            expected_run_fingerprint=build_run_fingerprint(
+                label="Base",
+                run_dir="C:/runs/base",
+                skim_file=None,
+                file_map={"households": "final_hh", "trips": "final_trips"},
+                hh_weight_col=None,
+                person_weight_col=None,
+                trip_weight_col=None,
+            ),
+            expected_prepared_manifest_identity=_prepared_identity(
+                config=config,
+                run_key="base",
+                fingerprint=fingerprint,
+            ),
+            expected_label="Base",
+            expected_run_key="base",
+        )
 
 
 def test_summary_cache_ignores_presentation_only_config_changes(

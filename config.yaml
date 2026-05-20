@@ -85,6 +85,11 @@ visualizer:
 # ---------------------------------------------------------------------------
 # Runs to compare
 # Each entry specifies a run directory, a display label, and optional overrides.
+# `file_map` overrides the default top-level `files:` mapping for that run only.
+# Example:
+#   file_map:
+#     households: final_hh
+#     trips: trip_linked
 #
 # Weight columns (all optional — leave as null or omit to use default rules):
 #   hh_weight_col:     explicit household weight column in final_households
@@ -97,6 +102,9 @@ visualizer:
 runs:
   - dir:              path\to\activitysim\output\run1
     label:            Base
+    # file_map:
+    #   households: final_hh
+    #   trips: trip_linked
     skim_file:        null
     hh_weight_col:    null
     person_weight_col: null
@@ -133,6 +141,8 @@ zones:
 # Use stems (no extension) for automatic format detection: the reader will try
 # .parquet first, then .csv.  You may also specify an explicit extension to
 # force a particular format (e.g. final_households.csv or final_tours.parquet).
+# These are the default filenames used for all runs unless a run-specific
+# `runs[*].file_map` override is provided.
 # ---------------------------------------------------------------------------
 files:
   households:              final_households

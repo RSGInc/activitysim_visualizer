@@ -38,6 +38,17 @@ def resolve_skim_path(
     return _resolve_skim(run_skim, global_skim, Path(run_dir))
 
 
+def resolve_run_file_map(
+    config: Config,
+    run_file_map: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Return the effective raw input file mapping for one run."""
+    effective = dict(config.files)
+    if run_file_map:
+        effective.update(run_file_map)
+    return effective
+
+
 def _find_and_read(run_dir: Path, configured: str) -> pl.DataFrame:
     """Read a table from run_dir, resolving file format."""
     path = Path(configured)
@@ -67,6 +78,7 @@ def read_run(
     run_dir: str | Path,
     config: Config,
     label: Optional[str] = None,
+    file_map: dict[str, str] | None = None,
     skim_file: Optional[str] = None,
     hh_weight_col: Optional[str] = None,
     person_weight_col: Optional[str] = None,
@@ -76,12 +88,13 @@ def read_run(
     run_dir = Path(run_dir)
     if label is None:
         label = run_dir.name
+    effective_file_map = resolve_run_file_map(config, file_map)
 
     table_states: dict[str, str] = {}
     table_reasons: dict[str, str] = {}
 
     def _read(key: str) -> pl.DataFrame:
-        configured = config.files[key]
+        configured = effective_file_map[key]
         try:
             table = _find_and_read(run_dir, configured)
         except FileNotFoundError as exc:
@@ -168,4 +181,4 @@ def read_run(
     )
 
 
-__all__ = ["RunData", "read_run", "resolve_skim_path"]
+__all__ = ["RunData", "read_run", "resolve_run_file_map", "resolve_skim_path"]

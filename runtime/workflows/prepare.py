@@ -155,6 +155,7 @@ def _build_prepared_run(
         run_dir,
         config,
         label=label,
+        file_map=entry.get("file_map"),
         skim_file=metadata["skim"],
         hh_weight_col=entry.get("hh_weight_col") or None,
         person_weight_col=entry.get("person_weight_col") or None,

@@ -477,6 +477,55 @@ def test_prepared_cache_detects_run_fingerprint_mismatch(tmp_path: Path) -> None
         )
 
 
+def test_prepared_cache_detects_file_map_only_run_fingerprint_mismatch(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    prepared = _prepared_run(config)
+    fingerprint = build_run_fingerprint(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file="C:/runs/base/skims.omx",
+        file_map={"households": "final_households", "trips": "final_trips"},
+        hh_weight_col="hh_weight",
+        person_weight_col="person_weight",
+        trip_weight_col="trip_weight",
+    )
+    entry = write_prepared_run_cache(
+        prepared,
+        config,
+        run_key="base",
+        run_fingerprint=fingerprint,
+    )
+
+    assert entry.manifest["source_file_map"] == {
+        "households": "final_households",
+        "joint_tour_participants": "final_joint_tour_participants",
+        "land_use": "final_land_use",
+        "persons": "final_persons",
+        "tours": "final_tours",
+        "trips": "final_trips",
+    }
+
+    with pytest.raises(PreparedCacheError, match="run fingerprint mismatch"):
+        load_prepared_run_cache(
+            entry.cache_dir,
+            config,
+            expected_prepare_config_digest=config.prepare_config_digest,
+            expected_run_fingerprint=build_run_fingerprint(
+                label="Base",
+                run_dir="C:/runs/base",
+                skim_file="C:/runs/base/skims.omx",
+                file_map={"households": "final_hh", "trips": "final_trips"},
+                hh_weight_col="hh_weight",
+                person_weight_col="person_weight",
+                trip_weight_col="trip_weight",
+            ),
+            expected_label="Base",
+            expected_run_key="base",
+        )
+
+
 def test_prepared_cache_round_trip_preserves_empty_vs_unavailable_table_states(
     tmp_path: Path,
 ) -> None:

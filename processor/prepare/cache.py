@@ -210,6 +210,19 @@ def write_prepared_run_cache(
             if table_states.get(table_id) == "failed" and table_id in diagnostics
         },
         "skim_file": rd.skim_file,
+        "source_file_map": dict(
+            sorted(
+                {
+                    **config.files,
+                    **(
+                        dict(run_fingerprint.get("file_map", {}))
+                        if isinstance(run_fingerprint, dict)
+                        and isinstance(run_fingerprint.get("file_map"), dict)
+                        else {}
+                    ),
+                }.items()
+            )
+        ),
         "hh_weight_col": rd.hh_weight_col,
         "person_weight_col": rd.person_weight_col,
         "trip_weight_col": rd.trip_weight_col,

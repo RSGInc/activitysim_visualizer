@@ -942,6 +942,146 @@ def test_processor_read_run_marks_misnamed_configured_table_as_unavailable(
     assert "definitely_not_trips" in processor_table_unavailable_reasons(loaded)["trips"]
 
 
+def test_config_normalizes_per_run_file_map_and_rejects_invalid_keys(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path / "valid",
+        extra_lines=[
+            "files:",
+            "  households: final_households",
+            "runs:",
+            '  - dir: "run_a"',
+            '    label: "Run A"',
+            "    file_map:",
+            "      households: final_hh",
+            "      trips: trip_linked",
+        ],
+    )
+
+    assert config.files["households"] == "final_households"
+    assert config.runs[0]["file_map"] == {
+        "households": "final_hh",
+        "trips": "trip_linked",
+    }
+
+    invalid_path = tmp_path / "invalid" / "config.yaml"
+    invalid_path.parent.mkdir(parents=True, exist_ok=True)
+    invalid_path.write_text(
+        "\n".join(
+            [
+                'name: "Invalid File Map Config"',
+                "runs:",
+                '  - dir: "run_a"',
+                '    label: "Run A"',
+                "    file_map:",
+                "      households_alias: final_hh",
+                "summaries:",
+                "  root: summary_cache",
+                "visualizer:",
+                '  dashboard_title: "Invalid File Map Config"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="unsupported table ids"):
+        Config.from_yaml(invalid_path)
+
+
+def test_processor_read_run_uses_per_run_file_map_with_global_fallback(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "files:",
+            "  households: final_households",
+            "  persons: final_persons",
+            "  tours: final_tours",
+            "  trips: final_trips",
+            "  joint_tour_participants: final_joint_tour_participants",
+            "  land_use: final_land_use",
+        ],
+    )
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    pl.DataFrame({"household_id": [1]}).write_csv(run_dir / "final_hh.csv")
+    pl.DataFrame({"person_id": [10], "household_id": [1]}).write_csv(
+        run_dir / "final_persons.csv"
+    )
+    pl.DataFrame({"tour_id": [100], "household_id": [1], "person_id": [10]}).write_csv(
+        run_dir / "final_tours.csv"
+    )
+    pl.DataFrame({"trip_id": [1000], "tour_id": [100], "person_id": [10]}).write_csv(
+        run_dir / "trip_linked.csv"
+    )
+    pl.DataFrame({"tour_id": [], "person_id": []}).write_csv(
+        run_dir / "final_joint_tour_participants.csv"
+    )
+    pl.DataFrame({"zone_id": [1]}).write_csv(run_dir / "final_land_use.csv")
+
+    loaded = processor_read_run(
+        run_dir,
+        config,
+        label="Run A",
+        file_map={"households": "final_hh", "trips": "trip_linked"},
+    )
+
+    assert loaded.hh["household_id"].to_list() == [1]
+    assert loaded.per["person_id"].to_list() == [10]
+    assert loaded.trips["trip_id"].to_list() == [1000]
+    assert processor_table_availability(loaded)["households"] == "available"
+    assert processor_table_availability(loaded)["persons"] == "available"
+
+
+def test_processor_read_run_marks_misnamed_per_run_override_as_unavailable(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "files:",
+            "  households: final_households",
+            "  persons: final_persons",
+            "  tours: final_tours",
+            "  trips: final_trips",
+            "  joint_tour_participants: final_joint_tour_participants",
+            "  land_use: final_land_use",
+        ],
+    )
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    pl.DataFrame({"household_id": [1]}).write_csv(run_dir / "final_households.csv")
+    pl.DataFrame({"person_id": [10], "household_id": [1]}).write_csv(
+        run_dir / "final_persons.csv"
+    )
+    pl.DataFrame({"tour_id": [100], "household_id": [1], "person_id": [10]}).write_csv(
+        run_dir / "final_tours.csv"
+    )
+    pl.DataFrame({"trip_id": [1000]}).write_csv(run_dir / "final_trips.csv")
+    pl.DataFrame({"tour_id": [], "person_id": []}).write_csv(
+        run_dir / "final_joint_tour_participants.csv"
+    )
+    pl.DataFrame({"zone_id": [1]}).write_csv(run_dir / "final_land_use.csv")
+
+    loaded = processor_read_run(
+        run_dir,
+        config,
+        label="Run A",
+        file_map={"trips": "definitely_not_trips"},
+    )
+
+    assert loaded.trips.is_empty()
+    assert processor_table_availability(loaded)["trips"] == "unavailable"
+    assert (
+        "definitely_not_trips"
+        in processor_table_unavailable_reasons(loaded)["trips"]
+    )
+
+
 def test_processor_prepare_derives_default_student_types_and_land_use_overlay(
     tmp_path: Path,
 ) -> None:

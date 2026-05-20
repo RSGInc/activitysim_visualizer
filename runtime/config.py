@@ -21,6 +21,16 @@ import yaml
 LOGGER = get_logger("runtime.config")
 
 
+FILE_MAPPING_DEFAULTS: dict[str, str] = {
+    "households": "final_households",
+    "persons": "final_persons",
+    "tours": "final_tours",
+    "trips": "final_trips",
+    "joint_tour_participants": "final_joint_tour_participants",
+    "land_use": "final_land_use",
+}
+
+
 @dataclass(frozen=True)
 class DashboardPageConfigEntry:
     """Normalized dashboard page-selection entry from config."""
@@ -1136,6 +1146,59 @@ def _normalize_student_types(
     return normalized
 
 
+def _normalize_file_mapping(
+    raw_value,
+    *,
+    field_name: str,
+    defaults: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Normalize a canonical-table-to-filename mapping."""
+    if raw_value is None:
+        raw_value = {}
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{field_name} must be a mapping when provided.")
+
+    allowed_keys = set(FILE_MAPPING_DEFAULTS)
+    invalid_keys = sorted(str(key) for key in raw_value if str(key) not in allowed_keys)
+    if invalid_keys:
+        raise ValueError(
+            f"{field_name} contains unsupported table ids: "
+            + ", ".join(repr(key) for key in invalid_keys)
+        )
+
+    normalized = dict(defaults or {})
+    for raw_key, raw_value in raw_value.items():
+        key = str(raw_key)
+        if not isinstance(raw_value, str):
+            raise ValueError(f"{field_name}.{key} must be a non-empty string.")
+        token = raw_value.strip()
+        if not token:
+            raise ValueError(f"{field_name}.{key} must be a non-empty string.")
+        normalized[key] = token
+    return normalized
+
+
+def _normalize_runs(raw_value, *, field_name: str) -> list[dict[str, Any]]:
+    """Normalize run entries and validate optional per-run file mappings."""
+    if raw_value is None:
+        return []
+    if not isinstance(raw_value, list):
+        raise ValueError(f"{field_name} must be a list when provided.")
+
+    normalized_runs: list[dict[str, Any]] = []
+    for index, raw_entry in enumerate(raw_value):
+        if not isinstance(raw_entry, dict):
+            raise ValueError(f"{field_name}[{index}] must be a mapping.")
+        normalized_entry = dict(raw_entry)
+        if "file_map" in raw_entry:
+            normalized_entry["file_map"] = _normalize_file_mapping(
+                raw_entry.get("file_map"),
+                field_name=f"{field_name}[{index}].file_map",
+            )
+        normalized_runs.append(normalized_entry)
+    return normalized_runs
+
+
 def _normalize_geography_zone_id(
     raw_value,
     *,
@@ -1757,19 +1820,12 @@ class Config:
         if not isinstance(visualizer_cfg, dict):
             raise ValueError("visualizer must be a mapping when provided.")
 
-        files = raw.get("files", {})
-        if not isinstance(files, dict):
-            raise ValueError("files must be a mapping when provided.")
-        file_defaults = {
-            "households": "final_households",
-            "persons": "final_persons",
-            "tours": "final_tours",
-            "trips": "final_trips",
-            "joint_tour_participants": "final_joint_tour_participants",
-            "land_use": "final_land_use",
-        }
-        for key, value in file_defaults.items():
-            files.setdefault(key, value)
+        files = _normalize_file_mapping(
+            raw.get("files"),
+            field_name="files",
+            defaults=FILE_MAPPING_DEFAULTS,
+        )
+        runs = _normalize_runs(raw.get("runs"), field_name="runs")
 
         cols = raw.get("columns", {})
         if not isinstance(cols, dict):
@@ -2244,7 +2300,7 @@ class Config:
             skim_matrix=skim_cfg.get("matrix", "SOV_DIST__MD"),
             mode_order=modes_cfg.get("order"),
             mode_groups=modes_cfg.get("groups"),
-            runs=raw.get("runs", []),
+            runs=runs,
         )
         config.prepare_config_digest = _digest_payload(
             config.prepare_signature_payload()
