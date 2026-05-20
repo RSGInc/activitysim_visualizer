@@ -12,7 +12,14 @@ from runtime.config import Config
 from processor.models import RunData
 from processor.prepare.enrichment.pipeline import prepare_data
 from processor.summarize.schema import SUMMARY_OUTPUT_COLUMNS
-from processor.summarize.summaries import daily_travel, legacy, long_term, tour, trip
+from processor.summarize.summaries import (
+    daily_travel,
+    joint_travel,
+    legacy,
+    long_term,
+    tour,
+    trip,
+)
 from processor.tour_purpose import with_summary_tour_purpose
 
 
@@ -1591,3 +1598,43 @@ def test_prepare_data_skips_fragile_joins_when_dependency_keys_are_missing(
     assert prepared.trips["finalweight"].to_list() == [1.0, 1.0]
     assert "NUMBER_HH" in prepared.tours.columns
     assert prepared.tours["NUMBER_HH"].to_list() == [1]
+
+
+def test_person_jtp_by_household_size_returns_counts_for_runtime_value_modes(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    rd = RunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame(
+            {
+                "household_id": [1, 2],
+                "hhsize": [2, 3],
+                "finalweight": [1.0, 1.0],
+            }
+        ),
+        per=pl.DataFrame(
+            {
+                "person_id": [101, 102, 201],
+                "household_id": [1, 1, 2],
+                "num_joint_tours": [1, 0, 2],
+                "finalweight": [2.0, 1.0, 3.0],
+            }
+        ),
+        tours=pl.DataFrame(),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    result = joint_travel.joint_participation_person_by_hhsize(rd, config)
+
+    assert result.sort("household_size").to_dict(as_series=False) == {
+        "household_size": [2, 3],
+        "joint_tour_person_count": [2.0, 3.0],
+        "total_person_count": [3.0, 3.0],
+    }

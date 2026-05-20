@@ -24,6 +24,7 @@ from dashboard.pages.daily_travel.daily_activity_pattern import (
     filter_person_type_rates,
 )
 from dashboard.pages.daily_travel.escorted_tours import EscortedToursPage
+from dashboard.pages.joint_travel import JointTravelPage
 from dashboard.pages.overview import OverviewPage
 from dashboard.pages.tour_summaries.tour_mode import (
     TourModePage as TourSummariesTourModePage,
@@ -1172,6 +1173,85 @@ def test_daily_activity_pattern_live_page_uses_shared_summary_helpers(
     page.person_type_sel.value = "worker"
     page.refresh(force=True)
     assert page._body.objects
+
+
+def test_joint_travel_participation_page_uses_counts_and_runtime_percent_mode(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "jtf_distribution": pl.DataFrame(
+                {
+                    "jtf_code": [1],
+                    "jtf_label": ["No Joint Tours"],
+                    "household_count": [5.0],
+                }
+            ),
+            "joint_tours_by_household_size": pl.DataFrame(
+                {
+                    "household_size": [2],
+                    "household_count": [6.0],
+                    "joint_tour_hh_count": [3.0],
+                }
+            ),
+            "joint_tour_party_size_distribution": pl.DataFrame(
+                {
+                    "party_size": [2],
+                    "joint_tour_count": [3.0],
+                }
+            ),
+            "joint_tour_composition_by_party_size": pl.DataFrame(
+                {
+                    "tour_composition": ["adults"],
+                    "party_size": [2],
+                    "joint_tour_count": [3.0],
+                }
+            ),
+            "person_jtp_by_household_size": pl.DataFrame(
+                {
+                    "household_size": [2, 3],
+                    "joint_tour_person_count": [2.0, 3.0],
+                    "total_person_count": [4.0, 3.0],
+                }
+            ),
+            "household_jtp_by_household_size_and_jtf": pl.DataFrame(
+                {
+                    "jtf": ["0", "1", "0", "1"],
+                    "household_size": ["2", "2", "3", "3"],
+                    "household_percent": [50.0, 50.0, 25.0, 75.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = JointTravelPage(state, config)
+    page.refresh(force=True)
+
+    plots = _collect_plotly_panes(page._participation_section)
+    people_plot = next(
+        plot
+        for plot in plots
+        if str(plot.object.layout.title.text)
+        == "People Taking Part in a Joint Tour by Household Size"
+    )
+    assert list(people_plot.object.data[0].y) == [50.0, 100.0]
+
+    state.value_mode = "Count"
+    page.refresh(force=True)
+    plots = _collect_plotly_panes(page._participation_section)
+    people_plot = next(
+        plot
+        for plot in plots
+        if str(plot.object.layout.title.text)
+        == "People Taking Part in a Joint Tour by Household Size"
+    )
+    assert list(people_plot.object.data[0].y) == [2.0, 3.0]
 
 
 def test_tour_purpose_labels_render_consistently_across_pages(tmp_path: Path) -> None:

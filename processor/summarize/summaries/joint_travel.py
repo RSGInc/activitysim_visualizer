@@ -328,7 +328,8 @@ def joint_composition_by_party_size(rd: RunData, config: Config) -> pl.DataFrame
 @summary_contract(
     schema={
         "household_size": pl.Int64,
-        "person_percent": pl.Float64,
+        "joint_tour_person_count": pl.Float64,
+        "total_person_count": pl.Float64,
     },
     required_columns={
         "per": ("household_id", "num_joint_tours", "finalweight"),
@@ -369,17 +370,16 @@ def joint_participation_person_by_hhsize(rd: RunData, config: Config) -> pl.Data
         total_people.join(joint_tour_people, on="hhsize", how="left")
         .with_columns(
             pl.col("joint_tour_person_weight").fill_null(0.0),
-            pl.when(pl.col("total_person_weight") > 0)
-            .then(pl.col("joint_tour_person_weight") / pl.col("total_person_weight"))
-            .otherwise(None)
-            .alias("person_percent"),
         )
         .rename({"hhsize": "household_size"})
         .with_columns(
             pl.col("household_size").cast(pl.Int64),
-            pl.col("person_percent").cast(pl.Float64),
+            pl.col("joint_tour_person_weight")
+            .cast(pl.Float64)
+            .alias("joint_tour_person_count"),
+            pl.col("total_person_weight").cast(pl.Float64).alias("total_person_count"),
         )
-        .select("household_size", "person_percent")
+        .select("household_size", "joint_tour_person_count", "total_person_count")
         .sort("household_size")
     )
 

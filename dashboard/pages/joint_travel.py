@@ -113,6 +113,33 @@ def household_participation_data(
     return out
 
 
+def person_participation_data(
+    data_list: list[tuple[str, pl.DataFrame]],
+    *,
+    as_percent: bool,
+) -> list[tuple[str, pl.DataFrame]]:
+    out = []
+    for label, df in _nonempty(data_list):
+        base = df.with_columns(pl.col("household_size").cast(pl.Utf8))
+        if as_percent:
+            base = base.with_columns(
+                pl.when(pl.col("total_person_count") > 0)
+                .then(
+                    pl.col("joint_tour_person_count")
+                    / pl.col("total_person_count")
+                    * 100.0
+                )
+                .otherwise(0.0)
+                .alias("person_value")
+            )
+        else:
+            base = base.with_columns(
+                pl.col("joint_tour_person_count").alias("person_value")
+            )
+        out.append((label, base))
+    return out
+
+
 class JointTravelPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
         self.party_size_sel = self.selector(
@@ -283,10 +310,14 @@ class JointTravelPage(DashboardPage):
         if summaries is None:
             return []
         hhsize = self.hhsize_sel.value
-        person_participation_data = [
-            (label, df.with_columns(pl.col("household_size").cast(pl.Utf8)))
-            for label, df in _nonempty(summaries["person_jtp_by_household_size"])
-        ]
+        person_participation = self.get_filtered_view(
+            "person_jtp_by_household_size",
+            self.as_percent,
+            factory=lambda: person_participation_data(
+                summaries["person_jtp_by_household_size"],
+                as_percent=self.as_percent,
+            ),
+        )
         household_participation = self.get_filtered_view(
             "household_jtp_by_household_size_and_jtf",
             hhsize,
@@ -308,12 +339,16 @@ class JointTravelPage(DashboardPage):
                 ),
                 pn.Row(
                     bar_chart(
-                        person_participation_data,
+                        person_participation,
                         "household_size",
-                        "person_percent",
+                        "person_value",
                         "People Taking Part in a Joint Tour by Household Size",
                         "Household Size",
-                        yaxis_title="Percent of People (%)",
+                        yaxis_title=(
+                            "Percent of People (%)"
+                            if self.as_percent
+                            else "People Taking Joint Tours"
+                        ),
                         as_percent=False,
                     ),
                     bar_chart(
