@@ -218,7 +218,7 @@ def tour_rate_per_person(rd: RunData, config: Config) -> pl.DataFrame:
         .with_columns(pl.col("tour_purpose").cast(pl.Utf8))
     )
 
-    return (
+    by_person_type = (
         weighted_tours.join(weighted_person_days, on="person_type", how="left")
         .with_columns(
             pl.when(pl.col("weighted_person_days") > 0)
@@ -232,6 +232,29 @@ def tour_rate_per_person(rd: RunData, config: Config) -> pl.DataFrame:
             pl.col("tour_rate").cast(pl.Float64),
         )
         .sort(["person_type", "tour_purpose"])
+    )
+
+    total_person_days = float(weighted_person_days["weighted_person_days"].sum())
+    all_person_types = (
+        weighted_tours.group_by("tour_purpose")
+        .agg(weighted_tours=pl.col("weighted_tours").sum())
+        .with_columns(
+            pl.lit("all_person_types").alias("person_type"),
+            pl.when(pl.lit(total_person_days) > 0)
+            .then(pl.col("weighted_tours") / pl.lit(total_person_days))
+            .otherwise(None)
+            .alias("tour_rate"),
+        )
+        .select(
+            pl.col("person_type").cast(pl.Utf8),
+            pl.col("tour_purpose").cast(pl.Utf8),
+            pl.col("tour_rate").cast(pl.Float64),
+        )
+        .sort(["person_type", "tour_purpose"])
+    )
+
+    return pl.concat([by_person_type, all_person_types], how="vertical").sort(
+        ["person_type", "tour_purpose"]
     )
 
 
@@ -280,7 +303,7 @@ def trip_rate_per_person(rd: RunData, config: Config) -> pl.DataFrame:
         )
     )
 
-    return (
+    by_person_type = (
         trip_totals.join(person_totals, on="person_type", how="left")
         .with_columns(
             pl.when(pl.col("person_count") > 0)
@@ -295,4 +318,27 @@ def trip_rate_per_person(rd: RunData, config: Config) -> pl.DataFrame:
         )
         .select("person_type", "trip_purpose", "trip_rate")
         .sort(["person_type", "trip_purpose"])
+    )
+
+    total_person_count = float(person_totals["person_count"].sum())
+    all_person_types = (
+        trip_totals.group_by("trip_purpose")
+        .agg(trip_count=pl.col("trip_count").sum())
+        .with_columns(
+            pl.lit("all_person_types").alias("person_type"),
+            pl.when(pl.lit(total_person_count) > 0)
+            .then(pl.col("trip_count") / pl.lit(total_person_count))
+            .otherwise(None)
+            .alias("trip_rate"),
+        )
+        .select(
+            pl.col("person_type").cast(pl.Utf8),
+            pl.col("trip_purpose").cast(pl.Utf8),
+            pl.col("trip_rate").cast(pl.Float64),
+        )
+        .sort(["person_type", "trip_purpose"])
+    )
+
+    return pl.concat([by_person_type, all_person_types], how="vertical").sort(
+        ["person_type", "trip_purpose"]
     )

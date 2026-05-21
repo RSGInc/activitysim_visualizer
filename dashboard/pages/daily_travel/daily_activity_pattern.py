@@ -80,6 +80,11 @@ def filter_person_type_rates(
             out.append((label, d.filter(pl.col(PERSON_TYPE_COL) == person_type)))
             continue
 
+        existing_total = d.filter(pl.col(PERSON_TYPE_COL) == "all_person_types")
+        if len(existing_total) > 0:
+            out.append((label, existing_total.drop(PERSON_TYPE_COL)))
+            continue
+
         weights = person_weights.get(label)
         if weights is None or len(weights) == 0:
             aggregated = (

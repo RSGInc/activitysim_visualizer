@@ -938,6 +938,47 @@ def test_tour_purpose_grouping_rolls_up_joint_atwork_and_school_across_summaries
     assert total["departure_tour_count"].sum() == non_total["departure_tour_count"].sum()
 
 
+def test_tour_rate_per_person_includes_all_person_types_total(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    rd = RunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame(),
+        per=pl.DataFrame(
+            {
+                "person_id": [1, 2],
+                "person_type": ["worker", "student"],
+                "finalweight": [2.0, 1.0],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "person_id": [1, 1, 2],
+                "tour_purpose": ["work", "shopping", "work"],
+                "finalweight": [2.0, 2.0, 1.0],
+            }
+        ),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    summary = daily_travel.tour_rate_per_person(rd, config).sort(
+        ["person_type", "tour_purpose"]
+    )
+
+    assert summary.filter(pl.col("person_type") == "all_person_types").to_dict(
+        as_series=False
+    ) == {
+        "person_type": ["all_person_types", "all_person_types"],
+        "tour_purpose": ["shopping", "work"],
+        "tour_rate": [2.0 / 3.0, 1.0],
+    }
+
+
 def test_atwork_grouping_does_not_relabel_parent_mandatory_work_tours(
     tmp_path: Path,
 ) -> None:

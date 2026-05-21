@@ -2050,6 +2050,42 @@ def test_filter_person_type_rates_total_uses_full_person_denominator() -> None:
     }
 
 
+def test_filter_person_type_rates_total_prefers_existing_total_rows() -> None:
+    data_list = [
+        (
+            "Base",
+            pl.DataFrame(
+                {
+                    "person_type": [
+                        "all_person_types",
+                        "all_person_types",
+                        "worker",
+                        "student",
+                    ],
+                    "tour_purpose": ["school", "work", "work", "school"],
+                    "tour_rate": [0.25, 1.5, 2.0, 1.0],
+                }
+            ),
+        )
+    ]
+
+    filtered = filter_person_type_rates(
+        data_list,
+        "all_person_types",
+        purpose_col="tour_purpose",
+        rate_col="tour_rate",
+        person_weights={},
+    )
+
+    assert len(filtered) == 1
+    label, df = filtered[0]
+    assert label == "Base"
+    assert df.sort("tour_purpose").to_dict(as_series=False) == {
+        "tour_purpose": ["school", "work"],
+        "tour_rate": [0.25, 1.5],
+    }
+
+
 def test_overview_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
     overview_summary_run = _summary_run_with_tables(
