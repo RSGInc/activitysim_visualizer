@@ -67,6 +67,9 @@ def summary_cache_load_expectations(
             )
         ),
         file_map=None if uses_custom_prepared_tables else entry.get("file_map") or None,
+        fallback_file_map=(
+            None if uses_custom_prepared_tables else config.fallback_files or None
+        ),
         hh_weight_col=None
         if uses_custom_prepared_tables
         else entry.get("hh_weight_col") or None,
@@ -221,6 +224,9 @@ def run_cache_metadata(
         run_dir=None if uses_custom_prepared_tables else run_dir,
         skim_file=resolved_skim,
         file_map=None if uses_custom_prepared_tables else entry.get("file_map") or None,
+        fallback_file_map=(
+            None if uses_custom_prepared_tables else config.fallback_files or None
+        ),
         hh_weight_col=None if uses_custom_prepared_tables else entry.get("hh_weight_col") or None,
         person_weight_col=None if uses_custom_prepared_tables else entry.get("person_weight_col") or None,
         trip_weight_col=None if uses_custom_prepared_tables else entry.get("trip_weight_col") or None,

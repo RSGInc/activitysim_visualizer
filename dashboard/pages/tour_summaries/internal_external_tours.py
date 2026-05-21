@@ -47,6 +47,36 @@ def geo_level_options(
     return ["All"] + [v for v in vals if v != "All"]
 
 
+def common_geo_level_options(
+    *data_lists: list[tuple[str, pl.DataFrame]] | None,
+    config,
+) -> list[str]:
+    available_sets: list[set[str]] = []
+    for data_list in data_lists:
+        if data_list is None:
+            continue
+        per_run_sets: list[set[str]] = []
+        for _, df in _nonempty(data_list):
+            if GEO_LEVEL_COL not in df.columns:
+                continue
+            vals = (
+                df.select(GEO_LEVEL_COL)
+                .drop_nulls()
+                .unique()
+                .to_series()
+                .cast(pl.Utf8)
+                .to_list()
+            )
+            per_run_sets.append(set(vals))
+        if per_run_sets:
+            available_sets.append(set.intersection(*per_run_sets))
+    if not available_sets:
+        return ["All"]
+    common = set.intersection(*available_sets)
+    ordered = ordered_visible_geography_levels(list(common), config=config)
+    return ["All"] + [v for v in ordered if v != "All"]
+
+
 def filter_geo_level(
     data_list: list[tuple[str, pl.DataFrame]],
     geo_level: str,
@@ -112,8 +142,9 @@ class InternalExternalToursPage(DashboardPage):
             if external_loc_list is not None
             else []
         )
-        geo_opts = geo_level_options(
-            normalized_int_ext or normalized_external_loc,
+        geo_opts = common_geo_level_options(
+            normalized_int_ext or None,
+            normalized_external_loc or None,
             config=self.config,
         )
         self.geo_level_sel.options = geo_opts

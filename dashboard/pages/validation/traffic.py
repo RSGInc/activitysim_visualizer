@@ -31,6 +31,31 @@ def _options(
     return [total_label] + sorted(v for v in vals if v != total_label)
 
 
+def _common_options(
+    *data_lists: list[tuple[str, pl.DataFrame]] | None,
+    col: str,
+    total_label: str = "All",
+) -> list[str]:
+    available_sets: list[set[str]] = []
+    for data_list in data_lists:
+        if data_list is None:
+            continue
+        per_run_sets: list[set[str]] = []
+        for _, df in _nonempty(data_list):
+            if col not in df.columns:
+                continue
+            values = (
+                df.select(col).drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
+            )
+            per_run_sets.append(set(values))
+        if per_run_sets:
+            available_sets.append(set.intersection(*per_run_sets))
+    if not available_sets:
+        return [total_label]
+    common = set.intersection(*available_sets)
+    return [total_label] + sorted(v for v in common if v != total_label)
+
+
 def validation_chart_data(
     data_list: list[tuple[str, pl.DataFrame]],
     direction: str,
@@ -75,8 +100,20 @@ class TrafficValidationPage(DashboardPage):
             "traffic_count_comparisons",
             "weighted",
         )
-        direction_opts = _options(traffic_data or [], "direction")
-        period_opts = _options(traffic_data or [], "count_period")
+        screenline_data = self.state.get_summary_table_set(
+            "screenline_flow_comparisons",
+            "weighted",
+        )
+        direction_opts = _common_options(
+            traffic_data,
+            screenline_data,
+            col="direction",
+        )
+        period_opts = _common_options(
+            traffic_data,
+            screenline_data,
+            col="count_period",
+        )
         self.direction_sel = self.selector(
             "direction",
             widget=pn.widgets.Select(
@@ -121,11 +158,19 @@ class TrafficValidationPage(DashboardPage):
             "screenline_flow_comparisons",
             self.weighting_key,
         )
-        direction_opts = _options(traffic_list or screenline_list or [], "direction")
+        direction_opts = _common_options(
+            traffic_list,
+            screenline_list,
+            col="direction",
+        )
         self.direction_sel.options = direction_opts
         if self.direction_sel.value not in direction_opts:
             self.direction_sel.value = direction_opts[0]
-        period_opts = _options(traffic_list or screenline_list or [], "count_period")
+        period_opts = _common_options(
+            traffic_list,
+            screenline_list,
+            col="count_period",
+        )
         self.count_period_sel.options = period_opts
         if self.count_period_sel.value not in period_opts:
             self.count_period_sel.value = period_opts[0]

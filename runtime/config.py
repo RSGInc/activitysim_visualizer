@@ -1184,6 +1184,46 @@ def _normalize_file_mapping(
     return normalized
 
 
+def _normalize_fallback_file_mapping(
+    raw_value,
+    *,
+    field_name: str,
+    config_dir: Path,
+) -> dict[str, str]:
+    """Normalize optional fallback file paths for missing raw inputs."""
+    if raw_value is None:
+        return {}
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{field_name} must be a mapping when provided.")
+
+    allowed_keys = OPTIONAL_PREPARED_TABLE_IDS
+    invalid_keys = sorted(str(key) for key in raw_value if str(key) not in allowed_keys)
+    if invalid_keys:
+        raise ValueError(
+            f"{field_name} contains unsupported table ids: "
+            + ", ".join(repr(key) for key in invalid_keys)
+        )
+
+    normalized: dict[str, str] = {}
+    for raw_key, raw_path in raw_value.items():
+        key = str(raw_key)
+        if not isinstance(raw_path, str):
+            raise ValueError(f"{field_name}.{key} must be a non-empty path string.")
+        token = raw_path.strip()
+        if not token:
+            raise ValueError(f"{field_name}.{key} must be a non-empty path string.")
+        suffix = Path(token).suffix.lower()
+        if suffix not in {".parquet", ".csv"}:
+            raise ValueError(
+                f"{field_name}.{key} must end with '.parquet' or '.csv'."
+            )
+        resolved = Path(token).expanduser()
+        if not resolved.is_absolute():
+            resolved = (config_dir / resolved).resolve()
+        normalized[key] = str(resolved)
+    return normalized
+
+
 def _normalize_prepared_output_file_format(
     raw_value,
     *,
@@ -1839,6 +1879,7 @@ class Config:
     prepare_relationship_checks: str
 
     files: dict[str, str]
+    fallback_files: dict[str, str]
 
     col_ptype: str
     col_hhsize: str
@@ -1924,6 +1965,11 @@ class Config:
             raw.get("files"),
             field_name="files",
             defaults=FILE_MAPPING_DEFAULTS,
+        )
+        fallback_files = _normalize_fallback_file_mapping(
+            raw.get("fallback_files"),
+            field_name="fallback_files",
+            config_dir=config_path.parent,
         )
         runs = _normalize_runs(
             raw.get("runs"),
@@ -2308,6 +2354,7 @@ class Config:
             prepare_output_file_format=prepare_output_file_format,
             prepare_relationship_checks=prepare_relationship_checks,
             files=files,
+            fallback_files=fallback_files,
             col_ptype=cols.get("ptype", "ptype"),
             col_hhsize=cols.get("hhsize", "hhsize"),
             col_auto_ownership=cols.get("auto_ownership", "auto_ownership"),

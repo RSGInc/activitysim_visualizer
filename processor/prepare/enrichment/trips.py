@@ -627,7 +627,10 @@ def _enrich_trips(
             pl.Series("od_dist", _skim_lookup(state.skim, o, d, state.skim_map))
         )
     elif "od_dist" not in state.trips.columns:
-        state.trips = state.trips.with_columns(pl.lit(0.0).alias("od_dist"))
+        LOGGER.info(
+            "[prepare_data] Trip skim distances unavailable for '%s'; leaving od_dist absent.",
+            state.label,
+        )
 
     if "depart_hour" not in state.trips.columns:
         state.trips = state.trips.with_columns(pl.lit(1).alias("depart_hour"))
@@ -683,7 +686,10 @@ def _enrich_trips(
                 pl.Series("out_dir_dist", (os_ + sd - od).clip(0))
             )
         else:
-            state.trips = state.trips.with_columns(pl.lit(0.0).alias("out_dir_dist"))
+            LOGGER.info(
+                "[prepare_data] Out-of-direction trip distances unavailable for '%s'; leaving out_dir_dist absent.",
+                state.label,
+            )
 
     state.trips = with_summary_tour_purpose(state.trips, config)
     state = _derive_escort_event_position(state)

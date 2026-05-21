@@ -31,6 +31,9 @@ from dashboard.pages.tour_summaries.tour_mode import (
     TourModePage as TourSummariesTourModePage,
 )
 from dashboard.pages.tour_summaries.tour_mode import _filter_col
+from dashboard.pages.tour_summaries.internal_external_tours import (
+    InternalExternalToursPage,
+)
 from dashboard.pages.tour_summaries.tour_distance import TourDistancePage
 from dashboard.pages.tour_summaries.tour_purpose import TourPurposePage
 from dashboard.pages.tour_summaries.tour_stop_frequency import (
@@ -40,6 +43,8 @@ from dashboard.pages.tour_summaries.tour_time import TourTimePage
 from dashboard.pages.trip_summaries.trip_mode import TripModePage
 from dashboard.pages.trip_summaries.trip_stop_distance import TripStopDistancePage
 from dashboard.pages.trip_summaries.trip_stop_time import TripStopTimePage
+from dashboard.pages.validation.traffic import TrafficValidationPage
+from dashboard.pages.validation.transit import TransitValidationPage
 from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.state import DashboardState
 from processor.models import RunData
@@ -415,6 +420,64 @@ def test_summary_cache_detects_file_map_only_run_fingerprint_mismatch(
                 run_dir="C:/runs/base",
                 skim_file=None,
                 file_map={"households": "final_hh", "trips": "final_trips"},
+                hh_weight_col=None,
+                person_weight_col=None,
+                trip_weight_col=None,
+            ),
+            expected_prepared_manifest_identity=_prepared_identity(
+                config=config,
+                run_key="base",
+                fingerprint=fingerprint,
+            ),
+            expected_label="Base",
+            expected_run_key="base",
+        )
+
+
+def test_summary_cache_detects_fallback_file_map_only_run_fingerprint_mismatch(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _sample_summary_run()
+    fingerprint = build_run_fingerprint(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        file_map={"households": "final_households"},
+        fallback_file_map={"land_use": "C:/shared/land_use_a.csv"},
+        hh_weight_col=None,
+        person_weight_col=None,
+        trip_weight_col=None,
+    )
+
+    cache_dir = write_summary_run_cache(
+        summary_run,
+        config,
+        run_fingerprint=fingerprint,
+        prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="base",
+            fingerprint=fingerprint,
+        ),
+    )
+
+    with pytest.raises(SummaryCacheError, match="run fingerprint mismatch"):
+        load_summary_run_cache(
+            cache_dir,
+            config,
+            expected_modes=config.weighting_modes,
+            expected_summary_ids=[
+                "destination_distance",
+                "destination_average_distance",
+                "geo_flows",
+            ],
+            expected_summary_config_digest=config.summary_config_digest,
+            expected_run_fingerprint=build_run_fingerprint(
+                label="Base",
+                run_dir="C:/runs/base",
+                skim_file=None,
+                file_map={"households": "final_households"},
+                fallback_file_map={"land_use": "C:/shared/land_use_b.csv"},
                 hh_weight_col=None,
                 person_weight_col=None,
                 trip_weight_col=None,
@@ -2401,6 +2464,236 @@ def test_tour_mode_vehicle_filters_sort_categories_stably() -> None:
         "Gasoline",
         "Hybrid",
     ]
+
+
+def test_tour_mode_occupancy_selector_uses_common_values_across_vehicle_summaries(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "tour_mode_by_tour_purpose_and_auto_sufficiency": pl.DataFrame(
+                {
+                    "tour_purpose": ["all_tour_purposes"],
+                    "tour_mode": ["DRIVE"],
+                    "tour_count_all_households": [10.0],
+                    "tour_count_zero_auto": [2.0],
+                    "tour_count_auto_deficient": [3.0],
+                    "tour_count_auto_sufficient": [5.0],
+                }
+            ),
+            "allocated_vehicle_age_by_occupancy": pl.DataFrame(
+                {
+                    "occupancy": ["All", "1", "2+"],
+                    "age": ["1", "1", "1"],
+                    "vehicle_count": [3.0, 2.0, 1.0],
+                }
+            ),
+            "allocated_vehicle_fuel_type_by_occupancy": pl.DataFrame(
+                {
+                    "occupancy": ["All", "1"],
+                    "fuel_type": ["Gas", "Gas"],
+                    "vehicle_count": [3.0, 2.0],
+                }
+            ),
+            "allocated_vehicle_body_type_by_occupancy": pl.DataFrame(
+                {
+                    "occupancy": ["All", "1", "3+"],
+                    "body_type": ["Sedan", "Sedan", "Van"],
+                    "vehicle_count": [3.0, 2.0, 1.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = TourSummariesTourModePage(state, config)
+    page.refresh(force=True)
+
+    assert list(page.occupancy_sel.options) == ["All", "1"]
+
+
+def test_internal_external_tours_geo_selector_uses_common_levels_across_tables(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path, visualizer_lines=["enable_maz_geographies: true"])
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "internal_external_nonmandatory_tour_frequency_by_home_geography": pl.DataFrame(
+                {
+                    "geography_level": ["maz", "district"],
+                    "home_geography": ["1", "A"],
+                    "internal_tour_count": [2.0, 3.0],
+                    "external_tour_count": [1.0, 1.0],
+                }
+            ),
+            "external_nonmandatory_tour_locations": pl.DataFrame(
+                {
+                    "geography_type": ["maz"],
+                    "geography_id": ["1"],
+                    "tour_count": [4.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = InternalExternalToursPage(state, config)
+    page.refresh(force=True)
+
+    assert list(page.geo_level_sel.options) == ["All", "maz"]
+
+
+def test_traffic_validation_shared_selectors_use_common_summary_options(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "traffic_count_comparisons": pl.DataFrame(
+                {
+                    "direction": ["outbound", "inbound"],
+                    "count_period": ["AM", "PM"],
+                    "count_location_id": ["1", "2"],
+                    "observed_volume": [10.0, 20.0],
+                    "modeled_volume": [11.0, 19.0],
+                }
+            ),
+            "screenline_flow_comparisons": pl.DataFrame(
+                {
+                    "direction": ["outbound"],
+                    "count_period": ["AM"],
+                    "screenline_id": ["A"],
+                    "observed_volume": [15.0],
+                    "modeled_volume": [14.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = TrafficValidationPage(state, config)
+    page.refresh(force=True)
+
+    assert list(page.direction_sel.options) == ["All", "outbound"]
+    assert list(page.count_period_sel.options) == ["All", "AM"]
+
+
+def test_transit_validation_technology_selector_uses_common_summary_options(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "transit_boardings_by_operator_and_technology": pl.DataFrame(
+                {
+                    "technology": ["bus", "rail"],
+                    "operator": ["A", "B"],
+                    "boardings": [10.0, 20.0],
+                }
+            ),
+            "transit_transfer_rate": pl.DataFrame(
+                {
+                    "technology": ["bus"],
+                    "access_mode": ["walk"],
+                    "operator": ["A"],
+                    "transfer_rate": [1.2],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = TransitValidationPage(state, config)
+    page.refresh(force=True)
+
+    assert list(page.technology_sel.options) == ["All", "bus"]
+
+
+def test_tour_distance_chart_casts_distance_bins_consistently_across_runs(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run_a = _summary_run_with_tables(
+        label="A",
+        weighted={
+            "tour_distance_by_tour_purpose": pl.DataFrame(
+                {
+                    "tour_purpose": ["all_tour_purposes", "all_tour_purposes"],
+                    "distance_bin": ["0", "1"],
+                    "tour_count": [5.0, 2.0],
+                }
+            ),
+            "average_mandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
+                {
+                    "mandatory_tour_purpose": ["work"],
+                    "geography_level": ["Region"],
+                    "average_tour_distance": [8.0],
+                }
+            ),
+            "average_nonmandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
+                {
+                    "nonmandatory_tour_purpose": ["shopping"],
+                    "geography_level": ["Region"],
+                    "average_tour_distance": [4.0],
+                }
+            ),
+        },
+    )
+    summary_run_b = _summary_run_with_tables(
+        label="B",
+        weighted={
+            "tour_distance_by_tour_purpose": pl.DataFrame(
+                {
+                    "tour_purpose": ["all_tour_purposes"],
+                    "distance_bin": [0],
+                    "tour_count": [7.0],
+                }
+            ),
+            "average_mandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
+                {
+                    "mandatory_tour_purpose": ["work"],
+                    "geography_level": ["Region"],
+                    "average_tour_distance": [8.0],
+                }
+            ),
+            "average_nonmandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
+                {
+                    "nonmandatory_tour_purpose": ["shopping"],
+                    "geography_level": ["Region"],
+                    "average_tour_distance": [4.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run_a, summary_run_b],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = TourDistancePage(state, config)
+    page.refresh(force=True)
+
+    plot = next(obj for obj in page._distance_section.objects if isinstance(obj, pn.pane.Plotly))
+    traces = {trace.name: list(trace.x) for trace in plot.object.data}
+    assert traces["A"] == ["0", "1"]
+    assert traces["B"] == ["0"]
 
 
 def test_bar_chart_pins_category_order_from_input_sequence() -> None:

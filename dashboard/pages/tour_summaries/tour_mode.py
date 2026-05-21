@@ -25,6 +25,33 @@ def _options(
     return [total_label] + sorted(v for v in vals if v != total_label)
 
 
+def _common_options(
+    *data_lists: list[tuple[str, pl.DataFrame]] | None,
+    col: str,
+    total_label: str = "All",
+) -> list[str]:
+    if col == "auto_sufficiency":
+        return _options([], col, total_label)
+    available_sets: list[set[str]] = []
+    for data_list in data_lists:
+        if data_list is None:
+            continue
+        per_run_sets: list[set[str]] = []
+        for _, df in nonempty(data_list):
+            if col not in df.columns:
+                continue
+            vals = (
+                df.select(col).drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
+            )
+            per_run_sets.append(set(vals))
+        if per_run_sets:
+            available_sets.append(set.intersection(*per_run_sets))
+    if not available_sets:
+        return [total_label]
+    common = set.intersection(*available_sets)
+    return [total_label] + sorted(v for v in common if v != total_label)
+
+
 def _filter_col(
     data_list: list[tuple[str, pl.DataFrame]],
     col: str,
@@ -152,8 +179,26 @@ class TourModePage(DashboardPage):
             "vehicle_occupancy",
             widget=pn.widgets.Select(
                 name="Vehicle Occupancy",
-                options=_options(veh_data or [], "occupancy"),
-                value=_options(veh_data or [], "occupancy")[0],
+                options=_common_options(
+                    veh_data,
+                    self.state.get_summary_table_set(
+                        "allocated_vehicle_fuel_type_by_occupancy", "weighted"
+                    ),
+                    self.state.get_summary_table_set(
+                        "allocated_vehicle_body_type_by_occupancy", "weighted"
+                    ),
+                    col="occupancy",
+                ),
+                value=_common_options(
+                    veh_data,
+                    self.state.get_summary_table_set(
+                        "allocated_vehicle_fuel_type_by_occupancy", "weighted"
+                    ),
+                    self.state.get_summary_table_set(
+                        "allocated_vehicle_body_type_by_occupancy", "weighted"
+                    ),
+                    col="occupancy",
+                )[0],
             ),
             label="Vehicle Occupancy",
         )
@@ -210,8 +255,11 @@ class TourModePage(DashboardPage):
             (self.auto_suff_sel, _options(mode_summary or [], "auto_sufficiency")),
             (
                 self.occupancy_sel,
-                _options(
-                    age_summary or fuel_summary or body_summary or [], "occupancy"
+                _common_options(
+                    age_summary,
+                    fuel_summary,
+                    body_summary,
+                    col="occupancy",
                 ),
             ),
         ]:

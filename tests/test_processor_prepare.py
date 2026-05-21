@@ -23,6 +23,7 @@ from processor.prepare.reader import (
     read_run as processor_read_run,
     resolve_skim_path as processor_resolve_skim_path,
 )
+from processor.summarize.summaries import tour, trip
 from processor.summarize.summaries.long_term import (
     school_loc_vs_land_use_enrollment,
     workplace_vs_land_use_employment,
@@ -663,6 +664,43 @@ def test_processor_prepare_data_uses_zone_id_as_maz_fallback_for_trip_skim_dista
     assert prepared.trips["od_dist"].to_list() == [12.5]
 
 
+def test_processor_prepare_data_leaves_distance_fields_absent_without_usable_skim_inputs(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "zones:",
+            "  use_maz: true",
+            "  maz_col: [MAZ, zone_id]",
+            "  taz_col: [TAZ]",
+        ],
+    )
+    raw = _raw_run()
+    raw = ProcessorRunData(
+        label=raw.label,
+        run_dir=raw.run_dir,
+        skim_file=raw.skim_file,
+        hh=raw.hh,
+        per=raw.per,
+        tours=raw.tours,
+        trips=raw.trips,
+        joint_participants=raw.joint_participants,
+        land_use=pl.DataFrame(),
+        skim_matrix=pl.DataFrame([[0.0, 12.5], [12.5, 0.0]]).to_numpy(),
+        skim_zone_map=None,
+    )
+
+    prepared = processor_prepare_data(raw, config)
+
+    assert "SKIMDIST" not in prepared.tours.columns
+    assert "od_dist" not in prepared.trips.columns
+    assert "out_dir_dist" not in prepared.trips.columns
+    assert tour.tour_distance(prepared, config).is_empty()
+    assert trip.trip_distance(prepared, config).is_empty()
+    assert trip.stop_ood_distance(prepared, config).is_empty()
+
+
 def test_processor_prepare_data_derives_exact_escort_event_fields_conservatively(
     tmp_path: Path,
 ) -> None:
@@ -1034,6 +1072,45 @@ def test_processor_read_run_uses_per_run_file_map_with_global_fallback(
     assert loaded.trips["trip_id"].to_list() == [1000]
     assert processor_table_availability(loaded)["households"] == "available"
     assert processor_table_availability(loaded)["persons"] == "available"
+
+
+def test_processor_read_run_uses_fallback_land_use_when_primary_missing(
+    tmp_path: Path,
+) -> None:
+    shared_land_use = (tmp_path / "shared_land_use.csv").resolve()
+    shared_land_use.write_text(
+        "\n".join(["zone_id,TAZ", "1,1", "2,2"]),
+        encoding="utf-8",
+    )
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "fallback_files:",
+            f"  land_use: {shared_land_use}",
+        ],
+    )
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    pl.DataFrame({"household_id": [1]}).write_csv(run_dir / "final_households.csv")
+    pl.DataFrame({"person_id": [10], "household_id": [1]}).write_csv(
+        run_dir / "final_persons.csv"
+    )
+    pl.DataFrame({"tour_id": [100], "household_id": [1], "person_id": [10]}).write_csv(
+        run_dir / "final_tours.csv"
+    )
+    pl.DataFrame({"trip_id": [1000], "tour_id": [100], "person_id": [10]}).write_csv(
+        run_dir / "final_trips.csv"
+    )
+    pl.DataFrame({"tour_id": [], "person_id": []}).write_csv(
+        run_dir / "final_joint_tour_participants.csv"
+    )
+
+    loaded = processor_read_run(run_dir, config, label="Run A")
+
+    assert loaded.land_use["zone_id"].to_list() == [1, 2]
+    assert processor_table_availability(loaded)["land_use"] == "available"
+    assert "land_use" not in processor_table_unavailable_reasons(loaded)
 
 
 def test_processor_read_run_marks_misnamed_per_run_override_as_unavailable(

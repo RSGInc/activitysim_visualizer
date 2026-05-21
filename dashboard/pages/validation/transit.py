@@ -35,6 +35,31 @@ def _options(
     return [total_label] + sorted(v for v in vals if v != total_label)
 
 
+def _common_options(
+    *data_lists: list[tuple[str, pl.DataFrame]] | None,
+    col: str,
+    total_label: str = "All",
+) -> list[str]:
+    available_sets: list[set[str]] = []
+    for data_list in data_lists:
+        if data_list is None:
+            continue
+        per_run_sets: list[set[str]] = []
+        for _, df in _nonempty(data_list):
+            if col not in df.columns:
+                continue
+            values = (
+                df.select(col).drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
+            )
+            per_run_sets.append(set(values))
+        if per_run_sets:
+            available_sets.append(set.intersection(*per_run_sets))
+    if not available_sets:
+        return [total_label]
+    common = set.intersection(*available_sets)
+    return [total_label] + sorted(v for v in common if v != total_label)
+
+
 def _filter_transit(
     data_list: list[tuple[str, pl.DataFrame]],
     technology: str,
@@ -83,7 +108,11 @@ class TransitValidationPage(DashboardPage):
             "transit_transfer_rate",
             "weighted",
         )
-        tech_opts = _options(boarding_data or [], "technology")
+        tech_opts = _common_options(
+            boarding_data,
+            transfer_data,
+            col="technology",
+        )
         access_opts = _options(transfer_data or [], "access_mode")
         self.technology_sel = self.selector(
             "technology",
@@ -127,7 +156,11 @@ class TransitValidationPage(DashboardPage):
             "transit_transfer_rate",
             self.weighting_key,
         )
-        tech_opts = _options(boarding_list or transfer_list or [], "technology")
+        tech_opts = _common_options(
+            boarding_list,
+            transfer_list,
+            col="technology",
+        )
         self.technology_sel.options = tech_opts
         if self.technology_sel.value not in tech_opts:
             self.technology_sel.value = tech_opts[0]

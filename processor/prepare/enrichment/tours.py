@@ -145,7 +145,10 @@ def _enrich_tours(
             pl.Series("SKIMDIST", _skim_lookup(state.skim, o, d, state.skim_map))
         )
     elif "SKIMDIST" not in state.tours.columns:
-        state.tours = state.tours.with_columns(pl.lit(0.0).alias("SKIMDIST"))
+        LOGGER.info(
+            "[prepare_data] Tour skim distances unavailable for '%s'; leaving SKIMDIST absent.",
+            state.label,
+        )
 
     if (
         "tour_id" in state.tours.columns

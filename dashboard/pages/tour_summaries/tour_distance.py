@@ -73,7 +73,10 @@ def tour_distance_chart_data(data_list: list[tuple[str, pl.DataFrame]], purpose:
         out.append(
             (
                 label,
-                df.select(pl.col("distance_bin"), pl.col("tour_count"))
+                df.select(
+                    pl.col("distance_bin").cast(pl.Utf8),
+                    pl.col("tour_count"),
+                )
                 .with_columns(
                     _distance_sort_expr("distance_bin").alias("_sort_distance")
                 )

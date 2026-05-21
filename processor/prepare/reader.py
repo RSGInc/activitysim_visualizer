@@ -74,6 +74,21 @@ def _find_and_read(run_dir: Path, configured: str) -> pl.DataFrame:
     )
 
 
+def _read_fallback_file(configured: str) -> pl.DataFrame:
+    """Read one resolved fallback file path with explicit extension."""
+    path = Path(configured).expanduser()
+    suffix = path.suffix.lower()
+    if suffix == ".parquet":
+        LOGGER.info("[read_run] Reading fallback parquet: %s", path)
+        return pl.read_parquet(path)
+    if suffix == ".csv":
+        LOGGER.info("[read_run] Reading fallback csv: %s", path)
+        return pl.read_csv(path, infer_schema_length=None)
+    raise FileNotFoundError(
+        f"Fallback file must end with '.parquet' or '.csv': {path}"
+    )
+
+
 def read_run(
     run_dir: str | Path,
     config: Config,
@@ -98,13 +113,32 @@ def read_run(
         try:
             table = _find_and_read(run_dir, configured)
         except FileNotFoundError as exc:
+            fallback_configured = config.fallback_files.get(key)
+            if fallback_configured:
+                try:
+                    table = _read_fallback_file(fallback_configured)
+                    table_states[key] = "empty" if table.width == 0 else "available"
+                    LOGGER.info(
+                        "[read_run] Using fallback file for run '%s', table '%s': %s",
+                        label,
+                        key,
+                        fallback_configured,
+                    )
+                    return table
+                except FileNotFoundError as fallback_exc:
+                    combined_reason = f"{exc}; fallback failed: {fallback_exc}"
+                else:
+                    combined_reason = str(exc)
+            else:
+                combined_reason = str(exc)
+
             table_states[key] = "unavailable"
-            table_reasons[key] = str(exc)
+            table_reasons[key] = combined_reason
             LOGGER.warning(
                 "Prepare input unavailable for run '%s', table '%s': %s",
                 label,
                 key,
-                exc,
+                combined_reason,
             )
             return pl.DataFrame()
 
