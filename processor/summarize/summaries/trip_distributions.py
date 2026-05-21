@@ -223,12 +223,12 @@ def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
     if "out_dir_dist" not in stops.columns:
         return empty_summary_frame(stop_ood_distance)
 
-    stops2 = stops.with_columns(
+    stops2 = stops.filter(pl.col("out_dir_dist").is_not_null()).with_columns(
         pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"),
-        pl.col("out_dir_dist").fill_null(0).clip(0, 999).alias("ood"),
+        pl.col("out_dir_dist").clip(0, 999).alias("ood"),
     ).with_columns(pl.col("ood").cast(pl.Int32).clip(0, 40).alias("distance_bin"))
 
-    if "tour_purpose" not in stops2.columns:
+    if "tour_purpose" not in stops2.columns or stops2.is_empty():
         return empty_summary_frame(stop_ood_distance)
 
     bins_df = pl.DataFrame(

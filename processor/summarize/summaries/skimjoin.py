@@ -63,6 +63,44 @@ def _weighted_quantile(
     return pairs[-1][0]
 
 
+def _sorted_weighted_pairs(
+    values: list[float],
+    weights: list[float],
+) -> tuple[list[float], list[float], float]:
+    if not values:
+        return [], [], 0.0
+    pairs = sorted(zip(values, weights, strict=False), key=lambda item: item[0])
+    sorted_values = [value for value, _ in pairs]
+    sorted_weights = [weight for _, weight in pairs]
+    total_weight = float(sum(sorted_weights))
+    return sorted_values, sorted_weights, total_weight
+
+
+def _weighted_quantiles_from_sorted_pairs(
+    sorted_values: list[float],
+    sorted_weights: list[float],
+    total_weight: float,
+    percentiles: list[float],
+) -> list[float | None]:
+    if not sorted_values or total_weight <= 0:
+        return [None] * len(percentiles)
+
+    thresholds = [total_weight * percentile for percentile in percentiles]
+    results: list[float | None] = []
+    cumulative = 0.0
+    index = 0
+    current_value = sorted_values[0]
+
+    for threshold in thresholds:
+        while index < len(sorted_values) and cumulative < threshold:
+            current_value = sorted_values[index]
+            cumulative += sorted_weights[index]
+            index += 1
+        results.append(current_value)
+
+    return results
+
+
 def _weighted_stats_rows(df: pl.DataFrame, *, mode_column: str) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     component_columns = _skim_component_columns(df)
@@ -113,17 +151,25 @@ def _weighted_ecdf_rows(df: pl.DataFrame, *, mode_column: str) -> list[dict[str,
                 float(value)
                 for value in valid_df.get_column("finalweight").cast(pl.Float64).to_list()
             ]
-            n_valid = float(sum(weights))
+            sorted_values, sorted_weights, n_valid = _sorted_weighted_pairs(values, weights)
             if n_valid <= 0:
                 continue
 
-            for percentile in _PERCENTILES:
+            quantile_values = _weighted_quantiles_from_sorted_pairs(
+                sorted_values,
+                sorted_weights,
+                n_valid,
+                _PERCENTILES,
+            )
+            for percentile, quantile_value in zip(
+                _PERCENTILES, quantile_values, strict=False
+            ):
                 rows.append(
                     {
                         mode_column: mode_value,
                         "component": component,
                         "percentile": float(percentile),
-                        "value": _weighted_quantile(values, weights, percentile),
+                        "value": quantile_value,
                         "n_valid": n_valid,
                     }
                 )

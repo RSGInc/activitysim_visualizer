@@ -23,6 +23,7 @@ from processor.prepare.enrichment.weights import _apply_weights
 from processor.prepare.enrichment.zones import (
     _add_land_use_aggregated_geographies,
     _build_zone_context,
+    _log_prepare_diagnostics,
 )
 
 
@@ -53,4 +54,5 @@ def _run_prepare_person_and_tour_stages(
 def _run_prepare_output_stages(state: _PrepareState, config: Config) -> _PrepareState:
     """Normalize output-only columns and cast final prepared table schemas."""
     state = _normalize_vot_bins(state, config)
+    _log_prepare_diagnostics(state)
     return _cast_prepared_tables(state)

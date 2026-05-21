@@ -26,6 +26,7 @@ class _PrepareState:
     trip_weight_col: str | None
     table_states: dict[str, str]
     table_reasons: dict[str, str]
+    prepare_diagnostics: dict[str, object]
 
 
 @dataclass(frozen=True)

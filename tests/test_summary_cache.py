@@ -1192,6 +1192,50 @@ def test_trip_mode_selector_uses_union_across_runs_and_zero_fills_missing_modes(
     assert list(traces["Build"].y) == [1.0, 5.0]
 
 
+def test_trip_mode_page_uses_configured_mode_labels_on_plot_axes(tmp_path: Path) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "categories:",
+            "  mode:",
+            "    mapping:",
+            "      WALK: Walk",
+            "      SHARED2: Shared Ride 2",
+            "      DRIVEALONE: Drive Alone",
+            "      DRIVE: Drive",
+        ],
+    )
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "trip_mode_by_tour_purpose_and_tour_mode": pl.DataFrame(
+                {
+                    "tour_purpose": ["all_tour_purposes", "all_tour_purposes"],
+                    "tour_mode": ["all_tour_modes", "all_tour_modes"],
+                    "trip_mode": ["WALK", "SHARED2"],
+                    "trip_count": [2.0, 5.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = TripModePage(state, config)
+    page.refresh(force=True)
+
+    overall_chart = page.render_body()[0]
+    trace = overall_chart.object.data[0]
+
+    assert list(trace.x) == ["Walk", "Shared Ride 2"]
+    assert list(overall_chart.object.layout.xaxis.categoryarray) == [
+        "Walk",
+        "Shared Ride 2",
+    ]
+
+
 def test_tour_purpose_selectors_use_category_labels_from_config(tmp_path: Path) -> None:
     config = _write_config(
         tmp_path,

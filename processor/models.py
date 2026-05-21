@@ -84,6 +84,7 @@ class RunData:
     table_availability_metadata: TableAvailabilityMetadata = field(
         default_factory=TableAvailabilityMetadata
     )
+    prepare_diagnostics: dict[str, Any] = field(default_factory=dict)
     skimjoin_artifacts: SkimjoinArtifacts = field(default_factory=SkimjoinArtifacts)
     skimjoin_manifest: dict[str, Any] = field(default_factory=dict)
     skimjoin_reports: dict[str, pl.DataFrame] = field(default_factory=dict)
@@ -94,6 +95,7 @@ class RunData:
             states=dict(metadata.states),
             diagnostics=dict(metadata.diagnostics),
         )
+        self.prepare_diagnostics = dict(self.prepare_diagnostics)
 
         if self.skimjoin_manifest or self.skimjoin_reports:
             self.skimjoin_manifest = dict(self.skimjoin_manifest)
@@ -140,6 +142,7 @@ def prune_prepared_run(
             states=dict(prepared_run.table_availability_metadata.states),
             diagnostics=dict(prepared_run.table_availability_metadata.diagnostics),
         ),
+        prepare_diagnostics=dict(prepared_run.prepare_diagnostics),
         skimjoin_artifacts=SkimjoinArtifacts(
             manifest=dict(prepared_run.skimjoin_artifacts.manifest),
             reports=dict(prepared_run.skimjoin_artifacts.reports),

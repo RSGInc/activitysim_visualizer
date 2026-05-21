@@ -664,7 +664,7 @@ def test_processor_prepare_data_uses_zone_id_as_maz_fallback_for_trip_skim_dista
     assert prepared.trips["od_dist"].to_list() == [12.5]
 
 
-def test_processor_prepare_data_leaves_distance_fields_absent_without_usable_skim_inputs(
+def test_processor_prepare_data_surfaces_null_distance_fields_without_usable_zone_mapping(
     tmp_path: Path,
 ) -> None:
     config = _write_config(
@@ -693,12 +693,167 @@ def test_processor_prepare_data_leaves_distance_fields_absent_without_usable_ski
 
     prepared = processor_prepare_data(raw, config)
 
-    assert "SKIMDIST" not in prepared.tours.columns
-    assert "od_dist" not in prepared.trips.columns
-    assert "out_dir_dist" not in prepared.trips.columns
+    assert prepared.tours["OTAZ"].to_list() == [None]
+    assert prepared.tours["DTAZ"].to_list() == [None]
+    assert prepared.trips["OTAZ"].to_list() == [None]
+    assert prepared.trips["DTAZ"].to_list() == [None]
+    assert prepared.tours["SKIMDIST"].to_list() == [None]
+    assert prepared.trips["od_dist"].to_list() == [None]
+    assert prepared.trips["out_dir_dist"].to_list() == [None]
+    assert prepared.prepare_diagnostics["tours.OTAZ"]["unresolved"] == 1
+    assert prepared.prepare_diagnostics["tours.DTAZ"]["unresolved"] == 1
+    assert prepared.prepare_diagnostics["trips.OTAZ"]["unresolved"] == 1
+    assert prepared.prepare_diagnostics["trips.DTAZ"]["unresolved"] == 1
+    assert prepared.prepare_diagnostics["tours.SKIMDIST"]["unresolved"] == 1
+    assert prepared.prepare_diagnostics["trips.od_dist"]["unresolved"] == 1
+    assert prepared.prepare_diagnostics["trips.out_dir_dist"]["unresolved"] == 1
     assert tour.tour_distance(prepared, config).is_empty()
     assert trip.trip_distance(prepared, config).is_empty()
     assert trip.stop_ood_distance(prepared, config).is_empty()
+
+
+def test_processor_prepare_data_keeps_legitimate_zero_skim_values(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "zones:",
+            "  use_maz: true",
+            "  maz_col: [MAZ, zone_id]",
+            "  taz_col: [TAZ]",
+        ],
+    )
+    raw = _raw_run()
+    raw = ProcessorRunData(
+        label=raw.label,
+        run_dir=raw.run_dir,
+        skim_file=raw.skim_file,
+        hh=raw.hh,
+        per=pl.DataFrame(
+            {
+                "person_id": [101],
+                "household_id": [1],
+                "ptype": [1],
+                "home_zone_id": [100],
+                "workplace_zone_id": [100],
+                "school_zone_id": [100],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [1001],
+                "person_id": [101],
+                "household_id": [1],
+                "primary_purpose": ["work"],
+                "tour_type": ["work"],
+                "tour_mode": ["DRIVE"],
+                "tour_category": ["mandatory"],
+                "start": [8],
+                "end": [10],
+                "duration": [2],
+                "origin": [100],
+                "destination": [100],
+                "stop_frequency": ["0out_0in"],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "trip_id": [5001],
+                "tour_id": [1001],
+                "person_id": [101],
+                "household_id": [1],
+                "trip_mode": ["DRIVEALONE"],
+                "purpose": ["work"],
+                "depart": [8],
+                "outbound": [True],
+                "trip_num": [1],
+                "origin": [100],
+                "destination": [100],
+            }
+        ),
+        joint_participants=raw.joint_participants,
+        land_use=pl.DataFrame(
+            {
+                "zone_id": [100],
+                "TAZ": [1],
+                "EMPLOY_TOT": [7],
+            }
+        ),
+        skim_matrix=pl.DataFrame([[0.0]]).to_numpy(),
+        skim_zone_map=None,
+    )
+
+    prepared = processor_prepare_data(raw, config)
+
+    assert prepared.per["distance_to_work"].to_list() == [0.0]
+    assert prepared.per["distance_to_school"].to_list() == [0.0]
+    assert prepared.tours["SKIMDIST"].to_list() == [0.0]
+    assert prepared.trips["od_dist"].to_list() == [0.0]
+    assert prepared.trips["out_dir_dist"].to_list() == [0.0]
+
+
+def test_processor_prepare_data_records_identity_like_taz_mapping_failures(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "zones:",
+            "  use_maz: true",
+            "  maz_col: [MAZ, zone_id]",
+            "  taz_col: [TAZ]",
+        ],
+    )
+    raw = _raw_run()
+    raw = ProcessorRunData(
+        label=raw.label,
+        run_dir=raw.run_dir,
+        skim_file=raw.skim_file,
+        hh=raw.hh,
+        per=pl.DataFrame(
+            {
+                "person_id": [101],
+                "household_id": [1],
+                "ptype": [1],
+                "home_zone_id": [100],
+                "workplace_zone_id": [200],
+                "school_zone_id": [200],
+            }
+        ),
+        tours=raw.tours.with_columns(
+            pl.lit(100).alias("origin"),
+            pl.lit(200).alias("destination"),
+        ),
+        trips=raw.trips.with_columns(
+            pl.lit(100).alias("origin"),
+            pl.lit(200).alias("destination"),
+        ),
+        joint_participants=raw.joint_participants,
+        land_use=pl.DataFrame(
+            {
+                "zone_id": [100, 200],
+                "TAZ": [100, 200],
+                "EMPLOY_TOT": [7, 8],
+            }
+        ),
+        skim_matrix=pl.DataFrame([[0.0, 12.5], [12.5, 0.0]]).to_numpy(),
+        skim_zone_map=None,
+    )
+
+    prepared = processor_prepare_data(raw, config)
+
+    assert prepared.per["distance_to_work"].to_list() == [None]
+    assert prepared.per["distance_to_school"].to_list() == [None]
+    assert prepared.tours["SKIMDIST"].to_list() == [None]
+    assert prepared.trips["od_dist"].to_list() == [None]
+    assert prepared.prepare_diagnostics["persons.distance_to_work"]["unresolved"] == 1
+    assert prepared.prepare_diagnostics["persons.distance_to_school"]["unresolved"] == 1
+    assert prepared.prepare_diagnostics["tours.SKIMDIST"]["unresolved"] == 1
+    assert prepared.prepare_diagnostics["trips.od_dist"]["unresolved"] == 1
+    assert "persons.distance_to_work" in caplog.text
+    assert "tours.SKIMDIST" in caplog.text
 
 
 def test_processor_prepare_data_derives_exact_escort_event_fields_conservatively(

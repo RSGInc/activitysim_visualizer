@@ -173,6 +173,7 @@ def _finalize_prepared_run(state: _PrepareState) -> RunData:
             hh_weight_col=state.hh_weight_col,
             person_weight_col=state.person_weight_col,
             trip_weight_col=state.trip_weight_col,
+            prepare_diagnostics=dict(state.prepare_diagnostics),
         ),
         table_states=state.table_states,
         table_reasons=state.table_reasons,

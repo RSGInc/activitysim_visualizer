@@ -10,7 +10,10 @@ from processor.prepare.enrichment.types import _PrepareState, _ZoneContext
 from processor.prepare.enrichment.zones import (
     _add_aggregated_geography,
     _add_geo,
+    _nullable_float_numpy,
+    _record_prepare_metric,
     _skim_lookup,
+    _skim_series,
     _to_taz,
 )
 from runtime.config import Config
@@ -94,6 +97,8 @@ def _enrich_households(
         state.hh,
         "home_zone_id",
         "home_taz",
+        state=state,
+        metric_id="households.home_taz",
         config=config,
         zone_context=zone_context,
     )
@@ -138,6 +143,8 @@ def _enrich_persons(
         state.per,
         "home_zone_id",
         "home_taz",
+        state=state,
+        metric_id="persons.home_taz",
         config=config,
         zone_context=zone_context,
     )
@@ -145,6 +152,8 @@ def _enrich_persons(
         state.per,
         "workplace_zone_id",
         "work_taz",
+        state=state,
+        metric_id="persons.work_taz",
         config=config,
         zone_context=zone_context,
     )
@@ -152,6 +161,8 @@ def _enrich_persons(
         state.per,
         "school_zone_id",
         "school_taz",
+        state=state,
+        metric_id="persons.school_taz",
         config=config,
         zone_context=zone_context,
     )
@@ -199,21 +210,48 @@ def _enrich_persons(
             "[prepare_data] Computing person skim distances for '%s'", state.label
         )
         if "home_taz" in state.per.columns and "work_taz" in state.per.columns:
-            o = state.per["home_taz"].fill_null(0).to_numpy()
-            d = state.per["work_taz"].fill_null(0).to_numpy()
+            o = _nullable_float_numpy(state.per["home_taz"])
+            d = _nullable_float_numpy(state.per["work_taz"])
+            dist = _skim_lookup(state.skim, o, d, state.skim_map)
             state.per = state.per.with_columns(
-                pl.Series(
-                    "distance_to_work", _skim_lookup(state.skim, o, d, state.skim_map)
-                )
+                _skim_series("distance_to_work", dist)
+            )
+            total = state.per.filter(
+                pl.col("home_zone_id").is_not_null()
+                & pl.col("workplace_zone_id").is_not_null()
+            ).height
+            unresolved = state.per.filter(
+                pl.col("home_zone_id").is_not_null()
+                & pl.col("workplace_zone_id").is_not_null()
+                & pl.col("distance_to_work").is_null()
+            ).height
+            _record_prepare_metric(
+                state,
+                "persons.distance_to_work",
+                total=total,
+                unresolved=unresolved,
             )
         if "home_taz" in state.per.columns and "school_taz" in state.per.columns:
-            o = state.per["home_taz"].fill_null(0).to_numpy()
-            d = state.per["school_taz"].fill_null(0).to_numpy()
+            o = _nullable_float_numpy(state.per["home_taz"])
+            d = _nullable_float_numpy(state.per["school_taz"])
+            dist = _skim_lookup(state.skim, o, d, state.skim_map)
             state.per = state.per.with_columns(
-                pl.Series(
-                    "distance_to_school",
-                    _skim_lookup(state.skim, o, d, state.skim_map),
-                )
+                _skim_series("distance_to_school", dist)
+            )
+            total = state.per.filter(
+                pl.col("home_zone_id").is_not_null()
+                & pl.col("school_zone_id").is_not_null()
+            ).height
+            unresolved = state.per.filter(
+                pl.col("home_zone_id").is_not_null()
+                & pl.col("school_zone_id").is_not_null()
+                & pl.col("distance_to_school").is_null()
+            ).height
+            _record_prepare_metric(
+                state,
+                "persons.distance_to_school",
+                total=total,
+                unresolved=unresolved,
             )
 
     if (

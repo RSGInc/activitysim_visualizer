@@ -372,21 +372,21 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         "skimjoin_trip_component_stats",
         skimjoin.trip_skim_component_stats,
     ),
-    SummarySpec(
-        "skimjoin_trip_component_ecdf",
-        "skimjoin_trip_component_ecdf",
-        skimjoin.trip_skim_component_ecdf,
-    ),
+    # SummarySpec(
+    #     "skimjoin_trip_component_ecdf",
+    #     "skimjoin_trip_component_ecdf",
+    #     skimjoin.trip_skim_component_ecdf,
+    # ),
     SummarySpec(
         "skimjoin_tour_component_stats",
         "skimjoin_tour_component_stats",
         skimjoin.tour_skim_component_stats,
     ),
-    SummarySpec(
-        "skimjoin_tour_component_ecdf",
-        "skimjoin_tour_component_ecdf",
-        skimjoin.tour_skim_component_ecdf,
-    ),
+    # SummarySpec(
+    #     "skimjoin_tour_component_ecdf",
+    #     "skimjoin_tour_component_ecdf",
+    #     skimjoin.tour_skim_component_ecdf,
+    # ),
     # VALIDATION SUMMARIES
     SummarySpec(
         "traffic_count_comparisons",

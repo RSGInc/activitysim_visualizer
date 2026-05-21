@@ -37,6 +37,35 @@ def _filtered_trip_mode_data(
     return out
 
 
+def _label_mode_column(
+    data_list: list[tuple[str, pl.DataFrame]],
+    *,
+    config,
+    source_col: str,
+    target_col: str,
+) -> list[tuple[str, pl.DataFrame]]:
+    labeled: list[tuple[str, pl.DataFrame]] = []
+    for label, df in data_list:
+        if df is None or source_col not in df.columns:
+            labeled.append((label, df))
+            continue
+        labeled.append(
+            (
+                label,
+                df.with_columns(
+                    pl.col(source_col)
+                    .cast(pl.Utf8)
+                    .map_elements(
+                        lambda value: config.label_value("mode", value),
+                        return_dtype=pl.Utf8,
+                    )
+                    .alias(target_col)
+                ),
+            )
+        )
+    return labeled
+
+
 class TripModePage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
         trip_mode_data = self.state.get_summary_table_set(
@@ -123,13 +152,16 @@ class TripModePage(DashboardPage):
 
         trip_mode_list = summaries["trip_mode_by_tour_purpose_and_tour_mode"]
         tour_purpose = self.tour_purpose_sel.value
-        raw_tour_purpose = self._tour_purpose_to_raw.get(tour_purpose, "all_tour_purposes")
+        raw_tour_purpose = self._tour_purpose_to_raw.get(
+            tour_purpose, "all_tour_purposes"
+        )
         trip_mode_x_values = ordered_category_values(
             trip_mode_list,
             "trip_mode",
             category_id="mode",
             config=self.config,
         )
+        trip_mode_label_values = self.config.ordered_labels("mode", trip_mode_x_values)
         tour_modes = [
             value
             for value in ordered_category_values(
@@ -144,14 +176,19 @@ class TripModePage(DashboardPage):
         overall_data = self.get_filtered_view(
             "trip_mode_overall",
             raw_tour_purpose,
-            factory=lambda: complete_category_counts(
-                _filtered_trip_mode_data(
-                    trip_mode_list,
-                    raw_tour_purpose,
+            factory=lambda: _label_mode_column(
+                complete_category_counts(
+                    _filtered_trip_mode_data(
+                        trip_mode_list,
+                        raw_tour_purpose,
+                    ),
+                    category_col="trip_mode",
+                    category_values=trip_mode_x_values,
+                    value_cols=("trip_count", "pct"),
                 ),
-                category_col="trip_mode",
-                category_values=trip_mode_x_values,
-                value_cols=("trip_count", "pct"),
+                config=self.config,
+                source_col="trip_mode",
+                target_col="trip_mode_label",
             ),
         )
 
@@ -160,21 +197,26 @@ class TripModePage(DashboardPage):
             mode_data = self.get_filtered_view(
                 "trip_mode_grid",
                 (raw_tour_purpose, tour_mode),
-                factory=lambda tm=tour_mode: complete_category_counts(
-                    _filtered_trip_mode_data(
-                        trip_mode_list,
-                        raw_tour_purpose,
-                        tour_mode=tm,
+                factory=lambda tm=tour_mode: _label_mode_column(
+                    complete_category_counts(
+                        _filtered_trip_mode_data(
+                            trip_mode_list,
+                            raw_tour_purpose,
+                            tour_mode=tm,
+                        ),
+                        category_col="trip_mode",
+                        category_values=trip_mode_x_values,
+                        value_cols=("trip_count", "pct"),
                     ),
-                    category_col="trip_mode",
-                    category_values=trip_mode_x_values,
-                    value_cols=("trip_count", "pct"),
+                    config=self.config,
+                    source_col="trip_mode",
+                    target_col="trip_mode_label",
                 ),
             )
             grid_cards.append(
                 bar_chart(
                     mode_data,
-                    x_col="trip_mode",
+                    x_col="trip_mode_label",
                     y_col="trip_count",
                     title=f"Trip Mode Distribution - {self.config.label_value('mode', tour_mode)}",
                     xaxis_title="Trip Mode",
@@ -182,7 +224,7 @@ class TripModePage(DashboardPage):
                     pct_col="pct",
                     as_percent=self.as_percent,
                     height=320,
-                    xaxis_categoryarray=trip_mode_x_values,
+                    xaxis_categoryarray=trip_mode_label_values,
                 )
             )
 
@@ -195,14 +237,14 @@ class TripModePage(DashboardPage):
         return [
             bar_chart(
                 overall_data,
-                x_col="trip_mode",
+                x_col="trip_mode_label",
                 y_col="trip_count",
                 title=f"Trip Mode Distribution - {tour_purpose}",
                 xaxis_title="Trip Mode",
                 yaxis_title="Trips",
                 pct_col="pct",
                 as_percent=self.as_percent,
-                xaxis_categoryarray=trip_mode_x_values,
+                xaxis_categoryarray=trip_mode_label_values,
             ),
             pn.pane.Markdown("### Trip Mode by Tour Mode"),
             *grid_rows,

@@ -12,7 +12,10 @@ from processor.prepare.enrichment.columns import _resolve_source_column
 from processor.prepare.enrichment.types import _PrepareState, _ZoneContext
 from processor.prepare.enrichment.zones import (
     _add_aggregated_geography,
+    _nullable_float_numpy,
+    _record_prepare_metric,
     _skim_lookup,
+    _skim_series,
     _to_taz,
 )
 from runtime.config import Config
@@ -582,6 +585,8 @@ def _enrich_trips(
         state.trips,
         "origin",
         "OTAZ",
+        state=state,
+        metric_id="trips.OTAZ",
         config=config,
         zone_context=zone_context,
     )
@@ -589,6 +594,8 @@ def _enrich_trips(
         state.trips,
         "destination",
         "DTAZ",
+        state=state,
+        metric_id="trips.DTAZ",
         config=config,
         zone_context=zone_context,
     )
@@ -621,10 +628,25 @@ def _enrich_trips(
         LOGGER.info(
             "[prepare_data] Computing trip skim distances for '%s'", state.label
         )
-        o = state.trips["OTAZ"].fill_null(0).to_numpy()
-        d = state.trips["DTAZ"].fill_null(0).to_numpy()
+        o = _nullable_float_numpy(state.trips["OTAZ"])
+        d = _nullable_float_numpy(state.trips["DTAZ"])
+        dist = _skim_lookup(state.skim, o, d, state.skim_map)
         state.trips = state.trips.with_columns(
-            pl.Series("od_dist", _skim_lookup(state.skim, o, d, state.skim_map))
+            _skim_series("od_dist", dist)
+        )
+        total = state.trips.filter(
+            pl.col("origin").is_not_null() & pl.col("destination").is_not_null()
+        ).height
+        unresolved = state.trips.filter(
+            pl.col("origin").is_not_null()
+            & pl.col("destination").is_not_null()
+            & pl.col("od_dist").is_null()
+        ).height
+        _record_prepare_metric(
+            state,
+            "trips.od_dist",
+            total=total,
+            unresolved=unresolved,
         )
     elif "od_dist" not in state.trips.columns:
         LOGGER.info(
@@ -674,16 +696,33 @@ def _enrich_trips(
             state.trips = state.trips.join(tour_od, on="tour_id", how="left")
             finaldest = np.where(
                 state.trips["inbound"].to_numpy() == 0,
-                state.trips["tour_DTAZ"].fill_null(0).to_numpy(),
-                state.trips["tour_OTAZ"].fill_null(0).to_numpy(),
+                _nullable_float_numpy(state.trips["tour_DTAZ"]),
+                _nullable_float_numpy(state.trips["tour_OTAZ"]),
             )
-            o = state.trips["OTAZ"].fill_null(0).to_numpy()
-            d = state.trips["DTAZ"].fill_null(0).to_numpy()
+            o = _nullable_float_numpy(state.trips["OTAZ"])
+            d = _nullable_float_numpy(state.trips["DTAZ"])
             od = _skim_lookup(state.skim, o, d, state.skim_map)
             os_ = _skim_lookup(state.skim, o, finaldest, state.skim_map)
             sd = _skim_lookup(state.skim, d, finaldest, state.skim_map)
             state.trips = state.trips.with_columns(
-                pl.Series("out_dir_dist", (os_ + sd - od).clip(0))
+                _skim_series("out_dir_dist", np.clip(os_ + sd - od, 0, None))
+            )
+            total = state.trips.filter(
+                pl.col("origin").is_not_null()
+                & pl.col("destination").is_not_null()
+                & pl.col("tour_id").is_not_null()
+            ).height
+            unresolved = state.trips.filter(
+                pl.col("origin").is_not_null()
+                & pl.col("destination").is_not_null()
+                & pl.col("tour_id").is_not_null()
+                & pl.col("out_dir_dist").is_null()
+            ).height
+            _record_prepare_metric(
+                state,
+                "trips.out_dir_dist",
+                total=total,
+                unresolved=unresolved,
             )
         else:
             LOGGER.info(

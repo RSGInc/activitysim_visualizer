@@ -10,7 +10,10 @@ from processor.prepare.enrichment.columns import _resolve_source_column
 from processor.prepare.enrichment.types import _PrepareState, _ZoneContext
 from processor.prepare.enrichment.zones import (
     _add_aggregated_geography,
+    _nullable_float_numpy,
+    _record_prepare_metric,
     _skim_lookup,
+    _skim_series,
     _to_taz,
 )
 from runtime.config import Config
@@ -99,6 +102,8 @@ def _enrich_tours(
         state.tours,
         "origin",
         "OTAZ",
+        state=state,
+        metric_id="tours.OTAZ",
         config=config,
         zone_context=zone_context,
     )
@@ -106,6 +111,8 @@ def _enrich_tours(
         state.tours,
         "destination",
         "DTAZ",
+        state=state,
+        metric_id="tours.DTAZ",
         config=config,
         zone_context=zone_context,
     )
@@ -139,10 +146,25 @@ def _enrich_tours(
         LOGGER.info(
             "[prepare_data] Computing tour skim distances for '%s'", state.label
         )
-        o = state.tours["OTAZ"].fill_null(0).to_numpy()
-        d = state.tours["DTAZ"].fill_null(0).to_numpy()
+        o = _nullable_float_numpy(state.tours["OTAZ"])
+        d = _nullable_float_numpy(state.tours["DTAZ"])
+        dist = _skim_lookup(state.skim, o, d, state.skim_map)
         state.tours = state.tours.with_columns(
-            pl.Series("SKIMDIST", _skim_lookup(state.skim, o, d, state.skim_map))
+            _skim_series("SKIMDIST", dist)
+        )
+        total = state.tours.filter(
+            pl.col("origin").is_not_null() & pl.col("destination").is_not_null()
+        ).height
+        unresolved = state.tours.filter(
+            pl.col("origin").is_not_null()
+            & pl.col("destination").is_not_null()
+            & pl.col("SKIMDIST").is_null()
+        ).height
+        _record_prepare_metric(
+            state,
+            "tours.SKIMDIST",
+            total=total,
+            unresolved=unresolved,
         )
     elif "SKIMDIST" not in state.tours.columns:
         LOGGER.info(

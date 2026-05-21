@@ -977,6 +977,36 @@ def test_prepared_cache_round_trip_preserves_failed_table_state_and_diagnostic(
     assert loaded.tours.is_empty()
 
 
+def test_prepared_cache_round_trip_preserves_prepare_diagnostics(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    prepared = _prepared_run(config)
+    prepared.prepare_diagnostics = {
+        "tours.OTAZ": {
+            "total": 10,
+            "unresolved": 3,
+            "unresolved_share": 0.3,
+            "lookup_available": True,
+            "source_column": "origin",
+        }
+    }
+
+    entry = write_prepared_run_cache(prepared, config, run_key="base")
+
+    assert entry.manifest["prepare_diagnostics"] == prepared.prepare_diagnostics
+
+    loaded = load_prepared_run_cache(
+        entry.cache_dir,
+        config,
+        expected_prepare_config_digest=config.prepare_config_digest,
+        expected_label="Base",
+        expected_run_key="base",
+    )
+
+    assert loaded.prepare_diagnostics == prepared.prepare_diagnostics
+
+
 def test_prepared_cache_writes_sentinel_tables_for_non_available_states(
     tmp_path: Path,
 ) -> None:
@@ -1031,9 +1061,12 @@ def test_prepared_cache_loads_schema_version_2_manifest_without_failed_metadata(
     entry = write_prepared_run_cache(prepared, config, run_key="base")
     manifest_path = entry.cache_dir / "manifest.json"
     manifest = manifest_path.read_text(encoding="utf-8")
-    manifest = manifest.replace('"schema_version": 3', '"schema_version": 2')
+    manifest = manifest.replace(
+        f'"schema_version": {entry.manifest["schema_version"]}', '"schema_version": 2'
+    )
     manifest = manifest.replace('\n  "table_diagnostics": {},', "")
     manifest = manifest.replace('\n  "failed_tables": {},', "")
+    manifest = manifest.replace('\n  "prepare_diagnostics": {},', "")
     manifest_path.write_text(manifest, encoding="utf-8")
 
     loaded = load_prepared_run_cache(

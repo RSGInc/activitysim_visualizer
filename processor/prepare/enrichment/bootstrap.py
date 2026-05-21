@@ -26,4 +26,5 @@ def _init_prepare_state(rd: RunData) -> _PrepareState:
         trip_weight_col=rd.trip_weight_col,
         table_states=table_availability(rd),
         table_reasons=table_unavailable_reasons(rd),
+        prepare_diagnostics=dict(rd.prepare_diagnostics),
     )
