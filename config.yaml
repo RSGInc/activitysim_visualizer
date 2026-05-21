@@ -86,10 +86,16 @@ visualizer:
 # Runs to compare
 # Each entry specifies a run directory, a display label, and optional overrides.
 # `file_map` overrides the default top-level `files:` mapping for that run only.
+# `prepared_table_map` points directly at user-managed canonical prepared tables
+# for that run. Values must be explicit `.parquet` or `.csv` paths and take
+# precedence over raw-run prepare for summarize and prepared-data pages.
 # Example:
 #   file_map:
 #     households: final_hh
 #     trips: trip_linked
+#   prepared_table_map:
+#     households: path\to\prepared\households.parquet
+#     persons: path\to\prepared\persons.csv
 #
 # Weight columns (all optional — leave as null or omit to use default rules):
 #   hh_weight_col:     explicit household weight column in final_households
@@ -105,6 +111,13 @@ runs:
     # file_map:
     #   households: final_hh
     #   trips: trip_linked
+    # prepared_table_map:
+    #   households: path\to\prepared\households.parquet
+    #   persons: path\to\prepared\persons.csv
+    #   tours: path\to\prepared\tours.parquet
+    #   trips: path\to\prepared\trips.csv
+    #   joint_tour_participants: path\to\prepared\joint_tour_participants.parquet
+    #   land_use: path\to\prepared\land_use.csv
     skim_file:        null
     hh_weight_col:    null
     person_weight_col: null
@@ -122,6 +135,12 @@ runs:
 skim:
   file: path\to\skims.omx       # path relative to run directory, or absolute
   matrix: SOV_TIMEVOT2__MD    # matrix name inside the OMX file
+
+prepare:
+  output:
+    file_format: parquet   # prepared cache output format; supports parquet or csv
+  validation:
+    relationship_checks: warn   # off, warn, or error for cross-table prepared-key checks
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +219,8 @@ person_types:
 # ---------------------------------------------------------------------------
 # Geography grouping (OPTIONAL)
 # Enables district/county/zone-group level breakdowns.
-# Remove this section (or set enabled: false) to disable geographic summaries.
+# Remove this section (or set enabled: false) to disable both the legacy
+# geography labels and the newer aggregation-derived geography columns.
 # ---------------------------------------------------------------------------
 geography:
   enabled: false

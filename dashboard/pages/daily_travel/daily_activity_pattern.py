@@ -17,6 +17,13 @@ from dashboard.page_definitions import DashboardPageDefinition
 
 PERSON_TYPE_COL = "person_type"
 TOUR_PURPOSE_LABEL_COL = "tour_purpose_label"
+PERSON_TYPE_SUMMARY_IDS = (
+    "daily_activity_pattern_by_person_type",
+    "mandatory_tour_frequency_by_person_type",
+    "nonmandatory_tour_frequency_by_person_type",
+    "tour_rates_by_person_type_and_tour_purpose",
+    "trip_rates_by_person_type_and_trip_purpose",
+)
 
 
 def _person_type_filter(df: pl.DataFrame, person_type: str | None) -> pl.DataFrame:
@@ -167,9 +174,7 @@ class DailyActivityPatternPage(DashboardPage):
         )
 
     def _person_type_options(self) -> list[str]:
-        data = self.state.get_summary_table_set(
-            "daily_activity_pattern_by_person_type", "weighted"
-        )
+        data = self._person_type_source_data("weighted")
         if data is None:
             return ["Total"]
         opts, self._person_type_to_raw = column_options(
@@ -189,12 +194,30 @@ class DailyActivityPatternPage(DashboardPage):
         )
         return opts or ["Total"]
 
+    def _person_type_source_data(
+        self,
+        weighting_key: str,
+    ) -> list[tuple[str, pl.DataFrame]] | None:
+        for summary_id in PERSON_TYPE_SUMMARY_IDS:
+            data = self.state.get_summary_table_set(summary_id, weighting_key)
+            if data is not None:
+                return data
+        return None
+
+    def _missing_chart_card(self, summary_id: str) -> pn.Card:
+        return self.data_not_available_card(
+            detail="This chart requires a precomputed summary table.",
+            missing_items=[summary_id],
+        )
+
     def sync_controls(self) -> None:
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        data = self._person_type_source_data(self.weighting_key)
+        if data is None:
+            self.person_type_sel.options = ["Total"]
+            self.person_type_sel.value = "Total"
             return
         display_opts, self._person_type_to_raw = column_options(
-            summaries["daily_activity_pattern_by_person_type"],
+            data,
             PERSON_TYPE_COL,
             category_id="person_type",
             config=self.config,
@@ -216,8 +239,11 @@ class DailyActivityPatternPage(DashboardPage):
         if not self.state.run_labels:
             return [pn.pane.Markdown("No runs loaded.")]
 
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        summaries = {
+            summary_id: self.optional_summary(summary_id)
+            for summary_id in self.required_summary_ids
+        }
+        if not any(data is not None for data in summaries.values()):
             return [
                 self.data_not_available_card(
                     detail="This page only renders from precomputed summary tables.",
@@ -228,172 +254,206 @@ class DailyActivityPatternPage(DashboardPage):
         person_type = self.person_type_sel.value
         raw_person_type = self._person_type_to_raw.get(person_type)
         person_weights = _person_weights_by_run(
-            summaries["daily_activity_pattern_by_person_type"]
+            summaries["daily_activity_pattern_by_person_type"] or []
         )
-        dap_x_values = ordered_category_values(
-            summaries["daily_activity_pattern_by_person_type"],
-            "daily_activity_pattern",
-            category_id="daily_activity_pattern",
-            config=self.config,
-        )
-        mandatory_x_values = ordered_category_values(
-            summaries["mandatory_tour_frequency_by_person_type"],
-            "mandatory_tour_frequency",
-            category_id="mandatory_tour_frequency",
-            config=self.config,
-        )
-        nonmandatory_x_values = ordered_category_values(
-            summaries["nonmandatory_tour_frequency_by_person_type"],
-            "nonmandatory_tour_frequency",
-        )
-        tour_purpose_x_values = ordered_category_values(
-            summaries["tour_rates_by_person_type_and_tour_purpose"],
-            "tour_purpose",
-            category_id="tour_purpose",
-            config=self.config,
-        )
-        trip_purpose_x_values = ordered_category_values(
-            summaries["trip_rates_by_person_type_and_trip_purpose"],
-            "trip_purpose",
-        )
-        tour_purpose_label_values = self.config.ordered_labels(
-            "tour_purpose",
-            tour_purpose_x_values,
-        )
+        content: list[pn.viewable.Viewable] = []
 
-        dap_data = self.get_filtered_view(
-            "daily_activity_pattern",
-            raw_person_type,
-            factory=lambda: complete_category_counts(
-                filter_person_type_counts(
-                    summaries["daily_activity_pattern_by_person_type"], raw_person_type
-                ),
-                category_col="daily_activity_pattern",
-                category_values=dap_x_values,
-                value_cols=("person_count", "pct"),
-            ),
-        )
-        mand_tour_freq_data = self.get_filtered_view(
-            "mandatory_tour_frequency",
-            raw_person_type,
-            factory=lambda: complete_category_counts(
-                filter_person_type_counts(
-                    summaries["mandatory_tour_frequency_by_person_type"],
-                    raw_person_type,
-                ),
-                category_col="mandatory_tour_frequency",
-                category_values=mandatory_x_values,
-                value_cols=("person_count", "pct"),
-            ),
-        )
-        nonmand_tour_freq_data = self.get_filtered_view(
-            "nonmandatory_tour_frequency",
-            raw_person_type,
-            factory=lambda: complete_category_counts(
-                filter_person_type_counts(
-                    summaries["nonmandatory_tour_frequency_by_person_type"],
-                    raw_person_type,
-                ),
-                category_col="nonmandatory_tour_frequency",
-                category_values=nonmandatory_x_values,
-                value_cols=("person_count", "pct"),
-            ),
-        )
-        tour_rate_data = self.get_filtered_view(
-            "tour_rate_per_person",
-            raw_person_type,
-            factory=lambda: label_tour_purpose_rates(
-                complete_category_counts(
-                    filter_person_type_rates(
-                        summaries["tour_rates_by_person_type_and_tour_purpose"],
+        if summaries["daily_activity_pattern_by_person_type"] is None:
+            content.append(
+                self._missing_chart_card("daily_activity_pattern_by_person_type")
+            )
+        else:
+            dap_x_values = ordered_category_values(
+                summaries["daily_activity_pattern_by_person_type"],
+                "daily_activity_pattern",
+                category_id="daily_activity_pattern",
+                config=self.config,
+            )
+            dap_data = self.get_filtered_view(
+                "daily_activity_pattern",
+                raw_person_type,
+                factory=lambda: complete_category_counts(
+                    filter_person_type_counts(
+                        summaries["daily_activity_pattern_by_person_type"],
                         raw_person_type,
-                        purpose_col="tour_purpose",
-                        rate_col="tour_rate",
-                        person_weights=person_weights,
                     ),
-                    category_col="tour_purpose",
-                    category_values=tour_purpose_x_values,
-                    value_cols=("tour_rate",),
+                    category_col="daily_activity_pattern",
+                    category_values=dap_x_values,
+                    value_cols=("person_count", "pct"),
                 ),
-                self.config,
-            ),
-        )
-        trip_rate_data = self.get_filtered_view(
-            "trip_rate_per_person",
-            raw_person_type,
-            factory=lambda: complete_category_counts(
-                filter_person_type_rates(
-                    summaries["trip_rates_by_person_type_and_trip_purpose"],
-                    raw_person_type,
-                    purpose_col="trip_purpose",
-                    rate_col="trip_rate",
-                    person_weights=person_weights,
-                ),
-                category_col="trip_purpose",
-                category_values=trip_purpose_x_values,
-                value_cols=("trip_rate",),
-            ),
-        )
+            )
+            content.append(
+                bar_chart(
+                    dap_data,
+                    x_col="daily_activity_pattern",
+                    y_col="person_count",
+                    title=f"Daily Activity Pattern - {person_type}",
+                    xaxis_title="Daily Activity Pattern",
+                    yaxis_title="Persons",
+                    pct_col="pct",
+                    as_percent=self.as_percent,
+                    xaxis_categoryarray=dap_x_values,
+                )
+            )
 
-        return [
-            bar_chart(
-                dap_data,
-                x_col="daily_activity_pattern",
+        mandatory_view: pn.viewable.Viewable
+        if summaries["mandatory_tour_frequency_by_person_type"] is None:
+            mandatory_view = self._missing_chart_card(
+                "mandatory_tour_frequency_by_person_type"
+            )
+        else:
+            mandatory_x_values = ordered_category_values(
+                summaries["mandatory_tour_frequency_by_person_type"],
+                "mandatory_tour_frequency",
+                category_id="mandatory_tour_frequency",
+                config=self.config,
+            )
+            mand_tour_freq_data = self.get_filtered_view(
+                "mandatory_tour_frequency",
+                raw_person_type,
+                factory=lambda: complete_category_counts(
+                    filter_person_type_counts(
+                        summaries["mandatory_tour_frequency_by_person_type"],
+                        raw_person_type,
+                    ),
+                    category_col="mandatory_tour_frequency",
+                    category_values=mandatory_x_values,
+                    value_cols=("person_count", "pct"),
+                ),
+            )
+            mandatory_view = bar_chart(
+                mand_tour_freq_data,
+                x_col="mandatory_tour_frequency",
                 y_col="person_count",
-                title=f"Daily Activity Pattern - {person_type}",
-                xaxis_title="Daily Activity Pattern",
+                title=f"Mandatory Tour Frequency - {person_type}",
+                xaxis_title="Mandatory Tour Frequency",
                 yaxis_title="Persons",
                 pct_col="pct",
                 as_percent=self.as_percent,
-                xaxis_categoryarray=dap_x_values,
-            ),
-            pn.Row(
-                bar_chart(
-                    mand_tour_freq_data,
-                    x_col="mandatory_tour_frequency",
-                    y_col="person_count",
-                    title=f"Mandatory Tour Frequency - {person_type}",
-                    xaxis_title="Mandatory Tour Frequency",
-                    yaxis_title="Persons",
-                    pct_col="pct",
-                    as_percent=self.as_percent,
-                    xaxis_categoryarray=mandatory_x_values,
+                xaxis_categoryarray=mandatory_x_values,
+            )
+
+        nonmandatory_view: pn.viewable.Viewable
+        if summaries["nonmandatory_tour_frequency_by_person_type"] is None:
+            nonmandatory_view = self._missing_chart_card(
+                "nonmandatory_tour_frequency_by_person_type"
+            )
+        else:
+            nonmandatory_x_values = ordered_category_values(
+                summaries["nonmandatory_tour_frequency_by_person_type"],
+                "nonmandatory_tour_frequency",
+            )
+            nonmand_tour_freq_data = self.get_filtered_view(
+                "nonmandatory_tour_frequency",
+                raw_person_type,
+                factory=lambda: complete_category_counts(
+                    filter_person_type_counts(
+                        summaries["nonmandatory_tour_frequency_by_person_type"],
+                        raw_person_type,
+                    ),
+                    category_col="nonmandatory_tour_frequency",
+                    category_values=nonmandatory_x_values,
+                    value_cols=("person_count", "pct"),
                 ),
-                bar_chart(
-                    nonmand_tour_freq_data,
-                    x_col="nonmandatory_tour_frequency",
-                    y_col="person_count",
-                    title=f"Non-Mandatory Tour Frequency - {person_type}",
-                    xaxis_title="Non-Mandatory Tour Frequency",
-                    yaxis_title="Persons",
-                    pct_col="pct",
-                    as_percent=self.as_percent,
-                    xaxis_categoryarray=nonmandatory_x_values,
+            )
+            nonmandatory_view = bar_chart(
+                nonmand_tour_freq_data,
+                x_col="nonmandatory_tour_frequency",
+                y_col="person_count",
+                title=f"Non-Mandatory Tour Frequency - {person_type}",
+                xaxis_title="Non-Mandatory Tour Frequency",
+                yaxis_title="Persons",
+                pct_col="pct",
+                as_percent=self.as_percent,
+                xaxis_categoryarray=nonmandatory_x_values,
+            )
+        content.append(pn.Row(mandatory_view, nonmandatory_view))
+
+        tour_rate_view: pn.viewable.Viewable
+        if summaries["tour_rates_by_person_type_and_tour_purpose"] is None:
+            tour_rate_view = self._missing_chart_card(
+                "tour_rates_by_person_type_and_tour_purpose"
+            )
+        else:
+            tour_purpose_x_values = ordered_category_values(
+                summaries["tour_rates_by_person_type_and_tour_purpose"],
+                "tour_purpose",
+                category_id="tour_purpose",
+                config=self.config,
+            )
+            tour_purpose_label_values = self.config.ordered_labels(
+                "tour_purpose",
+                tour_purpose_x_values,
+            )
+            tour_rate_data = self.get_filtered_view(
+                "tour_rate_per_person",
+                raw_person_type,
+                factory=lambda: label_tour_purpose_rates(
+                    complete_category_counts(
+                        filter_person_type_rates(
+                            summaries["tour_rates_by_person_type_and_tour_purpose"],
+                            raw_person_type,
+                            purpose_col="tour_purpose",
+                            rate_col="tour_rate",
+                            person_weights=person_weights,
+                        ),
+                        category_col="tour_purpose",
+                        category_values=tour_purpose_x_values,
+                        value_cols=("tour_rate",),
+                    ),
+                    self.config,
                 ),
-            ),
-            pn.Row(
-                bar_chart(
-                    tour_rate_data,
-                    x_col=TOUR_PURPOSE_LABEL_COL,
-                    y_col="tour_rate",
-                    title=f"Daily Tour Rate per Person by Tour Purpose - {person_type}",
-                    xaxis_title="Tour Purpose",
-                    yaxis_title="Tours per Person-Day",
-                    as_percent=False,
-                    xaxis_categoryarray=tour_purpose_label_values,
+            )
+            tour_rate_view = bar_chart(
+                tour_rate_data,
+                x_col=TOUR_PURPOSE_LABEL_COL,
+                y_col="tour_rate",
+                title=f"Daily Tour Rate per Person by Tour Purpose - {person_type}",
+                xaxis_title="Tour Purpose",
+                yaxis_title="Tours per Person-Day",
+                as_percent=False,
+                xaxis_categoryarray=tour_purpose_label_values,
+            )
+
+        trip_rate_view: pn.viewable.Viewable
+        if summaries["trip_rates_by_person_type_and_trip_purpose"] is None:
+            trip_rate_view = self._missing_chart_card(
+                "trip_rates_by_person_type_and_trip_purpose"
+            )
+        else:
+            trip_purpose_x_values = ordered_category_values(
+                summaries["trip_rates_by_person_type_and_trip_purpose"],
+                "trip_purpose",
+            )
+            trip_rate_data = self.get_filtered_view(
+                "trip_rate_per_person",
+                raw_person_type,
+                factory=lambda: complete_category_counts(
+                    filter_person_type_rates(
+                        summaries["trip_rates_by_person_type_and_trip_purpose"],
+                        raw_person_type,
+                        purpose_col="trip_purpose",
+                        rate_col="trip_rate",
+                        person_weights=person_weights,
+                    ),
+                    category_col="trip_purpose",
+                    category_values=trip_purpose_x_values,
+                    value_cols=("trip_rate",),
                 ),
-                bar_chart(
-                    trip_rate_data,
-                    x_col="trip_purpose",
-                    y_col="trip_rate",
-                    title=f"Daily Trip Rate per Person by Trip Purpose - {person_type}",
-                    xaxis_title="Trip Purpose",
-                    yaxis_title="Trips per Person-Day",
-                    as_percent=False,
-                    xaxis_categoryarray=trip_purpose_x_values,
-                ),
-            ),
-        ]
+            )
+            trip_rate_view = bar_chart(
+                trip_rate_data,
+                x_col="trip_purpose",
+                y_col="trip_rate",
+                title=f"Daily Trip Rate per Person by Trip Purpose - {person_type}",
+                xaxis_title="Trip Purpose",
+                yaxis_title="Trips per Person-Day",
+                as_percent=False,
+                xaxis_categoryarray=trip_purpose_x_values,
+            )
+        content.append(pn.Row(tour_rate_view, trip_rate_view))
+
+        return content
 
 
 PAGE = DashboardPageDefinition(

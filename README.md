@@ -106,6 +106,34 @@ runs:
       trips: trip
 ```
 
+If a run should skip raw prepare and use externally managed canonical prepared
+tables instead, point it at those files with `runs[*].prepared_table_map`:
+
+```yaml
+runs:
+  - dir: path\to\raw_run
+    label: Raw Run
+
+  - label: Custom Prepared Run
+    prepared_table_map:
+      households: path\to\custom\households.parquet
+      persons: path\to\custom\persons.csv
+      tours: path\to\custom\tours.parquet
+      trips: path\to\custom\trips.csv
+      joint_tour_participants: path\to\custom\joint_tour_participants.parquet
+      land_use: path\to\custom\land_use.csv
+```
+
+The normal prepare step can also write prepared caches as CSV when needed:
+
+```yaml
+prepare:
+  output:
+    file_format: csv
+  validation:
+    relationship_checks: warn
+```
+
 Important path rules:
 
 - `summaries.root` is resolved relative to the config file if you give a relative path.
@@ -114,6 +142,9 @@ Important path rules:
 - `skim.file` may be absolute, or relative to each run directory.
 - File entries under `files` can be bare stems like `final_trips` or explicit filenames like `final_trips.csv`.
 - `runs[*].file_map` uses the same filename rules as `files`, but applies only to that run.
+- `runs[*].prepared_table_map` must use explicit `.parquet` or `.csv` paths and resolves relative paths from the config file directory.
+- `prepare.output.file_format` controls how standard prepared caches are written; supported values are `parquet` and `csv`, with `parquet` as the default.
+- `prepare.validation.relationship_checks` controls prepared-table foreign-key validation. Use `warn` to log inconsistencies and continue, `error` to fail the run, or `off` to skip the checks.
 
 ## Config Reference
 
@@ -123,11 +154,13 @@ These are the sections most people need to touch:
 |---|---|
 | `summaries.root` | Where summary caches are stored |
 | `summaries.weighting_modes` | Which cache variants to build: `weighted`, `unweighted`, or both |
-| `runs` | Run directories, display labels, and optional per-run skim, file-map, and weight overrides |
+| `runs` | Run directories, display labels, and optional per-run skim, raw file-map, custom prepared-table map, and weight overrides |
 | `skim` | Global skim file and default matrix name |
 | `zones` | MAZ/TAZ settings for skim joins and zone normalization |
 | `files` | Default ActivitySim output file stems or filenames used unless a run overrides them |
 | `columns` | Column aliases when outputs use non-default names |
+| `prepare.output.file_format` | On-disk format for prepared caches written by the normal prepare workflow |
+| `prepare.validation.relationship_checks` | Whether cross-table prepared-key validation is disabled, warns, or errors |
 | `visualizer.dashboard_title` | Title used in the live dashboard and HTML export |
 | `visualizer.dashboard_pages` | Ordered list of live pages/groups to show |
 | `visualizer.run_colors` | Plot colors by run |
@@ -148,6 +181,10 @@ Legacy config notes:
 - Prefer `summaries.*` over old `outputs.*` keys.
 - Prefer `visualizer.dashboard_pages` over old top-level `dashboard_pages`.
 - Prefer `visualizer.run_colors` over old top-level `run_colors`.
+
+Geography note:
+
+- `geography.enabled: false` now disables both the older geography mapping behavior and the newer `geography.aggregations` derived columns. If you want aggregation-based geography summaries, `geography.enabled` must be `true`.
 
 ## Live Pages And Export Pages
 

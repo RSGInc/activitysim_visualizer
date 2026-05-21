@@ -541,6 +541,42 @@ def test_geography_aggregation_digest_changes_when_lookup_changes(
     assert config_a.summary_config_digest != config_b.summary_config_digest
 
 
+def test_disabled_geography_aggregations_are_ignored_and_do_not_change_digests(
+    tmp_path: Path,
+) -> None:
+    config_a = _write_config(
+        tmp_path / "a",
+        extra_lines=[
+            "geography:",
+            "  enabled: false",
+            "  aggregations:",
+            "    county:",
+            "      source_zone_system: taz",
+            "      mapping:",
+            "        Urban: [10]",
+        ],
+    )
+    config_b = _write_config(
+        tmp_path / "b",
+        extra_lines=[
+            "geography:",
+            "  enabled: false",
+            "  aggregations:",
+            "    county:",
+            "      source_zone_system: taz",
+            "      mapping:",
+            "        Rural: [10]",
+        ],
+    )
+
+    assert config_a.geography_enabled is False
+    assert config_b.geography_enabled is False
+    assert config_a.geography_aggregations.aggregations == ()
+    assert config_b.geography_aggregations.aggregations == ()
+    assert config_a.prepare_config_digest == config_b.prepare_config_digest
+    assert config_a.summary_config_digest == config_b.summary_config_digest
+
+
 def test_enable_maz_geographies_defaults_off_and_only_changes_presentation_digest(
     tmp_path: Path,
 ) -> None:

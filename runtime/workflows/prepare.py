@@ -16,17 +16,23 @@ from processor.prepare.availability import (
 from processor.prepare.cache import (
     PreparedCacheError,
     build_prepared_manifest_identity,
+    load_custom_prepared_tables,
     load_prepared_run_cache,
     write_prepared_run_cache,
 )
 from processor.prepare.enrichment.pipeline import prepare_data
 from processor.prepare.reader import read_run, resolve_skim_path
+from processor.prepare.validation import (
+    PreparedRelationshipValidationError,
+    validate_prepared_relationships,
+)
 from processor.skimjoin.pipeline import apply_skimjoin
 from runtime.config import Config
 from runtime.workflows.common import prepared_cache_root, run_entries_with_keys
 from runtime.workflows import shared
 
 LOGGER = get_logger("main")
+VALIDATION_LOGGER = get_logger("processor.prepare.validation")
 
 
 def prepared_cache_dir(prepared_root: Path, run_key: str) -> Path:
@@ -72,6 +78,33 @@ def _log_prepare_table_diagnostics(run_label: str, prepared_run: RunData) -> Non
                 f"{table_id} ({reason})"
                 for table_id, reason in sorted(failed_prepare_tables.items())
             ),
+        )
+
+
+def _validate_prepared_run(run_label: str, prepared_run: RunData, config: Config) -> None:
+    """Run configured prepared-table relationship validation for one prepared run."""
+    mode = str(config.prepare_relationship_checks).strip().lower()
+    if mode == "off":
+        return
+
+    validation = validate_prepared_relationships(prepared_run)
+    failed_checks = validation.failed_checks
+    if not failed_checks:
+        return
+
+    VALIDATION_LOGGER.warning(
+        'Prepared relationship validation found %d failed checks for run "%s".',
+        validation.failed_check_count,
+        run_label,
+    )
+    for check in failed_checks:
+        if check.message:
+            VALIDATION_LOGGER.warning("%s", check.message)
+
+    if mode == "error":
+        raise PreparedRelationshipValidationError(
+            f'Prepared relationship validation failed for run "{run_label}" with '
+            f"{validation.failed_check_count} failed checks."
         )
 
 
@@ -129,6 +162,7 @@ def _load_prepared_run_from_cache(
 
     loaded = (label, prepared_run)
     _log_prepare_table_diagnostics(label, prepared_run)
+    _validate_prepared_run(label, prepared_run, config)
     return loaded
 
 
@@ -149,6 +183,25 @@ def _build_prepared_run(
     label = str(metadata["label"])
     run_dir = str(metadata["run_dir"])
     run_fingerprint = dict(metadata["run_fingerprint"])
+    prepared_table_map = entry.get("prepared_table_map") or None
+
+    if prepared_table_map is not None:
+        LOGGER.info("Loading custom prepared tables for %r", label)
+        prepared_run = load_custom_prepared_tables(
+            prepared_table_map=prepared_table_map,
+            label=label,
+            run_dir=run_dir or None,
+        )
+        if not has_usable_loaded_tables(prepared_run):
+            LOGGER.warning(
+                "Skipping run %r because no custom prepared tables were available.",
+                label,
+            )
+            return None
+        _log_prepare_table_diagnostics(label, prepared_run)
+        _validate_prepared_run(label, prepared_run, config)
+        LOGGER.info("Prepared run: %r", label)
+        return (label, prepared_run)
 
     LOGGER.info("Reading run %r from %s", label, run_dir)
     prepared_run = read_run_fn(
@@ -171,6 +224,7 @@ def _build_prepared_run(
         return None
 
     _log_prepare_table_diagnostics(label, prepared_run)
+    _validate_prepared_run(label, prepared_run, config)
     LOGGER.info("Prepared run: %r", label)
     if write_cache:
         write_prepared_run_cache_fn(
@@ -179,6 +233,7 @@ def _build_prepared_run(
             run_key=run_key,
             output_root=prepared_root,
             run_fingerprint=run_fingerprint,
+            file_format=config.prepare_output_file_format,
         )
         LOGGER.info("Wrote prepared cache for run: %r", label)
     else:
@@ -213,6 +268,23 @@ def _resolve_prepared_run(
     label = str(metadata["label"])
     run_fingerprint = dict(metadata["run_fingerprint"])
     prepared_dir = prepared_cache_dir(prepared_root, run_key)
+    if entry.get("prepared_table_map"):
+        loaded_custom_prepared_run = _build_prepared_run(
+            entry=entry,
+            config=config,
+            run_key=run_key,
+            prepared_root=prepared_root,
+            metadata=metadata,
+            write_cache=write_cache,
+            read_run_fn=read_run_fn,
+            prepare_data_fn=prepare_data_fn,
+            apply_skimjoin_fn=apply_skimjoin_fn,
+            write_prepared_run_cache_fn=write_prepared_run_cache_fn,
+        )
+        if loaded_custom_prepared_run is None:
+            return None
+        existing_prepared_runs_by_key[run_key] = loaded_custom_prepared_run
+        return loaded_custom_prepared_run
 
     if prefer_cache:
         cached_prepared_run = _load_prepared_run_from_cache(
@@ -335,6 +407,7 @@ def load_prepared_runs_for_dashboard(
     existing_prepared_runs_by_key = dict(existing_prepared_runs_by_key or {})
     if not required_run_keys:
         return []
+    required_run_keys = list(dict.fromkeys(required_run_keys))
     if not run_entries:
         LOGGER.warning(
             "Enabled dashboard pages require prepared run data, but no raw run inputs are available to build it."

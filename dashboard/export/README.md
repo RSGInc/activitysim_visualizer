@@ -105,6 +105,23 @@ When an export looks wrong:
 4. Enable debug logging with `?debug_export=1`, `localStorage.debug_export = "1"`, or `payload.debug = true`.
 5. Compare the embedded payload against fixture payloads in `tests/fixtures/`.
 
+## Segmentation Filtering
+
+When summary caches include segmented runs, HTML export uses one build-time
+segmentation view per file. By default export mirrors `segmentation.dashboard`,
+but you can override it under `visualizer.export_html.dashboard`:
+
+```yaml
+visualizer:
+  export_html:
+    dashboard:
+      segmentation_type: signup_platform
+      segmentation_visibility: segments_only
+```
+
+Supported `segmentation_visibility` values are `full_only`,
+`segments_only`, and `full_and_segments`.
+
 ## Adding a New Node Kind
 
 1. Add the new typed node shape in `types.py`.

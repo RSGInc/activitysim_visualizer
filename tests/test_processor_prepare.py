@@ -1164,6 +1164,43 @@ def test_processor_prepare_adds_configured_geography_aggregation_columns(
     assert prepared.trips["destination_geo__district"].to_list() == ["South"]
 
 
+def test_processor_prepare_skips_geography_aggregation_columns_when_geography_disabled(
+    tmp_path: Path,
+) -> None:
+    geography_csv = tmp_path / "district_lookup.csv"
+    geography_csv.write_text(
+        "\n".join(["MAZ,district", "10,North", "20,South"]),
+        encoding="utf-8",
+    )
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "geography:",
+            "  enabled: false",
+            "  aggregations:",
+            "    county:",
+            "      source_zone_system: taz",
+            "      mapping:",
+            "        Urban: [10]",
+            "        Rural: [20]",
+            "    district:",
+            "      source_zone_system: maz",
+            f"      file: {geography_csv.name}",
+            "      zone_id_col: MAZ",
+            "      geography_col: district",
+        ],
+    )
+
+    prepared = processor_prepare_data(_raw_run(), config)
+
+    assert "home_geo__county" not in prepared.hh.columns
+    assert "home_geo__district" not in prepared.hh.columns
+    assert "land_use_geo__county" not in prepared.land_use.columns
+    assert "land_use_geo__district" not in prepared.land_use.columns
+    assert "origin_geo__county" not in prepared.tours.columns
+    assert "destination_geo__district" not in prepared.trips.columns
+
+
 def test_long_term_comparison_summaries_emit_configured_geography_levels(
     tmp_path: Path,
 ) -> None:

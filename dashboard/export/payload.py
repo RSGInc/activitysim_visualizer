@@ -159,7 +159,17 @@ def _build_validation_page(
     page_cls = page_def.page_cls
     if page_cls is None:
         raise ValueError(f"Dashboard page {page_def.page_id!r} has no page class.")
-    return page_cls(DashboardState(weighting_modes=config.weighting_modes), config)
+    return page_cls(
+        DashboardState(
+            weighting_modes=config.weighting_modes,
+            dashboard_segmentation_type=config.export_html.dashboard.segmentation_type,
+            default_segmentation_visibility=(
+                config.export_html.dashboard.segmentation_visibility
+                or "full_and_segments"
+            ),
+        ),
+        config,
+    )
 
 
 def build_export_artifacts(

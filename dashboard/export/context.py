@@ -25,4 +25,9 @@ class ExportBuildContext:
             summary_runs=self.summary_runs,
             weighting_modes=self.config.weighting_modes,
             prepared_run_provider=self.prepared_run_provider,
+            dashboard_segmentation_type=self.config.export_html.dashboard.segmentation_type,
+            default_segmentation_visibility=(
+                self.config.export_html.dashboard.segmentation_visibility
+                or "full_and_segments"
+            ),
         )

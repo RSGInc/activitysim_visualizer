@@ -20,11 +20,13 @@ from processor.prepare.availability import (
 from processor.prepare.cache import (
     PreparedCacheError,
     build_run_fingerprint,
+    load_custom_prepared_tables,
     load_prepared_run_cache,
     prepared_root,
     write_prepared_run_cache,
 )
 from processor.prepare.enrichment.pipeline import prepare_data
+from processor.prepare.validation import validate_prepared_relationships
 from runtime.config import Config
 
 
@@ -161,6 +163,67 @@ def test_legacy_summaries_processor_keys_warn_but_still_load(
 
 def _prepared_run(config: Config) -> RunData:
     return prepare_data(_raw_run(), config)
+
+
+def _write_custom_prepared_tables(
+    root: Path,
+    *,
+    file_format: str = "parquet",
+) -> dict[str, str]:
+    root.mkdir(parents=True, exist_ok=True)
+    tables = {
+        "households": pl.DataFrame({"household_id": [1], "finalweight": [1.0]}),
+        "persons": pl.DataFrame({"person_id": [10], "household_id": [1], "finalweight": [1.0]}),
+        "tours": pl.DataFrame({"tour_id": [100], "person_id": [10], "household_id": [1], "finalweight": [1.0]}),
+        "trips": pl.DataFrame({"trip_id": [1000], "tour_id": [100], "person_id": [10], "finalweight": [1.0]}),
+        "joint_tour_participants": pl.DataFrame({"tour_id": [], "person_id": []}),
+        "land_use": pl.DataFrame({"zone_id": [1], "TAZ": [1]}),
+    }
+    paths: dict[str, str] = {}
+    for table_id, table in tables.items():
+        path = root / f"{table_id}.{file_format}"
+        if file_format == "parquet":
+            table.write_parquet(path)
+        else:
+            table.write_csv(path)
+        paths[table_id] = str(path.resolve())
+    return paths
+
+
+def _prepared_run_with_orphan_trip() -> RunData:
+    return RunData(
+        label="Filtered Prepared",
+        run_dir="C:/prepared/filtered",
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1], "finalweight": [1.0]}),
+        per=pl.DataFrame(
+            {"person_id": [10], "household_id": [1], "finalweight": [1.0]}
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [100],
+                "person_id": [10],
+                "household_id": [1],
+                "finalweight": [1.0],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "trip_id": [1000, 1001],
+                "tour_id": [100, 999],
+                "person_id": [10, 999],
+                "household_id": [1, 999],
+                "finalweight": [1.0, 1.0],
+            }
+        ),
+        joint_participants=pl.DataFrame(
+            {"tour_id": [], "person_id": []},
+            schema={"tour_id": pl.Int64, "person_id": pl.Int64},
+        ),
+        land_use=pl.DataFrame({"zone_id": [1], "TAZ": [1]}),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
 
 
 def test_table_availability_infers_states_without_attached_metadata() -> None:
@@ -333,6 +396,109 @@ def test_prepare_config_digest_ignores_presentation_only_changes(
     assert config_a.prepare_config_digest == config_b.prepare_config_digest
 
 
+def test_config_accepts_custom_prepared_table_map_and_csv_prepare_output(
+    tmp_path: Path,
+) -> None:
+    custom_dir = tmp_path / "custom_prepared"
+    custom_dir.mkdir(parents=True, exist_ok=True)
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  output:",
+            "    file_format: csv",
+            "runs:",
+            '  - label: "Prepared Run"',
+            "    prepared_table_map:",
+            f"      households: {str(custom_dir / 'households.parquet').replace('\\', '/')}",
+            f"      persons: {str(custom_dir / 'persons.csv').replace('\\', '/')}",
+        ],
+    )
+
+    assert config.prepare_output_file_format == "csv"
+    assert config.runs[0]["prepared_table_map"]["households"].endswith(
+        "households.parquet"
+    )
+    assert config.runs[0]["prepared_table_map"]["persons"].endswith("persons.csv")
+
+
+def test_config_accepts_prepare_relationship_validation_mode(tmp_path: Path) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  validation:",
+            "    relationship_checks: error",
+        ],
+    )
+
+    assert config.prepare_relationship_checks == "error"
+
+
+def test_config_rejects_invalid_custom_prepared_table_map_and_output_format(
+    tmp_path: Path,
+) -> None:
+    invalid_key_path = tmp_path / "invalid_key.yaml"
+    invalid_key_path.write_text(
+        "\n".join(
+            [
+                'name: "Invalid Prepared Config"',
+                "runs:",
+                '  - label: "Prepared Run"',
+                "    prepared_table_map:",
+                "      households_alias: households.parquet",
+                "summaries:",
+                "  root: summary_cache",
+                "visualizer:",
+                '  dashboard_title: "Invalid Prepared Config"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="unsupported table ids"):
+        Config.from_yaml(invalid_key_path)
+
+    invalid_format_path = tmp_path / "invalid_format.yaml"
+    invalid_format_path.write_text(
+        "\n".join(
+            [
+                'name: "Invalid Prepare Format"',
+                "runs: []",
+                "prepare:",
+                "  output:",
+                "    file_format: json",
+                "summaries:",
+                "  root: summary_cache",
+                "visualizer:",
+                '  dashboard_title: "Invalid Prepare Format"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="prepare.output.file_format"):
+        Config.from_yaml(invalid_format_path)
+
+    invalid_validation_path = tmp_path / "invalid_validation.yaml"
+    invalid_validation_path.write_text(
+        "\n".join(
+            [
+                'name: "Invalid Prepare Validation"',
+                "runs: []",
+                "prepare:",
+                "  validation:",
+                "    relationship_checks: maybe",
+                "summaries:",
+                "  root: summary_cache",
+                "visualizer:",
+                '  dashboard_title: "Invalid Prepare Validation"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="prepare.validation.relationship_checks"):
+        Config.from_yaml(invalid_validation_path)
+
+
 def test_prepared_cache_invalidates_when_prepare_affecting_config_changes(
     tmp_path: Path,
 ) -> None:
@@ -391,6 +557,160 @@ def test_prepared_cache_invalidates_when_vot_bin_mapping_changes(
     )
 
     assert config_a.prepare_config_digest != config_b.prepare_config_digest
+
+
+def test_load_custom_prepared_tables_supports_parquet_and_csv(
+    tmp_path: Path,
+) -> None:
+    parquet_map = _write_custom_prepared_tables(tmp_path / "parquet", file_format="parquet")
+    csv_map = _write_custom_prepared_tables(tmp_path / "csv", file_format="csv")
+
+    parquet_loaded = load_custom_prepared_tables(
+        prepared_table_map=parquet_map,
+        label="Parquet Run",
+        run_dir="C:/prepared/parquet",
+    )
+    csv_loaded = load_custom_prepared_tables(
+        prepared_table_map=csv_map,
+        label="CSV Run",
+        run_dir="C:/prepared/csv",
+    )
+
+    assert parquet_loaded.hh["household_id"].to_list() == [1]
+    assert csv_loaded.per["person_id"].to_list() == [10]
+    assert table_availability(parquet_loaded)["households"] == "available"
+    assert table_availability(csv_loaded)["trips"] == "available"
+
+
+def test_load_custom_prepared_tables_retries_csv_with_full_schema_inference(
+    tmp_path: Path,
+) -> None:
+    prepared_map = _write_custom_prepared_tables(tmp_path / "csv_retry", file_format="csv")
+    tours_path = Path(prepared_map["tours"])
+    rows = ["tour_id,person_id,household_id,finalweight,AWDT"]
+    rows.extend(f"{i},{10 + i},{1 + i},1.0,{i}" for i in range(10050))
+    rows.append("10050,10060,10051,1.0,\"4,238\"")
+    tours_path.write_text("\n".join(rows), encoding="utf-8")
+
+    loaded = load_custom_prepared_tables(
+        prepared_table_map=prepared_map,
+        label="CSV Retry",
+        run_dir="C:/prepared/csv-retry",
+    )
+
+    assert loaded.tours.height == 10051
+    assert loaded.tours.schema["AWDT"] == pl.String
+    assert loaded.tours["AWDT"][-1] == "4,238"
+
+
+def test_validate_prepared_relationships_reports_orphan_rows() -> None:
+    validation = validate_prepared_relationships(_prepared_run_with_orphan_trip())
+
+    failed = {
+        (
+            check.check.source_table_id,
+            check.check.source_key,
+            check.check.target_table_id,
+            check.check.target_key,
+        ): check.orphan_count
+        for check in validation.failed_checks
+    }
+
+    assert validation.passed is False
+    assert failed[("trips", "household_id", "households", "household_id")] == 1
+    assert failed[("trips", "person_id", "persons", "person_id")] == 1
+    assert failed[("trips", "tour_id", "tours", "tour_id")] == 1
+
+
+def test_validate_prepared_relationships_skips_unavailable_optional_tables() -> None:
+    run = attach_table_availability(
+        RunData(
+            label="Optional Missing",
+            run_dir="C:/prepared",
+            skim_file=None,
+            hh=pl.DataFrame({"household_id": [1], "finalweight": [1.0]}),
+            per=pl.DataFrame(
+                {"person_id": [10], "household_id": [1], "finalweight": [1.0]}
+            ),
+            tours=pl.DataFrame(
+                {
+                    "tour_id": [100],
+                    "person_id": [10],
+                    "household_id": [1],
+                    "finalweight": [1.0],
+                }
+            ),
+            trips=pl.DataFrame(
+                {
+                    "trip_id": [1000],
+                    "tour_id": [100],
+                    "person_id": [10],
+                    "household_id": [1],
+                    "finalweight": [1.0],
+                }
+            ),
+            joint_participants=pl.DataFrame(),
+            land_use=pl.DataFrame(),
+            skim_matrix=None,
+            skim_zone_map=None,
+        ),
+        table_states={
+            "households": "available",
+            "persons": "available",
+            "tours": "available",
+            "trips": "available",
+            "joint_tour_participants": "unavailable",
+            "land_use": "unavailable",
+        },
+    )
+    validation = validate_prepared_relationships(run)
+
+    skipped = {
+        (
+            check.check.source_table_id,
+            check.check.source_key,
+            check.check.target_table_id,
+            check.check.target_key,
+        ): check.skip_reason
+        for check in validation.checks
+        if check.state == "skipped"
+    }
+
+    assert skipped[
+        (
+            "joint_tour_participants",
+            "person_id",
+            "persons",
+            "person_id",
+        )
+    ] == "source table 'joint_tour_participants' is unavailable"
+
+
+def test_prepared_cache_write_uses_configured_csv_output_format(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  output:",
+            "    file_format: csv",
+        ],
+    )
+    prepared = _prepared_run(config)
+    entry = write_prepared_run_cache(prepared, config, run_key="base")
+
+    assert (entry.cache_dir / "households.csv").exists()
+    assert entry.manifest["table_format"] == "csv"
+
+    loaded = load_prepared_run_cache(
+        entry.cache_dir,
+        config,
+        expected_prepare_config_digest=config.prepare_config_digest,
+        expected_label="Base",
+        expected_run_key="base",
+    )
+    assert loaded.hh["household_id"].to_list() == [1]
 
 
 def test_prepared_cache_invalidates_when_student_type_config_changes(

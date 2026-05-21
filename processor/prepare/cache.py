@@ -42,6 +42,10 @@ PREPARED_TABLE_ATTRS: tuple[tuple[str, str, str], ...] = (
     ("joint_participants", "joint_tour_participants", "joint_tour_participants"),
     ("land_use", "land_use", "land_use"),
 )
+PREPARED_TABLE_ATTR_BY_ID: dict[str, tuple[str, str]] = {
+    table_id: (attr_name, stem)
+    for attr_name, table_id, stem in PREPARED_TABLE_ATTRS
+}
 
 
 class PreparedCacheError(RuntimeError):
@@ -68,12 +72,34 @@ def build_prepared_manifest_identity(
     run_key: str,
     config: Config,
     run_fingerprint: dict[str, object],
+    source_type: str = "prepared_cache",
+    prepared_table_map: dict[str, str] | None = None,
 ) -> dict[str, object]:
     """Return the portable prepared-cache identity used by downstream summaries."""
-    return {
+    identity = {
         "run_key": run_key,
         "prepare_config_digest": config.prepare_config_digest,
-        "run_fingerprint": dict(run_fingerprint),
+        "source_type": source_type,
+    }
+    if source_type == "custom_prepared_table_map":
+        normalized_table_map = dict(sorted((prepared_table_map or {}).items()))
+        identity["prepared_table_map"] = normalized_table_map
+        identity["prepared_table_fingerprints"] = {
+            table_id: _file_identity(path)
+            for table_id, path in normalized_table_map.items()
+        }
+    else:
+        identity["run_fingerprint"] = dict(run_fingerprint)
+    return identity
+
+
+def _file_identity(path: str | Path) -> dict[str, object]:
+    resolved = Path(path).resolve()
+    stat = resolved.stat()
+    return {
+        "path": str(resolved),
+        "size": int(stat.st_size),
+        "mtime_ns": int(stat.st_mtime_ns),
     }
 
 
@@ -101,6 +127,26 @@ def _prepared_tables_dir(cache_dir: Path, manifest: dict[str, object] | None = N
     if candidate.exists():
         return candidate
     return cache_dir
+
+
+def _read_table_file(path: Path) -> pl.DataFrame:
+    suffix = path.suffix.lower()
+    if suffix == ".parquet":
+        return pl.read_parquet(path)
+    if suffix == ".csv":
+        try:
+            return pl.read_csv(path, infer_schema_length=10000)
+        except pl.exceptions.ComputeError as exc:
+            try:
+                return pl.read_csv(path, infer_schema_length=None)
+            except pl.exceptions.ComputeError:
+                raise PreparedCacheError(
+                    "Failed to parse prepared CSV table "
+                    f"{path}. Retried with full-file schema inference after: {exc}"
+                ) from exc
+    raise PreparedCacheError(
+        f"Unsupported prepared table file format {suffix!r} for {path}"
+    )
 
 
 def _write_skimjoin_outputs(cache_dir: Path, rd: RunData, config: Config) -> None:
@@ -139,9 +185,11 @@ def write_prepared_run_cache(
     run_key: str,
     output_root: str | Path | None = None,
     run_fingerprint: dict[str, object] | None = None,
-    file_format: str = "parquet",
+    file_format: str | None = None,
 ) -> PreparedRunCacheEntry:
     """Write one prepared run's canonical tables and manifest."""
+    if file_format is None:
+        file_format = config.prepare_output_file_format
     if file_format not in SUPPORTED_FILE_FORMATS:
         raise ValueError(
             f"Unsupported prepared table file format {file_format!r}. "
@@ -340,10 +388,7 @@ def load_prepared_run_cache(
         path = prepared_tables_dir / filename
         if not path.exists():
             raise PreparedCacheError(f"Missing prepared table file: {path}")
-        if file_format == "parquet":
-            table = pl.read_parquet(path)
-        else:
-            table = pl.read_csv(path, infer_schema_length=10000)
+        table = _read_table_file(path)
         if manifest_table_states.get(table_id) in {
             "empty",
             "unavailable",
@@ -408,3 +453,66 @@ def discover_cache_dirs(root: str | Path) -> list[Path]:
             if candidate.is_dir() and (candidate / "manifest.json").exists():
                 nested_dirs.append(candidate)
     return sorted(nested_dirs)
+
+
+def load_custom_prepared_tables(
+    *,
+    prepared_table_map: dict[str, str],
+    label: str,
+    run_dir: str | None = None,
+) -> RunData:
+    """Load user-supplied canonical prepared tables without a manifest."""
+    if not prepared_table_map:
+        raise PreparedCacheError(
+            f"Run {label!r} does not define any prepared_table_map entries."
+        )
+
+    loaded_tables: dict[str, pl.DataFrame] = {}
+    table_states: dict[str, str] = {}
+    table_reasons: dict[str, str] = {}
+    for attr_name, table_id, _ in PREPARED_TABLE_ATTRS:
+        configured_path = prepared_table_map.get(table_id)
+        if configured_path is None:
+            loaded_tables[attr_name] = pl.DataFrame()
+            table_states[table_id] = (
+                "unavailable" if table_id in {"joint_tour_participants", "land_use"} else "empty"
+            )
+            if table_states[table_id] == "unavailable":
+                table_reasons[table_id] = (
+                    f"No prepared_table_map entry configured for optional table {table_id!r}."
+                )
+            continue
+
+        path = Path(configured_path)
+        if not path.exists():
+            loaded_tables[attr_name] = pl.DataFrame()
+            table_states[table_id] = "unavailable"
+            table_reasons[table_id] = f"Missing prepared table file: {path}"
+            continue
+        try:
+            table = _read_table_file(path)
+        except Exception as exc:
+            loaded_tables[attr_name] = pl.DataFrame()
+            table_states[table_id] = "failed"
+            table_reasons[table_id] = str(exc)
+            continue
+        loaded_tables[attr_name] = table
+        table_states[table_id] = "empty" if table.width == 0 else "available"
+
+    return attach_table_availability(
+        RunData(
+            label=label,
+            run_dir=str(run_dir or ""),
+            skim_file=None,
+            hh=loaded_tables["hh"],
+            per=loaded_tables["per"],
+            tours=loaded_tables["tours"],
+            trips=loaded_tables["trips"],
+            joint_participants=loaded_tables["joint_participants"],
+            land_use=loaded_tables["land_use"],
+            skim_matrix=None,
+            skim_zone_map=None,
+        ),
+        table_states=table_states,
+        table_reasons=table_reasons,
+    )

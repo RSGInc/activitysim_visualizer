@@ -32,6 +32,7 @@ def _write_config(
     geography_lines: list[str] | None = None,
     export_html_lines: list[str] | None = None,
     visualizer_lines: list[str] | None = None,
+    extra_lines: list[str] | None = None,
 ) -> Config:
     weighting_modes = weighting_modes or ["weighted", "unweighted"]
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -77,6 +78,8 @@ def _write_config(
     if geography_lines:
         lines.append("geography:")
         lines.extend(f"  {line}" for line in geography_lines)
+    if extra_lines:
+        lines.extend(extra_lines)
 
     config_path = tmp_path / "config.yaml"
     config_path.write_text("\n".join(lines), encoding="utf-8")
@@ -558,6 +561,49 @@ def _skim_summary_run():
     )
 
 
+def _segmented_summary_runs():
+    full_run = _full_summary_run()
+    return [
+        full_run,
+        create_summary_run(
+            label="Base",
+            run_key="base",
+            summaries_by_mode=full_run.summaries_by_mode,
+            summary_metadata_by_mode=full_run.summary_metadata_by_mode,
+            segmentation_type="signup_platform",
+            segment_id="browser",
+            segment_label="Browser",
+            is_full_segment=False,
+            source_run_dir=full_run.source_run_dir,
+            manifest=full_run.manifest,
+        ),
+        create_summary_run(
+            label="Base",
+            run_key="base",
+            summaries_by_mode=full_run.summaries_by_mode,
+            summary_metadata_by_mode=full_run.summary_metadata_by_mode,
+            segmentation_type="signup_platform",
+            segment_id="call",
+            segment_label="Call",
+            is_full_segment=False,
+            source_run_dir=full_run.source_run_dir,
+            manifest=full_run.manifest,
+        ),
+        create_summary_run(
+            label="Base",
+            run_key="base",
+            summaries_by_mode=full_run.summaries_by_mode,
+            summary_metadata_by_mode=full_run.summary_metadata_by_mode,
+            segmentation_type="person_sex",
+            segment_id="male",
+            segment_label="Male",
+            is_full_segment=False,
+            source_run_dir=full_run.source_run_dir,
+            manifest=full_run.manifest,
+        ),
+    ]
+
+
 def test_export_html_config_defaults_to_all_dashboard_states_and_selector_values(
     tmp_path: Path,
 ) -> None:
@@ -573,6 +619,90 @@ def test_export_html_config_defaults_to_all_dashboard_states_and_selector_values
     assert config.export_html.selector_request("tour_mode", "tour_purpose").mode == "all"
     assert config.export_html.panel_weighting_values() == ["Weighted", "Unweighted"]
     assert config.export_html.panel_value_values() == ["Percent", "Count"]
+    assert config.export_html.dashboard.segmentation_type is None
+    assert config.export_html.dashboard.segmentation_visibility is None
+
+
+def test_export_html_config_segmentation_defaults_to_live_dashboard_settings(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "segmentation:",
+            "  enabled: true",
+            "  dashboard:",
+            "    segmentation_type: signup_platform",
+            "    visibility: segments_only",
+            "  definitions:",
+            "    signup_platform:",
+            "      source:",
+            "        type: prepared_column",
+            "        source_table: hh",
+            "        column: signup_platform",
+            "      segments:",
+            "        - id: browser",
+            "          label: Browser",
+            "          values: [browser]",
+            "    person_sex:",
+            "      source:",
+            "        type: prepared_column",
+            "        source_table: per",
+            "        column: sex",
+            "      segments:",
+            "        - id: male",
+            "          label: Male",
+            "          values: [1]",
+        ],
+        export_html_lines=[
+            "enabled: true",
+        ],
+    )
+
+    assert config.export_html.dashboard.segmentation_type == "signup_platform"
+    assert config.export_html.dashboard.segmentation_visibility == "segments_only"
+
+
+def test_export_html_config_supports_segmentation_overrides(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "segmentation:",
+            "  enabled: true",
+            "  dashboard:",
+            "    segmentation_type: signup_platform",
+            "    visibility: segments_only",
+            "  definitions:",
+            "    signup_platform:",
+            "      source:",
+            "        type: prepared_column",
+            "        source_table: hh",
+            "        column: signup_platform",
+            "      segments:",
+            "        - id: browser",
+            "          label: Browser",
+            "          values: [browser]",
+            "    person_sex:",
+            "      source:",
+            "        type: prepared_column",
+            "        source_table: per",
+            "        column: sex",
+            "      segments:",
+            "        - id: male",
+            "          label: Male",
+            "          values: [1]",
+        ],
+        export_html_lines=[
+            "dashboard:",
+            "  segmentation_type: person_sex",
+            "  segmentation_visibility: full_only",
+        ],
+    )
+
+    assert config.export_html.dashboard.segmentation_type == "person_sex"
+    assert config.export_html.dashboard.segmentation_visibility == "full_only"
 
 
 def test_export_html_config_supports_new_summaries_and_visualizer_sections(
@@ -834,6 +964,58 @@ def test_export_html_config_rejects_invalid_or_empty_values(tmp_path: Path) -> N
             ],
         )
 
+    with pytest.raises(
+        ValueError,
+        match="visualizer.export_html.dashboard.segmentation_type must name one configured segmentation definition",
+    ):
+        _write_config(
+            tmp_path / "invalid_export_segmentation_type",
+            extra_lines=[
+                "segmentation:",
+                "  enabled: true",
+                "  definitions:",
+                "    signup_platform:",
+                "      source:",
+                "        type: prepared_column",
+                "        source_table: hh",
+                "        column: signup_platform",
+                "      segments:",
+                "        - id: browser",
+                "          label: Browser",
+                "          values: [browser]",
+            ],
+            export_html_lines=[
+                "dashboard:",
+                "  segmentation_type: person_sex",
+            ],
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="visualizer.export_html.dashboard.segmentation_visibility must be one of full_only, segments_only, or full_and_segments",
+    ):
+        _write_config(
+            tmp_path / "invalid_export_segmentation_visibility",
+            extra_lines=[
+                "segmentation:",
+                "  enabled: true",
+                "  definitions:",
+                "    signup_platform:",
+                "      source:",
+                "        type: prepared_column",
+                "        source_table: hh",
+                "        column: signup_platform",
+                "      segments:",
+                "        - id: browser",
+                "          label: Browser",
+                "          values: [browser]",
+            ],
+            export_html_lines=[
+                "dashboard:",
+                "  segmentation_visibility: invalid",
+            ],
+        )
+
 
 def test_config_rejects_duplicate_dashboard_pages(tmp_path: Path) -> None:
     with pytest.raises(
@@ -870,6 +1052,22 @@ def test_config_rejects_duplicate_dashboard_pages(tmp_path: Path) -> None:
                 "      tour_purpose: []",
             ],
         )
+
+
+def test_export_html_config_ignores_segmentation_overrides_when_segmentation_is_disabled(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        export_html_lines=[
+            "dashboard:",
+            "  segmentation_type: signup_platform",
+            "  segmentation_visibility: segments_only",
+        ],
+    )
+
+    assert config.export_html.dashboard.segmentation_type is None
+    assert config.export_html.dashboard.segmentation_visibility is None
 
 
 def _extract_payload(html: str) -> dict:

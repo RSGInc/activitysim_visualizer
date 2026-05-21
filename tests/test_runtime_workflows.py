@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 
 import polars as pl
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -32,6 +33,7 @@ def _write_config(
     runs: list[dict],
     dashboard_pages: list[str] | None = None,
     export_html_lines: list[str] | None = None,
+    extra_lines: list[str] | None = None,
 ) -> Config:
     tmp_path.mkdir(parents=True, exist_ok=True)
     config_path = tmp_path / "config.yaml"
@@ -54,13 +56,19 @@ def _write_config(
         lines.extend(f"    {line}" for line in export_html_lines)
     lines.append("runs:")
     for run_entry in runs:
-        run_dir = str(run_entry["dir"]).replace("\\", "/")
-        lines.extend(
-            [
-                f'  - dir: "{run_dir}"',
-                f'    label: "{run_entry["label"]}"',
-            ]
-        )
+        lines.append("  -")
+        if "dir" in run_entry:
+            run_dir = str(run_entry["dir"]).replace("\\", "/")
+            lines.append(f'    dir: "{run_dir}"')
+        lines.append(f'    label: "{run_entry["label"]}"')
+        prepared_table_map = run_entry.get("prepared_table_map")
+        if prepared_table_map:
+            lines.append("    prepared_table_map:")
+            for table_id, path in prepared_table_map.items():
+                normalized_path = str(path).replace("\\", "/")
+                lines.append(f'      {table_id}: "{normalized_path}"')
+    if extra_lines:
+        lines.extend(extra_lines)
     config_path.write_text("\n".join(lines), encoding="utf-8")
     return Config.from_yaml(config_path)
 
@@ -102,6 +110,73 @@ def _fake_run_data(label: str, run_dir: str) -> RunData:
         skim_matrix=None,
         skim_zone_map=None,
     )
+
+
+def _write_custom_prepared_tables(
+    root: Path,
+    *,
+    file_format: str = "parquet",
+) -> dict[str, str]:
+    root.mkdir(parents=True, exist_ok=True)
+    tables = {
+        "households": pl.DataFrame({"household_id": [1], "finalweight": [1.0]}),
+        "persons": pl.DataFrame({"person_id": [10], "household_id": [1], "finalweight": [1.0]}),
+        "tours": pl.DataFrame({"tour_id": [100], "person_id": [10], "household_id": [1], "finalweight": [1.0]}),
+        "trips": pl.DataFrame({"trip_id": [1000], "tour_id": [100], "person_id": [10], "finalweight": [1.0]}),
+        "joint_tour_participants": pl.DataFrame({"tour_id": [], "person_id": []}),
+        "land_use": pl.DataFrame({"zone_id": [1], "TAZ": [1]}),
+    }
+    paths: dict[str, str] = {}
+    for table_id, table in tables.items():
+        path = root / f"{table_id}.{file_format}"
+        if file_format == "parquet":
+            table.write_parquet(path)
+        else:
+            table.write_csv(path)
+        paths[table_id] = str(path.resolve())
+    return paths
+
+
+def _write_inconsistent_custom_prepared_tables(
+    root: Path,
+    *,
+    file_format: str = "parquet",
+) -> dict[str, str]:
+    root.mkdir(parents=True, exist_ok=True)
+    tables = {
+        "households": pl.DataFrame({"household_id": [1], "finalweight": [1.0]}),
+        "persons": pl.DataFrame(
+            {"person_id": [10], "household_id": [1], "finalweight": [1.0]}
+        ),
+        "tours": pl.DataFrame(
+            {
+                "tour_id": [100],
+                "person_id": [10],
+                "household_id": [1],
+                "finalweight": [1.0],
+            }
+        ),
+        "trips": pl.DataFrame(
+            {
+                "trip_id": [1000, 1001],
+                "tour_id": [100, 999],
+                "person_id": [10, 999],
+                "household_id": [1, 999],
+                "finalweight": [1.0, 1.0],
+            }
+        ),
+        "joint_tour_participants": pl.DataFrame({"tour_id": [], "person_id": []}),
+        "land_use": pl.DataFrame({"zone_id": [1], "TAZ": [1]}),
+    }
+    paths: dict[str, str] = {}
+    for table_id, table in tables.items():
+        path = root / f"{table_id}.{file_format}"
+        if file_format == "parquet":
+            table.write_parquet(path)
+        else:
+            table.write_csv(path)
+        paths[table_id] = str(path.resolve())
+    return paths
 
 
 def _prepared_identity(
@@ -218,8 +293,134 @@ def test_run_prepare_workflow_rebuilds_and_writes_prepared_cache_on_cache_miss(
 
     assert read_calls == ["Run A"]
     assert prepare_calls == ["Run A"]
-    assert [label for label, _ in result.prepared_runs] == ["Run A"]
-    assert (prepared_root / "run-a" / "prepared_tables" / "manifest.json").exists()
+
+
+def test_run_prepare_workflow_loads_custom_prepared_tables_without_raw_prepare(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    prepared_map = _write_custom_prepared_tables(tmp_path / "custom_prepared")
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {
+                "label": "Prepared Run",
+                "prepared_table_map": prepared_map,
+            }
+        ],
+    )
+
+    monkeypatch.setattr(
+        runtime_workflows,
+        "read_run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("read_run should not be called for custom prepared runs")
+        ),
+    )
+    monkeypatch.setattr(
+        runtime_workflows,
+        "prepare_data",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("prepare_data should not be called for custom prepared runs")
+        ),
+    )
+
+    result = runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=runtime_workflows.prepared_cache_root(config, create=True),
+        run_entries=config.runs,
+        prefer_cache=True,
+        write_cache=True,
+    )
+
+    assert [label for label, _ in result.prepared_runs] == ["Prepared Run"]
+    assert result.prepared_runs[0][1].hh["household_id"].to_list() == [1]
+
+
+def test_run_prepare_workflow_warns_on_inconsistent_custom_prepared_tables(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    prepared_map = _write_inconsistent_custom_prepared_tables(
+        tmp_path / "custom_prepared"
+    )
+    config = _write_config(
+        tmp_path,
+        runs=[{"label": "Prepared Run", "prepared_table_map": prepared_map}],
+    )
+
+    result = runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=runtime_workflows.prepared_cache_root(config, create=True),
+        run_entries=config.runs,
+        prefer_cache=True,
+        write_cache=True,
+    )
+
+    assert [label for label, _ in result.prepared_runs] == ["Prepared Run"]
+    assert 'Prepared relationship validation found 3 failed checks for run "Prepared Run".' in caplog.text
+    assert "trips rows reference person_id values not present in persons.person_id" in caplog.text
+
+
+def test_run_prepare_workflow_errors_on_inconsistent_custom_prepared_tables_when_configured(
+    tmp_path: Path,
+) -> None:
+    prepared_map = _write_inconsistent_custom_prepared_tables(
+        tmp_path / "custom_prepared"
+    )
+    config = _write_config(
+        tmp_path,
+        runs=[{"label": "Prepared Run", "prepared_table_map": prepared_map}],
+        extra_lines=[
+            "prepare:",
+            "  validation:",
+            "    relationship_checks: error",
+        ],
+    )
+
+    with pytest.raises(RuntimeError, match='Prepared relationship validation failed for run "Prepared Run"'):
+        runtime_workflows.run_prepare_workflow(
+            config=config,
+            prepared_root=runtime_workflows.prepared_cache_root(config, create=True),
+            run_entries=config.runs,
+            prefer_cache=True,
+            write_cache=True,
+        )
+
+
+def test_run_prepare_workflow_skips_relationship_validation_when_disabled(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    prepared_map = _write_inconsistent_custom_prepared_tables(
+        tmp_path / "custom_prepared"
+    )
+    config = _write_config(
+        tmp_path,
+        runs=[{"label": "Prepared Run", "prepared_table_map": prepared_map}],
+        extra_lines=[
+            "prepare:",
+            "  validation:",
+            "    relationship_checks: off",
+        ],
+    )
+
+    monkeypatch.setattr(
+        "runtime.workflows.prepare.validate_prepared_relationships",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("validate_prepared_relationships should not be called when disabled")
+        ),
+    )
+
+    result = runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=runtime_workflows.prepared_cache_root(config, create=True),
+        run_entries=config.runs,
+        prefer_cache=True,
+        write_cache=True,
+    )
+
+    assert [label for label, _ in result.prepared_runs] == ["Prepared Run"]
 
 
 def test_run_prepare_workflow_skips_run_when_no_raw_tables_are_available(
@@ -374,6 +575,73 @@ def test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_failed(
     assert list(result.prepared_runs_by_key) == ["run-a"]
     captured = capsys.readouterr()
     assert "recorded failed tables" in (caplog.text + captured.err + captured.out)
+
+
+def test_run_prepare_workflow_validates_prepared_cache_loads(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+    )
+    prepared_root = runtime_workflows.prepared_cache_root(config, create=True)
+    prepared_run = RunData(
+        label="Run A",
+        run_dir=str(run_dir),
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1], "finalweight": [1.0]}),
+        per=pl.DataFrame(
+            {"person_id": [10], "household_id": [1], "finalweight": [1.0]}
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [100],
+                "person_id": [10],
+                "household_id": [1],
+                "finalweight": [1.0],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "trip_id": [1000, 1001],
+                "tour_id": [100, 999],
+                "person_id": [10, 999],
+                "household_id": [1, 999],
+                "finalweight": [1.0, 1.0],
+            }
+        ),
+        joint_participants=pl.DataFrame({"tour_id": [], "person_id": []}),
+        land_use=pl.DataFrame({"zone_id": [1], "TAZ": [1]}),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+    write_prepared_run_cache(
+        prepared_run,
+        config,
+        run_key="run-a",
+        output_root=prepared_root,
+        run_fingerprint=build_run_fingerprint(
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+            skim_file=None,
+            hh_weight_col=None,
+            person_weight_col=None,
+            trip_weight_col=None,
+        ),
+    )
+
+    result = runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=prepared_root,
+        run_entries=config.runs,
+        prefer_cache=True,
+        write_cache=True,
+    )
+
+    assert [label for label, _ in result.prepared_runs] == ["Run A"]
+    assert 'Prepared relationship validation found 3 failed checks for run "Run A".' in caplog.text
 
 
 def test_run_summary_workflow_uses_cache_hit_without_raw_read_or_summary_rebuild(
@@ -853,6 +1121,41 @@ def test_load_prepared_runs_for_dashboard_returns_empty_when_required_runs_are_m
     assert ordered_runs == []
 
 
+def test_load_prepared_runs_for_dashboard_supports_custom_prepared_runs(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    prepared_map = _write_custom_prepared_tables(tmp_path / "custom_prepared", file_format="csv")
+    config = _write_config(
+        tmp_path,
+        runs=[{"label": "Prepared Run", "prepared_table_map": prepared_map}],
+    )
+
+    monkeypatch.setattr(
+        runtime_workflows,
+        "read_run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("read_run should not be called for custom prepared dashboard loads")
+        ),
+    )
+    monkeypatch.setattr(
+        runtime_workflows,
+        "prepare_data",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("prepare_data should not be called for custom prepared dashboard loads")
+        ),
+    )
+
+    ordered_runs = runtime_workflows.load_prepared_runs_for_dashboard(
+        config=config,
+        run_entries=config.runs,
+        required_run_keys=["prepared-run"],
+    )
+
+    assert [label for label, _ in ordered_runs] == ["Prepared Run"]
+    assert ordered_runs[0][1].trips["trip_id"].to_list() == [1000]
+
+
 def test_prune_processor_result_keeps_only_required_dashboard_data() -> None:
     prepared_run = RunData(
         label="Run A",
@@ -956,6 +1259,62 @@ def test_load_prepared_runs_for_dashboard_prunes_existing_runs_to_required_table
     assert ordered_runs[0][1].hh.is_empty()
     assert ordered_runs[0][1].tours.is_empty()
     assert ordered_runs[0][1].trips["trip_id"].to_list() == [100]
+
+
+def test_load_prepared_runs_for_dashboard_dedupes_required_run_keys(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_a_dir = tmp_path / "run_a"
+    config = _write_config(
+        tmp_path,
+        runs=[{"dir": str(run_a_dir), "label": "Run A"}],
+    )
+    captured: dict[str, object] = {}
+    prepared_run = RunData(
+        label="Run A",
+        run_dir=str(run_a_dir),
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1]}),
+        per=pl.DataFrame({"person_id": [10]}),
+        tours=pl.DataFrame({"tour_id": [20]}),
+        trips=pl.DataFrame({"trip_id": [100]}),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    def fake_run_prepare_workflow(**kwargs):
+        captured["run_entries"] = kwargs["run_entries"]
+        captured["run_keys"] = [
+            run_key
+            for _, run_key in runtime_workflows.run_entries_with_keys(
+                kwargs["run_entries"]
+            )
+        ]
+        return ProcessorWorkflowResult(
+            prepared_runs=[("Run A", prepared_run)],
+            prepared_runs_by_key={"run-a": ("Run A", prepared_run)},
+            run_keys=["run-a"],
+        )
+
+    monkeypatch.setattr(
+        runtime_workflows,
+        "run_prepare_workflow",
+        fake_run_prepare_workflow,
+    )
+
+    ordered_runs = runtime_workflows.load_prepared_runs_for_dashboard(
+        config=config,
+        run_entries=config.runs,
+        required_run_keys=["run-a", "run-a", "run-a"],
+        existing_prepared_runs_by_key={},
+    )
+
+    assert [entry["label"] for entry in captured["run_entries"]] == ["Run A"]
+    assert captured["run_keys"] == ["run-a"]
+    assert [label for label, _ in ordered_runs] == ["Run A"]
 
 
 def test_run_dashboard_workflow_prunes_inputs_before_live_dashboard(

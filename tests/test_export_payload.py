@@ -8,6 +8,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _dashboard_expectations import EXPECTED_DEFAULT_PAGES
+from dashboard import DashboardState
+from dashboard.data_access import DashboardPreparedRunProvider
+from dashboard.export.context import ExportBuildContext
 from dashboard.export.payload import build_export_payload
 from dashboard.export.types import (
     EXPORT_CLIENT_RUNTIME,
@@ -16,6 +19,7 @@ from dashboard.export.types import (
 )
 from test_export_html import (
     _full_summary_run,
+    _segmented_summary_runs,
     _region_nodes,
     _skim_summary_run,
     _walk_nodes,
@@ -27,6 +31,11 @@ def _workspace_tmp_dir(label: str) -> Path:
     path = Path("tmp_export_test_artifacts") / f"{label}_{uuid4().hex}"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _first_plot_trace_names(page_payload: dict) -> list[str]:
+    plot = next(node for node in _walk_nodes(page_payload) if node.get("kind") == "plotly")
+    return [str(trace.get("name")) for trace in plot.get("figure", {}).get("data", [])]
 
 
 def test_build_export_payload_has_stable_top_level_contract() -> None:
@@ -67,6 +76,210 @@ def test_build_export_payload_has_stable_top_level_contract() -> None:
         "Weighted||Count",
         "Weighted||Percent",
     ]
+
+
+def test_build_export_payload_defaults_to_live_segmentation_filter() -> None:
+    tmp_path = _workspace_tmp_dir("payload_segmentation_fallback")
+    config = _write_config(
+        tmp_path,
+        export_html_lines=[
+            "pages:",
+            "  daily_travel:",
+            "    daily_activity_pattern: {}",
+        ],
+        extra_lines=[
+            "segmentation:",
+            "  enabled: true",
+            "  dashboard:",
+            "    segmentation_type: signup_platform",
+            "    visibility: segments_only",
+            "  definitions:",
+            "    signup_platform:",
+            "      source:",
+            "        type: prepared_column",
+            "        source_table: hh",
+            "        column: signup_platform",
+            "      segments:",
+            "        - id: browser",
+            "          label: Browser",
+            "          values: [browser]",
+            "        - id: call",
+            "          label: Call",
+            "          values: [call]",
+            "    person_sex:",
+            "      source:",
+            "        type: prepared_column",
+            "        source_table: per",
+            "        column: sex",
+            "      segments:",
+            "        - id: male",
+            "          label: Male",
+            "          values: [1]",
+        ],
+    )
+
+    payload = build_export_payload([], config, summary_runs=_segmented_summary_runs())
+
+    assert payload["runs_loaded"] == [
+        {"label": "Base (Browser)", "color": "#1f77b4"},
+        {"label": "Base (Call)", "color": "#ff7f0e"},
+    ]
+    assert _first_plot_trace_names(
+        payload["states"]["Weighted||Percent"]["daily_activity_pattern"]
+    ) == ["Base (Browser)", "Base (Call)"]
+
+
+def test_build_export_payload_honors_export_segmentation_overrides() -> None:
+    tmp_path = _workspace_tmp_dir("payload_segmentation_override")
+    config = _write_config(
+        tmp_path,
+        export_html_lines=[
+            "dashboard:",
+            "  segmentation_type: person_sex",
+            "  segmentation_visibility: full_and_segments",
+            "pages:",
+            "  daily_travel:",
+            "    daily_activity_pattern: {}",
+        ],
+        extra_lines=[
+            "segmentation:",
+            "  enabled: true",
+            "  dashboard:",
+            "    segmentation_type: signup_platform",
+            "    visibility: segments_only",
+            "  definitions:",
+            "    signup_platform:",
+            "      source:",
+            "        type: prepared_column",
+            "        source_table: hh",
+            "        column: signup_platform",
+            "      segments:",
+            "        - id: browser",
+            "          label: Browser",
+            "          values: [browser]",
+            "        - id: call",
+            "          label: Call",
+            "          values: [call]",
+            "    person_sex:",
+            "      source:",
+            "        type: prepared_column",
+            "        source_table: per",
+            "        column: sex",
+            "      segments:",
+            "        - id: male",
+            "          label: Male",
+            "          values: [1]",
+        ],
+    )
+
+    payload = build_export_payload([], config, summary_runs=_segmented_summary_runs())
+
+    assert payload["runs_loaded"] == [
+        {"label": "Base (Full)", "color": "#1f77b4"},
+        {"label": "Base (Male)", "color": "#ff7f0e"},
+    ]
+    assert _first_plot_trace_names(
+        payload["states"]["Weighted||Percent"]["daily_activity_pattern"]
+    ) == ["Base (Full)", "Base (Male)"]
+
+
+def test_build_export_payload_supports_export_full_only_segmentation() -> None:
+    tmp_path = _workspace_tmp_dir("payload_segmentation_full_only")
+    config = _write_config(
+        tmp_path,
+        export_html_lines=[
+            "dashboard:",
+            "  segmentation_type: signup_platform",
+            "  segmentation_visibility: full_only",
+            "pages:",
+            "  daily_travel:",
+            "    daily_activity_pattern: {}",
+        ],
+        extra_lines=[
+            "segmentation:",
+            "  enabled: true",
+            "  dashboard:",
+            "    segmentation_type: signup_platform",
+            "    visibility: full_and_segments",
+            "  definitions:",
+            "    signup_platform:",
+            "      source:",
+            "        type: prepared_column",
+            "        source_table: hh",
+            "        column: signup_platform",
+            "      segments:",
+            "        - id: browser",
+            "          label: Browser",
+            "          values: [browser]",
+            "        - id: call",
+            "          label: Call",
+            "          values: [call]",
+        ],
+    )
+
+    payload = build_export_payload([], config, summary_runs=_segmented_summary_runs())
+
+    assert payload["runs_loaded"] == [{"label": "Base", "color": "#1f77b4"}]
+    assert _first_plot_trace_names(
+        payload["states"]["Weighted||Percent"]["daily_activity_pattern"]
+    ) == ["Base"]
+
+
+def test_export_build_context_does_not_change_live_segmentation_defaults() -> None:
+    tmp_path = _workspace_tmp_dir("payload_segmentation_live_regression")
+    config = _write_config(
+        tmp_path,
+        export_html_lines=[
+            "dashboard:",
+            "  segmentation_type: person_sex",
+            "  segmentation_visibility: full_only",
+        ],
+        extra_lines=[
+            "segmentation:",
+            "  enabled: true",
+            "  dashboard:",
+            "    segmentation_type: signup_platform",
+            "    visibility: segments_only",
+            "  definitions:",
+            "    signup_platform:",
+            "      source:",
+            "        type: prepared_column",
+            "        source_table: hh",
+            "        column: signup_platform",
+            "      segments:",
+            "        - id: browser",
+            "          label: Browser",
+            "          values: [browser]",
+            "        - id: call",
+            "          label: Call",
+            "          values: [call]",
+            "    person_sex:",
+            "      source:",
+            "        type: prepared_column",
+            "        source_table: per",
+            "        column: sex",
+            "      segments:",
+            "        - id: male",
+            "          label: Male",
+            "          values: [1]",
+        ],
+    )
+    summary_runs = _segmented_summary_runs()
+
+    live_state = DashboardState(
+        summary_runs=summary_runs,
+        weighting_modes=config.weighting_modes,
+        dashboard_segmentation_type=config.segmentation.dashboard.segmentation_type,
+        default_segmentation_visibility=config.segmentation.dashboard.visibility,
+    )
+    export_state = ExportBuildContext(
+        config=config,
+        summary_runs=summary_runs,
+        prepared_run_provider=DashboardPreparedRunProvider.not_requested(),
+    ).build_dashboard_state()
+
+    assert live_state.run_labels == ["Base (Browser)", "Base (Call)"]
+    assert export_state.run_labels == ["Base"]
 
 
 def test_build_export_payload_serializes_representative_page_region_structure(

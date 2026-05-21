@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+import time
 
 import panel as pn
 import polars as pl
@@ -278,12 +279,41 @@ def _prepared_identity(
     config: Config,
     run_key: str,
     fingerprint: dict[str, object],
+    source_type: str = "prepared_cache",
+    prepared_table_map: dict[str, str] | None = None,
 ) -> dict[str, object]:
     return build_prepared_manifest_identity(
         run_key=run_key,
         config=config,
         run_fingerprint=fingerprint,
+        source_type=source_type,
+        prepared_table_map=prepared_table_map,
     )
+
+
+def _write_custom_prepared_tables(
+    root: Path,
+    *,
+    file_format: str = "parquet",
+) -> dict[str, str]:
+    root.mkdir(parents=True, exist_ok=True)
+    tables = {
+        "households": pl.DataFrame({"household_id": [1], "finalweight": [1.0]}),
+        "persons": pl.DataFrame({"person_id": [10], "household_id": [1], "finalweight": [1.0]}),
+        "tours": pl.DataFrame({"tour_id": [100], "person_id": [10], "household_id": [1], "finalweight": [1.0]}),
+        "trips": pl.DataFrame({"trip_id": [1000], "tour_id": [100], "person_id": [10], "finalweight": [1.0]}),
+        "joint_tour_participants": pl.DataFrame({"tour_id": [], "person_id": []}),
+        "land_use": pl.DataFrame({"zone_id": [1], "TAZ": [1]}),
+    }
+    paths: dict[str, str] = {}
+    for table_id, table in tables.items():
+        path = root / f"{table_id}.{file_format}"
+        if file_format == "parquet":
+            table.write_parquet(path)
+        else:
+            table.write_csv(path)
+        paths[table_id] = str(path.resolve())
+    return paths
 
 
 def test_build_run_keys_handles_case_insensitive_collisions() -> None:
@@ -393,6 +423,113 @@ def test_summary_cache_detects_file_map_only_run_fingerprint_mismatch(
                 config=config,
                 run_key="base",
                 fingerprint=fingerprint,
+            ),
+            expected_label="Base",
+            expected_run_key="base",
+        )
+
+
+def test_summary_cache_detects_custom_prepared_table_path_or_mtime_change(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _sample_summary_run()
+    prepared_map = _write_custom_prepared_tables(tmp_path / "prepared")
+    fingerprint = build_run_fingerprint(
+        label="Base",
+        run_dir=None,
+        skim_file=None,
+        hh_weight_col=None,
+        person_weight_col=None,
+        trip_weight_col=None,
+    )
+
+    cache_dir = write_summary_run_cache(
+        summary_run,
+        config,
+        run_fingerprint=fingerprint,
+        prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="base",
+            fingerprint=fingerprint,
+            source_type="custom_prepared_table_map",
+            prepared_table_map=prepared_map,
+        ),
+    )
+
+    moved_households = tmp_path / "prepared_moved" / "households.parquet"
+    moved_households.parent.mkdir(parents=True, exist_ok=True)
+    Path(prepared_map["households"]).replace(moved_households)
+    changed_path_map = dict(prepared_map)
+    changed_path_map["households"] = str(moved_households)
+
+    with pytest.raises(
+        SummaryCacheError, match="prepared manifest identity mismatch"
+    ):
+        load_summary_run_cache(
+            cache_dir,
+            config,
+            expected_modes=config.weighting_modes,
+            expected_summary_ids=[
+                "destination_distance",
+                "destination_average_distance",
+                "geo_flows",
+            ],
+            expected_summary_config_digest=config.summary_config_digest,
+            expected_run_fingerprint=fingerprint,
+            expected_prepared_manifest_identity=_prepared_identity(
+                config=config,
+                run_key="base",
+                fingerprint=fingerprint,
+                source_type="custom_prepared_table_map",
+                prepared_table_map=changed_path_map,
+            ),
+            expected_label="Base",
+            expected_run_key="base",
+        )
+
+    prepared_map = _write_custom_prepared_tables(tmp_path / "prepared_again")
+    cache_dir = write_summary_run_cache(
+        summary_run,
+        config,
+        run_fingerprint=fingerprint,
+        prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="base",
+            fingerprint=fingerprint,
+            source_type="custom_prepared_table_map",
+            prepared_table_map=prepared_map,
+        ),
+    )
+    trips_path = Path(prepared_map["trips"])
+    updated_ns = trips_path.stat().st_mtime_ns + 1_000_000_000
+    time_s = updated_ns / 1_000_000_000
+    time.sleep(0.01)
+    trips_path.touch()
+    import os
+
+    os.utime(trips_path, ns=(updated_ns, updated_ns))
+
+    with pytest.raises(
+        SummaryCacheError, match="prepared manifest identity mismatch"
+    ):
+        load_summary_run_cache(
+            cache_dir,
+            config,
+            expected_modes=config.weighting_modes,
+            expected_summary_ids=[
+                "destination_distance",
+                "destination_average_distance",
+                "geo_flows",
+            ],
+            expected_summary_config_digest=config.summary_config_digest,
+            expected_run_fingerprint=fingerprint,
+            expected_prepared_manifest_identity=_prepared_identity(
+                config=config,
+                run_key="base",
+                fingerprint=fingerprint,
+                source_type="custom_prepared_table_map",
+                prepared_table_map=prepared_map,
             ),
             expected_label="Base",
             expected_run_key="base",
@@ -1230,6 +1367,93 @@ def test_daily_activity_pattern_live_page_uses_shared_summary_helpers(
     page.person_type_sel.value = "worker"
     page.refresh(force=True)
     assert page._body.objects
+
+
+def test_daily_activity_pattern_page_renders_available_charts_when_one_summary_is_missing(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode={
+            "weighted": {
+                "daily_activity_pattern_by_person_type": pl.DataFrame(
+                    {
+                        "person_type": ["all_person_types", "worker"],
+                        "daily_activity_pattern": ["M", "N"],
+                        "person_count": [10.0, 6.0],
+                    }
+                ),
+                "mandatory_tour_frequency_by_person_type": pl.DataFrame(
+                    {
+                        "person_type": ["all_person_types", "worker"],
+                        "mandatory_tour_frequency": [1, 2],
+                        "person_count": [7.0, 4.0],
+                    }
+                ),
+                "nonmandatory_tour_frequency_by_person_type": pl.DataFrame(
+                    schema={
+                        "person_type": pl.Utf8,
+                        "nonmandatory_tour_frequency": pl.Utf8,
+                        "person_count": pl.Float64,
+                    }
+                ),
+                "tour_rates_by_person_type_and_tour_purpose": pl.DataFrame(
+                    {
+                        "person_type": ["all_person_types", "worker"],
+                        "tour_purpose": ["work", "shop"],
+                        "tour_rate": [1.8, 0.5],
+                    }
+                ),
+                "trip_rates_by_person_type_and_trip_purpose": pl.DataFrame(
+                    {
+                        "person_type": ["all_person_types", "worker"],
+                        "trip_purpose": ["work", "shop"],
+                        "trip_rate": [2.4, 0.9],
+                    }
+                ),
+            },
+        },
+        summary_metadata_by_mode={
+            "weighted": {
+                "nonmandatory_tour_frequency_by_person_type": {
+                    "state": "unavailable",
+                    "detail": "joint_participants (missing required columns: person_id)",
+                },
+            }
+        },
+        source_run_dir="C:/runs/base",
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = DailyActivityPatternPage(state, config)
+    page.refresh(force=True)
+
+    plots = _collect_plotly_panes(page._body)
+    cards = _collect_cards(page._body)
+
+    assert len(plots) == 4
+    card_markdown = [
+        str(card.objects[0].object)
+        for card in cards
+        if getattr(card, "objects", None)
+    ]
+    assert any(
+        getattr(card, "title", "") == "Data Not Available"
+        and "nonmandatory_tour_frequency_by_person_type" in markdown
+        for card, markdown in zip(cards, card_markdown)
+    )
+    assert not any(
+        getattr(card, "title", "") == "Data Not Available"
+        and "This page only renders from precomputed summary tables." in markdown
+        for card in cards
+        for markdown in [str(card.objects[0].object)]
+        if getattr(card, "objects", None)
+    )
 
 
 def test_joint_travel_participation_page_uses_counts_and_runtime_percent_mode(

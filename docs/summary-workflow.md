@@ -23,8 +23,10 @@ High-level path:
 1. `run.py` parses CLI flags.
 2. `runtime.workflows.resolve_run_entries()` chooses run inputs from CLI or config.
 3. `runtime.workflows.run_prepare_workflow()` tries prepared-cache reuse first.
-4. On a miss, raw runs are read by `processor.prepare.reader` and normalized by `processor.prepare.enrichment.pipeline`.
-5. `processor.prepare.cache.write_prepared_run_cache()` writes one prepared cache directory per run.
+4. If a run defines `prepared_table_map`, the workflow loads those canonical prepared tables directly and skips raw prepare.
+5. Otherwise, on a miss, raw runs are read by `processor.prepare.reader` and normalized by `processor.prepare.enrichment.pipeline`.
+6. After any prepared run is loaded, the workflow optionally validates cross-table key relationships according to `prepare.validation.relationship_checks` (`warn` by default).
+7. `processor.prepare.cache.write_prepared_run_cache()` writes one prepared cache directory per raw-derived run.
 
 Prepared cache layout:
 
@@ -40,6 +42,11 @@ Prepared cache layout:
     land_use.parquet|csv
 ```
 
+The standard prepare workflow writes parquet by default, but `prepare.output.file_format`
+may switch prepared-cache output to CSV. Custom `prepared_table_map` inputs may also
+mix `.parquet` and `.csv` files within the same run because they are loaded directly,
+not rewritten into prepared cache in v1.
+
 ## Step 2: Summarize
 
 Typical command:
@@ -52,7 +59,7 @@ High-level path:
 
 1. `run.py` resolves the summarize step.
 2. `runtime.workflows.run_summary_workflow()` tries summary-cache reuse first.
-3. On a summary-cache miss, summarize reuses in-memory prepared runs, then tries prepared cache, then rebuilds prepare from raw inputs only if needed.
+3. On a summary-cache miss, summarize reuses in-memory prepared runs, then loads custom `prepared_table_map` inputs when configured, then tries prepared cache, then rebuilds prepare from raw inputs only if needed.
 4. `processor.summarize.cache.build_mode_summaries_with_metadata()` builds weighted and optionally unweighted tables.
 5. `processor.summarize.cache.write_summary_run_cache()` writes one cache directory per run unless `--skip-summary-cache-write` is set.
 
@@ -71,6 +78,7 @@ Cache layout:
 `manifest.json` is important. Prepared manifests record the schema version, prepare-config digest, run fingerprint, table file mapping, and per-table state/diagnostic metadata. Summary manifests record the schema version, summary ids, weighting modes, summary file mapping, run fingerprint, summary-config digest, and per-summary state/diagnostic metadata used to validate whether a cache is still safe to reuse.
 
 The summarize step also records the prepared-manifest identity it was built from, so summary caches are explicitly layered on top of prepared inputs rather than raw-run assumptions.
+That prepared-input identity now covers both standard prepared caches and user-supplied `prepared_table_map` inputs, so summary reuse is invalidated when external prepared files change.
 
 Summary building is now best-effort per summary. Each registered builder can declare a typed output contract and safe prerequisite metadata. The cache layer uses that contract to:
 
@@ -98,7 +106,7 @@ High-level path:
 Important behavior:
 
 - Summary-backed pages do not rebuild summary tables.
-- If an enabled page requires disaggregate tables, `run.py` loads prepared runs for that page set from memory, prepared cache, or the prepare workflow.
+- If an enabled page requires disaggregate tables, `run.py` loads prepared runs for that page set from memory, custom `prepared_table_map` inputs, prepared cache, or the prepare workflow.
 - Most pages should stay summary-backed and declare their requirements through `PAGE.required_summary_ids`.
 - Prepared-data pages must also declare `PAGE.required_prepared_tables`, which lets the workflow prune unused prepared tables before dashboard startup/export.
 

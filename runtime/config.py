@@ -29,6 +29,8 @@ FILE_MAPPING_DEFAULTS: dict[str, str] = {
     "joint_tour_participants": "final_joint_tour_participants",
     "land_use": "final_land_use",
 }
+PREPARED_TABLE_MAP_KEYS: tuple[str, ...] = tuple(FILE_MAPPING_DEFAULTS)
+OPTIONAL_PREPARED_TABLE_IDS: set[str] = {"joint_tour_participants", "land_use"}
 
 
 @dataclass(frozen=True)
@@ -78,6 +80,10 @@ class ExportDashboardSettings:
 
     weighting: list[str] = field(default_factory=lambda: ["weighted"])
     values: list[str] = field(default_factory=lambda: ["percent"])
+    segmentation_type: str | None = None
+    segmentation_visibility: Literal[
+        "full_only", "segments_only", "full_and_segments"
+    ] | None = None
 
     def panel_weighting_values(self) -> list[str]:
         return [mode.title() for mode in self.weighting]
@@ -1178,7 +1184,89 @@ def _normalize_file_mapping(
     return normalized
 
 
-def _normalize_runs(raw_value, *, field_name: str) -> list[dict[str, Any]]:
+def _normalize_prepared_output_file_format(
+    raw_value,
+    *,
+    field_name: str,
+) -> str:
+    """Normalize the configured prepared output file format."""
+    if raw_value is None:
+        return "parquet"
+    if not isinstance(raw_value, str):
+        raise ValueError(f"{field_name} must be 'parquet' or 'csv'.")
+    token = raw_value.strip().lower()
+    if token not in {"parquet", "csv"}:
+        raise ValueError(f"{field_name} must be 'parquet' or 'csv'.")
+    return token
+
+
+def _normalize_prepare_relationship_checks(
+    raw_value,
+    *,
+    field_name: str,
+) -> str:
+    """Normalize prepared-table relationship validation behavior."""
+    if raw_value is None:
+        return "warn"
+    if raw_value is False:
+        return "off"
+    if raw_value is True:
+        raise ValueError(f"{field_name} must be 'off', 'warn', or 'error'.")
+    if not isinstance(raw_value, str):
+        raise ValueError(f"{field_name} must be 'off', 'warn', or 'error'.")
+    token = raw_value.strip().lower()
+    if token not in {"off", "warn", "error"}:
+        raise ValueError(f"{field_name} must be 'off', 'warn', or 'error'.")
+    return token
+
+
+def _normalize_prepared_table_map(
+    raw_value,
+    *,
+    field_name: str,
+    config_dir: Path,
+) -> dict[str, str]:
+    """Normalize canonical prepared table ids to resolved file paths."""
+    if raw_value is None:
+        raw_value = {}
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{field_name} must be a mapping when provided.")
+
+    invalid_keys = sorted(
+        str(key) for key in raw_value if str(key) not in PREPARED_TABLE_MAP_KEYS
+    )
+    if invalid_keys:
+        raise ValueError(
+            f"{field_name} contains unsupported table ids: "
+            + ", ".join(repr(key) for key in invalid_keys)
+        )
+
+    normalized: dict[str, str] = {}
+    for raw_key, raw_path in raw_value.items():
+        key = str(raw_key)
+        if not isinstance(raw_path, str):
+            raise ValueError(f"{field_name}.{key} must be a non-empty path string.")
+        token = raw_path.strip()
+        if not token:
+            raise ValueError(f"{field_name}.{key} must be a non-empty path string.")
+        suffix = Path(token).suffix.lower()
+        if suffix not in {".parquet", ".csv"}:
+            raise ValueError(
+                f"{field_name}.{key} must end with '.parquet' or '.csv'."
+            )
+        resolved = Path(token).expanduser()
+        if not resolved.is_absolute():
+            resolved = (config_dir / resolved).resolve()
+        normalized[key] = str(resolved)
+    return normalized
+
+
+def _normalize_runs(
+    raw_value,
+    *,
+    field_name: str,
+    config_dir: Path,
+) -> list[dict[str, Any]]:
     """Normalize run entries and validate optional per-run file mappings."""
     if raw_value is None:
         return []
@@ -1195,6 +1283,16 @@ def _normalize_runs(raw_value, *, field_name: str) -> list[dict[str, Any]]:
                 raw_entry.get("file_map"),
                 field_name=f"{field_name}[{index}].file_map",
             )
+        if "prepared_table_map" in raw_entry:
+            normalized_entry["prepared_table_map"] = _normalize_prepared_table_map(
+                raw_entry.get("prepared_table_map"),
+                field_name=f"{field_name}[{index}].prepared_table_map",
+                config_dir=config_dir,
+            )
+            if "file_map" in raw_entry:
+                raise ValueError(
+                    f"{field_name}[{index}] cannot define both file_map and prepared_table_map."
+                )
         normalized_runs.append(normalized_entry)
     return normalized_runs
 
@@ -1737,6 +1835,8 @@ class Config:
     export_html: ExportHTMLSettings
     skimjoin: SkimjoinSettings
     prepare_vot_bins: PrepareVotBinsSettings
+    prepare_output_file_format: str
+    prepare_relationship_checks: str
 
     files: dict[str, str]
 
@@ -1825,7 +1925,11 @@ class Config:
             field_name="files",
             defaults=FILE_MAPPING_DEFAULTS,
         )
-        runs = _normalize_runs(raw.get("runs"), field_name="runs")
+        runs = _normalize_runs(
+            raw.get("runs"),
+            field_name="runs",
+            config_dir=config_path.parent,
+        )
 
         cols = raw.get("columns", {})
         if not isinstance(cols, dict):
@@ -1842,15 +1946,28 @@ class Config:
             prepare_cfg = {}
         if not isinstance(prepare_cfg, dict):
             raise ValueError("prepare must be a mapping when provided.")
+        prepare_output_cfg = prepare_cfg.get("output", {})
+        if prepare_output_cfg is None:
+            prepare_output_cfg = {}
+        if not isinstance(prepare_output_cfg, dict):
+            raise ValueError("prepare.output must be a mapping when provided.")
+        prepare_validation_cfg = prepare_cfg.get("validation", {})
+        if prepare_validation_cfg is None:
+            prepare_validation_cfg = {}
+        if not isinstance(prepare_validation_cfg, dict):
+            raise ValueError("prepare.validation must be a mapping when provided.")
         geo_enabled = bool(geo.get("enabled", False))
         geo_mapping = None
         if geo_enabled and "mapping" in geo:
             geo_mapping = {str(k): str(v) for k, v in geo["mapping"].items()}
-        geography_aggregations = _normalize_geography_aggregations(
-            geo,
-            field_name="geography",
-            config_dir=config_path.parent,
-        )
+        if geo_enabled:
+            geography_aggregations = _normalize_geography_aggregations(
+                geo,
+                field_name="geography",
+                config_dir=config_path.parent,
+            )
+        else:
+            geography_aggregations = GeographyAggregationSettings(enabled=False)
         segmentation = _normalize_segmentation(
             raw.get("segmentation"),
             field_name="segmentation",
@@ -1867,6 +1984,14 @@ class Config:
         prepare_vot_bins = _normalize_prepare_vot_bins(
             prepare_cfg.get("vot_bins"),
             field_name="prepare.vot_bins",
+        )
+        prepare_output_file_format = _normalize_prepared_output_file_format(
+            prepare_output_cfg.get("file_format"),
+            field_name="prepare.output.file_format",
+        )
+        prepare_relationship_checks = _normalize_prepare_relationship_checks(
+            prepare_validation_cfg.get("relationship_checks"),
+            field_name="prepare.validation.relationship_checks",
         )
         modes_cfg = raw.get("modes", {})
         if not isinstance(modes_cfg, dict):
@@ -2027,6 +2152,31 @@ class Config:
                     default=["percent", "count"],
                     allowed=["percent", "count"],
                 ),
+                segmentation_type=(
+                    None
+                    if not segmentation.enabled
+                    else (
+                        (
+                            str(dashboard_cfg.get("segmentation_type")).strip().lower()
+                            if dashboard_cfg.get("segmentation_type") is not None
+                            else segmentation.dashboard.segmentation_type
+                        )
+                    )
+                ),
+                segmentation_visibility=(
+                    None
+                    if not segmentation.enabled
+                    else (
+                        str(
+                            dashboard_cfg.get(
+                                "segmentation_visibility",
+                                segmentation.dashboard.visibility,
+                            )
+                        )
+                        .strip()
+                        .lower()
+                    )
+                ),
             ),
             pages=normalized_pages,
             exclude_pages=_normalize_excluded_ids(
@@ -2040,6 +2190,22 @@ class Config:
             pages_configured=pages_configured,
             default_selector_request=ExportSelectorRequest(mode="all"),
         )
+
+        if export_html.dashboard.segmentation_type is not None:
+            if (
+                export_html.dashboard.segmentation_type
+                not in segmentation.definition_names()
+            ):
+                raise ValueError(
+                    "visualizer.export_html.dashboard.segmentation_type must name one configured segmentation definition."
+                )
+        if export_html.dashboard.segmentation_visibility is not None and (
+            export_html.dashboard.segmentation_visibility
+            not in {"full_only", "segments_only", "full_and_segments"}
+        ):
+            raise ValueError(
+                "visualizer.export_html.dashboard.segmentation_visibility must be one of full_only, segments_only, or full_and_segments."
+            )
 
         dashboard_title = visualizer_cfg.get("dashboard_title")
         if dashboard_title is None:
@@ -2139,6 +2305,8 @@ class Config:
             export_html=export_html,
             skimjoin=skimjoin,
             prepare_vot_bins=prepare_vot_bins,
+            prepare_output_file_format=prepare_output_file_format,
+            prepare_relationship_checks=prepare_relationship_checks,
             files=files,
             col_ptype=cols.get("ptype", "ptype"),
             col_hhsize=cols.get("hhsize", "hhsize"),
@@ -2448,6 +2616,9 @@ class Config:
                 "config_digest": self.skimjoin.config_digest,
             },
             "prepare": {
+                "output": {
+                    "file_format": self.prepare_output_file_format,
+                },
                 "vot_bins": {
                     "enabled": self.prepare_vot_bins.enabled,
                     "source_column": self.prepare_vot_bins.source_column,
@@ -2697,6 +2868,8 @@ class Config:
                 "dashboard": {
                     "weighting": list(self.export_html.dashboard.weighting),
                     "values": list(self.export_html.dashboard.values),
+                    "segmentation_type": self.export_html.dashboard.segmentation_type,
+                    "segmentation_visibility": self.export_html.dashboard.segmentation_visibility,
                 },
                 "pages_configured": self.export_html.pages_configured,
                 "exclude_pages": list(self.export_html.exclude_pages),

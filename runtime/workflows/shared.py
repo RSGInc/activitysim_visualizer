@@ -53,18 +53,29 @@ def summary_cache_load_expectations(
     run_dir = entry.get("dir", "")
     expected_label = entry.get("label", Path(run_dir).name)
     expected_run_key = cache_dir.name
+    uses_custom_prepared_tables = bool(entry.get("prepared_table_map"))
     expected_run_fingerprint = build_run_fingerprint_fn(
         label=expected_label,
-        run_dir=run_dir,
-        skim_file=resolve_skim_path_fn(
-            entry.get("skim_file") or None,
-            config.skim_file,
-            run_dir,
+        run_dir=None if uses_custom_prepared_tables else run_dir,
+        skim_file=(
+            None
+            if uses_custom_prepared_tables
+            else resolve_skim_path_fn(
+                entry.get("skim_file") or None,
+                config.skim_file,
+                run_dir,
+            )
         ),
-        file_map=entry.get("file_map") or None,
-        hh_weight_col=entry.get("hh_weight_col") or None,
-        person_weight_col=entry.get("person_weight_col") or None,
-        trip_weight_col=entry.get("trip_weight_col") or None,
+        file_map=None if uses_custom_prepared_tables else entry.get("file_map") or None,
+        hh_weight_col=None
+        if uses_custom_prepared_tables
+        else entry.get("hh_weight_col") or None,
+        person_weight_col=None
+        if uses_custom_prepared_tables
+        else entry.get("person_weight_col") or None,
+        trip_weight_col=None
+        if uses_custom_prepared_tables
+        else entry.get("trip_weight_col") or None,
     )
     return {
         "expected_label": expected_label,
@@ -74,6 +85,12 @@ def summary_cache_load_expectations(
             run_key=expected_run_key,
             config=config,
             run_fingerprint=expected_run_fingerprint,
+            source_type=(
+                "custom_prepared_table_map"
+                if uses_custom_prepared_tables
+                else "prepared_cache"
+            ),
+            prepared_table_map=entry.get("prepared_table_map") or None,
         ),
     }
 
@@ -195,15 +212,18 @@ def run_cache_metadata(
     run_dir = entry.get("dir", "")
     label = entry.get("label", Path(run_dir).name)
     skim = entry.get("skim_file") or None
-    resolved_skim = resolve_skim_path_fn(skim, config.skim_file, run_dir)
+    uses_custom_prepared_tables = bool(entry.get("prepared_table_map"))
+    resolved_skim = (
+        None if uses_custom_prepared_tables else resolve_skim_path_fn(skim, config.skim_file, run_dir)
+    )
     run_fingerprint = build_run_fingerprint_fn(
         label=label,
-        run_dir=run_dir,
+        run_dir=None if uses_custom_prepared_tables else run_dir,
         skim_file=resolved_skim,
-        file_map=entry.get("file_map") or None,
-        hh_weight_col=entry.get("hh_weight_col") or None,
-        person_weight_col=entry.get("person_weight_col") or None,
-        trip_weight_col=entry.get("trip_weight_col") or None,
+        file_map=None if uses_custom_prepared_tables else entry.get("file_map") or None,
+        hh_weight_col=None if uses_custom_prepared_tables else entry.get("hh_weight_col") or None,
+        person_weight_col=None if uses_custom_prepared_tables else entry.get("person_weight_col") or None,
+        trip_weight_col=None if uses_custom_prepared_tables else entry.get("trip_weight_col") or None,
     )
     return {
         "label": label,
@@ -214,6 +234,12 @@ def run_cache_metadata(
             run_key=run_key,
             config=config,
             run_fingerprint=run_fingerprint,
+            source_type=(
+                "custom_prepared_table_map"
+                if uses_custom_prepared_tables
+                else "prepared_cache"
+            ),
+            prepared_table_map=entry.get("prepared_table_map") or None,
         ),
     }
 
