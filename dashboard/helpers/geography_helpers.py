@@ -47,10 +47,5 @@ def detail_geography_levels(
     *,
     config,
 ) -> list[str]:
-    """Return selector geography levels, collapsing to the aggregate when disabled."""
-    ordered = ordered_visible_geography_levels(values, config=config)
-    if config.enable_maz_geographies:
-        return ordered
-    if AGGREGATE_GEOGRAPHY_LEVEL in ordered:
-        return [AGGREGATE_GEOGRAPHY_LEVEL]
-    return ordered
+    """Return selector geography levels, hiding only MAZ when disabled."""
+    return ordered_visible_geography_levels(values, config=config)

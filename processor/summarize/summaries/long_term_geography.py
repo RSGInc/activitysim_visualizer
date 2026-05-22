@@ -205,7 +205,6 @@ def internal_vs_external(rd: RunData, config: Config) -> pl.DataFrame:
             .is_in(["true", "1", "yes", "external"])
             .alias("is_external_worker")
         )
-        .select("home_zone_id", "is_external_worker", "finalweight")
         .select(
             "home_zone_id",
             "is_external_worker",
@@ -278,7 +277,15 @@ def external_workplace_loc(rd: RunData, config: Config) -> pl.DataFrame:
     base = rd.per.filter(
         (pl.col("is_external_worker") == True)
         & pl.col("external_workplace_zone_id").is_not_null()
-    ).select("external_workplace_zone_id", "finalweight")
+    ).select(
+        "external_workplace_zone_id",
+        "finalweight",
+        *_configured_geography_columns(
+            rd.per,
+            config=config,
+            role_prefix="work",
+        ),
+    )
     if base.is_empty():
         return empty_summary_frame(external_workplace_loc)
 
@@ -295,9 +302,13 @@ def external_workplace_loc(rd: RunData, config: Config) -> pl.DataFrame:
             [
                 _aggregate_counts_across_geographies(
                     base,
-                    geography_dimensions=[
-                        ("maz" if config.use_maz else "taz", "external_workplace_zone_id")
-                    ],
+                    geography_dimensions=_configured_geography_dimensions(
+                        base,
+                        config=config,
+                        base_type="maz" if config.use_maz else "taz",
+                        base_col="external_workplace_zone_id",
+                        role_prefix="work",
+                    ),
                     value_col="external_worker_count",
                 ),
                 _all_geographies_external_worker_counts(base),

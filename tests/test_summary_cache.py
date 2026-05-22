@@ -2546,7 +2546,7 @@ def test_tour_summaries_tour_mode_page_uses_configured_mode_labels_on_plot_axes(
     ]
 
 
-def test_mandatory_location_choice_uses_commuting_flows_when_worker_geography_missing(
+def test_mandatory_location_choice_uses_union_of_available_geographies(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -2558,10 +2558,10 @@ def test_mandatory_location_choice_uses_commuting_flows_when_worker_geography_mi
             ),
             "commuting_flows": pl.DataFrame(
                 {
-                    "origin_geography_type": ["all_geographies", "maz", "maz"],
-                    "origin_geography_id": ["all_geographies", "10", "20"],
-                    "destination_geography_type": ["all_geographies", "maz", "maz"],
-                    "destination_geography_id": ["all_geographies", "30", "40"],
+                    "origin_geography_type": ["all_geographies", "district", "maz"],
+                    "origin_geography_id": ["all_geographies", "A", "10"],
+                    "destination_geography_type": ["all_geographies", "district", "maz"],
+                    "destination_geography_id": ["all_geographies", "B", "30"],
                     "commuter_count": [12.0, 5.0, 7.0],
                 }
             ),
@@ -2575,7 +2575,7 @@ def test_mandatory_location_choice_uses_commuting_flows_when_worker_geography_mi
     page = MandatoryLocationChoicePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["all_geographies"]
+    assert list(page.geo_level_sel.options) == ["all_geographies", "district"]
     commuting_widget = page._commuting_flows_section.objects[0]
     assert not isinstance(commuting_widget, pn.Card)
 
@@ -2691,7 +2691,7 @@ def test_tour_mode_occupancy_selector_uses_common_values_across_vehicle_summarie
     assert list(page.occupancy_sel.options) == ["All", "1"]
 
 
-def test_internal_external_tours_geo_selector_uses_common_levels_across_tables(
+def test_internal_external_tours_geo_selector_uses_union_levels_across_tables(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path, visualizer_lines=["enable_maz_geographies: true"])
@@ -2723,10 +2723,10 @@ def test_internal_external_tours_geo_selector_uses_common_levels_across_tables(
     page = InternalExternalToursPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["all_geographies", "maz"]
+    assert list(page.geo_level_sel.options) == ["all_geographies", "district", "maz"]
 
 
-def test_internal_external_tours_geo_selector_collapses_to_aggregate_when_disabled(
+def test_internal_external_tours_geo_selector_hides_only_maz_when_disabled(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -2735,17 +2735,17 @@ def test_internal_external_tours_geo_selector_collapses_to_aggregate_when_disabl
         weighted={
             "internal_external_nonmandatory_tour_frequency_by_home_geography": pl.DataFrame(
                 {
-                    "geography_level": ["all_geographies", "maz"],
-                    "home_geography": ["all_geographies", "1"],
-                    "internal_tour_count": [5.0, 2.0],
-                    "external_tour_count": [2.0, 1.0],
+                    "geography_level": ["all_geographies", "district", "maz"],
+                    "home_geography": ["all_geographies", "A", "1"],
+                    "internal_tour_count": [5.0, 3.0, 2.0],
+                    "external_tour_count": [2.0, 1.0, 1.0],
                 }
             ),
             "external_nonmandatory_tour_locations": pl.DataFrame(
                 {
-                    "geography_type": ["all_geographies", "maz"],
-                    "geography_id": ["all_geographies", "1"],
-                    "tour_count": [4.0, 4.0],
+                    "geography_type": ["all_geographies", "district", "maz"],
+                    "geography_id": ["all_geographies", "A", "1"],
+                    "tour_count": [4.0, 4.0, 4.0],
                 }
             ),
         },
@@ -2758,10 +2758,10 @@ def test_internal_external_tours_geo_selector_collapses_to_aggregate_when_disabl
     page = InternalExternalToursPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["all_geographies"]
+    assert list(page.geo_level_sel.options) == ["all_geographies", "district"]
 
 
-def test_shadow_pricing_geo_selector_collapses_to_aggregate_when_disabled(
+def test_shadow_pricing_geo_selector_hides_only_maz_when_disabled(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -2795,7 +2795,7 @@ def test_shadow_pricing_geo_selector_collapses_to_aggregate_when_disabled(
     page = ShadowPricingPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["all_geographies"]
+    assert list(page.geo_level_sel.options) == ["all_geographies", "district"]
 
 
 def test_shadow_pricing_geo_selector_shows_detailed_levels_when_enabled(

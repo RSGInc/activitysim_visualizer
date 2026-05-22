@@ -55,7 +55,7 @@ def common_geo_level_options(
     for data_list in data_lists:
         if data_list is None:
             continue
-        per_run_sets: list[set[str]] = []
+        available: set[str] = set()
         for _, df in _nonempty(data_list):
             if GEO_LEVEL_COL not in df.columns:
                 continue
@@ -67,13 +67,13 @@ def common_geo_level_options(
                 .cast(pl.Utf8)
                 .to_list()
             )
-            per_run_sets.append(set(vals))
-        if per_run_sets:
-            available_sets.append(set.intersection(*per_run_sets))
+            available.update(vals)
+        if available:
+            available_sets.append(available)
     if not available_sets:
         return ["All"]
-    common = set.intersection(*available_sets)
-    ordered = detail_geography_levels(list(common), config=config)
+    union = set().union(*available_sets)
+    ordered = detail_geography_levels(list(union), config=config)
     return ordered or ["All"]
 
 

@@ -243,7 +243,6 @@ def int_vs_ext_non_mand_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
             how="inner",
         )
         .filter(pl.col("home_zone_id").is_not_null())
-        .select("home_zone_id", "is_external_tour", "finalweight")
         .select(
             "home_zone_id",
             "is_external_tour",

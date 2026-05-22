@@ -145,11 +145,11 @@ def _ordered_geo_options(values: set[str], *, config: Config) -> list[str]:
 def geo_level_option_set(
     data_list: list[tuple[str, pl.DataFrame]] | None,
 ) -> set[str]:
-    """Return geography levels available in every non-empty run in this summary."""
+    """Return geography levels available in any non-empty run in this summary."""
     if data_list is None:
         return set()
 
-    per_run: list[set[str]] = []
+    available: set[str] = set()
 
     for _, df in _nonempty(data_list):
         if GEO_LEVEL_COL in df.columns:
@@ -161,7 +161,7 @@ def geo_level_option_set(
                 .cast(pl.Utf8)
                 .to_list()
             )
-            per_run.append(set(vals))
+            available.update(vals)
 
         elif {
             "origin_geography_level",
@@ -184,19 +184,16 @@ def geo_level_option_set(
 
             # For the current flow filter, origin and destination must both
             # support the selected level.
-            per_run.append(origin_vals & dest_vals)
+            available.update(origin_vals & dest_vals)
 
-    if not per_run:
-        return set()
-
-    return set.intersection(*per_run)
+    return available
 
 
 def core_geo_level_options(
     *summary_lists: list[tuple[str, pl.DataFrame]] | None,
     config: Config,
 ) -> list[str]:
-    """Use only geography levels available in all provided core summaries."""
+    """Use geography levels available in any provided core summary."""
     available_sets = [
         geo_level_option_set(summary)
         for summary in summary_lists
@@ -207,8 +204,8 @@ def core_geo_level_options(
     if not available_sets:
         return ["Total"]
 
-    common = set.intersection(*available_sets)
-    return _ordered_geo_options(common, config=config) or ["Total"]
+    union = set().union(*available_sets)
+    return _ordered_geo_options(union, config=config) or ["Total"]
 
 
 def geo_level_options(

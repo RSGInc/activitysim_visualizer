@@ -27,6 +27,7 @@ from processor.summarize.cache_types import strip_weights
 from processor.summarize.summaries import tour, trip
 from processor.summarize.summaries.long_term import (
     external_workplace_loc,
+    internal_vs_external,
     school_loc_vs_land_use_enrollment,
     vehicle_char_age,
     vehicle_char_body,
@@ -1695,6 +1696,90 @@ def test_geography_summaries_include_all_geographies_rollups(tmp_path: Path) -> 
         .select(["geography_id", "external_nonmandatory_tour_count"])
         .to_dicts()
         == [{"geography_id": "all_geographies", "external_nonmandatory_tour_count": 1.0}]
+    )
+
+
+def test_geography_summaries_include_configured_aggregation_levels(tmp_path: Path) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "geography:",
+            "  enabled: true",
+            "  aggregations:",
+            "    county:",
+            "      source_zone_system: taz",
+            "      mapping:",
+            "        West: [10]",
+            "        East: [20, 30]",
+        ],
+    )
+    prepared = ProcessorRunData(
+        label="Prepared",
+        run_dir="C:/runs/prepared",
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1], "finalweight": [1.0]}),
+        per=pl.DataFrame(
+            {
+                "person_id": [101, 102],
+                "home_zone_id": [10, 20],
+                "home_geo__county": ["West", "East"],
+                "is_worker": [True, True],
+                "is_external_worker": [True, False],
+                "external_workplace_zone_id": [30, None],
+                "work_geo__county": ["East", None],
+                "finalweight": [1.0, 1.0],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "person_id": [101, 102],
+                "tour_category": ["non_mandatory", "non_mandatory"],
+                "is_external_tour": [True, False],
+                "destination": [30, 20],
+                "finalweight": [1.0, 1.0],
+            }
+        ),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    worker_summary = internal_vs_external(prepared, config)
+    workplace_summary = external_workplace_loc(prepared, config)
+    tour_summary = int_vs_ext_non_mand_tour_freq(prepared, config)
+
+    assert "county" in worker_summary["geography_type"].to_list()
+    assert (
+        workplace_summary.filter(pl.col("geography_type") == "county")
+        .select(["geography_id", "external_worker_count"])
+        .to_dicts()
+        == [{"geography_id": "East", "external_worker_count": 1.0}]
+    )
+    assert (
+        tour_summary.filter(pl.col("geography_type") == "county")
+        .sort("geography_id")
+        .select(
+            [
+                "geography_id",
+                "internal_nonmandatory_tour_count",
+                "external_nonmandatory_tour_count",
+            ]
+        )
+        .to_dicts()
+        == [
+            {
+                "geography_id": "East",
+                "internal_nonmandatory_tour_count": 1.0,
+                "external_nonmandatory_tour_count": 0.0,
+            },
+            {
+                "geography_id": "West",
+                "internal_nonmandatory_tour_count": 0.0,
+                "external_nonmandatory_tour_count": 1.0,
+            },
+        ]
     )
 
 
