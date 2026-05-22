@@ -24,9 +24,15 @@ High-level path:
 2. `runtime.workflows.resolve_run_entries()` chooses run inputs from CLI or config.
 3. `runtime.workflows.run_prepare_workflow()` tries prepared-cache reuse first.
 4. If a run defines `prepared_table_map`, the workflow loads those canonical prepared tables directly and skips raw prepare.
+   This path is intended for already-prepared, already-skimjoined tables that may have been filtered or post-processed outside this repo.
 5. Otherwise, on a miss, raw runs are read by `processor.prepare.reader` and normalized by `processor.prepare.enrichment.pipeline`.
 6. After any prepared run is loaded, the workflow optionally validates cross-table key relationships according to `prepare.validation.relationship_checks` (`warn` by default).
 7. `processor.prepare.cache.write_prepared_run_cache()` writes one prepared cache directory per raw-derived run.
+
+Integrated skimjoin, when enabled, runs against those prepared tables. That now
+includes a prepared tour column named `first_inbound_trip_depart`, derived from
+the first inbound trip on each tour so inbound tour PERIOD lookups do not reuse
+the outbound tour start time.
 
 Prepared cache layout:
 
@@ -45,7 +51,23 @@ Prepared cache layout:
 The standard prepare workflow writes parquet by default, but `prepare.output.file_format`
 may switch prepared-cache output to CSV. Custom `prepared_table_map` inputs may also
 mix `.parquet` and `.csv` files within the same run because they are loaded directly,
-not rewritten into prepared cache in v1.
+not rewritten into prepared cache in v1. They also do not rerun integrated skimjoin;
+if you need skim outputs in that path, they should already exist in the supplied
+prepared tables.
+
+Skimjoin source-column selection is explicit in the skimjoin config:
+
+- `activitysim.trip_mode_column` and `activitysim.trip_id_column` control trip lookup inputs
+- `activitysim.tour_mode_column` and `activitysim.tour_id_column` control tour lookup inputs
+- `dimensions.<NAME>.source_columns.trip_source_column` controls trip placeholder resolution
+- `dimensions.<NAME>.source_columns.outbound_tour_source_column` controls outbound tour placeholder resolution
+- `dimensions.<NAME>.source_columns.inbound_tour_source_column` controls inbound tour placeholder resolution
+
+For the shared zone columns used by skimjoin defaults and common overrides:
+
+- prepare always materializes `OTAZ` and `DTAZ` on trips and tours
+- if `zones.use_maz: true`, prepare also materializes `o_maz` and `d_maz`
+- inbound tours reuse those same prepared columns, while skimjoin swaps lookup direction logically in the inbound tour context
 
 ## Step 2: Summarize
 

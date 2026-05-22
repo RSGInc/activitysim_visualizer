@@ -21,7 +21,7 @@ def _resolve_rule_work_items(
         token_column = f"__token_{dimension_name}"
         work = _attach_dimension_token(
             work,
-            dimension.source_column,
+            dimension.resolved_source_column,
             dimension.values,
             token_column,
         )
@@ -108,7 +108,7 @@ def _base_rule_work_frame(
         added_names.add("lookup_destination")
 
     for dimension_name in rule.dimensions_used:
-        source_column = rule.dimensions[dimension_name].source_column
+        source_column = rule.dimensions[dimension_name].resolved_source_column
         if source_column not in added_names:
             select_exprs.append(pl.col(source_column))
             added_names.add(source_column)

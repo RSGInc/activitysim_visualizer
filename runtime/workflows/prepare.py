@@ -27,7 +27,7 @@ from processor.prepare.validation import (
     validate_prepared_relationships,
 )
 from processor.skimjoin.pipeline import apply_skimjoin
-from runtime.config import Config
+from runtime.config import Config, config_for_run
 from runtime.workflows.common import prepared_cache_root, run_entries_with_keys
 from runtime.workflows import shared
 
@@ -184,6 +184,7 @@ def _build_prepared_run(
     run_dir = str(metadata["run_dir"])
     run_fingerprint = dict(metadata["run_fingerprint"])
     prepared_table_map = entry.get("prepared_table_map") or None
+    run_config = config if prepared_table_map is not None else config_for_run(config, entry)
 
     if prepared_table_map is not None:
         LOGGER.info("Loading custom prepared tables for %r", label)
@@ -199,7 +200,7 @@ def _build_prepared_run(
             )
             return None
         _log_prepare_table_diagnostics(label, prepared_run)
-        _validate_prepared_run(label, prepared_run, config)
+        _validate_prepared_run(label, prepared_run, run_config)
         LOGGER.info("Prepared run: %r", label)
         return (label, prepared_run)
 
@@ -214,8 +215,8 @@ def _build_prepared_run(
         person_weight_col=entry.get("person_weight_col") or None,
         trip_weight_col=entry.get("trip_weight_col") or None,
     )
-    prepared_run = prepare_data_fn(prepared_run, config)
-    prepared_run = apply_skimjoin_fn(prepared_run, config)
+    prepared_run = prepare_data_fn(prepared_run, run_config)
+    prepared_run = apply_skimjoin_fn(prepared_run, run_config)
     if not has_usable_loaded_tables(prepared_run):
         LOGGER.warning(
             "Skipping run %r because no raw prepared tables could be loaded safely.",
@@ -224,12 +225,12 @@ def _build_prepared_run(
         return None
 
     _log_prepare_table_diagnostics(label, prepared_run)
-    _validate_prepared_run(label, prepared_run, config)
+    _validate_prepared_run(label, prepared_run, run_config)
     LOGGER.info("Prepared run: %r", label)
     if write_cache:
         write_prepared_run_cache_fn(
             prepared_run,
-            config,
+            run_config,
             run_key=run_key,
             output_root=prepared_root,
             run_fingerprint=run_fingerprint,

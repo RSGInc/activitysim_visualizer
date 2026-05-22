@@ -124,6 +124,103 @@ runs:
       land_use: path\to\custom\land_use.csv
 ```
 
+`prepared_table_map` is intended for canonical prepared tables that were already
+skimjoined and then optionally filtered or otherwise post-processed outside this
+repo. When a run uses `prepared_table_map`, the workflow loads those prepared
+tables directly and does not rerun raw prepare or integrated skimjoin for that run.
+
+Integrated skim enrichment can now be selected per run without forcing one
+shared skimjoin config for every skim structure. Keep the explicit skimjoin
+YAML logic in separate files, then choose the file and optional project-input
+overrides per run:
+
+```yaml
+skimjoin:
+  enabled: true
+  config_path: configs/skimjoin_default.yaml
+
+runs:
+  - dir: path\to\run_a
+    label: Run A
+    skimjoin:
+      config_path: configs/skimjoin_odot_series15.yaml
+      skim_files:
+        - path\to\run_a\skims\*.omx
+        - path\to\run_a\skims\maz_stop_walk.csv
+      network_los_file: path\to\run_a\network_los.yaml
+
+  - dir: path\to\run_b
+    label: Run B
+    skimjoin:
+      config_path: configs/skimjoin_combined_walk.yaml
+      skim_files:
+        - path\to\run_b\skims\*.omx
+```
+
+Skimjoin override rules:
+
+- `runs[*].skimjoin.config_path` overrides global `skimjoin.config_path`.
+- `runs[*].skimjoin.skim_files` overrides the selected skimjoin config's `project.skim_files`.
+- `runs[*].skimjoin.network_los_file` overrides the selected skimjoin config's `project.network_los_file`.
+- If a run omits `runs[*].skimjoin`, it uses the global skimjoin settings exactly as before.
+
+Recommended rule of thumb:
+
+- If runs differ only by skim file locations, share one skimjoin config and override `runs[*].skimjoin.skim_files`.
+- If runs differ only by period definitions, share one skimjoin config and override `runs[*].skimjoin.network_los_file`.
+- If runs differ by lookup logic, fallback behavior, combined vs split components, or directional semantics, use different skimjoin config files.
+
+VOT bin preparation stays in `prepare.vot_bins` and remains run-aware by run label.
+
+Skimjoin dimensions are now standardized under `dimensions`, while
+`activitysim` only carries the structural trip/tour fields. The recommended
+integrated-runtime pattern is:
+
+```yaml
+activitysim:
+  trip_mode_column: trip_mode
+  trip_id_column: trip_id
+  tour_mode_column: tour_mode
+  tour_id_column: tour_id
+  outbound_column: outbound
+
+dimensions:
+  PERIOD:
+    source_columns:
+      trip_source_column: depart_hour
+      outbound_tour_source_column: start_hour
+      inbound_tour_source_column: first_inbound_trip_depart
+    values_from_network_los: true
+    values:
+      8: AM
+      17: PM
+  VOT:
+    source_columns:
+      trip_source_column: vot_bin
+      outbound_tour_source_column: vot_bin
+      inbound_tour_source_column: vot_bin
+    values:
+      L: L
+      M: M
+      H: H
+```
+
+Period behavior is directional by design:
+
+- trips use `dimensions.PERIOD.source_columns.trip_source_column`
+- outbound tours use `dimensions.PERIOD.source_columns.outbound_tour_source_column`
+- inbound tours use `dimensions.PERIOD.source_columns.inbound_tour_source_column`
+
+In the standard prepare workflow, `first_inbound_trip_depart` is derived from
+the first inbound trip on each tour before integrated skimjoin runs.
+
+Prepared endpoint columns are also standardized before skimjoin runs:
+
+- prepared trips and tours always include `OTAZ` and `DTAZ`
+- when `zones.use_maz: true`, prepare also materializes `o_maz` and `d_maz`
+- inbound tour lookups reuse those same column names, while skimjoin swaps
+  their logical direction in the inbound tour context
+
 The normal prepare step can also write prepared caches as CSV when needed:
 
 ```yaml

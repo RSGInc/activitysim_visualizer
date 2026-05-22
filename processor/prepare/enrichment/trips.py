@@ -581,6 +581,12 @@ def _enrich_trips(
             .alias("AUTOSUFF")
         )
 
+    if config.use_maz and {"origin", "destination"}.issubset(state.trips.columns):
+        state.trips = state.trips.with_columns(
+            pl.col("origin").alias("o_maz"),
+            pl.col("destination").alias("d_maz"),
+        )
+
     state.trips = _to_taz(
         state.trips,
         "origin",

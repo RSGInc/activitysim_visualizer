@@ -53,7 +53,7 @@ def validate_config(
     inventory_by_name, duplicate_failures = _inventory_by_name(inventory)
     failures.extend(duplicate_failures)
 
-    trip_source = trips
+    trip_source = _build_trip_validation_source(normalized, trips)
     tour_source, tour_source_failures = _build_tour_validation_source(normalized, tours)
     failures.extend(tour_source_failures)
 
@@ -64,7 +64,7 @@ def validate_config(
             source=trip_source,
             rules=normalized.trip_lookups,
             inventory_by_name=inventory_by_name,
-            mode_column=normalized.activitysim.mode_column,
+            mode_column=normalized.activitysim.trip_mode_column,
             target_label="Trips",
             ignore_modes=set(normalized.ignore_modes),
             warnings=warnings,
@@ -142,23 +142,40 @@ def _validate_required_table_columns(
     tours: pl.DataFrame | None,
 ) -> list[str]:
     failures: list[str] = []
-    trip_mode_column = normalized.activitysim.mode_column
-    if trip_mode_column not in trips.columns:
-        failures.append(f"Trips table is missing mode column {trip_mode_column!r}.")
+    activitysim = normalized.activitysim
+    trip_required = [
+        ("mode", activitysim.trip_mode_column),
+        ("id", activitysim.trip_id_column),
+        ("outbound", activitysim.outbound_column),
+    ]
+    for label, column in trip_required:
+        if column not in trips.columns:
+            failures.append(f"Trips table is missing {label} column {column!r}.")
 
     if tours is not None:
-        tour_mode_column = normalized.activitysim.tour_mode_column
-        if tour_mode_column not in tours.columns:
-            failures.append(f"Tours table is missing mode column {tour_mode_column!r}.")
-        for column in (
-            normalized.activitysim.tour_origin_column,
-            normalized.activitysim.tour_destination_column,
-        ):
+        tour_required = [
+            ("mode", activitysim.tour_mode_column),
+            ("id", activitysim.tour_id_column),
+        ]
+        for label, column in tour_required:
             if column not in tours.columns:
                 failures.append(
-                    f"Tours table is missing required tour endpoint column {column!r}."
+                    f"Tours table is missing {label} column {column!r}."
                 )
     return failures
+
+
+def _build_trip_validation_source(
+    normalized: NormalizedConfig,
+    trips: pl.DataFrame,
+) -> pl.DataFrame:
+    activitysim = normalized.activitysim
+    trips_with_ids = trips.with_row_index("_row_id")
+    if activitysim.trip_id_column == "trip_id":
+        return trips_with_ids
+    return trips_with_ids.with_columns(
+        pl.col(activitysim.trip_id_column).cast(pl.Int64, strict=False).alias("trip_id")
+    )
 
 
 def _build_tour_validation_source(
@@ -172,21 +189,15 @@ def _build_tour_validation_source(
     required = [
         activitysim.tour_id_column,
         activitysim.tour_mode_column,
-        activitysim.tour_origin_column,
-        activitysim.tour_destination_column,
     ]
     missing = [column for column in required if column not in tours.columns]
     if missing:
         return None, []
 
     tours_with_ids = tours.with_row_index("_row_id")
-    outbound_origin = pl.col(activitysim.tour_origin_column)
-    outbound_destination = pl.col(activitysim.tour_destination_column)
 
     def _context_frame(*, outbound: bool) -> pl.DataFrame:
-        context_origin = outbound_origin if outbound else outbound_destination
-        context_destination = outbound_destination if outbound else outbound_origin
-        return tours_with_ids.with_columns(
+        expressions: list[pl.Expr] = [
             pl.col("_row_id").cast(pl.Int64),
             pl.col(activitysim.tour_id_column)
             .cast(pl.Int64, strict=False)
@@ -195,11 +206,10 @@ def _build_tour_validation_source(
             pl.lit("outbound" if outbound else "inbound").alias(
                 TOUR_DIRECTION_COLUMN
             ),
-            context_origin.cast(pl.Float64).alias("OTAZ"),
-            context_destination.cast(pl.Float64).alias("DTAZ"),
-            context_origin.cast(pl.Float64).alias("o_maz"),
-            context_destination.cast(pl.Float64).alias("d_maz"),
-        )
+        ]
+        if not outbound:
+            expressions.extend(_inbound_endpoint_swap_expressions(tours_with_ids))
+        return tours_with_ids.with_columns(expressions)
 
     return (
         pl.concat(
@@ -208,6 +218,23 @@ def _build_tour_validation_source(
         ),
         [],
     )
+
+
+def _inbound_endpoint_swap_expressions(tours: pl.DataFrame) -> list[pl.Expr]:
+    expressions: list[pl.Expr] = []
+    for origin_column, destination_column in (
+        ("origin", "destination"),
+        ("OTAZ", "DTAZ"),
+        ("o_maz", "d_maz"),
+    ):
+        if origin_column in tours.columns and destination_column in tours.columns:
+            expressions.extend(
+                [
+                    pl.col(destination_column).alias(origin_column),
+                    pl.col(origin_column).alias(destination_column),
+                ]
+            )
+    return expressions
 
 
 def _validate_target_table(
@@ -393,7 +420,7 @@ def _missing_rule_columns(
     for dimension_name in rule.dimensions_used:
         if dimension_name not in rule.dimensions:
             continue
-        required_columns.add(rule.dimensions[dimension_name].source_column)
+        required_columns.add(rule.dimensions[dimension_name].resolved_source_column)
     return sorted(column for column in required_columns if column not in source.columns)
 
 
@@ -501,7 +528,7 @@ def _rule_matrix_combinations(
     if destination_column is not None:
         select_columns.append(destination_column)
     select_columns.extend(
-        {rule.dimensions[name].source_column for name in rule.dimensions_used}
+        {rule.dimensions[name].resolved_source_column for name in rule.dimensions_used}
     )
     rows = subset.select(select_columns).to_dicts()
     grouped: dict[str, list[dict[str, object]]] = {}
@@ -523,7 +550,7 @@ def _render_matrix_name(
     matrix_name = rule.matrix
     for dimension_name in rule.dimensions_used:
         dimension = rule.dimensions[dimension_name]
-        raw_value = row.get(dimension.source_column)
+        raw_value = row.get(dimension.resolved_source_column)
         raw_key = str(raw_value)
         if dimension.values:
             if raw_key not in dimension.values:
@@ -536,7 +563,7 @@ def _render_matrix_name(
             if raw_value is None:
                 return (
                     "",
-                    f"dimension {dimension_name!r} source column {dimension.source_column!r} is null",
+                    f"dimension {dimension_name!r} source column {dimension.resolved_source_column!r} is null",
                 )
             token = str(raw_value)
         matrix_name = matrix_name.replace(f"{{{dimension_name}}}", token)
@@ -598,7 +625,7 @@ def _referenced_matrices(
 ) -> set[str]:
     referenced: set[str] = set()
     target_specs: list[tuple[list[NormalizedLookupRule], pl.DataFrame | None, str]] = [
-        (normalized.trip_lookups, trip_source, normalized.activitysim.mode_column),
+        (normalized.trip_lookups, trip_source, normalized.activitysim.trip_mode_column),
         (normalized.tour_lookups, tour_source, normalized.activitysim.tour_mode_column),
     ]
     for rules, source, mode_column in target_specs:

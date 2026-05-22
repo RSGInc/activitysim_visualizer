@@ -81,7 +81,7 @@ def _missing_trip_columns_for_rule(
         required_columns.add(rule.origin)
         required_columns.add(rule.destination)
     for dimension_name in rule.dimensions_used:
-        required_columns.add(rule.dimensions[dimension_name].source_column)
+        required_columns.add(rule.dimensions[dimension_name].resolved_source_column)
     return sorted(column for column in required_columns if column not in trips.columns)
 
 

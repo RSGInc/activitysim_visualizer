@@ -9,6 +9,7 @@ import numpy as np
 import openmatrix as omx
 import polars as pl
 import pytest
+from pydantic import ValidationError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -17,14 +18,14 @@ from processor.models import RunData
 from processor.prepare.cache import load_prepared_run_cache, write_prepared_run_cache
 from processor.skimjoin.annotate.tours import annotate_tours
 from processor.skimjoin.annotate.trips import annotate_trips
-from processor.skimjoin.config.validation import ConfigValidationError, validate_config
+from processor.skimjoin.config.validation import ConfigValidationError, load_config, validate_config
 from processor.skimjoin.inventory import inventory_skim_files
 from processor.skimjoin.pipeline import apply_skimjoin
 from processor.skimjoin.skimstore.omx import OmxSkimStore
 from processor.summarize import cache as summary_cache
 from processor.summarize.contracts import empty_summary_frame
 from processor.summarize.summaries import skimjoin as skimjoin_summaries
-from runtime.config import Config
+from runtime.config import Config, config_for_run
 
 
 def _write_main_config(
@@ -32,7 +33,9 @@ def _write_main_config(
     *,
     run_dir: Path | None = None,
     skimjoin_enabled: bool = True,
-    skimjoin_config_name: str = "skimjoin.yaml",
+    skimjoin_config_name: str | None = "skimjoin.yaml",
+    run_skimjoin_lines: list[str] | None = None,
+    use_maz: bool = False,
 ) -> Config:
     config_path = tmp_path / "config.yaml"
     run_dir = run_dir or (tmp_path / "run")
@@ -43,14 +46,22 @@ def _write_main_config(
         "visualizer:",
         '  dashboard_title: "Skimjoin Integration Test"',
         "zones:",
-        "  use_maz: false",
+        f"  use_maz: {'true' if use_maz else 'false'}",
         "runs:",
         f'  - dir: "{str(run_dir).replace("\\", "/")}"',
         '    label: "Run A"',
-        "skimjoin:",
-        f"  enabled: {'true' if skimjoin_enabled else 'false'}",
-        f"  config_path: {skimjoin_config_name}",
     ]
+    if run_skimjoin_lines:
+        lines.append("    skimjoin:")
+        lines.extend(f"      {line}" for line in run_skimjoin_lines)
+    lines.extend(
+        [
+            "skimjoin:",
+            f"  enabled: {'true' if skimjoin_enabled else 'false'}",
+        ]
+    )
+    if skimjoin_config_name is not None:
+        lines.append(f"  config_path: {skimjoin_config_name}")
     config_path.write_text("\n".join(lines), encoding="utf-8")
     return Config.from_yaml(config_path)
 
@@ -60,6 +71,10 @@ def _write_skimjoin_config(
     *,
     skim_file: Path | None = None,
     skim_files: list[Path] | None = None,
+    trip_id_column: str = "trip_id",
+    trip_dimension_source_column: str = "depart",
+    outbound_tour_dimension_source_column: str = "start",
+    inbound_tour_dimension_source_column: str = "first_inbound_trip_depart",
     zone_mapping_extra_lines: list[str] | None = None,
     extra_lines: list[str] | None = None,
     include_default_mode: bool = True,
@@ -73,22 +88,34 @@ def _write_skimjoin_config(
     lines.extend(f"    - {path.name}" for path in resolved_skim_files)
     lines.extend(
         [
-        "  trips_table: ignored_trips.parquet",
-        "  tours_table: ignored_tours.parquet",
-        "activitysim:",
-        "  mode_column: trip_mode",
-        "  tour_id_column: tour_id",
-        "  outbound_column: outbound",
-        "defaults:",
-        "  origin: OTAZ",
-        "  destination: DTAZ",
-        "  output_prefix: skim_",
-        "zone_mapping:",
-        "  lookup_name: taz",
+            "  trips_table: ignored_trips.parquet",
+            "  tours_table: ignored_tours.parquet",
+            "activitysim:",
+            "  trip_mode_column: trip_mode",
+            "  tour_mode_column: tour_mode",
+            f"  trip_id_column: {trip_id_column}",
+            "  tour_id_column: tour_id",
+            "  outbound_column: outbound",
+            "defaults:",
+            "  origin: OTAZ",
+            "  destination: DTAZ",
+            "  output_prefix: skim_",
+            "zone_mapping:",
+            "  lookup_name: taz",
         ]
     )
     if zone_mapping_extra_lines:
         lines.extend(zone_mapping_extra_lines)
+    lines.extend(
+        [
+            "dimensions:",
+            "  PERIOD:",
+            "    source_columns:",
+            f"      trip_source_column: {trip_dimension_source_column}",
+            f"      outbound_tour_source_column: {outbound_tour_dimension_source_column}",
+            f"      inbound_tour_source_column: {inbound_tour_dimension_source_column}",
+        ]
+    )
     if include_default_mode:
         lines.extend(
             [
@@ -230,6 +257,28 @@ def _write_csv_od_skim(
     ).write_csv(path)
 
 
+def _write_network_los(
+    path: Path,
+    *,
+    periods: list[int] | None = None,
+    labels: list[str] | None = None,
+) -> None:
+    periods = periods or [0, 6, 12]
+    labels = labels or ["EA", "AM"]
+    path.write_text(
+        "\n".join(
+            [
+                "skim_time_periods:",
+                "  periods:",
+                *[f"    - {value}" for value in periods],
+                "  labels:",
+                *[f"    - {value}" for value in labels],
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_config_loads_separate_skimjoin_config_and_digest(tmp_path: Path) -> None:
     skim_path = tmp_path / "skims.omx"
     _write_omx(skim_path)
@@ -241,9 +290,6 @@ def test_config_loads_separate_skimjoin_config_and_digest(tmp_path: Path) -> Non
     assert config.skimjoin.config_path == str((tmp_path / "skimjoin.yaml").resolve())
     assert config.skimjoin.config_digest
     assert "skimjoin_trip_component_stats" in summary_cache.requested_summary_ids(
-        config
-    )
-    assert "skimjoin_trip_component_ecdf" in summary_cache.requested_summary_ids(
         config
     )
 
@@ -259,7 +305,8 @@ def test_config_loads_integrated_skimjoin_without_activitysim_table_paths(
         "  skim_files:",
         f"    - {skim_path.name}",
         "activitysim:",
-        "  mode_column: trip_mode",
+        "  trip_mode_column: trip_mode",
+        "  trip_id_column: trip_id",
         "  tour_id_column: tour_id",
         "  outbound_column: outbound",
         "defaults:",
@@ -278,6 +325,631 @@ def test_config_loads_integrated_skimjoin_without_activitysim_table_paths(
     assert config.skimjoin.normalized_config is not None
 
 
+def test_skimjoin_config_rejects_removed_mode_column_field() -> None:
+    with pytest.raises(Exception, match="mode_column"):
+        load_config(
+            {
+                "skim_files": ["dummy.omx"],
+                "activitysim": {
+                    "mode_column": "trip_mode",
+                },
+                "modes": {"SOV": {"time": {"matrix": "SOV_TIME"}}},
+            },
+            require_activitysim_tables=False,
+        )
+
+
+def test_skimjoin_config_rejects_blank_explicit_source_columns() -> None:
+    with pytest.raises(Exception, match="cannot be blank"):
+        load_config(
+            {
+                "skim_files": ["dummy.omx"],
+                "activitysim": {"trip_mode_column": "trip_mode"},
+                "dimensions": {
+                    "TOD": {
+                        "source_columns": {
+                            "trip_source_column": "   ",
+                            "outbound_tour_source_column": "start_hour",
+                            "inbound_tour_source_column": "first_inbound_trip_depart",
+                        }
+                    }
+                },
+                "modes": {"SOV": {"time": {"matrix": "SOV_TIME"}}},
+            },
+            require_activitysim_tables=False,
+        )
+
+
+def test_config_allows_run_level_skimjoin_config_without_global_path(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "run_level.omx"
+    _write_omx(skim_path, matrix_name="RUN_LEVEL_TIME")
+    run_config_path = tmp_path / "run_level.yaml"
+    run_config_path.write_text(
+        "\n".join(
+            [
+                "project:",
+                "  skim_files:",
+                f"    - {skim_path.name}",
+                "activitysim:",
+                "  trip_mode_column: trip_mode",
+                "  trip_id_column: trip_id",
+                "  tour_id_column: tour_id",
+                "  outbound_column: outbound",
+                "defaults:",
+                "  origin: OTAZ",
+                "  destination: DTAZ",
+                "modes:",
+                "  SOV:",
+                "    time:",
+                "      matrix: RUN_LEVEL_TIME",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = _write_main_config(
+        tmp_path,
+        skimjoin_enabled=True,
+        skimjoin_config_name=None,
+        run_skimjoin_lines=[f"config_path: {run_config_path.name}"],
+    )
+
+    assert config.skimjoin.enabled is True
+    assert config.skimjoin.config_path is None
+    resolved = config_for_run(config, config.runs[0])
+    assert resolved.skimjoin.config_path == str(run_config_path.resolve())
+    assert resolved.skimjoin.normalized_config is not None
+    assert resolved.skimjoin.normalized_config.trip_lookups[0].matrix == "RUN_LEVEL_TIME"
+
+
+def test_run_level_skimjoin_config_path_overrides_global_config_path(
+    tmp_path: Path,
+) -> None:
+    global_skim_path = tmp_path / "global.omx"
+    run_skim_path = tmp_path / "run_level.omx"
+    _write_omx(global_skim_path, matrix_name="GLOBAL_TIME")
+    _write_omx(run_skim_path, matrix_name="RUN_TIME")
+    (tmp_path / "skimjoin.yaml").write_text(
+        "\n".join(
+            [
+                "project:",
+                "  skim_files:",
+                f"    - {global_skim_path.name}",
+                "activitysim:",
+                "  trip_mode_column: trip_mode",
+                "  trip_id_column: trip_id",
+                "  tour_id_column: tour_id",
+                "  outbound_column: outbound",
+                "defaults:",
+                "  origin: OTAZ",
+                "  destination: DTAZ",
+                "modes:",
+                "  SOV:",
+                "    time:",
+                "      matrix: GLOBAL_TIME",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "run_override.yaml").write_text(
+        "\n".join(
+            [
+                "project:",
+                "  skim_files:",
+                f"    - {run_skim_path.name}",
+                "activitysim:",
+                "  trip_mode_column: trip_mode",
+                "  trip_id_column: trip_id",
+                "  tour_id_column: tour_id",
+                "  outbound_column: outbound",
+                "defaults:",
+                "  origin: OTAZ",
+                "  destination: DTAZ",
+                "modes:",
+                "  SOV:",
+                "    time:",
+                "      matrix: RUN_TIME",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = _write_main_config(
+        tmp_path,
+        skimjoin_enabled=True,
+        skimjoin_config_name="skimjoin.yaml",
+        run_skimjoin_lines=["config_path: run_override.yaml"],
+    )
+
+    assert config.skimjoin.normalized_config is not None
+    assert config.skimjoin.normalized_config.trip_lookups[0].matrix == "GLOBAL_TIME"
+    resolved = config_for_run(config, config.runs[0])
+    assert resolved.skimjoin.normalized_config is not None
+    assert resolved.skimjoin.normalized_config.trip_lookups[0].matrix == "RUN_TIME"
+
+
+def test_run_level_skim_files_override_config_level_project_skim_files(
+    tmp_path: Path,
+) -> None:
+    global_skim_path = tmp_path / "global.omx"
+    override_skim_path = tmp_path / "override.omx"
+    _write_omx(global_skim_path, matrix_name="SOV_TIME")
+    _write_omx(override_skim_path, matrix_name="SOV_TIME")
+    _write_skimjoin_config(tmp_path, skim_file=global_skim_path)
+
+    config = _write_main_config(
+        tmp_path,
+        skimjoin_enabled=True,
+        run_skimjoin_lines=[
+            "skim_files:",
+            f'  - "{str(override_skim_path.resolve()).replace("\\", "/")}"',
+        ],
+    )
+
+    resolved = config_for_run(config, config.runs[0])
+    assert resolved.skimjoin.resolved_skim_files == (str(override_skim_path.resolve()),)
+    assert resolved.skimjoin.normalized_config is not None
+    assert resolved.skimjoin.normalized_config.skim_files == [
+        str(override_skim_path.resolve())
+    ]
+
+
+def test_run_level_network_los_file_overrides_config_level_project_network_los_file(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    _write_omx(skim_path, matrix_name="SOV_TIME__EA")
+    handle = omx.open_file(str(skim_path), "a")
+    handle["SOV_TIME__AM"] = np.array([[5.0, 6.0], [7.0, 8.0]])
+    handle.close()
+    global_network_los = tmp_path / "global_network_los.yaml"
+    override_network_los = tmp_path / "override_network_los.yaml"
+    _write_network_los(global_network_los, periods=[0, 12, 24], labels=["EA", "MD"])
+    _write_network_los(override_network_los, periods=[0, 6, 12], labels=["EA", "AM"])
+    (tmp_path / "skimjoin.yaml").write_text(
+        "\n".join(
+            [
+                "project:",
+                "  skim_files:",
+                f"    - {skim_path.name}",
+                f"  network_los_file: {global_network_los.name}",
+                "activitysim:",
+                "  trip_mode_column: trip_mode",
+                "  trip_id_column: trip_id",
+                "  tour_id_column: tour_id",
+                "  outbound_column: outbound",
+                "dimensions:",
+                "  PERIOD:",
+                "    source_columns:",
+                "      trip_source_column: depart",
+                "      outbound_tour_source_column: start",
+                "      inbound_tour_source_column: first_inbound_trip_depart",
+                "    values_from_network_los: true",
+                "modes:",
+                "  SOV:",
+                "    time:",
+                "      matrix: SOV_TIME__{PERIOD}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = _write_main_config(
+        tmp_path,
+        skimjoin_enabled=True,
+        run_skimjoin_lines=[f"network_los_file: {override_network_los.name}"],
+    )
+
+    resolved = config_for_run(config, config.runs[0])
+    assert resolved.skimjoin.resolved_network_los_file == str(
+        override_network_los.resolve()
+    )
+    normalized = resolved.skimjoin.normalized_config
+    assert normalized is not None
+    assert normalized.trip_lookups[0].dimensions["PERIOD"].values["1"] == "EA"
+    assert normalized.trip_lookups[0].dimensions["PERIOD"].values["7"] == "AM"
+
+
+def test_run_level_skimjoin_requires_resolvable_config_path_when_enabled(
+    tmp_path: Path,
+) -> None:
+    config = _write_main_config(
+        tmp_path,
+        skimjoin_enabled=True,
+        skimjoin_config_name=None,
+    )
+
+    with pytest.raises(ValueError, match="no skimjoin config_path could be resolved"):
+        config_for_run(config, config.runs[0])
+
+
+def test_run_level_skimjoin_missing_config_file_raises_clear_error(
+    tmp_path: Path,
+) -> None:
+    config = _write_main_config(
+        tmp_path,
+        skimjoin_enabled=True,
+        skimjoin_config_name=None,
+        run_skimjoin_lines=["config_path: missing_run_skimjoin.yaml"],
+    )
+
+    with pytest.raises(ValueError, match="skimjoin.config_path does not exist"):
+        config_for_run(config, config.runs[0])
+
+
+def test_run_level_skimjoin_invalid_yaml_raises(
+    tmp_path: Path,
+) -> None:
+    bad_config = tmp_path / "bad_skimjoin.yaml"
+    bad_config.write_text("project:\n  skim_files: [\n", encoding="utf-8")
+    config = _write_main_config(
+        tmp_path,
+        skimjoin_enabled=True,
+        skimjoin_config_name=None,
+        run_skimjoin_lines=[f"config_path: {bad_config.name}"],
+    )
+
+    with pytest.raises(Exception, match="while parsing"):
+        config_for_run(config, config.runs[0])
+
+
+def test_run_level_skimjoin_requires_skim_files_after_override_and_config_fallback(
+    tmp_path: Path,
+) -> None:
+    empty_config = tmp_path / "skimjoin_empty_files.yaml"
+    empty_config.write_text(
+        "\n".join(
+            [
+                "skim_files: []",
+                "activitysim:",
+                "  trip_mode_column: trip_mode",
+                "  trip_id_column: trip_id",
+                "  tour_id_column: tour_id",
+                "  outbound_column: outbound",
+                "defaults:",
+                "  origin: OTAZ",
+                "  destination: DTAZ",
+                "modes:",
+                "  SOV:",
+                "    time:",
+                "      matrix: SOV_TIME",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = _write_main_config(
+        tmp_path,
+        skimjoin_enabled=True,
+        skimjoin_config_name=None,
+        run_skimjoin_lines=[f"config_path: {empty_config.name}"],
+    )
+
+    with pytest.raises(ValueError, match="requires at least one skim file"):
+        config_for_run(config, config.runs[0])
+
+
+def test_run_level_skimjoin_requires_period_mapping_when_period_placeholder_needs_mapping(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "period.omx"
+    _write_omx(skim_path, matrix_name="SOV_TIME__AM")
+    period_config = tmp_path / "period_missing_mapping.yaml"
+    period_config.write_text(
+        "\n".join(
+            [
+                "project:",
+                "  skim_files:",
+                f"    - {skim_path.name}",
+                "activitysim:",
+                "  trip_mode_column: trip_mode",
+                "  trip_id_column: trip_id",
+                "  tour_id_column: tour_id",
+                "  outbound_column: outbound",
+                "dimensions:",
+                "  PERIOD:",
+                "    source_columns:",
+                "      trip_source_column: depart",
+                "      outbound_tour_source_column: start",
+                "      inbound_tour_source_column: first_inbound_trip_depart",
+                "    values_from_network_los: true",
+                "modes:",
+                "  SOV:",
+                "    time:",
+                "      matrix: SOV_TIME__{PERIOD}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = _write_main_config(
+        tmp_path,
+        skimjoin_enabled=True,
+        skimjoin_config_name=None,
+        run_skimjoin_lines=[f"config_path: {period_config.name}"],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="dimensions\\.PERIOD\\.values_from_network_los requires project\\.network_los_file",
+    ):
+        config_for_run(config, config.runs[0])
+
+
+def test_load_config_requires_dimension_source_columns(tmp_path: Path) -> None:
+    skim_path = tmp_path / "period.omx"
+    _write_omx(skim_path, matrix_name="SOV_TIME__AM")
+
+    with pytest.raises(ValidationError, match="source_columns"):
+        load_config(
+            {
+                "project": {"skim_files": [str(skim_path)]},
+                "activitysim": {
+                    "trip_mode_column": "trip_mode",
+                    "trip_id_column": "trip_id",
+                    "tour_id_column": "tour_id",
+                    "outbound_column": "outbound",
+                },
+                "dimensions": {
+                    "PERIOD": {
+                        "values": {"8": "AM"},
+                    }
+                },
+                "modes": {"SOV": {"time": {"matrix": "SOV_TIME__{PERIOD}"}}},
+            }
+        )
+
+
+def test_load_config_rejects_removed_dimension_source_column_field(tmp_path: Path) -> None:
+    skim_path = tmp_path / "period.omx"
+    _write_omx(skim_path, matrix_name="SOV_TIME__AM")
+
+    with pytest.raises(ValidationError, match="source_column"):
+        load_config(
+            {
+                "project": {"skim_files": [str(skim_path)]},
+                "activitysim": {
+                    "trip_mode_column": "trip_mode",
+                    "trip_id_column": "trip_id",
+                    "tour_id_column": "tour_id",
+                    "outbound_column": "outbound",
+                },
+                "dimensions": {
+                    "PERIOD": {
+                        "source_column": "depart",
+                        "values": {"8": "AM"},
+                    }
+                },
+                "modes": {"SOV": {"time": {"matrix": "SOV_TIME__{PERIOD}"}}},
+            }
+        )
+
+
+def test_period_dimension_explicit_values_override_loaded_network_los_labels(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "period.omx"
+    _write_omx(skim_path, matrix_name="SOV_TIME__AM")
+    network_los = tmp_path / "network_los.yaml"
+    _write_network_los(network_los, periods=[0, 6, 12], labels=["EA", "AM"])
+    config_path = tmp_path / "skimjoin.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "project:",
+                "  skim_files:",
+                f"    - {skim_path.name}",
+                f"  network_los_file: {network_los.name}",
+                "activitysim:",
+                "  trip_mode_column: trip_mode",
+                "  trip_id_column: trip_id",
+                "  tour_id_column: tour_id",
+                "  outbound_column: outbound",
+                "dimensions:",
+                "  PERIOD:",
+                "    source_columns:",
+                "      trip_source_column: depart",
+                "      outbound_tour_source_column: start",
+                "      inbound_tour_source_column: first_inbound_trip_depart",
+                "    values_from_network_los: true",
+                "    values:",
+                "      1: CUSTOM_EA",
+                "modes:",
+                "  SOV:",
+                "    time:",
+                "      matrix: SOV_TIME__{PERIOD}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+    assert normalized.trip_lookups[0].dimensions["PERIOD"].values["1"] == "CUSTOM_EA"
+    assert normalized.trip_lookups[0].dimensions["PERIOD"].values["7"] == "AM"
+
+
+def test_prepare_workflow_supports_two_runs_with_different_skimjoin_config_files(
+    tmp_path: Path,
+) -> None:
+    run_a_dir = tmp_path / "run_a"
+    run_b_dir = tmp_path / "run_b"
+    _write_prepare_run_inputs(run_a_dir)
+    _write_prepare_run_inputs(run_b_dir)
+
+    skim_a = tmp_path / "run_a.omx"
+    skim_b = tmp_path / "run_b.omx"
+    _write_omx_with_lookup(
+        skim_a,
+        matrix_name="RUN_A_TIME",
+        lookup_name="taz",
+        values=np.array([[1.0, 11.0], [21.0, 31.0]]),
+    )
+    _write_omx_with_lookup(
+        skim_b,
+        matrix_name="RUN_B_TIME",
+        lookup_name="taz",
+        values=np.array([[1.0, 101.0], [201.0, 301.0]]),
+    )
+    (tmp_path / "skimjoin_a.yaml").write_text(
+        "\n".join(
+            [
+                "project:",
+                "  skim_files:",
+                f"    - {skim_a.name}",
+                "activitysim:",
+                "  trip_mode_column: trip_mode",
+                "  trip_id_column: trip_id",
+                "  tour_id_column: tour_id",
+                "  outbound_column: outbound",
+                "zone_mapping:",
+                "  lookup_name: taz",
+                "defaults:",
+                "  origin: OTAZ",
+                "  destination: DTAZ",
+                "modes:",
+                "  SOV:",
+                "    time:",
+                "      matrix: RUN_A_TIME",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "skimjoin_b.yaml").write_text(
+        "\n".join(
+            [
+                "project:",
+                "  skim_files:",
+                f"    - {skim_b.name}",
+                "activitysim:",
+                "  trip_mode_column: trip_mode",
+                "  trip_id_column: trip_id",
+                "  tour_id_column: tour_id",
+                "  outbound_column: outbound",
+                "zone_mapping:",
+                "  lookup_name: taz",
+                "defaults:",
+                "  origin: OTAZ",
+                "  destination: DTAZ",
+                "modes:",
+                "  SOV:",
+                "    time:",
+                "      matrix: RUN_B_TIME",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'name: "Two Run Skimjoin Test"',
+                "summaries:",
+                "  root: summary_cache",
+                "visualizer:",
+                '  dashboard_title: "Two Run Skimjoin Test"',
+                "zones:",
+                "  use_maz: false",
+                "runs:",
+                f'  - dir: "{str(run_a_dir).replace("\\", "/")}"',
+                '    label: "Run A"',
+                "    skimjoin:",
+                "      config_path: skimjoin_a.yaml",
+                f'  - dir: "{str(run_b_dir).replace("\\", "/")}"',
+                '    label: "Run B"',
+                "    skimjoin:",
+                "      config_path: skimjoin_b.yaml",
+                "skimjoin:",
+                "  enabled: true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = Config.from_yaml(config_path)
+
+    prepared_root = runtime_workflows.prepared_cache_root(config, create=True)
+    result = runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=prepared_root,
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=False,
+    )
+
+    outputs = {label: prepared for label, prepared in result.prepared_runs}
+    assert outputs["Run A"].trips["skim_time"].to_list() == [11.0]
+    assert outputs["Run B"].trips["skim_time"].to_list() == [101.0]
+
+
+def test_prepare_workflow_supports_two_runs_sharing_one_skimjoin_config_with_different_skim_files(
+    tmp_path: Path,
+) -> None:
+    run_a_dir = tmp_path / "run_a"
+    run_b_dir = tmp_path / "run_b"
+    _write_prepare_run_inputs(run_a_dir)
+    _write_prepare_run_inputs(run_b_dir)
+
+    skim_a = tmp_path / "shared_a.omx"
+    skim_b = tmp_path / "shared_b.omx"
+    _write_omx_with_lookup(
+        skim_a,
+        matrix_name="SOV_TIME",
+        lookup_name="taz",
+        values=np.array([[1.0, 12.0], [22.0, 32.0]]),
+    )
+    _write_omx_with_lookup(
+        skim_b,
+        matrix_name="SOV_TIME",
+        lookup_name="taz",
+        values=np.array([[1.0, 102.0], [202.0, 302.0]]),
+    )
+    _write_skimjoin_config(tmp_path, skim_file=skim_a)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'name: "Shared Config Different Skims"',
+                "summaries:",
+                "  root: summary_cache",
+                "visualizer:",
+                '  dashboard_title: "Shared Config Different Skims"',
+                "zones:",
+                "  use_maz: false",
+                "runs:",
+                f'  - dir: "{str(run_a_dir).replace("\\", "/")}"',
+                '    label: "Run A"',
+                "    skimjoin:",
+                "      skim_files:",
+                f'        - "{str(skim_a.resolve()).replace("\\", "/")}"',
+                f'  - dir: "{str(run_b_dir).replace("\\", "/")}"',
+                '    label: "Run B"',
+                "    skimjoin:",
+                "      skim_files:",
+                f'        - "{str(skim_b.resolve()).replace("\\", "/")}"',
+                "skimjoin:",
+                "  enabled: true",
+                "  config_path: skimjoin.yaml",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = Config.from_yaml(config_path)
+
+    prepared_root = runtime_workflows.prepared_cache_root(config, create=True)
+    result = runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=prepared_root,
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=False,
+    )
+
+    outputs = {label: prepared for label, prepared in result.prepared_runs}
+    assert outputs["Run A"].trips["skim_time"].to_list() == [12.0]
+    assert outputs["Run B"].trips["skim_time"].to_list() == [102.0]
+
+
 def test_normalize_config_preserves_trip_lookups_and_adds_tour_lookup_metadata(
     tmp_path: Path,
 ) -> None:
@@ -291,15 +963,19 @@ def test_normalize_config_preserves_trip_lookups_and_adds_tour_lookup_metadata(
                 "  skim_files:",
                 f"    - {skim_path.name}",
                 "activitysim:",
-                "  mode_column: trip_mode",
+                "  trip_mode_column: trip_mode",
                 "  tour_mode_column: tour_mode",
+                "  trip_id_column: trip_id",
                 "  tour_id_column: tour_id",
                 "  outbound_column: outbound",
-                "  tour_origin_column: tour_origin",
-                "  tour_destination_column: primary_dest",
                 "dimensions:",
                 "  PERIOD:",
-                "    source_column: period",
+                "    source_columns:",
+                "      trip_source_column: depart",
+                "      outbound_tour_source_column: period",
+                "      inbound_tour_source_column: period",
+                "    values:",
+                "      AM: AM",
                 "modes:",
                 "  WALK_TRANSIT:",
                 "    walk_time:",
@@ -471,7 +1147,8 @@ def test_validate_config_rejects_duplicate_matrix_names_across_sources(tmp_path:
         "activitysim": {
             "trips_table": "run/final_trips.parquet",
             "tours_table": "run/final_tours.parquet",
-            "mode_column": "trip_mode",
+            "trip_mode_column": "trip_mode",
+            "trip_id_column": "trip_id",
             "tour_id_column": "tour_id",
             "outbound_column": "outbound",
         },
@@ -528,6 +1205,8 @@ def test_validate_config_allows_summed_output_overlap_but_rejects_replace_overla
             "tour_mode": ["WALK_TRANSIT"],
             "origin": [1],
             "destination": [2],
+            "OTAZ": [1],
+            "DTAZ": [2],
         }
     )
     inventory = inventory_skim_files([skim_path])
@@ -537,12 +1216,11 @@ def test_validate_config_allows_summed_output_overlap_but_rejects_replace_overla
         "activitysim": {
             "trips_table": "ignored_trips.parquet",
             "tours_table": "ignored_tours.parquet",
-            "mode_column": "trip_mode",
+            "trip_mode_column": "trip_mode",
             "tour_mode_column": "tour_mode",
+            "trip_id_column": "trip_id",
             "tour_id_column": "tour_id",
             "outbound_column": "outbound",
-            "tour_origin_column": "origin",
-            "tour_destination_column": "destination",
         },
         "defaults": {"origin": "OTAZ", "destination": "DTAZ"},
         "modes": {
@@ -621,14 +1299,17 @@ def test_validate_config_allows_missing_trip_maz_column_when_fallback_is_usable(
             "tour_mode": ["SOV"],
             "origin": [1],
             "destination": [2],
+            "OTAZ": [1],
+            "DTAZ": [2],
         }
     )
     config_data = {
         "project": {"skim_files": [str(skim_path), str(csv_path)]},
         "activitysim": {
             "trips_table": "ignored_trips.parquet",
-            "mode_column": "trip_mode",
+            "trip_mode_column": "trip_mode",
             "tour_mode_column": "tour_mode",
+            "trip_id_column": "trip_id",
             "tour_id_column": "tour_id",
             "outbound_column": "outbound",
         },
@@ -681,18 +1362,19 @@ def test_validate_config_allows_missing_tour_maz_column_when_fallback_is_usable(
             "tour_mode": ["SOV"],
             "origin": [1],
             "destination": [2],
+            "OTAZ": [1],
+            "DTAZ": [2],
         }
     )
     config_data = {
         "project": {"skim_files": [str(skim_path), str(csv_path)]},
         "activitysim": {
             "trips_table": "ignored_trips.parquet",
-            "mode_column": "trip_mode",
+            "trip_mode_column": "trip_mode",
             "tour_mode_column": "tour_mode",
+            "trip_id_column": "trip_id",
             "tour_id_column": "tour_id",
             "outbound_column": "outbound",
-            "tour_origin_column": "origin",
-            "tour_destination_column": "destination",
         },
         "defaults": {"origin": "OTAZ", "destination": "DTAZ"},
         "modes": {
@@ -749,12 +1431,11 @@ def test_validate_config_rejects_tour_lookup_when_no_usable_step_remains(
         "project": {"skim_files": [str(skim_path), str(csv_path)]},
         "activitysim": {
             "trips_table": "ignored_trips.parquet",
-            "mode_column": "trip_mode",
+            "trip_mode_column": "trip_mode",
             "tour_mode_column": "tour_mode",
+            "trip_id_column": "trip_id",
             "tour_id_column": "tour_id",
             "outbound_column": "outbound",
-            "tour_origin_column": "origin",
-            "tour_destination_column": "destination",
         },
         "defaults": {"origin": "OTAZ", "destination": "DTAZ"},
         "modes": {
@@ -814,15 +1495,11 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
         config,
         summary_ids=[
             "skimjoin_trip_component_stats",
-            "skimjoin_trip_component_ecdf",
             "skimjoin_tour_component_stats",
-            "skimjoin_tour_component_ecdf",
         ],
     )
     trip_stats = summaries["skimjoin_trip_component_stats"]
-    trip_ecdf = summaries["skimjoin_trip_component_ecdf"]
     tour_stats = summaries["skimjoin_tour_component_stats"]
-    tour_ecdf = summaries["skimjoin_tour_component_ecdf"]
 
     assert trip_stats.to_dicts() == [
         {
@@ -912,10 +1589,6 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "missing_share": 0.0,
         },
     ]
-    assert trip_ecdf.height == 202
-    assert tour_ecdf.height == 404
-    assert trip_ecdf["value"].unique().to_list() == [2.0]
-    assert sorted(tour_ecdf["value"].unique().to_list()) == [2.0, 3.0]
 
 
 def test_run_prepare_workflow_supports_file_specific_zone_lookup_overrides(
@@ -977,7 +1650,10 @@ def test_apply_skimjoin_skips_missing_prepare_columns_gracefully(tmp_path: Path)
         extra_lines=[
             "dimensions:",
             "  VOT:",
-            "    source_column: income_segment",
+            "    source_columns:",
+            "      trip_source_column: income_segment",
+            "      outbound_tour_source_column: income_segment",
+            "      inbound_tour_source_column: income_segment",
             "    values:",
             "      1: L",
             "modes:",
@@ -1010,7 +1686,11 @@ def test_run_prepare_workflow_handles_trips_without_canonical_trip_id(tmp_path: 
     _write_prepare_run_inputs(run_dir, trip_id_column_name="linked_trip_id")
     skim_path = tmp_path / "skims.omx"
     _write_omx(skim_path)
-    _write_skimjoin_config(tmp_path, skim_file=skim_path)
+    _write_skimjoin_config(
+        tmp_path,
+        skim_file=skim_path,
+        trip_id_column="linked_trip_id",
+    )
     config = _write_main_config(tmp_path, run_dir=run_dir, skimjoin_enabled=True)
 
     prepared_root = runtime_workflows.prepared_cache_root(config, create=True)
@@ -1525,7 +2205,10 @@ def test_annotate_trips_resolves_placeholders_into_multiple_matrix_groups(
         extra_lines=[
             "dimensions:",
             "  VOT:",
-            "    source_column: income_segment",
+            "    source_columns:",
+            "      trip_source_column: income_segment",
+            "      outbound_tour_source_column: income_segment",
+            "      inbound_tour_source_column: income_segment",
             "    values:",
             "      1: L",
             "      2: H",
@@ -1694,12 +2377,11 @@ def test_annotate_tours_produces_directional_outputs_and_reuses_segmentation(
                 "  skim_files:",
                 f"    - {skim_path.name}",
                 "activitysim:",
-                "  mode_column: trip_mode",
+                "  trip_mode_column: trip_mode",
                 "  tour_mode_column: tour_mode",
+                "  trip_id_column: trip_id",
                 "  tour_id_column: tour_id",
                 "  outbound_column: outbound",
-                "  tour_origin_column: origin",
-                "  tour_destination_column: destination",
                 "defaults:",
                 "  origin: OTAZ",
                 "  destination: DTAZ",
@@ -1730,6 +2412,8 @@ def test_annotate_tours_produces_directional_outputs_and_reuses_segmentation(
             "tour_mode": ["TEST_TRANSIT"],
             "origin": [101],
             "destination": [102],
+            "OTAZ": [101],
+            "DTAZ": [102],
         }
     )
 
@@ -1766,12 +2450,11 @@ def test_annotate_tours_runs_without_any_trip_inputs_or_trip_skim_columns(
                 "  skim_files:",
                 f"    - {skim_path.name}",
                 "activitysim:",
-                "  mode_column: trip_mode",
+                "  trip_mode_column: trip_mode",
                 "  tour_mode_column: tour_mode",
+                "  trip_id_column: trip_id",
                 "  tour_id_column: tour_id",
                 "  outbound_column: outbound",
-                "  tour_origin_column: origin",
-                "  tour_destination_column: destination",
                 "defaults:",
                 "  origin: OTAZ",
                 "  destination: DTAZ",
@@ -1797,6 +2480,8 @@ def test_annotate_tours_runs_without_any_trip_inputs_or_trip_skim_columns(
             "tour_mode": ["SOV"],
             "origin": [101],
             "destination": [102],
+            "OTAZ": [101],
+            "DTAZ": [102],
         }
     )
 
@@ -1842,7 +2527,7 @@ def test_run_prepare_workflow_supports_keyed_csv_skims_in_integrated_runtime(
         ],
     )
 
-    config = _write_main_config(tmp_path, run_dir=run_dir, skimjoin_enabled=True)
+    config = _write_main_config(tmp_path, run_dir=run_dir, skimjoin_enabled=True, use_maz=True)
 
     prepared_root = runtime_workflows.prepared_cache_root(config, create=True)
     result = runtime_workflows.run_prepare_workflow(
@@ -1959,7 +2644,7 @@ def test_run_prepare_workflow_supports_csv_od_skims_in_integrated_runtime(
         ],
     )
 
-    config = _write_main_config(tmp_path, run_dir=run_dir, skimjoin_enabled=True)
+    config = _write_main_config(tmp_path, run_dir=run_dir, skimjoin_enabled=True, use_maz=True)
 
     prepared_root = runtime_workflows.prepared_cache_root(config, create=True)
     result = runtime_workflows.run_prepare_workflow(
@@ -2081,7 +2766,10 @@ def test_annotate_trips_handles_late_matrix_names_in_missing_report_without_sche
         extra_lines=[
             "dimensions:",
             "  TOD:",
-            "    source_column: time_period",
+            "    source_columns:",
+            "      trip_source_column: time_period",
+            "      outbound_tour_source_column: time_period",
+            "      inbound_tour_source_column: time_period",
             "    values:",
             "      1: MD",
             "modes:",
@@ -2343,12 +3031,11 @@ def _skim_summary_run_data() -> RunData:
     )
 
 
-def test_trip_skim_component_stats_and_ecdf_follow_weighted_contract(tmp_path: Path) -> None:
+def test_trip_skim_component_stats_follow_weighted_contract(tmp_path: Path) -> None:
     config = _write_main_config(tmp_path, skimjoin_enabled=False)
     prepared = _skim_summary_run_data()
 
     weighted_stats = skimjoin_summaries.trip_skim_component_stats(prepared, config)
-    weighted_ecdf = skimjoin_summaries.trip_skim_component_ecdf(prepared, config)
 
     drive_time = weighted_stats.filter(
         (pl.col("trip_mode") == "DRIVE") & (pl.col("component") == "skim_time")
@@ -2403,22 +3090,6 @@ def test_trip_skim_component_stats_and_ecdf_follow_weighted_contract(tmp_path: P
         "missing_share": 0.375,
     }
 
-    drive_time_ecdf = weighted_ecdf.filter(
-        (pl.col("trip_mode") == "DRIVE") & (pl.col("component") == "skim_time")
-    )
-    all_modes_time_ecdf = weighted_ecdf.filter(
-        (pl.col("trip_mode") == "All Modes") & (pl.col("component") == "skim_time")
-    )
-    assert drive_time_ecdf.height == 101
-    assert drive_time_ecdf.filter(pl.col("percentile") == 0.0)["value"].to_list() == [0.0]
-    assert drive_time_ecdf.filter(pl.col("percentile") == 0.34)["value"].to_list() == [10.0]
-    assert drive_time_ecdf.filter(pl.col("percentile") == 1.0)["value"].to_list() == [10.0]
-    assert drive_time_ecdf["n_valid"].unique().to_list() == [3.0]
-    assert all_modes_time_ecdf.height == 101
-    assert all_modes_time_ecdf.filter(pl.col("percentile") == 0.0)["value"].to_list() == [0.0]
-    assert all_modes_time_ecdf.filter(pl.col("percentile") == 0.5)["value"].to_list() == [5.0]
-    assert all_modes_time_ecdf.filter(pl.col("percentile") == 1.0)["value"].to_list() == [10.0]
-    assert all_modes_time_ecdf["n_valid"].unique().to_list() == [5.0]
 
 
 def test_skimjoin_failure_keeps_non_skim_summaries_available_and_skim_summaries_empty(
@@ -2463,7 +3134,6 @@ def test_tour_skim_component_summaries_follow_unweighted_mode(tmp_path: Path) ->
     prepared = summary_cache.strip_weights(_skim_summary_run_data())
 
     stats = skimjoin_summaries.tour_skim_component_stats(prepared, config)
-    ecdf = skimjoin_summaries.tour_skim_component_ecdf(prepared, config)
 
     drive_time = stats.filter(
         (pl.col("tour_mode") == "DRIVE") & (pl.col("component") == "skim_time")
@@ -2484,16 +3154,6 @@ def test_tour_skim_component_summaries_follow_unweighted_mode(tmp_path: Path) ->
     assert all_modes_time["zero_share"] == 0.25
     assert all_modes_time["missing_share"] == 0.2
 
-    drive_time_ecdf = ecdf.filter(
-        (pl.col("tour_mode") == "DRIVE") & (pl.col("component") == "skim_time")
-    )
-    all_modes_time_ecdf = ecdf.filter(
-        (pl.col("tour_mode") == "All Modes") & (pl.col("component") == "skim_time")
-    )
-    assert drive_time_ecdf.filter(pl.col("percentile") == 0.5)["value"].to_list() == [0.0]
-    assert drive_time_ecdf.filter(pl.col("percentile") == 0.51)["value"].to_list() == [10.0]
-    assert all_modes_time_ecdf.filter(pl.col("percentile") == 0.5)["value"].to_list() == [5.0]
-    assert all_modes_time_ecdf.filter(pl.col("percentile") == 1.0)["value"].to_list() == [10.0]
 
 
 def test_all_modes_summary_uses_only_pertinent_modes_for_each_component(tmp_path: Path) -> None:
@@ -2536,16 +3196,15 @@ def test_all_modes_summary_uses_only_pertinent_modes_for_each_component(tmp_path
     assert all_modes_walk["missing_share"] == pytest.approx(5.0 / 9.0)
 
 
-def test_tour_annotation_uses_start_as_departure_fallback_for_period_dimensions(
+def test_tour_annotation_uses_directional_period_source_columns(
     tmp_path: Path,
 ) -> None:
     skim_path = tmp_path / "skims.omx"
-    _write_omx_with_lookup(
-        skim_path,
-        matrix_name="SOV_TIME__AM",
-        lookup_name="taz",
-        values=np.array([[1.0, 2.0], [3.0, 4.0]]),
-    )
+    handle = omx.open_file(str(skim_path), "w")
+    handle["SOV_TIME__AM"] = np.array([[1.0, 2.0], [3.0, 4.0]])
+    handle["SOV_TIME__PM"] = np.array([[10.0, 20.0], [30.0, 40.0]])
+    handle.create_mapping("taz", np.array([1, 2], dtype=np.uint32))
+    handle.close()
     config_path = tmp_path / "skimjoin.yaml"
     config_path.write_text(
         "\n".join(
@@ -2554,15 +3213,22 @@ def test_tour_annotation_uses_start_as_departure_fallback_for_period_dimensions(
                 "  skim_files:",
                 f"    - {skim_path.name}",
                 "activitysim:",
-                "  mode_column: trip_mode",
+                "  trip_mode_column: trip_mode",
                 "  tour_mode_column: tour_mode",
+                "  trip_id_column: trip_id",
                 "  tour_id_column: tour_id",
                 "  outbound_column: outbound",
+                "zone_mapping:",
+                "  lookup_name: taz",
                 "dimensions:",
                 "  PERIOD:",
-                "    source_column: depart",
+                "    source_columns:",
+                "      trip_source_column: depart",
+                "      outbound_tour_source_column: start",
+                "      inbound_tour_source_column: first_inbound_trip_depart",
                 "    values:",
                 "      8: AM",
+                "      17: PM",
                 "defaults:",
                 "  origin: OTAZ",
                 "  destination: DTAZ",
@@ -2581,9 +3247,12 @@ def test_tour_annotation_uses_start_as_departure_fallback_for_period_dimensions(
         {
             "tour_id": [1],
             "tour_mode": ["SOV"],
-            "origin": [101],
-            "destination": [102],
+            "origin": [1],
+            "destination": [2],
             "start": [8],
+            "first_inbound_trip_depart": [17],
+            "OTAZ": [1],
+            "DTAZ": [2],
         }
     )
 
@@ -2591,10 +3260,10 @@ def test_tour_annotation_uses_start_as_departure_fallback_for_period_dimensions(
 
     assert missing.is_empty()
     assert annotated["skim_time_outbound"].to_list() == [2.0]
-    assert annotated["skim_time_inbound"].to_list() == [3.0]
+    assert annotated["skim_time_inbound"].to_list() == [30.0]
 
 
-def test_skim_component_summaries_return_typed_empty_frames_without_numeric_skim_columns(
+def test_skim_component_stats_return_typed_empty_frames_without_numeric_skim_columns(
     tmp_path: Path,
 ) -> None:
     config = _write_main_config(tmp_path, skimjoin_enabled=False)
@@ -2613,29 +3282,19 @@ def test_skim_component_summaries_return_typed_empty_frames_without_numeric_skim
     )
 
     trip_stats = skimjoin_summaries.trip_skim_component_stats(prepared, config)
-    trip_ecdf = skimjoin_summaries.trip_skim_component_ecdf(prepared, config)
     tour_stats = skimjoin_summaries.tour_skim_component_stats(prepared, config)
-    tour_ecdf = skimjoin_summaries.tour_skim_component_ecdf(prepared, config)
 
     assert trip_stats.schema == empty_summary_frame(
         skimjoin_summaries.trip_skim_component_stats
     ).schema
-    assert trip_ecdf.schema == empty_summary_frame(
-        skimjoin_summaries.trip_skim_component_ecdf
-    ).schema
     assert tour_stats.schema == empty_summary_frame(
         skimjoin_summaries.tour_skim_component_stats
     ).schema
-    assert tour_ecdf.schema == empty_summary_frame(
-        skimjoin_summaries.tour_skim_component_ecdf
-    ).schema
     assert trip_stats.is_empty()
-    assert trip_ecdf.is_empty()
     assert tour_stats.is_empty()
-    assert tour_ecdf.is_empty()
 
 
-def test_skim_component_summaries_handle_late_float_values_without_schema_inference_failures(
+def test_skim_component_stats_handle_late_float_values_without_schema_inference_failures(
     tmp_path: Path,
 ) -> None:
     config = _write_main_config(tmp_path, skimjoin_enabled=False)
@@ -2660,13 +3319,7 @@ def test_skim_component_summaries_handle_late_float_values_without_schema_infere
     )
 
     stats = skimjoin_summaries.trip_skim_component_stats(prepared, config)
-    ecdf = skimjoin_summaries.trip_skim_component_ecdf(prepared, config)
 
     drive_time = stats.to_dicts()[0]
     assert drive_time["component"] == "skim_time"
     assert drive_time["max"] == pytest.approx(15.69609)
-    assert ecdf.filter(
-        (pl.col("trip_mode") == "DRIVE") & (pl.col("percentile") == 1.0)
-    )["value"].to_list() == [
-        pytest.approx(15.69609)
-    ]

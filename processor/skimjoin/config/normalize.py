@@ -10,6 +10,7 @@ from processor.skimjoin.config.schema import (
     ExplicitConfig,
     NormalizedConfig,
     NormalizedLookupRule,
+    ResolvedDimensionConfig,
 )
 
 
@@ -165,14 +166,23 @@ def normalize_config(config: ExplicitConfig) -> NormalizedConfig:
 
 def _prepare_dimensions(config: ExplicitConfig) -> dict[str, DimensionConfig]:
     dimensions = {name: dim.model_copy(deep=True) for name, dim in config.dimensions.items()}
+    period_dimension = dimensions.get("PERIOD")
+    for name, dimension in dimensions.items():
+        if name != "PERIOD" and dimension.values_from_network_los:
+            raise ValueError(
+                f"dimensions.{name}.values_from_network_los is only supported for PERIOD."
+            )
+    if period_dimension is None or not period_dimension.values_from_network_los:
+        return dimensions
     project = config.project
     if project is None or project.network_los_file is None:
-        return dimensions
-    period_dimension = dimensions.get("PERIOD")
-    if period_dimension is None or period_dimension.values:
-        return dimensions
+        raise ValueError(
+            "dimensions.PERIOD.values_from_network_los requires project.network_los_file."
+        )
     mapping = load_network_los_period_mapping(project.network_los_file)
-    dimensions["PERIOD"] = period_dimension.model_copy(update={"values": mapping})
+    merged_values = dict(mapping)
+    merged_values.update(period_dimension.values)
+    dimensions["PERIOD"] = period_dimension.model_copy(update={"values": merged_values})
     return dimensions
 
 
@@ -225,9 +235,7 @@ def _merge_dimensions(base: dict[str, DimensionConfig], override: Any) -> dict[s
         raise ValueError("dimensions must be a mapping.")
     merged = dict(base)
     for name, raw_config in override.items():
-        if isinstance(raw_config, str):
-            merged[str(name)] = DimensionConfig(source_column=raw_config)
-        elif isinstance(raw_config, dict):
+        if isinstance(raw_config, dict):
             merged[str(name)] = DimensionConfig.model_validate(raw_config)
         else:
             raise ValueError(f"Unsupported dimensions override for {name!r}.")
@@ -361,6 +369,11 @@ def _build_lookup_rule(
     output_override: str | None = None,
 ) -> NormalizedLookupRule:
     context = _merge_context(parent_context, component_block)
+    dimensions = _dimensions_for_target(
+        context["dimensions"],
+        target_table=target_table,
+        direction=direction,
+    )
     matrix = str(component_block["matrix"])
     dimensions_used = extract_placeholders(matrix)
     output = str(output_override or component_block.get("output") or f"{context['output_prefix']}{component_name}")
@@ -392,7 +405,7 @@ def _build_lookup_rule(
         destination=destination,
         when=when,
         dimensions_used=dimensions_used,
-        dimensions=context["dimensions"],
+        dimensions=dimensions,
         missing_matrix_policy=str(component_block.get("missing_matrix_policy", context["missing_matrix_policy"])),
         missing_od_policy=str(component_block.get("missing_od_policy", context["missing_od_policy"])),
         sentinel_values=list(context.get("sentinel_values", [])),
@@ -403,6 +416,40 @@ def _build_lookup_rule(
         target_table=target_table,
         direction=direction,
     )
+
+
+def _dimensions_for_target(
+    dimensions: dict[str, DimensionConfig],
+    *,
+    target_table: str,
+    direction: str | None,
+) -> dict[str, ResolvedDimensionConfig]:
+    resolved: dict[str, ResolvedDimensionConfig] = {}
+    for name, dimension in dimensions.items():
+        resolved[name] = ResolvedDimensionConfig(
+            source_columns=dimension.source_columns,
+            resolved_source_column=_dimension_source_column(
+                dimension,
+                target_table=target_table,
+                direction=direction,
+            ),
+            values_from_network_los=dimension.values_from_network_los,
+            values=dict(dimension.values),
+        )
+    return resolved
+
+
+def _dimension_source_column(
+    dimension: DimensionConfig,
+    *,
+    target_table: str,
+    direction: str | None,
+) -> str:
+    if target_table == "trips":
+        return dimension.source_columns.trip_source_column
+    if direction == "inbound":
+        return dimension.source_columns.inbound_tour_source_column
+    return dimension.source_columns.outbound_tour_source_column
 
 
 def _resolve_lookup_columns(

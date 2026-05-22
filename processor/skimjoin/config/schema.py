@@ -17,10 +17,31 @@ LookupTargetTable = Literal["trips", "tours"]
 LookupDirection = Literal["outbound", "inbound"]
 
 
+class DimensionSourceColumns(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    trip_source_column: str
+    outbound_tour_source_column: str
+    inbound_tour_source_column: str
+
+    @field_validator(
+        "trip_source_column",
+        "outbound_tour_source_column",
+        "inbound_tour_source_column",
+    )
+    @classmethod
+    def _validate_non_blank_source_column(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Dimension source columns cannot be blank.")
+        return normalized
+
+
 class DimensionConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source_column: str
+    source_columns: DimensionSourceColumns
+    values_from_network_los: bool = False
     values: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("values", mode="before")
@@ -38,12 +59,25 @@ class ActivitySimConfig(BaseModel):
 
     trips_table: str | None = None
     tours_table: str | None = None
-    mode_column: str = "trip_mode"
+    trip_mode_column: str = "trip_mode"
     tour_mode_column: str = "tour_mode"
+    trip_id_column: str = "trip_id"
     tour_id_column: str = "tour_id"
     outbound_column: str = "outbound"
-    tour_origin_column: str = "origin"
-    tour_destination_column: str = "destination"
+
+    @field_validator(
+        "trip_mode_column",
+        "tour_mode_column",
+        "trip_id_column",
+        "tour_id_column",
+        "outbound_column",
+    )
+    @classmethod
+    def _validate_non_blank_column_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("ActivitySim source column names cannot be blank.")
+        return normalized
 
 
 class DefaultsConfig(BaseModel):
@@ -145,6 +179,11 @@ class ExplicitConfig(BaseModel):
         if not isinstance(value, dict):
             return value
         data = dict(value)
+        dimensions = dict(data.get("dimensions") or {})
+        data["dimensions"] = {
+            str(name): (raw_config or {})
+            for name, raw_config in dimensions.items()
+        }
         project = dict(data.get("project") or {})
         if "skim_files" not in data and project.get("skim_files"):
             data["skim_files"] = list(project["skim_files"])
@@ -171,7 +210,7 @@ class NormalizedLookupRule(BaseModel):
     destination: str
     when: dict[str, Any] = Field(default_factory=dict)
     dimensions_used: list[str] = Field(default_factory=list)
-    dimensions: dict[str, DimensionConfig] = Field(default_factory=dict)
+    dimensions: dict[str, "ResolvedDimensionConfig"] = Field(default_factory=dict)
     missing_matrix_policy: MissingPolicy = "error"
     missing_od_policy: MissingPolicy = "error"
     sentinel_values: list[float] = Field(default_factory=list)
@@ -208,3 +247,12 @@ class NormalizedConfig(BaseModel):
     failures: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     referenced_matrices: list[str] = Field(default_factory=list)
+
+
+class ResolvedDimensionConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_columns: DimensionSourceColumns
+    resolved_source_column: str
+    values_from_network_los: bool = False
+    values: dict[str, str] = Field(default_factory=dict)

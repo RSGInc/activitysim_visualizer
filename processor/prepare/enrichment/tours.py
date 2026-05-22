@@ -98,6 +98,12 @@ def _enrich_tours(
             (pl.col("num_ob_stops") + pl.col("num_ib_stops")).alias("num_tot_stops")
         )
 
+    if config.use_maz and {"origin", "destination"}.issubset(state.tours.columns):
+        state.tours = state.tours.with_columns(
+            pl.col("origin").alias("o_maz"),
+            pl.col("destination").alias("d_maz"),
+        )
+
     state.tours = _to_taz(
         state.tours,
         "origin",
@@ -194,6 +200,42 @@ def _enrich_tours(
             (pl.col("end_hour") - pl.col("start_hour")).alias("tourdur")
         )
 
+    state.tours = _attach_first_inbound_trip_depart(state.tours, state.trips)
+
     state.tours = with_summary_tour_purpose(state.tours, config)
 
     return state
+
+
+def _attach_first_inbound_trip_depart(
+    tours: pl.DataFrame,
+    trips: pl.DataFrame,
+) -> pl.DataFrame:
+    required_trip_columns = {"tour_id", "outbound", "trip_num", "depart_hour"}
+    if "tour_id" not in tours.columns or not required_trip_columns.issubset(trips.columns):
+        return tours
+
+    first_inbound = (
+        trips.filter(pl.col("outbound") == False)
+        .sort(["tour_id", "trip_num"])
+        .group_by("tour_id", maintain_order=True)
+        .agg(pl.col("depart_hour").first().alias("first_inbound_trip_depart"))
+    )
+    if "first_inbound_trip_depart" in tours.columns:
+        return (
+            tours.join(
+            first_inbound.rename(
+                {"first_inbound_trip_depart": "__derived_first_inbound_trip_depart"}
+            ),
+            on="tour_id",
+            how="left",
+        ).with_columns(
+            pl.coalesce(
+                [
+                    pl.col("first_inbound_trip_depart"),
+                    pl.col("__derived_first_inbound_trip_depart"),
+                ]
+            ).alias("first_inbound_trip_depart")
+        ).drop("__derived_first_inbound_trip_depart")
+        )
+    return tours.join(first_inbound, on="tour_id", how="left")

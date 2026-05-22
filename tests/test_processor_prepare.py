@@ -546,6 +546,68 @@ def test_processor_prepare_data_exposes_the_same_prepared_contract(
     assert prepared.land_use["employment_count"].to_list() == [7.0, 8.0]
 
 
+def test_processor_prepare_data_derives_first_inbound_trip_depart_on_tours(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    raw = _raw_run()
+    raw = ProcessorRunData(
+        label=raw.label,
+        run_dir=raw.run_dir,
+        skim_file=raw.skim_file,
+        hh=raw.hh,
+        per=raw.per,
+        tours=raw.tours,
+        trips=pl.DataFrame(
+            {
+                "trip_id": [5001, 5002, 5003],
+                "tour_id": [1001, 1001, 1001],
+                "person_id": [101, 101, 101],
+                "household_id": [1, 1, 1],
+                "trip_mode": ["DRIVEALONE", "DRIVEALONE", "DRIVEALONE"],
+                "purpose": ["shop", "home", "home"],
+                "depart": [8, 17, 18],
+                "outbound": [True, False, False],
+                "trip_num": [1, 1, 2],
+                "origin": [10, 20, 21],
+                "destination": [20, 21, 10],
+            }
+        ),
+        joint_participants=raw.joint_participants,
+        land_use=raw.land_use,
+        skim_matrix=raw.skim_matrix,
+        skim_zone_map=raw.skim_zone_map,
+    )
+
+    prepared = processor_prepare_data(raw, config)
+
+    assert prepared.tours["first_inbound_trip_depart"].to_list() == [17]
+    assert prepared.tours["start_hour"].to_list() == [8]
+
+
+def test_processor_prepare_data_materializes_shared_zone_columns_for_maz_models(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "zones:",
+            "  use_maz: true",
+        ],
+    )
+
+    prepared = processor_prepare_data(_raw_run(), config)
+
+    assert prepared.trips["o_maz"].to_list() == [10]
+    assert prepared.trips["d_maz"].to_list() == [20]
+    assert prepared.tours["o_maz"].to_list() == [10]
+    assert prepared.tours["d_maz"].to_list() == [20]
+    assert prepared.trips["OTAZ"].to_list() == [10]
+    assert prepared.trips["DTAZ"].to_list() == [20]
+    assert prepared.tours["OTAZ"].to_list() == [10]
+    assert prepared.tours["DTAZ"].to_list() == [20]
+
+
 def test_processor_prepare_data_carries_atwork_subtour_frequency_to_trips(
     tmp_path: Path,
 ) -> None:

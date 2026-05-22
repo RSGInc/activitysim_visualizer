@@ -54,6 +54,19 @@ def summary_cache_load_expectations(
     expected_label = entry.get("label", Path(run_dir).name)
     expected_run_key = cache_dir.name
     uses_custom_prepared_tables = bool(entry.get("prepared_table_map"))
+    expected_skimjoin = None
+    if not uses_custom_prepared_tables:
+        from runtime.config import resolve_run_skimjoin_settings
+
+        resolved_skimjoin = resolve_run_skimjoin_settings(config, entry)
+        if resolved_skimjoin.enabled:
+            expected_skimjoin = {
+                "enabled": True,
+                "config_path": resolved_skimjoin.config_path,
+                "config_digest": resolved_skimjoin.config_digest,
+                "resolved_skim_files": list(resolved_skimjoin.resolved_skim_files),
+                "resolved_network_los_file": resolved_skimjoin.resolved_network_los_file,
+            }
     expected_run_fingerprint = build_run_fingerprint_fn(
         label=expected_label,
         run_dir=None if uses_custom_prepared_tables else run_dir,
@@ -70,6 +83,7 @@ def summary_cache_load_expectations(
         fallback_file_map=(
             None if uses_custom_prepared_tables else config.fallback_files or None
         ),
+        skimjoin=expected_skimjoin,
         hh_weight_col=None
         if uses_custom_prepared_tables
         else entry.get("hh_weight_col") or None,
@@ -216,6 +230,19 @@ def run_cache_metadata(
     label = entry.get("label", Path(run_dir).name)
     skim = entry.get("skim_file") or None
     uses_custom_prepared_tables = bool(entry.get("prepared_table_map"))
+    resolved_skimjoin_payload = None
+    if not uses_custom_prepared_tables:
+        from runtime.config import resolve_run_skimjoin_settings
+
+        resolved_skimjoin = resolve_run_skimjoin_settings(config, entry)
+        if resolved_skimjoin.enabled:
+            resolved_skimjoin_payload = {
+                "enabled": True,
+                "config_path": resolved_skimjoin.config_path,
+                "config_digest": resolved_skimjoin.config_digest,
+                "resolved_skim_files": list(resolved_skimjoin.resolved_skim_files),
+                "resolved_network_los_file": resolved_skimjoin.resolved_network_los_file,
+            }
     resolved_skim = (
         None if uses_custom_prepared_tables else resolve_skim_path_fn(skim, config.skim_file, run_dir)
     )
@@ -223,6 +250,7 @@ def run_cache_metadata(
         label=label,
         run_dir=None if uses_custom_prepared_tables else run_dir,
         skim_file=resolved_skim,
+        skimjoin=resolved_skimjoin_payload,
         file_map=None if uses_custom_prepared_tables else entry.get("file_map") or None,
         fallback_file_map=(
             None if uses_custom_prepared_tables else config.fallback_files or None
