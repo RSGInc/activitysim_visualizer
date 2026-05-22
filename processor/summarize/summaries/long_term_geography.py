@@ -70,6 +70,14 @@ def _aggregate_external_worker_counts(
     )
 
 
+def _all_geographies_external_worker_counts(df: pl.DataFrame) -> pl.DataFrame:
+    return df.select(
+        pl.lit("all_geographies").alias("geography_type"),
+        pl.lit("all_geographies").alias("geography_id"),
+        pl.col("finalweight").sum().cast(pl.Float64).alias("external_worker_count"),
+    )
+
+
 @summary_contract(
     schema={
         "geography_type": pl.Utf8,
@@ -246,13 +254,24 @@ def internal_vs_external(rd: RunData, config: Config) -> pl.DataFrame:
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
         "external_worker_count": pl.Float64,
+        "all_worker_count": pl.Float64,
     },
     required_columns={
-        "per": ("is_external_worker", "external_workplace_zone_id", "finalweight")
+        "per": (
+            "is_worker",
+            "is_external_worker",
+            "external_workplace_zone_id",
+            "finalweight",
+        )
     },
 )
 def external_workplace_loc(rd: RunData, config: Config) -> pl.DataFrame:
-    required = {"is_external_worker", "external_workplace_zone_id", "finalweight"}
+    required = {
+        "is_worker",
+        "is_external_worker",
+        "external_workplace_zone_id",
+        "finalweight",
+    }
     if not required.issubset(set(rd.per.columns)):
         return empty_summary_frame(external_workplace_loc)
 
@@ -263,16 +282,33 @@ def external_workplace_loc(rd: RunData, config: Config) -> pl.DataFrame:
     if base.is_empty():
         return empty_summary_frame(external_workplace_loc)
 
+    all_worker_count = float(
+        rd.per.filter(_worker_filter_expr())
+        .select(pl.col("finalweight").sum().cast(pl.Float64).alias("all_worker_count"))[
+            "all_worker_count"
+        ][0]
+        or 0.0
+    )
+
     return (
-        _aggregate_counts_across_geographies(
-            base,
-            geography_dimensions=[("maz" if config.use_maz else "taz", "external_workplace_zone_id")],
-            value_col="external_worker_count",
+        pl.concat(
+            [
+                _aggregate_counts_across_geographies(
+                    base,
+                    geography_dimensions=[
+                        ("maz" if config.use_maz else "taz", "external_workplace_zone_id")
+                    ],
+                    value_col="external_worker_count",
+                ),
+                _all_geographies_external_worker_counts(base),
+            ],
+            how="vertical",
         )
         .with_columns(
             pl.col("geography_type").cast(pl.Utf8),
             pl.col("geography_id").cast(pl.Utf8),
             pl.col("external_worker_count").cast(pl.Float64),
+            pl.lit(all_worker_count).cast(pl.Float64).alias("all_worker_count"),
         )
         .sort(["geography_type", "geography_id"])
     )
@@ -359,7 +395,7 @@ def workplace_vs_land_use_employment(rd: RunData, config: Config) -> pl.DataFram
     land_use_maz = pl.concat(land_use_outputs, how="vertical")
     worker_maz = pl.concat(worker_outputs, how="vertical")
 
-    return (
+    detailed = (
         land_use_maz.join(
             worker_maz,
             on=["geography_type", "geography_id"],
@@ -373,7 +409,25 @@ def workplace_vs_land_use_employment(rd: RunData, config: Config) -> pl.DataFram
             pl.col("worker_count").fill_null(0.0).cast(pl.Float64),
         )
         .select("geography_type", "geography_id", "employment_count", "worker_count")
-        .sort(["geography_type", "geography_id"])
+    )
+    all_geographies = pl.DataFrame(
+        {
+            "geography_type": ["all_geographies"],
+            "geography_id": ["all_geographies"],
+            "employment_count": [
+                float(land_use_base["employment_count"].sum() or 0.0)
+            ],
+            "worker_count": [float(worker_base["finalweight"].sum() or 0.0)],
+        },
+        schema={
+            "geography_type": pl.Utf8,
+            "geography_id": pl.Utf8,
+            "employment_count": pl.Float64,
+            "worker_count": pl.Float64,
+        },
+    )
+    return pl.concat([detailed, all_geographies], how="vertical").sort(
+        ["geography_type", "geography_id"]
     )
 
 
@@ -599,7 +653,7 @@ def school_loc_vs_land_use_enrollment(rd: RunData, config: Config) -> pl.DataFra
     land_use_maz = pl.concat(land_use_outputs, how="vertical")
     student_maz = pl.concat(student_outputs, how="vertical")
 
-    return (
+    detailed = (
         land_use_maz.join(
             student_maz,
             on=["geography_type", "geography_id", "student_type"],
@@ -620,7 +674,35 @@ def school_loc_vs_land_use_enrollment(rd: RunData, config: Config) -> pl.DataFra
             "enrollment_count",
             "student_count",
         )
-        .sort(["geography_type", "geography_id", "student_type"])
+    )
+    all_geographies = (
+        land_use_base.group_by("student_type")
+        .agg(enrollment_count=pl.col("enrollment_count").sum())
+        .join(
+            student_base.group_by("student_type").agg(
+                student_count=pl.col("finalweight").sum()
+            ),
+            on="student_type",
+            how="full",
+            coalesce=True,
+        )
+        .with_columns(
+            pl.lit("all_geographies").alias("geography_type"),
+            pl.lit("all_geographies").alias("geography_id"),
+            pl.col("student_type").cast(pl.Utf8),
+            pl.col("enrollment_count").fill_null(0.0).cast(pl.Float64),
+            pl.col("student_count").fill_null(0.0).cast(pl.Float64),
+        )
+        .select(
+            "geography_type",
+            "geography_id",
+            "student_type",
+            "enrollment_count",
+            "student_count",
+        )
+    )
+    return pl.concat([detailed, all_geographies], how="vertical").sort(
+        ["geography_type", "geography_id", "student_type"]
     )
 
 

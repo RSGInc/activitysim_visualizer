@@ -291,6 +291,25 @@ def int_vs_ext_non_mand_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
             )
         )
 
+    outputs.append(
+        base.select(
+            pl.lit("all_geographies").alias("geography_type"),
+            pl.lit("all_geographies").alias("geography_id"),
+            pl.when(~pl.col("is_external_tour"))
+            .then(pl.col("finalweight"))
+            .otherwise(0.0)
+            .sum()
+            .cast(pl.Float64)
+            .alias("internal_nonmandatory_tour_count"),
+            pl.when(pl.col("is_external_tour"))
+            .then(pl.col("finalweight"))
+            .otherwise(0.0)
+            .sum()
+            .cast(pl.Float64)
+            .alias("external_nonmandatory_tour_count"),
+        )
+    )
+
     return (
         pl.concat(outputs, how="vertical")
         .with_columns(
@@ -352,7 +371,15 @@ def ext_non_mand_tour_loc(rd: RunData, config: Config) -> pl.DataFrame:
                 role_prefix="destination",
             ),
             value_col="external_nonmandatory_tour_count",
-        )
+        ),
+        base.select(
+            pl.lit("all_geographies").alias("geography_type"),
+            pl.lit("all_geographies").alias("geography_id"),
+            pl.col("finalweight")
+            .sum()
+            .cast(pl.Float64)
+            .alias("external_nonmandatory_tour_count"),
+        ),
     ]
     return (
         pl.concat(outputs, how="vertical")

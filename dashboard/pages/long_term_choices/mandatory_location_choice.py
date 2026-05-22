@@ -12,7 +12,7 @@ from dashboard.components import (
     data_table,
     density_chart,
 )
-from dashboard.helpers.geography_helpers import ordered_visible_geography_levels
+from dashboard.helpers.geography_helpers import detail_geography_levels
 from dashboard.page_base import DashboardPage
 from dashboard.page_base import SectionContent
 from dashboard.page_definitions import DashboardPageDefinition
@@ -73,6 +73,31 @@ def _adapt_external_workplace(
     return out
 
 
+def _external_workplace_percent_data(
+    external_workplace: list[tuple[str, pl.DataFrame]],
+    geo_level: str,
+) -> list[tuple[str, pl.DataFrame]]:
+    if geo_level != "all_geographies":
+        return external_workplace
+
+    out: list[tuple[str, pl.DataFrame]] = []
+    for label, df in _nonempty(external_workplace):
+        if "all_worker_count" not in df.columns:
+            out.append((label, df))
+            continue
+        denominator = float(df["all_worker_count"][0] or 0.0)
+        if denominator <= 0:
+            out.append((label, df))
+            continue
+        normalized = df.with_columns(
+            (
+                pl.col("person_count").cast(pl.Float64) / denominator * 100.0
+            ).alias("external_worker_percent")
+        )
+        out.append((label, normalized))
+    return out
+
+
 def _adapt_workplace_lu(
     data_list: list[tuple[str, pl.DataFrame]],
 ) -> list[tuple[str, pl.DataFrame]]:
@@ -114,7 +139,7 @@ PREFERRED_GEO_ORDER = [
 
 
 def _ordered_geo_options(values: set[str], *, config: Config) -> list[str]:
-    return ordered_visible_geography_levels(list(values), config=config)
+    return detail_geography_levels(list(values), config=config)
 
 
 def geo_level_option_set(
@@ -221,7 +246,7 @@ def geo_level_options(
         )
     else:
         return ["Total"]
-    ordered = ordered_visible_geography_levels(vals, config=config)
+    ordered = detail_geography_levels(vals, config=config)
     return ordered if ordered else ["Total"]
 
 
@@ -243,7 +268,7 @@ def wfh_geo_level_options(
         .to_list()
     )
 
-    return ordered_visible_geography_levels(vals, config=config)
+    return detail_geography_levels(vals, config=config)
 
 
 def filter_geo_level(
@@ -530,15 +555,38 @@ class MandatoryLocationChoicePage(DashboardPage):
             )
 
         if external_workplace is not None:
+            filtered_external_workplace = self.get_filtered_view(
+                "mandatory_external_workplace",
+                geo_level,
+                factory=lambda: filter_geo_level(external_workplace, geo_level),
+            )
+            external_workplace_data = filtered_external_workplace
+            if self.as_percent:
+                external_workplace_data = self.get_filtered_view(
+                    "mandatory_external_workplace_percent",
+                    geo_level,
+                    factory=lambda: _external_workplace_percent_data(
+                        filtered_external_workplace,
+                        geo_level,
+                    ),
+                )
             external_workplace_chart = bar_chart(
-                _nonempty(external_workplace),
+                external_workplace_data,
                 x_col="workplace_location",
-                y_col="person_count",
+                y_col=(
+                    "external_worker_percent"
+                    if self.as_percent and geo_level == "all_geographies"
+                    else "person_count"
+                ),
                 title="External Worker Workplace Location",
                 xaxis_title="Workplace Location",
-                yaxis_title="External Workers",
+                yaxis_title=(
+                    "Workers with External Workplaces (%)"
+                    if self.as_percent and geo_level == "all_geographies"
+                    else "External Workers"
+                ),
                 pct_col="pct",
-                as_percent=self.as_percent,
+                as_percent=False if geo_level == "all_geographies" else self.as_percent,
             )
             worker_views.append(external_workplace_chart)
         else:

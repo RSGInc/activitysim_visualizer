@@ -26,11 +26,16 @@ from processor.prepare.reader import (
 from processor.summarize.cache_types import strip_weights
 from processor.summarize.summaries import tour, trip
 from processor.summarize.summaries.long_term import (
+    external_workplace_loc,
     school_loc_vs_land_use_enrollment,
     vehicle_char_age,
     vehicle_char_body,
     vehicle_char_fuel,
     workplace_vs_land_use_employment,
+)
+from processor.summarize.summaries.tour_geography import (
+    ext_non_mand_tour_loc,
+    int_vs_ext_non_mand_tour_freq,
 )
 from runtime.config import Config
 
@@ -1577,6 +1582,119 @@ def test_long_term_comparison_summaries_emit_configured_geography_levels(
                 "student_count": 0.0,
             },
         ]
+    )
+    assert (
+        workplace.filter(pl.col("geography_type") == "all_geographies")
+        .select(["geography_id", "employment_count", "worker_count"])
+        .to_dicts()
+        == [
+            {
+                "geography_id": "all_geographies",
+                "employment_count": 24.0,
+                "worker_count": 1.0,
+            }
+        ]
+    )
+    assert (
+        school.filter(pl.col("geography_type") == "all_geographies")
+        .sort("student_type")
+        .select(["geography_id", "student_type", "enrollment_count", "student_count"])
+        .to_dicts()
+        == [
+            {
+                "geography_id": "all_geographies",
+                "student_type": "School",
+                "enrollment_count": 75.0,
+                "student_count": 1.0,
+            },
+            {
+                "geography_id": "all_geographies",
+                "student_type": "University",
+                "enrollment_count": 100.0,
+                "student_count": 1.0,
+            },
+        ]
+    )
+
+
+def test_geography_summaries_include_all_geographies_rollups(tmp_path: Path) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "geography:",
+            "  enabled: true",
+        ],
+    )
+    prepared = ProcessorRunData(
+        label="Prepared",
+        run_dir="C:/runs/prepared",
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1], "finalweight": [1.0]}),
+        per=pl.DataFrame(
+            {
+                "person_id": [101, 102],
+                "home_zone_id": [10, 20],
+                "is_worker": [True, True],
+                "is_external_worker": [True, False],
+                "external_workplace_zone_id": [30, None],
+                "finalweight": [1.0, 1.0],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "person_id": [101, 102],
+                "tour_category": ["non_mandatory", "non_mandatory"],
+                "is_external_tour": [True, False],
+                "destination": [30, 20],
+                "finalweight": [1.0, 1.0],
+            }
+        ),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    external_workplace = external_workplace_loc(prepared, config)
+    nonmandatory_mix = int_vs_ext_non_mand_tour_freq(prepared, config)
+    external_tour_locations = ext_non_mand_tour_loc(prepared, config)
+
+    assert (
+        external_workplace.filter(pl.col("geography_type") == "all_geographies")
+        .select(["geography_id", "external_worker_count", "all_worker_count"])
+        .to_dicts()
+        == [
+            {
+                "geography_id": "all_geographies",
+                "external_worker_count": 1.0,
+                "all_worker_count": 2.0,
+            }
+        ]
+    )
+    assert (
+        nonmandatory_mix.filter(pl.col("geography_type") == "all_geographies")
+        .select(
+            [
+                "geography_id",
+                "internal_nonmandatory_tour_count",
+                "external_nonmandatory_tour_count",
+            ]
+        )
+        .to_dicts()
+        == [
+            {
+                "geography_id": "all_geographies",
+                "internal_nonmandatory_tour_count": 1.0,
+                "external_nonmandatory_tour_count": 1.0,
+            }
+        ]
+    )
+    assert (
+        external_tour_locations.filter(pl.col("geography_type") == "all_geographies")
+        .select(["geography_id", "external_nonmandatory_tour_count"])
+        .to_dicts()
+        == [{"geography_id": "all_geographies", "external_nonmandatory_tour_count": 1.0}]
     )
 
 

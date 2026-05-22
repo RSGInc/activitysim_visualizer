@@ -17,6 +17,7 @@ from dashboard.pages.long_term_choices.individual_choices import (
 from dashboard.pages.long_term_choices.mandatory_location_choice import (
     MandatoryLocationChoicePage,
 )
+from dashboard.pages.long_term_choices.shadow_pricing import ShadowPricingPage
 from dashboard.pages.long_term_choices.vehicle_ownership_type import (
     VehicleOwnershipTypePage,
 )
@@ -2557,11 +2558,11 @@ def test_mandatory_location_choice_uses_commuting_flows_when_worker_geography_mi
             ),
             "commuting_flows": pl.DataFrame(
                 {
-                    "origin_geography_type": ["maz", "maz"],
-                    "origin_geography_id": ["10", "20"],
-                    "destination_geography_type": ["maz", "maz"],
-                    "destination_geography_id": ["30", "40"],
-                    "commuter_count": [5.0, 7.0],
+                    "origin_geography_type": ["all_geographies", "maz", "maz"],
+                    "origin_geography_id": ["all_geographies", "10", "20"],
+                    "destination_geography_type": ["all_geographies", "maz", "maz"],
+                    "destination_geography_id": ["all_geographies", "30", "40"],
+                    "commuter_count": [12.0, 5.0, 7.0],
                 }
             ),
         },
@@ -2574,7 +2575,7 @@ def test_mandatory_location_choice_uses_commuting_flows_when_worker_geography_mi
     page = MandatoryLocationChoicePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["Total"]
+    assert list(page.geo_level_sel.options) == ["all_geographies"]
     commuting_widget = page._commuting_flows_section.objects[0]
     assert not isinstance(commuting_widget, pn.Card)
 
@@ -2594,11 +2595,11 @@ def test_mandatory_location_choice_can_show_maz_when_enabled(
             ),
             "commuting_flows": pl.DataFrame(
                 {
-                    "origin_geography_type": ["maz", "maz"],
-                    "origin_geography_id": ["10", "20"],
-                    "destination_geography_type": ["maz", "maz"],
-                    "destination_geography_id": ["30", "40"],
-                    "commuter_count": [5.0, 7.0],
+                    "origin_geography_type": ["all_geographies", "maz", "maz"],
+                    "origin_geography_id": ["all_geographies", "10", "20"],
+                    "destination_geography_type": ["all_geographies", "maz", "maz"],
+                    "destination_geography_id": ["all_geographies", "30", "40"],
+                    "commuter_count": [12.0, 5.0, 7.0],
                 }
             ),
         },
@@ -2611,7 +2612,7 @@ def test_mandatory_location_choice_can_show_maz_when_enabled(
     page = MandatoryLocationChoicePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["maz"]
+    assert list(page.geo_level_sel.options) == ["all_geographies", "maz"]
 
 
 def test_tour_mode_vehicle_filters_sort_categories_stably() -> None:
@@ -2699,17 +2700,17 @@ def test_internal_external_tours_geo_selector_uses_common_levels_across_tables(
         weighted={
             "internal_external_nonmandatory_tour_frequency_by_home_geography": pl.DataFrame(
                 {
-                    "geography_level": ["maz", "district"],
-                    "home_geography": ["1", "A"],
-                    "internal_tour_count": [2.0, 3.0],
-                    "external_tour_count": [1.0, 1.0],
+                    "geography_level": ["all_geographies", "maz", "district"],
+                    "home_geography": ["all_geographies", "1", "A"],
+                    "internal_tour_count": [5.0, 2.0, 3.0],
+                    "external_tour_count": [2.0, 1.0, 1.0],
                 }
             ),
             "external_nonmandatory_tour_locations": pl.DataFrame(
                 {
-                    "geography_type": ["maz"],
-                    "geography_id": ["1"],
-                    "tour_count": [4.0],
+                    "geography_type": ["all_geographies", "maz"],
+                    "geography_id": ["all_geographies", "1"],
+                    "tour_count": [4.0, 4.0],
                 }
             ),
         },
@@ -2722,7 +2723,159 @@ def test_internal_external_tours_geo_selector_uses_common_levels_across_tables(
     page = InternalExternalToursPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["All", "maz"]
+    assert list(page.geo_level_sel.options) == ["all_geographies", "maz"]
+
+
+def test_internal_external_tours_geo_selector_collapses_to_aggregate_when_disabled(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "internal_external_nonmandatory_tour_frequency_by_home_geography": pl.DataFrame(
+                {
+                    "geography_level": ["all_geographies", "maz"],
+                    "home_geography": ["all_geographies", "1"],
+                    "internal_tour_count": [5.0, 2.0],
+                    "external_tour_count": [2.0, 1.0],
+                }
+            ),
+            "external_nonmandatory_tour_locations": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "maz"],
+                    "geography_id": ["all_geographies", "1"],
+                    "tour_count": [4.0, 4.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = InternalExternalToursPage(state, config)
+    page.refresh(force=True)
+
+    assert list(page.geo_level_sel.options) == ["all_geographies"]
+
+
+def test_shadow_pricing_geo_selector_collapses_to_aggregate_when_disabled(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "workplace_location_employment_comparison": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district"],
+                    "geography_id": ["all_geographies", "A"],
+                    "employment_count": [20.0, 10.0],
+                    "worker_count": [18.0, 9.0],
+                }
+            ),
+            "school_location_enrollment_comparison": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district"],
+                    "geography_id": ["all_geographies", "A"],
+                    "student_type": ["University", "University"],
+                    "enrollment_count": [12.0, 6.0],
+                    "student_count": [11.0, 5.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = ShadowPricingPage(state, config)
+    page.refresh(force=True)
+
+    assert list(page.geo_level_sel.options) == ["all_geographies"]
+
+
+def test_shadow_pricing_geo_selector_shows_detailed_levels_when_enabled(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path, visualizer_lines=["enable_maz_geographies: true"])
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "workplace_location_employment_comparison": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district", "maz"],
+                    "geography_id": ["all_geographies", "A", "1"],
+                    "employment_count": [20.0, 10.0, 4.0],
+                    "worker_count": [18.0, 9.0, 3.0],
+                }
+            ),
+            "school_location_enrollment_comparison": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district", "maz"],
+                    "geography_id": ["all_geographies", "A", "1"],
+                    "student_type": ["University", "University", "University"],
+                    "enrollment_count": [12.0, 6.0, 2.0],
+                    "student_count": [11.0, 5.0, 2.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = ShadowPricingPage(state, config)
+    page.refresh(force=True)
+
+    assert list(page.geo_level_sel.options) == ["all_geographies", "district", "maz"]
+
+
+def test_mandatory_location_choice_external_workplace_aggregate_percent_uses_all_workers(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "internal_external_worker_by_geography": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies"],
+                    "geography_id": ["all_geographies"],
+                    "internal_worker_count": [3.0],
+                    "external_worker_count": [1.0],
+                }
+            ),
+            "external_worker_workplace_locations": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies"],
+                    "geography_id": ["all_geographies"],
+                    "external_worker_count": [1.0],
+                    "all_worker_count": [4.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+    state.value_mode = "Percent"
+
+    page = MandatoryLocationChoicePage(state, config)
+    page.refresh(force=True)
+
+    plots = _collect_plotly_panes(page._worker_section)
+    external_plot = next(
+        plot
+        for plot in plots
+        if plot.object.layout.title.text == "External Worker Workplace Location"
+    )
+    assert list(external_plot.object.data[0].y) == [25.0]
 
 
 def test_traffic_validation_shared_selectors_use_common_summary_options(

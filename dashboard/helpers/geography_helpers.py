@@ -9,6 +9,7 @@ PREFERRED_TYPED_GEO_ORDER = [
     "taz",
     "maz",
 ]
+AGGREGATE_GEOGRAPHY_LEVEL = "all_geographies"
 
 
 def visible_geography_levels(
@@ -39,3 +40,17 @@ def ordered_visible_geography_levels(
     ordered = [value for value in PREFERRED_TYPED_GEO_ORDER if value in visible]
     extras = sorted(value for value in visible if value not in PREFERRED_TYPED_GEO_ORDER)
     return ordered + extras
+
+
+def detail_geography_levels(
+    values: list[str] | set[str] | tuple[str, ...],
+    *,
+    config,
+) -> list[str]:
+    """Return selector geography levels, collapsing to the aggregate when disabled."""
+    ordered = ordered_visible_geography_levels(values, config=config)
+    if config.enable_maz_geographies:
+        return ordered
+    if AGGREGATE_GEOGRAPHY_LEVEL in ordered:
+        return [AGGREGATE_GEOGRAPHY_LEVEL]
+    return ordered

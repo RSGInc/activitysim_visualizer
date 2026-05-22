@@ -6,7 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import data_table
-from dashboard.helpers.geography_helpers import ordered_visible_geography_levels
+from dashboard.helpers.geography_helpers import detail_geography_levels
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
@@ -43,8 +43,8 @@ def geo_level_options(
         .cast(pl.Utf8)
         .to_list()
     )
-    vals = ordered_visible_geography_levels(vals, config=config)
-    return ["All"] + [v for v in vals if v != "All"]
+    vals = detail_geography_levels(vals, config=config)
+    return vals or ["All"]
 
 
 def common_geo_level_options(
@@ -73,8 +73,8 @@ def common_geo_level_options(
     if not available_sets:
         return ["All"]
     common = set.intersection(*available_sets)
-    ordered = ordered_visible_geography_levels(list(common), config=config)
-    return ["All"] + [v for v in ordered if v != "All"]
+    ordered = detail_geography_levels(list(common), config=config)
+    return ordered or ["All"]
 
 
 def filter_geo_level(
