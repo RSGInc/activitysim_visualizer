@@ -13,7 +13,7 @@ The codebase is organized around those jobs rather than around one monolithic ap
 | Area | Purpose | Key files |
 |---|---|---|
 | CLI and workflow orchestration | Parse step selections, choose cache-first vs rebuild flow, and hand off to prepare/summarize/dashboard workflows | `run.py`, `runtime/workflows/` |
-| Shared runtime contracts | Normalize YAML config and expose shared cross-cutting contracts used by both processor and dashboard | `runtime/config.py` |
+| Shared runtime contracts | Normalize YAML config and expose shared cross-cutting contracts used by both processor and dashboard | public surface `runtime.config`, implementation in `runtime/config/` |
 | Processor prepare step | Read raw ActivitySim outputs, materialize canonical prepared columns, and manage prepared-table cache I/O | `processor/models.py`, `processor/prepare/*` |
 | Summary generation and cache I/O | Register summary builders, compute weighted/unweighted tables, write/load cache manifests and CSVs | `processor/summarize/cache.py`, `processor/summarize/schema.py`, `processor/summarize/summaries/*.py` |
 | Dashboard registry and state | Discover pages, validate page contracts, hold live state and cached filtered views | `dashboard/page_registry.py`, `dashboard/page_definitions.py`, `dashboard/state.py`, `dashboard/page_base.py` |
@@ -46,7 +46,9 @@ run.py
 
 ### `Config`
 
-`runtime.config.Config` is the normalized application configuration.
+`runtime.config.Config` is the normalized application configuration. The public
+import surface remains `runtime.config`, while the implementation now lives in
+the `runtime/config/` package.
 
 Treat it as the contract for:
 
@@ -106,7 +108,7 @@ activitysim_visualizer/
 |   |-- workflows/
 |-- config.yaml
 |-- runtime/
-|   `-- config.py
+|   `-- config/
 |-- processor/
 |   |-- models.py
 |   |-- prepare/

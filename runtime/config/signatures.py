@@ -1,0 +1,347 @@
+"""Digest and signature-payload helpers for config contracts."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from typing import Any
+
+from .models import Config, PreparedColumnSegmentationSource
+from .normalize_categories import category_specs_payload
+
+
+def digest_payload(payload: dict[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    ).hexdigest()
+
+
+def _geography_payload(config: Config) -> dict[str, Any]:
+    geography_payload: dict[str, Any] = {"enabled": config.geography_enabled}
+    if config.geography_enabled:
+        geography_spec = config.category_spec("geography")
+        geography_payload["landuse_col"] = config.geography_landuse_col
+        geography_payload["mapping"] = (
+            dict(geography_spec.mapping_items)
+            if geography_spec is not None and geography_spec.mapping_items
+            else (
+                {
+                    key: config.geography_mapping[key]
+                    for key in sorted(config.geography_mapping)
+                }
+                if config.geography_mapping
+                else None
+            )
+        )
+    geography_payload["aggregations"] = [
+        {
+            "name": aggregation.name,
+            "source_zone_system": aggregation.source_zone_system,
+            "file": aggregation.file,
+            "zone_id_col": aggregation.zone_id_col,
+            "geography_col": aggregation.geography_col,
+            "lookup_rows": [
+                {"zone_id": zone_id, "geography_id": geography_id}
+                for zone_id, geography_id in aggregation.lookup_rows
+            ],
+        }
+        for aggregation in config.geography_aggregations.aggregations
+    ]
+    return geography_payload
+
+
+def _effective_legacy_values(
+    config: Config,
+) -> tuple[dict[str, str] | None, dict[str, str] | None, list[str] | None]:
+    effective_person_type_labels = (
+        None if config.category_spec("person_type") is not None else config.person_type_labels
+    )
+    effective_transit_subsidy_labels = (
+        None
+        if config.category_spec("transit_subsidy") is not None
+        else config.transit_subsidy_labels
+    )
+    effective_mode_order = None if config.category_spec("mode") is not None else config.mode_order
+    return (
+        effective_person_type_labels,
+        effective_transit_subsidy_labels,
+        effective_mode_order,
+    )
+
+
+def _student_types_payload(config: Config) -> list[dict[str, Any]]:
+    return [
+        {
+            "label": entry.label,
+            "land_use_columns": list(entry.land_use_columns),
+            "person": (
+                {
+                    "is_university": entry.person.is_university,
+                    "school_segment": list(entry.person.school_segment),
+                    "SCHG": list(entry.person.SCHG),
+                    "pstudent": list(entry.person.pstudent),
+                }
+                if entry.person is not None
+                else None
+            ),
+        }
+        for entry in config.student_types
+    ]
+
+
+def prepare_signature_payload(config: Config) -> dict[str, Any]:
+    (
+        effective_person_type_labels,
+        effective_transit_subsidy_labels,
+        effective_mode_order,
+    ) = _effective_legacy_values(config)
+    return {
+        "files": {key: config.files[key] for key in sorted(config.files)},
+        "columns": {
+            "ptype": config.col_ptype,
+            "hhsize": config.col_hhsize,
+            "auto_ownership": config.col_auto_ownership,
+            "num_workers": config.col_num_workers,
+            "num_adults": config.col_num_adults,
+            "sample_rate": config.col_sample_rate,
+            "household_id": list(config.col_household_id),
+            "person_id": list(config.col_person_id),
+            "tour_id": list(config.col_tour_id),
+            "trip_id": list(config.col_trip_id),
+            "tour_purpose": list(config.col_tour_purpose),
+            "trip_purpose": list(config.col_trip_purpose),
+            "tour_mode": list(config.col_tour_mode),
+            "trip_mode": list(config.col_trip_mode),
+            "tour_category": list(config.col_tour_category),
+            "tour_start": list(config.col_tour_start),
+            "tour_end": list(config.col_tour_end),
+            "tour_duration": list(config.col_tour_duration),
+            "trip_depart": list(config.col_trip_depart),
+            "total_employment": list(config.col_total_employment),
+            "income_segment": list(config.col_income_segment),
+            "school_esc_outbound": list(config.col_school_esc_outbound),
+            "school_esc_inbound": list(config.col_school_esc_inbound),
+            "num_escortees": list(config.col_num_escortees),
+            "out_escorted_tour_ids": list(config.col_out_escorted_tour_ids),
+            "inb_escorted_tour_ids": list(config.col_inb_escorted_tour_ids),
+            "out_escorting_type": list(config.col_out_escorting_type),
+            "inb_escorting_type": list(config.col_inb_escorting_type),
+            "out_chauffeur_tour_id": list(config.col_out_chauffeur_tour_id),
+            "inb_chauffeur_tour_id": list(config.col_inb_chauffeur_tour_id),
+        },
+        "categories": category_specs_payload(config.categories),
+        "legacy_categories": {
+            "person_type_labels": (
+                {
+                    key: effective_person_type_labels[key]
+                    for key in sorted(effective_person_type_labels)
+                }
+                if effective_person_type_labels
+                else None
+            ),
+            "transit_subsidy_labels": (
+                {
+                    key: effective_transit_subsidy_labels[key]
+                    for key in sorted(effective_transit_subsidy_labels)
+                }
+                if effective_transit_subsidy_labels
+                else None
+            ),
+            "mode_order": list(effective_mode_order) if effective_mode_order else None,
+        },
+        "tour_purpose_grouping": {
+            "group_joint_tour_purposes": config.group_joint_tour_purposes,
+            "group_atwork_tour_purposes": config.group_atwork_tour_purposes,
+            "group_school_tour_purposes": config.group_school_tour_purposes,
+        },
+        "student_types": _student_types_payload(config),
+        "zones": {
+            "use_maz": config.use_maz,
+            "maz_col": list(config.maz_col),
+            "taz_col": list(config.taz_col),
+        },
+        "geography": _geography_payload(config),
+        "skim": {"matrix": config.skim_matrix},
+        "skimjoin": {
+            "enabled": config.skimjoin.enabled,
+            "config_digest": config.skimjoin.config_digest,
+        },
+        "prepare": {
+            "output": {"file_format": config.prepare_output_file_format},
+            "vot_bins": {
+                "enabled": config.prepare_vot_bins.enabled,
+                "source_column": config.prepare_vot_bins.source_column,
+                "output_column": config.prepare_vot_bins.output_column,
+                "fallback_value": config.prepare_vot_bins.fallback_value,
+                "mappings": {
+                    run_name: {
+                        key: value for key, value in sorted(run_mapping.items())
+                    }
+                    for run_name, run_mapping in sorted(
+                        config.prepare_vot_bins.mappings.items()
+                    )
+                },
+            },
+        },
+    }
+
+
+def summary_signature_payload(config: Config) -> dict[str, Any]:
+    (
+        effective_person_type_labels,
+        effective_transit_subsidy_labels,
+        effective_mode_order,
+    ) = _effective_legacy_values(config)
+    segmentation_payload: dict[str, Any] = {"enabled": config.segmentation.enabled}
+    if config.segmentation.enabled:
+        segmentation_payload["definitions"] = [
+            {
+                "name": definition.name,
+                "include_full": definition.include_full,
+                "persist_segmented_prepared_tables": definition.persist_segmented_prepared_tables,
+                "allow_overlapping": definition.allow_overlapping,
+                "on_empty_segment": definition.on_empty_segment,
+                "source": (
+                    {
+                        "type": "prepared_column",
+                        "column": definition.source.column,
+                        "source_table": definition.source.source_table,
+                    }
+                    if isinstance(definition.source, PreparedColumnSegmentationSource)
+                    else {
+                        "type": "csv_lookup",
+                        "file": definition.source.file,
+                        "join_source_table": definition.source.join_source_table,
+                        "join_source_key_column": definition.source.join_source_key_column,
+                        "csv_key_column": definition.source.csv_key_column,
+                        "segment_value_column": definition.source.segment_value_column,
+                        "lookup_rows": [
+                            {"key": key, "value": value}
+                            for key, value in definition.source.lookup_rows
+                        ],
+                    }
+                ),
+                "segments": [
+                    {
+                        "id": segment.id,
+                        "label": segment.label,
+                        "values": list(segment.values),
+                    }
+                    for segment in definition.segments
+                ],
+            }
+            for definition in config.segmentation.definitions
+        ]
+    return {
+        "weighting_modes": list(config.weighting_modes),
+        "files": {key: config.files[key] for key in sorted(config.files)},
+        "columns": prepare_signature_payload(config)["columns"],
+        "categories": category_specs_payload(config.categories),
+        "person_type_labels": (
+            {
+                key: effective_person_type_labels[key]
+                for key in sorted(effective_person_type_labels)
+            }
+            if effective_person_type_labels
+            else None
+        ),
+        "transit_subsidy_labels": (
+            {
+                key: effective_transit_subsidy_labels[key]
+                for key in sorted(effective_transit_subsidy_labels)
+            }
+            if effective_transit_subsidy_labels
+            else None
+        ),
+        "tour_purpose_grouping": {
+            "group_joint_tour_purposes": config.group_joint_tour_purposes,
+            "group_atwork_tour_purposes": config.group_atwork_tour_purposes,
+            "group_school_tour_purposes": config.group_school_tour_purposes,
+        },
+        "student_types": _student_types_payload(config),
+        "zones": {
+            "use_maz": config.use_maz,
+            "maz_col": list(config.maz_col),
+            "taz_col": list(config.taz_col),
+        },
+        "geography": _geography_payload(config),
+        "skim": {"matrix": config.skim_matrix},
+        "modes": {
+            "order": list(effective_mode_order) if effective_mode_order else None,
+            "groups": (
+                [
+                    (group_name, list(mode_names))
+                    for group_name, mode_names in config.mode_groups.items()
+                ]
+                if config.mode_groups
+                else None
+            ),
+        },
+        "skimjoin": {
+            "enabled": config.skimjoin.enabled,
+            "config_digest": config.skimjoin.config_digest,
+        },
+        "prepare": {
+            "vot_bins": prepare_signature_payload(config)["prepare"]["vot_bins"],
+        },
+        "segmentation": segmentation_payload,
+    }
+
+
+def presentation_signature_payload(config: Config) -> dict[str, Any]:
+    return {
+        "dashboard_title": config.dashboard_title,
+        "dashboard_pages": (
+            [
+                {
+                    "page_id": entry.page_id,
+                    "mode": entry.mode,
+                    "page_ids": list(entry.page_ids),
+                }
+                for entry in config.dashboard_pages
+            ]
+            if config.dashboard_pages is not None
+            else None
+        ),
+        "enable_maz_geographies": config.enable_maz_geographies,
+        "run_colors": list(config.run_colors),
+        "missing_data_display": config.missing_data_display,
+        "segmentation": {
+            "enabled": config.segmentation.enabled,
+            "dashboard": {
+                "segmentation_type": config.segmentation.dashboard.segmentation_type,
+                "visibility": config.segmentation.dashboard.visibility,
+            },
+        },
+        "categories": category_specs_payload(config.categories),
+        "export_html": {
+            "enabled": config.export_html.enabled,
+            "dashboard": {
+                "weighting": list(config.export_html.dashboard.weighting),
+                "values": list(config.export_html.dashboard.values),
+                "segmentation_type": config.export_html.dashboard.segmentation_type,
+                "segmentation_visibility": config.export_html.dashboard.segmentation_visibility,
+            },
+            "pages_configured": config.export_html.pages_configured,
+            "exclude_pages": list(config.export_html.exclude_pages),
+            "exclude_groups": list(config.export_html.exclude_groups),
+            "pages": [
+                {
+                    "page_id": page_id,
+                    "enabled": override.enabled,
+                    "selectors": {
+                        selector_id: {
+                            "mode": request.mode,
+                            "values": list(request.values),
+                        }
+                        for selector_id, request in override.selector_requests.items()
+                    },
+                    "parts": {
+                        part_id: {"enabled": part.enabled}
+                        for part_id, part in override.parts.items()
+                    },
+                }
+                for page_id, override in config.export_html.pages.items()
+            ],
+        },
+    }

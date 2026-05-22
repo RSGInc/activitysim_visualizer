@@ -449,7 +449,7 @@ activitysim_visualizer/
 |-- runtime/
 |   |-- workflows/
 |-- runtime/
-|   `-- config.py
+|   `-- config/
 |-- processor/
 |   |-- prepare/
 |   |-- summarize/
