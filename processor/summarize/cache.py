@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import inspect
+import hashlib
+import json
 from pathlib import Path
 
 import polars as pl
@@ -17,6 +20,7 @@ from processor.summarize.cache_execution import (
 from processor.summarize.cache_storage import (
     SCHEMA_VERSION,
     discover_cache_dirs,
+    inspect_summary_run_bundle as _inspect_summary_run_bundle,
     load_summary_run_bundle as _load_summary_run_bundle,
     load_summary_run_cache as _load_summary_run_cache,
     summary_file_map as _summary_file_map,
@@ -44,6 +48,43 @@ from runtime.config import Config
 def requested_summary_ids(config: Config) -> list[str]:
     """Return the registered default summary ids."""
     return list(DEFAULT_SUMMARY_IDS)
+
+
+def summary_builder_identity(summary_id: str) -> dict[str, object]:
+    spec = SUMMARY_SPEC_BY_ID[summary_id]
+    try:
+        source = inspect.getsource(spec.builder)
+    except (OSError, TypeError):
+        source = f"{spec.builder.__module__}.{spec.builder.__qualname__}"
+    return {
+        "summary_id": summary_id,
+        "filename": spec.filename,
+        "builder_module": spec.builder.__module__,
+        "builder_qualname": spec.builder.__qualname__,
+        "builder_source_digest": hashlib.sha256(
+            source.encode("utf-8")
+        ).hexdigest(),
+    }
+
+
+def summary_digest(summary_id: str, config: Config) -> str:
+    payload = {
+        "summary_config_digest": config.summary_config_digest,
+        "summary": summary_builder_identity(summary_id),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    ).hexdigest()
+
+
+def summary_digests(
+    config: Config,
+    summary_ids: list[str] | None = None,
+) -> dict[str, str]:
+    return {
+        summary_id: summary_digest(summary_id, config)
+        for summary_id in (summary_ids or requested_summary_ids(config))
+    }
 
 
 def build_summaries(
@@ -136,6 +177,7 @@ def write_summary_run_cache(
         output_root=output_root,
         run_fingerprint=run_fingerprint,
         prepared_manifest_identity=prepared_manifest_identity,
+        summary_digests=summary_digests(config, list(summary_run.summaries_by_mode.values())[0].keys()),
         summary_filename_by_id=SUMMARY_FILENAME_BY_ID,
     )
 
@@ -176,13 +218,41 @@ def write_summary_run_bundle(
     prepared_manifest_identity: dict[str, object] | None = None,
 ) -> Path:
     """Write one run cache directory containing all segment variants."""
+    requested_ids = list(next(iter(summary_runs[0].summaries_by_mode.values())).keys())
     return _write_summary_run_bundle(
         summary_runs,
         config,
         output_root=output_root,
         run_fingerprint=run_fingerprint,
         prepared_manifest_identity=prepared_manifest_identity,
+        summary_digests=summary_digests(config, requested_ids),
         summary_filename_by_id=SUMMARY_FILENAME_BY_ID,
+    )
+
+
+def inspect_summary_run_bundle(
+    cache_dir: str | Path,
+    config: Config,
+    *,
+    expected_modes: list[str] | None = None,
+    expected_summary_ids: list[str] | None = None,
+    expected_summary_config_digest: str | None = None,
+    expected_run_fingerprint: dict[str, object] | None = None,
+    expected_prepared_manifest_identity: dict[str, object] | None = None,
+    expected_label: str | None = None,
+    expected_run_key: str | None = None,
+) -> dict[str, object]:
+    return _inspect_summary_run_bundle(
+        cache_dir,
+        config,
+        expected_modes=expected_modes,
+        expected_summary_ids=expected_summary_ids,
+        expected_summary_config_digest=expected_summary_config_digest,
+        expected_run_fingerprint=expected_run_fingerprint,
+        expected_prepared_manifest_identity=expected_prepared_manifest_identity,
+        expected_label=expected_label,
+        expected_run_key=expected_run_key,
+        expected_summary_digests=summary_digests(config, expected_summary_ids),
     )
 
 
@@ -230,10 +300,14 @@ __all__ = [
     "build_summaries_with_metadata",
     "create_summary_run",
     "discover_cache_dirs",
+    "inspect_summary_run_bundle",
     "load_summary_run_cache",
     "load_summary_run_bundle",
     "normalize_weighting_modes",
     "requested_summary_ids",
+    "summary_builder_identity",
+    "summary_digest",
+    "summary_digests",
     "slugify",
     "strip_weights",
     "summary_file_map",

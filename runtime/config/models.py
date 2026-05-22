@@ -338,7 +338,8 @@ class Config:
     col_inb_escorting_type: list[str]
     col_out_chauffeur_tour_id: list[str]
     col_inb_chauffeur_tour_id: list[str]
-    categories: dict[str, CategorySpec]
+    summary_categories: dict[str, CategorySpec]
+    dashboard_labels: dict[str, CategorySpec]
     person_type_labels: Optional[dict[str, str]]
     transit_subsidy_labels: Optional[dict[str, str]]
     group_joint_tour_purposes: bool
@@ -383,8 +384,20 @@ class Config:
     def run_color(self, idx: int) -> str:
         return self.run_colors[idx % len(self.run_colors)]
 
+    @property
+    def categories(self) -> dict[str, CategorySpec]:
+        """Compatibility alias for pre-split display-oriented category lookups."""
+        return self.dashboard_labels
+
+    def summary_category_spec(self, category_id: str) -> CategorySpec | None:
+        return self.summary_categories.get(str(category_id))
+
+    def dashboard_label_spec(self, category_id: str) -> CategorySpec | None:
+        return self.dashboard_labels.get(str(category_id))
+
     def category_spec(self, category_id: str) -> CategorySpec | None:
-        return self.categories.get(str(category_id))
+        """Compatibility shim for existing display-oriented call sites."""
+        return self.dashboard_label_spec(category_id)
 
     def normalize_escort_value(self, raw_value) -> str:
         from .normalize_categories import escort_normalization_key
@@ -393,6 +406,13 @@ class Config:
         if normalized is None:
             return str(raw_value).strip()
         return normalized
+
+    def normalize_summary_value(self, category_id: str, raw_value) -> str:
+        raw_value_str = str(raw_value)
+        spec = self.summary_category_spec(category_id)
+        if spec is not None and raw_value_str in spec.labels_by_raw:
+            return spec.labels_by_raw[raw_value_str]
+        return raw_value_str
 
     def escort_display_labels(self) -> dict[str, str]:
         return {
@@ -404,13 +424,13 @@ class Config:
         raw_value_str = str(raw_value)
         if category_id == "tour_purpose" and raw_value_str == "all_tour_purposes":
             return "All"
-        spec = self.category_spec(category_id)
+        spec = self.dashboard_label_spec(category_id)
         if spec is not None and raw_value_str in spec.labels_by_raw:
             return spec.labels_by_raw[raw_value_str]
         return raw_value_str
 
     def ordered_values(self, category_id: str, raw_values: list[str]) -> list[str]:
-        spec = self.category_spec(category_id)
+        spec = self.dashboard_label_spec(category_id)
         values = [str(value) for value in raw_values]
         if spec is None:
             return values
@@ -441,12 +461,14 @@ class Config:
         return self.ordered_values("mode", modes_in_data)
 
     def apply_geo_mapping(self, series: pl.Series) -> pl.Series:
-        spec = self.category_spec("geography")
+        spec = self.summary_category_spec("geography")
         if spec is None:
             return series.cast(pl.Utf8)
         return series.cast(pl.Utf8).map_elements(
             lambda value: (
-                self.label_value("geography", value) if value is not None else None
+                self.normalize_summary_value("geography", value)
+                if value is not None
+                else None
             ),
             return_dtype=pl.Utf8,
         )

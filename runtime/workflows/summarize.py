@@ -40,7 +40,7 @@ def _load_summary_run_from_cache(
 ) -> Any | None:
     """Load one summary run from cache when valid."""
     try:
-        cached_run = summary_cache.load_summary_run_bundle(
+        inspection = summary_cache.inspect_summary_run_bundle(
             cache_dir,
             config,
             expected_modes=config.weighting_modes,
@@ -51,8 +51,33 @@ def _load_summary_run_from_cache(
             expected_label=label,
             expected_run_key=run_key,
         )
-        LOGGER.info("Loaded summary cache for run: %r", label)
-        return cached_run
+        reusable_summary_ids = list(inspection["reusable_summary_ids"])
+        stale_summary_ids = list(inspection["stale_summary_ids"])
+        cached_runs = (
+            summary_cache.load_summary_run_bundle(
+                cache_dir,
+                config,
+                expected_modes=config.weighting_modes,
+                expected_summary_ids=reusable_summary_ids,
+                expected_summary_config_digest=config.summary_config_digest,
+                expected_run_fingerprint=run_fingerprint,
+                expected_prepared_manifest_identity=prepared_manifest_identity,
+                expected_label=label,
+                expected_run_key=run_key,
+            )
+            if reusable_summary_ids
+            else []
+        )
+        LOGGER.info(
+            "Loaded reusable summary cache tables for run %r: %s",
+            label,
+            ", ".join(reusable_summary_ids) if reusable_summary_ids else "(none)",
+        )
+        return {
+            "summary_runs": cached_runs,
+            "reusable_summary_ids": reusable_summary_ids,
+            "stale_summary_ids": stale_summary_ids,
+        }
     except summary_cache.SummaryCacheError as exc:
         LOGGER.info("Cache miss for %r: %s", label, exc)
         return None
@@ -62,15 +87,17 @@ def _build_summary_tables_for_run(
     *,
     prepared_run: RunData,
     config: Config,
+    summary_ids: list[str] | None = None,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, dict[str, object]]]]:
     """Build summary tables and metadata for one prepared run."""
-    if config.skimjoin.enabled:
-        return summary_cache.build_mode_summaries_with_metadata(
-            prepared_run,
-            config,
-            summary_ids=summary_cache.requested_summary_ids(config),
-        )
-    return summary_cache.build_mode_summaries_with_metadata(prepared_run, config)
+    requested_summary_ids = summary_cache.requested_summary_ids(config)
+    if summary_ids is None or list(summary_ids) == requested_summary_ids:
+        return summary_cache.build_mode_summaries_with_metadata(prepared_run, config)
+    return summary_cache.build_mode_summaries_with_metadata(
+        prepared_run,
+        config,
+        summary_ids=summary_ids,
+    )
 
 
 def _build_summary_run_from_analysis_unit(
@@ -102,6 +129,61 @@ def _build_summary_run_from_analysis_unit(
         segment_csv_value_column=unit.segment_metadata.csv_segment_value_column,
         source_run_dir=str(unit.prepared_run.run_dir),
     )
+
+
+def _merge_summary_runs(
+    *,
+    cached_runs: list[Any],
+    rebuilt_runs: list[Any],
+) -> list[Any]:
+    if not cached_runs:
+        return rebuilt_runs
+    cached_by_segment = {
+        (run.segmentation_type, run.segment_id): run for run in cached_runs
+    }
+    rebuilt_by_segment = {
+        (run.segmentation_type, run.segment_id): run for run in rebuilt_runs
+    }
+    merged: list[Any] = []
+    for segment_key in rebuilt_by_segment:
+        rebuilt = rebuilt_by_segment[segment_key]
+        cached = cached_by_segment.get(segment_key)
+        if cached is None:
+            merged.append(rebuilt)
+            continue
+        summaries_by_mode: dict[str, dict[str, Any]] = {}
+        metadata_by_mode: dict[str, dict[str, dict[str, object]]] = {}
+        for mode, rebuilt_tables in rebuilt.summaries_by_mode.items():
+            cached_tables = cached.summaries_by_mode.get(mode, {})
+            cached_metadata = cached.summary_metadata_by_mode.get(mode, {})
+            summaries_by_mode[mode] = {**cached_tables, **rebuilt_tables}
+            metadata_by_mode[mode] = {
+                **cached_metadata,
+                **rebuilt.summary_metadata_by_mode.get(mode, {}),
+            }
+        merged.append(
+            summary_cache.create_summary_run(
+                label=rebuilt.label,
+                run_key=rebuilt.run_key,
+                summaries_by_mode=summaries_by_mode,
+                summary_metadata_by_mode=metadata_by_mode,
+                segmentation_type=rebuilt.segmentation_type,
+                segment_id=rebuilt.segment_id,
+                segment_label=rebuilt.segment_label,
+                is_full_segment=rebuilt.is_full_segment,
+                segment_source_type=rebuilt.segment_source_type,
+                segment_column=rebuilt.segment_column,
+                segment_values=rebuilt.segment_values,
+                segment_source_table=rebuilt.segment_source_table,
+                segment_source_key_column=rebuilt.segment_source_key_column,
+                segment_csv_file=rebuilt.segment_csv_file,
+                segment_csv_key_column=rebuilt.segment_csv_key_column,
+                segment_csv_value_column=rebuilt.segment_csv_value_column,
+                source_run_dir=rebuilt.source_run_dir,
+                manifest=rebuilt.manifest,
+            )
+        )
+    return merged
 
 
 def _ordered_prepared_runs(
@@ -152,6 +234,7 @@ def run_summary_workflow(
         cache_dir = cache_root / run_key
         run_keys.append(run_key)
         run_fingerprints_by_key[run_key] = run_fingerprint
+        cached_run = None
 
         if prefer_cache:
             cached_run = _load_summary_run_from_cache(
@@ -163,11 +246,13 @@ def run_summary_workflow(
                 prepared_manifest_identity=prepared_manifest_identity,
             )
             if cached_run is not None:
-                summary_runs.extend(cached_run)
-                cached_prepared_run = existing_prepared_runs_by_key.get(run_key)
-                if cached_prepared_run is not None:
-                    prepared_runs_by_key[run_key] = cached_prepared_run
-                continue
+                stale_summary_ids = list(cached_run["stale_summary_ids"])
+                if not stale_summary_ids:
+                    summary_runs.extend(cached_run["summary_runs"])
+                    cached_prepared_run = existing_prepared_runs_by_key.get(run_key)
+                    if cached_prepared_run is not None:
+                        prepared_runs_by_key[run_key] = cached_prepared_run
+                    continue
 
         prepare_result = run_prepare_workflow_fn(
             config=config,
@@ -197,10 +282,45 @@ def run_summary_workflow(
             prepared_run=prepared_loaded[1],
             config=config,
         )
-        run_summary_runs = [
-            _build_summary_run_from_analysis_unit(unit=unit, config=config)
-            for unit in analysis_units
-        ]
+        requested_summary_ids = summary_cache.requested_summary_ids(config)
+        cached_summary_runs = []
+        summary_ids_to_build = requested_summary_ids
+        if prefer_cache and cached_run is not None:
+            cached_summary_runs = list(cached_run["summary_runs"])
+            summary_ids_to_build = list(cached_run["stale_summary_ids"])
+        run_summary_runs = []
+        for unit in analysis_units:
+            summaries_by_mode, summary_metadata_by_mode = _build_summary_tables_for_run(
+                prepared_run=unit.prepared_run,
+                config=config,
+                summary_ids=summary_ids_to_build,
+            )
+            run_summary_runs.append(
+                summary_cache.create_summary_run(
+                    label=unit.run_name,
+                    run_key=unit.run_key,
+                    summaries_by_mode=summaries_by_mode,
+                    summary_metadata_by_mode=summary_metadata_by_mode,
+                    segmentation_type=unit.segmentation_type,
+                    segment_id=unit.segment_id,
+                    segment_label=unit.segment_label,
+                    is_full_segment=unit.is_full,
+                    segment_source_type=unit.segment_metadata.source_type,
+                    segment_column=unit.segment_metadata.column,
+                    segment_values=unit.segment_metadata.values,
+                    segment_source_table=unit.segment_metadata.source_table,
+                    segment_source_key_column=unit.segment_metadata.source_key_column,
+                    segment_csv_file=unit.segment_metadata.csv_file,
+                    segment_csv_key_column=unit.segment_metadata.csv_key_column,
+                    segment_csv_value_column=unit.segment_metadata.csv_segment_value_column,
+                    source_run_dir=str(unit.prepared_run.run_dir),
+                )
+            )
+        if cached_summary_runs:
+            run_summary_runs = _merge_summary_runs(
+                cached_runs=cached_summary_runs,
+                rebuilt_runs=run_summary_runs,
+            )
         summary_runs.extend(run_summary_runs)
 
         if write_cache:

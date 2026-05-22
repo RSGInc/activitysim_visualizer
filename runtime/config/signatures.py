@@ -19,7 +19,7 @@ def digest_payload(payload: dict[str, Any]) -> str:
 def _geography_payload(config: Config) -> dict[str, Any]:
     geography_payload: dict[str, Any] = {"enabled": config.geography_enabled}
     if config.geography_enabled:
-        geography_spec = config.category_spec("geography")
+        geography_spec = config.summary_category_spec("geography")
         geography_payload["landuse_col"] = config.geography_landuse_col
         geography_payload["mapping"] = (
             dict(geography_spec.mapping_items)
@@ -54,14 +54,18 @@ def _effective_legacy_values(
     config: Config,
 ) -> tuple[dict[str, str] | None, dict[str, str] | None, list[str] | None]:
     effective_person_type_labels = (
-        None if config.category_spec("person_type") is not None else config.person_type_labels
+        None
+        if config.dashboard_label_spec("person_type") is not None
+        else config.person_type_labels
     )
     effective_transit_subsidy_labels = (
         None
-        if config.category_spec("transit_subsidy") is not None
+        if config.dashboard_label_spec("transit_subsidy") is not None
         else config.transit_subsidy_labels
     )
-    effective_mode_order = None if config.category_spec("mode") is not None else config.mode_order
+    effective_mode_order = (
+        None if config.dashboard_label_spec("mode") is not None else config.mode_order
+    )
     return (
         effective_person_type_labels,
         effective_transit_subsidy_labels,
@@ -128,26 +132,6 @@ def prepare_signature_payload(config: Config) -> dict[str, Any]:
             "inb_escorting_type": list(config.col_inb_escorting_type),
             "out_chauffeur_tour_id": list(config.col_out_chauffeur_tour_id),
             "inb_chauffeur_tour_id": list(config.col_inb_chauffeur_tour_id),
-        },
-        "categories": category_specs_payload(config.categories),
-        "legacy_categories": {
-            "person_type_labels": (
-                {
-                    key: effective_person_type_labels[key]
-                    for key in sorted(effective_person_type_labels)
-                }
-                if effective_person_type_labels
-                else None
-            ),
-            "transit_subsidy_labels": (
-                {
-                    key: effective_transit_subsidy_labels[key]
-                    for key in sorted(effective_transit_subsidy_labels)
-                }
-                if effective_transit_subsidy_labels
-                else None
-            ),
-            "mode_order": list(effective_mode_order) if effective_mode_order else None,
         },
         "tour_purpose_grouping": {
             "group_joint_tour_purposes": config.group_joint_tour_purposes,
@@ -236,7 +220,19 @@ def summary_signature_payload(config: Config) -> dict[str, Any]:
         "weighting_modes": list(config.weighting_modes),
         "files": {key: config.files[key] for key in sorted(config.files)},
         "columns": prepare_signature_payload(config)["columns"],
-        "categories": category_specs_payload(config.categories),
+        "summary_categories": category_specs_payload(config.summary_categories),
+        "dashboard_label_overrides": {
+            "person_type": (
+                dict(config.dashboard_label_spec("person_type").mapping_items)
+                if config.dashboard_label_spec("person_type") is not None
+                else None
+            ),
+            "transit_subsidy": (
+                dict(config.dashboard_label_spec("transit_subsidy").mapping_items)
+                if config.dashboard_label_spec("transit_subsidy") is not None
+                else None
+            ),
+        },
         "person_type_labels": (
             {
                 key: effective_person_type_labels[key]
@@ -313,7 +309,7 @@ def presentation_signature_payload(config: Config) -> dict[str, Any]:
                 "visibility": config.segmentation.dashboard.visibility,
             },
         },
-        "categories": category_specs_payload(config.categories),
+        "dashboard_labels": category_specs_payload(config.dashboard_labels),
         "export_html": {
             "enabled": config.export_html.enabled,
             "dashboard": {

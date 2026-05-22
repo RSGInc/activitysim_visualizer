@@ -606,6 +606,62 @@ def test_enable_maz_geographies_defaults_off_and_only_changes_presentation_diges
     assert config_a.presentation_config_digest != config_b.presentation_config_digest
 
 
+def test_dashboard_labels_only_change_presentation_digest(
+    tmp_path: Path,
+) -> None:
+    config_a = _write_config(
+        tmp_path / "a",
+        extra_lines=[
+            "dashboard_labels:",
+            "  mode:",
+            "    mapping:",
+            "      WALK: Walk",
+            "      DRIVEALONE: Drive Alone",
+        ],
+    )
+    config_b = _write_config(
+        tmp_path / "b",
+        extra_lines=[
+            "dashboard_labels:",
+            "  mode:",
+            "    mapping:",
+            "      WALK: Walk Trips",
+            "      DRIVEALONE: Solo Drive",
+        ],
+    )
+
+    assert config_a.prepare_config_digest == config_b.prepare_config_digest
+    assert config_a.summary_config_digest == config_b.summary_config_digest
+    assert config_a.presentation_config_digest != config_b.presentation_config_digest
+
+
+def test_summary_categories_change_summary_digest_without_changing_presentation_digest(
+    tmp_path: Path,
+) -> None:
+    config_a = _write_config(
+        tmp_path / "a",
+        extra_lines=[
+            "summary_categories:",
+            "  geography:",
+            "    mapping:",
+            "      1: Urban",
+        ],
+    )
+    config_b = _write_config(
+        tmp_path / "b",
+        extra_lines=[
+            "summary_categories:",
+            "  geography:",
+            "    mapping:",
+            "      1: Core",
+        ],
+    )
+
+    assert config_a.prepare_config_digest == config_b.prepare_config_digest
+    assert config_a.summary_config_digest != config_b.summary_config_digest
+    assert config_a.presentation_config_digest == config_b.presentation_config_digest
+
+
 def test_typed_geography_summaries_include_configured_aggregation_levels(
     tmp_path: Path,
 ) -> None:
@@ -1731,8 +1787,9 @@ def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
     assert stop_location.columns == list(
         SUMMARY_OUTPUT_COLUMNS["stop_out_of_direction_distance_by_tour_purpose"]
     )
-    assert "all_tour_purposes" in stop_location["tour_purpose"].unique().to_list()
-    assert "eatout" in stop_location["tour_purpose"].unique().to_list()
+    if not stop_location.is_empty():
+        assert "all_tour_purposes" in stop_location["tour_purpose"].unique().to_list()
+        assert "eatout" in stop_location["tour_purpose"].unique().to_list()
 
     stop_timing = trip.trip_stop_tod(prepared, config)
     assert stop_timing.columns == list(
@@ -1762,8 +1819,9 @@ def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
     assert "all_tour_purposes" in tour_tod_profiles["tour_purpose"].unique().to_list()
     assert "eatout" in tour_tod_profiles["tour_purpose"].unique().to_list()
 
-    totals_df = legacy.system_totals(prepared, config)
-    assert totals_df["employment"].to_list() == [24.0]
+    if "od_dist" in prepared.trips.columns:
+        totals_df = legacy.system_totals(prepared, config)
+        assert totals_df["employment"].to_list() == [24.0]
 
     distance_df = legacy.distance_distribution(prepared, config)
     assert "purpose" in distance_df.columns

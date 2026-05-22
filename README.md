@@ -262,6 +262,8 @@ These are the sections most people need to touch:
 | `visualizer.dashboard_pages` | Ordered list of live pages/groups to show |
 | `visualizer.run_colors` | Plot colors by run |
 | `visualizer.export_html` | Export-only page selection and selector-state controls |
+| `summary_categories` | Summary-affecting category normalization/regrouping |
+| `dashboard_labels` | Presentation-only labels and ordering for dashboard/export |
 | `geography` | Optional district/county/zone grouping |
 | `modes` | Optional mode ordering and grouped mode display |
 | `person_types` | Optional display labels for `ptype` values |
@@ -282,6 +284,11 @@ Legacy config notes:
 Geography note:
 
 - `geography.enabled: false` now disables both the older geography mapping behavior and the newer `geography.aggregations` derived columns. If you want aggregation-based geography summaries, `geography.enabled` must be `true`.
+
+Category config note:
+
+- Use `summary_categories` when a mapping changes summary values, grouping membership, or canonical category values.
+- Use `dashboard_labels` when a change is cosmetic and should only affect dashboard/export labels or ordering.
 
 ## Live Pages And Export Pages
 
@@ -417,8 +424,9 @@ Both cache layers validate manifests before reuse. Cache invalidation is driven 
 - the run inputs
 - the prepare and summary config digests
 - the prepared-manifest identity used to build summary caches
+- per-summary summary digests inside the summary-cache manifest
 
-That means presentation-only config changes usually do not force summary rebuilds.
+That means presentation-only config changes usually do not force summary rebuilds, and adding a newly requested summary can backfill just that table instead of rebuilding the entire summary bundle.
 
 ## CLI Overrides
 

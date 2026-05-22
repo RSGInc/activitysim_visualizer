@@ -24,7 +24,7 @@ from processor.summarize.contracts import empty_summary_frame
 from processor.summarize.writer import write_all
 from runtime.config import Config
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 
 def summary_root(config: Config) -> Path:
@@ -120,6 +120,7 @@ def _summary_manifest(
     unavailable_summaries: dict[str, list[str]],
     failed_summaries: dict[str, list[str]],
     summary_diagnostics: dict[str, dict[str, str]],
+    summary_digests: dict[str, dict[str, str]],
     run_fingerprint: dict[str, object] | None,
     prepared_manifest_identity: dict[str, object] | None,
     summary_filename_by_id: dict[str, str],
@@ -144,6 +145,7 @@ def _summary_manifest(
         "unavailable_summaries": unavailable_summaries,
         "failed_summaries": failed_summaries,
         "summary_diagnostics": summary_diagnostics,
+        "summary_digests": summary_digests,
         "run_fingerprint": run_fingerprint or {},
         "prepared_manifest_identity": prepared_manifest_identity,
     }
@@ -155,6 +157,7 @@ def _segment_manifest_entry(
     weighting_modes: list[str],
     summary_states: dict[str, dict[str, str]],
     summary_diagnostics: dict[str, dict[str, str]],
+    summary_digests: dict[str, dict[str, str]],
 ) -> dict[str, object]:
     summary_roots = {
         mode: f"summary_tables/{mode}/segments/{summary_run.segmentation_type}/{summary_run.segment_id}"
@@ -176,6 +179,7 @@ def _segment_manifest_entry(
         "summary_roots": summary_roots,
         "summary_states": summary_states,
         "summary_diagnostics": summary_diagnostics,
+        "summary_digests": summary_digests,
     }
 
 
@@ -186,6 +190,7 @@ def write_summary_run_cache(
     output_root: str | Path | None = None,
     run_fingerprint: dict[str, object] | None = None,
     prepared_manifest_identity: dict[str, object] | None = None,
+    summary_digests: dict[str, str] | None = None,
     summary_filename_by_id: dict[str, str],
 ) -> Path:
     """Write one run's summary cache directory and manifest."""
@@ -202,6 +207,7 @@ def write_summary_run_cache(
     unavailable_summaries: dict[str, list[str]] = {}
     failed_summaries: dict[str, list[str]] = {}
     summary_diagnostics: dict[str, dict[str, str]] = {}
+    manifest_summary_digests: dict[str, dict[str, str]] = {}
     for mode in weighting_modes:
         mode_payload = _build_mode_cache_payload(
             mode_tables=summary_run.summaries_by_mode[mode],
@@ -214,6 +220,10 @@ def write_summary_run_cache(
         unavailable_summaries[mode] = list(mode_payload["unavailable_summaries"])
         failed_summaries[mode] = list(mode_payload["failed_summaries"])
         summary_diagnostics[mode] = dict(mode_payload["summary_diagnostics"])
+        manifest_summary_digests[mode] = {
+            summary_id: (summary_digests or {}).get(summary_id, "")
+            for summary_id in summary_ids
+        }
         write_all(mode_payload["file_tables"], run_dir / mode)
 
     manifest = _summary_manifest(
@@ -226,6 +236,7 @@ def write_summary_run_cache(
         unavailable_summaries=unavailable_summaries,
         failed_summaries=failed_summaries,
         summary_diagnostics=summary_diagnostics,
+        summary_digests=manifest_summary_digests,
         run_fingerprint=run_fingerprint,
         prepared_manifest_identity=prepared_manifest_identity,
         summary_filename_by_id=summary_filename_by_id,
@@ -242,6 +253,7 @@ def write_summary_run_bundle(
     output_root: str | Path | None = None,
     run_fingerprint: dict[str, object] | None = None,
     prepared_manifest_identity: dict[str, object] | None = None,
+    summary_digests: dict[str, str] | None = None,
     summary_filename_by_id: dict[str, str],
 ) -> Path:
     """Write one run cache directory containing full and segmented summary outputs."""
@@ -264,11 +276,13 @@ def write_summary_run_bundle(
     unavailable_summaries: dict[str, list[str]] = {}
     failed_summaries: dict[str, list[str]] = {}
     summary_diagnostics: dict[str, dict[str, str]] = {}
+    manifest_summary_digests: dict[str, dict[str, str]] = {}
     segmentation_type_entries: dict[str, dict[str, object]] = {}
 
     for summary_run in summary_runs:
         segment_states: dict[str, dict[str, str]] = {}
         segment_diagnostics: dict[str, dict[str, str]] = {}
+        segment_digests: dict[str, dict[str, str]] = {}
         for mode in weighting_modes:
             mode_payload = _build_mode_cache_payload(
                 mode_tables=summary_run.summaries_by_mode[mode],
@@ -281,8 +295,16 @@ def write_summary_run_bundle(
                 unavailable_summaries[mode] = list(mode_payload["unavailable_summaries"])
                 failed_summaries[mode] = list(mode_payload["failed_summaries"])
                 summary_diagnostics[mode] = dict(mode_payload["summary_diagnostics"])
+                manifest_summary_digests[mode] = {
+                    summary_id: (summary_digests or {}).get(summary_id, "")
+                    for summary_id in summary_ids
+                }
             segment_states[mode] = dict(mode_payload["summary_states"])
             segment_diagnostics[mode] = dict(mode_payload["summary_diagnostics"])
+            segment_digests[mode] = {
+                summary_id: (summary_digests or {}).get(summary_id, "")
+                for summary_id in summary_ids
+            }
             mode_dir = (
                 run_dir / "summary_tables" / mode
                 if summary_run.is_full_segment
@@ -317,6 +339,7 @@ def write_summary_run_bundle(
                 weighting_modes=weighting_modes,
                 summary_states=segment_states,
                 summary_diagnostics=segment_diagnostics,
+                summary_digests=segment_digests,
             )
         )
 
@@ -330,6 +353,7 @@ def write_summary_run_bundle(
         unavailable_summaries=unavailable_summaries,
         failed_summaries=failed_summaries,
         summary_diagnostics=summary_diagnostics,
+        summary_digests=manifest_summary_digests,
         run_fingerprint=run_fingerprint,
         prepared_manifest_identity=prepared_manifest_identity,
         summary_filename_by_id=summary_filename_by_id,
@@ -440,6 +464,7 @@ def _manifest_summary_metadata(
     dict[str, list[str]],
     dict[str, dict[str, str]],
     dict[str, dict[str, str]],
+    dict[str, dict[str, str]],
 ]:
     summary_files = {
         str(summary_id): str(filename)
@@ -463,11 +488,19 @@ def _manifest_summary_metadata(
         }
         for mode, mode_details in dict(manifest.get("summary_diagnostics", {})).items()
     }
+    manifest_summary_digests = {
+        str(mode): {
+            str(summary_id): str(digest)
+            for summary_id, digest in dict(mode_digests).items()
+        }
+        for mode, mode_digests in dict(manifest.get("summary_digests", {})).items()
+    }
     return (
         summary_files,
         empty_summaries,
         manifest_summary_states,
         manifest_summary_diagnostics,
+        manifest_summary_digests,
     )
 
 
@@ -540,6 +573,127 @@ def _load_mode_tables(
     return mode_tables, mode_metadata
 
 
+def _segment_mode_dirs(
+    cache_dir: Path,
+    manifest: dict[str, object],
+    expected_modes: list[str],
+) -> list[tuple[str, dict[str, Path]]]:
+    segment_dirs: list[tuple[str, dict[str, Path]]] = []
+    segment_dirs.append(
+        (
+            "full",
+            {
+                mode: (
+                    cache_dir / "summary_tables" / mode
+                    if (cache_dir / "summary_tables" / mode).exists()
+                    else cache_dir / mode
+                )
+                for mode in expected_modes
+            },
+        )
+    )
+    for group in list(manifest.get("segmentation_types", [])):
+        group_dict = dict(group)
+        for raw_segment in list(group_dict.get("segments", [])):
+            segment = dict(raw_segment)
+            segment_key = (
+                f"{group_dict.get('segmentation_type', 'full')}::{segment.get('segment_id', 'full')}"
+            )
+            summary_roots = {
+                str(mode): str(path)
+                for mode, path in dict(segment.get("summary_roots", {})).items()
+            }
+            segment_dirs.append(
+                (
+                    segment_key,
+                    {
+                        mode: cache_dir
+                        / Path(summary_roots.get(mode, f"summary_tables/{mode}"))
+                        for mode in expected_modes
+                    },
+                )
+            )
+    return segment_dirs
+
+
+def inspect_summary_run_bundle(
+    cache_dir: str | Path,
+    config: Config,
+    *,
+    expected_modes: list[str] | None = None,
+    expected_summary_ids: list[str] | None = None,
+    expected_summary_config_digest: str | None = None,
+    expected_run_fingerprint: dict[str, object] | None = None,
+    expected_prepared_manifest_identity: dict[str, object] | None = None,
+    expected_label: str | None = None,
+    expected_run_key: str | None = None,
+    expected_summary_digests: dict[str, str] | None = None,
+) -> dict[str, object]:
+    cache_dir = Path(cache_dir)
+    manifest = read_manifest(cache_dir, error_cls=SummaryCacheError)
+    validate_schema_version(
+        cache_dir=cache_dir,
+        manifest=manifest,
+        supported_versions={SCHEMA_VERSION, 14, 13, 12},
+        error_factory=SummaryCacheError,
+    )
+    _validate_manifest_identity(
+        cache_dir=cache_dir,
+        manifest=manifest,
+        expected_summary_config_digest=None,
+        expected_run_fingerprint=expected_run_fingerprint,
+        expected_prepared_manifest_identity=expected_prepared_manifest_identity,
+        expected_label=expected_label,
+        expected_run_key=expected_run_key,
+    )
+    expected_modes, manifest_summary_ids = _validated_mode_and_summary_ids(
+        manifest=manifest,
+        config=config,
+        cache_dir=cache_dir,
+        expected_modes=expected_modes,
+        expected_summary_ids=None,
+    )
+    resolved_summary_ids = list(expected_summary_ids or manifest_summary_ids)
+    (
+        summary_files,
+        _empty_summaries,
+        _manifest_summary_states,
+        _manifest_summary_diagnostics,
+        manifest_summary_digests,
+    ) = _manifest_summary_metadata(manifest)
+    expected_summary_digests = dict(expected_summary_digests or {})
+    stale_summary_ids: list[str] = []
+    reusable_summary_ids: list[str] = []
+    segment_dirs = _segment_mode_dirs(cache_dir, manifest, expected_modes)
+    for summary_id in resolved_summary_ids:
+        expected_digest = expected_summary_digests.get(summary_id)
+        if expected_digest:
+            manifest_digest = manifest_summary_digests.get(expected_modes[0], {}).get(
+                summary_id
+            )
+            if manifest_digest != expected_digest:
+                stale_summary_ids.append(summary_id)
+                continue
+        filename = summary_files.get(summary_id, f"{summary_id}.csv")
+        is_reusable = True
+        for _, mode_dirs in segment_dirs:
+            for mode in expected_modes:
+                if not (mode_dirs[mode] / filename).exists():
+                    is_reusable = False
+                    break
+            if not is_reusable:
+                break
+        if is_reusable:
+            reusable_summary_ids.append(summary_id)
+        else:
+            stale_summary_ids.append(summary_id)
+    return {
+        "manifest": manifest,
+        "reusable_summary_ids": reusable_summary_ids,
+        "stale_summary_ids": stale_summary_ids,
+    }
+
+
 def load_summary_run_cache(
     cache_dir: str | Path,
     config: Config,
@@ -559,7 +713,7 @@ def load_summary_run_cache(
     validate_schema_version(
         cache_dir=cache_dir,
         manifest=manifest,
-        supported_versions={SCHEMA_VERSION, 13, 12, 11, 6, 5, 2},
+        supported_versions={SCHEMA_VERSION, 14, 13, 12, 11, 6, 5, 2},
         error_factory=SummaryCacheError,
     )
 
@@ -584,6 +738,7 @@ def load_summary_run_cache(
         empty_summaries,
         manifest_summary_states,
         manifest_summary_diagnostics,
+        _,
     ) = _manifest_summary_metadata(manifest)
 
     summaries_by_mode: dict[str, dict[str, pl.DataFrame]] = {}
@@ -647,7 +802,7 @@ def load_summary_run_bundle(
     validate_schema_version(
         cache_dir=cache_dir,
         manifest=manifest,
-        supported_versions={SCHEMA_VERSION, 13, 12},
+        supported_versions={SCHEMA_VERSION, 14, 13, 12},
         error_factory=SummaryCacheError,
     )
     _validate_manifest_identity(
@@ -671,6 +826,7 @@ def load_summary_run_bundle(
         empty_summaries,
         manifest_summary_states,
         manifest_summary_diagnostics,
+        _,
     ) = _manifest_summary_metadata(manifest)
 
     loaded_runs: list[SummaryRun] = []

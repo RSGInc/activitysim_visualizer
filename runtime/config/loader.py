@@ -371,27 +371,47 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         raw.get("transit_subsidies"),
         field_name="transit_subsidies",
     )
-    categories = normalize_categories(
+    summary_categories = normalize_categories(
+        raw.get("summary_categories"),
+        field_name="summary_categories",
+    )
+    dashboard_labels = normalize_categories(
+        raw.get("dashboard_labels"),
+        field_name="dashboard_labels",
+    )
+    legacy_categories = normalize_categories(
         raw.get("categories"),
         field_name="categories",
     )
-    if "person_type" not in categories:
+    for category_id, spec in legacy_categories.items():
+        summary_categories.setdefault(category_id, spec)
+        dashboard_labels.setdefault(category_id, spec)
+    if "person_type" not in dashboard_labels:
         legacy_person_type_spec = category_spec_from_mapping(person_type_labels)
         if legacy_person_type_spec is not None:
-            categories["person_type"] = legacy_person_type_spec
-    if "transit_subsidy" not in categories:
+            dashboard_labels["person_type"] = legacy_person_type_spec
+    if "transit_subsidy" not in dashboard_labels:
         legacy_transit_subsidy_spec = category_spec_from_mapping(transit_subsidy_labels)
         if legacy_transit_subsidy_spec is not None:
-            categories["transit_subsidy"] = legacy_transit_subsidy_spec
-    if "geography" not in categories and geo_mapping:
+            dashboard_labels["transit_subsidy"] = legacy_transit_subsidy_spec
+    if "geography" not in summary_categories and geo_mapping:
         legacy_geography_spec = category_spec_from_mapping(geo_mapping)
         if legacy_geography_spec is not None:
-            categories["geography"] = legacy_geography_spec
-    if "mode" not in categories:
+            summary_categories["geography"] = legacy_geography_spec
+    if "geography" not in dashboard_labels and geo_mapping:
+        legacy_geography_spec = category_spec_from_mapping(geo_mapping)
+        if legacy_geography_spec is not None:
+            dashboard_labels["geography"] = legacy_geography_spec
+    if "mode" not in dashboard_labels:
         legacy_mode_spec = category_spec_from_sequence(modes_cfg.get("order"))
         if legacy_mode_spec is not None:
-            categories["mode"] = legacy_mode_spec
-    categories["escort"] = normalize_escort_category_spec(categories.get("escort"))
+            dashboard_labels["mode"] = legacy_mode_spec
+    summary_categories["escort"] = normalize_escort_category_spec(
+        summary_categories.get("escort")
+    )
+    dashboard_labels["escort"] = normalize_escort_category_spec(
+        dashboard_labels.get("escort")
+    )
 
     group_joint_tour_purposes = (
         normalize_optional_bool(
@@ -576,7 +596,8 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
             field_name="columns.inb_chauffeur_tour_id",
             default=["inb_chauffeur_tour_id"],
         ),
-        categories=categories,
+        summary_categories=summary_categories,
+        dashboard_labels=dashboard_labels,
         person_type_labels=person_type_labels,
         transit_subsidy_labels=transit_subsidy_labels,
         group_joint_tour_purposes=group_joint_tour_purposes,

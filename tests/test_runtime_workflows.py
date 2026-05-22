@@ -991,6 +991,130 @@ def test_run_summary_workflow_reuses_in_memory_prepared_runs_without_reload(
     assert result.prepared_runs_by_key["run-a"][1] is prepared_run
 
 
+def test_run_summary_workflow_backfills_only_missing_summary_tables(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    @summary_contract(schema={"value": pl.Float64})
+    def good_summary(rd: RunData, config: Config) -> pl.DataFrame:
+        return pl.DataFrame({"value": [1.0]})
+
+    @summary_contract(schema={"value": pl.Float64})
+    def new_summary(rd: RunData, config: Config) -> pl.DataFrame:
+        return pl.DataFrame({"value": [2.0]})
+
+    run_dir = tmp_path / "run_a"
+    config = _write_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+    )
+    prepared_root = runtime_workflows.prepared_cache_root(config, create=True)
+    prepared_run = _fake_run_data("Run A", str(run_dir))
+    fingerprint = build_run_fingerprint(
+        label="Run A",
+        run_dir=config.runs[0]["dir"],
+        skim_file=None,
+        hh_weight_col=None,
+        person_weight_col=None,
+        trip_weight_col=None,
+    )
+    write_prepared_run_cache(
+        prepared_run,
+        config,
+        run_key="run-a",
+        output_root=prepared_root,
+        run_fingerprint=fingerprint,
+    )
+    cached_only_good = create_summary_run(
+        label="Run A",
+        run_key="run-a",
+        summaries_by_mode={
+            "weighted": {"good": pl.DataFrame({"value": [1.0]})},
+            "unweighted": {"good": pl.DataFrame({"value": [1.0]})},
+        },
+        summary_metadata_by_mode={
+            "weighted": {"good": {"state": "available"}},
+            "unweighted": {"good": {"state": "available"}},
+        },
+        source_run_dir=str(run_dir),
+    )
+    monkeypatch.setitem(
+        summary_cache.SUMMARY_SPEC_BY_ID,
+        "good",
+        SummarySpec("good", "good", good_summary),
+    )
+    monkeypatch.setitem(
+        summary_cache.SUMMARY_SPEC_BY_ID,
+        "new",
+        SummarySpec("new", "new", new_summary),
+    )
+    monkeypatch.setitem(summary_cache.SUMMARY_FILENAME_BY_ID, "good", "good.csv")
+    monkeypatch.setitem(summary_cache.SUMMARY_FILENAME_BY_ID, "new", "new.csv")
+    summary_cache.write_summary_run_bundle(
+        [cached_only_good],
+        config,
+        output_root=Path(config.summary_root),
+        run_fingerprint=fingerprint,
+        prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="run-a",
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+        ),
+    )
+
+    build_calls: list[list[str] | None] = []
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["good", "new"])
+
+    def fake_build_mode_summaries_with_metadata(rd, config, summary_ids=None):
+        build_calls.append(list(summary_ids) if summary_ids is not None else None)
+        tables = {}
+        metadata = {}
+        requested = summary_ids or ["good", "new"]
+        for mode in config.weighting_modes:
+            mode_tables = {}
+            mode_metadata = {}
+            for summary_id in requested:
+                mode_tables[summary_id] = pl.DataFrame({"value": [2.0 if summary_id == "new" else 1.0]})
+                mode_metadata[summary_id] = {"state": "available"}
+            tables[mode] = mode_tables
+            metadata[mode] = mode_metadata
+        return tables, metadata
+
+    monkeypatch.setattr(
+        summary_cache,
+        "build_mode_summaries_with_metadata",
+        fake_build_mode_summaries_with_metadata,
+    )
+    monkeypatch.setattr(
+        runtime_workflows,
+        "read_run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("read_run should not be called when prepared cache is valid")
+        ),
+    )
+    monkeypatch.setattr(
+        runtime_workflows,
+        "prepare_data",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("prepare_data should not be called when prepared cache is valid")
+        ),
+    )
+
+    result = runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        prepared_root=prepared_root,
+        run_entries=config.runs,
+        prefer_cache=True,
+        write_cache=True,
+    )
+
+    assert build_calls == [["new"]]
+    weighted_tables = result.summary_runs[0].summaries_by_mode["weighted"]
+    assert sorted(weighted_tables) == ["good", "new"]
+
+
 def test_run_summary_workflow_continues_when_one_summary_fails(
     tmp_path: Path,
     monkeypatch,
