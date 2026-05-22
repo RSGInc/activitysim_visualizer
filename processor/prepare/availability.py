@@ -18,16 +18,26 @@ TABLE_STATES: tuple[str, ...] = (
 PREPARED_TABLE_IDS: tuple[str, ...] = (
     "households",
     "persons",
+    "day",
     "tours",
     "trips",
+    "vehicles",
     "joint_tour_participants",
     "land_use",
+)
+CORE_PREPARED_TABLE_IDS: tuple[str, ...] = (
+    "households",
+    "persons",
+    "tours",
+    "trips",
 )
 RUN_TABLE_ATTRS: tuple[tuple[str, str], ...] = (
     ("households", "hh"),
     ("persons", "per"),
+    ("day", "day"),
     ("tours", "tours"),
     ("trips", "trips"),
+    ("vehicles", "vehicles"),
     ("joint_tour_participants", "joint_participants"),
     ("land_use", "land_use"),
 )
@@ -129,7 +139,7 @@ def has_usable_loaded_tables(rd: RunData) -> bool:
     states = table_availability(rd)
     return any(
         states.get(table_id) not in {TABLE_STATE_UNAVAILABLE, TABLE_STATE_FAILED}
-        for table_id in PREPARED_TABLE_IDS
+        for table_id in CORE_PREPARED_TABLE_IDS
     )
 
 
@@ -156,6 +166,7 @@ def failed_tables(rd: RunData) -> dict[str, str]:
 
 
 __all__ = [
+    "CORE_PREPARED_TABLE_IDS",
     "PREPARED_TABLE_IDS",
     "RUN_TABLE_ATTRS",
     "TABLE_STATE_AVAILABLE",

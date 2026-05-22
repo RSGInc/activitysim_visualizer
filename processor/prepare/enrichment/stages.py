@@ -7,6 +7,7 @@ from runtime.config import Config
 from processor.prepare.enrichment.canonicalize import (
     _canonicalize_identifiers_and_core_columns,
 )
+from processor.prepare.enrichment.day_vehicles import _prepare_day, _prepare_vehicles
 from processor.prepare.enrichment.escort import _normalize_escort_fields
 from processor.prepare.enrichment.finalize import _cast_prepared_tables
 from processor.prepare.enrichment.households_persons import (
@@ -41,6 +42,7 @@ def _run_prepare_person_and_tour_stages(
     zone_context = _build_zone_context(state, config)
     state = _enrich_households_and_persons(state, config, zone_context)
     state = _derive_student_enrollment(state, config)
+    state = _prepare_day(state)
     state.land_use = _add_land_use_aggregated_geographies(
         state.land_use,
         config=config,
@@ -48,6 +50,7 @@ def _run_prepare_person_and_tour_stages(
     )
     state = _enrich_tours(state, config, zone_context)
     state = _enrich_trips(state, config, zone_context)
+    state = _prepare_vehicles(state)
     return state
 
 

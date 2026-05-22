@@ -174,8 +174,10 @@ def _write_custom_prepared_tables(
     tables = {
         "households": pl.DataFrame({"household_id": [1], "finalweight": [1.0]}),
         "persons": pl.DataFrame({"person_id": [10], "household_id": [1], "finalweight": [1.0]}),
+        "day": pl.DataFrame({"day_id": [100], "person_id": [10], "household_id": [1], "finalweight": [1.0]}),
         "tours": pl.DataFrame({"tour_id": [100], "person_id": [10], "household_id": [1], "finalweight": [1.0]}),
         "trips": pl.DataFrame({"trip_id": [1000], "tour_id": [100], "person_id": [10], "finalweight": [1.0]}),
+        "vehicles": pl.DataFrame({"vehicle_id": [1001], "household_id": [1], "finalweight": [1.0]}),
         "joint_tour_participants": pl.DataFrame({"tour_id": [], "person_id": []}),
         "land_use": pl.DataFrame({"zone_id": [1], "TAZ": [1]}),
     }
@@ -246,8 +248,10 @@ def test_table_availability_infers_states_without_attached_metadata() -> None:
     assert states == {
         "households": "available",
         "persons": "empty",
+        "day": "empty",
         "tours": "empty",
         "trips": "empty",
+        "vehicles": "empty",
         "joint_tour_participants": "empty",
         "land_use": "empty",
     }
@@ -273,14 +277,18 @@ def test_table_availability_infers_states_without_attached_metadata() -> None:
         table_states={
             "households": "unavailable",
             "persons": "failed",
+            "day": "unavailable",
             "tours": "unavailable",
             "trips": "failed",
+            "vehicles": "failed",
             "joint_tour_participants": "unavailable",
             "land_use": "failed",
         },
         table_reasons={
             "households": "missing households",
             "persons": "person transform failed",
+            "day": "missing day",
+            "vehicles": "vehicle transform failed",
         },
     )
 
@@ -320,6 +328,38 @@ def test_attach_table_availability_sets_explicit_rundata_metadata() -> None:
     assert table_diagnostics(run)["persons"] == "person transform failed"
 
 
+def test_has_usable_loaded_tables_ignores_optional_only_tables() -> None:
+    optional_only = attach_table_availability(
+        RunData(
+            label="Optional Only",
+            run_dir="C:/runs/optional-only",
+            skim_file=None,
+            hh=pl.DataFrame(),
+            per=pl.DataFrame(),
+            tours=pl.DataFrame(),
+            trips=pl.DataFrame(),
+            joint_participants=pl.DataFrame(),
+            land_use=pl.DataFrame(),
+            skim_matrix=None,
+            skim_zone_map=None,
+            day=pl.DataFrame({"day_id": [1], "person_id": [10], "household_id": [1]}),
+            vehicles=pl.DataFrame({"vehicle_id": [1], "household_id": [1]}),
+        ),
+        table_states={
+            "households": "unavailable",
+            "persons": "unavailable",
+            "day": "available",
+            "tours": "failed",
+            "trips": "unavailable",
+            "vehicles": "available",
+            "joint_tour_participants": "unavailable",
+            "land_use": "unavailable",
+        },
+    )
+
+    assert has_usable_loaded_tables(optional_only) is False
+
+
 def test_prepared_cache_round_trip_creates_default_layout(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
     prepared = _prepared_run(config)
@@ -345,6 +385,8 @@ def test_prepared_cache_round_trip_creates_default_layout(tmp_path: Path) -> Non
     assert (entry.cache_dir / "manifest.json").exists()
     assert (entry.cache_dir / "households.parquet").exists()
     assert (entry.cache_dir / "persons.parquet").exists()
+    assert (entry.cache_dir / "day.parquet").exists()
+    assert (entry.cache_dir / "vehicles.parquet").exists()
     assert (entry.cache_dir / "joint_tour_participants.parquet").exists()
 
     loaded = load_prepared_run_cache(
@@ -362,6 +404,8 @@ def test_prepared_cache_round_trip_creates_default_layout(tmp_path: Path) -> Non
     assert loaded.tours["tour_purpose"].to_list() == ["eatout"]
     assert loaded.trips["trip_purpose"].to_list() == ["shop"]
     assert loaded.land_use["EMPLOYMENT"].to_list() == [7, 8]
+    assert loaded.day.is_empty()
+    assert loaded.vehicles.is_empty()
     assert loaded.hh_weight_col == "hh_weight"
     assert loaded.person_weight_col == "person_weight"
     assert loaded.trip_weight_col == "trip_weight"
@@ -412,6 +456,8 @@ def test_config_accepts_custom_prepared_table_map_and_csv_prepare_output(
             "    prepared_table_map:",
             f"      households: {str(custom_dir / 'households.parquet').replace('\\', '/')}",
             f"      persons: {str(custom_dir / 'persons.csv').replace('\\', '/')}",
+            f"      day: {str(custom_dir / 'day.csv').replace('\\', '/')}",
+            f"      vehicles: {str(custom_dir / 'vehicles.parquet').replace('\\', '/')}",
         ],
     )
 
@@ -420,6 +466,10 @@ def test_config_accepts_custom_prepared_table_map_and_csv_prepare_output(
         "households.parquet"
     )
     assert config.runs[0]["prepared_table_map"]["persons"].endswith("persons.csv")
+    assert config.runs[0]["prepared_table_map"]["day"].endswith("day.csv")
+    assert config.runs[0]["prepared_table_map"]["vehicles"].endswith(
+        "vehicles.parquet"
+    )
 
 
 def test_config_accepts_prepare_relationship_validation_mode(tmp_path: Path) -> None:
@@ -578,6 +628,8 @@ def test_load_custom_prepared_tables_supports_parquet_and_csv(
 
     assert parquet_loaded.hh["household_id"].to_list() == [1]
     assert csv_loaded.per["person_id"].to_list() == [10]
+    assert parquet_loaded.day["day_id"].to_list() == [100]
+    assert csv_loaded.vehicles["vehicle_id"].to_list() == [1001]
     assert table_availability(parquet_loaded)["households"] == "available"
     assert table_availability(csv_loaded)["trips"] == "available"
 
@@ -620,6 +672,49 @@ def test_validate_prepared_relationships_reports_orphan_rows() -> None:
     assert failed[("trips", "household_id", "households", "household_id")] == 1
     assert failed[("trips", "person_id", "persons", "person_id")] == 1
     assert failed[("trips", "tour_id", "tours", "tour_id")] == 1
+
+
+def test_validate_prepared_relationships_reports_day_and_vehicle_orphans() -> None:
+    run = RunData(
+        label="Optional Orphans",
+        run_dir="C:/prepared/optional",
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1], "finalweight": [1.0]}),
+        per=pl.DataFrame(
+            {"person_id": [10], "household_id": [1], "finalweight": [1.0]}
+        ),
+        tours=pl.DataFrame(
+            {"tour_id": [100], "person_id": [10], "household_id": [1], "finalweight": [1.0]}
+        ),
+        trips=pl.DataFrame(
+            {"trip_id": [1000], "tour_id": [100], "person_id": [10], "household_id": [1], "finalweight": [1.0]}
+        ),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+        day=pl.DataFrame(
+            {"day_id": [1], "person_id": [999], "household_id": [999], "finalweight": [1.0]}
+        ),
+        vehicles=pl.DataFrame(
+            {"vehicle_id": [1], "household_id": [999], "finalweight": [1.0]}
+        ),
+    )
+
+    validation = validate_prepared_relationships(run)
+    failed = {
+        (
+            check.check.source_table_id,
+            check.check.source_key,
+            check.check.target_table_id,
+            check.check.target_key,
+        ): check.orphan_count
+        for check in validation.failed_checks
+    }
+
+    assert failed[("day", "household_id", "households", "household_id")] == 1
+    assert failed[("day", "person_id", "persons", "person_id")] == 1
+    assert failed[("vehicles", "household_id", "households", "household_id")] == 1
 
 
 def test_validate_prepared_relationships_skips_unavailable_optional_tables() -> None:
@@ -819,12 +914,14 @@ def test_prepared_cache_detects_file_map_only_run_fingerprint_mismatch(
     )
 
     assert entry.manifest["source_file_map"] == {
+        "day": "final_day",
         "households": "final_households",
         "joint_tour_participants": "final_joint_tour_participants",
         "land_use": "final_land_use",
         "persons": "final_persons",
         "tours": "final_tours",
         "trips": "final_trips",
+        "vehicles": "final_vehicles",
     }
 
     with pytest.raises(PreparedCacheError, match="run fingerprint mismatch"):

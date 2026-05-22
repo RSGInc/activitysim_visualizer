@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import panel as pn
 import polars as pl
-
-from dashboard.components import bar_chart, data_table
-from dashboard.helpers.category_helpers import ordered_category_values
+from dashboard.components import bar_chart
+from dashboard.helpers.category_helpers import (
+    label_category_data,
+    ordered_category_values,
+)
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 from runtime.config import Config
@@ -56,21 +58,13 @@ class TourPurposePage(DashboardPage):
             "tour_purpose",
             purpose_x_values,
         )
-        labeled_purpose_data = [
-            (
-                label,
-                df.with_columns(
-                    pl.col("tour_purpose")
-                    .cast(pl.Utf8)
-                    .map_elements(
-                        lambda value: self.config.label_value("tour_purpose", value),
-                        return_dtype=pl.Utf8,
-                    )
-                    .alias("tour_purpose_label")
-                ),
-            )
-            for label, df in purpose_data
-        ]
+        labeled_purpose_data = label_category_data(
+            purpose_data,
+            source_col="tour_purpose",
+            category_id="tour_purpose",
+            config=self.config,
+            target_col="tour_purpose_label",
+        )
 
         category_chart = bar_chart(
             category_data,

@@ -305,8 +305,10 @@ def _write_custom_prepared_tables(
     tables = {
         "households": pl.DataFrame({"household_id": [1], "finalweight": [1.0]}),
         "persons": pl.DataFrame({"person_id": [10], "household_id": [1], "finalweight": [1.0]}),
+        "day": pl.DataFrame({"day_id": [100], "person_id": [10], "household_id": [1], "finalweight": [1.0]}),
         "tours": pl.DataFrame({"tour_id": [100], "person_id": [10], "household_id": [1], "finalweight": [1.0]}),
         "trips": pl.DataFrame({"trip_id": [1000], "tour_id": [100], "person_id": [10], "finalweight": [1.0]}),
+        "vehicles": pl.DataFrame({"vehicle_id": [1001], "household_id": [1], "finalweight": [1.0]}),
         "joint_tour_participants": pl.DataFrame({"tour_id": [], "person_id": []}),
         "land_use": pl.DataFrame({"zone_id": [1], "TAZ": [1]}),
     }
@@ -1233,6 +1235,78 @@ def test_trip_mode_page_uses_configured_mode_labels_on_plot_axes(tmp_path: Path)
     assert list(overall_chart.object.layout.xaxis.categoryarray) == [
         "Walk",
         "Shared Ride 2",
+    ]
+
+
+def test_daily_activity_pattern_page_uses_configured_mandatory_tour_labels_on_plot_axes(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "categories:",
+            "  mandatory_tour_frequency:",
+            "    mapping:",
+            "      1: Work",
+            "      2: 2 Work",
+            "      5: Work + School",
+        ],
+    )
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "daily_activity_pattern_by_person_type": pl.DataFrame(
+                {
+                    "person_type": ["all_person_types"],
+                    "daily_activity_pattern": ["M"],
+                    "person_count": [10.0],
+                }
+            ),
+            "mandatory_tour_frequency_by_person_type": pl.DataFrame(
+                {
+                    "person_type": ["all_person_types", "all_person_types"],
+                    "mandatory_tour_frequency": [1, 5],
+                    "person_count": [7.0, 2.0],
+                }
+            ),
+            "nonmandatory_tour_frequency_by_person_type": pl.DataFrame(
+                {
+                    "person_type": ["all_person_types"],
+                    "nonmandatory_tour_frequency": ["0"],
+                    "person_count": [3.0],
+                }
+            ),
+            "tour_rates_by_person_type_and_tour_purpose": pl.DataFrame(
+                {
+                    "person_type": ["all_person_types"],
+                    "tour_purpose": ["work"],
+                    "tour_rate": [1.8],
+                }
+            ),
+            "trip_rates_by_person_type_and_trip_purpose": pl.DataFrame(
+                {
+                    "person_type": ["all_person_types"],
+                    "trip_purpose": ["work"],
+                    "trip_rate": [2.4],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = DailyActivityPatternPage(state, config)
+    page.refresh(force=True)
+
+    mandatory_chart = page.render_body()[1].objects[0]
+    trace = mandatory_chart.object.data[0]
+
+    assert list(trace.x) == ["Work", "Work + School"]
+    assert list(mandatory_chart.object.layout.xaxis.categoryarray) == [
+        "Work",
+        "Work + School",
     ]
 
 
@@ -2416,6 +2490,61 @@ def test_tour_summaries_tour_mode_page_renders_main_chart_without_vehicle_summar
     assert len(vehicle_cards) == 3
 
 
+def test_tour_summaries_tour_mode_page_uses_configured_mode_labels_on_plot_axes(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "categories:",
+            "  mode:",
+            "    mapping:",
+            "      DRIVE: Drive Alone",
+            "      WALK: Walk",
+        ],
+    )
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "tour_mode_by_tour_purpose_and_auto_sufficiency": pl.DataFrame(
+                {
+                    "tour_purpose": ["all_tour_purposes", "all_tour_purposes"],
+                    "tour_mode": ["DRIVE", "WALK"],
+                    "tour_count_all_households": [10.0, 5.0],
+                    "tour_count_zero_auto": [2.0, 4.0],
+                    "tour_count_auto_deficient": [3.0, 1.0],
+                    "tour_count_auto_sufficient": [5.0, 0.0],
+                }
+            ),
+            "allocated_vehicle_age_by_occupancy": empty_summary_frame(
+                SUMMARY_SPEC_BY_ID["allocated_vehicle_age_by_occupancy"].builder
+            ),
+            "allocated_vehicle_fuel_type_by_occupancy": empty_summary_frame(
+                SUMMARY_SPEC_BY_ID["allocated_vehicle_fuel_type_by_occupancy"].builder
+            ),
+            "allocated_vehicle_body_type_by_occupancy": empty_summary_frame(
+                SUMMARY_SPEC_BY_ID["allocated_vehicle_body_type_by_occupancy"].builder
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = TourSummariesTourModePage(state, config)
+    page.refresh(force=True)
+
+    mode_chart = page.render_modes()[-1]
+    trace = mode_chart.object.data[0]
+
+    assert list(trace.x) == ["Drive Alone", "Walk"]
+    assert list(mode_chart.object.layout.xaxis.categoryarray) == [
+        "Drive Alone",
+        "Walk",
+    ]
+
+
 def test_mandatory_location_choice_uses_commuting_flows_when_worker_geography_missing(
     tmp_path: Path,
 ) -> None:
@@ -2807,6 +2936,29 @@ def test_vehicle_ownership_type_live_page_uses_shared_summary_helpers(
                 {
                     "household_vehicle_count": [0, 1],
                     "household_count": [12.0, 18.0],
+                }
+            ),
+            "autonomous_vehicle_ownership_totals": pl.DataFrame(
+                {
+                    "household_with_autonomous_vehicle_count": [4.0],
+                }
+            ),
+            "vehicle_age_distribution": pl.DataFrame(
+                {
+                    "age": ["1", "20+"],
+                    "vehicle_count": [8.0, 2.0],
+                }
+            ),
+            "vehicle_fuel_type_distribution": pl.DataFrame(
+                {
+                    "fuel_type": ["Gas", "Hybrid"],
+                    "vehicle_count": [7.0, 3.0],
+                }
+            ),
+            "vehicle_body_type_distribution": pl.DataFrame(
+                {
+                    "body_type": ["Car", "SUV"],
+                    "vehicle_count": [6.0, 4.0],
                 }
             ),
             "work_location_distance_distribution_by_geography": pl.DataFrame(

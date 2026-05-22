@@ -58,6 +58,25 @@ def _cast_persons(per: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def _cast_day(day: pl.DataFrame) -> pl.DataFrame:
+    return _cast_dynamic_geo_columns(
+        _cast_if_present(
+            day,
+            {
+                "day_id": pl.Int64,
+                "household_id": pl.Int64,
+                "person_id": pl.Int64,
+                "person_type": pl.Utf8,
+                "travel_date": pl.Utf8,
+                "day_num": pl.Int32,
+                "travel_dow": pl.Int32,
+                "daily_activity_pattern": pl.Utf8,
+                "finalweight": pl.Float64,
+            },
+        )
+    )
+
+
 def _cast_tours(tours: pl.DataFrame) -> pl.DataFrame:
     return _cast_dynamic_geo_columns(
         _cast_if_present(
@@ -152,11 +171,31 @@ def _cast_land_use(land_use: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def _cast_vehicles(vehicles: pl.DataFrame) -> pl.DataFrame:
+    return _cast_dynamic_geo_columns(
+        _cast_if_present(
+            vehicles,
+            {
+                "household_id": pl.Int64,
+                "vehicle_id": pl.Int64,
+                "vehicle_num": pl.Int32,
+                "vehicle_type": pl.Utf8,
+                "body_type": pl.Utf8,
+                "fuel_type": pl.Utf8,
+                "vehicle_age": pl.Int64,
+                "finalweight": pl.Float64,
+            },
+        )
+    )
+
+
 def _cast_prepared_tables(state: _PrepareState) -> _PrepareState:
     state.hh = _cast_households(state.hh)
     state.per = _cast_persons(state.per)
+    state.day = _cast_day(state.day)
     state.tours = _cast_tours(state.tours)
     state.trips = _cast_trips(state.trips)
+    state.vehicles = _cast_vehicles(state.vehicles)
     state.land_use = _cast_land_use(state.land_use)
     return state
 
@@ -169,8 +208,10 @@ def _finalize_prepared_run(state: _PrepareState) -> RunData:
             skim_file=state.skim_file,
             hh=state.hh,
             per=state.per,
+            day=state.day,
             tours=state.tours,
             trips=state.trips,
+            vehicles=state.vehicles,
             joint_participants=state.joint_participants,
             land_use=state.land_use,
             skim_matrix=state.skim,

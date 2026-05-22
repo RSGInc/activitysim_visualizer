@@ -8,6 +8,7 @@ import polars as pl
 from dashboard.components import bar_chart, density_chart
 from dashboard.helpers.category_helpers import (
     complete_category_counts,
+    label_category_data,
     nonempty,
     ordered_category_values,
 )
@@ -68,10 +69,6 @@ def _default_direction_option(options: list[str]) -> str:
     if "Outbound" in options:
         return "Outbound"
     return options[0] if options else "Both Directions"
-
-
-def _escort_type_labels(config) -> dict[str, str]:
-    return config.escort_display_labels()
 
 
 def adult_escort_event_stop_chart_data(
@@ -608,26 +605,17 @@ class EscortedToursPage(DashboardPage):
         student_school_escort_inbound_chart = None
         student_school_escort_both_chart = None
         if student_school_escort_outbound is not None:
-            escort_labels = _escort_type_labels(self.config)
             escort_label_order = self.config.ordered_labels(
                 "escort", STUDENT_ESCORT_TYPE_ORDER
             )
             student_school_escort_outbound_chart = bar_chart(
-                [
-                    (
-                        label,
-                        df.with_columns(
-                            pl.col("escort_type")
-                            .cast(pl.Utf8)
-                            .replace_strict(
-                                escort_labels,
-                                default=pl.col("escort_type"),
-                            )
-                            .alias("escort_type_label")
-                        ),
-                    )
-                    for label, df in student_school_escort_outbound
-                ],
+                label_category_data(
+                    student_school_escort_outbound,
+                    source_col="escort_type",
+                    category_id="escort",
+                    config=self.config,
+                    target_col="escort_type_label",
+                ),
                 x_col="escort_type_label",
                 y_col="tour_count",
                 title="Student School Escort Status - Outbound",
@@ -638,21 +626,13 @@ class EscortedToursPage(DashboardPage):
                 xaxis_categoryarray=escort_label_order,
             )
             student_school_escort_inbound_chart = bar_chart(
-                [
-                    (
-                        label,
-                        df.with_columns(
-                            pl.col("escort_type")
-                            .cast(pl.Utf8)
-                            .replace_strict(
-                                escort_labels,
-                                default=pl.col("escort_type"),
-                            )
-                            .alias("escort_type_label")
-                        ),
-                    )
-                    for label, df in student_school_escort_inbound
-                ],
+                label_category_data(
+                    student_school_escort_inbound,
+                    source_col="escort_type",
+                    category_id="escort",
+                    config=self.config,
+                    target_col="escort_type_label",
+                ),
                 x_col="escort_type_label",
                 y_col="tour_count",
                 title="Student School Escort Status - Inbound",
@@ -663,21 +643,13 @@ class EscortedToursPage(DashboardPage):
                 xaxis_categoryarray=escort_label_order,
             )
             student_school_escort_both_chart = bar_chart(
-                [
-                    (
-                        label,
-                        df.with_columns(
-                            pl.col("escort_type")
-                            .cast(pl.Utf8)
-                            .replace_strict(
-                                escort_labels,
-                                default=pl.col("escort_type"),
-                            )
-                            .alias("escort_type_label")
-                        ),
-                    )
-                    for label, df in student_school_escort_both
-                ],
+                label_category_data(
+                    student_school_escort_both,
+                    source_col="escort_type",
+                    category_id="escort",
+                    config=self.config,
+                    target_col="escort_type_label",
+                ),
                 x_col="escort_type_label",
                 y_col="tour_count",
                 title="Student School Escort Status - Both Directions",
@@ -930,20 +902,13 @@ class EscortedToursPage(DashboardPage):
         )
 
         escort_person_type_chart = bar_chart(
-            [
-                (
-                    label,
-                    df.with_columns(
-                        pl.col("person_type")
-                        .cast(pl.Utf8)
-                        .map_elements(
-                            self.config.person_type_label, return_dtype=pl.Utf8
-                        )
-                        .alias("person_type_label")
-                    ),
-                )
-                for label, df in escort_person_type_data
-            ],
+            label_category_data(
+                escort_person_type_data,
+                source_col="person_type",
+                category_id="person_type",
+                config=self.config,
+                target_col="person_type_label",
+            ),
             x_col="person_type_label",
             y_col="tour_count",
             title=f"Chauffer Escorting Tours by Person Type - {direction}",

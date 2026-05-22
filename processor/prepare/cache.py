@@ -31,14 +31,16 @@ from processor.prepare.availability import (
 from processor.prepare.writer import write_all
 from runtime.config import Config
 
-SCHEMA_VERSION = 7
-SUPPORTED_SCHEMA_VERSIONS = {2, 3, 4, 5, 6, 7}
+SCHEMA_VERSION = 8
+SUPPORTED_SCHEMA_VERSIONS = {2, 3, 4, 5, 6, 7, 8}
 SUPPORTED_FILE_FORMATS = ("parquet", "csv")
 PREPARED_TABLE_ATTRS: tuple[tuple[str, str, str], ...] = (
     ("hh", "households", "households"),
     ("per", "persons", "persons"),
+    ("day", "day", "day"),
     ("tours", "tours", "tours"),
     ("trips", "trips", "trips"),
+    ("vehicles", "vehicles", "vehicles"),
     ("joint_participants", "joint_tour_participants", "joint_tour_participants"),
     ("land_use", "land_use", "land_use"),
 )
@@ -405,8 +407,10 @@ def load_prepared_run_cache(
             skim_file=manifest.get("skim_file"),
             hh=loaded_tables["hh"],
             per=loaded_tables["per"],
+            day=loaded_tables["day"],
             tours=loaded_tables["tours"],
             trips=loaded_tables["trips"],
+            vehicles=loaded_tables["vehicles"],
             joint_participants=loaded_tables["joint_participants"],
             land_use=loaded_tables["land_use"],
             skim_matrix=None,
@@ -477,7 +481,9 @@ def load_custom_prepared_tables(
         if configured_path is None:
             loaded_tables[attr_name] = pl.DataFrame()
             table_states[table_id] = (
-                "unavailable" if table_id in {"joint_tour_participants", "land_use"} else "empty"
+                "unavailable"
+                if table_id in {"day", "vehicles", "joint_tour_participants", "land_use"}
+                else "empty"
             )
             if table_states[table_id] == "unavailable":
                 table_reasons[table_id] = (
@@ -508,8 +514,10 @@ def load_custom_prepared_tables(
             skim_file=None,
             hh=loaded_tables["hh"],
             per=loaded_tables["per"],
+            day=loaded_tables["day"],
             tours=loaded_tables["tours"],
             trips=loaded_tables["trips"],
+            vehicles=loaded_tables["vehicles"],
             joint_participants=loaded_tables["joint_participants"],
             land_use=loaded_tables["land_use"],
             skim_matrix=None,

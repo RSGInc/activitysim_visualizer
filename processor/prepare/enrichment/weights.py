@@ -133,6 +133,56 @@ def _compute_trip_weights(
     return trips.with_columns(pl.lit(1.0).alias("finalweight"))
 
 
+def _compute_day_weights(
+    day: pl.DataFrame,
+    per: pl.DataFrame,
+    hh: pl.DataFrame,
+) -> pl.DataFrame:
+    result = day
+    if _has_columns(day, "person_id") and _has_columns(per, "person_id", "finalweight"):
+        result = result.join(
+            per.select(["person_id", pl.col("finalweight").alias("_pw")]),
+            on="person_id",
+            how="left",
+        )
+
+    if _has_columns(day, "household_id") and _has_columns(hh, "household_id", "finalweight"):
+        result = result.join(
+            hh.select(["household_id", pl.col("finalweight").alias("_hw")]),
+            on="household_id",
+            how="left",
+        )
+
+    if "day_weight" in day.columns:
+        result = result.with_columns(
+            pl.coalesce(
+                [
+                    pl.col("day_weight").cast(pl.Float64),
+                    pl.col("_pw") if "_pw" in result.columns else pl.lit(None),
+                    pl.col("_hw") if "_hw" in result.columns else pl.lit(None),
+                    pl.lit(1.0),
+                ]
+            ).alias("finalweight")
+        )
+    elif "_pw" in result.columns or "_hw" in result.columns:
+        result = result.with_columns(
+            pl.coalesce(
+                [
+                    pl.col("_pw") if "_pw" in result.columns else pl.lit(None),
+                    pl.col("_hw") if "_hw" in result.columns else pl.lit(None),
+                    pl.lit(1.0),
+                ]
+            ).alias("finalweight")
+        )
+    else:
+        result = result.with_columns(pl.lit(1.0).alias("finalweight"))
+
+    drop_columns = [column for column in ("_pw", "_hw") if column in result.columns]
+    if drop_columns:
+        result = result.drop(drop_columns)
+    return result
+
+
 def _compute_tour_weights(
     tours: pl.DataFrame,
     trips: pl.DataFrame,
@@ -184,17 +234,39 @@ def _compute_tour_weights(
     return tours.with_columns(pl.lit(1.0).alias("finalweight"))
 
 
+def _compute_vehicle_weights(
+    vehicles: pl.DataFrame,
+    hh: pl.DataFrame,
+) -> pl.DataFrame:
+    if _has_columns(vehicles, "household_id") and _has_columns(
+        hh, "household_id", "finalweight"
+    ):
+        return (
+            vehicles.join(
+                hh.select(["household_id", pl.col("finalweight").alias("_hw")]),
+                on="household_id",
+                how="left",
+            )
+            .with_columns(pl.col("_hw").fill_null(1.0).alias("finalweight"))
+            .drop("_hw")
+        )
+
+    return vehicles.with_columns(pl.lit(1.0).alias("finalweight"))
+
+
 def compute_weights(
     hh: pl.DataFrame,
     per: pl.DataFrame,
+    day: pl.DataFrame,
     tours: pl.DataFrame,
     trips: pl.DataFrame,
+    vehicles: pl.DataFrame,
     config: Config,
     hh_weight_col: Optional[str] = None,
     person_weight_col: Optional[str] = None,
     trip_weight_col: Optional[str] = None,
-) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]:
-    """Compute and attach ``finalweight`` to HH, persons, tours, and trips."""
+) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+    """Compute and attach ``finalweight`` to prepared tables."""
     explicit_weight_supplied = any([hh_weight_col, person_weight_col, trip_weight_col])
     hh = _compute_household_weights(
         hh,
@@ -213,6 +285,7 @@ def compute_weights(
         hh,
         trip_weight_col=trip_weight_col,
     )
+    day = _compute_day_weights(day, per, hh)
     tours = _compute_tour_weights(
         tours,
         trips,
@@ -220,15 +293,18 @@ def compute_weights(
         hh,
         trip_weight_col=trip_weight_col,
     )
-    return hh, per, tours, trips
+    vehicles = _compute_vehicle_weights(vehicles, hh)
+    return hh, per, day, tours, trips, vehicles
 
 
 def _apply_weights(state: _PrepareState, config: Config) -> _PrepareState:
-    state.hh, state.per, state.tours, state.trips = compute_weights(
+    state.hh, state.per, state.day, state.tours, state.trips, state.vehicles = compute_weights(
         state.hh,
         state.per,
+        state.day,
         state.tours,
         state.trips,
+        state.vehicles,
         config,
         hh_weight_col=state.hh_weight_col,
         person_weight_col=state.person_weight_col,

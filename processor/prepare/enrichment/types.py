@@ -15,8 +15,10 @@ class _PrepareState:
     skim_file: str | None
     hh: pl.DataFrame
     per: pl.DataFrame
+    day: pl.DataFrame
     tours: pl.DataFrame
     trips: pl.DataFrame
+    vehicles: pl.DataFrame
     joint_participants: pl.DataFrame
     land_use: pl.DataFrame
     skim: np.ndarray | None

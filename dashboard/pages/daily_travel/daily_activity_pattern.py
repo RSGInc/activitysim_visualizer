@@ -9,6 +9,7 @@ from dashboard.components import bar_chart
 from dashboard.helpers.category_helpers import (
     column_options,
     complete_category_counts,
+    label_category_data,
     nonempty,
     ordered_category_values,
 )
@@ -118,35 +119,6 @@ def filter_person_type_rates(
             .sort(purpose_col)
         )
         out.append((label, aggregated))
-    return out
-
-
-def label_tour_purpose_rates(
-    data_list: list[tuple[str, pl.DataFrame]],
-    config,
-    *,
-    source_col: str = "tour_purpose",
-    target_col: str = TOUR_PURPOSE_LABEL_COL,
-) -> list[tuple[str, pl.DataFrame]]:
-    out = []
-    for label, df in nonempty(data_list):
-        if source_col not in df.columns:
-            out.append((label, df))
-            continue
-        out.append(
-            (
-                label,
-                df.with_columns(
-                    pl.col(source_col)
-                    .cast(pl.Utf8)
-                    .map_elements(
-                        lambda value: config.label_value("tour_purpose", value),
-                        return_dtype=pl.Utf8,
-                    )
-                    .alias(target_col)
-                ),
-            )
-        )
     return out
 
 
@@ -274,30 +246,39 @@ class DailyActivityPatternPage(DashboardPage):
                 category_id="daily_activity_pattern",
                 config=self.config,
             )
+            dap_label_values = self.config.ordered_labels(
+                "daily_activity_pattern",
+                dap_x_values,
+            )
             dap_data = self.get_filtered_view(
                 "daily_activity_pattern",
                 raw_person_type,
-                factory=lambda: complete_category_counts(
-                    filter_person_type_counts(
-                        summaries["daily_activity_pattern_by_person_type"],
-                        raw_person_type,
+                factory=lambda: label_category_data(
+                    complete_category_counts(
+                        filter_person_type_counts(
+                            summaries["daily_activity_pattern_by_person_type"],
+                            raw_person_type,
+                        ),
+                        category_col="daily_activity_pattern",
+                        category_values=dap_x_values,
+                        value_cols=("person_count", "pct"),
                     ),
-                    category_col="daily_activity_pattern",
-                    category_values=dap_x_values,
-                    value_cols=("person_count", "pct"),
+                    source_col="daily_activity_pattern",
+                    category_id="daily_activity_pattern",
+                    config=self.config,
                 ),
             )
             content.append(
                 bar_chart(
                     dap_data,
-                    x_col="daily_activity_pattern",
+                    x_col="daily_activity_pattern_label",
                     y_col="person_count",
                     title=f"Daily Activity Pattern - {person_type}",
                     xaxis_title="Daily Activity Pattern",
                     yaxis_title="Persons",
                     pct_col="pct",
                     as_percent=self.as_percent,
-                    xaxis_categoryarray=dap_x_values,
+                    xaxis_categoryarray=dap_label_values,
                 )
             )
 
@@ -313,29 +294,38 @@ class DailyActivityPatternPage(DashboardPage):
                 category_id="mandatory_tour_frequency",
                 config=self.config,
             )
+            mandatory_label_values = self.config.ordered_labels(
+                "mandatory_tour_frequency",
+                mandatory_x_values,
+            )
             mand_tour_freq_data = self.get_filtered_view(
                 "mandatory_tour_frequency",
                 raw_person_type,
-                factory=lambda: complete_category_counts(
-                    filter_person_type_counts(
-                        summaries["mandatory_tour_frequency_by_person_type"],
-                        raw_person_type,
+                factory=lambda: label_category_data(
+                    complete_category_counts(
+                        filter_person_type_counts(
+                            summaries["mandatory_tour_frequency_by_person_type"],
+                            raw_person_type,
+                        ),
+                        category_col="mandatory_tour_frequency",
+                        category_values=mandatory_x_values,
+                        value_cols=("person_count", "pct"),
                     ),
-                    category_col="mandatory_tour_frequency",
-                    category_values=mandatory_x_values,
-                    value_cols=("person_count", "pct"),
+                    source_col="mandatory_tour_frequency",
+                    category_id="mandatory_tour_frequency",
+                    config=self.config,
                 ),
             )
             mandatory_view = bar_chart(
                 mand_tour_freq_data,
-                x_col="mandatory_tour_frequency",
+                x_col="mandatory_tour_frequency_label",
                 y_col="person_count",
                 title=f"Mandatory Tour Frequency - {person_type}",
                 xaxis_title="Mandatory Tour Frequency",
                 yaxis_title="Persons",
                 pct_col="pct",
                 as_percent=self.as_percent,
-                xaxis_categoryarray=mandatory_x_values,
+                xaxis_categoryarray=mandatory_label_values,
             )
 
         nonmandatory_view: pn.viewable.Viewable
@@ -393,7 +383,7 @@ class DailyActivityPatternPage(DashboardPage):
             tour_rate_data = self.get_filtered_view(
                 "tour_rate_per_person",
                 raw_person_type,
-                factory=lambda: label_tour_purpose_rates(
+                factory=lambda: label_category_data(
                     complete_category_counts(
                         filter_person_type_rates(
                             summaries["tour_rates_by_person_type_and_tour_purpose"],
@@ -406,7 +396,10 @@ class DailyActivityPatternPage(DashboardPage):
                         category_values=tour_purpose_x_values,
                         value_cols=("tour_rate",),
                     ),
-                    self.config,
+                    category_id="tour_purpose",
+                    config=self.config,
+                    source_col="tour_purpose",
+                    target_col=TOUR_PURPOSE_LABEL_COL,
                 ),
             )
             tour_rate_view = bar_chart(

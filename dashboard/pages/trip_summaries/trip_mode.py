@@ -9,6 +9,7 @@ from dashboard.components import bar_chart
 from dashboard.helpers.category_helpers import (
     column_options,
     complete_category_counts,
+    label_category_data,
     nonempty,
     ordered_category_values,
 )
@@ -35,35 +36,6 @@ def _filtered_trip_mode_data(
             filtered = filtered.filter(pl.col("tour_mode") == tour_mode)
         out.append((label, filtered))
     return out
-
-
-def _label_mode_column(
-    data_list: list[tuple[str, pl.DataFrame]],
-    *,
-    config,
-    source_col: str,
-    target_col: str,
-) -> list[tuple[str, pl.DataFrame]]:
-    labeled: list[tuple[str, pl.DataFrame]] = []
-    for label, df in data_list:
-        if df is None or source_col not in df.columns:
-            labeled.append((label, df))
-            continue
-        labeled.append(
-            (
-                label,
-                df.with_columns(
-                    pl.col(source_col)
-                    .cast(pl.Utf8)
-                    .map_elements(
-                        lambda value: config.label_value("mode", value),
-                        return_dtype=pl.Utf8,
-                    )
-                    .alias(target_col)
-                ),
-            )
-        )
-    return labeled
 
 
 class TripModePage(DashboardPage):
@@ -176,7 +148,7 @@ class TripModePage(DashboardPage):
         overall_data = self.get_filtered_view(
             "trip_mode_overall",
             raw_tour_purpose,
-            factory=lambda: _label_mode_column(
+            factory=lambda: label_category_data(
                 complete_category_counts(
                     _filtered_trip_mode_data(
                         trip_mode_list,
@@ -186,6 +158,7 @@ class TripModePage(DashboardPage):
                     category_values=trip_mode_x_values,
                     value_cols=("trip_count", "pct"),
                 ),
+                category_id="mode",
                 config=self.config,
                 source_col="trip_mode",
                 target_col="trip_mode_label",
@@ -197,7 +170,7 @@ class TripModePage(DashboardPage):
             mode_data = self.get_filtered_view(
                 "trip_mode_grid",
                 (raw_tour_purpose, tour_mode),
-                factory=lambda tm=tour_mode: _label_mode_column(
+                factory=lambda tm=tour_mode: label_category_data(
                     complete_category_counts(
                         _filtered_trip_mode_data(
                             trip_mode_list,
@@ -208,6 +181,7 @@ class TripModePage(DashboardPage):
                         category_values=trip_mode_x_values,
                         value_cols=("trip_count", "pct"),
                     ),
+                    category_id="mode",
                     config=self.config,
                     source_col="trip_mode",
                     target_col="trip_mode_label",

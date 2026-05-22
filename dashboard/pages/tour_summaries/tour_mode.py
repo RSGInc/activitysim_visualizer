@@ -6,7 +6,12 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart
-from dashboard.helpers.category_helpers import column_options, nonempty
+from dashboard.helpers.category_helpers import (
+    column_options,
+    label_category_data,
+    nonempty,
+    ordered_category_values,
+)
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
@@ -293,6 +298,17 @@ class TourModePage(DashboardPage):
             (raw_purpose, auto_suff),
             factory=lambda: tour_mode_chart_data(mode_summary, raw_purpose, auto_suff),
         )
+        mode_x_values = [
+            value
+            for value in ordered_category_values(
+                mode_summary,
+                "tour_mode",
+                category_id="mode",
+                config=self.config,
+            )
+            if value != "all_tour_modes"
+        ]
+        mode_label_values = self.config.ordered_labels("mode", mode_x_values)
         return [
             pn.pane.Markdown("### Tour Mode"),
             pn.Row(
@@ -302,14 +318,21 @@ class TourModePage(DashboardPage):
                 self.auto_suff_sel,
             ),
             bar_chart(
-                mode_data,
-                "tour_mode",
+                label_category_data(
+                    mode_data,
+                    source_col="tour_mode",
+                    category_id="mode",
+                    config=self.config,
+                    target_col="tour_mode_label",
+                ),
+                "tour_mode_label",
                 "tour_count",
                 "Tour Mode by Tour Purpose and Household Auto Sufficiency",
                 "Tour Mode",
                 yaxis_title="Tours",
                 pct_col="pct",
                 as_percent=self.as_percent,
+                xaxis_categoryarray=mode_label_values,
             ),
         ]
 

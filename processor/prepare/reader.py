@@ -84,9 +84,7 @@ def _read_fallback_file(configured: str) -> pl.DataFrame:
     if suffix == ".csv":
         LOGGER.info("[read_run] Reading fallback csv: %s", path)
         return pl.read_csv(path, infer_schema_length=None)
-    raise FileNotFoundError(
-        f"Fallback file must end with '.parquet' or '.csv': {path}"
-    )
+    raise FileNotFoundError(f"Fallback file must end with '.parquet' or '.csv': {path}")
 
 
 def read_run(
@@ -147,8 +145,10 @@ def read_run(
 
     hh = _read("households")
     per = _read("persons")
+    day = _read("day")
     tours = _read("tours")
     trips = _read("trips")
+    vehicles = _read("vehicles")
     joint_parts = _read("joint_tour_participants")
     land_use = _read("land_use")
 
@@ -200,8 +200,10 @@ def read_run(
             skim_file=resolved_skim,
             hh=hh,
             per=per,
+            day=day,
             tours=tours,
             trips=trips,
+            vehicles=vehicles,
             joint_participants=joint_parts,
             land_use=land_use,
             skim_matrix=skim_matrix,

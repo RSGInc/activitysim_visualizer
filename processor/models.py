@@ -11,8 +11,10 @@ import polars as pl
 PreparedTableName = Literal[
     "hh",
     "per",
+    "day",
     "tours",
     "trips",
+    "vehicles",
     "joint_participants",
     "land_use",
     "skim",
@@ -20,8 +22,10 @@ PreparedTableName = Literal[
 PREPARED_TABLE_NAMES: tuple[PreparedTableName, ...] = (
     "hh",
     "per",
+    "day",
     "tours",
     "trips",
+    "vehicles",
     "joint_participants",
     "land_use",
     "skim",
@@ -81,6 +85,8 @@ class RunData:
     hh_weight_col: Optional[str] = None
     person_weight_col: Optional[str] = None
     trip_weight_col: Optional[str] = None
+    day: pl.DataFrame = field(default_factory=pl.DataFrame)
+    vehicles: pl.DataFrame = field(default_factory=pl.DataFrame)
     table_availability_metadata: TableAvailabilityMetadata = field(
         default_factory=TableAvailabilityMetadata
     )
@@ -125,8 +131,10 @@ def prune_prepared_run(
         skim_file=prepared_run.skim_file if "skim" in keep else None,
         hh=prepared_run.hh if "hh" in keep else pl.DataFrame(),
         per=prepared_run.per if "per" in keep else pl.DataFrame(),
+        day=prepared_run.day if "day" in keep else pl.DataFrame(),
         tours=prepared_run.tours if "tours" in keep else pl.DataFrame(),
         trips=prepared_run.trips if "trips" in keep else pl.DataFrame(),
+        vehicles=prepared_run.vehicles if "vehicles" in keep else pl.DataFrame(),
         joint_participants=(
             prepared_run.joint_participants
             if "joint_participants" in keep

@@ -23,9 +23,13 @@ from processor.prepare.reader import (
     read_run as processor_read_run,
     resolve_skim_path as processor_resolve_skim_path,
 )
+from processor.summarize.cache_types import strip_weights
 from processor.summarize.summaries import tour, trip
 from processor.summarize.summaries.long_term import (
     school_loc_vs_land_use_enrollment,
+    vehicle_char_age,
+    vehicle_char_body,
+    vehicle_char_fuel,
     workplace_vs_land_use_employment,
 )
 from runtime.config import Config
@@ -1688,3 +1692,196 @@ def test_student_type_config_rejects_custom_multi_school_segmentation_without_pe
                 "    land_use_columns: [COLLEGEENROLL]",
             ],
         )
+
+
+def test_config_accepts_day_and_vehicle_file_and_fallback_mappings(
+    tmp_path: Path,
+) -> None:
+    fallback_day = (tmp_path / "shared_day.csv").resolve()
+    fallback_day.write_text("day_id,person_id,household_id\n1,10,1\n", encoding="utf-8")
+    fallback_vehicles = (tmp_path / "shared_vehicles.csv").resolve()
+    fallback_vehicles.write_text(
+        "vehicle_id,household_id,vehicle_type\n1,1,Car_5_Gas\n",
+        encoding="utf-8",
+    )
+
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "files:",
+            "  day: day",
+            "  vehicles: final_vehicles",
+            "fallback_files:",
+            f"  day: {fallback_day}",
+            f"  vehicles: {fallback_vehicles}",
+            "runs:",
+            '  - dir: "run_a"',
+            '    label: "Run A"',
+            "    file_map:",
+            "      day: survey_day",
+            "      vehicles: vehicles_snapshot",
+        ],
+    )
+
+    assert config.files["day"] == "day"
+    assert config.files["vehicles"] == "final_vehicles"
+    assert config.runs[0]["file_map"]["day"] == "survey_day"
+    assert config.runs[0]["file_map"]["vehicles"] == "vehicles_snapshot"
+    assert config.fallback_files["day"].endswith("shared_day.csv")
+    assert config.fallback_files["vehicles"].endswith("shared_vehicles.csv")
+
+
+def test_processor_read_run_loads_day_and_vehicle_tables(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "files:",
+            "  households: final_households",
+            "  persons: final_persons",
+            "  day: day",
+            "  tours: final_tours",
+            "  trips: final_trips",
+            "  vehicles: final_vehicles",
+            "  joint_tour_participants: final_joint_tour_participants",
+            "  land_use: final_land_use",
+        ],
+    )
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    pl.DataFrame({"household_id": [1]}).write_csv(run_dir / "final_households.csv")
+    pl.DataFrame({"person_id": [10], "household_id": [1]}).write_csv(
+        run_dir / "final_persons.csv"
+    )
+    pl.DataFrame({"day_id": [100], "person_id": [10], "household_id": [1]}).write_csv(
+        run_dir / "day.csv"
+    )
+    pl.DataFrame({"tour_id": [100], "household_id": [1], "person_id": [10]}).write_csv(
+        run_dir / "final_tours.csv"
+    )
+    pl.DataFrame({"trip_id": [1000], "tour_id": [100], "person_id": [10]}).write_csv(
+        run_dir / "final_trips.csv"
+    )
+    pl.DataFrame(
+        {"vehicle_id": [200], "household_id": [1], "vehicle_type": ["Car_8_Gas"]}
+    ).write_csv(run_dir / "final_vehicles.csv")
+    pl.DataFrame({"tour_id": [], "person_id": []}).write_csv(
+        run_dir / "final_joint_tour_participants.csv"
+    )
+    pl.DataFrame({"zone_id": [1]}).write_csv(run_dir / "final_land_use.csv")
+
+    loaded = processor_read_run(run_dir, config, label="Run A")
+
+    assert loaded.day["day_id"].to_list() == [100]
+    assert loaded.vehicles["vehicle_id"].to_list() == [200]
+    assert processor_table_availability(loaded)["day"] == "available"
+    assert processor_table_availability(loaded)["vehicles"] == "available"
+
+
+def test_processor_read_run_uses_fallback_day_and_vehicles_when_primary_missing(
+    tmp_path: Path,
+) -> None:
+    shared_day = (tmp_path / "shared_day.csv").resolve()
+    shared_day.write_text("day_id,person_id,household_id\n1,10,1\n", encoding="utf-8")
+    shared_vehicles = (tmp_path / "shared_vehicles.csv").resolve()
+    shared_vehicles.write_text(
+        "vehicle_id,household_id,vehicle_type\n1,1,Car_5_Gas\n",
+        encoding="utf-8",
+    )
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "fallback_files:",
+            f"  day: {shared_day}",
+            f"  vehicles: {shared_vehicles}",
+        ],
+    )
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    pl.DataFrame({"household_id": [1]}).write_csv(run_dir / "final_households.csv")
+    pl.DataFrame({"person_id": [10], "household_id": [1]}).write_csv(
+        run_dir / "final_persons.csv"
+    )
+    pl.DataFrame({"tour_id": [100], "household_id": [1], "person_id": [10]}).write_csv(
+        run_dir / "final_tours.csv"
+    )
+    pl.DataFrame({"trip_id": [1000], "tour_id": [100], "person_id": [10]}).write_csv(
+        run_dir / "final_trips.csv"
+    )
+    pl.DataFrame({"tour_id": [], "person_id": []}).write_csv(
+        run_dir / "final_joint_tour_participants.csv"
+    )
+
+    loaded = processor_read_run(run_dir, config, label="Run A")
+
+    assert loaded.day["day_id"].to_list() == [1]
+    assert loaded.vehicles["vehicle_id"].to_list() == [1]
+    assert processor_table_availability(loaded)["day"] == "available"
+    assert processor_table_availability(loaded)["vehicles"] == "available"
+
+
+def test_processor_prepare_enriches_day_and_vehicles(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    raw = _raw_run()
+    raw.day = pl.DataFrame(
+        {
+            "day_id": [100, 101],
+            "person_id": [101, 999],
+            "household_id": [1, 999],
+            "travel_date": ["2023-06-02", "2023-06-03"],
+            "day_num": [1, 2],
+            "travel_dow": [5, 6],
+            "daily_activity_pattern": ["M", "N"],
+            "day_weight": [2.5, None],
+        }
+    )
+    raw.vehicles = pl.DataFrame(
+        {
+            "vehicle_id": [1001, 1002],
+            "household_id": [1, 999],
+            "vehicle_num": [1, 1],
+            "vehicle_type": ["SUV_12_Hybrid", "Car_5_Gas"],
+        }
+    )
+
+    prepared = processor_prepare_data(raw, config)
+
+    assert prepared.day["person_type"].to_list() == ["1", None]
+    assert prepared.day["finalweight"].to_list() == [2.5, 1.0]
+    assert prepared.vehicles["body_type"].to_list() == ["SUV", "Car"]
+    assert prepared.vehicles["fuel_type"].to_list() == ["Hybrid", "Gas"]
+    assert prepared.vehicles["vehicle_age"].to_list() == [12, 5]
+    assert prepared.vehicles["finalweight"].to_list() == [1.0, 1.0]
+
+
+def test_vehicle_long_term_summaries_use_prepared_vehicle_table_and_unweighted_reset(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    raw = _raw_run()
+    raw.vehicles = pl.DataFrame(
+        {
+            "vehicle_id": [1, 2],
+            "household_id": [1, 1],
+            "vehicle_num": [1, 2],
+            "vehicle_type": ["SUV_12_Hybrid", "Car_5_Gas"],
+        }
+    )
+    prepared = processor_prepare_data(raw, config)
+    prepared.vehicles = prepared.vehicles.with_columns(pl.Series("finalweight", [2.0, 3.0]))
+
+    age = vehicle_char_age(prepared, config)
+    fuel = vehicle_char_fuel(prepared, config)
+    body = vehicle_char_body(prepared, config)
+    unweighted = strip_weights(prepared)
+    unweighted_age = vehicle_char_age(unweighted, config)
+
+    assert age["vehicle_count"].to_list() == [3.0, 2.0]
+    assert fuel["vehicle_count"].to_list() == [3.0, 2.0]
+    assert body["vehicle_count"].to_list() == [3.0, 2.0]
+    assert unweighted_age["vehicle_count"].to_list() == [1.0, 1.0]

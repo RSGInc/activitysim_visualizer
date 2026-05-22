@@ -27,6 +27,32 @@ def _cast_category(
     ]
 
 
+def _rename_if_present(df: pl.DataFrame, alias_map: dict[str, str]) -> pl.DataFrame:
+    rename_map = {
+        source: target
+        for source, target in alias_map.items()
+        if source in df.columns and target not in df.columns
+    }
+    if not rename_map:
+        return df
+    return df.rename(rename_map)
+
+
+def _normalize_vehicle_summary_columns(
+    data_list: list[tuple[str, pl.DataFrame]],
+    *,
+    canonical_col: str,
+    legacy_col: str,
+) -> list[tuple[str, pl.DataFrame]]:
+    return [
+        (
+            label,
+            _rename_if_present(df, {legacy_col: canonical_col}),
+        )
+        for label, df in _nonempty(data_list)
+    ]
+
+
 def _av_kpi_values(
     data_list: list[tuple[str, pl.DataFrame]],
 ) -> list[tuple[str, float]]:
@@ -150,10 +176,15 @@ class VehicleOwnershipTypePage(DashboardPage):
 
         vehicle_views: list[pn.viewable.Viewable] = []
         if vehicle_age is not None:
+            vehicle_age = _normalize_vehicle_summary_columns(
+                vehicle_age,
+                canonical_col="age",
+                legacy_col="vehicle_age",
+            )
             vehicle_views.append(
                 bar_chart(
-                    _cast_category(vehicle_age, "vehicle_age"),
-                    x_col="vehicle_age",
+                    _cast_category(vehicle_age, "age"),
+                    x_col="age",
                     y_col="vehicle_count",
                     title="Vehicle Age",
                     xaxis_title="Vehicle Age",
@@ -171,10 +202,15 @@ class VehicleOwnershipTypePage(DashboardPage):
             )
 
         if vehicle_fuel is not None:
+            vehicle_fuel = _normalize_vehicle_summary_columns(
+                vehicle_fuel,
+                canonical_col="fuel_type",
+                legacy_col="vehicle_fuel_type",
+            )
             vehicle_views.append(
                 bar_chart(
-                    _cast_category(vehicle_fuel, "vehicle_fuel_type"),
-                    x_col="vehicle_fuel_type",
+                    _cast_category(vehicle_fuel, "fuel_type"),
+                    x_col="fuel_type",
                     y_col="vehicle_count",
                     title="Vehicle Fuel Type",
                     xaxis_title="Fuel Type",
@@ -192,10 +228,15 @@ class VehicleOwnershipTypePage(DashboardPage):
             )
 
         if vehicle_body is not None:
+            vehicle_body = _normalize_vehicle_summary_columns(
+                vehicle_body,
+                canonical_col="body_type",
+                legacy_col="vehicle_body_type",
+            )
             vehicle_views.append(
                 bar_chart(
-                    _cast_category(vehicle_body, "vehicle_body_type"),
-                    x_col="vehicle_body_type",
+                    _cast_category(vehicle_body, "body_type"),
+                    x_col="body_type",
                     y_col="vehicle_count",
                     title="Vehicle Body Type",
                     xaxis_title="Body Type",

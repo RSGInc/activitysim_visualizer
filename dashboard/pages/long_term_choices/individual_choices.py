@@ -9,6 +9,7 @@ from dashboard.components import bar_chart
 from dashboard.helpers.category_helpers import (
     column_options,
     complete_category_counts,
+    label_category_data,
     nonempty,
     ordered_category_values,
 )
@@ -350,16 +351,35 @@ class IndividualChoicesPage(DashboardPage):
         subsidy_list = self.get_filtered_view(
             "transit_subsidy_by_person_type",
             raw_person_type,
-            factory=lambda: complete_category_counts(
-                filter_person_type_counts(normalized_summary, raw_person_type),
-                category_col=subsidy_category_col,
-                category_values=x_values,
-                value_cols=("person_count", "pct"),
+            factory=lambda: (
+                label_category_data(
+                    complete_category_counts(
+                        filter_person_type_counts(normalized_summary, raw_person_type),
+                        category_col=subsidy_category_col,
+                        category_values=raw_subsidy_values,
+                        value_cols=("person_count", "pct"),
+                    ),
+                    source_col=subsidy_category_col,
+                    category_id="transit_subsidy",
+                    config=self.config,
+                    target_col="transit_subsidy_display",
+                )
+                if subsidy_category_col == "transit_subsidy_status"
+                else complete_category_counts(
+                    filter_person_type_counts(normalized_summary, raw_person_type),
+                    category_col=subsidy_category_col,
+                    category_values=x_values,
+                    value_cols=("person_count", "pct"),
+                )
             ),
         )
         return bar_chart(
             subsidy_list,
-            x_col=subsidy_category_col,
+            x_col=(
+                "transit_subsidy_display"
+                if subsidy_category_col == "transit_subsidy_status"
+                else subsidy_category_col
+            ),
             y_col="person_count",
             title=f"Transit Subsidy Type Among Workers - {'All Workers' if display_person_type == 'Total' else display_person_type}",
             xaxis_title="Transit Subsidy Status",
@@ -370,7 +390,11 @@ class IndividualChoicesPage(DashboardPage):
             ),
             pct_col="pct",
             as_percent=self.as_percent,
-            xaxis_categoryarray=x_values,
+            xaxis_categoryarray=(
+                self.config.ordered_labels("transit_subsidy", raw_subsidy_values)
+                if subsidy_category_col == "transit_subsidy_status"
+                else x_values
+            ),
         )
 
     def render_body(self):

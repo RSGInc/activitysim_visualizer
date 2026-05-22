@@ -71,6 +71,22 @@ PREPARED_RELATIONSHIP_CHECKS: tuple[PreparedRelationshipCheck, ...] = (
         target_key="household_id",
     ),
     PreparedRelationshipCheck(
+        source_attr="day",
+        source_table_id="day",
+        source_key="household_id",
+        target_attr="hh",
+        target_table_id="households",
+        target_key="household_id",
+    ),
+    PreparedRelationshipCheck(
+        source_attr="day",
+        source_table_id="day",
+        source_key="person_id",
+        target_attr="per",
+        target_table_id="persons",
+        target_key="person_id",
+    ),
+    PreparedRelationshipCheck(
         source_attr="tours",
         source_table_id="tours",
         source_key="household_id",
@@ -109,6 +125,14 @@ PREPARED_RELATIONSHIP_CHECKS: tuple[PreparedRelationshipCheck, ...] = (
         target_attr="tours",
         target_table_id="tours",
         target_key="tour_id",
+    ),
+    PreparedRelationshipCheck(
+        source_attr="vehicles",
+        source_table_id="vehicles",
+        source_key="household_id",
+        target_attr="hh",
+        target_table_id="households",
+        target_key="household_id",
     ),
     PreparedRelationshipCheck(
         source_attr="joint_participants",

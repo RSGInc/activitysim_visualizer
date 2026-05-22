@@ -7,7 +7,13 @@ import polars as pl
 
 from dashboard.components import data_table, density_chart
 from dashboard.helpers.geography_helpers import ordered_visible_geography_levels
-from dashboard.helpers.category_helpers import column_options, nonempty, ordered_category_values
+from dashboard.helpers.category_helpers import (
+    column_options,
+    label_category_data,
+    nonempty,
+    ordered_category_values,
+    raw_display_options,
+)
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
@@ -50,10 +56,13 @@ def _purpose_options(
         state=state,
         cache_key=cache_key,
     )
-    display_to_raw = {total_label: total_label}
-    for raw_value in raw_values:
-        display_to_raw[config.label_value("tour_purpose", raw_value)] = raw_value
-    return list(display_to_raw), display_to_raw
+    return raw_display_options(
+        raw_values,
+        category_id="tour_purpose",
+        config=config,
+        total_raw=total_label,
+        total_label=total_label,
+    )
 
 
 def _distance_sort_expr(column: str) -> pl.Expr:
@@ -105,15 +114,13 @@ def avg_distance_table_data(
                 pl.col(purpose_col) == purpose
             )
         if config is not None and purpose_col in df.columns:
-            df = df.with_columns(
-                pl.col(purpose_col)
-                .cast(pl.Utf8)
-                .map_elements(
-                    lambda value: config.label_value("tour_purpose", value),
-                    return_dtype=pl.Utf8,
-                )
-                .alias(purpose_col)
-            )
+            df = label_category_data(
+                [(label, df)],
+                source_col=purpose_col,
+                category_id="tour_purpose",
+                config=config,
+                target_col=purpose_col,
+            )[0][1]
         out.append((label, df))
     return out
 

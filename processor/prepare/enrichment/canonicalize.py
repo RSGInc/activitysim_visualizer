@@ -43,6 +43,24 @@ def _canonicalize_persons(per: pl.DataFrame, config: Config) -> pl.DataFrame:
     )
 
 
+def _canonicalize_day(day: pl.DataFrame, config: Config) -> pl.DataFrame:
+    day = _materialize_column(
+        day,
+        "household_id",
+        _resolve_source_column(day, config.col_household_id, fallbacks=("hh_id",)),
+    )
+    day = _materialize_column(
+        day,
+        "person_id",
+        _resolve_source_column(day, config.col_person_id),
+    )
+    return _materialize_column(
+        day,
+        "day_id",
+        _resolve_source_column(day, ["day_id"]),
+    )
+
+
 def _canonicalize_tours(tours: pl.DataFrame, config: Config) -> pl.DataFrame:
     tours = _materialize_column(
         tours,
@@ -155,6 +173,29 @@ def _canonicalize_trips(trips: pl.DataFrame, config: Config) -> pl.DataFrame:
     )
 
 
+def _canonicalize_vehicles(vehicles: pl.DataFrame, config: Config) -> pl.DataFrame:
+    vehicles = _materialize_column(
+        vehicles,
+        "household_id",
+        _resolve_source_column(vehicles, config.col_household_id),
+    )
+    vehicles = _materialize_column(
+        vehicles,
+        "vehicle_id",
+        _resolve_source_column(vehicles, ["vehicle_id"]),
+    )
+    vehicles = _materialize_column(
+        vehicles,
+        "vehicle_num",
+        _resolve_source_column(vehicles, ["vehicle_num"]),
+    )
+    return _materialize_column(
+        vehicles,
+        "vehicle_type",
+        _resolve_source_column(vehicles, ["vehicle_type"]),
+    )
+
+
 def _canonicalize_joint_participants(
     joint_participants: pl.DataFrame, config: Config
 ) -> pl.DataFrame:
@@ -205,8 +246,10 @@ def _canonicalize_identifiers_and_core_columns(
 ) -> _PrepareState:
     state.hh = _canonicalize_households(state.hh, config)
     state.per = _canonicalize_persons(state.per, config)
+    state.day = _canonicalize_day(state.day, config)
     state.tours = _canonicalize_tours(state.tours, config)
     state.trips = _canonicalize_trips(state.trips, config)
+    state.vehicles = _canonicalize_vehicles(state.vehicles, config)
     state.joint_participants = _canonicalize_joint_participants(
         state.joint_participants, config
     )

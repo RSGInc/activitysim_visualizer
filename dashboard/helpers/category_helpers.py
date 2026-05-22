@@ -118,6 +118,57 @@ def column_options(
     )
 
 
+def label_category_frame(
+    df: pl.DataFrame,
+    *,
+    source_col: str,
+    category_id: str,
+    config: Config,
+    target_col: str | None = None,
+) -> pl.DataFrame:
+    label_col = target_col or f"{source_col}_label"
+    if source_col not in df.columns:
+        return df
+    return df.with_columns(
+        pl.col(source_col)
+        .cast(pl.Utf8)
+        .map_elements(
+            lambda value: config.label_value(category_id, value),
+            return_dtype=pl.Utf8,
+        )
+        .alias(label_col)
+    )
+
+
+def label_category_data(
+    data_list: list[tuple[str, pl.DataFrame]],
+    *,
+    source_col: str,
+    category_id: str,
+    config: Config,
+    target_col: str | None = None,
+) -> list[tuple[str, pl.DataFrame]]:
+    label_col = target_col or f"{source_col}_label"
+    labeled: list[tuple[str, pl.DataFrame]] = []
+    for label, df in data_list:
+        if df is None:
+            labeled.append((label, df))
+            continue
+        labeled.append(
+            (
+                label,
+                label_category_frame(
+                    df,
+                    source_col=source_col,
+                    category_id=category_id,
+                    config=config,
+                    target_col=label_col,
+                ),
+            )
+        )
+    return labeled
+
+
 def complete_category_counts(
     data_list: list[tuple[str, pl.DataFrame]],
     *,

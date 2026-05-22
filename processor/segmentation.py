@@ -189,8 +189,14 @@ def _slice_run_data_from_source_subset(
             prepared_run,
             hh=hh,
             per=per,
+            day=prepared_run.day.join(household_ids, on="household_id", how="inner")
+            if "household_id" in prepared_run.day.columns
+            else prepared_run.day.head(0),
             tours=tours,
             trips=trips,
+            vehicles=prepared_run.vehicles.join(household_ids, on="household_id", how="inner")
+            if "household_id" in prepared_run.vehicles.columns
+            else prepared_run.vehicles.head(0),
             joint_participants=joint,
         )
 
@@ -210,8 +216,14 @@ def _slice_run_data_from_source_subset(
             prepared_run,
             hh=hh,
             per=per,
+            day=prepared_run.day.join(person_ids, on="person_id", how="inner")
+            if "person_id" in prepared_run.day.columns
+            else prepared_run.day.head(0),
             tours=tours,
             trips=trips,
+            vehicles=prepared_run.vehicles.join(household_ids, on="household_id", how="inner")
+            if "household_id" in prepared_run.vehicles.columns
+            else prepared_run.vehicles.head(0),
             joint_participants=joint,
         )
 
@@ -232,8 +244,14 @@ def _slice_run_data_from_source_subset(
             prepared_run,
             hh=hh,
             per=per,
+            day=prepared_run.day.join(person_ids, on="person_id", how="inner")
+            if "person_id" in prepared_run.day.columns
+            else prepared_run.day.head(0),
             tours=tours,
             trips=trips,
+            vehicles=prepared_run.vehicles.join(household_ids, on="household_id", how="inner")
+            if "household_id" in prepared_run.vehicles.columns
+            else prepared_run.vehicles.head(0),
             joint_participants=joint,
         )
 
@@ -255,8 +273,14 @@ def _slice_run_data_from_source_subset(
             prepared_run,
             hh=hh,
             per=per,
+            day=prepared_run.day.join(person_ids, on="person_id", how="inner")
+            if "person_id" in prepared_run.day.columns
+            else prepared_run.day.head(0),
             tours=tours,
             trips=trips,
+            vehicles=prepared_run.vehicles.join(household_ids, on="household_id", how="inner")
+            if "household_id" in prepared_run.vehicles.columns
+            else prepared_run.vehicles.head(0),
             joint_participants=joint,
         )
 
@@ -301,8 +325,14 @@ def _slice_run_data_from_source_subset(
             skim_file=prepared_run.skim_file,
             hh=hh,
             per=per,
+            day=prepared_run.day.join(household_ids, on="household_id", how="inner")
+            if "household_id" in prepared_run.day.columns
+            else prepared_run.day.head(0),
             tours=tours,
             trips=trips,
+            vehicles=prepared_run.vehicles.join(household_ids, on="household_id", how="inner")
+            if "household_id" in prepared_run.vehicles.columns
+            else prepared_run.vehicles.head(0),
             joint_participants=joint,
             land_use=land_use,
             skim_matrix=prepared_run.skim_matrix,
@@ -324,8 +354,10 @@ def _copy_run_data(
     *,
     hh: pl.DataFrame,
     per: pl.DataFrame,
+    day: pl.DataFrame,
     tours: pl.DataFrame,
     trips: pl.DataFrame,
+    vehicles: pl.DataFrame,
     joint_participants: pl.DataFrame,
 ) -> RunData:
     return RunData(
@@ -334,8 +366,10 @@ def _copy_run_data(
         skim_file=prepared_run.skim_file,
         hh=hh,
         per=per,
+        day=day,
         tours=tours,
         trips=trips,
+        vehicles=vehicles,
         joint_participants=joint_participants,
         land_use=prepared_run.land_use,
         skim_matrix=prepared_run.skim_matrix,
