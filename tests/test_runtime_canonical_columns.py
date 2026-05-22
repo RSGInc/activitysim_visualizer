@@ -56,7 +56,7 @@ def _raw_run_with_alternate_columns() -> RunData:
         hh=pl.DataFrame(
             {
                 "hh_id": [1],
-                "home_zone_id": [10],
+                "hh_home_zone": [10],
                 "auto_ownership": [2],
                 "hhsize": [3],
                 "num_workers": [1],
@@ -68,9 +68,16 @@ def _raw_run_with_alternate_columns() -> RunData:
                 "pid": [101],
                 "hh_id": [1],
                 "ptype": [1],
-                "home_zone_id": [10],
-                "workplace_zone_id": [20],
-                "school_zone_id": [0],
+                "person_home_zone": [10],
+                "person_work_zone": [20],
+                "person_school_zone": [0],
+                "license_flag": [True],
+                "mtf_src": ["work1"],
+                "student_flag": [False],
+                "university_flag": [False],
+                "school_segment_src": ["none"],
+                "schg_src": ["0"],
+                "pstudent_src": ["0"],
                 "cdap_activity": ["M"],
             }
         ),
@@ -85,9 +92,9 @@ def _raw_run_with_alternate_columns() -> RunData:
                 "start_period": [8],
                 "end_period": [10],
                 "duration_periods": [2],
-                "origin": [10],
-                "destination": [20],
-                "stop_frequency": ["1out_0in"],
+                "tour_origin_src": [10],
+                "tour_destination_src": [20],
+                "stop_pattern_src": ["1out_0in"],
             }
         ),
         trips=pl.DataFrame(
@@ -99,10 +106,10 @@ def _raw_run_with_alternate_columns() -> RunData:
                 "trip_mode_src": ["DRIVEALONE", "WALK"],
                 "stop_label": ["shop", "home"],
                 "depart_period": [8, 9],
-                "outbound": [True, True],
-                "trip_num": [1, 2],
-                "origin": [10, 20],
-                "destination": [20, 30],
+                "trip_outbound_src": [True, True],
+                "trip_num_src": [1, 2],
+                "trip_origin_src": [10, 20],
+                "trip_destination_src": [20, 30],
             }
         ),
         joint_participants=pl.DataFrame({"tid": [], "pid": []}),
@@ -1709,6 +1716,16 @@ def test_prepare_data_materializes_canonical_summary_columns_from_config_overrid
             "person_id: pid",
             "tour_id: tid",
             "trip_id: trip_id_src",
+            "home_zone_id: [hh_home_zone, person_home_zone]",
+            "workplace_zone_id: person_work_zone",
+            "school_zone_id: person_school_zone",
+            "has_license: license_flag",
+            "mandatory_tour_frequency: mtf_src",
+            "is_student: student_flag",
+            "is_university: university_flag",
+            "school_segment: school_segment_src",
+            "schg: schg_src",
+            "pstudent: pstudent_src",
             "tour_purpose: tour_label",
             "trip_purpose: stop_label",
             "tour_mode: tour_mode_src",
@@ -1718,6 +1735,13 @@ def test_prepare_data_materializes_canonical_summary_columns_from_config_overrid
             "tour_end: end_period",
             "tour_duration: duration_periods",
             "trip_depart: depart_period",
+            "tour_origin: tour_origin_src",
+            "tour_destination: tour_destination_src",
+            "trip_origin: trip_origin_src",
+            "trip_destination: trip_destination_src",
+            "stop_frequency: stop_pattern_src",
+            "trip_outbound: trip_outbound_src",
+            "trip_num: trip_num_src",
             "total_employment: jobs",
         ],
     )
@@ -1725,9 +1749,27 @@ def test_prepare_data_materializes_canonical_summary_columns_from_config_overrid
     prepared = prepare_data(_raw_run_with_alternate_columns(), config)
 
     assert prepared.hh["household_id"].to_list() == [1]
+    assert prepared.hh["home_zone_id"].to_list() == [10]
     assert prepared.per["person_id"].to_list() == [101]
+    assert prepared.per["home_zone_id"].to_list() == [10]
+    assert prepared.per["workplace_zone_id"].to_list() == [20]
+    assert prepared.per["school_zone_id"].to_list() == [0]
+    assert prepared.per["has_license"].to_list() == [True]
+    assert prepared.per["mandatory_tour_frequency"].to_list() == ["work1"]
+    assert prepared.per["is_student"].to_list() == [False]
+    assert prepared.per["is_university"].to_list() == [False]
+    assert prepared.per["school_segment"].to_list() == ["none"]
+    assert prepared.per["SCHG"].to_list() == ["0"]
+    assert prepared.per["pstudent"].to_list() == ["0"]
     assert prepared.tours["tour_id"].to_list() == [1001]
+    assert prepared.tours["origin"].to_list() == [10]
+    assert prepared.tours["destination"].to_list() == [20]
+    assert prepared.tours["stop_frequency"].to_list() == ["1out_0in"]
     assert prepared.trips["trip_id"].to_list() == [5001, 5002]
+    assert prepared.trips["origin"].to_list() == [10, 20]
+    assert prepared.trips["destination"].to_list() == [20, 30]
+    assert prepared.trips["outbound"].to_list() == [True, True]
+    assert prepared.trips["trip_num"].to_list() == [1, 2]
     assert prepared.tours["tour_purpose"].to_list() == ["eatout"]
     assert prepared.tours["tour_mode"].to_list() == ["DRIVE"]
     assert prepared.tours["tour_category"].to_list() == ["non-mandatory"]
@@ -1751,6 +1793,16 @@ def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
             "person_id: pid",
             "tour_id: tid",
             "trip_id: trip_id_src",
+            "home_zone_id: [hh_home_zone, person_home_zone]",
+            "workplace_zone_id: person_work_zone",
+            "school_zone_id: person_school_zone",
+            "has_license: license_flag",
+            "mandatory_tour_frequency: mtf_src",
+            "is_student: student_flag",
+            "is_university: university_flag",
+            "school_segment: school_segment_src",
+            "schg: schg_src",
+            "pstudent: pstudent_src",
             "tour_purpose: tour_label",
             "trip_purpose: stop_label",
             "tour_mode: tour_mode_src",
@@ -1760,6 +1812,13 @@ def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
             "tour_end: end_period",
             "tour_duration: duration_periods",
             "trip_depart: depart_period",
+            "tour_origin: tour_origin_src",
+            "tour_destination: tour_destination_src",
+            "trip_origin: trip_origin_src",
+            "trip_destination: trip_destination_src",
+            "stop_frequency: stop_pattern_src",
+            "trip_outbound: trip_outbound_src",
+            "trip_num: trip_num_src",
             "total_employment: jobs",
         ],
     )

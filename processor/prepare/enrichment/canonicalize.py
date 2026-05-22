@@ -15,10 +15,15 @@ from runtime.config import Config
 
 
 def _canonicalize_households(hh: pl.DataFrame, config: Config) -> pl.DataFrame:
-    return _materialize_column(
+    hh = _materialize_column(
         hh,
         "household_id",
         _resolve_source_column(hh, config.col_household_id),
+    )
+    return _materialize_column(
+        hh,
+        "home_zone_id",
+        _resolve_source_column(hh, config.col_home_zone_id),
     )
 
 
@@ -33,13 +38,63 @@ def _canonicalize_persons(per: pl.DataFrame, config: Config) -> pl.DataFrame:
         "person_id",
         _resolve_source_column(per, config.col_person_id),
     )
-    return _materialize_column(
+    per = _materialize_column(
         per,
         "person_type",
         _resolve_source_column(
             per, config.col_ptype, fallbacks=("person_type", "ptype")
         ),
         overwrite=True,
+    )
+    per = _materialize_column(
+        per,
+        "home_zone_id",
+        _resolve_source_column(per, config.col_home_zone_id),
+    )
+    per = _materialize_column(
+        per,
+        "workplace_zone_id",
+        _resolve_source_column(per, config.col_workplace_zone_id),
+    )
+    per = _materialize_column(
+        per,
+        "school_zone_id",
+        _resolve_source_column(per, config.col_school_zone_id),
+    )
+    per = _materialize_column(
+        per,
+        "has_license",
+        _resolve_source_column(per, config.col_has_license),
+    )
+    per = _materialize_column(
+        per,
+        "mandatory_tour_frequency",
+        _resolve_source_column(per, config.col_mandatory_tour_frequency),
+    )
+    per = _materialize_column(
+        per,
+        "is_student",
+        _resolve_source_column(per, config.col_is_student),
+    )
+    per = _materialize_column(
+        per,
+        "is_university",
+        _resolve_source_column(per, config.col_is_university),
+    )
+    per = _materialize_column(
+        per,
+        "school_segment",
+        _resolve_source_column(per, config.col_school_segment),
+    )
+    per = _materialize_column(
+        per,
+        "SCHG",
+        _resolve_source_column(per, config.col_schg),
+    )
+    return _materialize_column(
+        per,
+        "pstudent",
+        _resolve_source_column(per, config.col_pstudent),
     )
 
 
@@ -54,10 +109,15 @@ def _canonicalize_day(day: pl.DataFrame, config: Config) -> pl.DataFrame:
         "person_id",
         _resolve_source_column(day, config.col_person_id),
     )
-    return _materialize_column(
+    day = _materialize_column(
         day,
         "day_id",
-        _resolve_source_column(day, ["day_id"]),
+        _resolve_source_column(day, config.col_day_id),
+    )
+    return _materialize_column(
+        day,
+        "day_weight",
+        _resolve_source_column(day, config.col_day_weight),
     )
 
 
@@ -111,10 +171,25 @@ def _canonicalize_tours(tours: pl.DataFrame, config: Config) -> pl.DataFrame:
         "end_hour",
         _resolve_source_column(tours, config.col_tour_end),
     )
-    return _materialize_column(
+    tours = _materialize_column(
         tours,
         "tourdur",
         _resolve_source_column(tours, config.col_tour_duration),
+    )
+    tours = _materialize_column(
+        tours,
+        "origin",
+        _resolve_source_column(tours, config.col_tour_origin),
+    )
+    tours = _materialize_column(
+        tours,
+        "destination",
+        _resolve_source_column(tours, config.col_tour_destination),
+    )
+    return _materialize_column(
+        tours,
+        "stop_frequency",
+        _resolve_source_column(tours, config.col_stop_frequency),
     )
 
 
@@ -157,6 +232,26 @@ def _canonicalize_trips(trips: pl.DataFrame, config: Config) -> pl.DataFrame:
     )
     trips = _materialize_column(
         trips,
+        "origin",
+        _resolve_source_column(trips, config.col_trip_origin),
+    )
+    trips = _materialize_column(
+        trips,
+        "destination",
+        _resolve_source_column(trips, config.col_trip_destination),
+    )
+    trips = _materialize_column(
+        trips,
+        "outbound",
+        _resolve_source_column(trips, config.col_trip_outbound),
+    )
+    trips = _materialize_column(
+        trips,
+        "trip_num",
+        _resolve_source_column(trips, config.col_trip_num),
+    )
+    trips = _materialize_column(
+        trips,
         "tour_mode",
         _resolve_source_column(trips, config.col_tour_mode),
     )
@@ -182,17 +277,17 @@ def _canonicalize_vehicles(vehicles: pl.DataFrame, config: Config) -> pl.DataFra
     vehicles = _materialize_column(
         vehicles,
         "vehicle_id",
-        _resolve_source_column(vehicles, ["vehicle_id"]),
+        _resolve_source_column(vehicles, config.col_vehicle_id),
     )
     vehicles = _materialize_column(
         vehicles,
         "vehicle_num",
-        _resolve_source_column(vehicles, ["vehicle_num"]),
+        _resolve_source_column(vehicles, config.col_vehicle_num),
     )
     return _materialize_column(
         vehicles,
         "vehicle_type",
-        _resolve_source_column(vehicles, ["vehicle_type"]),
+        _resolve_source_column(vehicles, config.col_vehicle_type),
     )
 
 

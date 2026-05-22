@@ -82,8 +82,8 @@ def _resolved_student_types(
 
 def _person_match_expr(state: _PrepareState, entry: StudentTypeConfig) -> pl.Expr:
     per = state.per
-    university_expr = _boolish_expr_from_candidates(per, ["is_university", "major_uni"])
-    student_expr = _boolish_expr_from_candidates(per, ["is_student", "student"])
+    university_expr = _boolish_expr_from_candidates(per, ["is_university"])
+    student_expr = _boolish_expr_from_candidates(per, ["is_student"])
     selector = entry.person
     if selector is None:
         if _student_type_defaults_to_university(entry):

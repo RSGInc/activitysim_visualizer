@@ -1089,6 +1089,62 @@ def test_config_normalizes_escort_aliases_and_default_category(tmp_path: Path) -
     assert config.label_value("escort", "ride_share") == "Ride Share"
 
 
+def test_config_normalizes_prepare_aliases_for_hard_coded_prepare_inputs(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "columns:",
+            "  home_zone_id: [hh_home_zone, person_home_zone]",
+            "  workplace_zone_id: person_work_zone",
+            "  school_zone_id: person_school_zone",
+            "  has_license: license_flag",
+            "  mandatory_tour_frequency: mtf_src",
+            "  is_student: [student_flag, student_src]",
+            "  is_university: university_flag",
+            "  school_segment: school_segment_src",
+            "  schg: schg_src",
+            "  pstudent: pstudent_src",
+            "  tour_origin: tour_origin_src",
+            "  tour_destination: tour_destination_src",
+            "  trip_origin: trip_origin_src",
+            "  trip_destination: trip_destination_src",
+            "  stop_frequency: stop_pattern_src",
+            "  trip_outbound: trip_outbound_src",
+            "  trip_num: trip_num_src",
+            "  day_id: day_identifier",
+            "  day_weight: day_weight_src",
+            "  vehicle_id: vehicle_identifier",
+            "  vehicle_num: vehicle_sequence",
+            "  vehicle_type: vehicle_type_src",
+        ],
+    )
+
+    assert config.col_home_zone_id == ["hh_home_zone", "person_home_zone"]
+    assert config.col_workplace_zone_id == ["person_work_zone"]
+    assert config.col_school_zone_id == ["person_school_zone"]
+    assert config.col_has_license == ["license_flag"]
+    assert config.col_mandatory_tour_frequency == ["mtf_src"]
+    assert config.col_is_student == ["student_flag", "student_src"]
+    assert config.col_is_university == ["university_flag"]
+    assert config.col_school_segment == ["school_segment_src"]
+    assert config.col_schg == ["schg_src"]
+    assert config.col_pstudent == ["pstudent_src"]
+    assert config.col_tour_origin == ["tour_origin_src"]
+    assert config.col_tour_destination == ["tour_destination_src"]
+    assert config.col_trip_origin == ["trip_origin_src"]
+    assert config.col_trip_destination == ["trip_destination_src"]
+    assert config.col_stop_frequency == ["stop_pattern_src"]
+    assert config.col_trip_outbound == ["trip_outbound_src"]
+    assert config.col_trip_num == ["trip_num_src"]
+    assert config.col_day_id == ["day_identifier"]
+    assert config.col_day_weight == ["day_weight_src"]
+    assert config.col_vehicle_id == ["vehicle_identifier"]
+    assert config.col_vehicle_num == ["vehicle_sequence"]
+    assert config.col_vehicle_type == ["vehicle_type_src"]
+
+
 def test_processor_prepare_normalizes_escort_fields_and_derives_num_escortees(
     tmp_path: Path,
 ) -> None:
@@ -2029,37 +2085,104 @@ def test_processor_read_run_uses_fallback_day_and_vehicles_when_primary_missing(
 def test_processor_prepare_enriches_day_and_vehicles(
     tmp_path: Path,
 ) -> None:
-    config = _write_config(tmp_path)
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "columns:",
+            "  day_id: day_identifier",
+            "  day_weight: day_weight_src",
+            "  vehicle_id: vehicle_identifier",
+            "  vehicle_num: vehicle_sequence",
+            "  vehicle_type: vehicle_type_src",
+        ],
+    )
     raw = _raw_run()
     raw.day = pl.DataFrame(
         {
-            "day_id": [100, 101],
+            "day_identifier": [100, 101],
             "person_id": [101, 999],
             "household_id": [1, 999],
             "travel_date": ["2023-06-02", "2023-06-03"],
             "day_num": [1, 2],
             "travel_dow": [5, 6],
             "daily_activity_pattern": ["M", "N"],
-            "day_weight": [2.5, None],
+            "day_weight_src": [2.5, None],
         }
     )
     raw.vehicles = pl.DataFrame(
         {
-            "vehicle_id": [1001, 1002],
+            "vehicle_identifier": [1001, 1002],
             "household_id": [1, 999],
-            "vehicle_num": [1, 1],
-            "vehicle_type": ["SUV_12_Hybrid", "Car_5_Gas"],
+            "vehicle_sequence": [1, 1],
+            "vehicle_type_src": ["SUV_12_Hybrid", "Car_5_Gas"],
         }
     )
 
     prepared = processor_prepare_data(raw, config)
 
+    assert prepared.day["day_id"].to_list() == [100, 101]
     assert prepared.day["person_type"].to_list() == ["1", None]
     assert prepared.day["finalweight"].to_list() == [2.5, 1.0]
+    assert prepared.vehicles["vehicle_id"].to_list() == [1001, 1002]
+    assert prepared.vehicles["vehicle_num"].to_list() == [1, 1]
     assert prepared.vehicles["body_type"].to_list() == ["SUV", "Car"]
     assert prepared.vehicles["fuel_type"].to_list() == ["Hybrid", "Gas"]
     assert prepared.vehicles["vehicle_age"].to_list() == [12, 5]
     assert prepared.vehicles["finalweight"].to_list() == [1.0, 1.0]
+
+
+def test_processor_prepare_uses_canonical_student_aliases_for_student_type_derivation(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "columns:",
+            "  is_student: student_flag",
+            "  is_university: university_flag",
+            "  school_segment: school_segment_src",
+            "  schg: schg_src",
+            "  pstudent: pstudent_src",
+            "student_types:",
+            "  - label: School",
+            "    land_use_columns: [ENROLLGRADEKto8]",
+            "    person:",
+            "      is_university: false",
+            "      school_segment: [K12]",
+            "  - label: University",
+            "    land_use_columns: [COLLEGEENROLL]",
+            "    person:",
+            "      is_university: true",
+            "      pstudent: ['2']",
+        ],
+    )
+    raw = _raw_run()
+    raw.per = pl.DataFrame(
+        {
+            "person_id": [101, 102, 103],
+            "household_id": [1, 1, 1],
+            "ptype": [1, 3, 3],
+            "home_zone_id": [10, 10, 10],
+            "student_flag": [False, True, True],
+            "university_flag": [False, False, True],
+            "school_segment_src": ["none", "K12", "College"],
+            "schg_src": ["0", "9", "16"],
+            "pstudent_src": ["0", "1", "2"],
+        }
+    )
+    raw.land_use = pl.DataFrame(
+        {
+            "zone_id": [10],
+            "TAZ": [10],
+            "EMPLOY_TOT": [7],
+            "ENROLLGRADEKto8": [11],
+            "COLLEGEENROLL": [13],
+        }
+    )
+
+    prepared = processor_prepare_data(raw, config)
+
+    assert prepared.per["student_type"].to_list() == [None, "School", "University"]
 
 
 def test_vehicle_long_term_summaries_use_prepared_vehicle_table_and_unweighted_reset(
