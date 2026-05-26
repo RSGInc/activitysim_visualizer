@@ -8,7 +8,6 @@ import polars as pl
 from dashboard.components import (
     bar_chart,
     control_row,
-    control_row_spacer,
     data_table,
     density_chart,
 )
@@ -351,6 +350,26 @@ def distance_chart_data(
     ]
 
 
+def filter_distance_geo_level(
+    data_list: list[tuple[str, pl.DataFrame]],
+    geo_level: str,
+) -> list[tuple[str, pl.DataFrame]]:
+    out: list[tuple[str, pl.DataFrame]] = []
+    for label, df in _nonempty(data_list):
+        filtered = df
+        if geo_level not in {"Total", "All"}:
+            if GEO_LEVEL_COL in filtered.columns:
+                filtered = filtered.with_columns(pl.col(GEO_LEVEL_COL).cast(pl.Utf8)).filter(
+                    pl.col(GEO_LEVEL_COL) == geo_level
+                )
+            elif GEO_COL in filtered.columns:
+                filtered = filtered.with_columns(pl.col(GEO_COL).cast(pl.Utf8)).filter(
+                    pl.col(GEO_COL) == geo_level
+                )
+        out.append((label, filtered))
+    return out
+
+
 class MandatoryLocationChoicePage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
         self._current_data: dict[str, object] = {}
@@ -362,15 +381,6 @@ class MandatoryLocationChoicePage(DashboardPage):
                 value="Total",
             ),
             label="Geography Level",
-        )
-        self.location_type_sel = self.selector(
-            "distance_location_type",
-            widget=pn.widgets.Select(
-                name="Distance Location Type",
-                options=["Workplace", "School", "University"],
-                value="Workplace",
-            ),
-            label="Distance Location Type",
         )
 
         self._worker_section = self.section(
@@ -385,24 +395,13 @@ class MandatoryLocationChoicePage(DashboardPage):
         )
         self._distance_section = self.section(
             "distance_distribution",
-            selectors=("distance_location_type",),
+            selectors=("geography_level",),
             render=self.render_distance_distribution,
         )
         self._remote_work_section = self.section(
             "remote_work",
             selectors=("geography_level",),
             render=self.render_remote_work,
-        )
-        self._flows_distance_row = pn.Row(
-            pn.Column(control_row_spacer(), self._commuting_flows_section),
-            pn.Column(
-                control_row(
-                    pn.pane.Markdown("**Distance Location Type:**"),
-                    self.location_type_sel,
-                ),
-                self._distance_section,
-            ),
-            sizing_mode="stretch_width",
         )
 
         return self.new_section(
@@ -411,10 +410,10 @@ class MandatoryLocationChoicePage(DashboardPage):
                 pn.pane.Markdown("**Geography Level:**"),
                 self.geo_level_sel,
             ),
-            self._worker_section,
-            pn.pane.Markdown("### Commuting Flows and Location Distance"),
-            self._flows_distance_row,
             self._remote_work_section,
+            self._distance_section,
+            self._worker_section,
+            self._commuting_flows_section,
         )
 
     def _geo_level_options(self) -> list[str]:
@@ -461,14 +460,16 @@ class MandatoryLocationChoicePage(DashboardPage):
             "telecommute_frequency_distribution",
             self.weighting_key,
         )
-
-        dist_summary_id = {
-            "Workplace": "work_location_distance_distribution_by_geography",
-            "School": "school_location_distance_distribution_by_geography",
-            "University": "university_location_distance_distribution_by_geography",
-        }[self.location_type_sel.value]
-        distance_summary = self.state.get_summary_table_set(
-            dist_summary_id,
+        work_distance_summary = self.state.get_summary_table_set(
+            "work_location_distance_distribution_by_geography",
+            self.weighting_key,
+        )
+        school_distance_summary = self.state.get_summary_table_set(
+            "school_location_distance_distribution_by_geography",
+            self.weighting_key,
+        )
+        university_distance_summary = self.state.get_summary_table_set(
+            "university_location_distance_distribution_by_geography",
             self.weighting_key,
         )
 
@@ -482,7 +483,9 @@ class MandatoryLocationChoicePage(DashboardPage):
                 commuting_flows,
                 wfh_summary,
                 telecommute,
-                distance_summary,
+                work_distance_summary,
+                school_distance_summary,
+                university_distance_summary,
             )
         ):
             return {
@@ -515,8 +518,9 @@ class MandatoryLocationChoicePage(DashboardPage):
             "commuting_flows": commuting_flows,
             "wfh_summary": wfh_summary,
             "telecommute": telecommute,
-            "distance_summary": distance_summary,
-            "dist_summary_id": dist_summary_id,
+            "work_distance_summary": work_distance_summary,
+            "school_distance_summary": school_distance_summary,
+            "university_distance_summary": university_distance_summary,
         }
 
     def render_worker_geography(self) -> SectionContent:
@@ -532,9 +536,7 @@ class MandatoryLocationChoicePage(DashboardPage):
         geo_level = str(self.geo_level_sel.value)
         internal_external = self._current_data["internal_external"]
         external_workplace = self._current_data["external_workplace"]
-        worker_views: list[pn.viewable.Viewable] = [
-            pn.pane.Markdown("### Worker Geography")
-        ]
+        worker_views: list[pn.viewable.Viewable] = []
         if internal_external is not None:
             internal_external_table = self.get_filtered_view(
                 "mandatory_internal_external",
@@ -619,31 +621,74 @@ class MandatoryLocationChoicePage(DashboardPage):
     def render_distance_distribution(self) -> SectionContent:
         if self._current_data["mode"] != "ready":
             return []
-        distance_summary = self._current_data["distance_summary"]
-        dist_summary_id = self._current_data["dist_summary_id"]
-        distance_widget: pn.viewable.Viewable
-        if distance_summary is not None:
-            distance_data = self.get_filtered_view(
-                "mandatory_distance_distribution",
-                self.location_type_sel.value,
-                factory=lambda: distance_chart_data(distance_summary),
+        geo_level = str(self.geo_level_sel.value)
+
+        def _distance_view(
+            summary_data: list[tuple[str, pl.DataFrame]] | None,
+            *,
+            cache_key: str,
+            title: str,
+            yaxis_title: str,
+            summary_id: str,
+        ) -> pn.viewable.Viewable:
+            if summary_data is None:
+                return self.data_not_available_card(
+                    detail="The selected distance distribution summary is unavailable.",
+                    missing_items=[summary_id],
+                )
+            filtered_summary = self.get_filtered_view(
+                cache_key,
+                geo_level,
+                factory=lambda: filter_distance_geo_level(summary_data, geo_level),
             )
-            distance_widget = density_chart(
+            distance_data = self.get_filtered_view(
+                f"{cache_key}_chart",
+                geo_level,
+                factory=lambda: distance_chart_data(filtered_summary),
+            )
+            if not any(not df.is_empty() for _, df in distance_data):
+                return self.data_not_available_card(
+                    detail=f"No distance distribution data is available for geography `{geo_level}`.",
+                    missing_items=[summary_id],
+                )
+            return density_chart(
                 distance_data,
                 x_col="distance_bin",
                 y_col="person_count",
-                title=f"{self.location_type_sel.value} Location Distance Distribution",
+                title=title,
                 xaxis_title="Distance (miles)",
-                yaxis_title=f"{self.location_type_sel.value} Locations",
+                yaxis_title=yaxis_title,
                 normalize=False,
                 as_percent=self.as_percent,
             )
-        else:
-            distance_widget = self.data_not_available_card(
-                detail="The selected distance distribution summary is unavailable.",
-                missing_items=[dist_summary_id],
-            )
-        return [distance_widget]
+
+        return [
+            pn.pane.Markdown("### Mandatory Location Distance"),
+            pn.Row(
+                _distance_view(
+                    self._current_data["work_distance_summary"],
+                    cache_key="mandatory_work_distance_distribution",
+                    title="Workplace Location Distance Distribution",
+                    yaxis_title="Workplace Locations",
+                    summary_id="work_location_distance_distribution_by_geography",
+                ),
+                _distance_view(
+                    self._current_data["school_distance_summary"],
+                    cache_key="mandatory_school_distance_distribution",
+                    title="School Location Distance Distribution",
+                    yaxis_title="School Locations",
+                    summary_id="school_location_distance_distribution_by_geography",
+                ),
+                _distance_view(
+                    self._current_data["university_distance_summary"],
+                    cache_key="mandatory_university_distance_distribution",
+                    title="University Location Distance Distribution",
+                    yaxis_title="University Locations",
+                    summary_id="university_location_distance_distribution_by_geography",
+                ),
+                sizing_mode="stretch_width",
+            ),
+        ]
 
     def render_remote_work(self) -> SectionContent:
         if self._current_data["mode"] != "ready":
