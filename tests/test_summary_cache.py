@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 import sys
 import time
 
@@ -28,6 +29,8 @@ from dashboard.pages.daily_travel.daily_activity_pattern import (
 from dashboard.pages.daily_travel.escorted_tours import EscortedToursPage
 from dashboard.pages.joint_travel import JointTravelPage
 from dashboard.pages.overview import OverviewPage
+from dashboard.pages.skim_summaries.trip_skims import TripSkimsPage
+from dashboard.pages.skim_summaries.tour_skims import TourSkimsPage
 from dashboard.pages.tour_summaries.tour_mode import (
     TourModePage as TourSummariesTourModePage,
 )
@@ -42,12 +45,14 @@ from dashboard.pages.tour_summaries.tour_stop_frequency import (
 )
 from dashboard.pages.tour_summaries.tour_time import TourTimePage
 from dashboard.pages.trip_summaries.trip_mode import TripModePage
+from dashboard.pages.trip_summaries.trip_stop_purpose import TripStopPurposePage
 from dashboard.pages.trip_summaries.trip_stop_distance import TripStopDistancePage
 from dashboard.pages.trip_summaries.trip_stop_time import TripStopTimePage
 from dashboard.pages.validation.traffic import TrafficValidationPage
 from dashboard.pages.validation.transit import TransitValidationPage
 from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.state import DashboardState
+from dashboard.page_registry import page_definitions_for_group
 from processor.models import RunData
 from processor.prepare.cache import build_prepared_manifest_identity
 from processor.prepare.enrichment.pipeline import prepare_data
@@ -66,6 +71,7 @@ from processor.summarize.schema import SUMMARY_OUTPUT_COLUMNS
 from processor.summarize.summary_specs import SUMMARY_SPECS, SummarySpec
 from processor.summarize.summary_specs import SUMMARY_SPEC_BY_ID
 from runtime.config import Config
+from runtime.config.models import SkimjoinSettings
 from processor.summarize.summaries import legacy
 
 
@@ -198,6 +204,146 @@ def _summary_run_with_tables(
             "unweighted": weighted if unweighted is None else unweighted,
         },
         source_run_dir=str(Path(f"C:/runs/{label.lower()}")),
+    )
+
+
+def _skim_summary_tables() -> tuple[dict[str, pl.DataFrame], dict[str, pl.DataFrame]]:
+    weighted = {
+        "skimjoin_trip_component_stats": pl.DataFrame(
+            {
+                "component": [
+                    "skim_auto_time",
+                    "skim_auto_cost",
+                    "skim_auto_bonus",
+                    "skim_walk_distance",
+                    "skim_walk_time",
+                    "skim_walk_maz_distance",
+                    "skim_walk_maz_actual",
+                    "skim_walk_time",
+                    "skim_transit_tiv",
+                    "skim_transit_tiv",
+                    "skim_auto_distance",
+                    "skim_school_special",
+                ],
+                "trip_mode": [
+                    "SOV",
+                    "HOV2",
+                    "SOV",
+                    "WALK",
+                    "WALK",
+                    "WALK",
+                    "WALK",
+                    "BIKE",
+                    "WALK_TRANSIT",
+                    "PNR_TRANSIT",
+                    "HOV3",
+                    "SCHOOLBUS",
+                ],
+                "n_total": [10.0, 12.0, 10.0, 7.0, 7.0, 7.0, 7.0, 6.0, 8.0, 9.0, 11.0, 5.0],
+                "n_valid": [9.0, 11.0, 10.0, 7.0, 7.0, 7.0, 7.0, 6.0, 8.0, 9.0, 10.0, 5.0],
+                "mean": [15.126, 3.452, 99.111, 1.827, 12.233, 1.604, 28.06, 8.887, 34.221, 28.781, 7.004, 18.5],
+                "std": [1.554, 0.882, 9.001, 0.214, 2.104, 0.187, 3.109, 1.443, 5.115, 4.201, 0.993, 1.2],
+                "min": [11.0, 1.2, 88.0, 1.4, 8.1, 1.2, 22.0, 5.5, 20.0, 18.0, 5.0, 17.0],
+                "max": [18.5, 5.4, 110.0, 2.1, 16.8, 1.9, 35.0, 12.7, 44.0, 37.0, 8.9, 20.0],
+                "median": [15.0, 3.5, 100.0, 1.8, 12.0, 1.6, 28.0, 8.8, 34.0, 28.5, 7.0, 18.0],
+                "mode": [14.0, 3.0, 98.0, 1.7, 11.5, 1.5, 27.0, 8.4, 33.0, 27.0, 7.0, 18.0],
+                "zero_share": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                "missing_share": [0.1, 0.08, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.09, 0.0],
+            }
+        ),
+        "skimjoin_tour_component_stats": pl.DataFrame(
+            {
+                "component": [
+                    "skim_auto_time_outbound",
+                    "skim_auto_time_inbound",
+                    "skim_auto_cost_outbound",
+                    "skim_transit_tiv_outbound",
+                    "skim_transit_tiv_inbound",
+                    "skim_walk_time_outbound",
+                    "skim_walk_time_inbound",
+                ],
+                "tour_mode": [
+                    "SOV",
+                    "SOV",
+                    "HOV2",
+                    "WALK_TRANSIT",
+                    "KNR_TRANSIT",
+                    "WALK",
+                    "WALK",
+                ],
+                "n_total": [5.0, 5.0, 6.0, 4.0, 4.0, 3.0, 3.0],
+                "n_valid": [5.0, 4.0, 6.0, 4.0, 4.0, 3.0, 3.0],
+                "mean": [25.333, 21.112, 4.557, 41.221, 39.778, 9.115, 8.441],
+                "std": [2.111, 2.004, 0.631, 4.221, 3.992, 1.202, 1.103],
+                "min": [21.0, 17.0, 3.4, 35.0, 34.0, 7.0, 6.7],
+                "max": [29.0, 24.0, 5.3, 47.0, 45.0, 11.0, 10.2],
+                "median": [25.0, 21.0, 4.5, 41.0, 40.0, 9.0, 8.5],
+                "mode": [24.0, 20.0, 4.4, 40.0, 39.0, 8.9, 8.3],
+                "zero_share": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                "missing_share": [0.0, 0.2, 0.0, 0.0, 0.0, 0.0, 0.0],
+            }
+        ),
+    }
+    unweighted = {
+        summary_id: df.with_columns(
+            pl.col("n_total").cast(pl.Float64) * 0.5,
+            pl.col("n_valid").cast(pl.Float64) * 0.5,
+        )
+        for summary_id, df in weighted.items()
+    }
+    return weighted, unweighted
+
+
+def _attach_test_skimjoin_config(config: Config) -> None:
+    config.skimjoin = SkimjoinSettings(
+        enabled=True,
+        normalized_config=SimpleNamespace(
+            trip_lookups=[
+                SimpleNamespace(mode="SOV", output="skim_auto_time"),
+                SimpleNamespace(mode="SOV", output="skim_auto_distance"),
+                SimpleNamespace(mode="SOV", output="skim_auto_cost"),
+                SimpleNamespace(mode="HOV2", output="skim_auto_time"),
+                SimpleNamespace(mode="HOV2", output="skim_auto_distance"),
+                SimpleNamespace(mode="HOV2", output="skim_auto_cost"),
+                SimpleNamespace(mode="HOV3", output="skim_auto_time"),
+                SimpleNamespace(mode="HOV3", output="skim_auto_distance"),
+                SimpleNamespace(mode="HOV3", output="skim_auto_cost"),
+                SimpleNamespace(mode="WALK_TRANSIT", output="skim_transit_tiv"),
+                SimpleNamespace(mode="PNR_TRANSIT", output="skim_transit_tiv"),
+                SimpleNamespace(mode="KNR_TRANSIT", output="skim_transit_tiv"),
+                SimpleNamespace(mode="WALK", output="skim_walk_distance"),
+                SimpleNamespace(mode="WALK", output="skim_walk_time"),
+                SimpleNamespace(mode="WALK", output="skim_walk_maz_distance"),
+                SimpleNamespace(mode="WALK", output="skim_walk_maz_actual"),
+                SimpleNamespace(mode="BIKE", output="skim_walk_time"),
+                SimpleNamespace(mode="SCHOOLBUS", output="skim_school_special"),
+            ],
+            tour_lookups=[
+                SimpleNamespace(mode="SOV", output="skim_auto_time_outbound"),
+                SimpleNamespace(mode="SOV", output="skim_auto_time_inbound"),
+                SimpleNamespace(mode="SOV", output="skim_auto_distance_outbound"),
+                SimpleNamespace(mode="SOV", output="skim_auto_distance_inbound"),
+                SimpleNamespace(mode="SOV", output="skim_auto_cost_outbound"),
+                SimpleNamespace(mode="SOV", output="skim_auto_cost_inbound"),
+                SimpleNamespace(mode="HOV2", output="skim_auto_time_outbound"),
+                SimpleNamespace(mode="HOV2", output="skim_auto_time_inbound"),
+                SimpleNamespace(mode="HOV2", output="skim_auto_cost_outbound"),
+                SimpleNamespace(mode="HOV2", output="skim_auto_cost_inbound"),
+                SimpleNamespace(mode="WALK_TRANSIT", output="skim_transit_tiv_outbound"),
+                SimpleNamespace(mode="KNR_TRANSIT", output="skim_transit_tiv_inbound"),
+                SimpleNamespace(mode="WALK", output="skim_walk_time_outbound"),
+                SimpleNamespace(mode="WALK", output="skim_walk_time_inbound"),
+            ],
+        ),
+    )
+
+
+def _skim_summary_run() -> object:
+    weighted, unweighted = _skim_summary_tables()
+    return _summary_run_with_tables(
+        label="Base",
+        weighted=weighted,
+        unweighted=unweighted,
     )
 
 
@@ -1412,6 +1558,188 @@ def test_trip_stop_time_live_page_uses_shared_summary_helpers(
     assert page._body.objects
 
 
+def test_dashboard_pages_apply_configured_dashboard_labels_to_category_plots(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "dashboard_labels:",
+            "  license_holding_status:",
+            "    mapping:",
+            "      has_license: Has License",
+            "      no_license: No License",
+            "  transit_pass_ownership_status:",
+            "    mapping:",
+            "      has_transit_pass: Has Transit Pass",
+            "      no_transit_pass: No Transit Pass",
+            "  telecommute_frequency:",
+            "    mapping:",
+            "      No_Telecommute: No Telecommute",
+            "      1_day_week: 1 Day per Week",
+            "  tour_composition:",
+            "    mapping:",
+            "      adults: Adults Only",
+            "      mixed: Mixed Group",
+            "  tour_category:",
+            "    mapping:",
+            "      mandatory: Mandatory",
+            "      non_mandatory: Non-Mandatory",
+            "  atwork_subtour_frequency_category:",
+            "    mapping:",
+            "      no_subtours: None",
+            "      eat: 1 Eating Out",
+        ],
+    )
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "license_holding_status_distribution": pl.DataFrame(
+                {
+                    "person_type": ["all_person_types", "all_person_types"],
+                    "license_holding_status": ["has_license", "no_license"],
+                    "person_count": [7.0, 3.0],
+                    "pct": [70.0, 30.0],
+                }
+            ),
+            "bicycle_comfort_level_distribution": pl.DataFrame(
+                {
+                    "person_type": ["all_person_types"],
+                    "bicycle_comfort_level": ["1"],
+                    "person_count": [10.0],
+                    "pct": [100.0],
+                }
+            ),
+            "transit_pass_ownership_by_person_type": pl.DataFrame(
+                {
+                    "person_type": ["all_person_types", "all_person_types"],
+                    "transit_pass_ownership_status": [
+                        "has_transit_pass",
+                        "no_transit_pass",
+                    ],
+                    "person_count": [4.0, 6.0],
+                    "pct": [40.0, 60.0],
+                }
+            ),
+            "transit_subsidy_by_person_type": pl.DataFrame(
+                {
+                    "person_type": ["all_person_types"],
+                    "transit_subsidy_status": ["0"],
+                    "person_count": [10.0],
+                    "pct": [100.0],
+                }
+            ),
+            "telecommute_frequency_distribution": pl.DataFrame(
+                {
+                    "telecommute_frequency": ["No_Telecommute", "1_day_week"],
+                    "person_count": [6.0, 4.0],
+                }
+            ),
+            "joint_tour_composition_by_party_size": pl.DataFrame(
+                {
+                    "tour_composition": ["adults", "mixed"],
+                    "party_size": [2, 2],
+                    "joint_tour_count": [3.0, 2.0],
+                }
+            ),
+            "joint_tour_party_size_distribution": pl.DataFrame(
+                {"party_size": [2], "joint_tour_count": [5.0]}
+            ),
+            "joint_tours_by_household_size": pl.DataFrame(
+                {
+                    "household_size": [2],
+                    "household_count": [6.0],
+                    "joint_tour_hh_count": [3.0],
+                }
+            ),
+            "jtf_distribution": pl.DataFrame(
+                {
+                    "jtf_code": [1],
+                    "jtf_label": ["One Joint Tour"],
+                    "household_count": [5.0],
+                }
+            ),
+            "person_jtp_by_household_size": pl.DataFrame(
+                {
+                    "household_size": [2],
+                    "joint_tour_person_count": [2.0],
+                    "total_person_count": [4.0],
+                }
+            ),
+            "household_jtp_by_household_size_and_jtf": pl.DataFrame(
+                {
+                    "household_size": [2],
+                    "jtf": ["1"],
+                    "household_percent": [50.0],
+                }
+            ),
+            "tour_category_distribution": pl.DataFrame(
+                {
+                    "tour_category": ["mandatory", "non_mandatory"],
+                    "tour_count": [8.0, 5.0],
+                    "pct": [61.5, 38.5],
+                }
+            ),
+            "tour_purpose_distribution": pl.DataFrame(
+                {"tour_purpose": ["work"], "tour_count": [8.0], "pct": [100.0]}
+            ),
+            "tour_stop_frequency_by_tour_purpose": pl.DataFrame(
+                {
+                    "tour_purpose": ["all_tour_purposes"],
+                    "outbound_stop_count": [0],
+                    "inbound_stop_count": [0],
+                    "total_stop_count": [0],
+                    "tour_count": [8.0],
+                    "pct": [100.0],
+                }
+            ),
+            "atwork_subtour_frequency_distribution": pl.DataFrame(
+                {
+                    "atwork_subtour_frequency_category": ["no_subtours", "eat"],
+                    "atwork_subtour_count": [6.0, 4.0],
+                    "pct": [60.0, 40.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    individual_page = IndividualChoicesPage(state, config)
+    individual_page.refresh(force=True)
+    individual_plots = _collect_plotly_panes(individual_page.view)
+    assert list(individual_plots[0].object.data[0].x) == ["Has License", "No License"]
+    assert list(individual_plots[2].object.data[0].x) == [
+        "Has Transit Pass",
+        "No Transit Pass",
+    ]
+
+    mandatory_page = MandatoryLocationChoicePage(state, config)
+    mandatory_page.refresh(force=True)
+    mandatory_plots = _collect_plotly_panes(mandatory_page.view)
+    assert list(mandatory_plots[-1].object.data[0].x) == [
+        "No Telecommute",
+        "1 Day per Week",
+    ]
+
+    joint_page = JointTravelPage(state, config)
+    joint_page.refresh(force=True)
+    joint_plots = _collect_plotly_panes(joint_page.view)
+    assert list(joint_plots[3].object.data[0].x) == ["Adults Only", "Mixed Group"]
+
+    purpose_page = TourPurposePage(state, config)
+    purpose_page.refresh(force=True)
+    purpose_plots = _collect_plotly_panes(purpose_page.view)
+    assert list(purpose_plots[0].object.data[0].x) == ["Mandatory", "Non-Mandatory"]
+
+    stop_frequency_page = TourStopFrequencyPage(state, config)
+    stop_frequency_page.refresh(force=True)
+    stop_plots = _collect_plotly_panes(stop_frequency_page.view)
+    assert list(stop_plots[-1].object.data[0].x) == ["None", "1 Eating Out"]
+
+
 def test_trip_stop_distance_live_page_uses_shared_summary_helpers(
     tmp_path: Path,
 ) -> None:
@@ -1717,6 +2045,118 @@ def test_joint_travel_participation_page_uses_counts_and_runtime_percent_mode(
     assert list(people_plot.object.data[0].y) == [2.0, 3.0]
 
 
+def test_skims_group_lists_tour_skims_before_trip_skims() -> None:
+    definitions = page_definitions_for_group("skims")
+
+    assert [definition.page_id for definition in definitions] == [
+        "tour_skims",
+        "trip_skims",
+    ]
+
+
+def test_trip_skims_page_uses_family_selector_and_two_digit_precision_summary_table(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    _attach_test_skimjoin_config(config)
+    state = DashboardState(
+        summary_runs=[_skim_summary_run()],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = TripSkimsPage(state, config)
+    page.refresh(force=True)
+
+    assert list(page.trip_family_sel.options[:4]) == [
+        "Auto Skims",
+        "Transit Skims",
+        "Walk Skims",
+        "Bike Skims",
+    ]
+    assert "skim_auto_time" in list(page.trip_component_sel.options)
+    assert page.view.objects.index(page._summary_section) < page.view.objects.index(
+        page._distribution_section
+    )
+
+    tables = _collect_tabulators(page._summary_section)
+    assert len(tables) == 1
+    table = tables[0]
+    assert list(table.value.columns[:2]) == ["skim_name", "trip_mode"]
+    assert set(table.value["trip_mode"].tolist()) == {"SOV", "HOV2", "HOV3"}
+    assert "Bonus" not in table.value["skim_name"].tolist()
+    assert table.value["mean"].tolist() == ["3.5", "7", "15"]
+    assert table.value["n_valid"].tolist() == ["11", "10", "9"]
+
+    if "Other Skims" in page.trip_family_sel.options:
+        page.trip_family_sel.value = "Other Skims"
+        page.refresh(force=True)
+        other_table = _collect_tabulators(page._summary_section)[0]
+        assert set(other_table.value["trip_mode"].tolist()) == {"SCHOOLBUS"}
+
+
+def test_trip_walk_skims_use_explicit_walk_distance_and_time_labels(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    _attach_test_skimjoin_config(config)
+    state = DashboardState(
+        summary_runs=[_skim_summary_run()],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = TripSkimsPage(state, config)
+    page.refresh(force=True)
+    page.trip_family_sel.value = "Walk Skims"
+    page.refresh(force=True)
+
+    table = _collect_tabulators(page._summary_section)[0]
+    assert table.value["skim_name"].tolist() == [
+        "MAZ Actual Walk Time",
+        "MAZ Network Walk Distance",
+        "TAZ Skim Walk Distance",
+        "Total Walk Access/Egress Time",
+    ]
+
+
+def test_tour_skims_page_uses_family_and_direction_selectors_for_summary_table(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    _attach_test_skimjoin_config(config)
+    state = DashboardState(
+        summary_runs=[_skim_summary_run()],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = TourSkimsPage(state, config)
+    page.refresh(force=True)
+
+    assert list(page.tour_family_sel.options) == [
+        "Auto Skims",
+        "Transit Skims",
+        "Walk Skims",
+    ]
+    assert list(page.tour_direction_sel.options) == ["Outbound", "Inbound"]
+    assert page.view.objects.index(page._summary_section) < page.view.objects.index(
+        page._distribution_section
+    )
+
+    tables = _collect_tabulators(page._summary_section)
+    assert len(tables) == 1
+    table = tables[0]
+    assert list(table.value.columns[:2]) == ["skim_name", "tour_mode"]
+    assert set(table.value["tour_mode"].tolist()) == {"SOV", "HOV2"}
+    assert set(table.value["skim_name"].tolist()) == {"Cost", "Time"}
+    assert "Outbound" == page.tour_direction_sel.value
+
+    page.tour_family_sel.value = "Transit Skims"
+    page.tour_direction_sel.value = "Inbound"
+    page.refresh(force=True)
+    inbound_table = _collect_tabulators(page._summary_section)[0]
+    assert set(inbound_table.value["tour_mode"].tolist()) == {"KNR_TRANSIT"}
+    assert "Transit In-Vehicle Time" in inbound_table.value["skim_name"].tolist()
+
+
 def test_tour_purpose_labels_render_consistently_across_pages(tmp_path: Path) -> None:
     config = _write_config(
         tmp_path,
@@ -1867,6 +2307,78 @@ def test_tour_purpose_labels_render_consistently_across_pages(tmp_path: Path) ->
         "Eat Out",
         "Social Time",
     ]
+
+
+def test_trip_stop_purpose_page_uses_trip_and_stop_purpose_dashboard_labels(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "dashboard_labels:",
+            "  tour_purpose:",
+            "    mapping:",
+            "      work: Work Tours",
+            "      shop: Shopping Tours",
+            "  trip_purpose:",
+            "    mapping:",
+            "      work: Work Trips",
+            "      shop: Shopping Trips",
+            "  stop_purpose:",
+            "    mapping:",
+            "      work: Work Stops",
+            "      shop: Shopping Stops",
+        ],
+    )
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "trip_purpose_distribution": pl.DataFrame(
+                {
+                    "trip_purpose": ["work", "shop"],
+                    "trip_count": [8.0, 6.0],
+                    "pct": [57.1, 42.9],
+                }
+            ),
+            "stop_destination_purpose_by_tour_purpose": pl.DataFrame(
+                {
+                    "tour_purpose": ["work", "work", "shop"],
+                    "stop_destination_purpose": ["work", "shop", "shop"],
+                    "stop_count": [3.0, 5.0, 4.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = TripStopPurposePage(state, config)
+    page.refresh(force=True)
+
+    assert list(page.tour_purpose_sel.options) == ["All", "Work Tours", "Shopping Tours"]
+
+    plots = _collect_plotly_panes(page._body)
+    trip_chart = next(
+        plot for plot in plots if plot.object.layout.title.text == "Trip Purpose"
+    )
+    stop_chart = next(
+        plot
+        for plot in plots
+        if plot.object.layout.title.text
+        == "Stop Destination Purpose by Tour Purpose - All"
+    )
+    assert list(trip_chart.object.layout.xaxis.categoryarray) == [
+        "Work Trips",
+        "Shopping Trips",
+    ]
+    assert list(trip_chart.object.data[0].x) == ["Work Trips", "Shopping Trips"]
+    assert list(stop_chart.object.layout.xaxis.categoryarray) == [
+        "Work Stops",
+        "Shopping Stops",
+    ]
+    assert list(stop_chart.object.data[0].x) == ["Work Stops", "Shopping Stops"]
 
 
 def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(

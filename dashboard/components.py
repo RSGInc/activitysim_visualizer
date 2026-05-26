@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 import html
-from bokeh.models.widgets.tables import NumberFormatter
+import math
 import panel as pn
 import plotly.graph_objects as go
 import polars as pl
@@ -400,11 +400,78 @@ def _to_pandas(df: pl.DataFrame):
     return df.to_pandas()
 
 
+def format_numeric_for_display(
+    value,
+    *,
+    precision: int | None = 2,
+):
+    """Format numbers using significant digits while preserving integers.
+
+    `precision` means significant digits, not fixed decimal places.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (bool, np.bool_)):
+        return value
+    if isinstance(value, (int, np.integer)):
+        return str(int(value))
+    if isinstance(value, (float, np.floating)):
+        numeric = float(value)
+        if not math.isfinite(numeric):
+            return None
+        if numeric.is_integer():
+            return str(int(numeric))
+        if precision is None:
+            return str(numeric)
+        if precision <= 0:
+            return str(int(round(numeric)))
+        magnitude = math.floor(math.log10(abs(numeric)))
+        decimals = precision - 1 - magnitude
+        rounded = round(numeric, decimals)
+        if float(rounded).is_integer():
+            return str(int(rounded))
+        decimal_places = max(decimals, 0)
+        return f"{rounded:.{decimal_places}f}".rstrip("0").rstrip(".")
+    return value
+
+
+def format_numeric_frame_for_display(
+    df: pl.DataFrame,
+    *,
+    numeric_precision: int | None = 2,
+    numeric_precision_by_column: dict[str, int] | None = None,
+) -> pl.DataFrame:
+    """Return a copy with numeric columns converted to display-ready strings."""
+    if numeric_precision is None and not numeric_precision_by_column:
+        return df
+    exprs: list[pl.Expr] = []
+    for column, dtype in df.schema.items():
+        if not getattr(dtype, "is_numeric", lambda: False)():
+            continue
+        column_precision = (
+            numeric_precision_by_column.get(column)
+            if numeric_precision_by_column and column in numeric_precision_by_column
+            else numeric_precision
+        )
+        exprs.append(
+            pl.col(column)
+            .map_elements(
+                lambda value, precision=column_precision: format_numeric_for_display(
+                    value,
+                    precision=precision,
+                ),
+                return_dtype=pl.Utf8,
+            )
+            .alias(column)
+        )
+    return df.with_columns(exprs) if exprs else df
+
+
 def data_table(
     data_list: list[tuple[str, pl.DataFrame]],
     title: str = "",
     height: int = 300,
-    numeric_precision: int | None = None,
+    numeric_precision: int | None = 2,
     numeric_precision_by_column: dict[str, int] | None = None,
 ) -> pn.viewable.Viewable:
     """
@@ -413,34 +480,19 @@ def data_table(
     tabs = pn.Tabs()
     for label, df in data_list:
         if df is not None and len(df) > 0:
-            formatters: dict[str, NumberFormatter] = {}
-            if numeric_precision is not None or numeric_precision_by_column:
-                numeric_columns = [
-                    column
-                    for column, dtype in df.schema.items()
-                    if getattr(dtype, "is_numeric", lambda: False)()
-                ]
-                if numeric_columns:
-                    formatters = {
-                        column: NumberFormatter(
-                            format=(
-                                f"0.{('0' * numeric_precision_by_column[column])}"
-                                if numeric_precision_by_column
-                                and column in numeric_precision_by_column
-                                else f"0.{('0' * (numeric_precision or 0))}"
-                            )
-                        )
-                        for column in numeric_columns
-                    }
+            display_df = format_numeric_frame_for_display(
+                df,
+                numeric_precision=numeric_precision,
+                numeric_precision_by_column=numeric_precision_by_column,
+            )
             tabs.append(
                 (
                     label,
                     pn.widgets.Tabulator(
-                        _to_pandas(df),
+                        _to_pandas(display_df),
                         height=height,
                         sizing_mode="stretch_width",
                         theme="simple",
-                        formatters=formatters,
                     ),
                 )
             )

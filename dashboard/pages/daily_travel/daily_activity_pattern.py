@@ -422,21 +422,33 @@ class DailyActivityPatternPage(DashboardPage):
             trip_purpose_x_values = ordered_category_values(
                 summaries["trip_rates_by_person_type_and_trip_purpose"],
                 "trip_purpose",
+                category_id="trip_purpose",
+                config=self.config,
+            )
+            trip_purpose_label_values = self.config.ordered_labels(
+                "trip_purpose",
+                trip_purpose_x_values,
             )
             trip_rate_data = self.get_filtered_view(
                 "trip_rate_per_person",
                 raw_person_type,
-                factory=lambda: complete_category_counts(
-                    filter_person_type_rates(
-                        summaries["trip_rates_by_person_type_and_trip_purpose"],
-                        raw_person_type,
-                        purpose_col="trip_purpose",
-                        rate_col="trip_rate",
-                        person_weights=person_weights,
+                factory=lambda: label_category_data(
+                    complete_category_counts(
+                        filter_person_type_rates(
+                            summaries["trip_rates_by_person_type_and_trip_purpose"],
+                            raw_person_type,
+                            purpose_col="trip_purpose",
+                            rate_col="trip_rate",
+                            person_weights=person_weights,
+                        ),
+                        category_col="trip_purpose",
+                        category_values=trip_purpose_x_values,
+                        value_cols=("trip_rate",),
                     ),
-                    category_col="trip_purpose",
-                    category_values=trip_purpose_x_values,
-                    value_cols=("trip_rate",),
+                    category_id="trip_purpose",
+                    config=self.config,
+                    source_col="trip_purpose",
+                    target_col="trip_purpose",
                 ),
             )
             trip_rate_view = bar_chart(
@@ -447,7 +459,7 @@ class DailyActivityPatternPage(DashboardPage):
                 xaxis_title="Trip Purpose",
                 yaxis_title="Trips per Person-Day",
                 as_percent=False,
-                xaxis_categoryarray=trip_purpose_x_values,
+                xaxis_categoryarray=trip_purpose_label_values,
             )
         content.append(pn.Row(tour_rate_view, trip_rate_view))
 

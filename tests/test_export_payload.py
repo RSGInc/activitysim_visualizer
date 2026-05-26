@@ -461,50 +461,71 @@ def test_build_export_payload_skips_prepared_only_sections_but_keeps_summary_saf
         {
             "id": "skims",
             "title": "Skim Summaries",
-            "selectors": [
+            "selectors": [],
+            "children": [
                 {
-                    "id": "skim_component",
-                    "label": "Skim Component",
-                    "available": True,
-                    "request_mode": "all",
-                    "requested_values": [],
-                    "resolved_values": ["DIST", "TIME"],
-                    "default_value": "DIST",
-                    "options": ["DIST", "TIME"],
-                    "export_enabled": True,
+                    "id": "tour_skims",
+                    "title": "Tour Skims",
+                    "selectors": [
+                        {
+                            "id": "tour_skim_family",
+                            "label": "Tour Skim Family",
+                            "available": True,
+                            "request_mode": "all",
+                            "requested_values": [],
+                            "resolved_values": ["Walk Skims"],
+                            "default_value": "Walk Skims",
+                            "options": ["Walk Skims"],
+                            "export_enabled": False,
+                        },
+                        {
+                            "id": "tour_skim_direction",
+                            "label": "Direction",
+                            "available": True,
+                            "request_mode": "all",
+                            "requested_values": [],
+                            "resolved_values": ["Outbound"],
+                            "default_value": "Outbound",
+                            "options": ["Outbound"],
+                            "export_enabled": False,
+                        },
+                    ],
+                    "children": [],
+                    "default_page_id": None,
                 },
                 {
-                    "id": "trip_mode",
-                    "label": "Trip Mode",
-                    "available": True,
-                    "request_mode": "all",
-                    "requested_values": [],
-                    "resolved_values": ["DRIVE"],
-                    "default_value": "DRIVE",
-                    "options": ["DRIVE"],
-                    "export_enabled": False,
-                },
-                {
-                    "id": "tour_mode",
-                    "label": "Tour Mode",
-                    "available": True,
-                    "request_mode": "all",
-                    "requested_values": [],
-                    "resolved_values": ["DRIVE"],
-                    "default_value": "DRIVE",
-                    "options": ["DRIVE"],
-                    "export_enabled": False,
+                    "id": "trip_skims",
+                    "title": "Trip Skims",
+                    "selectors": [
+                        {
+                            "id": "trip_skim_family",
+                            "label": "Trip Skim Family",
+                            "available": True,
+                            "request_mode": "all",
+                            "requested_values": [],
+                            "resolved_values": ["Walk Skims"],
+                            "default_value": "Walk Skims",
+                            "options": ["Walk Skims"],
+                            "export_enabled": False,
+                        }
+                    ],
+                    "children": [],
+                    "default_page_id": None,
                 },
             ],
-            "children": [],
-            "default_page_id": None,
+            "default_page_id": "tour_skims",
         }
     ]
-    skims = payload["states"]["Weighted||Percent"]["skims"]
-    region_ids = sorted(_region_nodes(skims))
-    nodes = _walk_nodes(skims)
+    weighted_state = payload["states"]["Weighted||Percent"]
+    nodes = _walk_nodes(weighted_state["tour_skims"]) + _walk_nodes(
+        weighted_state["trip_skims"]
+    )
+    region_ids = sorted(
+        list(_region_nodes(weighted_state["tour_skims"]).keys())
+        + list(_region_nodes(weighted_state["trip_skims"]).keys())
+    )
 
-    assert region_ids == ["skim_tour_summary_section", "skim_trip_summary_section"]
+    assert region_ids == ["tour_skim_summary_section", "trip_skim_summary_section"]
     assert not any(node.get("widget_type") == "float_input" for node in nodes)
     assert not any(node.get("selector_id") in {"trip_min", "trip_max", "tour_min", "tour_max"} for node in nodes)
 

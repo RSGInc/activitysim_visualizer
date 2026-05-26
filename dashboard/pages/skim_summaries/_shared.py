@@ -152,9 +152,22 @@ def component_display_name(
             value = value[len(prefix) :]
             break
     tokens = [token for token in value.split("_") if token]
-    acronym_tokens = {"ivtt", "brt", "bus", "crt", "lrt", "tiv", "vot", "maz", "pnr", "knr"}
+    acronym_tokens = {
+        "ivtt",
+        "brt",
+        "bus",
+        "crt",
+        "lrt",
+        "tiv",
+        "vot",
+        "maz",
+        "pnr",
+        "knr",
+    }
     formatted_tokens = [
-        token.upper() if token.lower() in acronym_tokens else token.replace("-", " ").title()
+        token.upper()
+        if token.lower() in acronym_tokens
+        else token.replace("-", " ").title()
         for token in tokens
     ]
     return " ".join(formatted_tokens) if formatted_tokens else value
@@ -298,18 +311,18 @@ def _skim_family_definitions(
             )
             family_definitions[family] = {"modes": family_modes, "outputs": outputs}
 
-        other_modes = tuple(sorted(mode for mode in all_modes if mode not in assigned_modes))
-        if other_modes:
-            outputs = tuple(
-                sorted(
-                    {
-                        output
-                        for mode in other_modes
-                        for output in configured_outputs.get(mode, set())
-                    }
-                )
-            )
-            family_definitions["Other Skims"] = {"modes": other_modes, "outputs": outputs}
+        # other_modes = tuple(sorted(mode for mode in all_modes if mode not in assigned_modes))
+        # if other_modes:
+        #     outputs = tuple(
+        #         sorted(
+        #             {
+        #                 output
+        #                 for mode in other_modes
+        #                 for output in configured_outputs.get(mode, set())
+        #             }
+        #         )
+        #     )
+        #     family_definitions["Other Skims"] = {"modes": other_modes, "outputs": outputs}
         definitions[label] = family_definitions
     return definitions
 
@@ -356,15 +369,23 @@ def skim_direction_options(
             available.append("Inbound")
         if len(available) == 2:
             break
-    ordered = [direction for direction in ("Outbound", "Inbound") if direction in available]
+    ordered = [
+        direction for direction in ("Outbound", "Inbound") if direction in available
+    ]
     return ordered or ["Outbound"]
 
 
 def _skim_name_expr(*, strip_direction: bool) -> pl.Expr:
-    return pl.col("component").map_elements(
-        lambda value: component_display_name(str(value), strip_direction=strip_direction),
-        return_dtype=pl.Utf8,
-    ).alias("skim_name")
+    return (
+        pl.col("component")
+        .map_elements(
+            lambda value: component_display_name(
+                str(value), strip_direction=strip_direction
+            ),
+            return_dtype=pl.Utf8,
+        )
+        .alias("skim_name")
+    )
 
 
 def family_stats_table(
@@ -402,13 +423,19 @@ def family_stats_table(
             & (pl.col(mode_column) != ALL_MODES)
         )
         if configured_outputs:
-            filtered = filtered.filter(pl.col("component").is_in(list(configured_outputs)))
+            filtered = filtered.filter(
+                pl.col("component").is_in(list(configured_outputs))
+            )
         if direction_suffix is not None:
-            filtered = filtered.filter(pl.col("component").str.ends_with(direction_suffix))
+            filtered = filtered.filter(
+                pl.col("component").str.ends_with(direction_suffix)
+            )
         if filtered.is_empty():
             filtered_list.append((label, pl.DataFrame()))
             continue
-        filtered = filtered.with_columns(_skim_name_expr(strip_direction=direction is not None))
+        filtered = filtered.with_columns(
+            _skim_name_expr(strip_direction=direction is not None)
+        )
         if target_table == "tours" and family == "Auto Skims":
             filtered = filtered.with_columns(
                 pl.col("skim_name").str.replace(r"^Drive\s+", "")
@@ -515,7 +542,9 @@ def filter_stats(
             pl.col(mode_column).cast(pl.Utf8),
         ).filter(pl.col("component") == component)
         filtered = filtered.filter(pl.col(mode_column) == mode_value)
-        filtered = filtered.select([column for column in SUMMARY_METRIC_COLUMNS if column in df.columns])
+        filtered = filtered.select(
+            [column for column in SUMMARY_METRIC_COLUMNS if column in df.columns]
+        )
         filtered_list.append((label, filtered))
     return filtered_list
 

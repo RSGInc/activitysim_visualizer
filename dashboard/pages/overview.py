@@ -5,7 +5,12 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import _to_pandas, bar_chart, kpi_box
+from dashboard.components import (
+    _to_pandas,
+    bar_chart,
+    format_numeric_frame_for_display,
+    kpi_box,
+)
 from dashboard.page_base import DashboardPage, SectionContent
 from dashboard.page_definitions import DashboardPageDefinition
 from runtime.config import Config
@@ -147,7 +152,14 @@ class OverviewPage(DashboardPage):
                     pn.pane.Markdown("### Percent Difference vs Base Run"),
                     (
                         pn.widgets.Tabulator(
-                            _to_pandas(pct_df), sizing_mode="stretch_width", height=260
+                            _to_pandas(
+                                format_numeric_frame_for_display(
+                                    pct_df,
+                                    numeric_precision=2,
+                                )
+                            ),
+                            sizing_mode="stretch_width",
+                            height=260,
                         )
                         if len(pct_df) > 0
                         else pn.pane.Markdown("")

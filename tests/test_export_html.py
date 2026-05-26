@@ -1420,8 +1420,10 @@ def test_build_export_html_document_keeps_summary_safe_skims_content_and_hides_p
 
     html = build_export_html_document([], config, summary_runs=[_skim_summary_run()])
     payload = _extract_payload(html)
-    skims = payload["states"]["Weighted||Percent"]["skims"]
-    nodes = _walk_nodes(skims)
+    weighted_state = payload["states"]["Weighted||Percent"]
+    nodes = _walk_nodes(weighted_state["tour_skims"]) + _walk_nodes(
+        weighted_state["trip_skims"]
+    )
 
     assert [(page["id"], page["title"]) for page in payload["pages"]] == [
         ("skims", "Skim Summaries")
@@ -1431,6 +1433,12 @@ def test_build_export_html_document_keeps_summary_safe_skims_content_and_hides_p
         for node in nodes
     )
     assert not any(node.get("widget_type") == "float_input" for node in nodes)
+    assert not any(
+        "Live Tour Distributions" in node.get("html", "")
+        or "Live Trip Distributions" in node.get("html", "")
+        for node in nodes
+        if node.get("kind") == "html"
+    )
 
 
 def test_build_export_html_document_validates_page_selector_requests_against_registry(

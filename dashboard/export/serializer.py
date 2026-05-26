@@ -12,8 +12,19 @@ import numpy as np
 import pandas as pd
 import panel as pn
 
+from dashboard.components import format_numeric_for_display
 from dashboard.export.types import ExportNode
 from dashboard.page_definitions import DashboardPageDefinition
+
+
+def _serialize_table_cell(value: Any) -> Any:
+    """Return export-ready display values for table cells.
+
+    Export tables are rendered by the lightweight browser runtime rather than
+    Tabulator, so we normalize numeric display here using the same
+    significant-digit rule as live dashboard tables.
+    """
+    return format_numeric_for_display(sanitize_export_payload(value), precision=2)
 
 
 def serialize_viewable(
@@ -126,7 +137,13 @@ def serialize_viewable(
         return {
             "kind": "table",
             "columns": [str(column) for column in frame.columns],
-            "rows": frame.to_dict(orient="records"),
+            "rows": [
+                {
+                    str(column): _serialize_table_cell(value)
+                    for column, value in row.items()
+                }
+                for row in frame.to_dict(orient="records")
+            ],
         }
     if isinstance(obj, pn.widgets.RadioButtonGroup):
         if id(obj) in hidden_widget_ids:

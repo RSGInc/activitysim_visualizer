@@ -444,11 +444,11 @@ class Config:
 
     def label_value(self, category_id: str, raw_value) -> str:
         raw_value_str = str(raw_value)
-        if category_id == "tour_purpose" and raw_value_str == "all_tour_purposes":
-            return "All"
         spec = self.dashboard_label_spec(category_id)
         if spec is not None and raw_value_str in spec.labels_by_raw:
             return spec.labels_by_raw[raw_value_str]
+        if category_id == "tour_purpose" and raw_value_str == "all_tour_purposes":
+            return "All"
         return raw_value_str
 
     def ordered_values(self, category_id: str, raw_values: list[str]) -> list[str]:

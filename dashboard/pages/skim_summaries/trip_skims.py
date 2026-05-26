@@ -104,22 +104,28 @@ class TripSkimsPage(DashboardPage):
             render=self.render_distribution_section,
         )
 
-        return self.new_section(
+        content = [
             pn.pane.Markdown("## Trip Skims"),
             control_row(
                 pn.pane.Markdown("**Trip Skim Family:**"),
                 self.trip_family_sel,
             ),
             self._summary_section,
-            pn.pane.Markdown("### Live Trip Distributions"),
-            control_row(
-                pn.pane.Markdown("**Trip Distribution Component:**"),
-                self.trip_component_sel,
-                pn.pane.Markdown("**Trip Distribution Mode:**"),
-                self.trip_mode_sel,
-            ),
-            self._distribution_section,
-        )
+        ]
+        if not self.state.export_mode:
+            content.extend(
+                [
+                    pn.pane.Markdown("### Live Trip Distributions"),
+                    control_row(
+                        pn.pane.Markdown("**Trip Distribution Component:**"),
+                        self.trip_component_sel,
+                        pn.pane.Markdown("**Trip Distribution Mode:**"),
+                        self.trip_mode_sel,
+                    ),
+                    self._distribution_section,
+                ]
+            )
+        return self.new_section(*content)
 
     def _trip_summaries(self):
         return self.state.get_summary_series_set(

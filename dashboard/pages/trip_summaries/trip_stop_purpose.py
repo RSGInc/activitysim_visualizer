@@ -6,9 +6,50 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart, control_row, control_row_spacer
-from dashboard.helpers.category_helpers import column_options, nonempty
+from dashboard.helpers.category_helpers import (
+    column_options,
+    label_category_data,
+    nonempty,
+    ordered_category_values,
+)
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
+
+
+def order_chart_data(
+    data_list: list[tuple[str, pl.DataFrame]],
+    *,
+    column: str,
+    ordered_values: list[str],
+) -> list[tuple[str, pl.DataFrame]]:
+    if not ordered_values:
+        return data_list
+    order_index = {str(value): idx for idx, value in enumerate(ordered_values)}
+    out: list[tuple[str, pl.DataFrame]] = []
+    for label, df in data_list:
+        if df is None or column not in df.columns:
+            out.append((label, df))
+            continue
+        out.append(
+            (
+                label,
+                df.with_columns(
+                    pl.col(column)
+                    .cast(pl.Utf8)
+                    .map_elements(
+                        lambda value: order_index.get(
+                            str(value),
+                            len(order_index),
+                        ),
+                        return_dtype=pl.Int64,
+                    )
+                    .alias("_category_order")
+                )
+                .sort("_category_order")
+                .drop("_category_order"),
+            )
+        )
+    return out
 
 
 def stop_purpose_chart_data(
@@ -124,6 +165,51 @@ class TripStopPurposePage(DashboardPage):
                 raw_tour_purpose,
             ),
         )
+        trip_purpose_x_values = ordered_category_values(
+            trip_purpose_data,
+            "trip_purpose",
+            category_id="trip_purpose",
+            config=self.config,
+        )
+        trip_purpose_label_values = self.config.ordered_labels(
+            "trip_purpose",
+            trip_purpose_x_values,
+        )
+        trip_purpose_data = label_category_data(
+            trip_purpose_data,
+            category_id="trip_purpose",
+            config=self.config,
+            source_col="trip_purpose",
+            target_col="trip_purpose",
+        )
+        trip_purpose_data = order_chart_data(
+            trip_purpose_data,
+            column="trip_purpose",
+            ordered_values=trip_purpose_label_values,
+        )
+
+        stop_purpose_x_values = ordered_category_values(
+            stop_purpose_data,
+            "stop_destination_purpose",
+            category_id="stop_purpose",
+            config=self.config,
+        )
+        stop_purpose_label_values = self.config.ordered_labels(
+            "stop_purpose",
+            stop_purpose_x_values,
+        )
+        stop_purpose_data = label_category_data(
+            stop_purpose_data,
+            category_id="stop_purpose",
+            config=self.config,
+            source_col="stop_destination_purpose",
+            target_col="stop_destination_purpose",
+        )
+        stop_purpose_data = order_chart_data(
+            stop_purpose_data,
+            column="stop_destination_purpose",
+            ordered_values=stop_purpose_label_values,
+        )
 
         return [
             pn.Column(
@@ -147,6 +233,7 @@ class TripStopPurposePage(DashboardPage):
                         yaxis_title="Trips",
                         pct_col="pct",
                         as_percent=self.as_percent,
+                        xaxis_categoryarray=trip_purpose_label_values,
                     ),
                     bar_chart(
                         stop_purpose_data,
@@ -157,6 +244,7 @@ class TripStopPurposePage(DashboardPage):
                         yaxis_title="Stops",
                         pct_col="pct",
                         as_percent=self.as_percent,
+                        xaxis_categoryarray=stop_purpose_label_values,
                     ),
                     sizing_mode="stretch_width",
                 ),

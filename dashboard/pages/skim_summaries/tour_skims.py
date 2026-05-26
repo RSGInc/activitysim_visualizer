@@ -141,7 +141,7 @@ class TourSkimsPage(DashboardPage):
             render=self.render_distribution_section,
         )
 
-        return self.new_section(
+        content = [
             pn.pane.Markdown("## Tour Skims"),
             control_row(
                 pn.pane.Markdown("**Tour Skim Family:**"),
@@ -150,15 +150,21 @@ class TourSkimsPage(DashboardPage):
                 self.tour_direction_sel,
             ),
             self._summary_section,
-            pn.pane.Markdown("### Live Tour Distributions"),
-            control_row(
-                pn.pane.Markdown("**Tour Distribution Component:**"),
-                self.tour_component_sel,
-                pn.pane.Markdown("**Tour Distribution Mode:**"),
-                self.tour_mode_sel,
-            ),
-            self._distribution_section,
-        )
+        ]
+        if not self.state.export_mode:
+            content.extend(
+                [
+                    pn.pane.Markdown("### Live Tour Distributions"),
+                    control_row(
+                        pn.pane.Markdown("**Tour Distribution Component:**"),
+                        self.tour_component_sel,
+                        pn.pane.Markdown("**Tour Distribution Mode:**"),
+                        self.tour_mode_sel,
+                    ),
+                    self._distribution_section,
+                ]
+            )
+        return self.new_section(*content)
 
     def _tour_summaries(self):
         return self.state.get_summary_series_set(

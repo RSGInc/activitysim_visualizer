@@ -34,6 +34,7 @@ class DashboardState(param.Parameterized):
         prepared_run_provider: DashboardPreparedRunProvider | None = None,
         dashboard_segmentation_type: str | None = None,
         default_segmentation_visibility: str = "full_and_segments",
+        export_mode: bool = False,
         **params: Any,
     ) -> None:
         super().__init__(**params)
@@ -58,6 +59,7 @@ class DashboardState(param.Parameterized):
             else None
         )
         self._segmentation_display_mode = str(default_segmentation_visibility).strip().lower()
+        self._export_mode = bool(export_mode)
         self._configure_segmentation_controls()
 
     def _build_summary_series(
@@ -99,6 +101,10 @@ class DashboardState(param.Parameterized):
     def page_state(self) -> dict[str, dict[str, Any]]:
         """Return all page-local state keyed by page name."""
         return self._page_state
+
+    @property
+    def export_mode(self) -> bool:
+        return self._export_mode
 
     @property
     def caches(self) -> dict[str, dict[tuple[Any, ...], Any]]:

@@ -30,4 +30,5 @@ class ExportBuildContext:
                 self.config.export_html.dashboard.segmentation_visibility
                 or "full_and_segments"
             ),
+            export_mode=True,
         )
