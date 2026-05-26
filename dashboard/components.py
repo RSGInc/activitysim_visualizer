@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import html
+from bokeh.models.widgets.tables import NumberFormatter
 import panel as pn
 import plotly.graph_objects as go
 import polars as pl
@@ -403,6 +404,8 @@ def data_table(
     data_list: list[tuple[str, pl.DataFrame]],
     title: str = "",
     height: int = 300,
+    numeric_precision: int | None = None,
+    numeric_precision_by_column: dict[str, int] | None = None,
 ) -> pn.viewable.Viewable:
     """
     Display a data table. If multiple runs, show side by side.
@@ -410,6 +413,25 @@ def data_table(
     tabs = pn.Tabs()
     for label, df in data_list:
         if df is not None and len(df) > 0:
+            formatters: dict[str, NumberFormatter] = {}
+            if numeric_precision is not None or numeric_precision_by_column:
+                numeric_columns = [
+                    column
+                    for column, dtype in df.schema.items()
+                    if getattr(dtype, "is_numeric", lambda: False)()
+                ]
+                if numeric_columns:
+                    formatters = {
+                        column: NumberFormatter(
+                            format=(
+                                f"0.{('0' * numeric_precision_by_column[column])}"
+                                if numeric_precision_by_column
+                                and column in numeric_precision_by_column
+                                else f"0.{('0' * (numeric_precision or 0))}"
+                            )
+                        )
+                        for column in numeric_columns
+                    }
             tabs.append(
                 (
                     label,
@@ -418,6 +440,7 @@ def data_table(
                         height=height,
                         sizing_mode="stretch_width",
                         theme="simple",
+                        formatters=formatters,
                     ),
                 )
             )

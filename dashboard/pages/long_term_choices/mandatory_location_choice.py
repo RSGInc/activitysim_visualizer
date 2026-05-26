@@ -12,6 +12,7 @@ from dashboard.components import (
     data_table,
     density_chart,
 )
+from dashboard.helpers.category_helpers import label_category_data
 from dashboard.helpers.geography_helpers import detail_geography_levels
 from dashboard.page_base import DashboardPage
 from dashboard.page_base import SectionContent
@@ -696,15 +697,37 @@ class MandatoryLocationChoicePage(DashboardPage):
             )
 
         if telecommute is not None:
+            telecommute_labeled = label_category_data(
+                _nonempty(telecommute),
+                source_col="telecommute_frequency",
+                category_id="telecommute_frequency",
+                config=self.config,
+                target_col="telecommute_frequency_label",
+            )
+            telecommute_values = []
+            seen_telecommute: set[str] = set()
+            for _, df in _nonempty(telecommute):
+                if "telecommute_frequency" not in df.columns:
+                    continue
+                for value in df["telecommute_frequency"].cast(pl.Utf8).to_list():
+                    value_str = str(value)
+                    if value_str in seen_telecommute:
+                        continue
+                    seen_telecommute.add(value_str)
+                    telecommute_values.append(value_str)
             remote_row.append(
                 bar_chart(
-                    _nonempty(telecommute),
-                    x_col="telecommute_frequency",
+                    telecommute_labeled,
+                    x_col="telecommute_frequency_label",
                     y_col="person_count",
                     title="Telecommute Rate",
                     xaxis_title="Telecommute Frequency",
                     yaxis_title="Workers Who Do Not Work From Home",
                     as_percent=self.as_percent,
+                    xaxis_categoryarray=self.config.ordered_labels(
+                        "telecommute_frequency",
+                        telecommute_values,
+                    ),
                 )
             )
         else:

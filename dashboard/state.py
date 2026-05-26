@@ -168,6 +168,35 @@ class DashboardState(param.Parameterized):
             return None
         return [(label, table) for label, table in selection.usable_runs]
 
+    def get_summary_series_set(
+        self,
+        summary_name: str,
+        weighting_key: str | None = None,
+    ) -> list[tuple[str, DashboardSummarySeries, pl.DataFrame]] | None:
+        """Return usable summary tables together with their owning run series."""
+        if not self._summary_runs:
+            return None
+        mode = weighting_key or self.weighting_key()
+        visible_runs = self._visible_summary_runs()
+        include_segment = self.has_segmented_summary_series and (
+            self._segmentation_display_mode != "full_only"
+        )
+        usable_runs: list[tuple[str, DashboardSummarySeries, pl.DataFrame]] = []
+        for run in visible_runs:
+            table = run.get_table(summary_name, mode)
+            metadata = run.get_summary_metadata(summary_name, mode) or {}
+            state = str(metadata.get("state", "")).strip().lower()
+            if table is None or state in {"unavailable", "failed"} or table.is_empty():
+                continue
+            usable_runs.append(
+                (
+                    run.display_label(include_segment=include_segment),
+                    run,
+                    table,
+                )
+            )
+        return usable_runs or None
+
     def has_summary_table_set(
         self,
         summary_name: str,

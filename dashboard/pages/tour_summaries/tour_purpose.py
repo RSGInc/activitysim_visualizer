@@ -66,15 +66,34 @@ class TourPurposePage(DashboardPage):
             target_col="tour_purpose_label",
         )
 
-        category_chart = bar_chart(
+        category_x_values = ordered_category_values(
             category_data,
-            x_col="tour_category",
+            "tour_category",
+            category_id="tour_category",
+            config=self.config,
+        )
+        category_label_values = self.config.ordered_labels(
+            "tour_category",
+            category_x_values,
+        )
+        labeled_category_data = label_category_data(
+            category_data,
+            source_col="tour_category",
+            category_id="tour_category",
+            config=self.config,
+            target_col="tour_category_label",
+        )
+
+        category_chart = bar_chart(
+            labeled_category_data,
+            x_col="tour_category_label",
             y_col="tour_count",
             title="Tour Category",
             xaxis_title="Tour Category",
             yaxis_title="Tours",
             pct_col="pct",
             as_percent=self.as_percent,
+            xaxis_categoryarray=category_label_values,
         )
 
         purpose_chart = bar_chart(

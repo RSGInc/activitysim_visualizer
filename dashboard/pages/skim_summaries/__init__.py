@@ -6,5 +6,5 @@ GROUP = DashboardGroupDefinition(
     group_id="skims",
     title="Skim Summaries",
     order=50,
-    default_page_id="trip_skims",
+    default_page_id="tour_skims",
 )

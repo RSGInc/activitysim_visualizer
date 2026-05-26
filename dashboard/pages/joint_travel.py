@@ -6,6 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart, control_row, control_row_spacer
+from dashboard.helpers.category_helpers import label_category_data
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
@@ -291,13 +292,31 @@ class JointTravelPage(DashboardPage):
                         as_percent=self.as_percent,
                     ),
                     bar_chart(
-                        comp_party_data,
-                        "tour_composition",
+                        label_category_data(
+                            comp_party_data,
+                            source_col="tour_composition",
+                            category_id="tour_composition",
+                            config=self.config,
+                            target_col="tour_composition_label",
+                        ),
+                        "tour_composition_label",
                         "joint_tour_count",
                         f"Joint Tour Composition by Party Size - {party_size}",
                         "Tour Composition",
                         yaxis_title="Joint Tours",
                         as_percent=self.as_percent,
+                        xaxis_categoryarray=self.config.ordered_labels(
+                            "tour_composition",
+                            [
+                                str(value)
+                                for _, df in comp_party_data
+                                for value in (
+                                    df["tour_composition"].cast(pl.Utf8).to_list()
+                                    if "tour_composition" in df.columns
+                                    else []
+                                )
+                            ],
+                        ),
                     ),
                     sizing_mode="stretch_width",
                 ),

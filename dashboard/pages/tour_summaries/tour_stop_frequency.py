@@ -6,7 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart
-from dashboard.helpers.category_helpers import column_options, nonempty
+from dashboard.helpers.category_helpers import column_options, label_category_data, nonempty
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
@@ -185,14 +185,32 @@ class TourStopFrequencyPage(DashboardPage):
             ),
             pn.pane.Markdown("### At-Work Sub-Tour Frequency"),
             bar_chart(
-                atwork_list,
-                "atwork_subtour_frequency_category",
+                label_category_data(
+                    atwork_list,
+                    source_col="atwork_subtour_frequency_category",
+                    category_id="atwork_subtour_frequency_category",
+                    config=self.config,
+                    target_col="atwork_subtour_frequency_label",
+                ),
+                "atwork_subtour_frequency_label",
                 "atwork_subtour_count",
                 "At-Work Sub-Tour Frequency",
                 "At-Work Sub-Tour Frequency",
                 pct_col="pct",
                 yaxis_title="At-Work Sub-Tours",
                 as_percent=self.as_percent,
+                xaxis_categoryarray=self.config.ordered_labels(
+                    "atwork_subtour_frequency_category",
+                    [
+                        str(value)
+                        for _, df in atwork_list
+                        for value in (
+                            df["atwork_subtour_frequency_category"].cast(pl.Utf8).to_list()
+                            if "atwork_subtour_frequency_category" in df.columns
+                            else []
+                        )
+                    ],
+                ),
             ),
         ]
 

@@ -210,23 +210,31 @@ class IndividualChoicesPage(DashboardPage):
         license_list = self.get_filtered_view(
             "license_holding_status_distribution",
             raw_person_type,
-            factory=lambda: complete_category_counts(
-                filter_person_type_counts(normalized_summary, raw_person_type),
-                category_col="license_holding_status",
-                category_values=x_values,
-                value_cols=("person_count", "pct"),
+            factory=lambda: label_category_data(
+                complete_category_counts(
+                    filter_person_type_counts(normalized_summary, raw_person_type),
+                    category_col="license_holding_status",
+                    category_values=x_values,
+                    value_cols=("person_count", "pct"),
+                ),
+                source_col="license_holding_status",
+                category_id="license_holding_status",
+                config=self.config,
+                target_col="license_holding_status_label",
             ),
         )
         return bar_chart(
             license_list,
-            x_col="license_holding_status",
+            x_col="license_holding_status_label",
             y_col="person_count",
             title=f"License Holding Status Among Persons Aged 16+ - {display_person_type}",
             xaxis_title="License Status",
             yaxis_title="Persons Age 16+",
             pct_col="pct",
             as_percent=self.as_percent,
-            xaxis_categoryarray=x_values,
+            xaxis_categoryarray=self.config.ordered_labels(
+                "license_holding_status", x_values
+            ),
         )
 
     def render_bike_chart(
@@ -293,23 +301,31 @@ class IndividualChoicesPage(DashboardPage):
         pass_list = self.get_filtered_view(
             "transit_pass_ownership_by_person_type",
             raw_person_type,
-            factory=lambda: complete_category_counts(
-                filter_person_type_counts(normalized_summary, raw_person_type),
-                category_col="transit_pass_ownership_status",
-                category_values=x_values,
-                value_cols=("person_count", "pct"),
+            factory=lambda: label_category_data(
+                complete_category_counts(
+                    filter_person_type_counts(normalized_summary, raw_person_type),
+                    category_col="transit_pass_ownership_status",
+                    category_values=x_values,
+                    value_cols=("person_count", "pct"),
+                ),
+                source_col="transit_pass_ownership_status",
+                category_id="transit_pass_ownership_status",
+                config=self.config,
+                target_col="transit_pass_ownership_status_label",
             ),
         )
         return bar_chart(
             pass_list,
-            x_col="transit_pass_ownership_status",
+            x_col="transit_pass_ownership_status_label",
             y_col="person_count",
             title=f"Transit Pass Ownership - {display_person_type}",
             xaxis_title="Transit Pass Ownership Status",
             yaxis_title="Persons",
             pct_col="pct",
             as_percent=self.as_percent,
-            xaxis_categoryarray=x_values,
+            xaxis_categoryarray=self.config.ordered_labels(
+                "transit_pass_ownership_status", x_values
+            ),
         )
 
     def render_subsidy_chart(

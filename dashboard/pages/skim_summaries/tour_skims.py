@@ -12,8 +12,11 @@ from dashboard.pages.skim_summaries._shared import (
     directional_component_name,
     distribution_bins,
     distribution_data_bounds,
-    filter_stats,
+    family_stats_table,
     resolve_distribution_range,
+    skim_direction_options,
+    skim_family_options,
+    skim_summary_precision_overrides,
     tour_component_base_options,
     tour_mode_options,
 )
@@ -21,40 +24,71 @@ from dashboard.pages.skim_summaries._shared import (
 
 class TourSkimsPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
-        tour_stats = self.state.get_summary_table_set(TOUR_STATS_SUMMARY_ID, "weighted")
+        tour_stats = self.state.get_summary_series_set(TOUR_STATS_SUMMARY_ID, "weighted")
+        family_options = skim_family_options(
+            self.config,
+            tour_stats,
+            mode_column="tour_mode",
+            target_table="tours",
+        )
+        initial_family = family_options[0]
+        direction_options = skim_direction_options(tour_stats)
+        initial_direction = direction_options[0]
         component_base_options = tour_component_base_options(tour_stats)
         initial_component_base = component_base_options[0]
 
-        self.tour_component_sel = self.selector(
-            "tour_skim_component",
+        self.tour_family_sel = self.selector(
+            "tour_skim_family",
             widget=pn.widgets.Select(
-                name="Tour Skim Component",
+                name="Tour Skim Family",
+                options=family_options,
+                value=initial_family,
+            ),
+            label="Tour Skim Family",
+        )
+        self.tour_direction_sel = self.selector(
+            "tour_skim_direction",
+            widget=pn.widgets.Select(
+                name="Direction",
+                options=direction_options,
+                value=initial_direction,
+            ),
+            label="Direction",
+        )
+        self.tour_component_sel = self.selector(
+            "tour_distribution_component",
+            widget=pn.widgets.Select(
+                name="Tour Distribution Component",
                 options=component_base_options,
                 value=initial_component_base,
             ),
-            label="Tour Skim Component",
+            label="Tour Distribution Component",
+            exportable=False,
         )
         self.tour_mode_sel = self.selector(
-            "tour_mode",
+            "tour_distribution_mode",
             widget=pn.widgets.Select(
-                name="Tour Mode",
+                name="Tour Distribution Mode",
                 options=tour_mode_options(
                     tour_stats,
                     mode_column="tour_mode",
                     component_base=initial_component_base,
                 ),
             ),
-            label="Tour Mode",
+            label="Tour Distribution Mode",
+            exportable=False,
         )
         self.outbound_min_sel = self.selector(
             "outbound_min",
             widget=pn.widgets.FloatInput(name="Outbound Min", step=0.1, value=0.0),
             label="Outbound Min",
+            exportable=False,
         )
         self.outbound_max_sel = self.selector(
             "outbound_max",
             widget=pn.widgets.FloatInput(name="Outbound Max", step=0.1, value=1.0),
             label="Outbound Max",
+            exportable=False,
         )
         self.outbound_reset_btn = pn.widgets.Button(
             name="Reset outbound range",
@@ -65,11 +99,13 @@ class TourSkimsPage(DashboardPage):
             "inbound_min",
             widget=pn.widgets.FloatInput(name="Inbound Min", step=0.1, value=0.0),
             label="Inbound Min",
+            exportable=False,
         )
         self.inbound_max_sel = self.selector(
             "inbound_max",
             widget=pn.widgets.FloatInput(name="Inbound Max", step=0.1, value=1.0),
             label="Inbound Max",
+            exportable=False,
         )
         self.inbound_reset_btn = pn.widgets.Button(
             name="Reset inbound range",
@@ -88,14 +124,14 @@ class TourSkimsPage(DashboardPage):
 
         self._summary_section = self.section(
             "tour_skim_summary_section",
-            selectors=("tour_skim_component", "tour_mode"),
+            selectors=("tour_skim_family", "tour_skim_direction"),
             render=self.render_summary_section,
         )
         self._distribution_section = self.section(
             "tour_skim_distribution_section",
             selectors=(
-                "tour_skim_component",
-                "tour_mode",
+                "tour_distribution_component",
+                "tour_distribution_mode",
                 "outbound_min",
                 "outbound_max",
                 "inbound_min",
@@ -108,21 +144,48 @@ class TourSkimsPage(DashboardPage):
         return self.new_section(
             pn.pane.Markdown("## Tour Skims"),
             control_row(
-                pn.pane.Markdown("**Tour Skim Component:**"),
-                self.tour_component_sel,
+                pn.pane.Markdown("**Tour Skim Family:**"),
+                self.tour_family_sel,
+                pn.pane.Markdown("**Direction:**"),
+                self.tour_direction_sel,
             ),
             self._summary_section,
+            pn.pane.Markdown("### Live Tour Distributions"),
+            control_row(
+                pn.pane.Markdown("**Tour Distribution Component:**"),
+                self.tour_component_sel,
+                pn.pane.Markdown("**Tour Distribution Mode:**"),
+                self.tour_mode_sel,
+            ),
             self._distribution_section,
         )
 
     def _tour_summaries(self):
-        return self.optional_summary(TOUR_STATS_SUMMARY_ID)
+        return self.state.get_summary_series_set(
+            TOUR_STATS_SUMMARY_ID,
+            self.weighting_key,
+        )
 
     def _tour_prepared_runs(self):
         return self.get_prepared_runs(weighted=(self.weighting_key == "weighted"))
 
     def sync_controls(self) -> None:
         tour_stats = self._tour_summaries()
+
+        family_options = skim_family_options(
+            self.config,
+            tour_stats,
+            mode_column="tour_mode",
+            target_table="tours",
+        )
+        self.tour_family_sel.options = family_options
+        if self.tour_family_sel.value not in family_options:
+            self.tour_family_sel.value = family_options[0]
+
+        direction_options = skim_direction_options(tour_stats)
+        self.tour_direction_sel.options = direction_options
+        if self.tour_direction_sel.value not in direction_options:
+            self.tour_direction_sel.value = direction_options[0]
 
         component_base_options = tour_component_base_options(tour_stats)
         self.tour_component_sel.options = component_base_options
@@ -191,51 +254,50 @@ class TourSkimsPage(DashboardPage):
         getattr(self, f"{direction}_min_sel").value = float(auto_range[0])
         getattr(self, f"{direction}_max_sel").value = float(auto_range[1])
 
-    def _render_directional_summary(self, direction: str):
+    def _render_summary_table(self):
         tour_stats = self._tour_summaries()
-        component_base = self.tour_component_sel.value
-        tour_mode = self.tour_mode_sel.value
-        component = self._directional_component(direction)
-        title = direction.title()
+        family = self.tour_family_sel.value
+        direction = self.tour_direction_sel.value
 
         if tour_stats is None:
             return self.data_not_available_card(
                 detail="Tour skim summaries require the precomputed skim tour statistics table.",
                 missing_items=[TOUR_STATS_SUMMARY_ID],
-                title=f"{title} Data Not Available",
+                title="Data Not Available",
             )
 
-        if (
-            component_base == "No components available"
-            or tour_mode == "No modes available"
-        ):
+        if family == "No skim families available":
             return self.data_not_available_card(
-                detail="Tour skim summaries are available only when skim-enriched tour summary tables contain numeric components.",
+                detail="Tour skim summaries are available only when skim-enriched tour summary tables contain supported skim-family modes.",
                 missing_items=[TOUR_STATS_SUMMARY_ID],
-                title=f"{title} Data Not Available",
+                title="Data Not Available",
             )
 
         stats_data = self.get_filtered_view(
-            f"tour_skim_stats_{direction}",
-            component,
-            tour_mode,
-            factory=lambda: filter_stats(
+            "tour_skim_family_stats",
+            family,
+            direction,
+            factory=lambda: family_stats_table(
+                self.config,
                 tour_stats,
-                component=component,
+                family=family,
                 mode_column="tour_mode",
-                mode_value=tour_mode,
+                target_table="tours",
+                direction=direction,
             ),
         )
         if not any(not df.is_empty() for _, df in stats_data):
             return self.data_not_available_card(
-                detail=f"No {direction} tour skim summary data is available for component `{component}` and mode `{tour_mode}`.",
-                title=f"{title} Data Not Available",
+                detail=f"No {direction.lower()} tour skim summary data is available for family `{family}`.",
+                title="Data Not Available",
             )
 
         return data_table(
             stats_data,
-            title=f"{title} Tour Summary Statistics - {component} / {tour_mode}",
-            height=130,
+            title=f"Tour Summary Statistics - {family} / {direction}",
+            height=280,
+            numeric_precision=2,
+            numeric_precision_by_column=skim_summary_precision_overrides(),
         )
 
     def render_summary_section(self):
@@ -243,15 +305,7 @@ class TourSkimsPage(DashboardPage):
             return [pn.pane.Markdown("No runs loaded.")]
 
         return [
-            control_row(
-                pn.pane.Markdown("**Tour Mode:**"),
-                self.tour_mode_sel,
-            ),
-            pn.Row(
-                self._render_directional_summary("outbound"),
-                self._render_directional_summary("inbound"),
-                sizing_mode="stretch_width",
-            ),
+            self._render_summary_table(),
         ]
 
     def _render_directional_distribution(self, direction: str):
@@ -333,9 +387,9 @@ PAGE = DashboardPageDefinition(
     page_id="tour_skims",
     title="Tour Skims",
     page_cls=TourSkimsPage,
-    order=51,
+    order=50,
     group_id="skims",
-    child_order=20,
+    child_order=10,
     default_enabled=True,
     prepared_data_mode="optional",
     required_prepared_tables=("tours",),

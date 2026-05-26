@@ -12,48 +12,70 @@ from dashboard.pages.skim_summaries._shared import (
     component_options,
     distribution_bins,
     distribution_data_bounds,
-    filter_stats,
+    family_stats_table,
     mode_options,
     resolve_distribution_range,
+    skim_family_options,
+    skim_summary_precision_overrides,
 )
 
 
 class TripSkimsPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
-        trip_stats = self.state.get_summary_table_set(TRIP_STATS_SUMMARY_ID, "weighted")
+        trip_stats = self.state.get_summary_series_set(TRIP_STATS_SUMMARY_ID, "weighted")
+        trip_family_options = skim_family_options(
+            self.config,
+            trip_stats,
+            mode_column="trip_mode",
+            target_table="trips",
+        )
+        initial_trip_family = trip_family_options[0]
         trip_component_options = component_options(trip_stats)
         initial_trip_component = trip_component_options[0]
 
-        self.trip_component_sel = self.selector(
-            "trip_skim_component",
+        self.trip_family_sel = self.selector(
+            "trip_skim_family",
             widget=pn.widgets.Select(
-                name="Trip Skim Component",
+                name="Trip Skim Family",
+                options=trip_family_options,
+                value=initial_trip_family,
+            ),
+            label="Trip Skim Family",
+        )
+        self.trip_component_sel = self.selector(
+            "trip_distribution_component",
+            widget=pn.widgets.Select(
+                name="Trip Distribution Component",
                 options=trip_component_options,
                 value=initial_trip_component,
             ),
-            label="Trip Skim Component",
+            label="Trip Distribution Component",
+            exportable=False,
         )
         self.trip_mode_sel = self.selector(
-            "trip_mode",
+            "trip_distribution_mode",
             widget=pn.widgets.Select(
-                name="Trip Mode",
+                name="Trip Distribution Mode",
                 options=mode_options(
                     trip_stats,
                     mode_column="trip_mode",
                     component=initial_trip_component,
                 ),
             ),
-            label="Trip Mode",
+            label="Trip Distribution Mode",
+            exportable=False,
         )
         self.trip_min_sel = self.selector(
             "trip_min",
             widget=pn.widgets.FloatInput(name="Trip Min", step=0.1, value=0.0),
             label="Trip Min",
+            exportable=False,
         )
         self.trip_max_sel = self.selector(
             "trip_max",
             widget=pn.widgets.FloatInput(name="Trip Max", step=0.1, value=1.0),
             label="Trip Max",
+            exportable=False,
         )
         self.trip_reset_btn = pn.widgets.Button(
             name="Reset to full range",
@@ -67,12 +89,17 @@ class TripSkimsPage(DashboardPage):
 
         self._summary_section = self.section(
             "trip_skim_summary_section",
-            selectors=("trip_skim_component", "trip_mode"),
+            selectors=("trip_skim_family",),
             render=self.render_summary_section,
         )
         self._distribution_section = self.section(
             "trip_skim_distribution_section",
-            selectors=("trip_skim_component", "trip_mode", "trip_min", "trip_max"),
+            selectors=(
+                "trip_distribution_component",
+                "trip_distribution_mode",
+                "trip_min",
+                "trip_max",
+            ),
             export_data_mode="required",
             render=self.render_distribution_section,
         )
@@ -80,21 +107,41 @@ class TripSkimsPage(DashboardPage):
         return self.new_section(
             pn.pane.Markdown("## Trip Skims"),
             control_row(
-                pn.pane.Markdown("**Trip Skim Component:**"),
-                self.trip_component_sel,
+                pn.pane.Markdown("**Trip Skim Family:**"),
+                self.trip_family_sel,
             ),
             self._summary_section,
+            pn.pane.Markdown("### Live Trip Distributions"),
+            control_row(
+                pn.pane.Markdown("**Trip Distribution Component:**"),
+                self.trip_component_sel,
+                pn.pane.Markdown("**Trip Distribution Mode:**"),
+                self.trip_mode_sel,
+            ),
             self._distribution_section,
         )
 
     def _trip_summaries(self):
-        return self.optional_summary(TRIP_STATS_SUMMARY_ID)
+        return self.state.get_summary_series_set(
+            TRIP_STATS_SUMMARY_ID,
+            self.weighting_key,
+        )
 
     def _trip_prepared_runs(self):
         return self.get_prepared_runs(weighted=(self.weighting_key == "weighted"))
 
     def sync_controls(self) -> None:
         trip_stats = self._trip_summaries()
+
+        trip_family_options = skim_family_options(
+            self.config,
+            trip_stats,
+            mode_column="trip_mode",
+            target_table="trips",
+        )
+        self.trip_family_sel.options = trip_family_options
+        if self.trip_family_sel.value not in trip_family_options:
+            self.trip_family_sel.value = trip_family_options[0]
 
         trip_component_options = component_options(trip_stats)
         self.trip_component_sel.options = trip_component_options
@@ -168,61 +215,46 @@ class TripSkimsPage(DashboardPage):
         trip_stats = self._trip_summaries()
         if trip_stats is None:
             return [
-                control_row(
-                    pn.pane.Markdown("**Trip Mode:**"),
-                    self.trip_mode_sel,
-                ),
                 self.data_not_available_card(
                     detail="Trip skim summaries require the precomputed skim trip statistics table.",
                     missing_items=[TRIP_STATS_SUMMARY_ID],
                 ),
             ]
 
-        component = self.trip_component_sel.value
-        trip_mode = self.trip_mode_sel.value
-        if component == "No components available" or trip_mode == "No modes available":
+        family = self.trip_family_sel.value
+        if family == "No skim families available":
             return [
-                control_row(
-                    pn.pane.Markdown("**Trip Mode:**"),
-                    self.trip_mode_sel,
-                ),
                 self.data_not_available_card(
-                    detail="Trip skim summaries are available only when skim-enriched trip summary tables contain numeric components.",
+                    detail="Trip skim summaries are available only when skim-enriched trip summary tables contain supported skim-family modes.",
                     missing_items=[TRIP_STATS_SUMMARY_ID],
                 ),
             ]
 
         trip_stats_data = self.get_filtered_view(
-            "trip_skim_stats",
-            component,
-            trip_mode,
-            factory=lambda: filter_stats(
+            "trip_skim_family_stats",
+            family,
+            factory=lambda: family_stats_table(
+                self.config,
                 trip_stats,
-                component=component,
+                family=family,
                 mode_column="trip_mode",
-                mode_value=trip_mode,
+                target_table="trips",
             ),
         )
         if not any(not df.is_empty() for _, df in trip_stats_data):
             return [
-                control_row(
-                    pn.pane.Markdown("**Trip Mode:**"),
-                    self.trip_mode_sel,
-                ),
                 self.data_not_available_card(
-                    detail=f"No trip skim summary data is available for component `{component}` and mode `{trip_mode}`.",
+                    detail=f"No trip skim summary data is available for family `{family}`.",
                 ),
             ]
 
         return [
-            control_row(
-                pn.pane.Markdown("**Trip Mode:**"),
-                self.trip_mode_sel,
-            ),
             data_table(
                 trip_stats_data,
-                title=f"Trip Summary Statistics - {component} / {trip_mode}",
-                height=130,
+                title=f"Trip Summary Statistics - {family}",
+                height=280,
+                numeric_precision=2,
+                numeric_precision_by_column=skim_summary_precision_overrides(),
             ),
         ]
 
@@ -305,9 +337,9 @@ PAGE = DashboardPageDefinition(
     page_id="trip_skims",
     title="Trip Skims",
     page_cls=TripSkimsPage,
-    order=50,
+    order=51,
     group_id="skims",
-    child_order=10,
+    child_order=20,
     default_enabled=True,
     prepared_data_mode="optional",
     required_prepared_tables=("trips",),
