@@ -29,12 +29,17 @@ from processor.summarize.summaries.long_term import (
     external_workplace_loc,
     internal_vs_external,
     school_loc_vs_land_use_enrollment,
+    schl_tlfd,
+    telecommute,
+    univ_tlfd,
     vehicle_char_age,
     vehicle_char_body,
     vehicle_char_fuel,
+    work_tlfd,
     workplace_vs_land_use_employment,
 )
 from processor.summarize.summaries.tour_geography import (
+    avg_mand_tour_distance,
     ext_non_mand_tour_loc,
     int_vs_ext_non_mand_tour_freq,
 )
@@ -1834,6 +1839,208 @@ def test_geography_summaries_include_configured_aggregation_levels(tmp_path: Pat
                 "geography_id": "West",
                 "internal_nonmandatory_tour_count": 0.0,
                 "external_nonmandatory_tour_count": 1.0,
+            },
+        ]
+    )
+
+
+def test_mandatory_distance_summaries_include_configured_geography_levels(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "geography:",
+            "  enabled: true",
+            "  aggregations:",
+            "    county:",
+            "      source_zone_system: taz",
+            "      mapping:",
+            "        West: [10]",
+            "        East: [20, 30]",
+        ],
+    )
+    prepared = ProcessorRunData(
+        label="Prepared",
+        run_dir="C:/runs/prepared",
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1], "finalweight": [1.0]}),
+        per=pl.DataFrame(
+            {
+                "person_id": [101, 102, 103],
+                "household_id": [1, 1, 1],
+                "home_zone_id": [10, 20, 20],
+                "home_geo__county": ["West", "East", "East"],
+                "workplace_zone_id": [30, 30, None],
+                "school_zone_id": [None, 20, 30],
+                "is_worker": [True, True, False],
+                "is_student": [False, True, True],
+                "person_type": ["1", "7", "3"],
+                "distance_to_work": [10.0, 20.0, None],
+                "distance_to_school": [None, 5.0, 15.0],
+                "finalweight": [1.0, 2.0, 3.0],
+            }
+        ),
+        tours=pl.DataFrame(),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    work_distance = work_tlfd(prepared, config)
+    school_distance = schl_tlfd(prepared, config)
+    university_distance = univ_tlfd(prepared, config)
+    mandatory_distance = avg_mand_tour_distance(prepared, config)
+
+    assert (
+        work_distance.filter(
+            (pl.col("geography_type") == "county")
+            & (pl.col("geography_id") == "East")
+            & (pl.col("distance_bin") == 21)
+        )["person_count"].to_list()
+        == [2.0]
+    )
+    assert (
+        school_distance.filter(
+            (pl.col("geography_type") == "county")
+            & (pl.col("geography_id") == "East")
+            & (pl.col("distance_bin") == 6)
+        )["person_count"].to_list()
+        == [2.0]
+    )
+    assert (
+        university_distance.filter(
+            (pl.col("geography_type") == "county")
+            & (pl.col("geography_id") == "East")
+            & (pl.col("distance_bin") == 16)
+        )["person_count"].to_list()
+        == [3.0]
+    )
+    assert (
+        mandatory_distance.filter(
+            (pl.col("mandatory_tour_purpose") == "work")
+            & (pl.col("geography_type") == "county")
+            & (pl.col("geography_id") == "East")
+        )
+        .select(["average_tour_distance", "person_count"])
+        .to_dicts()
+        == [{"average_tour_distance": 20.0, "person_count": 2.0}]
+    )
+    assert (
+        mandatory_distance.filter(pl.col("geography_type") == "all_geographies")
+        .sort("mandatory_tour_purpose")
+        .select(
+            [
+                "mandatory_tour_purpose",
+                "geography_id",
+                "average_tour_distance",
+                "person_count",
+            ]
+        )
+        .to_dicts()
+        == [
+            {
+                "mandatory_tour_purpose": "school",
+                "geography_id": "all_geographies",
+                "average_tour_distance": 5.0,
+                "person_count": 2.0,
+            },
+            {
+                "mandatory_tour_purpose": "university",
+                "geography_id": "all_geographies",
+                "average_tour_distance": 15.0,
+                "person_count": 3.0,
+            },
+            {
+                "mandatory_tour_purpose": "work",
+                "geography_id": "all_geographies",
+                "average_tour_distance": 16.666666666666668,
+                "person_count": 3.0,
+            },
+        ]
+    )
+
+
+def test_telecommute_summary_includes_configured_geography_levels(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "geography:",
+            "  enabled: true",
+            "  aggregations:",
+            "    county:",
+            "      source_zone_system: taz",
+            "      mapping:",
+            "        West: [10]",
+            "        East: [20, 30]",
+        ],
+    )
+    prepared = ProcessorRunData(
+        label="Prepared",
+        run_dir="C:/runs/prepared",
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1], "finalweight": [1.0]}),
+        per=pl.DataFrame(
+            {
+                "person_id": [101, 102, 103],
+                "household_id": [1, 1, 1],
+                "home_zone_id": [10, 20, 20],
+                "home_geo__county": ["West", "East", "East"],
+                "is_worker": [True, True, True],
+                "work_from_home": [False, False, True],
+                "telecommute_frequency": ["never", "often", "sometimes"],
+                "finalweight": [1.0, 2.0, 3.0],
+            }
+        ),
+        tours=pl.DataFrame(),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    summary = telecommute(prepared, config)
+
+    assert (
+        summary.filter(pl.col("geography_type") == "county")
+        .sort(["geography_id", "telecommute_frequency"])
+        .to_dicts()
+        == [
+            {
+                "geography_type": "county",
+                "geography_id": "East",
+                "telecommute_frequency": "often",
+                "person_count": 2.0,
+            },
+            {
+                "geography_type": "county",
+                "geography_id": "West",
+                "telecommute_frequency": "never",
+                "person_count": 1.0,
+            },
+        ]
+    )
+    assert (
+        summary.filter(pl.col("geography_type") == "all_geographies")
+        .sort("telecommute_frequency")
+        .to_dicts()
+        == [
+            {
+                "geography_type": "all_geographies",
+                "geography_id": "all_geographies",
+                "telecommute_frequency": "never",
+                "person_count": 1.0,
+            },
+            {
+                "geography_type": "all_geographies",
+                "geography_id": "all_geographies",
+                "telecommute_frequency": "often",
+                "person_count": 2.0,
             },
         ]
     )

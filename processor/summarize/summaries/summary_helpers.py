@@ -181,6 +181,68 @@ def _aggregate_counts_across_geographies(
     return pl.concat(outputs, how="vertical")
 
 
+def _aggregate_weighted_average_across_geographies(
+    df: pl.DataFrame,
+    *,
+    geography_dimensions: list[tuple[str, str]],
+    value_col: str,
+    output_col: str,
+    weight_col: str = "finalweight",
+    group_cols: list[str] | None = None,
+    count_col: str | None = None,
+) -> pl.DataFrame:
+    """Aggregate weighted averages across multiple geography dimensions."""
+    group_cols = list(group_cols or [])
+    outputs: list[pl.DataFrame] = []
+    for geography_type, column in geography_dimensions:
+        if column not in df.columns:
+            continue
+        group_by_cols = [column, *group_cols]
+        agg_exprs = [
+            (
+                (pl.col(value_col) * pl.col(weight_col)).sum()
+                / pl.col(weight_col).sum()
+            ).alias(output_col)
+        ]
+        if count_col is not None:
+            agg_exprs.append(pl.col(weight_col).sum().alias(count_col))
+        outputs.append(
+            df.filter(pl.col(column).is_not_null())
+            .group_by(group_by_cols)
+            .agg(*agg_exprs)
+            .rename({column: "geography_id"})
+            .with_columns(
+                pl.lit(geography_type).alias("geography_type"),
+                pl.col("geography_id").cast(pl.Utf8),
+                pl.col(output_col).cast(pl.Float64),
+                *(
+                    [pl.col(count_col).cast(pl.Float64)]
+                    if count_col is not None
+                    else []
+                ),
+            )
+            .select(
+                "geography_type",
+                "geography_id",
+                *group_cols,
+                output_col,
+                *([count_col] if count_col is not None else []),
+            )
+        )
+    if not outputs:
+        schema: dict[str, pl.DataType] = {
+            "geography_type": pl.Utf8,
+            "geography_id": pl.Utf8,
+            output_col: pl.Float64,
+        }
+        for column in group_cols:
+            schema[column] = pl.Utf8
+        if count_col is not None:
+            schema[count_col] = pl.Float64
+        return pl.DataFrame(schema=schema)
+    return pl.concat(outputs, how="vertical")
+
+
 def _rounded_distance_bin_expr(distance_col: str) -> pl.Expr:
     """Return the common 0-decimal distance bin label expression with 40+ cap."""
     rounded = pl.col(distance_col).cast(pl.Float64).round(0)

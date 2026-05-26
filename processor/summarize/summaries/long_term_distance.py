@@ -7,13 +7,18 @@ import polars as pl
 from processor.models import RunData
 from processor.summarize.contracts import empty_summary_frame, summary_contract
 from processor.summarize.summaries.long_term_shared import _student_filter_expr
+from processor.summarize.summaries.summary_helpers import (
+    _configured_geography_columns,
+    _configured_geography_dimensions,
+)
 from runtime.config import Config
 
 
 @summary_contract(
     schema={
         "distance_bin": pl.Int32,
-        "geography": pl.Utf8,
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
         "person_count": pl.Float64,
     }
 )
@@ -30,55 +35,83 @@ def tlfd(rd: RunData, config: Config) -> dict[str, pl.DataFrame]:
         if dist_col not in persons.columns:
             return empty
 
-        df = _bin_dist(persons, dist_col)
+        df = _bin_dist(
+            persons.select(
+                dist_col,
+                "finalweight",
+                "home_zone_id",
+                *_configured_geography_columns(
+                    persons,
+                    config=config,
+                    role_prefix="home",
+                ),
+            ),
+            dist_col,
+        )
         distance_bins = pl.DataFrame(
             {"distance_bin": list(range(1, 52))}, schema={"distance_bin": pl.Int32}
         )
 
-        if config.geography_enabled and "HGEO" in df.columns:
+        outputs: list[pl.DataFrame] = []
+        for geography_type, geography_col in _configured_geography_dimensions(
+            df,
+            config=config,
+            base_type="maz" if config.use_maz else "taz",
+            base_col="home_zone_id",
+            role_prefix="home",
+        ):
             geographies = (
-                df.select(pl.col("HGEO").cast(pl.Utf8).alias("geography"))
+                df.filter(pl.col(geography_col).is_not_null())
+                .select(pl.col(geography_col).cast(pl.Utf8).alias("geography_id"))
                 .drop_nulls()
                 .unique()
-                .sort("geography")
+                .sort("geography_id")
             )
+            if geographies.is_empty():
+                continue
             by_geo = (
-                df.with_columns(pl.col("HGEO").cast(pl.Utf8).alias("geography"))
-                .group_by(["distance_bin", "geography"])
+                df.filter(pl.col(geography_col).is_not_null())
+                .with_columns(pl.col(geography_col).cast(pl.Utf8).alias("geography_id"))
+                .group_by(["distance_bin", "geography_id"])
                 .agg(person_count=pl.col("finalweight").sum())
             )
-            dense_by_geo = (
+            outputs.append(
                 distance_bins.join(geographies, how="cross")
-                .join(by_geo, on=["distance_bin", "geography"], how="left")
-                .with_columns(pl.col("person_count").fill_null(0.0))
-            )
-            total = (
-                df.group_by("distance_bin")
-                .agg(person_count=pl.col("finalweight").sum())
-                .with_columns(pl.lit("all_geographies").alias("geography"))
-                .select("distance_bin", "geography", "person_count")
-            )
-            dense_total = (
-                distance_bins.with_columns(pl.lit("all_geographies").alias("geography"))
-                .join(total, on=["distance_bin", "geography"], how="left")
-                .with_columns(pl.col("person_count").fill_null(0.0))
-            )
-            result = pl.concat([dense_by_geo, dense_total], how="vertical")
-        else:
-            total = (
-                df.group_by("distance_bin")
-                .agg(person_count=pl.col("finalweight").sum())
-                .with_columns(pl.lit("all_geographies").alias("geography"))
-                .select("distance_bin", "geography", "person_count")
-            )
-            result = (
-                distance_bins.with_columns(pl.lit("all_geographies").alias("geography"))
-                .join(total, on=["distance_bin", "geography"], how="left")
-                .with_columns(pl.col("person_count").fill_null(0.0))
+                .join(by_geo, on=["distance_bin", "geography_id"], how="left")
+                .with_columns(
+                    pl.lit(geography_type).alias("geography_type"),
+                    pl.col("person_count").fill_null(0.0).cast(pl.Float64),
+                )
+                .select("distance_bin", "geography_type", "geography_id", "person_count")
             )
 
-        return result.sort(["distance_bin", "geography"]).select(
-            "distance_bin", "geography", "person_count"
+        total = (
+            df.group_by("distance_bin")
+            .agg(person_count=pl.col("finalweight").sum())
+            .with_columns(
+                pl.lit("all_geographies").alias("geography_type"),
+                pl.lit("all_geographies").alias("geography_id"),
+            )
+            .select("distance_bin", "geography_type", "geography_id", "person_count")
+        )
+        outputs.append(
+            distance_bins.with_columns(
+                pl.lit("all_geographies").alias("geography_type"),
+                pl.lit("all_geographies").alias("geography_id"),
+            )
+            .join(
+                total,
+                on=["distance_bin", "geography_type", "geography_id"],
+                how="left",
+            )
+            .with_columns(pl.col("person_count").fill_null(0.0).cast(pl.Float64))
+            .select("distance_bin", "geography_type", "geography_id", "person_count")
+        )
+
+        return (
+            pl.concat(outputs, how="vertical")
+            .sort(["geography_type", "geography_id", "distance_bin"])
+            .select("distance_bin", "geography_type", "geography_id", "person_count")
         )
 
     ptype_col = "person_type" if "person_type" in rd.per.columns else None
@@ -124,7 +157,8 @@ def tlfd(rd: RunData, config: Config) -> dict[str, pl.DataFrame]:
 @summary_contract(
     schema={
         "distance_bin": pl.Int32,
-        "geography": pl.Utf8,
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
         "person_count": pl.Float64,
     },
     required_columns={"per": ("distance_to_work", "finalweight")},
@@ -136,7 +170,8 @@ def work_tlfd(rd: RunData, config: Config) -> pl.DataFrame:
 @summary_contract(
     schema={
         "distance_bin": pl.Int32,
-        "geography": pl.Utf8,
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
         "person_count": pl.Float64,
     },
     required_columns={"per": ("distance_to_school", "finalweight")},
@@ -148,7 +183,8 @@ def univ_tlfd(rd: RunData, config: Config) -> pl.DataFrame:
 @summary_contract(
     schema={
         "distance_bin": pl.Int32,
-        "geography": pl.Utf8,
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
         "person_count": pl.Float64,
     },
     required_columns={"per": ("distance_to_school", "finalweight")},

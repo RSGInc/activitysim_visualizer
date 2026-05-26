@@ -11,6 +11,10 @@ from processor.summarize.summaries.long_term_shared import (
     _person_type_label_expr,
     _worker_filter_expr,
 )
+from processor.summarize.summaries.summary_helpers import (
+    _configured_geography_columns,
+    _configured_geography_dimensions,
+)
 from runtime.config import Config
 
 
@@ -214,11 +218,19 @@ def transit_subsidy(rd: RunData, config: Config) -> pl.DataFrame:
 
 @summary_contract(
     schema={
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
         "telecommute_frequency": pl.Utf8,
         "person_count": pl.Float64,
     },
     required_columns={
-        "per": ("telecommute_frequency", "finalweight", "is_worker", "work_from_home")
+        "per": (
+            "telecommute_frequency",
+            "finalweight",
+            "is_worker",
+            "work_from_home",
+            "home_zone_id",
+        )
     },
 )
 def telecommute(rd: RunData, config: Config | None = None) -> pl.DataFrame:
@@ -227,10 +239,11 @@ def telecommute(rd: RunData, config: Config | None = None) -> pl.DataFrame:
         "finalweight",
         "is_worker",
         "work_from_home",
+        "home_zone_id",
     }.issubset(rd.per.columns):
         return empty_summary_frame(telecommute)
 
-    return (
+    base = (
         rd.per.filter(
             pl.col("telecommute_frequency").is_not_null()
             & (pl.col("telecommute_frequency") != "")
@@ -240,7 +253,60 @@ def telecommute(rd: RunData, config: Config | None = None) -> pl.DataFrame:
             .str.to_lowercase()
             .is_in(["true", "1", "yes", "work_from_home", "home"])
         )
-        .group_by("telecommute_frequency")
+        .select(
+            "telecommute_frequency",
+            "finalweight",
+            "home_zone_id",
+            *_configured_geography_columns(rd.per, config=config, role_prefix="home"),
+        )
+    )
+    if base.is_empty():
+        return empty_summary_frame(telecommute)
+
+    outputs: list[pl.DataFrame] = []
+    for geography_type, geography_col in _configured_geography_dimensions(
+        base,
+        config=config,
+        base_type="maz" if config.use_maz else "taz",
+        base_col="home_zone_id",
+        role_prefix="home",
+    ):
+        outputs.append(
+            base.filter(pl.col(geography_col).is_not_null())
+            .group_by([geography_col, "telecommute_frequency"])
+            .agg(person_count=pl.col("finalweight").sum())
+            .rename({geography_col: "geography_id"})
+            .with_columns(
+                pl.lit(geography_type).alias("geography_type"),
+                pl.col("geography_id").cast(pl.Utf8),
+                pl.col("telecommute_frequency").cast(pl.Utf8),
+                pl.col("person_count").cast(pl.Float64),
+            )
+            .select(
+                "geography_type",
+                "geography_id",
+                "telecommute_frequency",
+                "person_count",
+            )
+        )
+
+    outputs.append(
+        base.group_by("telecommute_frequency")
         .agg(person_count=pl.col("finalweight").sum())
-        .sort("telecommute_frequency")
+        .with_columns(
+            pl.lit("all_geographies").alias("geography_type"),
+            pl.lit("all_geographies").alias("geography_id"),
+            pl.col("telecommute_frequency").cast(pl.Utf8),
+            pl.col("person_count").cast(pl.Float64),
+        )
+        .select(
+            "geography_type",
+            "geography_id",
+            "telecommute_frequency",
+            "person_count",
+        )
+    )
+
+    return pl.concat(outputs, how="vertical").sort(
+        ["geography_type", "geography_id", "telecommute_frequency"]
     )

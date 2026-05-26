@@ -11,6 +11,7 @@ from processor.summarize.summaries.summary_helpers import (
     _aggregate_counts_by_geography,
     _configured_geography_columns,
     _configured_geography_dimensions,
+    _aggregate_weighted_average_across_geographies,
     _summary_purpose_column,
 )
 from runtime.config import Config
@@ -19,8 +20,10 @@ from runtime.config import Config
 @summary_contract(
     schema={
         "mandatory_tour_purpose": pl.Utf8,
-        "geography": pl.Utf8,
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
         "average_tour_distance": pl.Float64,
+        "person_count": pl.Float64,
     },
     required_columns={"per": ("finalweight",)},
 )
@@ -59,41 +62,79 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
         univ_s = rd.per.head(0)
         schl_s = rd.per.head(0)
 
-    def _avg_by_geo(persons: pl.DataFrame, purpose_name: str, dist_col: str, geo_col: str = "HGEO") -> pl.DataFrame:
+    def _avg_by_geo(persons: pl.DataFrame, purpose_name: str, dist_col: str) -> pl.DataFrame:
         if dist_col not in persons.columns or len(persons) == 0:
             return pl.DataFrame(
-                {
-                    "mandatory_tour_purpose": [purpose_name],
-                    "geography": ["all_geographies"],
-                    "average_tour_distance": [None],
+                schema={
+                    "mandatory_tour_purpose": pl.Utf8,
+                    "geography_type": pl.Utf8,
+                    "geography_id": pl.Utf8,
+                    "average_tour_distance": pl.Float64,
+                    "person_count": pl.Float64,
                 }
             )
-        rows: list[dict[str, object]] = []
-        if config.geography_enabled and geo_col in persons.columns:
-            groups = sorted(persons[geo_col].drop_nulls().unique().to_list())
-            for grp in groups:
-                sub = persons.filter(pl.col(geo_col) == grp)
-                rows.append(
-                    {
-                        "mandatory_tour_purpose": purpose_name,
-                        "geography": str(grp),
-                        "average_tour_distance": sub[dist_col].mean(),
-                    }
+        base = persons.select(
+            "finalweight",
+            dist_col,
+            "home_zone_id",
+            *_configured_geography_columns(
+                persons,
+                config=config,
+                role_prefix="home",
+            ),
+        ).filter(pl.col(dist_col).is_not_null() & pl.col("finalweight").is_not_null())
+        if base.is_empty():
+            return pl.DataFrame(
+                schema={
+                    "mandatory_tour_purpose": pl.Utf8,
+                    "geography_type": pl.Utf8,
+                    "geography_id": pl.Utf8,
+                    "average_tour_distance": pl.Float64,
+                    "person_count": pl.Float64,
+                }
+            )
+        outputs = [
+            _aggregate_weighted_average_across_geographies(
+                base,
+                geography_dimensions=_configured_geography_dimensions(
+                    base,
+                    config=config,
+                    base_type="maz" if config.use_maz else "taz",
+                    base_col="home_zone_id",
+                    role_prefix="home",
+                ),
+                value_col=dist_col,
+                output_col="average_tour_distance",
+                count_col="person_count",
+            ),
+            base.select(
+                pl.lit("all_geographies").alias("geography_type"),
+                pl.lit("all_geographies").alias("geography_id"),
+                (
+                    (pl.col(dist_col) * pl.col("finalweight")).sum()
+                    / pl.col("finalweight").sum()
                 )
-        rows.append(
-            {
-                "mandatory_tour_purpose": purpose_name,
-                "geography": "all_geographies",
-                "average_tour_distance": persons[dist_col].mean(),
-            }
-        )
-        return pl.DataFrame(
-            rows,
-            schema={
-                "mandatory_tour_purpose": pl.Utf8,
-                "geography": pl.Utf8,
-                "average_tour_distance": pl.Float64,
-            },
+                .cast(pl.Float64)
+                .alias("average_tour_distance"),
+                pl.col("finalweight").sum().cast(pl.Float64).alias("person_count"),
+            ),
+        ]
+        return (
+            pl.concat(outputs, how="vertical")
+            .with_columns(
+                pl.lit(purpose_name).alias("mandatory_tour_purpose"),
+                pl.col("geography_type").cast(pl.Utf8),
+                pl.col("geography_id").cast(pl.Utf8),
+                pl.col("average_tour_distance").cast(pl.Float64),
+                pl.col("person_count").cast(pl.Float64),
+            )
+            .select(
+                "mandatory_tour_purpose",
+                "geography_type",
+                "geography_id",
+                "average_tour_distance",
+                "person_count",
+            )
         )
 
     result = pl.concat(
@@ -106,9 +147,11 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     )
     return result.select(
         "mandatory_tour_purpose",
-        "geography",
+        "geography_type",
+        "geography_id",
         "average_tour_distance",
-    ).sort(["mandatory_tour_purpose", "geography"])
+        "person_count",
+    ).sort(["mandatory_tour_purpose", "geography_type", "geography_id"])
 
 
 @summary_contract(

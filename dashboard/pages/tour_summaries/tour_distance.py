@@ -173,37 +173,6 @@ class TourDistancePage(DashboardPage):
             ),
             label="Geography Level",
         )
-        self.mand_purpose_sel = self.selector(
-            "mandatory_tour_purpose",
-            widget=pn.widgets.Select(
-                name="Mandatory Tour Purpose",
-                options=_purpose_options(
-                    mand_data or [],
-                    "mandatory_tour_purpose",
-                    config=self.config,
-                    state=self.state,
-                    cache_key=(
-                        "tour_distance",
-                        "average_mandatory_tour_distance_by_purpose_and_geography",
-                        "mandatory_tour_purpose",
-                        "weighted",
-                    ),
-                )[0],
-                value=_purpose_options(
-                    mand_data or [],
-                    "mandatory_tour_purpose",
-                    config=self.config,
-                    state=self.state,
-                    cache_key=(
-                        "tour_distance",
-                        "average_mandatory_tour_distance_by_purpose_and_geography",
-                        "mandatory_tour_purpose",
-                        "weighted",
-                    ),
-                )[0][0],
-            ),
-            label="Mandatory Tour Purpose",
-        )
         self.nonmand_purpose_sel = self.selector(
             "nonmandatory_tour_purpose",
             widget=pn.widgets.Select(
@@ -244,7 +213,6 @@ class TourDistancePage(DashboardPage):
             "tour_distance_averages",
             selectors=(
                 "geography_level",
-                "mandatory_tour_purpose",
                 "nonmandatory_tour_purpose",
             ),
             render=self.render_averages,
@@ -284,18 +252,6 @@ class TourDistancePage(DashboardPage):
             total_raw="all_tour_purposes",
             total_label="Total",
         )
-        mand_purpose_opts, self._mand_purpose_to_raw = _purpose_options(
-            mand_list,
-            "mandatory_tour_purpose",
-            config=self.config,
-            state=self.state,
-            cache_key=(
-                "tour_distance",
-                "average_mandatory_tour_distance_by_purpose_and_geography",
-                "mandatory_tour_purpose",
-                self.weighting_key,
-            ),
-        )
         nonmand_purpose_opts, self._nonmand_purpose_to_raw = _purpose_options(
             nonmand_list,
             "nonmandatory_tour_purpose",
@@ -311,7 +267,6 @@ class TourDistancePage(DashboardPage):
         for widget, opts in [
             (self.tour_purpose_sel, purpose_opts),
             (self.geo_level_sel, _options(mand_list, GEO_LEVEL_COL, config=self.config)),
-            (self.mand_purpose_sel, mand_purpose_opts),
             (self.nonmand_purpose_sel, nonmand_purpose_opts),
         ]:
             widget.options = opts
@@ -361,22 +316,8 @@ class TourDistancePage(DashboardPage):
         if summaries is None:
             return []
         geo_level = self.geo_level_sel.value
-        mand_purpose = self._mand_purpose_to_raw.get(
-            self.mand_purpose_sel.value, self.mand_purpose_sel.value
-        )
         nonmand_purpose = self._nonmand_purpose_to_raw.get(
             self.nonmand_purpose_sel.value, self.nonmand_purpose_sel.value
-        )
-        mand_avg_data = self.get_filtered_view(
-            "average_mandatory_tour_distance",
-            (geo_level, mand_purpose),
-            factory=lambda: avg_distance_table_data(
-                summaries["average_mandatory_tour_distance_by_purpose_and_geography"],
-                geo_level,
-                "mandatory_tour_purpose",
-                mand_purpose,
-                self.config,
-            ),
         )
         nonmand_avg_data = self.get_filtered_view(
             "average_nonmandatory_tour_distance",
@@ -394,21 +335,12 @@ class TourDistancePage(DashboardPage):
         return [
             pn.pane.Markdown("### Average Tour Distance by Geography"),
             pn.Row(pn.pane.Markdown("**Geography Level:**"), self.geo_level_sel),
-            pn.Row(
-                pn.Column(
-                    pn.Row(
-                        pn.pane.Markdown("**Mandatory Tour Purpose:**"),
-                        self.mand_purpose_sel,
-                    ),
-                    data_table(mand_avg_data, "Average Mandatory Tour Distance"),
+            pn.Column(
+                pn.Row(
+                    pn.pane.Markdown("**Non-Mandatory Tour Purpose:**"),
+                    self.nonmand_purpose_sel,
                 ),
-                pn.Column(
-                    pn.Row(
-                        pn.pane.Markdown("**Non-Mandatory Tour Purpose:**"),
-                        self.nonmand_purpose_sel,
-                    ),
-                    data_table(nonmand_avg_data, "Average Non-Mandatory Tour Distance"),
-                ),
+                data_table(nonmand_avg_data, "Average Non-Mandatory Tour Distance"),
             ),
         ]
 

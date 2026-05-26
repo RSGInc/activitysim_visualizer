@@ -2293,16 +2293,13 @@ def test_tour_purpose_labels_render_consistently_across_pages(tmp_path: Path) ->
 
     tour_distance_page = TourDistancePage(state, config)
     tour_distance_page.refresh(force=True)
-    assert list(tour_distance_page.mand_purpose_sel.options) == ["All", "Work Trips"]
     assert list(tour_distance_page.nonmand_purpose_sel.options) == [
         "All",
         "Eat Out",
         "Social Time",
     ]
     tabulators = _collect_tabulators(tour_distance_page._average_section)
-    mandatory_table = tabulators[0].value
-    nonmandatory_table = tabulators[1].value
-    assert mandatory_table["mandatory_tour_purpose"].tolist() == ["Work Trips"]
+    nonmandatory_table = tabulators[0].value
     assert nonmandatory_table["nonmandatory_tour_purpose"].tolist() == [
         "Eat Out",
         "Social Time",
@@ -3388,6 +3385,420 @@ def test_mandatory_location_choice_external_workplace_aggregate_percent_uses_all
         if plot.object.layout.title.text == "External Worker Workplace Location"
     )
     assert list(external_plot.object.data[0].y) == [25.0]
+
+
+def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plots(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "internal_external_worker_by_geography": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies"],
+                    "geography_id": ["all_geographies"],
+                    "internal_worker_count": [3.0],
+                    "external_worker_count": [1.0],
+                }
+            ),
+            "external_worker_workplace_locations": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies"],
+                    "geography_id": ["all_geographies"],
+                    "external_worker_count": [1.0],
+                    "all_worker_count": [4.0],
+                }
+            ),
+            "commuting_flows": pl.DataFrame(
+                {
+                    "origin_geography_type": ["all_geographies"],
+                    "origin_geography_id": ["all_geographies"],
+                    "destination_geography_type": ["all_geographies"],
+                    "destination_geography_id": ["all_geographies"],
+                    "commuter_count": [4.0],
+                }
+            ),
+            "work_location_distance_distribution_by_geography": pl.DataFrame(
+                {
+                    "distance_bin": [1, 2],
+                    "geography_type": ["all_geographies", "all_geographies"],
+                    "geography_id": ["all_geographies", "all_geographies"],
+                    "person_count": [6.0, 4.0],
+                }
+            ),
+            "school_location_distance_distribution_by_geography": pl.DataFrame(
+                {
+                    "distance_bin": [1, 2],
+                    "geography_type": ["all_geographies", "all_geographies"],
+                    "geography_id": ["all_geographies", "all_geographies"],
+                    "person_count": [5.0, 1.0],
+                }
+            ),
+            "university_location_distance_distribution_by_geography": pl.DataFrame(
+                {
+                    "distance_bin": [1, 2],
+                    "geography_type": ["all_geographies", "all_geographies"],
+                    "geography_id": ["all_geographies", "all_geographies"],
+                    "person_count": [3.0, 2.0],
+                }
+            ),
+            "work_from_home_rate_by_geography": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies"],
+                    "geography_id": ["all_geographies"],
+                    "worker_count": [20.0],
+                    "work_from_home_worker_count": [11.0],
+                }
+            ),
+            "telecommute_frequency_distribution": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "all_geographies"],
+                    "geography_id": ["all_geographies", "all_geographies"],
+                    "telecommute_frequency": ["never", "often"],
+                    "person_count": [7.0, 5.0],
+                }
+            ),
+            "average_mandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
+                {
+                    "mandatory_tour_purpose": ["work", "school", "university"],
+                    "geography_type": [
+                        "all_geographies",
+                        "all_geographies",
+                        "all_geographies",
+                    ],
+                    "geography_id": [
+                        "all_geographies",
+                        "all_geographies",
+                        "all_geographies",
+                    ],
+                    "average_tour_distance": [8.0, 4.0, 10.0],
+                    "person_count": [5.0, 3.0, 2.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = MandatoryLocationChoicePage(state, config)
+    page.refresh(force=True)
+
+    assert not hasattr(page, "location_type_sel")
+    assert hasattr(page, "geography_sel")
+    assert list(page.geography_sel.options) == ["all_geographies"]
+    assert page.view.objects.index(page._remote_work_section) < page.view.objects.index(
+        page._distance_section
+    )
+    assert page.view.objects.index(page._distance_section) < page.view.objects.index(
+        page._worker_section
+    )
+    assert page.view.objects.index(page._worker_section) < page.view.objects.index(
+        page._commuting_flows_section
+    )
+    assert page.view.objects.index(page._commuting_flows_section) < page.view.objects.index(
+        page._mandatory_distance_table_section
+    )
+
+    distance_plots = _collect_plotly_panes(page._distance_section)
+    assert [plot.object.layout.title.text for plot in distance_plots] == [
+        "Workplace Location Distance Distribution",
+        "School Location Distance Distribution",
+        "University Location Distance Distribution",
+    ]
+    comparison_table = _collect_tabulators(page._mandatory_distance_table_section)[0].value
+    assert comparison_table.columns.tolist() == ["Mandatory Tour Purpose", "Base"]
+    assert comparison_table["Mandatory Tour Purpose"].tolist() == [
+        "work",
+        "school",
+        "university",
+    ]
+    assert comparison_table["Base"].tolist() == ["0%", "0%", "0%"]
+
+
+def test_mandatory_location_choice_supports_configured_geography_levels_for_distance_sections(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "internal_external_worker_by_geography": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "school_district"],
+                    "geography_id": ["all_geographies", "North"],
+                    "internal_worker_count": [3.0, 2.0],
+                    "external_worker_count": [1.0, 1.0],
+                }
+            ),
+            "external_worker_workplace_locations": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "school_district"],
+                    "geography_id": ["all_geographies", "North"],
+                    "external_worker_count": [1.0, 1.0],
+                    "all_worker_count": [4.0, 3.0],
+                }
+            ),
+            "commuting_flows": pl.DataFrame(
+                {
+                    "origin_geography_type": ["all_geographies", "school_district"],
+                    "origin_geography_id": ["all_geographies", "North"],
+                    "destination_geography_type": ["all_geographies", "school_district"],
+                    "destination_geography_id": ["all_geographies", "North"],
+                    "commuter_count": [4.0, 3.0],
+                }
+            ),
+            "work_location_distance_distribution_by_geography": pl.DataFrame(
+                {
+                    "distance_bin": [1, 1, 2, 2],
+                    "geography_type": [
+                        "school_district",
+                        "school_district",
+                        "school_district",
+                        "school_district",
+                    ],
+                    "geography_id": ["North", "South", "North", "South"],
+                    "person_count": [2.0, 3.0, 1.0, 4.0],
+                }
+            ),
+            "school_location_distance_distribution_by_geography": pl.DataFrame(
+                {
+                    "distance_bin": [1, 2],
+                    "geography_type": ["school_district", "school_district"],
+                    "geography_id": ["North", "North"],
+                    "person_count": [5.0, 1.0],
+                }
+            ),
+            "university_location_distance_distribution_by_geography": pl.DataFrame(
+                {
+                    "distance_bin": [1, 2],
+                    "geography_type": ["school_district", "school_district"],
+                    "geography_id": ["North", "North"],
+                    "person_count": [3.0, 2.0],
+                }
+            ),
+            "work_from_home_rate_by_geography": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "school_district"],
+                    "geography_id": ["all_geographies", "North"],
+                    "worker_count": [20.0, 8.0],
+                    "work_from_home_worker_count": [11.0, 5.0],
+                }
+            ),
+            "telecommute_frequency_distribution": pl.DataFrame(
+                {
+                    "geography_type": [
+                        "school_district",
+                        "school_district",
+                        "school_district",
+                    ],
+                    "geography_id": ["North", "North", "South"],
+                    "telecommute_frequency": ["never", "often", "never"],
+                    "person_count": [7.0, 5.0, 4.0],
+                }
+            ),
+            "average_mandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
+                {
+                    "mandatory_tour_purpose": ["work", "work", "school", "university"],
+                    "geography_type": [
+                        "school_district",
+                        "school_district",
+                        "school_district",
+                        "school_district",
+                    ],
+                    "geography_id": ["North", "South", "North", "North"],
+                    "average_tour_distance": [8.0, 12.0, 4.0, 10.0],
+                    "person_count": [2.0, 3.0, 3.0, 2.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = MandatoryLocationChoicePage(state, config)
+    page.refresh(force=True)
+
+    assert "school_district" in list(page.geo_level_sel.options)
+    assert list(page.geography_sel.options) == ["all_geographies"]
+    page.geo_level_sel.value = "school_district"
+    page.refresh(force=True)
+    assert list(page.geography_sel.options) == ["All", "North", "South"]
+    page.geography_sel.value = "North"
+    page.refresh(force=True)
+
+    distance_cards = _collect_cards(page._distance_section)
+    assert distance_cards == []
+    distance_plots = _collect_plotly_panes(page._distance_section)
+    assert len(distance_plots) == 3
+    work_distance_plot = next(
+        plot
+        for plot in distance_plots
+        if plot.object.layout.title.text == "Workplace Location Distance Distribution"
+    )
+    assert list(work_distance_plot.object.data[0].x) == [1, 2]
+    assert list(work_distance_plot.object.data[0].y) == pytest.approx(
+        [66.66666666666666, 33.33333333333333]
+    )
+
+    worker_table = _collect_tabulators(page._worker_section)[0].value
+    assert worker_table["geography"].tolist() == ["North"]
+
+    worker_plots = _collect_plotly_panes(page._worker_section)
+    external_workplace_plot = next(
+        plot
+        for plot in worker_plots
+        if plot.object.layout.title.text == "External Worker Workplace Location"
+    )
+    assert list(external_workplace_plot.object.data[0].x) == ["North"]
+
+    commuting_table = _collect_tabulators(page._commuting_flows_section)[0].value
+    assert commuting_table["origin_geography_id"].tolist() == ["North"]
+
+    remote_work_plots = _collect_plotly_panes(page._remote_work_section)
+    wfh_plot = next(
+        plot
+        for plot in remote_work_plots
+        if plot.object.layout.title.text in {
+            "Work From Home Rate by Geography",
+            "Workers Working From Home by Geography",
+        }
+    )
+    assert list(wfh_plot.object.data[0].x) == ["North"]
+    telecommute_plot = next(
+        plot
+        for plot in remote_work_plots
+        if plot.object.layout.title.text == "Telecommute Rate"
+    )
+    assert list(telecommute_plot.object.data[0].x) == ["never", "often"]
+
+    comparison_table = _collect_tabulators(page._mandatory_distance_table_section)[0].value
+    assert comparison_table.columns.tolist() == ["Mandatory Tour Purpose", "Base"]
+    assert comparison_table["Base"].tolist() == ["0%", "0%", "0%"]
+
+    page.geography_sel.value = "South"
+    page.refresh(force=True)
+    south_remote_work_plots = _collect_plotly_panes(page._remote_work_section)
+    south_telecommute_plot = next(
+        plot
+        for plot in south_remote_work_plots
+        if plot.object.layout.title.text == "Telecommute Rate"
+    )
+    assert list(south_telecommute_plot.object.data[0].x) == ["never", "often"]
+    assert list(south_telecommute_plot.object.data[0].y) == [100.0, 0.0]
+
+
+def test_mandatory_location_choice_reuses_collected_data_on_selector_changes(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "internal_external_worker_by_geography": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "school_district"],
+                    "geography_id": ["all_geographies", "North"],
+                    "internal_worker_count": [3.0, 2.0],
+                    "external_worker_count": [1.0, 1.0],
+                }
+            ),
+            "external_worker_workplace_locations": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "school_district"],
+                    "geography_id": ["all_geographies", "North"],
+                    "external_worker_count": [1.0, 1.0],
+                    "all_worker_count": [4.0, 3.0],
+                }
+            ),
+            "commuting_flows": pl.DataFrame(
+                {
+                    "origin_geography_type": ["all_geographies", "school_district"],
+                    "origin_geography_id": ["all_geographies", "North"],
+                    "destination_geography_type": ["all_geographies", "school_district"],
+                    "destination_geography_id": ["all_geographies", "North"],
+                    "commuter_count": [4.0, 3.0],
+                }
+            ),
+            "work_location_distance_distribution_by_geography": pl.DataFrame(
+                {
+                    "distance_bin": [1, 2],
+                    "geography_type": ["school_district", "school_district"],
+                    "geography_id": ["North", "North"],
+                    "person_count": [2.0, 1.0],
+                }
+            ),
+            "school_location_distance_distribution_by_geography": pl.DataFrame(
+                {
+                    "distance_bin": [1, 2],
+                    "geography_type": ["school_district", "school_district"],
+                    "geography_id": ["North", "North"],
+                    "person_count": [5.0, 1.0],
+                }
+            ),
+            "university_location_distance_distribution_by_geography": pl.DataFrame(
+                {
+                    "distance_bin": [1, 2],
+                    "geography_type": ["school_district", "school_district"],
+                    "geography_id": ["North", "North"],
+                    "person_count": [3.0, 2.0],
+                }
+            ),
+            "work_from_home_rate_by_geography": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "school_district"],
+                    "geography_id": ["all_geographies", "North"],
+                    "worker_count": [20.0, 8.0],
+                    "work_from_home_worker_count": [11.0, 5.0],
+                }
+            ),
+            "telecommute_frequency_distribution": pl.DataFrame(
+                {
+                    "geography_type": ["school_district"],
+                    "geography_id": ["North"],
+                    "telecommute_frequency": ["never"],
+                    "person_count": [7.0],
+                }
+            ),
+            "average_mandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
+                {
+                    "mandatory_tour_purpose": ["work"],
+                    "geography_type": ["school_district"],
+                    "geography_id": ["North"],
+                    "average_tour_distance": [8.0],
+                    "person_count": [2.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = MandatoryLocationChoicePage(state, config)
+    original_collect = page._collect_data
+    call_count = 0
+
+    def _counted_collect_data():
+        nonlocal call_count
+        call_count += 1
+        return original_collect()
+
+    page._collect_data = _counted_collect_data  # type: ignore[method-assign]
+
+    page.refresh(force=True)
+    assert call_count == 1
+
+    page.geo_level_sel.value = "school_district"
+    assert call_count == 1
+
+    page.geography_sel.value = "North"
+    assert call_count == 1
 
 
 def test_traffic_validation_shared_selectors_use_common_summary_options(
