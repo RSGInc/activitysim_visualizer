@@ -28,6 +28,8 @@ from processor.summarize.summaries import tour, trip
 from processor.summarize.summaries.long_term import (
     external_workplace_loc,
     internal_vs_external,
+    park_and_ride_location_residual_histogram,
+    park_and_ride_location_residuals,
     school_shadow_pricing_residual_histogram,
     school_shadow_pricing_residuals,
     school_loc_vs_land_use_enrollment,
@@ -2222,6 +2224,181 @@ def test_shadow_pricing_histogram_summaries_include_dynamic_count_bins(
         .n_unique()
         >= 1
     )
+
+
+def test_park_and_ride_location_residuals_roll_up_used_lots_only(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "columns:",
+            "  pnr_lot_capacity: [PNR_CAP]",
+            "modes:",
+            "  pnr_tour_modes: [PNR_TRANSIT, PNR_LOCAL, PNR_PREMIUM]",
+            "geography:",
+            "  enabled: true",
+            "  aggregations:",
+            "    district:",
+            "      source_zone_system: maz",
+            "      mapping:",
+            "        North: [1, 2]",
+            "        South: [3, 4, 5]",
+        ],
+    )
+    prepared = ProcessorRunData(
+        label="Prepared",
+        run_dir="C:/runs/prepared",
+        skim_file=None,
+        hh=pl.DataFrame(),
+        per=pl.DataFrame(),
+        tours=pl.DataFrame(
+            {
+                "tour_mode": ["PNR_TRANSIT", "PNR_LOCAL", "WALK", "PNR_PREMIUM", "PNR_LOCAL"],
+                "pnr_zone_id": [1, 2, None, 3, 4],
+                "finalweight": [2.0, 3.0, 99.0, 5.0, 40.0],
+            }
+        ),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(
+            {
+                "MAZ": [1, 2, 3, 4, 5],
+                "PNR_CAP": [10.0, 20.0, 30.0, 40.0, 50.0],
+                "land_use_geo__district": ["North", "North", "South", "South", "South"],
+            }
+        ),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    summary = park_and_ride_location_residuals(prepared, config)
+
+    assert (
+        summary.filter(pl.col("geography_type") == "maz")
+        .sort("geography_id")
+        .select(
+            [
+                "geography_id",
+                "pnr_tour_count",
+                "pnr_lot_capacity",
+                "residual_count",
+                "absolute_residual_count",
+                "percent_error",
+            ]
+        )
+        .to_dicts()
+        == [
+            {
+                "geography_id": "1",
+                "pnr_tour_count": 2.0,
+                "pnr_lot_capacity": 10.0,
+                "residual_count": -8.0,
+                "absolute_residual_count": 8.0,
+                "percent_error": -80.0,
+            },
+            {
+                "geography_id": "2",
+                "pnr_tour_count": 3.0,
+                "pnr_lot_capacity": 20.0,
+                "residual_count": -17.0,
+                "absolute_residual_count": 17.0,
+                "percent_error": -85.0,
+            },
+            {
+                "geography_id": "3",
+                "pnr_tour_count": 5.0,
+                "pnr_lot_capacity": 30.0,
+                "residual_count": -25.0,
+                "absolute_residual_count": 25.0,
+                "percent_error": pytest.approx(-83.33333333333334),
+            },
+            {
+                "geography_id": "4",
+                "pnr_tour_count": 40.0,
+                "pnr_lot_capacity": 40.0,
+                "residual_count": 0.0,
+                "absolute_residual_count": 0.0,
+                "percent_error": 0.0,
+            },
+        ]
+    )
+    assert (
+        summary.filter(pl.col("geography_type") == "district")
+        .sort("geography_id")
+        .select(["geography_id", "pnr_tour_count", "pnr_lot_capacity"])
+        .to_dicts()
+        == [
+            {"geography_id": "North", "pnr_tour_count": 5.0, "pnr_lot_capacity": 30.0},
+            {"geography_id": "South", "pnr_tour_count": 45.0, "pnr_lot_capacity": 70.0},
+        ]
+    )
+    assert (
+        summary.filter(pl.col("geography_type") == "all_geographies")
+        .select(["geography_id", "pnr_tour_count", "pnr_lot_capacity"])
+        .to_dicts()
+        == [
+            {
+                "geography_id": "all_geographies",
+                "pnr_tour_count": 50.0,
+                "pnr_lot_capacity": 100.0,
+            }
+        ]
+    )
+
+
+def test_park_and_ride_location_residual_histogram_uses_zero_bin_and_configured_modes(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "columns:",
+            "  pnr_lot_capacity: [PNR_CAP]",
+            "modes:",
+            "  pnr_tour_modes: [PNR_TRANSIT, PNR_LOCAL]",
+        ],
+    )
+    prepared = ProcessorRunData(
+        label="Prepared",
+        run_dir="C:/runs/prepared",
+        skim_file=None,
+        hh=pl.DataFrame(),
+        per=pl.DataFrame(),
+        tours=pl.DataFrame(
+            {
+                "tour_mode": ["PNR_TRANSIT", "PNR_LOCAL", "PNR_PREMIUM"],
+                "pnr_zone_id": [1, 2, 3],
+                "finalweight": [10.0, 20.0, 30.0],
+            }
+        ),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(
+            {
+                "MAZ": [1, 2, 3],
+                "PNR_CAP": [10.0, 25.0, 30.0],
+            }
+        ),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    histogram = park_and_ride_location_residual_histogram(prepared, config)
+
+    assert set(histogram.columns) == {
+        "geography_type",
+        "bin_start",
+        "bin_end",
+        "geography_count",
+    }
+    zero_bin = histogram.filter(
+        (pl.col("geography_type") == "maz")
+        & (pl.col("bin_start") == 0.0)
+        & (pl.col("bin_end") == 0.0)
+    )
+    assert zero_bin["geography_count"].to_list() == [1.0]
+    assert histogram.filter(pl.col("geography_type") == "maz")["geography_count"].sum() == 2.0
 
 
 def test_geography_summaries_include_all_geographies_rollups(tmp_path: Path) -> None:

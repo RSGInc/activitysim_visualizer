@@ -41,6 +41,9 @@ from dashboard.pages.tour_summaries.tour_mode import (
 from dashboard.pages.tour_summaries.internal_external_tours import (
     InternalExternalToursPage,
 )
+from dashboard.pages.tour_summaries.park_and_ride_location import (
+    ParkAndRideLocationPage,
+)
 from dashboard.pages.tour_summaries.tour_distance import TourDistancePage
 from dashboard.pages.tour_summaries.tour_purpose import TourPurposePage
 from dashboard.pages.tour_summaries.tour_stop_frequency import (
@@ -3827,6 +3830,121 @@ def test_shadow_pricing_all_geographies_shows_point_mass_cards_instead_of_plots(
     assert _collect_plotly_panes(page._school_section) == []
     assert _collect_tabulators(page._workplace_section) != []
     assert _collect_tabulators(page._school_section) != []
+
+
+def test_park_and_ride_location_page_uses_residual_plot_and_table(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "park_and_ride_location_residuals": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district", "district"],
+                    "geography_id": ["all_geographies", "North", "South"],
+                    "pnr_tour_count": [50.0, 5.0, 45.0],
+                    "pnr_lot_capacity": [100.0, 30.0, 70.0],
+                    "residual_count": [-50.0, -25.0, -25.0],
+                    "absolute_residual_count": [50.0, 25.0, 25.0],
+                    "percent_error": [-50.0, -83.3333, -35.7143],
+                }
+            ),
+            "park_and_ride_location_residual_histogram": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district", "district"],
+                    "bin_start": [-50.0, -30.0, 0.0],
+                    "bin_end": [0.0, 0.0, 0.0],
+                    "geography_count": [1.0, 1.0, 1.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+    state.value_mode = "Percent"
+
+    page = ParkAndRideLocationPage(state, config)
+    page.refresh(force=True)
+    page.geo_level_sel.value = "district"
+    page.refresh(force=True)
+
+    plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._plot_section)
+        if plot.object.layout.title.text == "Park-and-Ride Residual Distribution"
+    )
+    assert plot.object.layout.xaxis.title.text == "Residual (Modeled - Capacity)"
+    assert plot.object.layout.yaxis.title.text == "Percent of Geographies (%)"
+    tables = _collect_tabulators(page._table_section)
+    assert tables != []
+    table_df = pl.from_pandas(tables[0].value)
+    assert table_df["percent_error"].to_list()[0].endswith("%")
+
+
+def test_park_and_ride_location_all_geographies_and_maz_table_behavior(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "park_and_ride_location_residuals": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "maz"],
+                    "geography_id": ["all_geographies", "1"],
+                    "pnr_tour_count": [50.0, 10.0],
+                    "pnr_lot_capacity": [100.0, 12.0],
+                    "residual_count": [-50.0, -2.0],
+                    "absolute_residual_count": [50.0, 2.0],
+                    "percent_error": [-50.0, -16.6667],
+                }
+            ),
+            "park_and_ride_location_residual_histogram": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "maz"],
+                    "bin_start": [-50.0, -2.0],
+                    "bin_end": [0.0, 0.0],
+                    "geography_count": [1.0, 1.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = ParkAndRideLocationPage(state, config)
+    page.refresh(force=True)
+
+    cards = _collect_cards(page._plot_section)
+    assert any(
+        getattr(card, "title", "") == "Park-and-Ride Residual Distribution Unavailable"
+        and "point mass" in str(card.objects[0].object)
+        for card in cards
+        if getattr(card, "objects", None)
+    )
+    assert _collect_plotly_panes(page._plot_section) == []
+    assert _collect_tabulators(page._table_section) != []
+
+    page.geo_level_sel.value = "maz"
+    page.refresh(force=True)
+
+    cards = _collect_cards(page._table_section)
+    assert any(
+        getattr(card, "title", "") == "Park-and-Ride Residuals by Geography"
+        and "enable_maz_geographies is false" in str(card.objects[0].object)
+        for card in cards
+        if getattr(card, "objects", None)
+    )
+    plots = _collect_plotly_panes(page._plot_section)
+    assert any(
+        plot.object.layout.title.text == "Park-and-Ride Residual Distribution"
+        for plot in plots
+    )
 
 
 def test_mandatory_location_choice_external_workplace_aggregate_percent_uses_all_workers(

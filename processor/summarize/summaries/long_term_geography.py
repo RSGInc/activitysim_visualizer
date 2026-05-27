@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 
-import numpy as np
 import polars as pl
 
 from processor.models import RunData
@@ -18,10 +17,12 @@ from processor.summarize.summaries.summary_helpers import (
     _configured_geography_columns,
     _configured_geography_dimensions,
     _configured_land_use_geography_dimensions,
+    _finalize_residual_frame,
+    _first_existing_column,
+    _residual_histogram_summary,
+    _residual_metrics_columns,
 )
 from runtime.config import Config
-
-_MAX_SHADOW_PRICING_HISTOGRAM_BINS = 200
 
 
 def _aggregate_internal_external_counts(
@@ -328,131 +329,6 @@ def external_workplace_loc(rd: RunData, config: Config) -> pl.DataFrame:
         )
         .sort(["geography_type", "geography_id"])
     )
-
-
-def _residual_metrics_columns(target_col: str, modeled_col: str) -> list[pl.Expr]:
-    residual = pl.col(modeled_col) - pl.col(target_col)
-    return [
-        pl.col(target_col).cast(pl.Float64).alias("target_count"),
-        pl.col(modeled_col).cast(pl.Float64).alias("modeled_count"),
-        residual.cast(pl.Float64).alias("residual_count"),
-        residual.abs().cast(pl.Float64).alias("absolute_residual_count"),
-        pl.when(pl.col(target_col) > 0)
-        .then((residual / pl.col(target_col)) * 100.0)
-        .otherwise(None)
-        .cast(pl.Float64)
-        .alias("percent_error"),
-    ]
-
-
-def _finalize_residual_frame(
-    df: pl.DataFrame,
-    *,
-    group_cols: list[str] | None = None,
-) -> pl.DataFrame:
-    ordered_cols = ["geography_type", "geography_id"]
-    if group_cols:
-        ordered_cols.extend(group_cols)
-    ordered_cols.extend(
-        [
-            "target_count",
-            "modeled_count",
-            "residual_count",
-            "absolute_residual_count",
-            "percent_error",
-        ]
-    )
-    cast_exprs = [
-        pl.col("geography_type").cast(pl.Utf8),
-        pl.col("geography_id").cast(pl.Utf8),
-        pl.col("target_count").cast(pl.Float64),
-        pl.col("modeled_count").cast(pl.Float64),
-        pl.col("residual_count").cast(pl.Float64),
-        pl.col("absolute_residual_count").cast(pl.Float64),
-        pl.col("percent_error").cast(pl.Float64),
-    ]
-    if group_cols:
-        cast_exprs.extend(pl.col(column).cast(pl.Utf8) for column in group_cols)
-    return df.with_columns(cast_exprs).select(ordered_cols)
-
-
-def _dynamic_count_bin_edges(values: list[float]) -> np.ndarray:
-    finite = np.array([value for value in values if math.isfinite(value)], dtype=float)
-    if finite.size == 0:
-        return np.array([-1.0, 1.0], dtype=float)
-    if finite.size == 1 or math.isclose(float(finite.min()), float(finite.max())):
-        center = float(finite[0])
-        width = max(1.0, abs(center) * 0.25)
-        return np.array([center - width, center + width], dtype=float)
-    edges = np.histogram_bin_edges(finite, bins="fd")
-    if edges.size < 2 or np.allclose(edges[0], edges[-1]):
-        lower = float(finite.min())
-        upper = float(finite.max())
-        if math.isclose(lower, upper):
-            width = max(1.0, abs(lower) * 0.25)
-            return np.array([lower - width, lower + width], dtype=float)
-        return np.linspace(lower, upper, num=7, dtype=float)
-    max_edges = _MAX_SHADOW_PRICING_HISTOGRAM_BINS + 1
-    if edges.size > max_edges:
-        return np.linspace(float(finite.min()), float(finite.max()), num=max_edges, dtype=float)
-    return edges.astype(float)
-
-
-def _residual_histogram_summary(
-    df: pl.DataFrame,
-    *,
-    group_cols: list[str],
-    value_col: str,
-) -> pl.DataFrame:
-    valid = df.select(
-        *group_cols,
-        pl.col(value_col).cast(pl.Float64).alias(value_col),
-    ).filter(pl.col(value_col).is_not_null())
-    if valid.is_empty():
-        return pl.DataFrame(
-            schema={
-                **{column: pl.Utf8 for column in group_cols},
-                "bin_start": pl.Float64,
-                "bin_end": pl.Float64,
-                "geography_count": pl.Float64,
-            }
-        )
-    rows: list[dict[str, object]] = []
-    for group_df in valid.partition_by(group_cols, as_dict=False, maintain_order=True):
-        key = {column: group_df[column][0] for column in group_cols}
-        values = np.array(group_df[value_col].to_list(), dtype=float)
-        zero_mask = np.isclose(values, 0.0)
-        zero_count = float(zero_mask.sum())
-        nonzero_values = values[~zero_mask]
-        if zero_count > 0:
-            rows.append(
-                {
-                    **key,
-                    "bin_start": 0.0,
-                    "bin_end": 0.0,
-                    "geography_count": zero_count,
-                }
-            )
-        if nonzero_values.size == 0:
-            continue
-        edges = _dynamic_count_bin_edges(nonzero_values.tolist())
-        counts, bin_edges = np.histogram(nonzero_values, bins=edges)
-        for index, geography_count in enumerate(counts.tolist()):
-            rows.append(
-                {
-                    **key,
-                    "bin_start": float(bin_edges[index]),
-                    "bin_end": float(bin_edges[index + 1]),
-                    "geography_count": float(geography_count),
-                }
-            )
-    return pl.DataFrame(rows).with_columns(
-        *[pl.col(column).cast(pl.Utf8) for column in group_cols],
-        pl.col("bin_start").cast(pl.Float64),
-        pl.col("bin_end").cast(pl.Float64),
-        pl.col("geography_count").cast(pl.Float64),
-    )
-
 
 def _workplace_land_use_and_modeled_counts(
     rd: RunData,
@@ -826,6 +702,139 @@ def _school_land_use_and_modeled_counts(
     )
 
 
+def _park_and_ride_location_counts(
+    rd: RunData,
+    config: Config,
+) -> pl.DataFrame | None:
+    required_tour_cols = {"tour_mode", "pnr_zone_id", "finalweight"}
+    if not required_tour_cols.issubset(set(rd.tours.columns)):
+        return None
+
+    capacity_col = _first_existing_column(
+        rd.land_use.columns,
+        config.col_pnr_lot_capacity,
+    )
+    if capacity_col is None:
+        return None
+
+    join_key = None
+    land_use_base_col = None
+    geography_base_col = None
+    geography_base_type = None
+    if "pnr_zone_id" in rd.tours.columns and "MAZ" in rd.land_use.columns:
+        join_key = "pnr_zone_id"
+        land_use_base_col = "MAZ"
+        geography_base_col = "MAZ"
+        geography_base_type = "maz"
+    elif "pnr_taz" in rd.tours.columns and "TAZ" in rd.land_use.columns:
+        join_key = "pnr_taz"
+        land_use_base_col = "TAZ"
+        geography_base_col = "TAZ"
+        geography_base_type = "taz"
+    if (
+        join_key is None
+        or land_use_base_col is None
+        or geography_base_col is None
+        or geography_base_type is None
+    ):
+        return None
+
+    pnr_modes = {mode.lower() for mode in config.pnr_tour_modes}
+    modeled = (
+        rd.tours.with_columns(pl.col("tour_mode").cast(pl.Utf8).str.to_lowercase())
+        .filter(
+            pl.col("tour_mode").is_in(sorted(pnr_modes))
+            & pl.col(join_key).is_not_null()
+            & pl.col("finalweight").is_not_null()
+        )
+        .group_by(join_key)
+        .agg(pnr_tour_count=pl.col("finalweight").sum())
+        .with_columns(pl.col(join_key).cast(pl.Int64))
+    )
+    if modeled.is_empty():
+        return None
+
+    land_use_cols = [land_use_base_col, capacity_col]
+    land_use_cols.extend(
+        column
+        for _, column in _configured_land_use_geography_dimensions(rd.land_use, config=config)
+        if column not in land_use_cols
+    )
+    land_use_base = (
+        rd.land_use.filter(pl.col(capacity_col).is_not_null() & pl.col(land_use_base_col).is_not_null())
+        .select(*land_use_cols)
+        .group_by(land_use_base_col)
+        .agg(
+            pnr_lot_capacity=pl.col(capacity_col).sum(),
+            *[
+                pl.col(column).drop_nulls().first().alias(column)
+                for column in land_use_cols
+                if column not in {land_use_base_col, capacity_col}
+            ],
+        )
+        .with_columns(pl.col(land_use_base_col).cast(pl.Int64))
+    )
+    if land_use_base.is_empty():
+        return None
+
+    used_lots = modeled.join(
+        land_use_base,
+        left_on=join_key,
+        right_on=land_use_base_col,
+        how="left",
+        coalesce=True,
+    )
+    if used_lots.height != modeled.height or used_lots["pnr_lot_capacity"].null_count() > 0:
+        return None
+
+    outputs = [
+        used_lots.group_by(join_key)
+        .agg(
+            pnr_tour_count=pl.col("pnr_tour_count").sum(),
+            pnr_lot_capacity=pl.col("pnr_lot_capacity").sum(),
+        )
+        .rename({join_key: "geography_id"})
+        .with_columns(
+            pl.lit(geography_base_type).alias("geography_type"),
+            pl.col("geography_id").cast(pl.Utf8),
+            pl.col("pnr_tour_count").cast(pl.Float64),
+            pl.col("pnr_lot_capacity").cast(pl.Float64),
+        )
+        .select("geography_type", "geography_id", "pnr_tour_count", "pnr_lot_capacity")
+    ]
+    for geography_type, geography_col in _configured_land_use_geography_dimensions(
+        used_lots,
+        config=config,
+    ):
+        if geography_col == geography_base_col or geography_col not in used_lots.columns:
+            continue
+        outputs.append(
+            used_lots.filter(pl.col(geography_col).is_not_null())
+            .group_by(geography_col)
+            .agg(
+                pnr_tour_count=pl.col("pnr_tour_count").sum(),
+                pnr_lot_capacity=pl.col("pnr_lot_capacity").sum(),
+            )
+            .rename({geography_col: "geography_id"})
+            .with_columns(
+                pl.lit(geography_type).alias("geography_type"),
+                pl.col("geography_id").cast(pl.Utf8),
+                pl.col("pnr_tour_count").cast(pl.Float64),
+                pl.col("pnr_lot_capacity").cast(pl.Float64),
+            )
+            .select("geography_type", "geography_id", "pnr_tour_count", "pnr_lot_capacity")
+        )
+    outputs.append(
+        used_lots.select(
+            pl.lit("all_geographies").alias("geography_type"),
+            pl.lit("all_geographies").alias("geography_id"),
+            pl.col("pnr_tour_count").sum().cast(pl.Float64).alias("pnr_tour_count"),
+            pl.col("pnr_lot_capacity").sum().cast(pl.Float64).alias("pnr_lot_capacity"),
+        )
+    )
+    return pl.concat(outputs, how="vertical").sort(["geography_type", "geography_id"])
+
+
 @summary_contract(
     schema={
         "geography_type": pl.Utf8,
@@ -1010,6 +1019,65 @@ def school_shadow_pricing_residual_histogram(
     return pl.concat([by_student_type, all_student_types], how="vertical").sort(
         ["geography_type", "student_type", "bin_start", "bin_end"]
     )
+
+
+@summary_contract(
+    schema={
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
+        "pnr_tour_count": pl.Float64,
+        "pnr_lot_capacity": pl.Float64,
+        "residual_count": pl.Float64,
+        "absolute_residual_count": pl.Float64,
+        "percent_error": pl.Float64,
+    },
+    required_columns={
+        "tours": ("tour_mode", "pnr_zone_id", "finalweight"),
+        "land_use": ("MAZ",),
+    },
+)
+def park_and_ride_location_residuals(rd: RunData, config: Config) -> pl.DataFrame:
+    base = _park_and_ride_location_counts(rd, config)
+    if base is None or base.is_empty():
+        return empty_summary_frame(park_and_ride_location_residuals)
+    return _finalize_residual_frame(
+        base.with_columns(
+            *_residual_metrics_columns(
+                "pnr_lot_capacity",
+                "pnr_tour_count",
+                target_output_col="pnr_lot_capacity",
+                modeled_output_col="pnr_tour_count",
+            )
+        ),
+        target_output_col="pnr_lot_capacity",
+        modeled_output_col="pnr_tour_count",
+    ).sort(["geography_type", "geography_id"])
+
+
+@summary_contract(
+    schema={
+        "geography_type": pl.Utf8,
+        "bin_start": pl.Float64,
+        "bin_end": pl.Float64,
+        "geography_count": pl.Float64,
+    },
+    required_columns={
+        "tours": ("tour_mode", "pnr_zone_id", "finalweight"),
+        "land_use": ("MAZ",),
+    },
+)
+def park_and_ride_location_residual_histogram(
+    rd: RunData,
+    config: Config,
+) -> pl.DataFrame:
+    residuals = park_and_ride_location_residuals(rd, config)
+    if residuals.is_empty():
+        return empty_summary_frame(park_and_ride_location_residual_histogram)
+    return _residual_histogram_summary(
+        residuals,
+        group_cols=["geography_type"],
+        value_col="residual_count",
+    ).sort(["geography_type", "bin_start", "bin_end"])
 
 
 @summary_contract(

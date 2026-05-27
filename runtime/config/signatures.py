@@ -124,6 +124,7 @@ def prepare_signature_payload(config: Config) -> dict[str, Any]:
             "total_employment": list(config.col_total_employment),
             "income_segment": list(config.col_income_segment),
             "pnr_zone_id": list(config.col_pnr_zone_id),
+            "pnr_lot_capacity": list(config.col_pnr_lot_capacity),
             "is_worker": list(config.col_is_worker),
             "adult": list(config.col_adult),
             "school_esc_outbound": list(config.col_school_esc_outbound),
@@ -278,6 +279,7 @@ def summary_signature_payload(config: Config) -> dict[str, Any]:
                 if config.mode_groups
                 else None
             ),
+            "pnr_tour_modes": list(config.pnr_tour_modes),
         },
         "skimjoin": {
             "enabled": config.skimjoin.enabled,

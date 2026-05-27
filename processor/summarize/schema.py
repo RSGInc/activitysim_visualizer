@@ -47,6 +47,8 @@ LONG_TERM_SUMMARIES_COLUMNS = {
         "school_location_enrollment_comparison",
         "school_shadow_pricing_residuals",
         "school_shadow_pricing_residual_histogram",
+        "park_and_ride_location_residuals",
+        "park_and_ride_location_residual_histogram",
         "commuting_flows",
         "vehicle_age_distribution",
         "vehicle_fuel_type_distribution",

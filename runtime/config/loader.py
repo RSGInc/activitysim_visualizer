@@ -13,6 +13,7 @@ from .common import (
     normalize_label_mapping,
     normalize_optional_bool,
     normalize_optional_path_string,
+    normalize_string_list,
 )
 from .constants import DEFAULT_RUN_COLORS, FILE_MAPPING_DEFAULTS
 from .legacy import warn_ignored_legacy_key, warn_supported_legacy_key
@@ -683,6 +684,11 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
             field_name="columns.pnr_zone_id",
             default=["pnr_zone_id"],
         ),
+        col_pnr_lot_capacity=normalize_column_aliases(
+            cols.get("pnr_lot_capacity"),
+            field_name="columns.pnr_lot_capacity",
+            default=["PNR_SPACES"],
+        ),
         col_is_worker=normalize_column_aliases(
             cols.get("is_worker"),
             field_name="columns.is_worker",
@@ -791,8 +797,18 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         skim_matrix=skim_cfg.get("matrix", "SOV_DIST__MD"),
         mode_order=modes_cfg.get("order"),
         mode_groups=modes_cfg.get("groups"),
+        pnr_tour_modes=(
+            normalize_string_list(
+                modes_cfg.get("pnr_tour_modes"),
+                field_name="modes.pnr_tour_modes",
+            )
+            if "pnr_tour_modes" in modes_cfg
+            else ["PNR_TRANSIT"]
+        ),
         runs=runs,
     )
+    if not config.pnr_tour_modes:
+        raise ValueError("modes.pnr_tour_modes must resolve to at least one mode.")
     config.prepare_config_digest = digest_payload(config.prepare_signature_payload())
     config.summary_config_digest = digest_payload(config.summary_signature_payload())
     config.presentation_config_digest = digest_payload(

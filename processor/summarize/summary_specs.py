@@ -108,6 +108,16 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         long_term.school_shadow_pricing_residual_histogram,
     ),
     SummarySpec(
+        "park_and_ride_location_residuals",
+        "park_and_ride_location_residuals",
+        long_term.park_and_ride_location_residuals,
+    ),
+    SummarySpec(
+        "park_and_ride_location_residual_histogram",
+        "park_and_ride_location_residual_histogram",
+        long_term.park_and_ride_location_residual_histogram,
+    ),
+    SummarySpec(
         "commuting_flows",
         "commuting_flows",
         long_term.commuting_flows,

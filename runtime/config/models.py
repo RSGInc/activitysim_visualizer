@@ -357,6 +357,7 @@ class Config:
     col_trip_outbound: list[str]
     col_trip_num: list[str]
     col_pnr_zone_id: list[str]
+    col_pnr_lot_capacity: list[str]
     col_is_worker: list[str]
     col_adult: list[str]
     col_day_id: list[str]
@@ -393,6 +394,7 @@ class Config:
     skim_matrix: str
     mode_order: Optional[list[str]]
     mode_groups: Optional[dict[str, list[str]]]
+    pnr_tour_modes: list[str]
     runs: list[dict]
 
     @classmethod

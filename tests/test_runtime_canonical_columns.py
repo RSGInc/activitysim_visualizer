@@ -305,6 +305,34 @@ def test_config_normalizes_column_alias_values_and_preserves_order(
     assert config.col_trip_mode == ["trip_mode_src"]
 
 
+def test_config_loads_pnr_mode_and_capacity_alias_settings(tmp_path: Path) -> None:
+    config = _write_config(
+        tmp_path,
+        column_lines=["pnr_lot_capacity: [pnr_spaces, PNR_CAP]"],
+        extra_lines=[
+            "modes:",
+            "  pnr_tour_modes: [PNR_LOCAL, PNR_PREMIUM]",
+        ],
+    )
+
+    assert config.col_pnr_lot_capacity == ["pnr_spaces", "PNR_CAP"]
+    assert config.pnr_tour_modes == ["PNR_LOCAL", "PNR_PREMIUM"]
+
+
+def test_config_rejects_empty_pnr_tour_mode_list(tmp_path: Path) -> None:
+    with pytest.raises(
+        ValueError,
+        match="modes.pnr_tour_modes must resolve to at least one mode",
+    ):
+        _write_config(
+            tmp_path,
+            extra_lines=[
+                "modes:",
+                "  pnr_tour_modes: []",
+            ],
+        )
+
+
 def test_tour_purpose_grouping_flags_default_to_true(tmp_path: Path) -> None:
     config = _write_config(tmp_path)
 

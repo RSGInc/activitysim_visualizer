@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import math
+
+import numpy as np
 import polars as pl
 
 from processor.tour_purpose import purpose_column
 
 ALL_TOUR_PURPOSES = "all_tour_purposes"
 ALL_PERSON_TYPES = "all_person_types"
+MAX_RESIDUAL_HISTOGRAM_BINS = 200
 
 
 def _summary_purpose_column(df: pl.DataFrame) -> str:
@@ -24,6 +28,14 @@ def _weighted_group_sum(
 ) -> pl.DataFrame:
     """Group rows and sum one weight column into one named output column."""
     return df.group_by(group_cols).agg(pl.col(weight_col).sum().alias(output_col))
+
+
+def _first_existing_column(columns: list[str], candidates: list[str]) -> str | None:
+    candidate_set = set(columns)
+    for candidate in candidates:
+        if candidate in candidate_set:
+            return candidate
+    return None
 
 
 def _all_purpose_rollup(
@@ -179,6 +191,143 @@ def _aggregate_counts_across_geographies(
             }
         )
     return pl.concat(outputs, how="vertical")
+
+
+def _residual_metrics_columns(
+    target_col: str,
+    modeled_col: str,
+    *,
+    target_output_col: str = "target_count",
+    modeled_output_col: str = "modeled_count",
+) -> list[pl.Expr]:
+    residual = pl.col(modeled_col) - pl.col(target_col)
+    return [
+        pl.col(target_col).cast(pl.Float64).alias(target_output_col),
+        pl.col(modeled_col).cast(pl.Float64).alias(modeled_output_col),
+        residual.cast(pl.Float64).alias("residual_count"),
+        residual.abs().cast(pl.Float64).alias("absolute_residual_count"),
+        pl.when(pl.col(target_col) > 0)
+        .then((residual / pl.col(target_col)) * 100.0)
+        .otherwise(None)
+        .cast(pl.Float64)
+        .alias("percent_error"),
+    ]
+
+
+def _finalize_residual_frame(
+    df: pl.DataFrame,
+    *,
+    target_output_col: str = "target_count",
+    modeled_output_col: str = "modeled_count",
+    group_cols: list[str] | None = None,
+) -> pl.DataFrame:
+    ordered_cols = ["geography_type", "geography_id"]
+    if group_cols:
+        ordered_cols.extend(group_cols)
+    ordered_cols.extend(
+        [
+            target_output_col,
+            modeled_output_col,
+            "residual_count",
+            "absolute_residual_count",
+            "percent_error",
+        ]
+    )
+    cast_exprs = [
+        pl.col("geography_type").cast(pl.Utf8),
+        pl.col("geography_id").cast(pl.Utf8),
+        pl.col(target_output_col).cast(pl.Float64),
+        pl.col(modeled_output_col).cast(pl.Float64),
+        pl.col("residual_count").cast(pl.Float64),
+        pl.col("absolute_residual_count").cast(pl.Float64),
+        pl.col("percent_error").cast(pl.Float64),
+    ]
+    if group_cols:
+        cast_exprs.extend(pl.col(column).cast(pl.Utf8) for column in group_cols)
+    return df.with_columns(cast_exprs).select(ordered_cols)
+
+
+def _dynamic_count_bin_edges(values: list[float]) -> np.ndarray:
+    finite = np.array([value for value in values if math.isfinite(value)], dtype=float)
+    if finite.size == 0:
+        return np.array([-1.0, 1.0], dtype=float)
+    if finite.size == 1 or math.isclose(float(finite.min()), float(finite.max())):
+        center = float(finite[0])
+        width = max(1.0, abs(center) * 0.25)
+        return np.array([center - width, center + width], dtype=float)
+    edges = np.histogram_bin_edges(finite, bins="fd")
+    if edges.size < 2 or np.allclose(edges[0], edges[-1]):
+        lower = float(finite.min())
+        upper = float(finite.max())
+        if math.isclose(lower, upper):
+            width = max(1.0, abs(lower) * 0.25)
+            return np.array([lower - width, lower + width], dtype=float)
+        return np.linspace(lower, upper, num=7, dtype=float)
+    max_edges = MAX_RESIDUAL_HISTOGRAM_BINS + 1
+    if edges.size > max_edges:
+        return np.linspace(
+            float(finite.min()),
+            float(finite.max()),
+            num=max_edges,
+            dtype=float,
+        )
+    return edges.astype(float)
+
+
+def _residual_histogram_summary(
+    df: pl.DataFrame,
+    *,
+    group_cols: list[str],
+    value_col: str,
+) -> pl.DataFrame:
+    valid = df.select(
+        *group_cols,
+        pl.col(value_col).cast(pl.Float64).alias(value_col),
+    ).filter(pl.col(value_col).is_not_null())
+    if valid.is_empty():
+        return pl.DataFrame(
+            schema={
+                **{column: pl.Utf8 for column in group_cols},
+                "bin_start": pl.Float64,
+                "bin_end": pl.Float64,
+                "geography_count": pl.Float64,
+            }
+        )
+    rows: list[dict[str, object]] = []
+    for group_df in valid.partition_by(group_cols, as_dict=False, maintain_order=True):
+        key = {column: group_df[column][0] for column in group_cols}
+        values = np.array(group_df[value_col].to_list(), dtype=float)
+        zero_mask = np.isclose(values, 0.0)
+        zero_count = float(zero_mask.sum())
+        nonzero_values = values[~zero_mask]
+        if zero_count > 0:
+            rows.append(
+                {
+                    **key,
+                    "bin_start": 0.0,
+                    "bin_end": 0.0,
+                    "geography_count": zero_count,
+                }
+            )
+        if nonzero_values.size == 0:
+            continue
+        edges = _dynamic_count_bin_edges(nonzero_values.tolist())
+        counts, bin_edges = np.histogram(nonzero_values, bins=edges)
+        for index, geography_count in enumerate(counts.tolist()):
+            rows.append(
+                {
+                    **key,
+                    "bin_start": float(bin_edges[index]),
+                    "bin_end": float(bin_edges[index + 1]),
+                    "geography_count": float(geography_count),
+                }
+            )
+    return pl.DataFrame(rows).with_columns(
+        *[pl.col(column).cast(pl.Utf8) for column in group_cols],
+        pl.col("bin_start").cast(pl.Float64),
+        pl.col("bin_end").cast(pl.Float64),
+        pl.col("geography_count").cast(pl.Float64),
+    )
 
 
 def _aggregate_weighted_average_across_geographies(
