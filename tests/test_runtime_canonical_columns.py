@@ -27,6 +27,7 @@ def _write_config(
     tmp_path: Path,
     *,
     column_lines: list[str] | None = None,
+    visualizer_lines: list[str] | None = None,
     extra_lines: list[str] | None = None,
 ) -> Config:
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -39,6 +40,8 @@ def _write_config(
         "visualizer:",
         '  dashboard_title: "Canonical Test Dashboard"',
     ]
+    if visualizer_lines:
+        lines.extend(f"  {line}" for line in visualizer_lines)
     if column_lines:
         lines.append("columns:")
         lines.extend(f"  {line}" for line in column_lines)
@@ -758,6 +761,39 @@ def test_config_prepare_signature_changes_when_auto_sufficiency_basis_changes(
     assert config_a.presentation_config_digest == config_b.presentation_config_digest
 
 
+def test_config_presentation_signature_changes_when_log_level_changes(
+    tmp_path: Path,
+) -> None:
+    config_a = _write_config(tmp_path / "a")
+    config_b = _write_config(
+        tmp_path / "b",
+        visualizer_lines=[
+            "log_level: warning",
+        ],
+    )
+
+    assert config_a.prepare_config_digest == config_b.prepare_config_digest
+    assert config_a.summary_config_digest == config_b.summary_config_digest
+    assert config_a.presentation_config_digest != config_b.presentation_config_digest
+
+
+def test_config_presentation_signature_changes_when_export_output_path_changes(
+    tmp_path: Path,
+) -> None:
+    config_a = _write_config(tmp_path / "a")
+    config_b = _write_config(
+        tmp_path / "b",
+        visualizer_lines=[
+            "export_html:",
+            "  output_path: exports/dashboard.html",
+        ],
+    )
+
+    assert config_a.prepare_config_digest == config_b.prepare_config_digest
+    assert config_a.summary_config_digest == config_b.summary_config_digest
+    assert config_a.presentation_config_digest != config_b.presentation_config_digest
+
+
 def test_config_accepts_auto_sufficiency_flag_aliases(
     tmp_path: Path,
 ) -> None:
@@ -798,6 +834,28 @@ def test_config_rejects_invalid_auto_sufficiency_basis(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="prepare.auto_sufficiency_basis"):
+        Config.from_yaml(config_path)
+
+
+def test_config_rejects_invalid_visualizer_log_level(tmp_path: Path) -> None:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'name: "Canonical Test Config"',
+                "runs: []",
+                "summaries:",
+                "  root: summary_cache",
+                "visualizer:",
+                '  dashboard_title: "Canonical Test Dashboard"',
+                "  log_level: verbose",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="visualizer.log_level"):
         Config.from_yaml(config_path)
 
 

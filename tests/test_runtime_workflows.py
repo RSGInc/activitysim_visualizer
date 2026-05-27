@@ -9,6 +9,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import runtime.workflows as runtime_workflows
+import run as cli_run
 from processor.models import ProcessorWorkflowResult
 from processor.models import RunData
 from processor.prepare.availability import attach_table_availability
@@ -33,6 +34,7 @@ def _write_config(
     runs: list[dict],
     dashboard_pages: list[str] | None = None,
     export_html_lines: list[str] | None = None,
+    visualizer_lines: list[str] | None = None,
     extra_lines: list[str] | None = None,
 ) -> Config:
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -48,6 +50,8 @@ def _write_config(
         "visualizer:",
         '  dashboard_title: "Workflow Test Dashboard"',
     ]
+    if visualizer_lines:
+        lines.extend(f"  {line}" for line in visualizer_lines)
     if dashboard_pages is not None:
         lines.append("  dashboard_pages:")
         lines.extend(f"    - {page_id}" for page_id in dashboard_pages)
@@ -1075,7 +1079,9 @@ def test_run_summary_workflow_backfills_only_missing_summary_tables(
             mode_tables = {}
             mode_metadata = {}
             for summary_id in requested:
-                mode_tables[summary_id] = pl.DataFrame({"value": [2.0 if summary_id == "new" else 1.0]})
+                mode_tables[summary_id] = pl.DataFrame(
+                    {"value": [2.0 if summary_id == "new" else 1.0]}
+                )
                 mode_metadata[summary_id] = {"state": "available"}
             tables[mode] = mode_tables
             metadata[mode] = mode_metadata
@@ -1113,6 +1119,55 @@ def test_run_summary_workflow_backfills_only_missing_summary_tables(
     assert build_calls == [["new"]]
     weighted_tables = result.summary_runs[0].summaries_by_mode["weighted"]
     assert sorted(weighted_tables) == ["good", "new"]
+
+
+def test_run_cli_resolves_export_html_path_with_cli_config_and_default_precedence(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        runs=[],
+        export_html_lines=[
+            "output_path: configured/dashboard.html",
+        ],
+    )
+
+    assert cli_run._resolve_export_html_path(None, config) is None
+    assert cli_run._resolve_export_html_path("custom/out.html", config) == "custom/out.html"
+    assert cli_run._resolve_export_html_path(
+        cli_run._EXPORT_HTML_USE_CONFIG_SENTINEL,
+        config,
+    ) == str((tmp_path / "configured" / "dashboard.html").resolve())
+
+    config_without_output = _write_config(tmp_path / "fallback", runs=[])
+    assert cli_run._resolve_export_html_path(
+        cli_run._EXPORT_HTML_USE_CONFIG_SENTINEL,
+        config_without_output,
+    ) == str(Path(config_without_output.summary_root) / "exported_dashboard.html")
+
+
+def test_run_cli_uses_configured_terminal_log_level(tmp_path: Path) -> None:
+    config = _write_config(
+        tmp_path,
+        runs=[],
+        visualizer_lines=[
+            "log_level: error",
+        ],
+    )
+
+    assert cli_run._resolve_terminal_log_level(config) == 40
+
+
+def test_parse_args_accepts_export_html_without_path(monkeypatch) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["activitysim-viz", "--config", "config.yaml", "--export-html"],
+    )
+
+    args = cli_run.parse_args()
+
+    assert args.export_html == cli_run._EXPORT_HTML_USE_CONFIG_SENTINEL
 
 
 def test_run_summary_workflow_continues_when_one_summary_fails(

@@ -12,6 +12,7 @@ from .common import (
     normalize_column_aliases,
     normalize_label_mapping,
     normalize_optional_bool,
+    normalize_optional_path_string,
 )
 from .constants import DEFAULT_RUN_COLORS, FILE_MAPPING_DEFAULTS
 from .legacy import warn_ignored_legacy_key, warn_supported_legacy_key
@@ -315,6 +316,11 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
 
     export_html = ExportHTMLSettings(
         enabled=export_enabled,
+        output_path=normalize_optional_path_string(
+            export_html_cfg.get("output_path"),
+            field_name="visualizer.export_html.output_path",
+            config_dir=config_path.parent,
+        ),
         dashboard=ExportDashboardSettings(
             weighting=normalize_export_html_selection(
                 dashboard_cfg.get("weighting"),
@@ -380,6 +386,11 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
     dashboard_title = visualizer_cfg.get("dashboard_title")
     if dashboard_title is None:
         dashboard_title = raw.get("dashboard_title", "ActivitySim Visualizer")
+    log_level = str(visualizer_cfg.get("log_level", "INFO")).strip().upper()
+    if log_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+        raise ValueError(
+            "visualizer.log_level must be one of DEBUG, INFO, WARNING, ERROR, or CRITICAL."
+        )
     run_colors = visualizer_cfg.get("run_colors", list(DEFAULT_RUN_COLORS))
     if not isinstance(run_colors, list):
         raise ValueError("visualizer.run_colors must be a list when provided.")
@@ -479,6 +490,7 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         presentation_config_digest="",
         name=raw.get("name", ""),
         dashboard_title=str(dashboard_title),
+        log_level=log_level,
         dashboard_pages=dashboard_pages,
         enable_maz_geographies=enable_maz_geographies_raw,
         run_colors=run_colors,

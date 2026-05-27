@@ -652,6 +652,7 @@ def test_export_html_config_defaults_to_all_dashboard_states_and_selector_values
     assert config.export_html.enabled is False
     assert config.export_html.weighting == ["weighted", "unweighted"]
     assert config.export_html.values == ["percent", "count"]
+    assert config.export_html.output_path is None
     assert _configured_page_ids(config) == [page_id for page_id, _ in EXPECTED_DEFAULT_PAGES]
     assert config.export_html.dashboard.weighting == ["weighted", "unweighted"]
     assert config.export_html.dashboard.values == ["percent", "count"]
@@ -766,6 +767,22 @@ def test_export_html_config_supports_new_summaries_and_visualizer_sections(
     assert config.export_html.enabled is True
     assert list(config.export_html.pages) == ["trip_mode"]
     assert config.export_html.pages_configured is True
+
+
+def test_export_html_config_resolves_output_path_relative_to_config(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        export_html_lines=[
+            "enabled: true",
+            "output_path: exports/dashboard.html",
+        ],
+    )
+
+    assert config.export_html.output_path == str(
+        (tmp_path / "exports" / "dashboard.html").resolve()
+    )
 
 
 def test_export_html_enabled_without_pages_uses_all_dashboard_states_and_all_selectors(

@@ -293,6 +293,7 @@ def summary_signature_payload(config: Config) -> dict[str, Any]:
 def presentation_signature_payload(config: Config) -> dict[str, Any]:
     return {
         "dashboard_title": config.dashboard_title,
+        "log_level": config.log_level,
         "dashboard_pages": (
             [
                 {
@@ -318,6 +319,7 @@ def presentation_signature_payload(config: Config) -> dict[str, Any]:
         "dashboard_labels": category_specs_payload(config.dashboard_labels),
         "export_html": {
             "enabled": config.export_html.enabled,
+            "output_path": config.export_html.output_path,
             "dashboard": {
                 "weighting": list(config.export_html.dashboard.weighting),
                 "values": list(config.export_html.dashboard.values),

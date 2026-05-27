@@ -17,6 +17,7 @@ from dashboard.page_registry import (
 import runtime.workflows as runtime_workflows
 
 LOGGER = get_logger("main")
+_EXPORT_HTML_USE_CONFIG_SENTINEL = "__USE_CONFIG_OR_DEFAULT_EXPORT_HTML__"
 
 
 def parse_args() -> argparse.Namespace:
@@ -103,8 +104,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--export-html",
+        nargs="?",
+        const=_EXPORT_HTML_USE_CONFIG_SENTINEL,
         metavar="PATH",
-        help="Export dashboard to a self-contained HTML file and exit",
+        help=(
+            "Export dashboard to a self-contained HTML file and exit. "
+            "If PATH is omitted, use the config output_path or the default root-based export path."
+        ),
     )
     parser.add_argument(
         "--port",
@@ -228,6 +234,23 @@ def _refresh_requested_caches(
     return (not refresh_prepared, not refresh_summary)
 
 
+def _resolve_terminal_log_level(config) -> int:
+    return getattr(logging, str(config.log_level).upper(), logging.INFO)
+
+
+def _resolve_export_html_path(
+    export_html_arg: str | None,
+    config,
+) -> str | None:
+    if export_html_arg is None:
+        return None
+    if export_html_arg != _EXPORT_HTML_USE_CONFIG_SENTINEL:
+        return export_html_arg
+    if config.export_html.output_path:
+        return config.export_html.output_path
+    return str(Path(config.summary_root) / "exported_dashboard.html")
+
+
 def main() -> None:
     t0 = time.perf_counter()
     args = parse_args()
@@ -240,7 +263,7 @@ def main() -> None:
         sys.exit(1)
 
     config = runtime_workflows.load_runtime_config(args.config)
-    log_path = configure_logging(config, level=logging.INFO)
+    log_path = configure_logging(config, level=_resolve_terminal_log_level(config))
     LOGGER.info("Starting ActivitySim Visualizer")
     LOGGER.info("Loading config: %s", args.config)
     LOGGER.info("Logging to %s", log_path)
@@ -313,10 +336,11 @@ def main() -> None:
             shutdown_logging()
             return
 
+        export_html_path = _resolve_export_html_path(args.export_html, config)
         prepared_runs = []
         dashboard_requirements = (
             export_data_requirements(config)
-            if args.export_html
+            if export_html_path is not None
             else live_data_requirements(config)
         )
         processor_result = runtime_workflows.prune_processor_result(
@@ -333,7 +357,11 @@ def main() -> None:
             )
 
         requires_prepared_data = dashboard_requirements.prepared_data_mode != "none"
-        if requires_prepared_data and args.from_csvs is not None and args.export_html:
+        if (
+            requires_prepared_data
+            and args.from_csvs is not None
+            and export_html_path is not None
+        ):
             prepared_runs = []
         elif requires_prepared_data:
             existing_prepared_runs_by_key = (
@@ -355,7 +383,7 @@ def main() -> None:
             prepared_runs=prepared_runs,
             summary_runs=summary_runs,
             config=config,
-            export_html_path=args.export_html,
+            export_html_path=export_html_path,
             port=args.port,
             show=not args.no_show,
         )

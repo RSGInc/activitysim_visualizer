@@ -68,6 +68,7 @@ class ExportHTMLSettings:
     """Normalized HTML export configuration."""
 
     enabled: bool = False
+    output_path: str | None = None
     dashboard: ExportDashboardSettings = field(default_factory=ExportDashboardSettings)
     pages: dict[str, ExportPageOverride] = field(default_factory=dict)
     exclude_pages: tuple[str, ...] = ()
@@ -302,6 +303,7 @@ class Config:
     presentation_config_digest: str
     name: str
     dashboard_title: str
+    log_level: str
     dashboard_pages: list[DashboardPageConfigEntry] | None
     enable_maz_geographies: bool
     run_colors: list[str]
