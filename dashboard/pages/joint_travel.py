@@ -252,6 +252,40 @@ class JointTravelPage(DashboardPage):
             (label, df.with_columns(pl.col("party_size").cast(pl.Utf8)))
             for label, df in _nonempty(summaries["joint_tour_party_size_distribution"])
         ]
+        household_size_values = sorted(
+            {
+                str(value)
+                for _, df in joint_tours_hhsize_data
+                for value in (
+                    df["household_size"].cast(pl.Utf8).to_list()
+                    if "household_size" in df.columns
+                    else []
+                )
+            }
+        )
+        party_size_values = sorted(
+            {
+                str(value)
+                for _, df in party_size_data
+                for value in (
+                    df["party_size"].cast(pl.Utf8).to_list()
+                    if "party_size" in df.columns
+                    else []
+                )
+            }
+        )
+        composition_label_values = self.config.ordered_labels(
+            "tour_composition",
+            [
+                str(value)
+                for _, df in _nonempty(summaries["joint_tour_composition_by_party_size"])
+                for value in (
+                    df["tour_composition"].cast(pl.Utf8).to_list()
+                    if "tour_composition" in df.columns
+                    else []
+                )
+            ],
+        )
         comp_party_data = self.get_filtered_view(
             "joint_tour_composition_by_party_size",
             party_size,
@@ -281,6 +315,7 @@ class JointTravelPage(DashboardPage):
                         "Household Size",
                         yaxis_title="Households with a Joint Tour",
                         as_percent=self.as_percent,
+                        xaxis_categoryarray=household_size_values,
                     ),
                     bar_chart(
                         party_size_data,
@@ -290,6 +325,7 @@ class JointTravelPage(DashboardPage):
                         "Party Size",
                         yaxis_title="Joint Tours",
                         as_percent=self.as_percent,
+                        xaxis_categoryarray=party_size_values,
                     ),
                     bar_chart(
                         label_category_data(
@@ -305,18 +341,7 @@ class JointTravelPage(DashboardPage):
                         "Tour Composition",
                         yaxis_title="Joint Tours",
                         as_percent=self.as_percent,
-                        xaxis_categoryarray=self.config.ordered_labels(
-                            "tour_composition",
-                            [
-                                str(value)
-                                for _, df in comp_party_data
-                                for value in (
-                                    df["tour_composition"].cast(pl.Utf8).to_list()
-                                    if "tour_composition" in df.columns
-                                    else []
-                                )
-                            ],
-                        ),
+                        xaxis_categoryarray=composition_label_values,
                     ),
                     sizing_mode="stretch_width",
                 ),
@@ -344,6 +369,32 @@ class JointTravelPage(DashboardPage):
                 summaries["household_jtp_by_household_size_and_jtf"], hhsize
             ),
         )
+        household_size_values = sorted(
+            {
+                str(value)
+                for _, df in person_participation
+                for value in (
+                    df["household_size"].cast(pl.Utf8).to_list()
+                    if "household_size" in df.columns
+                    else []
+                )
+            }
+        )
+        jtf_raw_values = sorted(
+            {
+                str(value)
+                for _, df in _nonempty(
+                    summaries["household_jtp_by_household_size_and_jtf"]
+                )
+                for value in (
+                    df["jtf"].cast(pl.Utf8).to_list() if "jtf" in df.columns else []
+                )
+            }
+        )
+        jtf_values = self.config.ordered_labels(
+            "jtf",
+            jtf_raw_values,
+        )
         return [
             pn.pane.Markdown("### Joint Tour Participation"),
             pn.Column(
@@ -369,15 +420,23 @@ class JointTravelPage(DashboardPage):
                             else "People Taking Joint Tours"
                         ),
                         as_percent=False,
+                        xaxis_categoryarray=household_size_values,
                     ),
                     bar_chart(
-                        household_participation,
-                        "jtf",
+                        label_category_data(
+                            household_participation,
+                            source_col="jtf",
+                            category_id="jtf",
+                            config=self.config,
+                            target_col="jtf_label",
+                        ),
+                        "jtf_label",
                         "household_percent",
                         f"Households Taking Part in a Joint Tour - {hhsize}",
                         "Joint Tour Count",
                         yaxis_title="Percent of Households (%)",
                         as_percent=False,
+                        xaxis_categoryarray=jtf_values,
                     ),
                     sizing_mode="stretch_width",
                 ),

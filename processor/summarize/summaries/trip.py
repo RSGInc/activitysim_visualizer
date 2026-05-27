@@ -23,26 +23,45 @@ from runtime.config import Config
 
 @summary_contract(
     schema={
+        "tour_purpose": pl.Utf8,
         "trip_purpose": pl.Utf8,
         "trip_count": pl.Float64,
     },
-    required_columns={"trips": ("trip_purpose", "finalweight")},
+    required_columns={"trips": ("tour_purpose", "trip_purpose", "finalweight")},
 )
 def trip_purpose(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"trip_purpose", "finalweight"}
     if not required.issubset(set(rd.trips.columns)):
         return empty_summary_frame(trip_purpose)
+    purpose_col = _trip_purpose_column(rd.trips)
+    if not purpose_col:
+        return empty_summary_frame(trip_purpose)
 
-    return (
+    base = (
         rd.trips.filter(pl.col("trip_purpose").is_not_null())
-        .group_by("trip_purpose")
+        .filter(pl.col(purpose_col).is_not_null())
+        .group_by([purpose_col, "trip_purpose"])
         .agg(trip_count=pl.col("finalweight").sum())
+        .rename({purpose_col: "tour_purpose"})
         .with_columns(
+            pl.col("tour_purpose").cast(pl.Utf8),
             pl.col("trip_purpose").cast(pl.Utf8),
             pl.col("trip_count").cast(pl.Float64),
         )
-        .select("trip_purpose", "trip_count")
-        .sort("trip_purpose")
+        .select("tour_purpose", "trip_purpose", "trip_count")
+    )
+    all_purposes = (
+        _all_tour_purpose_rollup(
+            base,
+            group_cols=["trip_purpose"],
+            value_col="trip_count",
+        )
+        .select("tour_purpose", "trip_purpose", "trip_count")
+    )
+
+    return (
+        pl.concat([base, all_purposes], how="vertical")
+        .sort(["tour_purpose", "trip_purpose"])
     )
 
 

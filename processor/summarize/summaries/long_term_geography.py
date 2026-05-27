@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import math
+
+import numpy as np
 import polars as pl
 
 from processor.models import RunData
@@ -17,6 +20,8 @@ from processor.summarize.summaries.summary_helpers import (
     _configured_land_use_geography_dimensions,
 )
 from runtime.config import Config
+
+_MAX_SHADOW_PRICING_HISTOGRAM_BINS = 200
 
 
 def _aggregate_internal_external_counts(
@@ -325,23 +330,140 @@ def external_workplace_loc(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
-    schema={
-        "geography_type": pl.Utf8,
-        "geography_id": pl.Utf8,
-        "employment_count": pl.Float64,
-        "worker_count": pl.Float64,
-    },
-    required_columns={
-        "land_use": ("MAZ", "employment_count"),
-        "per": ("workplace_zone_id", "is_worker", "finalweight"),
-    },
-)
-def workplace_vs_land_use_employment(rd: RunData, config: Config) -> pl.DataFrame:
+def _residual_metrics_columns(target_col: str, modeled_col: str) -> list[pl.Expr]:
+    residual = pl.col(modeled_col) - pl.col(target_col)
+    return [
+        pl.col(target_col).cast(pl.Float64).alias("target_count"),
+        pl.col(modeled_col).cast(pl.Float64).alias("modeled_count"),
+        residual.cast(pl.Float64).alias("residual_count"),
+        residual.abs().cast(pl.Float64).alias("absolute_residual_count"),
+        pl.when(pl.col(target_col) > 0)
+        .then((residual / pl.col(target_col)) * 100.0)
+        .otherwise(None)
+        .cast(pl.Float64)
+        .alias("percent_error"),
+    ]
+
+
+def _finalize_residual_frame(
+    df: pl.DataFrame,
+    *,
+    group_cols: list[str] | None = None,
+) -> pl.DataFrame:
+    ordered_cols = ["geography_type", "geography_id"]
+    if group_cols:
+        ordered_cols.extend(group_cols)
+    ordered_cols.extend(
+        [
+            "target_count",
+            "modeled_count",
+            "residual_count",
+            "absolute_residual_count",
+            "percent_error",
+        ]
+    )
+    cast_exprs = [
+        pl.col("geography_type").cast(pl.Utf8),
+        pl.col("geography_id").cast(pl.Utf8),
+        pl.col("target_count").cast(pl.Float64),
+        pl.col("modeled_count").cast(pl.Float64),
+        pl.col("residual_count").cast(pl.Float64),
+        pl.col("absolute_residual_count").cast(pl.Float64),
+        pl.col("percent_error").cast(pl.Float64),
+    ]
+    if group_cols:
+        cast_exprs.extend(pl.col(column).cast(pl.Utf8) for column in group_cols)
+    return df.with_columns(cast_exprs).select(ordered_cols)
+
+
+def _dynamic_count_bin_edges(values: list[float]) -> np.ndarray:
+    finite = np.array([value for value in values if math.isfinite(value)], dtype=float)
+    if finite.size == 0:
+        return np.array([-1.0, 1.0], dtype=float)
+    if finite.size == 1 or math.isclose(float(finite.min()), float(finite.max())):
+        center = float(finite[0])
+        width = max(1.0, abs(center) * 0.25)
+        return np.array([center - width, center + width], dtype=float)
+    edges = np.histogram_bin_edges(finite, bins="fd")
+    if edges.size < 2 or np.allclose(edges[0], edges[-1]):
+        lower = float(finite.min())
+        upper = float(finite.max())
+        if math.isclose(lower, upper):
+            width = max(1.0, abs(lower) * 0.25)
+            return np.array([lower - width, lower + width], dtype=float)
+        return np.linspace(lower, upper, num=7, dtype=float)
+    max_edges = _MAX_SHADOW_PRICING_HISTOGRAM_BINS + 1
+    if edges.size > max_edges:
+        return np.linspace(float(finite.min()), float(finite.max()), num=max_edges, dtype=float)
+    return edges.astype(float)
+
+
+def _residual_histogram_summary(
+    df: pl.DataFrame,
+    *,
+    group_cols: list[str],
+    value_col: str,
+) -> pl.DataFrame:
+    valid = df.select(
+        *group_cols,
+        pl.col(value_col).cast(pl.Float64).alias(value_col),
+    ).filter(pl.col(value_col).is_not_null())
+    if valid.is_empty():
+        return pl.DataFrame(
+            schema={
+                **{column: pl.Utf8 for column in group_cols},
+                "bin_start": pl.Float64,
+                "bin_end": pl.Float64,
+                "geography_count": pl.Float64,
+            }
+        )
+    rows: list[dict[str, object]] = []
+    for group_df in valid.partition_by(group_cols, as_dict=False, maintain_order=True):
+        key = {column: group_df[column][0] for column in group_cols}
+        values = np.array(group_df[value_col].to_list(), dtype=float)
+        zero_mask = np.isclose(values, 0.0)
+        zero_count = float(zero_mask.sum())
+        nonzero_values = values[~zero_mask]
+        if zero_count > 0:
+            rows.append(
+                {
+                    **key,
+                    "bin_start": 0.0,
+                    "bin_end": 0.0,
+                    "geography_count": zero_count,
+                }
+            )
+        if nonzero_values.size == 0:
+            continue
+        edges = _dynamic_count_bin_edges(nonzero_values.tolist())
+        counts, bin_edges = np.histogram(nonzero_values, bins=edges)
+        for index, geography_count in enumerate(counts.tolist()):
+            rows.append(
+                {
+                    **key,
+                    "bin_start": float(bin_edges[index]),
+                    "bin_end": float(bin_edges[index + 1]),
+                    "geography_count": float(geography_count),
+                }
+            )
+    return pl.DataFrame(rows).with_columns(
+        *[pl.col(column).cast(pl.Utf8) for column in group_cols],
+        pl.col("bin_start").cast(pl.Float64),
+        pl.col("bin_end").cast(pl.Float64),
+        pl.col("geography_count").cast(pl.Float64),
+    )
+
+
+def _workplace_land_use_and_modeled_counts(
+    rd: RunData,
+    config: Config,
+) -> tuple[pl.DataFrame, pl.DataFrame] | None:
     land_use_required = {"MAZ", "employment_count"}
     person_required = {"workplace_zone_id", "is_worker", "finalweight"}
-    if not land_use_required.issubset(set(rd.land_use.columns)) or not person_required.issubset(set(rd.per.columns)):
-        return empty_summary_frame(workplace_vs_land_use_employment)
+    if not land_use_required.issubset(set(rd.land_use.columns)) or not person_required.issubset(
+        set(rd.per.columns)
+    ):
+        return None
 
     land_use_base = rd.land_use.select(
         *[
@@ -360,10 +482,7 @@ def workplace_vs_land_use_employment(rd: RunData, config: Config) -> pl.DataFram
         "finalweight",
         *_configured_geography_columns(rd.per, config=config, role_prefix="work"),
     )
-    land_use_dimensions = _configured_land_use_geography_dimensions(
-        rd.land_use,
-        config=config,
-    )
+    land_use_dimensions = _configured_land_use_geography_dimensions(rd.land_use, config=config)
     worker_dimensions = dict(
         _configured_geography_dimensions(
             worker_base,
@@ -389,6 +508,7 @@ def workplace_vs_land_use_employment(rd: RunData, config: Config) -> pl.DataFram
                 pl.col("geography_id").cast(pl.Utf8),
                 pl.col("employment_count").cast(pl.Float64),
             )
+            .select("geography_type", "geography_id", "employment_count")
         )
         worker_outputs.append(
             worker_base.filter(pl.col(worker_col).is_not_null())
@@ -400,15 +520,62 @@ def workplace_vs_land_use_employment(rd: RunData, config: Config) -> pl.DataFram
                 pl.col("geography_id").cast(pl.Utf8),
                 pl.col("worker_count").cast(pl.Float64),
             )
+            .select("geography_type", "geography_id", "worker_count")
         )
     if not land_use_outputs or not worker_outputs:
-        return empty_summary_frame(workplace_vs_land_use_employment)
-    land_use_maz = pl.concat(land_use_outputs, how="vertical")
-    worker_maz = pl.concat(worker_outputs, how="vertical")
+        return None
+    land_use_counts = pl.concat(land_use_outputs, how="vertical")
+    worker_counts = pl.concat(worker_outputs, how="vertical")
+    land_use_all = pl.DataFrame(
+        {
+            "geography_type": ["all_geographies"],
+            "geography_id": ["all_geographies"],
+            "employment_count": [float(land_use_base["employment_count"].sum() or 0.0)],
+        },
+        schema={
+            "geography_type": pl.Utf8,
+            "geography_id": pl.Utf8,
+            "employment_count": pl.Float64,
+        },
+    )
+    worker_all = pl.DataFrame(
+        {
+            "geography_type": ["all_geographies"],
+            "geography_id": ["all_geographies"],
+            "worker_count": [float(worker_base["finalweight"].sum() or 0.0)],
+        },
+        schema={
+            "geography_type": pl.Utf8,
+            "geography_id": pl.Utf8,
+            "worker_count": pl.Float64,
+        },
+    )
+    return (
+        pl.concat([land_use_counts, land_use_all], how="vertical"),
+        pl.concat([worker_counts, worker_all], how="vertical"),
+    )
 
-    detailed = (
-        land_use_maz.join(
-            worker_maz,
+
+@summary_contract(
+    schema={
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
+        "employment_count": pl.Float64,
+        "worker_count": pl.Float64,
+    },
+    required_columns={
+        "land_use": ("MAZ", "employment_count"),
+        "per": ("workplace_zone_id", "is_worker", "finalweight"),
+    },
+)
+def workplace_vs_land_use_employment(rd: RunData, config: Config) -> pl.DataFrame:
+    aligned = _workplace_land_use_and_modeled_counts(rd, config)
+    if aligned is None:
+        return empty_summary_frame(workplace_vs_land_use_employment)
+    land_use_counts, worker_counts = aligned
+    return (
+        land_use_counts.join(
+            worker_counts,
             on=["geography_type", "geography_id"],
             how="full",
             coalesce=True,
@@ -420,25 +587,7 @@ def workplace_vs_land_use_employment(rd: RunData, config: Config) -> pl.DataFram
             pl.col("worker_count").fill_null(0.0).cast(pl.Float64),
         )
         .select("geography_type", "geography_id", "employment_count", "worker_count")
-    )
-    all_geographies = pl.DataFrame(
-        {
-            "geography_type": ["all_geographies"],
-            "geography_id": ["all_geographies"],
-            "employment_count": [
-                float(land_use_base["employment_count"].sum() or 0.0)
-            ],
-            "worker_count": [float(worker_base["finalweight"].sum() or 0.0)],
-        },
-        schema={
-            "geography_type": pl.Utf8,
-            "geography_id": pl.Utf8,
-            "employment_count": pl.Float64,
-            "worker_count": pl.Float64,
-        },
-    )
-    return pl.concat([detailed, all_geographies], how="vertical").sort(
-        ["geography_type", "geography_id"]
+        .sort(["geography_type", "geography_id"])
     )
 
 
@@ -568,29 +717,16 @@ def commuting_flows(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
-    schema={
-        "geography_type": pl.Utf8,
-        "geography_id": pl.Utf8,
-        "student_type": pl.Utf8,
-        "enrollment_count": pl.Float64,
-        "student_count": pl.Float64,
-    },
-    required_columns={
-        "land_use": ("MAZ", "enrollment_count", "student_type"),
-        "per": ("school_zone_id", "is_student", "finalweight"),
-    },
-)
-def school_loc_vs_land_use_enrollment(rd: RunData, config: Config) -> pl.DataFrame:
+def _school_land_use_and_modeled_counts(
+    rd: RunData,
+    config: Config,
+) -> tuple[pl.DataFrame, pl.DataFrame] | None:
     land_use_required = {"MAZ", "enrollment_count", "student_type"}
-    person_required = {"school_zone_id", "is_student", "finalweight"}
-    if not land_use_required.issubset(set(rd.land_use.columns)) or not person_required.issubset(set(rd.per.columns)):
-        return empty_summary_frame(school_loc_vs_land_use_enrollment)
-
-    if "student_type" in rd.per.columns:
-        student_type_expr = pl.col("student_type").cast(pl.Utf8)
-    else:
-        return empty_summary_frame(school_loc_vs_land_use_enrollment)
+    person_required = {"school_zone_id", "is_student", "finalweight", "student_type"}
+    if not land_use_required.issubset(set(rd.land_use.columns)) or not person_required.issubset(
+        set(rd.per.columns)
+    ):
+        return None
 
     land_use_base = rd.land_use.filter(
         pl.col("student_type").is_not_null() & pl.col("enrollment_count").is_not_null()
@@ -607,7 +743,7 @@ def school_loc_vs_land_use_enrollment(rd: RunData, config: Config) -> pl.DataFra
     )
     student_base = (
         rd.per.filter(_student_filter_expr() & pl.col("school_zone_id").is_not_null())
-        .with_columns(student_type=student_type_expr.alias("student_type"))
+        .with_columns(student_type=pl.col("student_type").cast(pl.Utf8))
         .filter(pl.col("student_type").is_not_null())
         .select(
             "school_zone_id",
@@ -616,10 +752,7 @@ def school_loc_vs_land_use_enrollment(rd: RunData, config: Config) -> pl.DataFra
             *_configured_geography_columns(rd.per, config=config, role_prefix="school"),
         )
     )
-    land_use_dimensions = _configured_land_use_geography_dimensions(
-        rd.land_use,
-        config=config,
-    )
+    land_use_dimensions = _configured_land_use_geography_dimensions(rd.land_use, config=config)
     student_dimensions = dict(
         _configured_geography_dimensions(
             student_base,
@@ -646,6 +779,7 @@ def school_loc_vs_land_use_enrollment(rd: RunData, config: Config) -> pl.DataFra
                 pl.col("student_type").cast(pl.Utf8),
                 pl.col("enrollment_count").cast(pl.Float64),
             )
+            .select("geography_type", "geography_id", "student_type", "enrollment_count")
         )
         student_outputs.append(
             student_base.filter(pl.col(student_col).is_not_null())
@@ -658,15 +792,61 @@ def school_loc_vs_land_use_enrollment(rd: RunData, config: Config) -> pl.DataFra
                 pl.col("student_type").cast(pl.Utf8),
                 pl.col("student_count").cast(pl.Float64),
             )
+            .select("geography_type", "geography_id", "student_type", "student_count")
         )
     if not land_use_outputs or not student_outputs:
-        return empty_summary_frame(school_loc_vs_land_use_enrollment)
-    land_use_maz = pl.concat(land_use_outputs, how="vertical")
-    student_maz = pl.concat(student_outputs, how="vertical")
+        return None
+    land_use_counts = pl.concat(land_use_outputs, how="vertical")
+    student_counts = pl.concat(student_outputs, how="vertical")
+    land_use_all = (
+        land_use_base.group_by("student_type")
+        .agg(enrollment_count=pl.col("enrollment_count").sum())
+        .with_columns(
+            pl.lit("all_geographies").alias("geography_type"),
+            pl.lit("all_geographies").alias("geography_id"),
+            pl.col("student_type").cast(pl.Utf8),
+            pl.col("enrollment_count").cast(pl.Float64),
+        )
+        .select("geography_type", "geography_id", "student_type", "enrollment_count")
+    )
+    student_all = (
+        student_base.group_by("student_type")
+        .agg(student_count=pl.col("finalweight").sum())
+        .with_columns(
+            pl.lit("all_geographies").alias("geography_type"),
+            pl.lit("all_geographies").alias("geography_id"),
+            pl.col("student_type").cast(pl.Utf8),
+            pl.col("student_count").cast(pl.Float64),
+        )
+        .select("geography_type", "geography_id", "student_type", "student_count")
+    )
+    return (
+        pl.concat([land_use_counts, land_use_all], how="vertical"),
+        pl.concat([student_counts, student_all], how="vertical"),
+    )
 
-    detailed = (
-        land_use_maz.join(
-            student_maz,
+
+@summary_contract(
+    schema={
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
+        "student_type": pl.Utf8,
+        "enrollment_count": pl.Float64,
+        "student_count": pl.Float64,
+    },
+    required_columns={
+        "land_use": ("MAZ", "enrollment_count", "student_type"),
+        "per": ("school_zone_id", "is_student", "finalweight"),
+    },
+)
+def school_loc_vs_land_use_enrollment(rd: RunData, config: Config) -> pl.DataFrame:
+    aligned = _school_land_use_and_modeled_counts(rd, config)
+    if aligned is None:
+        return empty_summary_frame(school_loc_vs_land_use_enrollment)
+    land_use_counts, student_counts = aligned
+    return (
+        land_use_counts.join(
+            student_counts,
             on=["geography_type", "geography_id", "student_type"],
             how="full",
             coalesce=True,
@@ -685,35 +865,150 @@ def school_loc_vs_land_use_enrollment(rd: RunData, config: Config) -> pl.DataFra
             "enrollment_count",
             "student_count",
         )
+        .sort(["geography_type", "geography_id", "student_type"])
     )
-    all_geographies = (
-        land_use_base.group_by("student_type")
-        .agg(enrollment_count=pl.col("enrollment_count").sum())
-        .join(
-            student_base.group_by("student_type").agg(
-                student_count=pl.col("finalweight").sum()
-            ),
-            on="student_type",
+
+
+@summary_contract(
+    schema={
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
+        "target_count": pl.Float64,
+        "modeled_count": pl.Float64,
+        "residual_count": pl.Float64,
+        "absolute_residual_count": pl.Float64,
+        "percent_error": pl.Float64,
+    },
+    required_columns={
+        "land_use": ("MAZ", "employment_count"),
+        "per": ("workplace_zone_id", "is_worker", "finalweight"),
+    },
+)
+def workplace_shadow_pricing_residuals(rd: RunData, config: Config) -> pl.DataFrame:
+    aligned = _workplace_land_use_and_modeled_counts(rd, config)
+    if aligned is None:
+        return empty_summary_frame(workplace_shadow_pricing_residuals)
+    land_use_counts, worker_counts = aligned
+    return _finalize_residual_frame(
+        land_use_counts.join(
+            worker_counts,
+            on=["geography_type", "geography_id"],
             how="full",
             coalesce=True,
         )
         .with_columns(
-            pl.lit("all_geographies").alias("geography_type"),
-            pl.lit("all_geographies").alias("geography_id"),
-            pl.col("student_type").cast(pl.Utf8),
+            pl.col("employment_count").fill_null(0.0).cast(pl.Float64),
+            pl.col("worker_count").fill_null(0.0).cast(pl.Float64),
+        )
+        .with_columns(*_residual_metrics_columns("employment_count", "worker_count"))
+    ).sort(["geography_type", "geography_id"])
+
+
+@summary_contract(
+    schema={
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
+        "student_type": pl.Utf8,
+        "target_count": pl.Float64,
+        "modeled_count": pl.Float64,
+        "residual_count": pl.Float64,
+        "absolute_residual_count": pl.Float64,
+        "percent_error": pl.Float64,
+    },
+    required_columns={
+        "land_use": ("MAZ", "enrollment_count", "student_type"),
+        "per": ("school_zone_id", "is_student", "finalweight", "student_type"),
+    },
+)
+def school_shadow_pricing_residuals(rd: RunData, config: Config) -> pl.DataFrame:
+    aligned = _school_land_use_and_modeled_counts(rd, config)
+    if aligned is None:
+        return empty_summary_frame(school_shadow_pricing_residuals)
+    land_use_counts, student_counts = aligned
+    return _finalize_residual_frame(
+        land_use_counts.join(
+            student_counts,
+            on=["geography_type", "geography_id", "student_type"],
+            how="full",
+            coalesce=True,
+        )
+        .with_columns(
             pl.col("enrollment_count").fill_null(0.0).cast(pl.Float64),
             pl.col("student_count").fill_null(0.0).cast(pl.Float64),
         )
+        .with_columns(*_residual_metrics_columns("enrollment_count", "student_count")),
+        group_cols=["student_type"],
+    ).sort(["geography_type", "geography_id", "student_type"])
+
+
+@summary_contract(
+    schema={
+        "geography_type": pl.Utf8,
+        "bin_start": pl.Float64,
+        "bin_end": pl.Float64,
+        "geography_count": pl.Float64,
+    },
+    required_columns={
+        "land_use": ("MAZ", "employment_count"),
+        "per": ("workplace_zone_id", "is_worker", "finalweight"),
+    },
+)
+def workplace_shadow_pricing_residual_histogram(
+    rd: RunData,
+    config: Config,
+) -> pl.DataFrame:
+    residuals = workplace_shadow_pricing_residuals(rd, config)
+    if residuals.is_empty():
+        return empty_summary_frame(workplace_shadow_pricing_residual_histogram)
+    return _residual_histogram_summary(
+        residuals,
+        group_cols=["geography_type"],
+        value_col="residual_count",
+    ).sort(["geography_type", "bin_start", "bin_end"])
+
+
+@summary_contract(
+    schema={
+        "geography_type": pl.Utf8,
+        "student_type": pl.Utf8,
+        "bin_start": pl.Float64,
+        "bin_end": pl.Float64,
+        "geography_count": pl.Float64,
+    },
+    required_columns={
+        "land_use": ("MAZ", "enrollment_count", "student_type"),
+        "per": ("school_zone_id", "is_student", "finalweight", "student_type"),
+    },
+)
+def school_shadow_pricing_residual_histogram(
+    rd: RunData,
+    config: Config,
+) -> pl.DataFrame:
+    residuals = school_shadow_pricing_residuals(rd, config)
+    if residuals.is_empty():
+        return empty_summary_frame(school_shadow_pricing_residual_histogram)
+    by_student_type = _residual_histogram_summary(
+        residuals,
+        group_cols=["geography_type", "student_type"],
+        value_col="residual_count",
+    )
+    all_student_types = (
+        _residual_histogram_summary(
+            residuals,
+            group_cols=["geography_type"],
+            value_col="residual_count",
+        )
+        .with_columns(pl.lit("All").alias("student_type"))
         .select(
             "geography_type",
-            "geography_id",
             "student_type",
-            "enrollment_count",
-            "student_count",
+            "bin_start",
+            "bin_end",
+            "geography_count",
         )
     )
-    return pl.concat([detailed, all_geographies], how="vertical").sort(
-        ["geography_type", "geography_id", "student_type"]
+    return pl.concat([by_student_type, all_student_types], how="vertical").sort(
+        ["geography_type", "student_type", "bin_start", "bin_end"]
     )
 
 

@@ -28,6 +28,8 @@ from processor.summarize.summaries import tour, trip
 from processor.summarize.summaries.long_term import (
     external_workplace_loc,
     internal_vs_external,
+    school_shadow_pricing_residual_histogram,
+    school_shadow_pricing_residuals,
     school_loc_vs_land_use_enrollment,
     schl_tlfd,
     telecommute,
@@ -36,6 +38,8 @@ from processor.summarize.summaries.long_term import (
     vehicle_char_body,
     vehicle_char_fuel,
     work_tlfd,
+    workplace_shadow_pricing_residual_histogram,
+    workplace_shadow_pricing_residuals,
     workplace_vs_land_use_employment,
 )
 from processor.summarize.summaries.tour_geography import (
@@ -1677,6 +1681,289 @@ def test_long_term_comparison_summaries_emit_configured_geography_levels(
                 "student_count": 1.0,
             },
         ]
+    )
+
+
+def test_shadow_pricing_residual_summaries_emit_configured_geography_levels(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "geography:",
+            "  enabled: true",
+            "  aggregations:",
+            "    county:",
+            "      source_zone_system: taz",
+            "      mapping:",
+            "        West: [10]",
+            "        Central: [20]",
+            "        East: [30]",
+        ],
+    )
+    prepared = processor_prepare_data(_raw_run_with_student_enrollment_inputs(), config)
+
+    workplace = workplace_shadow_pricing_residuals(prepared, config)
+    school = school_shadow_pricing_residuals(prepared, config)
+
+    assert (
+        workplace.filter(pl.col("geography_type") == "county")
+        .sort("geography_id")
+        .select(
+            [
+                "geography_id",
+                "target_count",
+                "modeled_count",
+                "residual_count",
+                "absolute_residual_count",
+                "percent_error",
+            ]
+        )
+        .to_dicts()
+        == [
+            {
+                "geography_id": "Central",
+                "target_count": 8.0,
+                "modeled_count": 0.0,
+                "residual_count": -8.0,
+                "absolute_residual_count": 8.0,
+                "percent_error": -100.0,
+            },
+            {
+                "geography_id": "East",
+                "target_count": 9.0,
+                "modeled_count": 0.0,
+                "residual_count": -9.0,
+                "absolute_residual_count": 9.0,
+                "percent_error": -100.0,
+            },
+            {
+                "geography_id": "West",
+                "target_count": 7.0,
+                "modeled_count": 1.0,
+                "residual_count": -6.0,
+                "absolute_residual_count": 6.0,
+                "percent_error": pytest.approx(-85.71428571428571),
+            },
+        ]
+    )
+    assert (
+        school.filter(pl.col("geography_type") == "county")
+        .sort(["geography_id", "student_type"])
+        .select(
+            [
+                "geography_id",
+                "student_type",
+                "target_count",
+                "modeled_count",
+                "residual_count",
+                "absolute_residual_count",
+                "percent_error",
+            ]
+        )
+        .to_dicts()
+        == [
+            {
+                "geography_id": "Central",
+                "student_type": "School",
+                "target_count": 75.0,
+                "modeled_count": 1.0,
+                "residual_count": -74.0,
+                "absolute_residual_count": 74.0,
+                "percent_error": pytest.approx(-98.66666666666667),
+            },
+            {
+                "geography_id": "Central",
+                "student_type": "University",
+                "target_count": 0.0,
+                "modeled_count": 0.0,
+                "residual_count": 0.0,
+                "absolute_residual_count": 0.0,
+                "percent_error": None,
+            },
+            {
+                "geography_id": "East",
+                "student_type": "School",
+                "target_count": 0.0,
+                "modeled_count": 0.0,
+                "residual_count": 0.0,
+                "absolute_residual_count": 0.0,
+                "percent_error": None,
+            },
+            {
+                "geography_id": "East",
+                "student_type": "University",
+                "target_count": 100.0,
+                "modeled_count": 1.0,
+                "residual_count": -99.0,
+                "absolute_residual_count": 99.0,
+                "percent_error": -99.0,
+            },
+            {
+                "geography_id": "West",
+                "student_type": "School",
+                "target_count": 0.0,
+                "modeled_count": 0.0,
+                "residual_count": 0.0,
+                "absolute_residual_count": 0.0,
+                "percent_error": None,
+            },
+            {
+                "geography_id": "West",
+                "student_type": "University",
+                "target_count": 0.0,
+                "modeled_count": 0.0,
+                "residual_count": 0.0,
+                "absolute_residual_count": 0.0,
+                "percent_error": None,
+            },
+        ]
+    )
+
+
+def test_workplace_shadow_pricing_residuals_preserve_modeled_only_rows(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "geography:",
+            "  enabled: true",
+            "  aggregations:",
+            "    county:",
+            "      source_zone_system: taz",
+            "      mapping:",
+            "        North: [10]",
+            "        South: [20]",
+        ],
+    )
+    prepared = ProcessorRunData(
+        label="Prepared",
+        run_dir="C:/runs/prepared",
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1], "finalweight": [1.0]}),
+        per=pl.DataFrame(
+            {
+                "person_id": [101],
+                "workplace_zone_id": [10],
+                "is_worker": [True],
+                "finalweight": [2.0],
+                "work_geo__county": ["North"],
+            }
+        ),
+        tours=pl.DataFrame(),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(
+            {
+                "MAZ": [20],
+                "employment_count": [5.0],
+                "land_use_geo__county": ["South"],
+            }
+        ),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    summary = workplace_shadow_pricing_residuals(prepared, config).sort(
+        ["geography_type", "geography_id"]
+    )
+
+    assert (
+        summary.filter(pl.col("geography_type") == "county")
+        .select(
+            [
+                "geography_id",
+                "target_count",
+                "modeled_count",
+                "residual_count",
+                "absolute_residual_count",
+                "percent_error",
+            ]
+        )
+        .to_dicts()
+        == [
+            {
+                "geography_id": "North",
+                "target_count": 0.0,
+                "modeled_count": 2.0,
+                "residual_count": 2.0,
+                "absolute_residual_count": 2.0,
+                "percent_error": None,
+            },
+            {
+                "geography_id": "South",
+                "target_count": 5.0,
+                "modeled_count": 0.0,
+                "residual_count": -5.0,
+                "absolute_residual_count": 5.0,
+                "percent_error": -100.0,
+            },
+        ]
+    )
+
+
+def test_shadow_pricing_histogram_summaries_include_dynamic_count_bins(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "geography:",
+            "  enabled: true",
+            "  aggregations:",
+            "    county:",
+            "      source_zone_system: taz",
+            "      mapping:",
+            "        West: [10]",
+            "        Central: [20]",
+            "        East: [30]",
+        ],
+    )
+    prepared = processor_prepare_data(_raw_run_with_student_enrollment_inputs(), config)
+
+    workplace = workplace_shadow_pricing_residual_histogram(prepared, config)
+    school = school_shadow_pricing_residual_histogram(prepared, config)
+
+    assert "county" in workplace["geography_type"].to_list()
+    assert "county" in school["geography_type"].to_list()
+    assert set(school["student_type"].unique().to_list()) == {"All", "School", "University"}
+    assert set(workplace.columns) == {
+        "geography_type",
+        "bin_start",
+        "bin_end",
+        "geography_count",
+    }
+    assert set(school.columns) == {
+        "geography_type",
+        "student_type",
+        "bin_start",
+        "bin_end",
+        "geography_count",
+    }
+    assert (
+        workplace.filter(pl.col("geography_type") == "county")["geography_count"].sum()
+        == 3.0
+    )
+    assert (
+        school.filter(
+            (pl.col("geography_type") == "county")
+            & (pl.col("student_type") == "University")
+        )["geography_count"].sum()
+        == 3.0
+    )
+    assert (
+        school.filter(
+            (pl.col("geography_type") == "county")
+            & (pl.col("student_type") == "All")
+        )["geography_count"].sum()
+        == 6.0
+    )
+    assert (
+        workplace.filter(pl.col("geography_type") == "county")
+        .select(["bin_start", "bin_end"])
+        .n_unique()
+        >= 1
     )
 
 

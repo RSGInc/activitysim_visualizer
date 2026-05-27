@@ -302,6 +302,22 @@ def geography_options_for_level(
     return [ALL_WITHIN_LEVEL_VALUE] + ordered if ordered else [ALL_WITHIN_LEVEL_VALUE]
 
 
+def export_geography_options(
+    geography_opts_by_level: dict[str, list[str]],
+    *,
+    config: Config,
+) -> list[str]:
+    values: set[str] = set()
+    for options in geography_opts_by_level.values():
+        for option in options:
+            option_str = str(option)
+            if option_str in {ALL_WITHIN_LEVEL_VALUE, ALL_GEOGRAPHIES_VALUE}:
+                continue
+            values.add(option_str)
+    ordered = _ordered_geography_ids(values, config=config)
+    return [ALL_WITHIN_LEVEL_VALUE] + ordered if ordered else [ALL_WITHIN_LEVEL_VALUE]
+
+
 def geo_level_options(
     data_list: list[tuple[str, pl.DataFrame]],
     *,
@@ -742,13 +758,31 @@ class MandatoryLocationChoicePage(DashboardPage):
         self.geo_level_sel.options = geo_opts
         if self.geo_level_sel.value not in geo_opts:
             self.geo_level_sel.value = geo_opts[0]
-        geography_opts = self._current_data["geography_opts_by_level"].get(
-            str(self.geo_level_sel.value),
-            [ALL_WITHIN_LEVEL_VALUE],
-        )
+        geography_opts_by_level = self._current_data["geography_opts_by_level"]
+        if self.state.export_mode:
+            geography_opts = export_geography_options(
+                geography_opts_by_level,
+                config=self.config,
+            )
+        else:
+            geography_opts = geography_opts_by_level.get(
+                str(self.geo_level_sel.value),
+                [ALL_WITHIN_LEVEL_VALUE],
+            )
         self.geography_sel.options = geography_opts
         if self.geography_sel.value not in geography_opts:
             self.geography_sel.value = geography_opts[0]
+
+    def _selected_geography(self) -> tuple[str, str]:
+        geo_level = str(self.geo_level_sel.value)
+        geography = str(self.geography_sel.value)
+        if not self.state.export_mode:
+            return geo_level, geography
+        geography_opts_by_level = self._current_data.get("geography_opts_by_level", {})
+        valid_options = set(geography_opts_by_level.get(geo_level, [ALL_WITHIN_LEVEL_VALUE]))
+        if geography in valid_options:
+            return geo_level, geography
+        return geo_level, ALL_WITHIN_LEVEL_VALUE
 
     def _collect_data(self) -> dict[str, object]:
         if not self.state.run_labels:
@@ -875,8 +909,7 @@ class MandatoryLocationChoicePage(DashboardPage):
                     missing_items=list(self.required_summary_ids),
                 )
             ]
-        geo_level = str(self.geo_level_sel.value)
-        geography = str(self.geography_sel.value)
+        geo_level, geography = self._selected_geography()
         internal_external = self._current_data["internal_external"]
         external_workplace = self._current_data["external_workplace"]
         worker_views: list[pn.viewable.Viewable] = []
@@ -901,11 +934,27 @@ class MandatoryLocationChoicePage(DashboardPage):
             )
 
         if external_workplace is not None:
+            external_workplace_level_data = self.get_filtered_view(
+                "mandatory_external_workplace_level",
+                geo_level,
+                factory=lambda: filter_geo_level(external_workplace, geo_level),
+            )
+            workplace_location_values = sorted(
+                {
+                    str(value)
+                    for _, df in external_workplace_level_data
+                    for value in (
+                        df["workplace_location"].cast(pl.Utf8).to_list()
+                        if "workplace_location" in df.columns
+                        else []
+                    )
+                }
+            )
             filtered_external_workplace = self.get_filtered_view(
                 "mandatory_external_workplace",
                 (geo_level, geography),
                 factory=lambda: filter_geography(
-                    filter_geo_level(external_workplace, geo_level),
+                    external_workplace_level_data,
                     geography,
                 ),
             )
@@ -936,6 +985,7 @@ class MandatoryLocationChoicePage(DashboardPage):
                 ),
                 pct_col="pct",
                 as_percent=False if geo_level == "all_geographies" else self.as_percent,
+                xaxis_categoryarray=workplace_location_values,
             )
             worker_views.append(external_workplace_chart)
         else:
@@ -950,8 +1000,7 @@ class MandatoryLocationChoicePage(DashboardPage):
     def render_commuting_flows(self) -> SectionContent:
         if self._current_data["mode"] != "ready":
             return []
-        geo_level = str(self.geo_level_sel.value)
-        geography = str(self.geography_sel.value)
+        geo_level, geography = self._selected_geography()
         commuting_flows = self._current_data["commuting_flows"]
         commuting_widget: pn.viewable.Viewable
         if commuting_flows is not None:
@@ -974,8 +1023,7 @@ class MandatoryLocationChoicePage(DashboardPage):
     def render_distance_distribution(self) -> SectionContent:
         if self._current_data["mode"] != "ready":
             return []
-        geo_level = str(self.geo_level_sel.value)
-        geography = str(self.geography_sel.value)
+        geo_level, geography = self._selected_geography()
 
         def _distance_view(
             summary_data: list[tuple[str, pl.DataFrame]] | None,
@@ -1050,8 +1098,7 @@ class MandatoryLocationChoicePage(DashboardPage):
     def render_remote_work(self) -> SectionContent:
         if self._current_data["mode"] != "ready":
             return []
-        geo_level = str(self.geo_level_sel.value)
-        geography = str(self.geography_sel.value)
+        geo_level, geography = self._selected_geography()
         wfh_summary = self._current_data["wfh_summary"]
         telecommute = self._current_data["telecommute"]
         remote_views: list[pn.viewable.Viewable] = [pn.pane.Markdown("### Remote Work")]
@@ -1163,8 +1210,7 @@ class MandatoryLocationChoicePage(DashboardPage):
     def render_mandatory_distance_table(self) -> SectionContent:
         if self._current_data["mode"] != "ready":
             return []
-        geo_level = str(self.geo_level_sel.value)
-        geography = str(self.geography_sel.value)
+        geo_level, geography = self._selected_geography()
         average_mandatory = self._current_data["average_mandatory_tour_distance"]
         if average_mandatory is None:
             return [

@@ -96,6 +96,17 @@ class VMTValidationPage(DashboardPage):
         )
 
         vmt_view = self.vmt_view_sel.value
+        commercial_vehicle_type_values = sorted(
+            {
+                str(value)
+                for _, df in _nonempty(commercial_vmt or [])
+                for value in (
+                    df["commercial_vehicle_type"].cast(pl.Utf8).to_list()
+                    if "commercial_vehicle_type" in df.columns
+                    else []
+                )
+            }
+        )
 
         if commercial_vmt is not None:
             commercial_vmt_data = self.get_filtered_view(
@@ -114,6 +125,7 @@ class VMTValidationPage(DashboardPage):
                 xaxis_title="Commercial Vehicle Type",
                 yaxis_title="Vehicle Miles Traveled",
                 as_percent=self.as_percent,
+                xaxis_categoryarray=commercial_vehicle_type_values,
             )
         else:
             commercial_vmt_chart = self.data_not_available_card(

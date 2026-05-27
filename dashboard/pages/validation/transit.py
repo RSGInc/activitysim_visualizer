@@ -183,6 +183,17 @@ class TransitValidationPage(DashboardPage):
         )
         technology = self.technology_sel.value
         access_mode = self.access_mode_sel.value
+        operator_values = sorted(
+            {
+                str(value)
+                for _, df in (_nonempty(boarding_list or []) + _nonempty(transfer_list or []))
+                for value in (
+                    df["operator"].cast(pl.Utf8).to_list()
+                    if "operator" in df.columns
+                    else []
+                )
+            }
+        )
 
         if boarding_list is not None:
             boarding_data = self.get_filtered_view(
@@ -202,6 +213,7 @@ class TransitValidationPage(DashboardPage):
                 yaxis_title="Transit Boardings",
                 pct_col="pct",
                 as_percent=self.as_percent,
+                xaxis_categoryarray=operator_values,
             )
         else:
             boarding_chart = self.data_not_available_card(
@@ -227,6 +239,7 @@ class TransitValidationPage(DashboardPage):
                 xaxis_title="Operator",
                 yaxis_title="Boardings per Linked Trip",
                 as_percent=False,
+                xaxis_categoryarray=operator_values,
             )
         else:
             transfer_chart = self.data_not_available_card(

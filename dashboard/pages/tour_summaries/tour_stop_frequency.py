@@ -6,16 +6,22 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart
-from dashboard.helpers.category_helpers import column_options, label_category_data, nonempty
+from dashboard.helpers.category_helpers import (
+    column_options,
+    label_category_data,
+    nonempty,
+)
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
+
+DIRECTION_OPTIONS = ["Both", "Outbound", "Inbound"]
 
 
 def _options(
     data_list: list[tuple[str, pl.DataFrame]], col: str, total_label: str = "All"
 ) -> list[str]:
     if col == "direction":
-        return ["Both", "Outbound", "Inbound"]
+        return DIRECTION_OPTIONS
     first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
     if first_df is None or col not in first_df.columns:
         return [total_label]
@@ -96,18 +102,9 @@ class TourStopFrequencyPage(DashboardPage):
             ),
             label="Tour Purpose",
         )
-        self.direction_sel = self.selector(
-            "direction",
-            widget=pn.widgets.Select(
-                name="Direction",
-                options=_options(stop_data or [], "direction", total_label="Both"),
-                value=_options(stop_data or [], "direction", total_label="Both")[0],
-            ),
-            label="Direction",
-        )
         self._body = self.section(
             "tour_stop_frequency_body",
-            selectors=("tour_purpose", "direction"),
+            selectors=("tour_purpose",),
             render=self.render_body,
         )
         return self.new_section(
@@ -139,10 +136,6 @@ class TourStopFrequencyPage(DashboardPage):
         self.purpose_sel.options = purpose_opts
         if self.purpose_sel.value not in purpose_opts:
             self.purpose_sel.value = purpose_opts[0]
-        direction_opts = _options(stop_list, "direction", total_label="Both")
-        self.direction_sel.options = direction_opts
-        if self.direction_sel.value not in direction_opts:
-            self.direction_sel.value = direction_opts[0]
 
     def render_body(self):
         if not self.state.run_labels:
@@ -159,30 +152,64 @@ class TourStopFrequencyPage(DashboardPage):
         atwork_list = nonempty(summaries["atwork_subtour_frequency_distribution"])
         purpose = self.purpose_sel.value
         raw_purpose = self._purpose_to_raw.get(purpose)
-        direction = self.direction_sel.value
-        stop_data = self.get_filtered_view(
-            "tour_stop_frequency",
-            (raw_purpose, direction),
-            factory=lambda: stop_frequency_chart_data(stop_list, raw_purpose, direction),
-        )
+        stop_frequency_charts: list[pn.viewable.Viewable] = []
+        for direction in DIRECTION_OPTIONS:
+            stop_data = self.get_filtered_view(
+                "tour_stop_frequency",
+                (raw_purpose, direction),
+                factory=lambda direction=direction: stop_frequency_chart_data(
+                    stop_list,
+                    raw_purpose,
+                    direction,
+                ),
+            )
+            stop_col = {
+                "Both": "total_stop_count",
+                "Outbound": "outbound_stop_count",
+                "Inbound": "inbound_stop_count",
+            }[direction]
+            stop_frequency_raw_values = sorted(
+                {
+                    str(value)
+                    for _, df in nonempty(stop_list)
+                    for value in (
+                        df[stop_col].cast(pl.Utf8).to_list()
+                        if stop_col in df.columns
+                        else []
+                    )
+                },
+                key=lambda value: int(value) if value.isdigit() else 999,
+            )
+            stop_frequency_values = self.config.ordered_labels(
+                "stop_frequency",
+                stop_frequency_raw_values,
+            )
+            stop_frequency_charts.append(
+                bar_chart(
+                    label_category_data(
+                        stop_data,
+                        source_col="stop_frequency",
+                        category_id="stop_frequency",
+                        config=self.config,
+                        target_col="stop_frequency_label",
+                    ),
+                    "stop_frequency_label",
+                    "tour_count",
+                    f"Tour Stop Frequency - Purpose: {purpose}, Direction: {direction}",
+                    "Stop Count",
+                    pct_col="pct",
+                    yaxis_title="Tours",
+                    as_percent=self.as_percent,
+                    xaxis_categoryarray=stop_frequency_values,
+                )
+            )
         return [
             pn.pane.Markdown("### Tour Stop Frequency"),
             pn.Row(
                 pn.pane.Markdown("**Tour Purpose:**"),
                 self.purpose_sel,
-                pn.pane.Markdown("**Direction:**"),
-                self.direction_sel,
             ),
-            bar_chart(
-                stop_data,
-                "stop_frequency",
-                "tour_count",
-                f"Tour Stop Frequency - {purpose}, {direction}",
-                "Stop Count",
-                pct_col="pct",
-                yaxis_title="Tours",
-                as_percent=self.as_percent,
-            ),
+            *stop_frequency_charts,
             pn.pane.Markdown("### At-Work Sub-Tour Frequency"),
             bar_chart(
                 label_category_data(
@@ -205,7 +232,9 @@ class TourStopFrequencyPage(DashboardPage):
                         str(value)
                         for _, df in atwork_list
                         for value in (
-                            df["atwork_subtour_frequency_category"].cast(pl.Utf8).to_list()
+                            df["atwork_subtour_frequency_category"]
+                            .cast(pl.Utf8)
+                            .to_list()
                             if "atwork_subtour_frequency_category" in df.columns
                             else []
                         )

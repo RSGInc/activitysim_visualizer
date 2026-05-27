@@ -11,8 +11,12 @@ from processor.summarize.summaries.long_term_geography import (
     external_workplace_loc,
     free_parking,
     internal_vs_external,
+    school_shadow_pricing_residual_histogram,
+    school_shadow_pricing_residuals,
     school_loc_vs_land_use_enrollment,
     wfh,
+    workplace_shadow_pricing_residual_histogram,
+    workplace_shadow_pricing_residuals,
     workplace_vs_land_use_employment,
 )
 from processor.summarize.summaries.long_term_person import (
@@ -39,6 +43,8 @@ __all__ = [
     "free_parking",
     "internal_vs_external",
     "license_holding_status",
+    "school_shadow_pricing_residual_histogram",
+    "school_shadow_pricing_residuals",
     "school_loc_vs_land_use_enrollment",
     "schl_tlfd",
     "telecommute",
@@ -51,5 +57,7 @@ __all__ = [
     "vehicle_char_fuel",
     "wfh",
     "work_tlfd",
+    "workplace_shadow_pricing_residual_histogram",
+    "workplace_shadow_pricing_residuals",
     "workplace_vs_land_use_employment",
 ]

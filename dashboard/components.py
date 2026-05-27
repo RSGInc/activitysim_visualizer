@@ -137,12 +137,33 @@ def bar_chart(
         pct_col: optional column for percentage values (shown in hover)
         height: chart height in pixels
     """
+    def _align_categories(
+        df: pl.DataFrame,
+        categories: list[object],
+    ) -> pl.DataFrame:
+        if x_col not in df.columns:
+            return df
+        category_frame = pl.DataFrame({x_col: categories}, schema={x_col: pl.Utf8})
+        aligned = category_frame.join(
+            df.with_columns(pl.col(x_col).cast(pl.Utf8)),
+            on=x_col,
+            how="left",
+        )
+        fill_exprs = []
+        if y_col in aligned.columns:
+            fill_exprs.append(pl.col(y_col).fill_null(0.0).cast(pl.Float64).alias(y_col))
+        if pct_col and pct_col in aligned.columns:
+            fill_exprs.append(pl.col(pct_col).fill_null(0.0).cast(pl.Float64).alias(pct_col))
+        return aligned.with_columns(fill_exprs) if fill_exprs else aligned
+
     fig = go.Figure()
     percent_mode = _percent_mode(as_percent)
     category_order: list[object] = []
     for i, (label, df) in enumerate(data_list):
         if df is None or len(df) == 0:
             continue
+        if xaxis_categoryarray is not None:
+            df = _align_categories(df, [str(value) for value in xaxis_categoryarray])
         color = run_color_for_label(label, i)
         x = df[x_col].to_list()
         for value in x:

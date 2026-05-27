@@ -36,10 +36,9 @@ def resolve_run_entries(
     cli_run_skims: list[str] | None,
     config: Config,
     require_runs: bool,
-    logger: Any | None = None,
 ) -> list[dict]:
     """Resolve raw run inputs from CLI overrides or config."""
-    logger = logger or LOGGER
+    logger = LOGGER
     if cli_runs:
         logger.info("Using runs provided on CLI")
         run_entries: list[dict] = []
@@ -99,14 +98,17 @@ def load_summary_runs_from_cache(
 
     summary_runs: list[Any] = []
     for cache_dir in cache_dirs:
-        expectations = shared.summary_cache_load_expectations(
-            cache_dir=cache_dir,
-            run_entries_by_key=run_entries_by_key,
-            config=config,
-            build_run_fingerprint_fn=build_run_fingerprint,
-            resolve_skim_path_fn=resolve_skim_path,
-            build_prepared_manifest_identity_fn=build_prepared_manifest_identity,
-        ) or {}
+        expectations = (
+            shared.summary_cache_load_expectations(
+                cache_dir=cache_dir,
+                run_entries_by_key=run_entries_by_key,
+                config=config,
+                build_run_fingerprint_fn=build_run_fingerprint,
+                resolve_skim_path_fn=resolve_skim_path,
+                build_prepared_manifest_identity_fn=build_prepared_manifest_identity,
+            )
+            or {}
+        )
         summary_runs.extend(
             summary_cache.load_summary_run_bundle(
                 cache_dir,

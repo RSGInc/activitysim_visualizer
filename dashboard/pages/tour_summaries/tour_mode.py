@@ -15,6 +15,12 @@ from dashboard.helpers.category_helpers import (
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
+AUTO_SUFFICIENCY_LEVELS = [
+    "Zero Auto",
+    "Auto Deficient",
+    "Auto Sufficient",
+]
+
 
 def _options(
     data_list: list[tuple[str, pl.DataFrame]], col: str, total_label: str = "All"
@@ -171,15 +177,6 @@ class TourModePage(DashboardPage):
             ),
             label="Tour Purpose",
         )
-        self.auto_suff_sel = self.selector(
-            "auto_sufficiency",
-            widget=pn.widgets.Select(
-                name="Household Auto Sufficiency",
-                options=_options(mode_data or [], "auto_sufficiency"),
-                value=_options(mode_data or [], "auto_sufficiency")[0],
-            ),
-            label="Household Auto Sufficiency",
-        )
         self.occupancy_sel = self.selector(
             "vehicle_occupancy",
             widget=pn.widgets.Select(
@@ -209,7 +206,7 @@ class TourModePage(DashboardPage):
         )
         self._mode_section = self.section(
             "tour_mode_modes",
-            selectors=("tour_purpose", "auto_sufficiency"),
+            selectors=("tour_purpose",),
             render=self.render_modes,
         )
         self._vehicle_section = self.section(
@@ -257,7 +254,6 @@ class TourModePage(DashboardPage):
         )
         for widget, opts in [
             (self.purpose_sel, purpose_opts),
-            (self.auto_suff_sel, _options(mode_summary or [], "auto_sufficiency")),
             (
                 self.occupancy_sel,
                 _common_options(
@@ -278,26 +274,18 @@ class TourModePage(DashboardPage):
         mode_summary, _, _, _ = self._summaries()
         purpose = self.purpose_sel.value
         raw_purpose = self._purpose_to_raw.get(purpose, "all_tour_purposes")
-        auto_suff = self.auto_suff_sel.value
         if mode_summary is None:
             return [
                 pn.pane.Markdown("### Tour Mode"),
                 pn.Row(
                     pn.pane.Markdown("**Tour Purpose:**"),
                     self.purpose_sel,
-                    pn.pane.Markdown("**Household Auto Sufficiency:**"),
-                    self.auto_suff_sel,
                 ),
                 self.data_not_available_card(
                     detail="The tour mode summary is unavailable.",
                     missing_items=["tour_mode_by_tour_purpose_and_auto_sufficiency"],
                 ),
             ]
-        mode_data = self.get_filtered_view(
-            "tour_mode",
-            (raw_purpose, auto_suff),
-            factory=lambda: tour_mode_chart_data(mode_summary, raw_purpose, auto_suff),
-        )
         mode_x_values = [
             value
             for value in ordered_category_values(
@@ -309,37 +297,97 @@ class TourModePage(DashboardPage):
             if value != "all_tour_modes"
         ]
         mode_label_values = self.config.ordered_labels("mode", mode_x_values)
+        mode_charts: list[pn.viewable.Viewable] = []
+        for auto_suff in AUTO_SUFFICIENCY_LEVELS:
+            mode_data = self.get_filtered_view(
+                "tour_mode",
+                (raw_purpose, auto_suff),
+                factory=lambda auto_suff=auto_suff: tour_mode_chart_data(
+                    mode_summary,
+                    raw_purpose,
+                    auto_suff,
+                ),
+            )
+            mode_charts.append(
+                bar_chart(
+                    label_category_data(
+                        mode_data,
+                        source_col="tour_mode",
+                        category_id="mode",
+                        config=self.config,
+                        target_col="tour_mode_label",
+                    ),
+                    "tour_mode_label",
+                    "tour_count",
+                    f"Tour Mode - {auto_suff}",
+                    "Tour Mode",
+                    yaxis_title="Tours",
+                    pct_col="pct",
+                    as_percent=self.as_percent,
+                    xaxis_categoryarray=mode_label_values,
+                )
+            )
         return [
             pn.pane.Markdown("### Tour Mode"),
             pn.Row(
                 pn.pane.Markdown("**Tour Purpose:**"),
                 self.purpose_sel,
-                pn.pane.Markdown("**Household Auto Sufficiency:**"),
-                self.auto_suff_sel,
             ),
-            bar_chart(
-                label_category_data(
-                    mode_data,
-                    source_col="tour_mode",
-                    category_id="mode",
-                    config=self.config,
-                    target_col="tour_mode_label",
-                ),
-                "tour_mode_label",
-                "tour_count",
-                "Tour Mode by Tour Purpose and Household Auto Sufficiency",
-                "Tour Mode",
-                yaxis_title="Tours",
-                pct_col="pct",
-                as_percent=self.as_percent,
-                xaxis_categoryarray=mode_label_values,
-            ),
+            *mode_charts,
         ]
 
     def render_vehicles(self):
         _, age_summary, fuel_summary, body_summary = self._summaries()
         occupancy = self.occupancy_sel.value
         widgets: list[pn.viewable.Viewable] = []
+        age_values = (
+            sorted(
+                {
+                    str(value)
+                    for _, df in nonempty(age_summary or [])
+                    for value in (
+                        df["age"].cast(pl.Utf8).to_list() if "age" in df.columns else []
+                    )
+                },
+                key=lambda value: 999
+                if value == "20+"
+                else int(value)
+                if value.isdigit()
+                else 1000,
+            )
+            if age_summary is not None
+            else []
+        )
+        fuel_values = (
+            sorted(
+                {
+                    str(value)
+                    for _, df in nonempty(fuel_summary or [])
+                    for value in (
+                        df["fuel_type"].cast(pl.Utf8).to_list()
+                        if "fuel_type" in df.columns
+                        else []
+                    )
+                }
+            )
+            if fuel_summary is not None
+            else []
+        )
+        body_values = (
+            sorted(
+                {
+                    str(value)
+                    for _, df in nonempty(body_summary or [])
+                    for value in (
+                        df["body_type"].cast(pl.Utf8).to_list()
+                        if "body_type" in df.columns
+                        else []
+                    )
+                }
+            )
+            if body_summary is not None
+            else []
+        )
         if age_summary is not None:
             widgets.append(
                 bar_chart(
@@ -357,6 +405,7 @@ class TourModePage(DashboardPage):
                     yaxis_title="Allocated Vehicles",
                     pct_col="pct",
                     as_percent=self.as_percent,
+                    xaxis_categoryarray=age_values,
                 )
             )
         else:
@@ -383,6 +432,7 @@ class TourModePage(DashboardPage):
                     yaxis_title="Allocated Vehicles",
                     pct_col="pct",
                     as_percent=self.as_percent,
+                    xaxis_categoryarray=fuel_values,
                 )
             )
         else:
@@ -409,6 +459,7 @@ class TourModePage(DashboardPage):
                     yaxis_title="Allocated Vehicles",
                     pct_col="pct",
                     as_percent=self.as_percent,
+                    xaxis_categoryarray=body_values,
                 )
             )
         else:

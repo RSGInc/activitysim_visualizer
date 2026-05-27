@@ -83,9 +83,29 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         long_term.workplace_vs_land_use_employment,
     ),
     SummarySpec(
+        "workplace_shadow_pricing_residuals",
+        "workplace_shadow_pricing_residuals",
+        long_term.workplace_shadow_pricing_residuals,
+    ),
+    SummarySpec(
+        "workplace_shadow_pricing_residual_histogram",
+        "workplace_shadow_pricing_residual_histogram",
+        long_term.workplace_shadow_pricing_residual_histogram,
+    ),
+    SummarySpec(
         "school_location_enrollment_comparison",
         "school_location_enrollment_comparison",
         long_term.school_loc_vs_land_use_enrollment,
+    ),
+    SummarySpec(
+        "school_shadow_pricing_residuals",
+        "school_shadow_pricing_residuals",
+        long_term.school_shadow_pricing_residuals,
+    ),
+    SummarySpec(
+        "school_shadow_pricing_residual_histogram",
+        "school_shadow_pricing_residual_histogram",
+        long_term.school_shadow_pricing_residual_histogram,
     ),
     SummarySpec(
         "commuting_flows",

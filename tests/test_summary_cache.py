@@ -1220,7 +1220,6 @@ def test_tour_stop_frequency_live_page_uses_shared_summary_helpers(
     page.refresh(force=True)
 
     assert list(page.purpose_sel.options) == ["All", "eatout", "social"]
-    assert list(page.direction_sel.options) == ["Both", "Outbound", "Inbound"]
     page.purpose_sel.value = "social"
     page.refresh(force=True)
     assert page._body.objects
@@ -2045,6 +2044,79 @@ def test_joint_travel_participation_page_uses_counts_and_runtime_percent_mode(
     assert list(people_plot.object.data[0].y) == [2.0, 3.0]
 
 
+def test_joint_travel_composition_plot_keeps_category_axis_when_party_size_filters_out_bars(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "jtf_distribution": pl.DataFrame(
+                {
+                    "jtf_code": [1],
+                    "jtf_label": ["No Joint Tours"],
+                    "household_count": [5.0],
+                }
+            ),
+            "joint_tours_by_household_size": pl.DataFrame(
+                {
+                    "household_size": [2],
+                    "household_count": [6.0],
+                    "joint_tour_hh_count": [3.0],
+                }
+            ),
+            "joint_tour_party_size_distribution": pl.DataFrame(
+                {
+                    "party_size": [2, 3],
+                    "joint_tour_count": [3.0, 4.0],
+                }
+            ),
+            "joint_tour_composition_by_party_size": pl.DataFrame(
+                {
+                    "tour_composition": ["adults", "mixed"],
+                    "party_size": [2, 3],
+                    "joint_tour_count": [3.0, 4.0],
+                }
+            ),
+            "person_jtp_by_household_size": pl.DataFrame(
+                {
+                    "household_size": [2],
+                    "joint_tour_person_count": [2.0],
+                    "total_person_count": [4.0],
+                }
+            ),
+            "household_jtp_by_household_size_and_jtf": pl.DataFrame(
+                {
+                    "jtf": ["0"],
+                    "household_size": ["2"],
+                    "household_percent": [50.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = JointTravelPage(state, config)
+    page.refresh(force=True)
+    page.party_size_sel.value = "2"
+    page.refresh(force=True)
+
+    composition_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._joint_tour_detail_section)
+        if str(plot.object.layout.title.text)
+        == "Joint Tour Composition by Party Size - 2"
+    )
+    assert list(composition_plot.object.layout.xaxis.categoryarray) == ["adults", "mixed"]
+    assert list(composition_plot.object.data[0].x) == ["adults", "mixed"]
+    assert len(composition_plot.object.data[0].y) == 2
+    assert composition_plot.object.data[0].y[0] > 0
+    assert composition_plot.object.data[0].y[1] == 0.0
+
+
 def test_skims_group_lists_tour_skims_before_trip_skims() -> None:
     definitions = page_definitions_for_group("skims")
 
@@ -2332,9 +2404,16 @@ def test_trip_stop_purpose_page_uses_trip_and_stop_purpose_dashboard_labels(
         weighted={
             "trip_purpose_distribution": pl.DataFrame(
                 {
-                    "trip_purpose": ["work", "shop"],
-                    "trip_count": [8.0, 6.0],
-                    "pct": [57.1, 42.9],
+                    "tour_purpose": [
+                        "all_tour_purposes",
+                        "all_tour_purposes",
+                        "work",
+                        "work",
+                        "shop",
+                    ],
+                    "trip_purpose": ["work", "shop", "work", "shop", "shop"],
+                    "trip_count": [8.0, 6.0, 5.0, 3.0, 4.0],
+                    "pct": [57.1, 42.9, 62.5, 37.5, 100.0],
                 }
             ),
             "stop_destination_purpose_by_tour_purpose": pl.DataFrame(
@@ -2371,6 +2450,17 @@ def test_trip_stop_purpose_page_uses_trip_and_stop_purpose_dashboard_labels(
         "Shopping Trips",
     ]
     assert list(trip_chart.object.data[0].x) == ["Work Trips", "Shopping Trips"]
+    page.tour_purpose_sel.value = "Work Tours"
+    page.refresh(force=True)
+    plots = _collect_plotly_panes(page._body)
+    filtered_trip_chart = next(
+        plot for plot in plots if plot.object.layout.title.text == "Trip Purpose"
+    )
+    assert list(filtered_trip_chart.object.data[0].x) == [
+        "Work Trips",
+        "Shopping Trips",
+    ]
+    assert list(filtered_trip_chart.object.data[0].y) == [62.5, 37.5]
     assert list(stop_chart.object.layout.xaxis.categoryarray) == [
         "Work Stops",
         "Shopping Stops",
@@ -2991,7 +3081,7 @@ def test_tour_summaries_tour_mode_page_renders_main_chart_without_vehicle_summar
     page.refresh(force=True)
 
     assert list(page.purpose_sel.options) == ["Total", "work"]
-    assert len(page._mode_section.objects) == 3
+    assert len(page._mode_section.objects) == 5
     vehicle_cards = [
         obj
         for obj in page._vehicle_section.objects[-1].objects
@@ -3270,65 +3360,51 @@ def test_internal_external_tours_geo_selector_hides_only_maz_when_disabled(
     assert list(page.geo_level_sel.options) == ["all_geographies", "district"]
 
 
-def test_shadow_pricing_geo_selector_hides_only_maz_when_disabled(
+def test_shadow_pricing_geo_selector_keeps_maz_available_when_disabled(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
     summary_run = _summary_run_with_tables(
         label="Base",
         weighted={
-            "workplace_location_employment_comparison": pl.DataFrame(
-                {
-                    "geography_type": ["all_geographies", "district"],
-                    "geography_id": ["all_geographies", "A"],
-                    "employment_count": [20.0, 10.0],
-                    "worker_count": [18.0, 9.0],
-                }
-            ),
-            "school_location_enrollment_comparison": pl.DataFrame(
-                {
-                    "geography_type": ["all_geographies", "district"],
-                    "geography_id": ["all_geographies", "A"],
-                    "student_type": ["University", "University"],
-                    "enrollment_count": [12.0, 6.0],
-                    "student_count": [11.0, 5.0],
-                }
-            ),
-        },
-    )
-    state = DashboardState(
-        summary_runs=[summary_run],
-        weighting_modes=config.weighting_modes,
-    )
-
-    page = ShadowPricingPage(state, config)
-    page.refresh(force=True)
-
-    assert list(page.geo_level_sel.options) == ["all_geographies", "district"]
-
-
-def test_shadow_pricing_geo_selector_shows_detailed_levels_when_enabled(
-    tmp_path: Path,
-) -> None:
-    config = _write_config(tmp_path, visualizer_lines=["enable_maz_geographies: true"])
-    summary_run = _summary_run_with_tables(
-        label="Base",
-        weighted={
-            "workplace_location_employment_comparison": pl.DataFrame(
+            "workplace_shadow_pricing_residuals": pl.DataFrame(
                 {
                     "geography_type": ["all_geographies", "district", "maz"],
                     "geography_id": ["all_geographies", "A", "1"],
-                    "employment_count": [20.0, 10.0, 4.0],
-                    "worker_count": [18.0, 9.0, 3.0],
+                    "target_count": [20.0, 10.0, 4.0],
+                    "modeled_count": [18.0, 9.0, 3.0],
+                    "residual_count": [-2.0, -1.0, -1.0],
+                    "absolute_residual_count": [2.0, 1.0, 1.0],
+                    "percent_error": [-10.0, -10.0, -25.0],
                 }
             ),
-            "school_location_enrollment_comparison": pl.DataFrame(
+            "workplace_shadow_pricing_residual_histogram": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district", "maz"],
+                    "bin_start": [-5.0, -3.0, -2.0],
+                    "bin_end": [0.0, 0.0, 0.0],
+                    "geography_count": [1.0, 1.0, 1.0],
+                }
+            ),
+            "school_shadow_pricing_residuals": pl.DataFrame(
                 {
                     "geography_type": ["all_geographies", "district", "maz"],
                     "geography_id": ["all_geographies", "A", "1"],
                     "student_type": ["University", "University", "University"],
-                    "enrollment_count": [12.0, 6.0, 2.0],
-                    "student_count": [11.0, 5.0, 2.0],
+                    "target_count": [12.0, 6.0, 2.0],
+                    "modeled_count": [11.0, 5.0, 2.0],
+                    "residual_count": [-1.0, -1.0, 0.0],
+                    "absolute_residual_count": [1.0, 1.0, 0.0],
+                    "percent_error": [-8.3333, -16.6667, 0.0],
+                }
+            ),
+            "school_shadow_pricing_residual_histogram": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district", "maz"],
+                    "student_type": ["University", "University", "University"],
+                    "bin_start": [-2.0, -2.0, -1.0],
+                    "bin_end": [0.0, 0.0, 1.0],
+                    "geography_count": [1.0, 1.0, 1.0],
                 }
             ),
         },
@@ -3342,6 +3418,308 @@ def test_shadow_pricing_geo_selector_shows_detailed_levels_when_enabled(
     page.refresh(force=True)
 
     assert list(page.geo_level_sel.options) == ["all_geographies", "district", "maz"]
+
+
+def test_shadow_pricing_geo_selector_shows_detailed_levels_when_enabled(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path, visualizer_lines=["enable_maz_geographies: true"])
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "workplace_shadow_pricing_residuals": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district", "maz"],
+                    "geography_id": ["all_geographies", "A", "1"],
+                    "target_count": [20.0, 10.0, 4.0],
+                    "modeled_count": [18.0, 9.0, 3.0],
+                    "residual_count": [-2.0, -1.0, -1.0],
+                    "absolute_residual_count": [2.0, 1.0, 1.0],
+                    "percent_error": [-10.0, -10.0, -25.0],
+                }
+            ),
+            "workplace_shadow_pricing_residual_histogram": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district", "maz"],
+                    "bin_start": [-5.0, -3.0, -2.0],
+                    "bin_end": [0.0, 0.0, 0.0],
+                    "geography_count": [1.0, 1.0, 1.0],
+                }
+            ),
+            "school_shadow_pricing_residuals": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district", "maz"],
+                    "geography_id": ["all_geographies", "A", "1"],
+                    "student_type": ["University", "University", "University"],
+                    "target_count": [12.0, 6.0, 2.0],
+                    "modeled_count": [11.0, 5.0, 2.0],
+                    "residual_count": [-1.0, -1.0, 0.0],
+                    "absolute_residual_count": [1.0, 1.0, 0.0],
+                    "percent_error": [-8.3333, -16.6667, 0.0],
+                }
+            ),
+            "school_shadow_pricing_residual_histogram": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district", "maz"],
+                    "student_type": ["University", "University", "University"],
+                    "bin_start": [-2.0, -2.0, -1.0],
+                    "bin_end": [0.0, 0.0, 1.0],
+                    "geography_count": [1.0, 1.0, 1.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = ShadowPricingPage(state, config)
+    page.refresh(force=True)
+
+    assert list(page.geo_level_sel.options) == ["all_geographies", "district", "maz"]
+
+
+def test_shadow_pricing_page_uses_residual_histograms_and_filters_school_student_type(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    base_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "workplace_shadow_pricing_residuals": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district", "district"],
+                    "geography_id": ["all_geographies", "A", "B"],
+                    "target_count": [30.0, 10.0, 20.0],
+                    "modeled_count": [28.0, 12.0, 16.0],
+                    "residual_count": [-2.0, 2.0, -4.0],
+                    "absolute_residual_count": [2.0, 2.0, 4.0],
+                    "percent_error": [-6.6667, 20.0, -20.0],
+                }
+            ),
+            "workplace_shadow_pricing_residual_histogram": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district", "district"],
+                    "bin_start": [-4.0, -4.0, 0.0],
+                    "bin_end": [0.0, 0.0, 2.0],
+                    "geography_count": [2.0, 1.0, 1.0],
+                }
+            ),
+            "school_shadow_pricing_residuals": pl.DataFrame(
+                {
+                    "geography_type": [
+                        "all_geographies",
+                        "district",
+                        "district",
+                        "district",
+                    ],
+                    "geography_id": ["all_geographies", "A", "A", "B"],
+                    "student_type": ["All", "School", "University", "University"],
+                    "target_count": [15.0, 8.0, 4.0, 3.0],
+                    "modeled_count": [13.0, 7.0, 5.0, 1.0],
+                    "residual_count": [-2.0, -1.0, 1.0, -2.0],
+                    "absolute_residual_count": [2.0, 1.0, 1.0, 2.0],
+                    "percent_error": [-13.3333, -12.5, 25.0, -66.6667],
+                }
+            ),
+            "school_shadow_pricing_residual_histogram": pl.DataFrame(
+                {
+                    "geography_type": [
+                        "all_geographies",
+                        "district",
+                        "district",
+                        "district",
+                    ],
+                    "student_type": [
+                        "All",
+                        "School",
+                        "University",
+                        "University",
+                    ],
+                    "bin_start": [-5.0, -2.0, -2.0, 0.0],
+                    "bin_end": [0.0, 0.0, 0.0, 2.0],
+                    "geography_count": [1.0, 1.0, 1.0, 1.0],
+                }
+            ),
+        },
+    )
+    alt_run = _summary_run_with_tables(
+        label="Alt",
+        weighted={
+            "workplace_shadow_pricing_residuals": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district", "district"],
+                    "geography_id": ["all_geographies", "A", "B"],
+                    "target_count": [30.0, 10.0, 20.0],
+                    "modeled_count": [35.0, 13.0, 22.0],
+                    "residual_count": [5.0, 3.0, 2.0],
+                    "absolute_residual_count": [5.0, 3.0, 2.0],
+                    "percent_error": [16.6667, 30.0, 10.0],
+                }
+            ),
+            "workplace_shadow_pricing_residual_histogram": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district"],
+                    "bin_start": [1.0, 1.0],
+                    "bin_end": [5.0, 5.0],
+                    "geography_count": [1.0, 2.0],
+                }
+            ),
+            "school_shadow_pricing_residuals": pl.DataFrame(
+                {
+                    "geography_type": [
+                        "all_geographies",
+                        "district",
+                        "district",
+                        "district",
+                    ],
+                    "geography_id": ["all_geographies", "A", "A", "B"],
+                    "student_type": ["All", "School", "University", "University"],
+                    "target_count": [15.0, 8.0, 4.0, 3.0],
+                    "modeled_count": [16.0, 9.0, 4.0, 4.0],
+                    "residual_count": [1.0, 1.0, 0.0, 1.0],
+                    "absolute_residual_count": [1.0, 1.0, 0.0, 1.0],
+                    "percent_error": [6.6667, 12.5, 0.0, 33.3333],
+                }
+            ),
+            "school_shadow_pricing_residual_histogram": pl.DataFrame(
+                {
+                    "geography_type": [
+                        "all_geographies",
+                        "district",
+                        "district",
+                        "district",
+                    ],
+                    "student_type": [
+                        "All",
+                        "School",
+                        "University",
+                        "University",
+                    ],
+                    "bin_start": [0.0, 0.0, -1.0, 1.0],
+                    "bin_end": [2.0, 2.0, 1.0, 3.0],
+                    "geography_count": [1.0, 1.0, 1.0, 1.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[base_run, alt_run],
+        weighting_modes=config.weighting_modes,
+    )
+    state.value_mode = "Count"
+
+    page = ShadowPricingPage(state, config)
+    page.refresh(force=True)
+
+    workplace_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._workplace_section)
+        if plot.object.layout.title.text == "Workplace Residual Distribution"
+    )
+    initial_x = [list(trace.x) for trace in workplace_plot.object.data]
+
+    page.geo_level_sel.value = "district"
+    page.refresh(force=True)
+
+    workplace_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._workplace_section)
+        if plot.object.layout.title.text == "Workplace Residual Distribution"
+    )
+    district_x = [list(trace.x) for trace in workplace_plot.object.data]
+    assert district_x != []
+
+    state.value_mode = "Percent"
+    page.refresh(force=True)
+
+    workplace_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._workplace_section)
+        if plot.object.layout.title.text == "Workplace Residual Distribution"
+    )
+    assert workplace_plot.object.layout.xaxis.title.text == "Residual (Modeled - Target)"
+    assert [list(trace.x) for trace in workplace_plot.object.data] == district_x
+    assert workplace_plot.object.layout.yaxis.title.text == "Percent of Geographies (%)"
+
+    page.student_type_sel.value = "University"
+    page.refresh(force=True)
+
+    school_tables = _collect_tabulators(page._school_section)
+    school_df = pl.from_pandas(school_tables[0].value)
+    assert set(school_df["student_type"].to_list()) == {"University"}
+    assert school_df["percent_error"].to_list()[0].endswith("%")
+
+
+def test_shadow_pricing_school_all_student_type_uses_upstream_rollup_histogram(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "workplace_shadow_pricing_residuals": pl.DataFrame(
+                {
+                    "geography_type": ["district"],
+                    "geography_id": ["A"],
+                    "target_count": [10.0],
+                    "modeled_count": [9.0],
+                    "residual_count": [-1.0],
+                    "absolute_residual_count": [1.0],
+                    "percent_error": [-10.0],
+                }
+            ),
+            "workplace_shadow_pricing_residual_histogram": pl.DataFrame(
+                {
+                    "geography_type": ["district"],
+                    "bin_start": [-2.0],
+                    "bin_end": [0.0],
+                    "geography_count": [1.0],
+                }
+            ),
+            "school_shadow_pricing_residuals": pl.DataFrame(
+                {
+                    "geography_type": ["district", "district"],
+                    "geography_id": ["A", "A"],
+                    "student_type": ["School", "University"],
+                    "target_count": [8.0, 4.0],
+                    "modeled_count": [7.0, 5.0],
+                    "residual_count": [-1.0, 1.0],
+                    "absolute_residual_count": [1.0, 1.0],
+                    "percent_error": [-12.5, 25.0],
+                }
+            ),
+            "school_shadow_pricing_residual_histogram": pl.DataFrame(
+                {
+                    "geography_type": ["district", "district", "district", "district", "district", "district"],
+                    "student_type": ["School", "School", "University", "University", "All", "All"],
+                    "bin_start": [-2.0, 0.0, -2.0, 0.0, -2.0, 0.0],
+                    "bin_end": [0.0, 2.0, 0.0, 2.0, 0.0, 2.0],
+                    "geography_count": [3.0, 1.0, 2.0, 4.0, 5.0, 5.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+    state.value_mode = "Count"
+
+    page = ShadowPricingPage(state, config)
+    page.refresh(force=True)
+    page.geo_level_sel.value = "district"
+    page.student_type_sel.value = "All"
+    page.refresh(force=True)
+
+    school_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._school_section)
+        if plot.object.layout.title.text == "School Residual Distribution"
+    )
+    assert list(school_plot.object.data[0].x) == [-2.0, 0.0]
+    assert list(school_plot.object.data[0].y) == [5.0, 5.0]
 
 
 def test_mandatory_location_choice_external_workplace_aggregate_percent_uses_all_workers(

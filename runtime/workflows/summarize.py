@@ -8,11 +8,10 @@ from typing import Any, Callable
 from activitysim_viz_logging import get_logger
 from processor.analysis_units import AnalysisUnit
 from processor.models import ProcessorWorkflowResult, RunData
-from processor.prepare.cache import load_prepared_run_cache
-from processor.prepare.enrichment.pipeline import prepare_data
-from processor.prepare.reader import read_run
+
+
 from processor.segmentation import build_analysis_units_for_run
-from processor.skimjoin.pipeline import apply_skimjoin
+
 from processor.summarize import cache as summary_cache
 from runtime.config import Config
 from runtime.workflows.common import prepared_cache_root, run_entries_with_keys
@@ -22,9 +21,13 @@ from runtime.workflows import shared
 LOGGER = get_logger("main")
 
 
-def _run_cache_metadata(*, entry: dict, run_key: str, config: Config) -> dict[str, object]:
+def _run_cache_metadata(
+    *, entry: dict, run_key: str, config: Config
+) -> dict[str, object]:
     """Return the stable cache metadata for one resolved run entry."""
-    from runtime.workflows.prepare import _run_cache_metadata as prepare_run_cache_metadata
+    from runtime.workflows.prepare import (
+        _run_cache_metadata as prepare_run_cache_metadata,
+    )
 
     return prepare_run_cache_metadata(entry=entry, run_key=run_key, config=config)
 
@@ -208,11 +211,6 @@ def run_summary_workflow(
     write_cache: bool,
     prepared_prefer_cache: bool = True,
     existing_result: ProcessorWorkflowResult | None = None,
-    run_prepare_workflow_fn: Callable[..., ProcessorWorkflowResult] = run_prepare_workflow,
-    read_run_fn: Callable[..., RunData] = read_run,
-    prepare_data_fn: Callable[[RunData, Config], RunData] = prepare_data,
-    apply_skimjoin_fn: Callable[[RunData, Config], RunData] = apply_skimjoin,
-    load_prepared_run_cache_fn: Callable[..., RunData] = load_prepared_run_cache,
 ) -> ProcessorWorkflowResult:
     """Build or reuse summaries for the configured runs."""
     summary_runs: list[Any] = []
@@ -254,17 +252,13 @@ def run_summary_workflow(
                         prepared_runs_by_key[run_key] = cached_prepared_run
                     continue
 
-        prepare_result = run_prepare_workflow_fn(
+        prepare_result = run_prepare_workflow(
             config=config,
             prepared_root=prepared_root,
             run_entries=[entry],
             prefer_cache=prepared_prefer_cache,
             write_cache=True,
             existing_result=prepare_result,
-            read_run_fn=read_run_fn,
-            prepare_data_fn=prepare_data_fn,
-            apply_skimjoin_fn=apply_skimjoin_fn,
-            load_prepared_run_cache_fn=load_prepared_run_cache_fn,
         )
         if run_key not in prepare_result.prepared_runs_by_key:
             LOGGER.warning(

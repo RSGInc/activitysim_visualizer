@@ -72,6 +72,31 @@ def stop_purpose_chart_data(
     return out
 
 
+def trip_purpose_chart_data(
+    data_list: list[tuple[str, pl.DataFrame]],
+    tour_purpose: str,
+) -> list[tuple[str, pl.DataFrame]]:
+    out = []
+    for label, df in nonempty(data_list):
+        df = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
+        if tour_purpose is None:
+            if "all_tour_purposes" in df["tour_purpose"].cast(pl.Utf8).unique().to_list():
+                df = df.filter(pl.col("tour_purpose") == "all_tour_purposes")
+            else:
+                df = (
+                    df.group_by("trip_purpose")
+                    .agg(trip_count=pl.col("trip_count").sum())
+                    .with_columns(pl.col("trip_purpose").cast(pl.Utf8))
+                    .sort("trip_purpose")
+                )
+                out.append((label, df))
+                continue
+        else:
+            df = df.filter(pl.col("tour_purpose") == tour_purpose)
+        out.append((label, df))
+    return out
+
+
 class TripStopPurposePage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
         stop_data = self.state.get_summary_table_set(
@@ -152,11 +177,19 @@ class TripStopPurposePage(DashboardPage):
                 )
             ]
 
-        trip_purpose_data = nonempty(summaries["trip_purpose_distribution"])
+        trip_purpose_list = summaries["trip_purpose_distribution"]
         stop_purpose_list = summaries["stop_destination_purpose_by_tour_purpose"]
         tour_purpose = self.tour_purpose_sel.value
         raw_tour_purpose = self._tour_purpose_to_raw.get(tour_purpose)
 
+        trip_purpose_data = self.get_filtered_view(
+            "trip_purpose",
+            raw_tour_purpose,
+            factory=lambda: trip_purpose_chart_data(
+                trip_purpose_list,
+                raw_tour_purpose,
+            ),
+        )
         stop_purpose_data = self.get_filtered_view(
             "stop_destination_purpose",
             raw_tour_purpose,
@@ -166,7 +199,7 @@ class TripStopPurposePage(DashboardPage):
             ),
         )
         trip_purpose_x_values = ordered_category_values(
-            trip_purpose_data,
+            nonempty(trip_purpose_list),
             "trip_purpose",
             category_id="trip_purpose",
             config=self.config,
@@ -189,7 +222,7 @@ class TripStopPurposePage(DashboardPage):
         )
 
         stop_purpose_x_values = ordered_category_values(
-            stop_purpose_data,
+            nonempty(stop_purpose_list),
             "stop_destination_purpose",
             category_id="stop_purpose",
             config=self.config,

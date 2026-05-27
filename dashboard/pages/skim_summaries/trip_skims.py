@@ -22,7 +22,9 @@ from dashboard.pages.skim_summaries._shared import (
 
 class TripSkimsPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
-        trip_stats = self.state.get_summary_series_set(TRIP_STATS_SUMMARY_ID, "weighted")
+        trip_stats = self.state.get_summary_series_set(
+            TRIP_STATS_SUMMARY_ID, "weighted"
+        )
         trip_family_options = skim_family_options(
             self.config,
             trip_stats,
@@ -344,7 +346,7 @@ PAGE = DashboardPageDefinition(
     title="Trip Skims",
     page_cls=TripSkimsPage,
     order=51,
-    group_id="skims",
+    group_id="skim_summaries",
     child_order=20,
     default_enabled=True,
     prepared_data_mode="optional",

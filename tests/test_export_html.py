@@ -230,6 +230,46 @@ def _full_summary_run():
                 "person_count": [7.0, 5.0],
             }
         ),
+        "workplace_shadow_pricing_residuals": pl.DataFrame(
+            {
+                "geography_type": ["all_geographies", "district", "district"],
+                "geography_id": ["all_geographies", "Urban", "Suburban"],
+                "target_count": [20.0, 12.0, 8.0],
+                "modeled_count": [18.0, 11.0, 7.0],
+                "residual_count": [-2.0, -1.0, -1.0],
+                "absolute_residual_count": [2.0, 1.0, 1.0],
+                "percent_error": [-10.0, -8.3333, -12.5],
+            }
+        ),
+        "workplace_shadow_pricing_residual_histogram": pl.DataFrame(
+            {
+                "geography_type": ["all_geographies", "district"],
+                "bin_start": [-5.0, -3.0],
+                "bin_end": [0.0, 0.0],
+                "geography_count": [2.0, 2.0],
+            }
+        ),
+        "school_shadow_pricing_residuals": pl.DataFrame(
+            {
+                "geography_type": ["all_geographies", "district", "district"],
+                "geography_id": ["all_geographies", "Urban", "Suburban"],
+                "student_type": ["University", "University", "School"],
+                "target_count": [12.0, 6.0, 4.0],
+                "modeled_count": [11.0, 5.0, 3.0],
+                "residual_count": [-1.0, -1.0, -1.0],
+                "absolute_residual_count": [1.0, 1.0, 1.0],
+                "percent_error": [-8.3333, -16.6667, -25.0],
+            }
+        ),
+        "school_shadow_pricing_residual_histogram": pl.DataFrame(
+            {
+                "geography_type": ["all_geographies", "district", "district"],
+                "student_type": ["University", "University", "School"],
+                "bin_start": [-2.0, -2.0, -2.0],
+                "bin_end": [0.0, 0.0, 0.0],
+                "geography_count": [1.0, 1.0, 1.0],
+            }
+        ),
         "average_mandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
             {
                 "mandatory_tour_purpose": ["work", "work", "work"],
@@ -1241,34 +1281,20 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     assert tour_mode["kind"] == "page"
     assert _region_nodes(tour_mode)["tour_mode_modes"]["selector_ids"] == [
         "tour_purpose",
-        "auto_sufficiency",
     ]
     assert sorted(_region_nodes(tour_mode)["tour_mode_modes"]["variants"]) == [
-        '["Total","All"]',
-        '["Total","Auto Deficient"]',
-        '["Total","Auto Sufficient"]',
-        '["Total","Zero Auto"]',
-        '["work","All"]',
-        '["work","Auto Deficient"]',
-        '["work","Auto Sufficient"]',
-        '["work","Zero Auto"]',
+        '["Total"]',
+        '["work"]',
     ]
     tour_stop_frequency = weighted_percent["tour_stop_frequency"]
     assert tour_stop_frequency["kind"] == "page"
     assert _region_nodes(tour_stop_frequency)["tour_stop_frequency_body"]["selector_ids"] == [
         "tour_purpose",
-        "direction",
     ]
     assert sorted(_region_nodes(tour_stop_frequency)["tour_stop_frequency_body"]["variants"]) == [
-        '["All","Both"]',
-        '["All","Inbound"]',
-        '["All","Outbound"]',
-        '["eatout","Both"]',
-        '["eatout","Inbound"]',
-        '["eatout","Outbound"]',
-        '["social","Both"]',
-        '["social","Inbound"]',
-        '["social","Outbound"]',
+        '["All"]',
+        '["eatout"]',
+        '["social"]',
     ]
     trip_stop_time = weighted_percent["trip_stop_time"]
     assert trip_stop_time["kind"] == "page"
@@ -1463,10 +1489,8 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
                 "        tour_purpose: all",
             "      tour_stop_frequency:",
                 "        tour_purpose: all",
-                "        direction: all",
             "      tour_mode:",
                 "        tour_purpose: all",
-                "        auto_sufficiency: all",
             "  trip_summaries:",
             "    children:",
                 "      trip_mode:",
@@ -1541,15 +1565,9 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
     ]
     assert tour_stop_frequency_weighted_percent["kind"] == "page"
     assert sorted(_region_nodes(tour_stop_frequency_weighted_percent)["tour_stop_frequency_body"]["variants"]) == [
-        '["All","Both"]',
-        '["All","Inbound"]',
-        '["All","Outbound"]',
-        '["eatout","Both"]',
-        '["eatout","Inbound"]',
-        '["eatout","Outbound"]',
-        '["social","Both"]',
-        '["social","Inbound"]',
-        '["social","Outbound"]',
+        '["All"]',
+        '["eatout"]',
+        '["social"]',
     ]
     trip_stop_time_weighted_percent = payload["states"]["Weighted||Percent"]["trip_stop_time"]
     assert trip_stop_time_weighted_percent["kind"] == "page"
@@ -1568,17 +1586,10 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
     assert tour_mode_weighted_percent["kind"] == "page"
     assert _region_nodes(tour_mode_weighted_percent)["tour_mode_modes"]["selector_ids"] == [
         "tour_purpose",
-        "auto_sufficiency",
     ]
     assert sorted(_region_nodes(tour_mode_weighted_percent)["tour_mode_modes"]["variants"]) == [
-        '["Total","All"]',
-        '["Total","Auto Deficient"]',
-        '["Total","Auto Sufficient"]',
-        '["Total","Zero Auto"]',
-        '["work","All"]',
-        '["work","Auto Deficient"]',
-        '["work","Auto Sufficient"]',
-        '["work","Zero Auto"]',
+        '["Total"]',
+        '["work"]',
     ]
     trip_mode_weighted_percent = payload["states"]["Weighted||Percent"]["trip_mode"]
     assert trip_mode_weighted_percent["kind"] == "page"
@@ -1616,26 +1627,19 @@ def test_build_export_html_document_keeps_grouped_tour_mode_chart_when_mode_grou
     assert tour_mode["kind"] == "page"
     assert _region_nodes(tour_mode)["tour_mode_modes"]["selector_ids"] == [
         "tour_purpose",
-        "auto_sufficiency",
     ]
     assert sorted(_region_nodes(tour_mode)["tour_mode_modes"]["variants"]) == [
-        '["Total","All"]',
-        '["Total","Auto Deficient"]',
-        '["Total","Auto Sufficient"]',
-        '["Total","Zero Auto"]',
-        '["work","All"]',
-        '["work","Auto Deficient"]',
-        '["work","Auto Sufficient"]',
-        '["work","Zero Auto"]',
+        '["Total"]',
+        '["work"]',
     ]
     region_nodes = _region_nodes(tour_mode)
     variant_nodes = _walk_nodes(
-        region_nodes["tour_mode_modes"]["variants"]['["Total","All"]']
+        region_nodes["tour_mode_modes"]["variants"]['["Total"]']
     )
     assert any(
         node.get("kind") == "plotly"
         and node.get("figure", {}).get("layout", {}).get("title", {}).get("text")
-        == "Tour Mode by Tour Purpose and Household Auto Sufficiency"
+        == "Tour Mode - Zero Auto"
         for node in variant_nodes
     )
     vehicle_nodes = _walk_nodes(region_nodes["tour_mode_vehicles"]["default_content"])
@@ -1715,18 +1719,25 @@ def test_build_export_html_document_serializes_long_term_geography_variants(
 
     assert page_defs["mandatory_location_choice"]["selectors"][0]["id"] == "geography_level"
     assert page_defs["mandatory_location_choice"]["selectors"][0]["request_mode"] == "all"
-    assert page_defs["mandatory_location_choice"]["selectors"][0]["resolved_values"] == [
+    assert set(page_defs["mandatory_location_choice"]["selectors"][0]["resolved_values"]) == {
+        "All",
         "Suburban",
         "Urban",
-    ]
+    }
     assert page_defs["mandatory_location_choice"]["selectors"][0]["export_enabled"] is True
+    assert page_defs["mandatory_location_choice"]["selectors"][1]["id"] == "geography"
+    assert page_defs["mandatory_location_choice"]["selectors"][1]["export_enabled"] is True
+    assert "All" in page_defs["mandatory_location_choice"]["selectors"][1]["resolved_values"]
+    assert len(page_defs["mandatory_location_choice"]["selectors"][1]["resolved_values"]) > 1
 
     mandatory_location_choice = payload["states"]["Weighted||Percent"]["mandatory_location_choice"]
     assert mandatory_location_choice["kind"] == "page"
-    assert sorted(_region_nodes(mandatory_location_choice)["commuting_flows"]["variants"]) == [
-        '["Suburban"]',
-        '["Urban"]',
-    ]
+    commuting_variants = sorted(
+        _region_nodes(mandatory_location_choice)["commuting_flows"]["variants"]
+    )
+    assert '["All","All"]' in commuting_variants
+    assert any("Urban" in key for key in commuting_variants)
+    assert any("Suburban" in key for key in commuting_variants)
 
 
 def test_build_export_html_document_warns_and_falls_back_when_long_term_geography_is_unavailable(
@@ -1765,7 +1776,6 @@ def test_build_export_html_document_serializes_stop_frequency_four_chart_variant
             "pages:",
             "  tour_stop_frequency:",
                 "    tour_purpose: all",
-                "    direction: all",
         ],
     )
 
@@ -1775,23 +1785,25 @@ def test_build_export_html_document_serializes_stop_frequency_four_chart_variant
 
     assert tour_stop_frequency["kind"] == "page"
     assert sorted(_region_nodes(tour_stop_frequency)["tour_stop_frequency_body"]["variants"]) == [
-        '["All","Both"]',
-        '["All","Inbound"]',
-        '["All","Outbound"]',
-        '["eatout","Both"]',
-        '["eatout","Inbound"]',
-        '["eatout","Outbound"]',
-        '["social","Both"]',
-        '["social","Inbound"]',
-        '["social","Outbound"]',
+        '["All"]',
+        '["eatout"]',
+        '["social"]',
     ]
     variant_nodes = _walk_nodes(
         _region_nodes(tour_stop_frequency)["tour_stop_frequency_body"]["variants"][
-            '["eatout","Both"]'
+            '["eatout"]'
         ]
     )
-    assert not any(node.get("kind") == "plotly" for node in variant_nodes)
-    assert any(node.get("kind") == "card" for node in variant_nodes)
+    plotly_titles = {
+        node.get("figure", {}).get("layout", {}).get("title", {}).get("text")
+        for node in variant_nodes
+        if node.get("kind") == "plotly"
+    }
+    assert {
+        "Tour Stop Frequency - eatout, Both",
+        "Tour Stop Frequency - eatout, Outbound",
+        "Tour Stop Frequency - eatout, Inbound",
+    }.issubset(plotly_titles)
 
 
 def test_build_export_html_document_serializes_stop_timing_two_chart_variant(
