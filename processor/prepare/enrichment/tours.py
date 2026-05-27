@@ -6,6 +6,10 @@ from activitysim_viz_logging import get_logger
 import polars as pl
 
 from processor.tour_purpose import with_summary_tour_purpose
+from processor.prepare.enrichment.autosuff import (
+    apply_autosufficiency,
+    autosuff_reference_column,
+)
 from processor.prepare.enrichment.columns import _resolve_source_column
 from processor.prepare.enrichment.types import _PrepareState, _ZoneContext
 from processor.prepare.enrichment.zones import (
@@ -24,6 +28,7 @@ LOGGER = get_logger("processor.prepare")
 def _enrich_tours(
     state: _PrepareState, config: Config, zone_context: _ZoneContext
 ) -> _PrepareState:
+    autosuff_ref_col = autosuff_reference_column(config)
     hh_income_source = _resolve_source_column(state.hh, config.col_income_segment)
     if hh_income_source is not None:
         hh_income = state.hh.select(
@@ -47,13 +52,16 @@ def _enrich_tours(
 
     hh_for_tours = [
         column
-        for column in [
-            "household_id",
-            "HHVEH",
-            "WORKERS",
-            "LICENSEDDRIVERS",
-            "ADULTS",
-        ]
+        for column in dict.fromkeys(
+            [
+                "household_id",
+                "HHVEH",
+                "WORKERS",
+                "LICENSEDDRIVERS",
+                "ADULTS",
+                autosuff_ref_col,
+            ]
+        )
         if column in state.hh.columns
     ]
     if "household_id" in state.tours.columns and "household_id" in hh_for_tours:
@@ -63,19 +71,12 @@ def _enrich_tours(
             how="left",
         )
 
-    if "HHVEH" in state.tours.columns and "LICENSEDDRIVERS" in state.tours.columns:
-        state.tours = state.tours.with_columns(
-            pl.when(pl.col("HHVEH") == 0)
-            .then(0)
-            .when((pl.col("HHVEH") > 0) & (pl.col("HHVEH") < pl.col("LICENSEDDRIVERS")))
-            .then(1)
-            .when(
-                (pl.col("HHVEH") > 0) & (pl.col("HHVEH") >= pl.col("LICENSEDDRIVERS"))
-            )
-            .then(2)
-            .otherwise(0)
-            .alias("AUTOSUFF")
-        )
+    state.tours = apply_autosufficiency(
+        state.tours,
+        state=state,
+        config=config,
+        metric_id="tours.AUTOSUFF",
+    )
 
     if "stop_frequency" in state.tours.columns:
         state.tours = state.tours.with_columns(
@@ -119,6 +120,15 @@ def _enrich_tours(
         "DTAZ",
         state=state,
         metric_id="tours.DTAZ",
+        config=config,
+        zone_context=zone_context,
+    )
+    state.tours = _to_taz(
+        state.tours,
+        "pnr_zone_id",
+        "pnr_taz",
+        state=state,
+        metric_id="tours.pnr_taz",
         config=config,
         zone_context=zone_context,
     )

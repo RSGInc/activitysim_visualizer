@@ -15,7 +15,14 @@ from .common import (
 )
 from .constants import DEFAULT_RUN_COLORS, FILE_MAPPING_DEFAULTS
 from .legacy import warn_ignored_legacy_key, warn_supported_legacy_key
-from .models import Config, ExportDashboardSettings, ExportHTMLSettings, ExportSelectorRequest, GeographyAggregationSettings
+from .models import (
+    Config,
+    ExportDashboardSettings,
+    ExportHTMLSettings,
+    ExportSelectorRequest,
+    GeographyAggregationSettings,
+    PrepareAutoSufficiencySettings,
+)
 from .normalize_categories import (
     category_spec_from_mapping,
     category_spec_from_sequence,
@@ -140,6 +147,28 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         prepare_cfg.get("vot_bins"),
         field_name="prepare.vot_bins",
     )
+    auto_sufficiency_basis_raw = prepare_cfg.get("auto_sufficiency_basis")
+    if auto_sufficiency_basis_raw is None:
+        prepare_auto_sufficiency = PrepareAutoSufficiencySettings()
+    elif not isinstance(auto_sufficiency_basis_raw, str):
+        raise ValueError(
+            "prepare.auto_sufficiency_basis must be one of "
+            "'licensed_drivers', 'workers', or 'adults'."
+        )
+    else:
+        auto_sufficiency_basis = auto_sufficiency_basis_raw.strip().lower()
+        if auto_sufficiency_basis not in {
+            "licensed_drivers",
+            "workers",
+            "adults",
+        }:
+            raise ValueError(
+                "prepare.auto_sufficiency_basis must be one of "
+                "'licensed_drivers', 'workers', or 'adults'."
+            )
+        prepare_auto_sufficiency = PrepareAutoSufficiencySettings(
+            basis=auto_sufficiency_basis
+        )
     prepare_output_file_format = normalize_prepared_output_file_format(
         prepare_output_cfg.get("file_format"),
         field_name="prepare.output.file_format",
@@ -459,6 +488,7 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         export_html=export_html,
         skimjoin=skimjoin,
         prepare_vot_bins=prepare_vot_bins,
+        prepare_auto_sufficiency=prepare_auto_sufficiency,
         prepare_output_file_format=prepare_output_file_format,
         prepare_relationship_checks=prepare_relationship_checks,
         files=files,
@@ -635,6 +665,21 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
             cols.get("trip_num"),
             field_name="columns.trip_num",
             default=["trip_num"],
+        ),
+        col_pnr_zone_id=normalize_column_aliases(
+            cols.get("pnr_zone_id"),
+            field_name="columns.pnr_zone_id",
+            default=["pnr_zone_id"],
+        ),
+        col_is_worker=normalize_column_aliases(
+            cols.get("is_worker"),
+            field_name="columns.is_worker",
+            default=["is_worker"],
+        ),
+        col_adult=normalize_column_aliases(
+            cols.get("adult"),
+            field_name="columns.adult",
+            default=["adult", "is_adult"],
         ),
         col_day_id=normalize_column_aliases(
             cols.get("day_id"),

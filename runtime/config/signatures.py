@@ -123,6 +123,9 @@ def prepare_signature_payload(config: Config) -> dict[str, Any]:
             "trip_depart": list(config.col_trip_depart),
             "total_employment": list(config.col_total_employment),
             "income_segment": list(config.col_income_segment),
+            "pnr_zone_id": list(config.col_pnr_zone_id),
+            "is_worker": list(config.col_is_worker),
+            "adult": list(config.col_adult),
             "school_esc_outbound": list(config.col_school_esc_outbound),
             "school_esc_inbound": list(config.col_school_esc_inbound),
             "num_escortees": list(config.col_num_escortees),
@@ -151,6 +154,9 @@ def prepare_signature_payload(config: Config) -> dict[str, Any]:
             "config_digest": config.skimjoin.config_digest,
         },
         "prepare": {
+            "auto_sufficiency": {
+                "basis": config.prepare_auto_sufficiency.basis,
+            },
             "output": {"file_format": config.prepare_output_file_format},
             "vot_bins": {
                 "enabled": config.prepare_vot_bins.enabled,

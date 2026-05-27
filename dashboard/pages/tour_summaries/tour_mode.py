@@ -16,10 +16,26 @@ from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
 AUTO_SUFFICIENCY_LEVELS = [
+    "All",
     "Zero Auto",
     "Auto Deficient",
     "Auto Sufficient",
 ]
+
+
+def _auto_sufficiency_definitions_markdown(config) -> str:
+    basis_noun = {
+        "licensed_drivers": "licensed drivers",
+        "workers": "workers",
+        "adults": "adults",
+    }[config.prepare_auto_sufficiency.basis]
+    return f"""
+    **Auto sufficiency definitions**
+
+    - **Zero Auto**: household has no vehicles.
+    - **Auto Deficient**: household has fewer vehicles than {basis_noun}.
+    - **Auto Sufficient**: household has at least as many vehicles as {basis_noun}.
+    """
 
 
 def _options(
@@ -216,13 +232,7 @@ class TourModePage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Tour Mode"),
-            pn.pane.Markdown("""
-            **Auto sufficiency definitions**
-
-            - **Zero Auto**: household has no vehicles.
-            - **Auto Deficient**: household has fewer vehicles than licensed drivers.
-            - **Auto Sufficient**: household has at least as many vehicles as licensed drivers.
-            """),
+            pn.pane.Markdown(_auto_sufficiency_definitions_markdown(self.config)),
             self._mode_section,
             self._vehicle_section,
         )

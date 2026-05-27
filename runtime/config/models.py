@@ -157,6 +157,13 @@ class PrepareVotBinsSettings:
 
 
 @dataclass(frozen=True)
+class PrepareAutoSufficiencySettings:
+    """Configurable household comparison basis for AUTOSUFF derivation."""
+
+    basis: Literal["licensed_drivers", "workers", "adults"] = "licensed_drivers"
+
+
+@dataclass(frozen=True)
 class CategorySpec:
     """Canonical display labels and ordering rules for one categorical domain."""
 
@@ -304,6 +311,7 @@ class Config:
     export_html: ExportHTMLSettings
     skimjoin: SkimjoinSettings
     prepare_vot_bins: PrepareVotBinsSettings
+    prepare_auto_sufficiency: PrepareAutoSufficiencySettings
     prepare_output_file_format: str
     prepare_relationship_checks: str
     files: dict[str, str]
@@ -346,6 +354,9 @@ class Config:
     col_stop_frequency: list[str]
     col_trip_outbound: list[str]
     col_trip_num: list[str]
+    col_pnr_zone_id: list[str]
+    col_is_worker: list[str]
+    col_adult: list[str]
     col_day_id: list[str]
     col_day_weight: list[str]
     col_vehicle_id: list[str]

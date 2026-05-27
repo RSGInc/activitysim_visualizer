@@ -628,6 +628,263 @@ def test_processor_prepare_data_materializes_shared_zone_columns_for_maz_models(
     assert prepared.tours["DTAZ"].to_list() == [20]
 
 
+def test_processor_prepare_data_carries_and_maps_pnr_zone_to_tours_and_trips(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "zones:",
+            "  use_maz: true",
+            "columns:",
+            "  pnr_zone_id: [pnr_stop_zone]",
+        ],
+    )
+
+    raw = _raw_run()
+    raw = ProcessorRunData(
+        label=raw.label,
+        run_dir=raw.run_dir,
+        skim_file=raw.skim_file,
+        hh=raw.hh,
+        per=raw.per,
+        tours=pl.DataFrame(
+            {
+                "tour_id": [1001],
+                "person_id": [101],
+                "household_id": [1],
+                "primary_purpose": [1],
+                "tour_type": ["eatout"],
+                "tour_mode": ["DRIVE"],
+                "tour_category": ["non-mandatory"],
+                "start": [8],
+                "end": [10],
+                "duration": [2],
+                "origin": [10],
+                "destination": [20],
+                "pnr_stop_zone": [30],
+                "stop_frequency": ["1out_0in"],
+            }
+        ),
+        trips=raw.trips,
+        joint_participants=raw.joint_participants,
+        land_use=pl.DataFrame(
+            {
+                "zone_id": [10, 20, 30],
+                "TAZ": [1, 2, 3],
+                "EMPLOY_TOT": [7, 8, 9],
+            }
+        ),
+        skim_matrix=raw.skim_matrix,
+        skim_zone_map=raw.skim_zone_map,
+    )
+
+    prepared = processor_prepare_data(raw, config)
+
+    assert prepared.tours["pnr_zone_id"].to_list() == [30]
+    assert prepared.tours["pnr_taz"].to_list() == [3]
+    assert prepared.trips["pnr_zone_id"].to_list() == [30]
+    assert prepared.trips["pnr_taz"].to_list() == [3]
+    assert prepared.prepare_diagnostics["tours.pnr_taz"]["unresolved"] == 0
+    assert prepared.prepare_diagnostics["trips.pnr_taz"]["unresolved"] == 0
+
+
+def test_processor_prepare_data_uses_person_worker_flags_for_autosuff_when_configured(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  auto_sufficiency_basis: workers",
+            "columns:",
+            "  is_worker: [worker_flag]",
+        ],
+    )
+
+    raw = _raw_run()
+    raw = ProcessorRunData(
+        label=raw.label,
+        run_dir=raw.run_dir,
+        skim_file=raw.skim_file,
+        hh=pl.DataFrame(
+            {
+                "household_id": [1, 2],
+                "home_zone_id": [10, 20],
+                "auto_ownership": [1, 1],
+                "hhsize": [2, 2],
+                "num_workers": [99, 99],
+                "num_adults": [2, 2],
+            }
+        ),
+        per=pl.DataFrame(
+            {
+                "person_id": [101, 102, 201, 202],
+                "household_id": [1, 1, 2, 2],
+                "ptype": [1, 2, 1, 2],
+                "home_zone_id": [10, 10, 20, 20],
+                "worker_flag": [True, True, True, False],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [1001, 2001],
+                "person_id": [101, 201],
+                "household_id": [1, 2],
+                "primary_purpose": ["work", "work"],
+                "tour_type": ["work", "work"],
+                "tour_mode": ["DRIVE", "DRIVE"],
+                "tour_category": ["mandatory", "mandatory"],
+                "start": [8, 8],
+                "end": [10, 10],
+                "duration": [2, 2],
+                "origin": [10, 20],
+                "destination": [20, 10],
+                "stop_frequency": ["0out_0in", "0out_0in"],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "trip_id": [5001, 6001],
+                "tour_id": [1001, 2001],
+                "person_id": [101, 201],
+                "household_id": [1, 2],
+                "trip_mode": ["DRIVEALONE", "DRIVEALONE"],
+                "purpose": ["work", "work"],
+                "depart": [8, 8],
+                "outbound": [True, True],
+                "trip_num": [1, 1],
+                "origin": [10, 20],
+                "destination": [20, 10],
+            }
+        ),
+        joint_participants=raw.joint_participants,
+        land_use=raw.land_use,
+        skim_matrix=raw.skim_matrix,
+        skim_zone_map=raw.skim_zone_map,
+    )
+
+    prepared = processor_prepare_data(raw, config)
+
+    assert prepared.tours.sort("tour_id")["AUTOSUFF"].to_list() == [1, 2]
+    assert prepared.trips.sort("trip_id")["AUTOSUFF"].to_list() == [1, 2]
+    summary = tour.tour_mode(prepared, config).sort(["tour_mode", "tour_purpose"])
+    assert summary.filter(pl.col("tour_purpose") == "work").to_dicts() == [
+        {
+            "tour_mode": "DRIVE",
+            "tour_purpose": "work",
+            "tour_count_zero_auto": 0.0,
+            "tour_count_auto_deficient": 1.0,
+            "tour_count_auto_sufficient": 1.0,
+            "tour_count_all_households": 2.0,
+        }
+    ]
+
+
+def test_processor_prepare_data_uses_person_adult_flags_for_autosuff_when_configured(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  auto_sufficiency_basis: adults",
+            "columns:",
+            "  adult: [adult_flag]",
+        ],
+    )
+
+    raw = _raw_run()
+    raw = ProcessorRunData(
+        label=raw.label,
+        run_dir=raw.run_dir,
+        skim_file=raw.skim_file,
+        hh=pl.DataFrame(
+            {
+                "household_id": [1, 2],
+                "home_zone_id": [10, 20],
+                "auto_ownership": [1, 1],
+                "hhsize": [2, 2],
+                "num_workers": [1, 1],
+                "num_adults": [99, 99],
+            }
+        ),
+        per=pl.DataFrame(
+            {
+                "person_id": [101, 102, 201, 202],
+                "household_id": [1, 1, 2, 2],
+                "ptype": [1, 2, 1, 2],
+                "home_zone_id": [10, 10, 20, 20],
+                "adult_flag": [True, True, True, False],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [1001, 2001],
+                "person_id": [101, 201],
+                "household_id": [1, 2],
+                "primary_purpose": ["work", "work"],
+                "tour_type": ["work", "work"],
+                "tour_mode": ["DRIVE", "DRIVE"],
+                "tour_category": ["mandatory", "mandatory"],
+                "start": [8, 8],
+                "end": [10, 10],
+                "duration": [2, 2],
+                "origin": [10, 20],
+                "destination": [20, 10],
+                "stop_frequency": ["0out_0in", "0out_0in"],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "trip_id": [5001, 6001],
+                "tour_id": [1001, 2001],
+                "person_id": [101, 201],
+                "household_id": [1, 2],
+                "trip_mode": ["DRIVEALONE", "DRIVEALONE"],
+                "purpose": ["work", "work"],
+                "depart": [8, 8],
+                "outbound": [True, True],
+                "trip_num": [1, 1],
+                "origin": [10, 20],
+                "destination": [20, 10],
+            }
+        ),
+        joint_participants=raw.joint_participants,
+        land_use=raw.land_use,
+        skim_matrix=raw.skim_matrix,
+        skim_zone_map=raw.skim_zone_map,
+    )
+
+    prepared = processor_prepare_data(raw, config)
+
+    assert prepared.tours.sort("tour_id")["AUTOSUFF"].to_list() == [1, 2]
+    assert prepared.trips.sort("trip_id")["AUTOSUFF"].to_list() == [1, 2]
+
+
+def test_processor_prepare_data_leaves_autosuff_absent_when_basis_inputs_missing(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  auto_sufficiency_basis: adults",
+        ],
+    )
+
+    prepared = processor_prepare_data(_raw_run(), config)
+
+    assert "AUTOSUFF" not in prepared.tours.columns
+    assert "AUTOSUFF" not in prepared.trips.columns
+    assert prepared.prepare_diagnostics["tours.AUTOSUFF"]["missing_columns"] == (
+        "_autosuff_adults",
+    )
+    assert prepared.prepare_diagnostics["trips.AUTOSUFF"]["missing_columns"] == (
+        "_autosuff_adults",
+    )
+
+
 def test_processor_prepare_data_carries_atwork_subtour_frequency_to_trips(
     tmp_path: Path,
 ) -> None:

@@ -12,6 +12,10 @@ import plotly.graph_objects as go
 import numpy as np
 
 from dashboard.export.serializer import sanitize_export_payload, serialize_viewable, variant_key
+from dashboard.pages.tour_summaries.tour_mode import (
+    _auto_sufficiency_definitions_markdown,
+)
+from runtime.config import Config
 
 
 def test_serialize_viewable_supports_container_and_card_nodes() -> None:
@@ -160,6 +164,39 @@ def test_serialize_viewable_dedents_indented_markdown_blocks() -> None:
     assert "<strong>Auto sufficiency definitions</strong>" in markdown_payload["html"]
     assert "<li><strong>Zero Auto</strong>: household has no vehicles.</li>" in markdown_payload["html"]
     assert "            **Zero Auto**" not in markdown_payload["html"]
+
+
+def test_serialize_viewable_preserves_configured_auto_sufficiency_basis_text(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'name: "Export Serializer Test"',
+                "runs: []",
+                "summaries:",
+                "  root: summary_cache",
+                "visualizer:",
+                '  dashboard_title: "Export Serializer Test"',
+                "prepare:",
+                "  auto_sufficiency_basis: adults",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = Config.from_yaml(config_path)
+
+    markdown_payload = serialize_viewable(
+        pn.pane.Markdown(_auto_sufficiency_definitions_markdown(config)),
+        disable_widgets=True,
+    )
+
+    assert "household has fewer vehicles than adults." in markdown_payload["html"]
+    assert (
+        "household has at least as many vehicles as adults."
+        in markdown_payload["html"]
+    )
 
 
 def test_serialize_viewable_uses_fallback_for_unsupported_objects() -> None:

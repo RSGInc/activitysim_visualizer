@@ -34,7 +34,10 @@ from dashboard.pages.skim_summaries.tour_skims import TourSkimsPage
 from dashboard.pages.tour_summaries.tour_mode import (
     TourModePage as TourSummariesTourModePage,
 )
-from dashboard.pages.tour_summaries.tour_mode import _filter_col
+from dashboard.pages.tour_summaries.tour_mode import (
+    _auto_sufficiency_definitions_markdown,
+    _filter_col,
+)
 from dashboard.pages.tour_summaries.internal_external_tours import (
     InternalExternalToursPage,
 )
@@ -3081,7 +3084,18 @@ def test_tour_summaries_tour_mode_page_renders_main_chart_without_vehicle_summar
     page.refresh(force=True)
 
     assert list(page.purpose_sel.options) == ["Total", "work"]
-    assert len(page._mode_section.objects) == 5
+    assert len(page._mode_section.objects) == 6
+    chart_titles = [
+        obj.object.layout.title.text
+        for obj in page._mode_section.objects
+        if isinstance(obj, pn.pane.Plotly)
+    ]
+    assert chart_titles == [
+        "Tour Mode - All",
+        "Tour Mode - Zero Auto",
+        "Tour Mode - Auto Deficient",
+        "Tour Mode - Auto Sufficient",
+    ]
     vehicle_cards = [
         obj
         for obj in page._vehicle_section.objects[-1].objects
@@ -3143,6 +3157,23 @@ def test_tour_summaries_tour_mode_page_uses_configured_mode_labels_on_plot_axes(
         "Drive Alone",
         "Walk",
     ]
+
+
+def test_tour_mode_auto_sufficiency_definitions_follow_configured_basis(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  auto_sufficiency_basis: workers",
+        ],
+    )
+
+    markdown = _auto_sufficiency_definitions_markdown(config)
+
+    assert "household has fewer vehicles than workers." in markdown
+    assert "household has at least as many vehicles as workers." in markdown
 
 
 def test_mandatory_location_choice_uses_union_of_available_geographies(

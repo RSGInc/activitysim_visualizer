@@ -5,6 +5,7 @@ from __future__ import annotations
 from activitysim_viz_logging import get_logger
 import polars as pl
 
+from processor.prepare.enrichment.autosuff import derive_household_autosuff_counts
 from processor.prepare.enrichment.columns import _has_columns
 from processor.prepare.enrichment.types import _PrepareState, _ZoneContext
 from processor.prepare.enrichment.zones import (
@@ -42,16 +43,6 @@ def _add_configured_geographies(
             zone_context=zone_context,
         )
     return result
-
-
-def _licensed_driver_expr(column_name: str = "has_license") -> pl.Expr:
-    return (
-        pl.col(column_name)
-        .cast(pl.Utf8)
-        .str.to_lowercase()
-        .is_in(["true", "1", "yes", "licensed"])
-    )
-
 
 def _derive_num_joint_tours(state: _PrepareState) -> None:
     if (
@@ -273,21 +264,7 @@ def _enrich_persons(
             .alias("imf_choice")
         )
 
-    if {
-        "household_id",
-        "has_license",
-    }.issubset(state.per.columns) and "household_id" in state.hh.columns:
-        licensed_drivers = (
-            state.per.filter(
-                pl.col("household_id").is_not_null()
-                & pl.col("has_license").is_not_null()
-            )
-            .group_by("household_id")
-            .agg(_licensed_driver_expr().sum().cast(pl.Int32).alias("LICENSEDDRIVERS"))
-        )
-        state.hh = state.hh.join(
-            licensed_drivers, on="household_id", how="left"
-        ).with_columns(pl.col("LICENSEDDRIVERS").fill_null(0).cast(pl.Int32))
+    derive_household_autosuff_counts(state)
 
 
 def _enrich_households_and_persons(

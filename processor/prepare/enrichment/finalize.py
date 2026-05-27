@@ -48,6 +48,7 @@ def _cast_persons(per: pl.DataFrame) -> pl.DataFrame:
                 "HGEO": pl.Utf8,
                 "WGEO": pl.Utf8,
                 "is_worker": pl.Utf8,
+                "adult": pl.Utf8,
                 "student_type": pl.Utf8,
                 "work_from_home": pl.Utf8,
                 "mandatory_tour_frequency": pl.Utf8,
@@ -97,8 +98,10 @@ def _cast_tours(tours: pl.DataFrame) -> pl.DataFrame:
                 "tourdur": pl.Int32,
                 "o_maz": pl.Int64,
                 "d_maz": pl.Int64,
+                "pnr_zone_id": pl.Int64,
                 "OTAZ": pl.Int32,
                 "DTAZ": pl.Int32,
+                "pnr_taz": pl.Int32,
                 "income_segment": pl.Int64,
                 "vot_bin": pl.Utf8,
                 "SKIMDIST": pl.Float64,
@@ -130,8 +133,10 @@ def _cast_trips(trips: pl.DataFrame) -> pl.DataFrame:
                 "depart_hour": pl.Int32,
                 "o_maz": pl.Int64,
                 "d_maz": pl.Int64,
+                "pnr_zone_id": pl.Int64,
                 "OTAZ": pl.Int32,
                 "DTAZ": pl.Int32,
+                "pnr_taz": pl.Int32,
                 "parking_zone": pl.Int64,
                 "origin_parking_zone": pl.Int64,
                 "income_segment": pl.Int64,
@@ -190,6 +195,18 @@ def _cast_vehicles(vehicles: pl.DataFrame) -> pl.DataFrame:
 
 
 def _cast_prepared_tables(state: _PrepareState) -> _PrepareState:
+    state.hh = state.hh.drop(
+        ["_autosuff_workers", "_autosuff_adults"],
+        strict=False,
+    )
+    state.tours = state.tours.drop(
+        ["_autosuff_workers", "_autosuff_adults"],
+        strict=False,
+    )
+    state.trips = state.trips.drop(
+        ["_autosuff_workers", "_autosuff_adults"],
+        strict=False,
+    )
     state.hh = _cast_households(state.hh)
     state.per = _cast_persons(state.per)
     state.day = _cast_day(state.day)

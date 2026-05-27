@@ -7,6 +7,10 @@ import numpy as np
 import polars as pl
 
 from processor.tour_purpose import with_summary_tour_purpose
+from processor.prepare.enrichment.autosuff import (
+    apply_autosufficiency,
+    autosuff_reference_column,
+)
 from processor.prepare.enrichment.columns import _has_columns
 from processor.prepare.enrichment.columns import _resolve_source_column
 from processor.prepare.enrichment.types import _PrepareState, _ZoneContext
@@ -495,6 +499,7 @@ def _derive_escort_event_position_from_tour_links(state: _PrepareState) -> _Prep
 def _enrich_trips(
     state: _PrepareState, config: Config, zone_context: _ZoneContext
 ) -> _PrepareState:
+    autosuff_ref_col = autosuff_reference_column(config)
     hh_income_source = _resolve_source_column(state.hh, config.col_income_segment)
     if hh_income_source is not None and "household_id" in state.trips.columns:
         hh_income = state.hh.select(
@@ -523,6 +528,7 @@ def _enrich_trips(
             "tour_mode",
             "tour_category",
             "atwork_subtour_frequency",
+            "pnr_zone_id",
         ]
         if column in state.tours.columns
     ]
@@ -551,7 +557,16 @@ def _enrich_trips(
     if "HHVEH" not in state.trips.columns:
         hh_trip_join_cols = [
             column
-            for column in ["household_id", "HHVEH", "WORKERS", "LICENSEDDRIVERS"]
+            for column in dict.fromkeys(
+                [
+                    "household_id",
+                    "HHVEH",
+                    "WORKERS",
+                    "LICENSEDDRIVERS",
+                    "ADULTS",
+                    autosuff_ref_col,
+                ]
+            )
             if column in state.hh.columns
         ]
         if (
@@ -563,24 +578,37 @@ def _enrich_trips(
                 on="household_id",
                 how="left",
             )
-    if (
-        "AUTOSUFF" not in state.trips.columns
-        and "HHVEH" in state.trips.columns
-        and "LICENSEDDRIVERS" in state.trips.columns
-    ):
-        state.trips = state.trips.with_columns(
-            pl.when(pl.col("HHVEH") == 0)
-            .then(0)
-            .when((pl.col("HHVEH") > 0) & (pl.col("HHVEH") < pl.col("LICENSEDDRIVERS")))
-            .then(1)
-            .when(
-                (pl.col("HHVEH") > 0) & (pl.col("HHVEH") >= pl.col("LICENSEDDRIVERS"))
-            )
-            .then(2)
-            .otherwise(0)
-            .alias("AUTOSUFF")
+    if "AUTOSUFF" not in state.trips.columns:
+        if autosuff_ref_col not in state.trips.columns:
+            hh_trip_join_cols = [
+                column
+                for column in dict.fromkeys(
+                    [
+                        "household_id",
+                        "HHVEH",
+                        "WORKERS",
+                        "LICENSEDDRIVERS",
+                        "ADULTS",
+                        autosuff_ref_col,
+                    ]
+                )
+                if column in state.hh.columns
+            ]
+            if (
+                "household_id" in state.trips.columns
+                and "household_id" in hh_trip_join_cols
+            ):
+                state.trips = state.trips.join(
+                    state.hh.select(hh_trip_join_cols),
+                    on="household_id",
+                    how="left",
+                )
+        state.trips = apply_autosufficiency(
+            state.trips,
+            state=state,
+            config=config,
+            metric_id="trips.AUTOSUFF",
         )
-
     if config.use_maz and {"origin", "destination"}.issubset(state.trips.columns):
         state.trips = state.trips.with_columns(
             pl.col("origin").alias("o_maz"),
@@ -602,6 +630,15 @@ def _enrich_trips(
         "DTAZ",
         state=state,
         metric_id="trips.DTAZ",
+        config=config,
+        zone_context=zone_context,
+    )
+    state.trips = _to_taz(
+        state.trips,
+        "pnr_zone_id",
+        "pnr_taz",
+        state=state,
+        metric_id="trips.pnr_taz",
         config=config,
         zone_context=zone_context,
     )

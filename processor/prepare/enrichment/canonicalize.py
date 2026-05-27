@@ -88,6 +88,16 @@ def _canonicalize_persons(per: pl.DataFrame, config: Config) -> pl.DataFrame:
     )
     per = _materialize_column(
         per,
+        "is_worker",
+        _resolve_source_column(per, config.col_is_worker),
+    )
+    per = _materialize_column(
+        per,
+        "adult",
+        _resolve_source_column(per, config.col_adult),
+    )
+    per = _materialize_column(
+        per,
         "SCHG",
         _resolve_source_column(per, config.col_schg),
     )
@@ -186,10 +196,15 @@ def _canonicalize_tours(tours: pl.DataFrame, config: Config) -> pl.DataFrame:
         "destination",
         _resolve_source_column(tours, config.col_tour_destination),
     )
-    return _materialize_column(
+    tours = _materialize_column(
         tours,
         "stop_frequency",
         _resolve_source_column(tours, config.col_stop_frequency),
+    )
+    return _materialize_column(
+        tours,
+        "pnr_zone_id",
+        _resolve_source_column(tours, config.col_pnr_zone_id),
     )
 
 
