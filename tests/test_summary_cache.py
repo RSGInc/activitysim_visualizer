@@ -3643,6 +3643,8 @@ def test_shadow_pricing_page_uses_residual_histograms_and_filters_school_student
 
     page = ShadowPricingPage(state, config)
     page.refresh(force=True)
+    page.geo_level_sel.value = "district"
+    page.refresh(force=True)
 
     workplace_plot = next(
         plot
@@ -3650,9 +3652,6 @@ def test_shadow_pricing_page_uses_residual_histograms_and_filters_school_student
         if plot.object.layout.title.text == "Workplace Residual Distribution"
     )
     initial_x = [list(trace.x) for trace in workplace_plot.object.data]
-
-    page.geo_level_sel.value = "district"
-    page.refresh(force=True)
 
     workplace_plot = next(
         plot
@@ -3751,6 +3750,83 @@ def test_shadow_pricing_school_all_student_type_uses_upstream_rollup_histogram(
     )
     assert list(school_plot.object.data[0].x) == [-2.0, 0.0]
     assert list(school_plot.object.data[0].y) == [5.0, 5.0]
+
+
+def test_shadow_pricing_all_geographies_shows_point_mass_cards_instead_of_plots(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "workplace_shadow_pricing_residuals": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district"],
+                    "geography_id": ["all_geographies", "A"],
+                    "target_count": [30.0, 10.0],
+                    "modeled_count": [28.0, 12.0],
+                    "residual_count": [-2.0, 2.0],
+                    "absolute_residual_count": [2.0, 2.0],
+                    "percent_error": [-6.6667, 20.0],
+                }
+            ),
+            "workplace_shadow_pricing_residual_histogram": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district"],
+                    "bin_start": [-4.0, -4.0],
+                    "bin_end": [0.0, 0.0],
+                    "geography_count": [1.0, 1.0],
+                }
+            ),
+            "school_shadow_pricing_residuals": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district"],
+                    "geography_id": ["all_geographies", "A"],
+                    "student_type": ["All", "All"],
+                    "target_count": [15.0, 8.0],
+                    "modeled_count": [13.0, 7.0],
+                    "residual_count": [-2.0, -1.0],
+                    "absolute_residual_count": [2.0, 1.0],
+                    "percent_error": [-13.3333, -12.5],
+                }
+            ),
+            "school_shadow_pricing_residual_histogram": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district"],
+                    "student_type": ["All", "All"],
+                    "bin_start": [-5.0, -2.0],
+                    "bin_end": [0.0, 0.0],
+                    "geography_count": [1.0, 1.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = ShadowPricingPage(state, config)
+    page.refresh(force=True)
+
+    workplace_cards = _collect_cards(page._workplace_section)
+    school_cards = _collect_cards(page._school_section)
+    assert any(
+        getattr(card, "title", "") == "Workplace Residual Distribution Unavailable"
+        and "point mass" in str(card.objects[0].object)
+        for card in workplace_cards
+        if getattr(card, "objects", None)
+    )
+    assert any(
+        getattr(card, "title", "") == "School Residual Distribution Unavailable"
+        and "point mass" in str(card.objects[0].object)
+        for card in school_cards
+        if getattr(card, "objects", None)
+    )
+    assert _collect_plotly_panes(page._workplace_section) == []
+    assert _collect_plotly_panes(page._school_section) == []
+    assert _collect_tabulators(page._workplace_section) != []
+    assert _collect_tabulators(page._school_section) != []
 
 
 def test_mandatory_location_choice_external_workplace_aggregate_percent_uses_all_workers(

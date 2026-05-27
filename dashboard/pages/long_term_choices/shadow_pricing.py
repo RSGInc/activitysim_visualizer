@@ -93,6 +93,16 @@ class ShadowPricingPage(DashboardPage):
     def _maz_tables_disabled(self) -> bool:
         return str(self.geo_level_sel.value).lower() == "maz" and not self.config.enable_maz_geographies
 
+    def _all_geographies_distribution_card(self, *, subject: str) -> pn.Card:
+        return self.data_not_available_card(
+            title=f"{subject} Residual Distribution Unavailable",
+            detail=(
+                f'The residual for "All Geographies" is a point mass that cannot be plotted as a '
+                f'distribution. Please refer to the table below for the {subject.lower()} shadow '
+                f'pricing values for "All Geographies".'
+            ),
+        )
+
     def build_page(self) -> pn.viewable.Viewable:
         self._current_data: dict[str, object] = {}
         self.geo_level_sel = self.selector(
@@ -197,6 +207,15 @@ class ShadowPricingPage(DashboardPage):
                 )
             ]
         geo_level = str(self.geo_level_sel.value)
+        if geo_level == "all_geographies":
+            return [
+                pn.pane.Markdown("### Workplace Shadow Pricing"),
+                pn.Row(
+                    pn.pane.Markdown("**Geography Level:**"),
+                    self.geo_level_sel,
+                ),
+                self._all_geographies_distribution_card(subject="Workplace"),
+            ]
         workplace_data = self.get_filtered_view(
             "shadow_pricing_workplace_hist",
             geo_level,
@@ -284,6 +303,15 @@ class ShadowPricingPage(DashboardPage):
             ]
         geo_level = str(self.geo_level_sel.value)
         student_type = str(self.student_type_sel.value)
+        if geo_level == "all_geographies":
+            return [
+                pn.pane.Markdown("### School Shadow Pricing"),
+                pn.Row(
+                    pn.pane.Markdown("**Student Type:**"),
+                    self.student_type_sel,
+                ),
+                self._all_geographies_distribution_card(subject="School"),
+            ]
         school_data = self.get_filtered_view(
             "shadow_pricing_school_hist",
             (geo_level, student_type),
