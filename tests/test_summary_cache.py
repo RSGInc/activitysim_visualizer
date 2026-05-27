@@ -3515,7 +3515,7 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
         "school",
         "university",
     ]
-    assert comparison_table["Base"].tolist() == ["0%", "0%", "0%"]
+    assert comparison_table["Base"].tolist() == ["0.00%", "0.00%", "0.00%"]
 
 
 def test_mandatory_location_choice_supports_configured_geography_levels_for_distance_sections(
@@ -3678,7 +3678,7 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
 
     comparison_table = _collect_tabulators(page._mandatory_distance_table_section)[0].value
     assert comparison_table.columns.tolist() == ["Mandatory Tour Purpose", "Base"]
-    assert comparison_table["Base"].tolist() == ["0%", "0%", "0%"]
+    assert comparison_table["Base"].tolist() == ["0.00%", "0.00%", "0.00%"]
 
     page.geography_sel.value = "South"
     page.refresh(force=True)
@@ -3943,6 +3943,175 @@ def test_tour_distance_chart_casts_distance_bins_consistently_across_runs(
     traces = {trace.name: list(trace.x) for trace in plot.object.data}
     assert traces["A"] == ["0", "1"]
     assert traces["B"] == ["0"]
+
+
+def test_tour_distance_nonmandatory_average_table_compares_to_base_run(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run_a = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "tour_distance_by_tour_purpose": pl.DataFrame(
+                {
+                    "tour_purpose": ["all_tour_purposes"],
+                    "distance_bin": [0],
+                    "tour_count": [5.0],
+                }
+            ),
+            "average_mandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
+                {
+                    "mandatory_tour_purpose": ["work"],
+                    "geography_level": ["Region"],
+                    "average_tour_distance": [8.0],
+                }
+            ),
+            "average_nonmandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
+                {
+                    "nonmandatory_tour_purpose": ["shopping", "eatout"],
+                    "geography_type": ["district", "district"],
+                    "geography_id": ["North", "North"],
+                    "average_tour_distance": [4.0, 8.0],
+                    "tour_count": [2.0, 1.0],
+                }
+            ),
+        },
+    )
+    summary_run_b = _summary_run_with_tables(
+        label="Build",
+        weighted={
+            "tour_distance_by_tour_purpose": pl.DataFrame(
+                {
+                    "tour_purpose": ["all_tour_purposes"],
+                    "distance_bin": [0],
+                    "tour_count": [7.0],
+                }
+            ),
+            "average_mandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
+                {
+                    "mandatory_tour_purpose": ["work"],
+                    "geography_level": ["Region"],
+                    "average_tour_distance": [8.0],
+                }
+            ),
+            "average_nonmandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
+                {
+                    "nonmandatory_tour_purpose": ["shopping", "eatout"],
+                    "geography_type": ["district", "district"],
+                    "geography_id": ["North", "North"],
+                    "average_tour_distance": [5.0, 6.0],
+                    "tour_count": [2.0, 1.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run_a, summary_run_b],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = TourDistancePage(state, config)
+    page.refresh(force=True)
+
+    page.geo_level_sel.value = "district"
+    page.refresh(force=True)
+    assert list(page.geography_sel.options) == ["All", "North"]
+    page.geography_sel.value = "North"
+    page.refresh(force=True)
+
+    tables = _collect_tabulators(page._average_section)
+    comparison_table = tables[0].value
+    assert comparison_table.columns.tolist() == [
+        "Non-Mandatory Tour Purpose",
+        "Base",
+        "Build",
+    ]
+    assert comparison_table["Non-Mandatory Tour Purpose"].tolist() == [
+        "shopping",
+        "eatout",
+    ]
+    assert comparison_table["Base"].tolist() == ["0.00%", "0.00%"]
+    assert comparison_table["Build"].tolist() == ["25.00%", "-25.00%"]
+
+
+def test_tour_distance_nonmandatory_average_table_filters_to_selected_geography(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run_a = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "tour_distance_by_tour_purpose": pl.DataFrame(
+                {
+                    "tour_purpose": ["all_tour_purposes"],
+                    "distance_bin": [0],
+                    "tour_count": [5.0],
+                }
+            ),
+            "average_mandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
+                {
+                    "mandatory_tour_purpose": ["work"],
+                    "geography_level": ["Region"],
+                    "average_tour_distance": [8.0],
+                }
+            ),
+            "average_nonmandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
+                {
+                    "nonmandatory_tour_purpose": ["shopping", "shopping"],
+                    "geography_type": ["district", "district"],
+                    "geography_id": ["North", "South"],
+                    "average_tour_distance": [4.0, 8.0],
+                    "tour_count": [2.0, 3.0],
+                }
+            ),
+        },
+    )
+    summary_run_b = _summary_run_with_tables(
+        label="Build",
+        weighted={
+            "tour_distance_by_tour_purpose": pl.DataFrame(
+                {
+                    "tour_purpose": ["all_tour_purposes"],
+                    "distance_bin": [0],
+                    "tour_count": [7.0],
+                }
+            ),
+            "average_mandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
+                {
+                    "mandatory_tour_purpose": ["work"],
+                    "geography_level": ["Region"],
+                    "average_tour_distance": [8.0],
+                }
+            ),
+            "average_nonmandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
+                {
+                    "nonmandatory_tour_purpose": ["shopping", "shopping"],
+                    "geography_type": ["district", "district"],
+                    "geography_id": ["North", "South"],
+                    "average_tour_distance": [5.0, 12.0],
+                    "tour_count": [2.0, 3.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run_a, summary_run_b],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = TourDistancePage(state, config)
+    page.refresh(force=True)
+    page.geo_level_sel.value = "district"
+    page.refresh(force=True)
+    assert list(page.geography_sel.options) == ["All", "North", "South"]
+
+    page.geography_sel.value = "South"
+    page.refresh(force=True)
+
+    comparison_table = _collect_tabulators(page._average_section)[0].value
+    assert comparison_table["Non-Mandatory Tour Purpose"].tolist() == ["shopping"]
+    assert comparison_table["Base"].tolist() == ["0.00%"]
+    assert comparison_table["Build"].tolist() == ["50.00%"]
 
 
 def test_bar_chart_pins_category_order_from_input_sequence() -> None:

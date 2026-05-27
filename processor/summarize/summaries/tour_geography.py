@@ -157,20 +157,39 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
 @summary_contract(
     schema={
         "nonmandatory_tour_purpose": pl.Utf8,
-        "geography": pl.Utf8,
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
         "average_tour_distance": pl.Float64,
+        "tour_count": pl.Float64,
     },
     required_columns={
-        "tours": ("tour_category", "tour_purpose", "SKIMDIST", "finalweight")
+        "per": ("person_id", "home_zone_id"),
+        "tours": (
+            "person_id",
+            "tour_category",
+            "tour_purpose",
+            "SKIMDIST",
+            "finalweight",
+        ),
     },
 )
 def avg_non_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
-    required = {"tour_category", "tour_purpose", "SKIMDIST", "finalweight"}
-    if not required.issubset(set(rd.tours.columns)):
+    person_required = {"person_id", "home_zone_id"}
+    tour_required = {
+        "person_id",
+        "tour_category",
+        "tour_purpose",
+        "SKIMDIST",
+        "finalweight",
+    }
+    if not person_required.issubset(set(rd.per.columns)) or not tour_required.issubset(
+        set(rd.tours.columns)
+    ):
         return empty_summary_frame(avg_non_mand_tour_distance)
 
     tours = rd.tours.filter(
         (pl.col("tour_category").cast(pl.Utf8).str.to_lowercase() == "non_mandatory")
+        & pl.col("person_id").is_not_null()
         & pl.col("tour_purpose").is_not_null()
         & pl.col("SKIMDIST").is_not_null()
         & pl.col("finalweight").is_not_null()
@@ -178,74 +197,96 @@ def avg_non_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     purpose_col = _summary_purpose_column(rd.tours)
     if not purpose_col:
         return empty_summary_frame(avg_non_mand_tour_distance)
-    tours = tours.with_columns(pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"))
-    if tours.is_empty():
+    base = (
+        tours.with_columns(pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"))
+        .join(
+            rd.per.select(
+                "person_id",
+                "home_zone_id",
+                *_configured_geography_columns(
+                    rd.per,
+                    config=config,
+                    role_prefix="home",
+                ),
+            ),
+            on="person_id",
+            how="inner",
+        )
+        .filter(pl.col("home_zone_id").is_not_null())
+        .select(
+            "tour_purpose",
+            "SKIMDIST",
+            "finalweight",
+            "home_zone_id",
+            *_configured_geography_columns(
+                rd.per,
+                config=config,
+                role_prefix="home",
+            ),
+        )
+    )
+    if base.is_empty():
         return empty_summary_frame(avg_non_mand_tour_distance)
 
-    def _weighted_avg_by_geo(df: pl.DataFrame, purpose_name: str, geo_col: str = "HGEO") -> pl.DataFrame:
-        rows: list[dict[str, object]] = []
-        if config.geography_enabled and geo_col in df.columns:
-            groups = sorted(df[geo_col].drop_nulls().unique().to_list())
-            for grp in groups:
-                sub = df.filter(pl.col(geo_col) == grp)
-                weight_sum = sub["finalweight"].sum()
-                avg_dist = None if weight_sum in (None, 0) else (sub["SKIMDIST"] * sub["finalweight"]).sum() / weight_sum
-                rows.append(
-                    {
-                        "nonmandatory_tour_purpose": purpose_name,
-                        "geography": str(grp),
-                        "average_tour_distance": avg_dist,
-                    }
-                )
-        total_weight = df["finalweight"].sum()
-        total_avg = None if total_weight in (None, 0) else (df["SKIMDIST"] * df["finalweight"]).sum() / total_weight
-        rows.append(
-            {
-                "nonmandatory_tour_purpose": purpose_name,
-                "geography": "all_geographies",
-                "average_tour_distance": total_avg,
-            }
+    outputs = [
+        _aggregate_weighted_average_across_geographies(
+            base,
+            geography_dimensions=_configured_geography_dimensions(
+                base,
+                config=config,
+                base_type="maz" if config.use_maz else "taz",
+                base_col="home_zone_id",
+                role_prefix="home",
+            ),
+            value_col="SKIMDIST",
+            output_col="average_tour_distance",
+            group_cols=["tour_purpose"],
+            count_col="tour_count",
         )
-        return pl.DataFrame(
-            rows,
-            schema={
-                "nonmandatory_tour_purpose": pl.Utf8,
-                "geography": pl.Utf8,
-                "average_tour_distance": pl.Float64,
-            },
-        )
-
-    purposes = (
-        tours.select("tour_purpose")
-        .unique()
-        .drop_nulls()
-        .sort("tour_purpose")
-        .get_column("tour_purpose")
-        .to_list()
-    )
-    result = pl.concat(
-        [
-            _weighted_avg_by_geo(
-                tours.filter(pl.col("tour_purpose") == purpose),
-                str(purpose),
-            )
-            for purpose in purposes
-        ],
-        how="vertical",
-    )
-    return (
-        result.with_columns(
-            pl.col("nonmandatory_tour_purpose").cast(pl.Utf8),
-            pl.col("geography").cast(pl.Utf8),
-            pl.col("average_tour_distance").cast(pl.Float64),
-        )
+        .rename({"tour_purpose": "nonmandatory_tour_purpose"})
         .select(
             "nonmandatory_tour_purpose",
-            "geography",
+            "geography_type",
+            "geography_id",
             "average_tour_distance",
-        )
-        .sort(["nonmandatory_tour_purpose", "geography"])
-    )
+            "tour_count",
+        ),
+        (
+            base.group_by("tour_purpose")
+            .agg(
+                average_tour_distance=(
+                    (pl.col("SKIMDIST") * pl.col("finalweight")).sum()
+                    / pl.col("finalweight").sum()
+                ).cast(pl.Float64),
+                tour_count=pl.col("finalweight").sum().cast(pl.Float64),
+            )
+            .rename({"tour_purpose": "nonmandatory_tour_purpose"})
+            .with_columns(
+                pl.lit("all_geographies").alias("geography_type"),
+                pl.lit("all_geographies").alias("geography_id"),
+            )
+            .select(
+                "nonmandatory_tour_purpose",
+                "geography_type",
+                "geography_id",
+                "average_tour_distance",
+                "tour_count",
+            )
+        ),
+    ]
+    return pl.concat(outputs, how="vertical").with_columns(
+        pl.col("nonmandatory_tour_purpose").cast(pl.Utf8),
+        pl.col("geography_type").cast(pl.Utf8),
+        pl.col("geography_id").cast(pl.Utf8),
+        pl.col("average_tour_distance").cast(pl.Float64),
+        pl.col("tour_count").cast(pl.Float64),
+    ).select(
+        "nonmandatory_tour_purpose",
+        "geography_type",
+        "geography_id",
+        "average_tour_distance",
+        "tour_count",
+    ).sort(["nonmandatory_tour_purpose", "geography_type", "geography_id"])
 
 
 @summary_contract(

@@ -40,6 +40,7 @@ from processor.summarize.summaries.long_term import (
 )
 from processor.summarize.summaries.tour_geography import (
     avg_mand_tour_distance,
+    avg_non_mand_tour_distance,
     ext_non_mand_tour_loc,
     int_vs_ext_non_mand_tour_freq,
 )
@@ -2041,6 +2042,103 @@ def test_telecommute_summary_includes_configured_geography_levels(
                 "geography_id": "all_geographies",
                 "telecommute_frequency": "often",
                 "person_count": 2.0,
+            },
+        ]
+    )
+
+
+def test_nonmandatory_average_tour_distance_includes_configured_geography_levels(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "geography:",
+            "  enabled: true",
+            "  aggregations:",
+            "    county:",
+            "      source_zone_system: taz",
+            "      mapping:",
+            "        West: [10]",
+            "        East: [20, 30]",
+        ],
+    )
+    prepared = ProcessorRunData(
+        label="Prepared",
+        run_dir="C:/runs/prepared",
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1], "finalweight": [1.0]}),
+        per=pl.DataFrame(
+            {
+                "person_id": [101, 102],
+                "household_id": [1, 1],
+                "home_zone_id": [10, 20],
+                "home_geo__county": ["West", "East"],
+                "finalweight": [1.0, 1.0],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [1001, 1002, 1003],
+                "person_id": [101, 101, 102],
+                "tour_category": [
+                    "non_mandatory",
+                    "non_mandatory",
+                    "non_mandatory",
+                ],
+                "tour_purpose": ["shopping", "shopping", "eatout"],
+                "SKIMDIST": [4.0, 6.0, 10.0],
+                "finalweight": [1.0, 3.0, 2.0],
+            }
+        ),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    summary = avg_non_mand_tour_distance(prepared, config)
+
+    assert (
+        summary.filter(pl.col("geography_type") == "county")
+        .sort(["nonmandatory_tour_purpose", "geography_id"])
+        .to_dicts()
+        == [
+            {
+                "nonmandatory_tour_purpose": "eatout",
+                "geography_type": "county",
+                "geography_id": "East",
+                "average_tour_distance": 10.0,
+                "tour_count": 2.0,
+            },
+            {
+                "nonmandatory_tour_purpose": "shopping",
+                "geography_type": "county",
+                "geography_id": "West",
+                "average_tour_distance": 5.5,
+                "tour_count": 4.0,
+            },
+        ]
+    )
+    assert (
+        summary.filter(pl.col("geography_type") == "all_geographies")
+        .sort("nonmandatory_tour_purpose")
+        .to_dicts()
+        == [
+            {
+                "nonmandatory_tour_purpose": "eatout",
+                "geography_type": "all_geographies",
+                "geography_id": "all_geographies",
+                "average_tour_distance": 10.0,
+                "tour_count": 2.0,
+            },
+            {
+                "nonmandatory_tour_purpose": "shopping",
+                "geography_type": "all_geographies",
+                "geography_id": "all_geographies",
+                "average_tour_distance": 5.5,
+                "tour_count": 4.0,
             },
         ]
     )

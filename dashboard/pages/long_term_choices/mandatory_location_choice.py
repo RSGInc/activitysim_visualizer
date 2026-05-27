@@ -10,7 +10,6 @@ from dashboard.components import (
     control_row,
     data_table,
     density_chart,
-    format_numeric_for_display,
 )
 from dashboard.helpers.category_helpers import label_category_data, ordered_category_values
 from dashboard.helpers.geography_helpers import detail_geography_levels
@@ -617,15 +616,14 @@ def mandatory_distance_comparison_table(
             "Mandatory Tour Purpose": config.label_value("tour_purpose", purpose),
         }
         base_value = base_lookup.get(str(purpose))
-        row[base_label] = "0%" if base_value is not None else ""
+        row[base_label] = "0.00%" if base_value is not None else ""
         for run_label, _ in nonempty_runs[1:]:
             run_value = lookups_by_label[run_label].get(str(purpose))
             if run_value in {None} or base_value in {None, 0.0}:
                 row[run_label] = ""
                 continue
             pct_diff = ((run_value - base_value) / base_value) * 100.0
-            formatted = format_numeric_for_display(pct_diff, precision=2)
-            row[run_label] = f"{formatted}%" if formatted is not None else ""
+            row[run_label] = f"{pct_diff:.2f}%"
         rows.append(row)
 
     return pl.DataFrame(rows) if rows else pl.DataFrame()
