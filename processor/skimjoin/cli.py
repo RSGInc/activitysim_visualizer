@@ -71,7 +71,9 @@ def main(argv: list[str] | None = None) -> int:
     config_data = _load_yaml(config_path)
 
     if args.command == "inventory":
-        skim_files, output_dir = _inventory_inputs_from_config(parser, config_data, "inventory")
+        skim_files, output_dir = _inventory_inputs_from_config(
+            parser, config_data, "inventory"
+        )
         trips_path, tours_path = _inventory_table_paths_from_config(config_data)
         _configure_inventory_logging(output_dir / "inventory_debug.log")
         _log_inventory_debug(
@@ -83,12 +85,16 @@ def main(argv: list[str] | None = None) -> int:
         )
         inventory = inventory_skim_files(skim_files)
         output_path = output_dir / "skim_inventory.csv"
-        _log(f"Inventory resolved {inventory.select(pl.col('file_path').n_unique()).item()} skim file(s)")
+        _log(
+            f"Inventory resolved {inventory.select(pl.col('file_path').n_unique()).item()} skim file(s)"
+        )
         _log(f"Inventory found {inventory.height} matrix record(s)")
         _log(f"Writing inventory CSV to: {output_path}")
         _write_dataframe(output_path, inventory)
         if args.preview:
-            _write_activitysim_inventory_outputs(output_dir, trips_path=trips_path, tours_path=tours_path)
+            _write_activitysim_inventory_outputs(
+                output_dir, trips_path=trips_path, tours_path=tours_path
+            )
         _log(f"Inventory write complete: {output_path}")
         print(output_path)
         return 0
@@ -101,7 +107,9 @@ def main(argv: list[str] | None = None) -> int:
             normalized = _safe_normalize(config_data)
             if normalized is not None:
                 write_normalized_config(qa_dir / "config_normalized.yaml", normalized)
-            write_validation_failure_report(qa_dir / "validation_report.txt", str(exc), normalized=normalized)
+            write_validation_failure_report(
+                qa_dir / "validation_report.txt", str(exc), normalized=normalized
+            )
             return 1
         default_output_dir = _default_output_dir(artifacts)
         _write_validation_artifacts(artifacts, default_output_dir or qa_dir)
@@ -129,7 +137,11 @@ def main(argv: list[str] | None = None) -> int:
         write_table(qa_dir / "skim_lookup_summary.csv", lookup_summary)
         write_table(qa_dir / "missing_lookup_report.csv", missing)
         if args.preview:
-            _write_table_preview(qa_dir / "annotated_trips_columns.csv", annotated, table_name="annotated_trips")
+            _write_table_preview(
+                qa_dir / "annotated_trips_columns.csv",
+                annotated,
+                table_name="annotated_trips",
+            )
         return 0
 
     if args.command == "annotate-tours":
@@ -150,7 +162,11 @@ def main(argv: list[str] | None = None) -> int:
         write_table(out_path.parent / "tour_aggregation_summary.csv", summary)
         write_table(out_path.parent / "missing_lookup_report.csv", missing)
         if args.preview:
-            _write_table_preview(out_path.parent / "annotated_tours_columns.csv", annotated_tours, table_name="annotated_tours")
+            _write_table_preview(
+                out_path.parent / "annotated_tours_columns.csv",
+                annotated_tours,
+                table_name="annotated_tours",
+            )
         return 0
 
     if args.command == "run":
@@ -170,7 +186,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         trips = load_table(artifacts.config.activitysim.trips_table)
         tours = load_table(artifacts.config.activitysim.tours_table)
-        annotated, lookup_summary, missing = annotate_trips(trips, artifacts.normalized, artifacts.inventory)
+        annotated, lookup_summary, missing = annotate_trips(
+            trips, artifacts.normalized, artifacts.inventory
+        )
         _write_dataframe(out_trips, annotated)
         annotated_tours, tour_summary, tour_missing = annotate_tours(
             tours,
@@ -185,8 +203,16 @@ def main(argv: list[str] | None = None) -> int:
         write_table(qa_dir / "tour_aggregation_summary.csv", tour_summary)
         write_table(qa_dir / "tour_missing_lookup_report.csv", tour_missing)
         if args.preview:
-            _write_table_preview(qa_dir / "annotated_trips_columns.csv", annotated, table_name="annotated_trips")
-            _write_table_preview(qa_dir / "annotated_tours_columns.csv", annotated_tours, table_name="annotated_tours")
+            _write_table_preview(
+                qa_dir / "annotated_trips_columns.csv",
+                annotated,
+                table_name="annotated_trips",
+            )
+            _write_table_preview(
+                qa_dir / "annotated_tours_columns.csv",
+                annotated_tours,
+                table_name="annotated_tours",
+            )
         return 0
 
     return 0
@@ -268,11 +294,17 @@ def _log_inventory_debug(
     _log("Inventory skim file inputs:")
     for skim_file in skim_files:
         _log(f"  - {skim_file}")
-    _log(f"Inventory trips table: {trips_path if trips_path is not None else 'not provided'}")
-    _log(f"Inventory tours table: {tours_path if tours_path is not None else 'not provided'}")
+    _log(
+        f"Inventory trips table: {trips_path if trips_path is not None else 'not provided'}"
+    )
+    _log(
+        f"Inventory tours table: {tours_path if tours_path is not None else 'not provided'}"
+    )
 
 
-def _inventory_table_paths_from_config(config_data: dict[str, Any]) -> tuple[Path | None, Path | None]:
+def _inventory_table_paths_from_config(
+    config_data: dict[str, Any],
+) -> tuple[Path | None, Path | None]:
     project = dict(config_data.get("project") or {})
     activitysim = dict(config_data.get("activitysim") or {})
     trips_path = activitysim.get("trips_table", project.get("trips_table"))
@@ -297,24 +329,36 @@ def _write_activitysim_inventory_outputs(
     if trips_path is not None:
         _log(f"Loading trips table for inventory: {trips_path}")
         trips = load_table(trips_path)
-        _log(f"Trips table has {trips.height} row(s) and {len(trips.columns)} column(s)")
+        _log(
+            f"Trips table has {trips.height} row(s) and {len(trips.columns)} column(s)"
+        )
     if tours_path is not None:
         _log(f"Loading tours table for inventory: {tours_path}")
         tours = load_table(tours_path)
-        _log(f"Tours table has {tours.height} row(s) and {len(tours.columns)} column(s)")
+        _log(
+            f"Tours table has {tours.height} row(s) and {len(tours.columns)} column(s)"
+        )
     if trips is None:
         return
 
     value_rows, column_rows = scan_activitysim_tables(trips, tours=tours)
-    write_table(output_dir / "trips_columns.csv", column_rows.filter(pl.col("table") == "trips").drop("table"))
+    write_table(
+        output_dir / "trips_columns.csv",
+        column_rows.filter(pl.col("table") == "trips").drop("table"),
+    )
     if tours is not None:
-        write_table(output_dir / "tours_columns.csv", column_rows.filter(pl.col("table") == "tours").drop("table"))
+        write_table(
+            output_dir / "tours_columns.csv",
+            column_rows.filter(pl.col("table") == "tours").drop("table"),
+        )
     if not value_rows.is_empty():
         write_table(output_dir / "activitysim_value_counts.csv", value_rows)
 
 
 def _write_table_preview(path: Path, table: pl.DataFrame, *, table_name: str) -> None:
-    write_table(path, summarize_table_columns(table, table_name=table_name).drop("table"))
+    write_table(
+        path, summarize_table_columns(table, table_name=table_name).drop("table")
+    )
 
 
 def _default_output_dir(artifacts: ValidationArtifacts) -> Path | None:
@@ -351,7 +395,9 @@ def _resolve_output_path(
         return Path(explicit).resolve()
     if default_output_dir is not None:
         return (default_output_dir / default_filename).resolve()
-    parser.error(f"{command} requires an explicit output flag or project.output_dir in the config file.")
+    parser.error(
+        f"{command} requires an explicit output flag or project.output_dir in the config file."
+    )
     raise AssertionError("unreachable")
 
 
@@ -366,7 +412,9 @@ def _resolve_existing_input_path(
         return Path(explicit).resolve()
     if default_path is not None:
         return default_path.resolve()
-    parser.error(f"{command} requires --{label} or project.output_dir in the config file.")
+    parser.error(
+        f"{command} requires --{label} or project.output_dir in the config file."
+    )
     raise AssertionError("unreachable")
 
 
