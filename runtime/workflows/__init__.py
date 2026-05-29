@@ -26,11 +26,13 @@ from runtime.workflows.prepare import (
     load_prepared_runs_for_dashboard,
     run_prepare_workflow,
 )
+from runtime.workflows.shared import effective_processor_config
 from runtime.workflows.summarize import run_summary_workflow
 
 
 __all__ = [
     "apply_skimjoin",
+    "effective_processor_config",
     "load_prepared_run_cache",
     "load_prepared_runs_for_dashboard",
     "load_runtime_config",

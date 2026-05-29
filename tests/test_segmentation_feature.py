@@ -425,6 +425,28 @@ def test_dashboard_state_segments_only_hides_full_for_selected_type() -> None:
     assert state.run_labels == ["Run A (North)"]
 
 
+def test_dashboard_state_segments_only_keeps_full_runs_when_no_segmented_series_exist(
+) -> None:
+    full_run = create_summary_run(
+        label="Run A",
+        run_key="run-a",
+        summaries_by_mode={"weighted": {"totals": pl.DataFrame({"x": [1]})}},
+    )
+
+    state = DashboardState(
+        summary_runs=[full_run],
+        weighting_modes=["weighted"],
+        dashboard_segmentation_type="county",
+        default_segmentation_visibility="segments_only",
+    )
+
+    assert state.has_segmented_summary_series is False
+    assert state.run_labels == ["Run A"]
+    summary_set = state.get_summary_table_set("totals", weighting_key="weighted")
+    assert summary_set is not None
+    assert [label for label, _ in summary_set] == ["Run A"]
+
+
 def test_summary_cache_round_trip_persists_multiple_segmentation_types(
     tmp_path: Path,
 ) -> None:

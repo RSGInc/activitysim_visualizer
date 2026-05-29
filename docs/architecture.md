@@ -8,6 +8,12 @@
 
 The codebase is organized around those jobs rather than around one monolithic app layer.
 
+The config surface is now intentionally split into top-level domains such as
+`pipeline`, `dashboard`, `display`, `summarize`, `segment`, and `skimjoin`.
+`runtime.config.load_config()` still accepts legacy keys for compatibility, but
+normalizes them into one canonical `Config` contract before any workflow code
+sees them.
+
 ## Main Subsystems
 
 | Area | Purpose | Key files |
@@ -25,7 +31,8 @@ The codebase is organized around those jobs rather than around one monolithic ap
 run.py
   -> runtime.workflows.load_runtime_config()
   -> runtime.workflows.resolve_run_entries()
-  -> zero or more explicit steps:
+  -> resolve_effective_plan() from CLI overrides + config.pipeline defaults
+  -> zero or more runtime steps:
        A. run_prepare_workflow()
           -> processor.prepare.cache.load_prepared_run_cache()
           -> processor.prepare.reader.read_run()
@@ -53,12 +60,28 @@ the `runtime/config/` package.
 Treat it as the contract for:
 
 - which files are read
+- which logical pipeline steps are requested by default
+- which dashboard mode is used by default (`none`, `live`, `export`, `host`)
+- whether a run should prefer cache reuse or overwrite behavior by default
 - how schema aliases are resolved
 - which weighting modes exist
 - which pages are enabled
 - how export selector requests are configured
 
 If a new feature adds a config key or changes config behavior, the README and any relevant docs in this folder should be updated in the same change.
+
+`Config.pipeline` is the canonical home for workflow defaults. Today the
+logical step names are:
+
+- `prepare`
+- `skimjoin`
+- `summarize`
+- `segment`
+- `dashboard`
+
+The runtime still executes three coarse workflow boundaries (`prepare`,
+`summarize`, `dashboard`). `skimjoin` currently resolves inside the prepare
+workflow, and `segment` currently resolves inside the summarize workflow.
 
 ### `RunData`
 

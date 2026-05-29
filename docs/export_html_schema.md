@@ -83,8 +83,8 @@ Each `SelectorMetadataPayload` contains:
 Selector config is driven from:
 
 ```yaml
-visualizer:
-  export_html:
+dashboard:
+  export:
     pages:
       <page_id>:
         <selector_id>: ...
@@ -93,8 +93,8 @@ visualizer:
 Grouped child pages may also be configured as:
 
 ```yaml
-visualizer:
-  export_html:
+dashboard:
+  export:
     pages:
       <group_id>:
         children:

@@ -167,19 +167,69 @@ def normalize_skimjoin_settings(
     raw_value,
     *,
     config_dir: Path,
+    field_name: str = "skimjoin",
+    default_enabled: bool | None = None,
 ) -> SkimjoinSettings:
     if raw_value is None:
-        return SkimjoinSettings()
+        return SkimjoinSettings(enabled=bool(default_enabled))
     if not isinstance(raw_value, dict):
-        raise ValueError("skimjoin must be a mapping when provided.")
+        raise ValueError(f"{field_name} must be a mapping when provided.")
 
-    enabled = raw_value.get("enabled", False)
+    defaults_raw = raw_value.get("defaults")
+    defaults = None
+    if defaults_raw is not None:
+        if not isinstance(defaults_raw, dict):
+            raise ValueError(f"{field_name}.defaults must be a mapping when provided.")
+        defaults = defaults_raw
+
+    enabled_default = default_enabled if default_enabled is not None else False
+    if defaults is not None and default_enabled is None:
+        enabled_default = True
+
+    enabled = raw_value.get("enabled", enabled_default)
     if not isinstance(enabled, bool):
-        raise ValueError("skimjoin.enabled must be true or false when provided.")
+        raise ValueError(f"{field_name}.enabled must be true or false when provided.")
+    config_path_raw = (
+        defaults.get("config_path")
+        if defaults is not None and "config_path" in defaults
+        else raw_value.get("config_path")
+    )
     resolved_config_path = normalize_optional_path_string(
-        raw_value.get("config_path"),
-        field_name="skimjoin.config_path",
+        config_path_raw,
+        field_name=(
+            f"{field_name}.defaults.config_path"
+            if defaults is not None and "config_path" in defaults
+            else f"{field_name}.config_path"
+        ),
         config_dir=config_dir,
+    )
+    skim_files = ()
+    if defaults is not None:
+        skim_files = tuple(
+            normalize_string_list(
+                defaults.get("skim_files"),
+                field_name=f"{field_name}.defaults.skim_files",
+            )
+        )
+        if skim_files:
+            skim_files = tuple(
+                str(
+                    (
+                        Path(raw_path).expanduser()
+                        if Path(raw_path).expanduser().is_absolute()
+                        else (config_dir / Path(raw_path).expanduser()).resolve()
+                    )
+                )
+                for raw_path in skim_files
+            )
+    network_los_file = (
+        normalize_optional_path_string(
+            defaults.get("network_los_file"),
+            field_name=f"{field_name}.defaults.network_los_file",
+            config_dir=config_dir,
+        )
+        if defaults is not None
+        else None
     )
 
     if not enabled:
@@ -189,6 +239,8 @@ def normalize_skimjoin_settings(
         return SkimjoinSettings(enabled=True, config_path=None)
     return load_resolved_skimjoin_settings(
         config_path=resolved_config_path,
+        skim_files_override=skim_files,
+        network_los_file_override=network_los_file,
         context_label="global",
     )
 

@@ -123,6 +123,18 @@ class ExportHTMLSettings:
 
 
 @dataclass(frozen=True)
+class PipelineSettings:
+    """Canonical default workflow controls resolved from config."""
+
+    steps: tuple[str, ...] = ("summarize", "dashboard")
+    dashboard_mode: Literal["none", "live", "export", "host"] = "live"
+    overwrite: bool = False
+
+    def has_step(self, step: str) -> bool:
+        return step in self.steps
+
+
+@dataclass(frozen=True)
 class SkimjoinSettings:
     """Optional runtime wiring for skim enrichment."""
 
@@ -304,6 +316,7 @@ class Config:
     name: str
     dashboard_title: str
     log_level: str
+    pipeline: PipelineSettings
     dashboard_pages: list[DashboardPageConfigEntry] | None
     enable_maz_geographies: bool
     run_colors: list[str]

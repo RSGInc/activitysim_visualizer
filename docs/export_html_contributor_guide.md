@@ -99,8 +99,8 @@ Do not add new export-only registries or duplicate selector metadata in `PAGE`.
 Standalone page selectors are configured under:
 
 ```yaml
-visualizer:
-  export_html:
+dashboard:
+  export:
     pages:
       trip_mode:
         tour_purpose: all
@@ -109,8 +109,8 @@ visualizer:
 Grouped page selectors are configured under:
 
 ```yaml
-visualizer:
-  export_html:
+dashboard:
+  export:
     pages:
       trip_summaries:
         children:

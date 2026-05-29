@@ -25,6 +25,7 @@ from processor.summarize.cache import (
     create_summary_run,
     write_summary_run_cache,
 )
+from runtime.workflows import prepare as prepare_workflow
 
 def _write_cli_config(
     tmp_path: Path,
@@ -32,6 +33,7 @@ def _write_cli_config(
     runs: list[dict],
     dashboard_pages: list[str] | None = None,
     export_html_lines: list[str] | None = None,
+    extra_lines: list[str] | None = None,
 ) -> Config:
     lines = [
         'name: "CLI Test Config"',
@@ -63,6 +65,8 @@ def _write_cli_config(
                 f'    label: "{run_entry["label"]}"',
             ]
         )
+    if extra_lines:
+        lines.extend(extra_lines)
 
     config_path = tmp_path / "config.yaml"
     config_path.write_text("\n".join(lines), encoding="utf-8")
@@ -128,21 +132,82 @@ def _prepared_identity(
     )
 
 
-def test_main_rejects_no_dashboard_without_write_csvs(monkeypatch, capsys) -> None:
+def _patch_prepare_pipeline(
+    monkeypatch,
+    *,
+    read_run=None,
+    prepare_data=None,
+) -> None:
+    if read_run is not None:
+        monkeypatch.setattr(prepare_workflow, "read_run", read_run)
+    if prepare_data is not None:
+        monkeypatch.setattr(prepare_workflow, "prepare_data", prepare_data)
+
+
+def test_main_no_dashboard_overrides_config_default_and_skips_dashboard(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    _write_cli_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+        extra_lines=[
+            "pipeline:",
+            "  steps:",
+            "    - summarize",
+            "    - dashboard",
+        ],
+    )
+    read_calls: list[str] = []
+    built_summaries: list[str] = []
+
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: (
+            read_calls.append(label or Path(run_dir).name),
+            _fake_run_data(label or Path(run_dir).name, str(run_dir)),
+        )[1],
+        prepare_data=lambda rd, config: rd,
+    )
+    monkeypatch.setattr(
+        summary_cache,
+        "build_mode_summaries_with_metadata",
+        lambda rd, config: (
+            built_summaries.append(rd.label),
+            _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
+        )[1],
+    )
+    monkeypatch.setattr(
+        dashboard_app,
+        "build_dashboard",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("dashboard should not be built")
+        ),
+    )
+    monkeypatch.setattr(
+        pn,
+        "serve",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("panel serve should not be called")
+        ),
+    )
     monkeypatch.setattr(
         sys,
         "argv",
         [
             "activitysim-viz",
+            "--config",
+            str(tmp_path / "config.yaml"),
             "--no-dashboard",
         ],
     )
 
-    with pytest.raises(SystemExit, match="1"):
-        run.main()
+    run.main()
 
-    captured = capsys.readouterr()
-    assert captured.err == "Error: --no-dashboard requires --write-csvs.\n"
+    assert read_calls == ["Run A"]
+    assert built_summaries == ["Run A"]
 
 
 def test_main_rejects_from_csvs_with_write_csvs(monkeypatch, capsys) -> None:
@@ -191,12 +256,59 @@ def test_main_rejects_refresh_summary_cache_without_summarize(
     )
 
 
-def test_main_rejects_dashboard_step_without_summarize_or_from_csvs(
+def test_main_dashboard_step_without_summarize_loads_cached_summaries_from_config_runs(
     tmp_path: Path,
     monkeypatch,
-    capsys,
 ) -> None:
-    _write_cli_config(tmp_path, runs=[])
+    run_dir = tmp_path / "run_a"
+    config = _write_cli_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+        dashboard_pages=["overview"],
+    )
+    summary_run = _simple_summary_run("Run A", "run-a")
+    write_summary_run_cache(
+        summary_run,
+        config,
+        run_fingerprint=build_run_fingerprint(
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+            skim_file=None,
+            hh_weight_col=None,
+            person_weight_col=None,
+            trip_weight_col=None,
+        ),
+        prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="run-a",
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+        ),
+    )
+    dashboard_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("read_run should not be called")
+        ),
+        prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("prepare_data should not be called")
+        ),
+    )
+
+    def fake_build_dashboard(runs, config, summary_runs=None):
+        dashboard_calls.append(
+            {
+                "runs": list(runs),
+                "summary_labels": [summary_run.label for summary_run in summary_runs or []],
+            }
+        )
+        return "dashboard"
+
+    monkeypatch.setattr(dashboard_app, "build_dashboard", fake_build_dashboard)
+    monkeypatch.setattr(pn, "serve", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -205,17 +317,441 @@ def test_main_rejects_dashboard_step_without_summarize_or_from_csvs(
             "--config",
             str(tmp_path / "config.yaml"),
             "--dashboard",
+            "--no-show",
         ],
     )
 
-    with pytest.raises(SystemExit, match="1"):
-        run.main()
+    run.main()
 
-    captured = capsys.readouterr()
-    assert (
-        captured.err
-        == "Error: dashboard step without summarize requires --from-csvs.\n"
+    assert dashboard_calls == [{"runs": [], "summary_labels": ["Run A"]}]
+
+
+def test_main_uses_config_dashboard_step_for_live_dashboard_only_run(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_cli_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+        dashboard_pages=["overview"],
+        extra_lines=[
+            "pipeline:",
+            "  steps:",
+            "    - dashboard",
+            "  dashboard_mode: live",
+        ],
     )
+    summary_run = _simple_summary_run("Run A", "run-a")
+    write_summary_run_cache(
+        summary_run,
+        config,
+        run_fingerprint=build_run_fingerprint(
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+            skim_file=None,
+            hh_weight_col=None,
+            person_weight_col=None,
+            trip_weight_col=None,
+        ),
+        prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="run-a",
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+        ),
+    )
+    dashboard_calls: list[dict[str, object]] = []
+    serve_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("read_run should not be called")
+        ),
+        prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("prepare_data should not be called")
+        ),
+    )
+
+    def fake_build_dashboard(runs, config, summary_runs=None):
+        dashboard_calls.append(
+            {
+                "runs": list(runs),
+                "summary_labels": [summary_run.label for summary_run in summary_runs or []],
+            }
+        )
+        return "dashboard"
+
+    monkeypatch.setattr(dashboard_app, "build_dashboard", fake_build_dashboard)
+    monkeypatch.setattr(
+        pn,
+        "serve",
+        lambda dashboard, **kwargs: serve_calls.append(
+            {"dashboard": dashboard, "kwargs": kwargs}
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "activitysim-viz",
+            "--config",
+            str(tmp_path / "config.yaml"),
+            "--no-show",
+        ],
+    )
+
+    run.main()
+
+    assert dashboard_calls == [{"runs": [], "summary_labels": ["Run A"]}]
+    assert serve_calls == [
+        {
+            "dashboard": "dashboard",
+            "kwargs": {
+                "port": 5006,
+                "show": False,
+                "title": config.dashboard_title,
+            },
+        }
+    ]
+
+
+def test_main_uses_config_dashboard_mode_export_without_cli_override(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_cli_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+        dashboard_pages=["overview"],
+        export_html_lines=[
+            "output_path: configured/dashboard.html",
+        ],
+        extra_lines=[
+            "pipeline:",
+            "  steps:",
+            "    - dashboard",
+            "  dashboard_mode: export",
+        ],
+    )
+    summary_run = _simple_summary_run("Run A", "run-a")
+    write_summary_run_cache(
+        summary_run,
+        config,
+        run_fingerprint=build_run_fingerprint(
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+            skim_file=None,
+            hh_weight_col=None,
+            person_weight_col=None,
+            trip_weight_col=None,
+        ),
+        prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="run-a",
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+        ),
+    )
+    export_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("read_run should not be called")
+        ),
+        prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("prepare_data should not be called")
+        ),
+    )
+    monkeypatch.setattr(
+        "dashboard.export.html.write_export_html_document",  # type: ignore[arg-type]
+        lambda output_path, runs, config, summary_runs=None: export_calls.append(
+            {
+                "output_path": output_path,
+                "prepared_run_labels": [label for label, _ in runs],
+                "summary_run_labels": [summary_run.label for summary_run in summary_runs or []],
+            }
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "activitysim-viz",
+            "--config",
+            str(tmp_path / "config.yaml"),
+        ],
+    )
+
+    run.main()
+
+    assert export_calls == [
+        {
+            "output_path": str(
+                (tmp_path / "summary_cache" / "configured" / "dashboard.html").resolve()
+            ),
+            "prepared_run_labels": [],
+            "summary_run_labels": ["Run A"],
+        }
+    ]
+
+
+def test_main_config_dashboard_mode_host_falls_back_to_live_dashboard(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_cli_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+        dashboard_pages=["overview"],
+        extra_lines=[
+            "pipeline:",
+            "  steps:",
+            "    - dashboard",
+            "  dashboard_mode: host",
+        ],
+    )
+    summary_run = _simple_summary_run("Run A", "run-a")
+    write_summary_run_cache(
+        summary_run,
+        config,
+        run_fingerprint=build_run_fingerprint(
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+            skim_file=None,
+            hh_weight_col=None,
+            person_weight_col=None,
+            trip_weight_col=None,
+        ),
+        prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="run-a",
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+        ),
+    )
+    dashboard_calls: list[dict[str, object]] = []
+    serve_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("read_run should not be called")
+        ),
+        prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("prepare_data should not be called")
+        ),
+    )
+
+    def fake_build_dashboard(runs, config, summary_runs=None):
+        dashboard_calls.append(
+            {
+                "runs": list(runs),
+                "summary_labels": [summary_run.label for summary_run in summary_runs or []],
+            }
+        )
+        return "dashboard"
+
+    monkeypatch.setattr(dashboard_app, "build_dashboard", fake_build_dashboard)
+    monkeypatch.setattr(
+        pn,
+        "serve",
+        lambda dashboard, **kwargs: serve_calls.append(
+            {"dashboard": dashboard, "kwargs": kwargs}
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "activitysim-viz",
+            "--config",
+            str(tmp_path / "config.yaml"),
+            "--no-show",
+        ],
+    )
+
+    run.main()
+
+    assert dashboard_calls == [{"runs": [], "summary_labels": ["Run A"]}]
+    assert serve_calls == [
+        {
+            "dashboard": "dashboard",
+            "kwargs": {
+                "port": 5006,
+                "show": False,
+                "title": config.dashboard_title,
+            },
+        }
+    ]
+
+
+def test_main_config_dashboard_mode_none_skips_dashboard_phase(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    _write_cli_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+        extra_lines=[
+            "pipeline:",
+            "  steps:",
+            "    - summarize",
+            "    - dashboard",
+            "  dashboard_mode: none",
+        ],
+    )
+    read_calls: list[str] = []
+    built_summaries: list[str] = []
+
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: (
+            read_calls.append(label or Path(run_dir).name),
+            _fake_run_data(label or Path(run_dir).name, str(run_dir)),
+        )[1],
+        prepare_data=lambda rd, config: rd,
+    )
+    monkeypatch.setattr(
+        summary_cache,
+        "build_mode_summaries_with_metadata",
+        lambda rd, config: (
+            built_summaries.append(rd.label),
+            _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
+        )[1],
+    )
+    monkeypatch.setattr(
+        dashboard_app,
+        "build_dashboard",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("dashboard should not be built")
+        ),
+    )
+    monkeypatch.setattr(
+        pn,
+        "serve",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("panel serve should not be called")
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "activitysim-viz",
+            "--config",
+            str(tmp_path / "config.yaml"),
+        ],
+    )
+
+    run.main()
+
+    assert read_calls == ["Run A"]
+    assert built_summaries == ["Run A"]
+
+
+def test_main_dashboard_only_respects_pipeline_without_segment_when_loading_summary_cache(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_cli_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+        dashboard_pages=["overview"],
+        extra_lines=[
+            "pipeline:",
+            "  steps:",
+            "    - dashboard",
+            "segmentation:",
+            "  enabled: true",
+            "  dashboard:",
+            "    segmentation_type: county",
+            "    visibility: segments_only",
+            "  definitions:",
+            "    county:",
+            "      source:",
+            "        type: prepared_column",
+            "        source_table: hh",
+            "        column: county",
+            "      segments:",
+            "        - id: north",
+            "          label: North",
+            "          values: [North]",
+        ],
+    )
+    effective_summary_config = runtime_workflows.effective_processor_config(
+        config,
+        apply_skimjoin=False,
+        apply_segmentation=False,
+    )
+    summary_run = _simple_summary_run("Run A", "run-a")
+    write_summary_run_cache(
+        summary_run,
+        effective_summary_config,
+        run_fingerprint=build_run_fingerprint(
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+            skim_file=None,
+            hh_weight_col=None,
+            person_weight_col=None,
+            trip_weight_col=None,
+        ),
+        prepared_manifest_identity=_prepared_identity(
+            config=effective_summary_config,
+            run_key="run-a",
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+        ),
+    )
+    dashboard_calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("read_run should not be called")
+        ),
+        prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("prepare_data should not be called")
+        ),
+    )
+
+    def fake_build_dashboard(runs, config, summary_runs=None):
+        dashboard_calls.append(
+            {
+                "runs": list(runs),
+                "summary_labels": [summary_run.label for summary_run in summary_runs or []],
+            }
+        )
+        return "dashboard"
+
+    monkeypatch.setattr(dashboard_app, "build_dashboard", fake_build_dashboard)
+    monkeypatch.setattr(pn, "serve", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "activitysim-viz",
+            "--config",
+            str(tmp_path / "config.yaml"),
+            "--no-show",
+        ],
+    )
+
+    run.main()
+
+    assert dashboard_calls == [{"runs": [], "summary_labels": ["Run A"]}]
 
 
 def test_main_loads_dashboard_from_explicit_summary_cache_dirs_without_raw_reads(
@@ -229,15 +765,12 @@ def test_main_loads_dashboard_from_explicit_summary_cache_dirs_without_raw_reads
     serve_calls: list[object] = []
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("read_run should not be called")),
-    )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "prepare_data",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("read_run should not be called")
+        ),
+        prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called")
         ),
     )
@@ -306,18 +839,13 @@ def test_main_prepare_only_writes_prepared_cache_and_exits(
             AssertionError("summaries should not be built during prepare-only runs")
         ),
     )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda run_dir, config, label=None, **kwargs: (
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
             _fake_run_data(label or Path(run_dir).name, str(run_dir)),
         )[1],
-    )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "prepare_data",
-        lambda rd, config: (
+        prepare_data=lambda rd, config: (
             prepare_calls.append(rd.label),
             rd,
         )[1],
@@ -369,15 +897,14 @@ def test_main_write_csvs_no_dashboard_writes_summary_cache_and_exits(
     built_summaries: list[str] = []
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda run_dir, config, label=None, **kwargs: (
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
             _fake_run_data(label or Path(run_dir).name, str(run_dir)),
         )[1],
+        prepare_data=lambda rd, config: rd,
     )
-    monkeypatch.setattr(runtime_workflows, "prepare_data", lambda rd, config: rd)
     monkeypatch.setattr(
         summary_cache,
         "build_mode_summaries_with_metadata",
@@ -435,18 +962,13 @@ def test_main_explicit_prepare_and_summarize_runs_processor_without_dashboard(
     built_summaries: list[str] = []
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda run_dir, config, label=None, **kwargs: (
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
             _fake_run_data(label or Path(run_dir).name, str(run_dir)),
         )[1],
-    )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "prepare_data",
-        lambda rd, config: (
+        prepare_data=lambda rd, config: (
             prepare_calls.append(rd.label),
             rd,
         )[1],
@@ -529,18 +1051,13 @@ def test_main_refresh_summary_cache_rebuilds_and_rewrites_run_cache(
     summary_build_calls: list[str] = []
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda run_dir, config, label=None, **kwargs: (
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
             _fake_run_data(label or Path(run_dir).name, str(run_dir)),
         )[1],
-    )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "prepare_data",
-        lambda rd, config: (
+        prepare_data=lambda rd, config: (
             prepare_calls.append(rd.label),
             rd,
         )[1],
@@ -606,18 +1123,13 @@ def test_main_refresh_prepared_cache_rebuilds_prepared_tables_before_summarize(
     summary_build_calls: list[str] = []
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda run_dir, config, label=None, **kwargs: (
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
             _fake_run_data(label or Path(run_dir).name, str(run_dir)),
         )[1],
-    )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "prepare_data",
-        lambda rd, config: (
+        prepare_data=lambda rd, config: (
             prepare_calls.append(rd.label),
             rd,
         )[1],
@@ -689,15 +1201,14 @@ def test_main_uses_cache_hit_for_one_run_and_raw_fallback_for_another(
     built_summaries: list[str] = []
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda run_dir, config, label=None, **kwargs: (
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
             _fake_run_data(label or Path(run_dir).name, str(run_dir)),
         )[1],
+        prepare_data=lambda rd, config: rd,
     )
-    monkeypatch.setattr(runtime_workflows, "prepare_data", lambda rd, config: rd)
     monkeypatch.setattr(
         summary_cache,
         "build_mode_summaries_with_metadata",
@@ -794,18 +1305,13 @@ def test_main_refresh_caches_rebuilds_prepared_and_summary_caches(
     summary_build_calls: list[str] = []
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda run_dir, config, label=None, **kwargs: (
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
             _fake_run_data(label or Path(run_dir).name, str(run_dir)),
         )[1],
-    )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "prepare_data",
-        lambda rd, config: (
+        prepare_data=lambda rd, config: (
             prepare_calls.append(rd.label),
             rd,
         )[1],
@@ -897,15 +1403,14 @@ def test_main_loads_prepared_runs_for_enabled_live_prepared_data_page_even_on_ca
     read_calls: list[str] = []
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda run_dir, config, label=None, **kwargs: (
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
             _fake_run_data(label or Path(run_dir).name, str(run_dir)),
         )[1],
+        prepare_data=lambda rd, config: rd,
     )
-    monkeypatch.setattr(runtime_workflows, "prepare_data", lambda rd, config: rd)
 
     def fake_build_dashboard(runs, config, summary_runs=None):
         dashboard_calls.append(
@@ -974,15 +1479,14 @@ def test_main_from_csvs_loads_prepared_runs_for_enabled_live_prepared_data_page_
     read_calls: list[str] = []
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda run_dir, config, label=None, **kwargs: (
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
             _fake_run_data(label or Path(run_dir).name, str(run_dir)),
         )[1],
+        prepare_data=lambda rd, config: rd,
     )
-    monkeypatch.setattr(runtime_workflows, "prepare_data", lambda rd, config: rd)
 
     def fake_build_dashboard(runs, config, summary_runs=None):
         dashboard_calls.append(
@@ -1029,17 +1533,12 @@ def test_main_from_csvs_keeps_prepared_data_page_unavailable_when_no_inputs_exis
     dashboard_calls: list[dict[str, object]] = []
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called")
         ),
-    )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "prepare_data",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+        prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called")
         ),
     )
@@ -1110,17 +1609,12 @@ def test_main_export_does_not_load_prepared_runs_for_live_only_prepared_data_pag
     export_calls: list[dict[str, object]] = []
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called")
         ),
-    )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "prepare_data",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+        prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called")
         ),
     )
@@ -1241,3 +1735,80 @@ def test_main_surfaces_export_build_phase_failures_in_cli(
     assert "HTML export failed during build payload" in captured.err
     assert "Hint: Check summary/prepared data compatibility and export page configuration." in captured.err
     assert "Done." not in captured.err
+
+
+def test_main_dashboard_only_exits_with_friendly_message_for_stale_summary_cache(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_cli_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+        dashboard_pages=["overview"],
+        extra_lines=[
+            "pipeline:",
+            "  steps:",
+            "    - dashboard",
+        ],
+    )
+    summary_run = _simple_summary_run("Run A", "run-a")
+    write_summary_run_cache(
+        summary_run,
+        config,
+        run_fingerprint=build_run_fingerprint(
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+            skim_file=None,
+            hh_weight_col=None,
+            person_weight_col=None,
+            trip_weight_col=None,
+        ),
+        prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="run-a",
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+        ),
+    )
+
+    updated_config_lines = [
+        "name: \"CLI Test Config\"",
+        "root: summary_cache",
+        "pipeline:",
+        "  steps:",
+        "    - dashboard",
+        "summarize:",
+        "  weighting_modes:",
+        "    - weighted",
+        "dashboard:",
+        "  title: \"CLI Test Dashboard\"",
+        "  pages:",
+        "    - overview",
+        "runs:",
+        f"  - dir: \"{str(run_dir).replace('\\', '/')}\"",
+        "    label: \"Run A\"",
+    ]
+    (tmp_path / "config.yaml").write_text(
+        "\n".join(updated_config_lines),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "activitysim-viz",
+            "--config",
+            str(tmp_path / "config.yaml"),
+        ],
+    )
+
+    with pytest.raises(SystemExit, match="1"):
+        run.main()
+
+    captured = capsys.readouterr()
+    assert "dashboard-only run could not load cached summaries" in captured.err
+    assert "Run the pipeline with the summarize step enabled to refresh the cache." in captured.err

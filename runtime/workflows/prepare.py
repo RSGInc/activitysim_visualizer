@@ -175,6 +175,7 @@ def _build_prepared_run(
     prepared_root: Path,
     metadata: dict[str, object],
     write_cache: bool,
+    run_skimjoin: bool,
 ) -> tuple[str, RunData] | None:
     """Read, prepare, skimjoin, and optionally cache one run."""
     label = str(metadata["label"])
@@ -215,7 +216,8 @@ def _build_prepared_run(
         trip_weight_col=entry.get("trip_weight_col") or None,
     )
     prepared_run = prepare_data(prepared_run, run_config)
-    prepared_run = apply_skimjoin(prepared_run, run_config)
+    if run_skimjoin:
+        prepared_run = apply_skimjoin(prepared_run, run_config)
     if not has_usable_loaded_tables(prepared_run):
         LOGGER.warning(
             "Skipping run %r because no raw prepared tables could be loaded safely.",
@@ -250,6 +252,7 @@ def _resolve_prepared_run(
     existing_prepared_runs_by_key: dict[str, tuple[str, RunData]],
     prefer_cache: bool,
     write_cache: bool,
+    run_skimjoin: bool,
 ) -> tuple[str, RunData] | None:
     """Reuse in-memory prepared runs, then prepared cache, then raw-run rebuilds."""
     existing_prepared_run = _existing_prepared_run(
@@ -271,6 +274,7 @@ def _resolve_prepared_run(
             prepared_root=prepared_root,
             metadata=metadata,
             write_cache=write_cache,
+            run_skimjoin=run_skimjoin,
         )
         if loaded_custom_prepared_run is None:
             return None
@@ -296,6 +300,7 @@ def _resolve_prepared_run(
         prepared_root=prepared_root,
         metadata=metadata,
         write_cache=write_cache,
+        run_skimjoin=run_skimjoin,
     )
     if rebuilt_prepared_run is None:
         return None
@@ -323,8 +328,13 @@ def run_prepare_workflow(
     prefer_cache: bool,
     write_cache: bool,
     existing_result: ProcessorWorkflowResult | None = None,
+    apply_skimjoin: bool | None = None,
 ) -> ProcessorWorkflowResult:
     """Build or reuse prepared runs for the configured entries."""
+    config = shared.effective_processor_config(
+        config,
+        apply_skimjoin=apply_skimjoin,
+    )
     prepared_root = prepared_root or prepared_cache_root(config, create=write_cache)
     (
         existing_prepared_runs_by_key,
@@ -343,6 +353,7 @@ def run_prepare_workflow(
             existing_prepared_runs_by_key=existing_prepared_runs_by_key,
             prefer_cache=prefer_cache,
             write_cache=write_cache,
+            run_skimjoin=bool(config.skimjoin.enabled),
         )
         if prepared_loaded is None:
             continue
@@ -372,6 +383,7 @@ def load_prepared_runs_for_dashboard(
     ) = None,
     existing_prepared_runs_by_key: dict[str, tuple[str, RunData]] | None = None,
     prune_prepared_runs_fn: Callable[..., list[tuple[str, RunData]]] | None = None,
+    apply_skimjoin: bool | None = None,
 ) -> list[tuple[str, RunData]]:
     """Load prepared runs only when enabled pages require them."""
     from processor.models import prune_prepared_runs as default_prune_prepared_runs
@@ -420,6 +432,7 @@ def load_prepared_runs_for_dashboard(
         prefer_cache=True,
         write_cache=True,
         existing_result=prepare_result,
+        apply_skimjoin=apply_skimjoin,
     )
     ordered_runs = _ordered_prepared_runs(
         prepared_runs_by_key=prepare_result.prepared_runs_by_key,

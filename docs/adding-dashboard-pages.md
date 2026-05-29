@@ -205,12 +205,13 @@ Grouped pages are identified only by leaf `page_id`.
 Live config uses leaf page ids inside a group:
 
 ```yaml
-visualizer:
-  dashboard_pages:
-    - overview
-    - tours:
-      - tour_summary
-      - tour_mode
+dashboard:
+  live:
+    pages:
+      - overview
+      - tours:
+        - tour_summary
+        - tour_mode
 ```
 
 The group package defines:
@@ -237,8 +238,8 @@ That means:
 Grouped export config uses leaf page ids:
 
 ```yaml
-visualizer:
-  export_html:
+dashboard:
+  export:
     pages:
       trip_summaries:
         children:

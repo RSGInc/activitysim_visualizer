@@ -39,7 +39,7 @@ Edit `local_config.yaml`, then run the app with that config:
 python run.py --config local_config.yaml
 ```
 
-By default, `python run.py` means `--summarize --dashboard`: it will reuse summary caches when possible, rebuild them when needed, and then start the live dashboard on [http://localhost:5006](http://localhost:5006).
+By default, `python run.py` follows `pipeline.steps` from the loaded config when no explicit step flags are supplied. The shipped example config defaults to `summarize` + `dashboard`, so a normal run will reuse summary caches when possible, rebuild them when needed, and then start the live dashboard on [http://localhost:5006](http://localhost:5006).
 
 ## Config Setup
 
@@ -47,14 +47,43 @@ The repo ships with `config.yaml` as a template. In practice, most people should
 
 1. Copy `config.yaml` to `local_config.yaml` or another machine-specific file.
 2. Update the `runs` section to point at real ActivitySim output folders.
-3. Update `skim.file`, `zones`, and `files` if your model layout differs from the defaults.
+3. Update `skimjoin.distance_skim`, `zones`, and `files` if your model layout differs from the defaults.
 4. Run with `--config your_file.yaml`.
+
+The canonical config layout is organized around a few top-level sections:
+
+```yaml
+root: artifacts/
+log_level: INFO
+
+pipeline:
+  steps: [summarize, dashboard]
+  dashboard_mode: live
+  overwrite: false
+
+prepare: ...
+summarize: ...
+segment: ...
+dashboard: ...
+display: ...
+skimjoin: ...
+```
+
+Older keys such as `processor.*`, `summaries.*`, `visualizer.*`, top-level
+`dashboard_labels`, and top-level `run_colors` are still supported for
+compatibility, but they now emit deprecation warnings and normalize into the
+canonical schema above.
 
 The minimum useful config is usually:
 
 ```yaml
-summaries:
-  root: artifacts/summary_cache
+root: artifacts/summary_cache
+
+pipeline:
+  steps:
+    - summarize
+    - dashboard
+  dashboard_mode: live
 
 runs:
   - dir: path\to\run1
@@ -62,9 +91,10 @@ runs:
   - dir: path\to\run2
     label: Build
 
-skim:
-  file: path\to\skims.omx
-  matrix: SOV_DIST__MD
+skimjoin:
+  distance_skim:
+    file: path\to\skims.omx
+    matrix: SOV_DIST__MD
 
 zones:
   use_maz: false
@@ -136,8 +166,8 @@ overrides per run:
 
 ```yaml
 skimjoin:
-  enabled: true
-  config_path: configs/skimjoin_default.yaml
+  defaults:
+    config_path: configs/skimjoin_default.yaml
 
 runs:
   - dir: path\to\run_a
@@ -233,15 +263,16 @@ prepare:
 
 Important path rules:
 
-- `summaries.root` is resolved relative to the config file if you give a relative path.
-- The prepared cache is created automatically next to `summaries.root` as `prepared_cache/`.
+- `root` is resolved relative to the config file if you give a relative path.
+- The prepared cache is created automatically next to `root` as `prepared_cache/`.
 - `runs[*].dir` should point at an ActivitySim output directory.
-- `skim.file` may be absolute, or relative to each run directory.
+- `skimjoin.distance_skim.file` may be absolute, or relative to each run directory.
 - File entries under `files` can be bare stems like `final_trips` or explicit filenames like `final_trips.csv`.
 - `runs[*].file_map` uses the same filename rules as `files`, but applies only to that run.
 - `runs[*].prepared_table_map` must use explicit `.parquet` or `.csv` paths and resolves relative paths from the config file directory.
 - `prepare.output.file_format` controls how standard prepared caches are written; supported values are `parquet` and `csv`, with `parquet` as the default.
 - `prepare.validation.relationship_checks` controls prepared-table foreign-key validation. Use `warn` to log inconsistencies and continue, `error` to fail the run, or `off` to skip the checks.
+- `dashboard.export.output_path`, when relative, is resolved from `root`.
 
 ## Config Reference
 
@@ -249,22 +280,25 @@ These are the sections most people need to touch:
 
 | Section | Purpose |
 |---|---|
-| `summaries.root` | Where summary caches are stored |
-| `summaries.weighting_modes` | Which cache variants to build: `weighted`, `unweighted`, or both |
+| `root` | Where summary caches are stored |
+| `pipeline` | Default workflow steps, dashboard mode, and overwrite behavior |
 | `runs` | Run directories, display labels, and optional per-run skim, raw file-map, custom prepared-table map, and weight overrides |
-| `skim` | Global skim file and default matrix name |
+| `skimjoin.distance_skim` | Default distance skim file and matrix name used by summaries |
 | `zones` | MAZ/TAZ settings for skim joins and zone normalization |
 | `files` | Default ActivitySim output file stems or filenames used unless a run overrides them |
 | `columns` | Column aliases when outputs use non-default names |
 | `prepare.output.file_format` | On-disk format for prepared caches written by the normal prepare workflow |
 | `prepare.validation.relationship_checks` | Whether cross-table prepared-key validation is disabled, warns, or errors |
-| `visualizer.dashboard_title` | Title used in the live dashboard and HTML export |
-| `visualizer.dashboard_pages` | Ordered list of live pages/groups to show |
-| `visualizer.run_colors` | Plot colors by run |
-| `visualizer.export_html` | Export-only page selection and selector-state controls |
+| `dashboard.title` | Title used in the live dashboard and HTML export |
+| `dashboard.live.pages` | Ordered list of live pages/groups to show |
+| `dashboard.export` | Export-only output path, page selection, and selector-state controls |
+| `display.run_colors` | Plot colors by run |
+| `display.labels` | Presentation-only labels and ordering for dashboard/export |
+| `summarize.weighting_modes` | Which cache variants to build: `weighted`, `unweighted`, or both |
+| `summarize.geography` | Optional district/county/zone grouping |
+| `summarize.pnr_tour_modes` | Which tour modes count as park-and-ride in summary builders |
+| `summarize.group_*_tour_purposes` | Summary-time purpose regrouping switches |
 | `summary_categories` | Summary-affecting category normalization/regrouping |
-| `dashboard_labels` | Presentation-only labels and ordering for dashboard/export |
-| `geography` | Optional district/county/zone grouping |
 | `modes` | Optional mode ordering and grouped mode display |
 | `person_types` | Optional display labels for `ptype` values |
 | `student_types` | Optional school/university enrollment definitions for shadow pricing pages |
@@ -277,9 +311,8 @@ Weighting rules:
 
 Legacy config notes:
 
-- Prefer `summaries.*` over old `outputs.*` keys.
-- Prefer `visualizer.dashboard_pages` over old top-level `dashboard_pages`.
-- Prefer `visualizer.run_colors` over old top-level `run_colors`.
+- Prefer the canonical top-level schema: `root`, `pipeline`, `dashboard`, `display`, `summarize`, `segment`, and `skimjoin`.
+- Older keys such as `processor.root`, `summaries.weighting_modes`, `visualizer.dashboard_pages`, and top-level `run_colors` are still supported for compatibility, but now log deprecation warnings.
 
 Geography note:
 
@@ -288,11 +321,11 @@ Geography note:
 Category config note:
 
 - Use `summary_categories` when a mapping changes summary values, grouping membership, or canonical category values.
-- Use `dashboard_labels` when a change is cosmetic and should only affect dashboard/export labels or ordering.
+- Use `display.labels` when a change is cosmetic and should only affect dashboard/export labels or ordering.
 
 ## Live Pages And Export Pages
 
-`visualizer.dashboard_pages` controls the live dashboard only. `visualizer.export_html` controls what goes into the standalone HTML export.
+`dashboard.live.pages` controls the live dashboard only. `dashboard.export` controls what goes into the standalone HTML export.
 
 Current top-level page ids are:
 
@@ -308,18 +341,19 @@ Current top-level page ids are:
 Grouped page ids support either the whole group or specific child pages. For example:
 
 ```yaml
-visualizer:
-  dashboard_pages:
-    - overview
-    - long_term_choices:
-      - individual_choices
-      - mandatory_location_choice
-      - shadow_pricing
-    - daily_travel: default
-    - tour_summaries: all
-    - trip_summaries:
-      - trip_mode
-      - trip_stop_time
+dashboard:
+  live:
+    pages:
+      - overview
+      - long_term_choices:
+        - individual_choices
+        - mandatory_location_choice
+        - shadow_pricing
+      - daily_travel: default
+      - tour_summaries: all
+      - trip_summaries:
+        - trip_mode
+        - trip_stop_time
 ```
 
 Notes:
@@ -332,8 +366,8 @@ Notes:
 For HTML export, you can further narrow the exported page set and selector states:
 
 ```yaml
-visualizer:
-  export_html:
+dashboard:
+  export:
     dashboard:
       weighting: [unweighted]
       values: [percent]
@@ -352,10 +386,10 @@ visualizer:
 
 Rules worth remembering:
 
-- If `visualizer.dashboard_pages` is omitted, the app uses its built-in default page set.
-- If `visualizer.export_html.pages` is omitted, export mirrors the live page set.
+- If `dashboard.live.pages` is omitted, the app uses its built-in default page set.
+- If `dashboard.export.pages` is omitted, export mirrors the live page set.
 - Export selector requests accept `default`, `all`, or a list of explicit values.
-- `visualizer.export_html.exclude_pages` and `exclude_groups` remove pages from export without changing the live dashboard.
+- `dashboard.export.exclude_pages` and `exclude_groups` remove pages from export without changing the live dashboard.
 
 ## Run Modes
 
@@ -373,6 +407,7 @@ Common commands:
 | `python run.py --config local_config.yaml --prepare-only` | Build prepared caches and exit |
 | `python run.py --config local_config.yaml --summarize` | Reuse or build summary caches and exit |
 | `python run.py --config local_config.yaml --summarize --dashboard` | Explicit form of the default live workflow |
+| `python run.py --config local_config.yaml --dashboard` | Start the dashboard from existing summary caches for the configured runs |
 | `python run.py --config local_config.yaml --prepare --summarize --dashboard` | Force the full prepare -> summarize -> dashboard chain in one run |
 | `python run.py --config local_config.yaml --from-csvs` | Start the dashboard from existing summary caches only |
 | `python run.py --config local_config.yaml --from-csvs --export-html output.html` | Build a standalone HTML export from existing summary caches |
@@ -386,7 +421,7 @@ Behavior details:
 
 - `--from-csvs` is cache-only: it will not rebuild missing summaries.
 - `--from-csvs path\to\cache1 path\to\cache2` lets you point directly at specific summary cache directories.
-- `--dashboard` by itself is not valid unless you also use `--from-csvs`.
+- `--dashboard` by itself is valid when summary caches already exist for the configured runs.
 - During summarize, the app will reuse prepared cache when possible and rebuild from raw outputs only when needed.
 - `--refresh-prepared-cache` deletes the selected runs' prepared-cache directories first, then disables prepared-cache reuse for that invocation.
 - `--refresh-summary-cache` deletes the selected runs' summary-cache directories first, then disables summary-cache reuse for that invocation.
@@ -409,7 +444,7 @@ Prepared caches are written automatically next to the summary cache root:
       land_use.parquet|csv
 ```
 
-Summary caches are written under `summaries.root`:
+Summary caches are written under `root`:
 
 ```text
 <summary_root>/
@@ -447,7 +482,7 @@ python run.py --config local_config.yaml ^
   --run-skim C:\path\to\base_skims.omx C:\path\to\build_skims.omx
 ```
 
-Use `null`, `None`, or an empty string in `--run-skim` to fall back to the global `skim.file`.
+Use `null`, `None`, or an empty string in `--run-skim` to fall back to the configured `skimjoin.distance_skim.file`.
 
 ## Codebase Map
 

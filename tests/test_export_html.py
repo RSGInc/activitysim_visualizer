@@ -769,7 +769,7 @@ def test_export_html_config_supports_new_summaries_and_visualizer_sections(
     assert config.export_html.pages_configured is True
 
 
-def test_export_html_config_resolves_output_path_relative_to_config(
+def test_export_html_config_resolves_output_path_relative_to_root(
     tmp_path: Path,
 ) -> None:
     config = _write_config(
@@ -781,7 +781,7 @@ def test_export_html_config_resolves_output_path_relative_to_config(
     )
 
     assert config.export_html.output_path == str(
-        (tmp_path / "exports" / "dashboard.html").resolve()
+        (tmp_path / "summary_cache" / "exports" / "dashboard.html").resolve()
     )
 
 

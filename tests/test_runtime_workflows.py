@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 import sys
 
@@ -18,6 +19,7 @@ from processor.prepare.cache import (
     write_prepared_run_cache,
 )
 from runtime.config import Config
+from runtime.config.models import SkimjoinSettings
 from processor.summarize.contracts import summary_contract
 from processor.summarize import cache as summary_cache
 from processor.summarize.cache import (
@@ -26,6 +28,7 @@ from processor.summarize.cache import (
     write_summary_run_cache,
 )
 from processor.summarize.summary_specs import SummarySpec
+from runtime.workflows import prepare as prepare_workflow
 
 
 def _write_config(
@@ -230,19 +233,57 @@ def test_run_prepare_workflow_uses_cache_hit_without_raw_read_or_prepare_rebuild
         ),
     )
 
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called on a prepared-cache hit")
         ),
-    )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "prepare_data",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+        prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called on a prepared-cache hit")
         ),
+    )
+
+
+def _segmented_run_data(label: str, run_dir: str) -> RunData:
+    return RunData(
+        label=label,
+        run_dir=run_dir,
+        skim_file=None,
+        hh=pl.DataFrame(
+            {
+                "household_id": [1, 2],
+                "market": ["Urban", "Rural"],
+                "finalweight": [1.0, 1.0],
+            }
+        ),
+        per=pl.DataFrame(
+            {
+                "person_id": [10, 20],
+                "household_id": [1, 2],
+                "finalweight": [1.0, 1.0],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [100, 200],
+                "person_id": [10, 20],
+                "household_id": [1, 2],
+                "finalweight": [1.0, 1.0],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "trip_id": [1000, 2000],
+                "tour_id": [100, 200],
+                "person_id": [10, 20],
+                "household_id": [1, 2],
+                "finalweight": [1.0, 1.0],
+            }
+        ),
+        joint_participants=pl.DataFrame({"tour_id": [100, 200], "person_id": [10, 20]}),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
     )
 
     result = runtime_workflows.run_prepare_workflow(
@@ -270,18 +311,13 @@ def test_run_prepare_workflow_rebuilds_and_writes_prepared_cache_on_cache_miss(
     read_calls: list[str] = []
     prepare_calls: list[str] = []
 
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda run_dir, config, label=None, **kwargs: (
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
             _fake_run_data(label or Path(run_dir).name, str(run_dir)),
         )[1],
-    )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "prepare_data",
-        lambda rd, config: (
+        prepare_data=lambda rd, config: (
             prepare_calls.append(rd.label),
             rd,
         )[1],
@@ -299,6 +335,215 @@ def test_run_prepare_workflow_rebuilds_and_writes_prepared_cache_on_cache_miss(
     assert prepare_calls == ["Run A"]
 
 
+def test_run_prepare_workflow_skips_integrated_skimjoin_when_apply_skimjoin_is_false(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+    )
+    config.skimjoin = SkimjoinSettings(
+        enabled=True,
+        config_path="skimjoin.yaml",
+        config_digest="digest-123",
+        normalized_config=object(),
+    )
+    config.prepare_config_digest = "prepare-before"
+    config.summary_config_digest = "summary-before"
+
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: _fake_run_data(
+            label or Path(run_dir).name,
+            str(run_dir),
+        ),
+        prepare_data=lambda rd, config: rd,
+    )
+    monkeypatch.setattr(
+        prepare_workflow,
+        "apply_skimjoin",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("apply_skimjoin should not be called when skimjoin is disabled for the effective workflow")
+        ),
+    )
+
+    result = runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=runtime_workflows.prepared_cache_root(config, create=True),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=False,
+        apply_skimjoin=False,
+    )
+
+    assert [label for label, _ in result.prepared_runs] == ["Run A"]
+
+
+def test_run_prepare_workflow_applies_integrated_skimjoin_when_enabled_for_effective_workflow(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+    )
+    config.skimjoin = SkimjoinSettings(
+        enabled=True,
+        config_path="skimjoin.yaml",
+        config_digest="digest-123",
+        normalized_config=object(),
+    )
+    skimjoin_calls: list[str] = []
+
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: _fake_run_data(
+            label or Path(run_dir).name,
+            str(run_dir),
+        ),
+        prepare_data=lambda rd, config: rd,
+    )
+    monkeypatch.setattr(
+        prepare_workflow,
+        "apply_skimjoin",
+        lambda rd, config: (
+            skimjoin_calls.append(rd.label),
+            rd,
+        )[1],
+    )
+
+    result = runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=runtime_workflows.prepared_cache_root(config, create=True),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=False,
+        apply_skimjoin=True,
+    )
+
+    assert [label for label, _ in result.prepared_runs] == ["Run A"]
+    assert skimjoin_calls == ["Run A"]
+
+
+def test_run_summary_workflow_without_segment_step_builds_only_full_summary_runs(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+        extra_lines=[
+            "segmentation:",
+            "  enabled: true",
+            "  dashboard:",
+            "    segmentation_type: market",
+            "  definitions:",
+            "    market:",
+            "      source:",
+            "        type: prepared_column",
+            "        source_table: hh",
+            "        column: market",
+            "      segments:",
+            "        - id: urban",
+            "          label: Urban",
+            "          values: [Urban]",
+            "        - id: rural",
+            "          label: Rural",
+            "          values: [Rural]",
+        ],
+    )
+
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: _segmented_run_data(
+            label or Path(run_dir).name,
+            str(run_dir),
+        ),
+        prepare_data=lambda rd, config: rd,
+    )
+    monkeypatch.setattr(
+        summary_cache,
+        "build_mode_summaries_with_metadata",
+        lambda rd, config: _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
+    )
+
+    result = runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=False,
+        apply_segmentation=False,
+    )
+
+    assert [(run.segmentation_type, run.segment_id) for run in result.summary_runs] == [
+        ("full", "full")
+    ]
+
+
+def test_run_summary_workflow_with_segment_step_builds_full_and_segmented_summary_runs(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+        extra_lines=[
+            "segmentation:",
+            "  enabled: true",
+            "  dashboard:",
+            "    segmentation_type: market",
+            "  definitions:",
+            "    market:",
+            "      source:",
+            "        type: prepared_column",
+            "        source_table: hh",
+            "        column: market",
+            "      segments:",
+            "        - id: urban",
+            "          label: Urban",
+            "          values: [Urban]",
+            "        - id: rural",
+            "          label: Rural",
+            "          values: [Rural]",
+        ],
+    )
+
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: _segmented_run_data(
+            label or Path(run_dir).name,
+            str(run_dir),
+        ),
+        prepare_data=lambda rd, config: rd,
+    )
+    monkeypatch.setattr(
+        summary_cache,
+        "build_mode_summaries_with_metadata",
+        lambda rd, config: _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
+    )
+
+    result = runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=False,
+        apply_segmentation=True,
+    )
+
+    assert [(run.segmentation_type, run.segment_id) for run in result.summary_runs] == [
+        ("full", "full"),
+        ("market", "urban"),
+        ("market", "rural"),
+    ]
+
+
 def test_run_prepare_workflow_loads_custom_prepared_tables_without_raw_prepare(
     tmp_path: Path,
     monkeypatch,
@@ -314,17 +559,12 @@ def test_run_prepare_workflow_loads_custom_prepared_tables_without_raw_prepare(
         ],
     )
 
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called for custom prepared runs")
         ),
-    )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "prepare_data",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+        prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called for custom prepared runs")
         ),
     )
@@ -344,6 +584,7 @@ def test_run_prepare_workflow_loads_custom_prepared_tables_without_raw_prepare(
 def test_run_prepare_workflow_warns_on_inconsistent_custom_prepared_tables(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     prepared_map = _write_inconsistent_custom_prepared_tables(
         tmp_path / "custom_prepared"
@@ -362,8 +603,10 @@ def test_run_prepare_workflow_warns_on_inconsistent_custom_prepared_tables(
     )
 
     assert [label for label, _ in result.prepared_runs] == ["Prepared Run"]
-    assert 'Prepared relationship validation found 3 failed checks for run "Prepared Run".' in caplog.text
-    assert "trips rows reference person_id values not present in persons.person_id" in caplog.text
+    captured = capsys.readouterr()
+    combined_output = caplog.text + captured.err + captured.out
+    assert 'Prepared relationship validation found 3 failed checks for run "Prepared Run".' in combined_output
+    assert "trips rows reference person_id values not present in persons.person_id" in combined_output
 
 
 def test_run_prepare_workflow_errors_on_inconsistent_custom_prepared_tables_when_configured(
@@ -438,10 +681,9 @@ def test_run_prepare_workflow_skips_run_when_no_raw_tables_are_available(
     )
     prepared_root = runtime_workflows.prepared_cache_root(config, create=True)
 
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda run_dir, config, label=None, **kwargs: attach_table_availability(
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: attach_table_availability(
             _fake_run_data(label or Path(run_dir).name, str(run_dir)),
             table_states={
                 "households": "unavailable",
@@ -453,8 +695,8 @@ def test_run_prepare_workflow_skips_run_when_no_raw_tables_are_available(
             },
             table_reasons={"households": "missing"},
         ),
+        prepare_data=lambda rd, config: rd,
     )
-    monkeypatch.setattr(runtime_workflows, "prepare_data", lambda rd, config: rd)
 
     result = runtime_workflows.run_prepare_workflow(
         config=config,
@@ -479,10 +721,9 @@ def test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_unavailable
     )
     prepared_root = runtime_workflows.prepared_cache_root(config, create=True)
 
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda run_dir, config, label=None, **kwargs: attach_table_availability(
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: attach_table_availability(
             RunData(
                 label=label or Path(run_dir).name,
                 run_dir=str(run_dir),
@@ -506,8 +747,8 @@ def test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_unavailable
             },
             table_reasons={"persons": "missing"},
         ),
+        prepare_data=lambda rd, config: rd,
     )
-    monkeypatch.setattr(runtime_workflows, "prepare_data", lambda rd, config: rd)
 
     result = runtime_workflows.run_prepare_workflow(
         config=config,
@@ -534,10 +775,9 @@ def test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_failed(
     )
     prepared_root = runtime_workflows.prepared_cache_root(config, create=True)
 
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda run_dir, config, label=None, **kwargs: attach_table_availability(
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: attach_table_availability(
             RunData(
                 label=label or Path(run_dir).name,
                 run_dir=str(run_dir),
@@ -564,8 +804,8 @@ def test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_failed(
                 "trips": "missing",
             },
         ),
+        prepare_data=lambda rd, config: rd,
     )
-    monkeypatch.setattr(runtime_workflows, "prepare_data", lambda rd, config: rd)
 
     result = runtime_workflows.run_prepare_workflow(
         config=config,
@@ -584,6 +824,7 @@ def test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_failed(
 def test_run_prepare_workflow_validates_prepared_cache_loads(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     run_dir = tmp_path / "run_a"
     config = _write_config(
@@ -645,7 +886,9 @@ def test_run_prepare_workflow_validates_prepared_cache_loads(
     )
 
     assert [label for label, _ in result.prepared_runs] == ["Run A"]
-    assert 'Prepared relationship validation found 3 failed checks for run "Run A".' in caplog.text
+    captured = capsys.readouterr()
+    combined_output = caplog.text + captured.err + captured.out
+    assert 'Prepared relationship validation found 3 failed checks for run "Run A".' in combined_output
 
 
 def test_run_summary_workflow_uses_cache_hit_without_raw_read_or_summary_rebuild(
@@ -678,17 +921,12 @@ def test_run_summary_workflow_uses_cache_hit_without_raw_read_or_summary_rebuild
     )
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called on a cache hit")
         ),
-    )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "prepare_data",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+        prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called on a cache hit")
         ),
     )
@@ -747,17 +985,12 @@ def test_run_summary_workflow_cache_hit_keeps_existing_prepared_run_by_key(
     )
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called on a summary-cache hit")
         ),
-    )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "prepare_data",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+        prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called on a summary-cache hit")
         ),
     )
@@ -806,18 +1039,13 @@ def test_run_summary_workflow_rebuilds_and_writes_cache_on_cache_miss(
     summary_build_calls: list[str] = []
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda run_dir, config, label=None, **kwargs: (
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
             _fake_run_data(label or Path(run_dir).name, str(run_dir)),
         )[1],
-    )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "prepare_data",
-        lambda rd, config: (
+        prepare_data=lambda rd, config: (
             prepare_calls.append(rd.label),
             rd,
         )[1],
@@ -883,18 +1111,13 @@ def test_run_summary_workflow_uses_prepared_cache_before_raw_rebuild(
     )
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda run_dir, config, label=None, **kwargs: (
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
             _fake_run_data(label or Path(run_dir).name, str(run_dir)),
         )[1],
-    )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "prepare_data",
-        lambda rd, config: (
+        prepare_data=lambda rd, config: (
             prepare_calls.append(rd.label),
             rd,
         )[1],
@@ -936,17 +1159,12 @@ def test_run_summary_workflow_reuses_in_memory_prepared_runs_without_reload(
     summary_build_calls: list[str] = []
 
     monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called when prepared runs already exist in memory")
         ),
-    )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "prepare_data",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+        prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called when prepared runs already exist in memory")
         ),
     )
@@ -993,6 +1211,18 @@ def test_run_summary_workflow_reuses_in_memory_prepared_runs_without_reload(
 
     assert summary_build_calls == ["Run A"]
     assert result.prepared_runs_by_key["run-a"][1] is prepared_run
+
+
+def _patch_prepare_pipeline(
+    monkeypatch,
+    *,
+    read_run=None,
+    prepare_data=None,
+) -> None:
+    if read_run is not None:
+        monkeypatch.setattr(prepare_workflow, "read_run", read_run)
+    if prepare_data is not None:
+        monkeypatch.setattr(prepare_workflow, "prepare_data", prepare_data)
 
 
 def test_run_summary_workflow_backfills_only_missing_summary_tables(
@@ -1092,17 +1322,12 @@ def test_run_summary_workflow_backfills_only_missing_summary_tables(
         "build_mode_summaries_with_metadata",
         fake_build_mode_summaries_with_metadata,
     )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called when prepared cache is valid")
         ),
-    )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "prepare_data",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+        prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called when prepared cache is valid")
         ),
     )
@@ -1132,17 +1357,28 @@ def test_run_cli_resolves_export_html_path_with_cli_config_and_default_precedenc
         ],
     )
 
-    assert cli_run._resolve_export_html_path(None, config) is None
-    assert cli_run._resolve_export_html_path("custom/out.html", config) == "custom/out.html"
+    assert (
+        cli_run._resolve_export_html_path(None, config, dashboard_mode="live") is None
+    )
+    assert (
+        cli_run._resolve_export_html_path(
+            "custom/out.html",
+            config,
+            dashboard_mode="export",
+        )
+        == "custom/out.html"
+    )
     assert cli_run._resolve_export_html_path(
         cli_run._EXPORT_HTML_USE_CONFIG_SENTINEL,
         config,
-    ) == str((tmp_path / "configured" / "dashboard.html").resolve())
+        dashboard_mode="export",
+    ) == str((tmp_path / "summary_cache" / "configured" / "dashboard.html").resolve())
 
     config_without_output = _write_config(tmp_path / "fallback", runs=[])
     assert cli_run._resolve_export_html_path(
         cli_run._EXPORT_HTML_USE_CONFIG_SENTINEL,
         config_without_output,
+        dashboard_mode="export",
     ) == str(Path(config_without_output.summary_root) / "exported_dashboard.html")
 
 
@@ -1156,6 +1392,185 @@ def test_run_cli_uses_configured_terminal_log_level(tmp_path: Path) -> None:
     )
 
     assert cli_run._resolve_terminal_log_level(config) == 40
+
+
+def test_resolve_requested_steps_uses_config_pipeline_defaults(tmp_path: Path) -> None:
+    config = _write_config(
+        tmp_path,
+        runs=[],
+        extra_lines=[
+            "pipeline:",
+            "  steps:",
+            "    - prepare",
+            "    - skimjoin",
+            "    - dashboard",
+        ],
+    )
+
+    args = argparse.Namespace(
+        prepare=False,
+        summarize=False,
+        dashboard=False,
+        prepare_only=False,
+        write_csvs=False,
+        no_dashboard=False,
+        from_csvs=None,
+        skip_summary_cache_write=False,
+        refresh_caches=False,
+        refresh_prepared_cache=False,
+        refresh_summary_cache=False,
+        export_html=None,
+    )
+
+    assert cli_run.resolve_requested_steps(args, config) == [
+        "prepare",
+        "skimjoin",
+        "dashboard",
+    ]
+
+
+def test_resolve_effective_plan_uses_pipeline_dashboard_mode_and_overwrite(tmp_path: Path) -> None:
+    config = _write_config(
+        tmp_path,
+        runs=[],
+        extra_lines=[
+            "pipeline:",
+            "  steps:",
+            "    - summarize",
+            "    - dashboard",
+            "  dashboard_mode: export",
+            "  overwrite: true",
+        ],
+    )
+
+    args = argparse.Namespace(
+        prepare=False,
+        summarize=False,
+        dashboard=False,
+        prepare_only=False,
+        write_csvs=False,
+        no_dashboard=False,
+        from_csvs=None,
+        skip_summary_cache_write=False,
+        refresh_caches=False,
+        refresh_prepared_cache=False,
+        refresh_summary_cache=False,
+        export_html=None,
+    )
+
+    plan = cli_run.resolve_effective_plan(args, config)
+
+    assert plan.runtime_steps == ("summarize", "dashboard")
+    assert plan.logical_steps == ("summarize", "dashboard")
+    assert plan.dashboard_mode == "export"
+    assert plan.overwrite is True
+
+
+def test_resolve_effective_plan_drops_dashboard_when_config_dashboard_mode_is_none(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        runs=[],
+        extra_lines=[
+            "pipeline:",
+            "  steps:",
+            "    - summarize",
+            "    - dashboard",
+            "  dashboard_mode: none",
+        ],
+    )
+
+    args = argparse.Namespace(
+        prepare=False,
+        summarize=False,
+        dashboard=False,
+        prepare_only=False,
+        write_csvs=False,
+        no_dashboard=False,
+        from_csvs=None,
+        skip_summary_cache_write=False,
+        refresh_caches=False,
+        refresh_prepared_cache=False,
+        refresh_summary_cache=False,
+        export_html=None,
+    )
+
+    plan = cli_run.resolve_effective_plan(args, config)
+
+    assert plan.logical_steps == ("summarize",)
+    assert plan.runtime_steps == ("summarize",)
+    assert plan.dashboard_mode == "none"
+
+
+def test_resolve_dashboard_execution_mode_maps_host_to_live_with_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    execution_mode = cli_run.resolve_dashboard_execution_mode("host")
+
+    assert execution_mode == "live"
+    assert "pipeline.dashboard_mode 'host' is not implemented yet; using live mode." in caplog.text
+
+
+def test_resolve_effective_plan_preserves_logical_skimjoin_step_for_prepare_only_defaults(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        runs=[],
+        extra_lines=[
+            "pipeline:",
+            "  steps:",
+            "    - prepare",
+            "    - skimjoin",
+        ],
+    )
+
+    args = argparse.Namespace(
+        prepare=False,
+        summarize=False,
+        dashboard=False,
+        prepare_only=False,
+        write_csvs=False,
+        no_dashboard=False,
+        from_csvs=None,
+        skip_summary_cache_write=False,
+        refresh_caches=False,
+        refresh_prepared_cache=False,
+        refresh_summary_cache=False,
+        export_html=None,
+    )
+
+    plan = cli_run.resolve_effective_plan(args, config)
+
+    assert plan.logical_steps == ("prepare", "skimjoin")
+    assert plan.runtime_steps == ("prepare",)
+
+
+def test_run_cli_resolves_export_html_path_from_config_dashboard_mode(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        runs=[],
+        export_html_lines=[
+            "output_path: configured/dashboard.html",
+        ],
+    )
+
+    assert cli_run._resolve_export_html_path(
+        None,
+        config,
+        dashboard_mode="export",
+    ) == str((tmp_path / "summary_cache" / "configured" / "dashboard.html").resolve())
+    assert (
+        cli_run._resolve_export_html_path(
+            None,
+            config,
+            dashboard_mode="live",
+        )
+        is None
+    )
 
 
 def test_parse_args_accepts_export_html_without_path(monkeypatch) -> None:
@@ -1193,15 +1608,14 @@ def test_run_summary_workflow_continues_when_one_summary_fails(
     monkeypatch.setitem(summary_cache.SUMMARY_SPEC_BY_ID, "bad", SummarySpec("bad", "bad", bad_summary))
     monkeypatch.setitem(summary_cache.SUMMARY_FILENAME_BY_ID, "good", "good.csv")
     monkeypatch.setitem(summary_cache.SUMMARY_FILENAME_BY_ID, "bad", "bad.csv")
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda run_dir, config, label=None, **kwargs: _fake_run_data(
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: _fake_run_data(
             label or Path(run_dir).name,
             str(run_dir),
         ),
+        prepare_data=lambda rd, config: rd,
     )
-    monkeypatch.setattr(runtime_workflows, "prepare_data", lambda rd, config: rd)
 
     result = runtime_workflows.run_summary_workflow(
         config=config,
@@ -1236,18 +1650,13 @@ def test_load_prepared_runs_for_dashboard_reuses_existing_loaded_runs_by_key(
     read_calls: list[str] = []
     prepare_calls: list[str] = []
 
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda run_dir, config, label=None, **kwargs: (
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: (
             read_calls.append(label or Path(run_dir).name),
             _fake_run_data(label or Path(run_dir).name, str(run_dir)),
         )[1],
-    )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "prepare_data",
-        lambda rd, config: (
+        prepare_data=lambda rd, config: (
             prepare_calls.append(rd.label),
             rd,
         )[1],
@@ -1276,17 +1685,12 @@ def test_load_prepared_runs_for_dashboard_returns_empty_when_required_runs_are_m
         runs=[{"dir": str(run_a_dir), "label": "Run A"}],
     )
 
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called when required runs are unresolved")
         ),
-    )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "prepare_data",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+        prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called when required runs are unresolved")
         ),
     )
@@ -1310,17 +1714,12 @@ def test_load_prepared_runs_for_dashboard_supports_custom_prepared_runs(
         runs=[{"label": "Prepared Run", "prepared_table_map": prepared_map}],
     )
 
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called for custom prepared dashboard loads")
         ),
-    )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "prepare_data",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+        prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called for custom prepared dashboard loads")
         ),
     )
@@ -1411,17 +1810,12 @@ def test_load_prepared_runs_for_dashboard_prunes_existing_runs_to_required_table
         skim_zone_map=None,
     )
 
-    monkeypatch.setattr(
-        runtime_workflows,
-        "read_run",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("read_run should not be called when the run is already loaded")
         ),
-    )
-    monkeypatch.setattr(
-        runtime_workflows,
-        "prepare_data",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
+        prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError("prepare_data should not be called when the run is already loaded")
         ),
     )
@@ -1478,11 +1872,7 @@ def test_load_prepared_runs_for_dashboard_dedupes_required_run_keys(
             run_keys=["run-a"],
         )
 
-    monkeypatch.setattr(
-        runtime_workflows,
-        "run_prepare_workflow",
-        fake_run_prepare_workflow,
-    )
+    monkeypatch.setattr(prepare_workflow, "run_prepare_workflow", fake_run_prepare_workflow)
 
     ordered_runs = runtime_workflows.load_prepared_runs_for_dashboard(
         config=config,

@@ -2,10 +2,59 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
 from processor.models import PreparedTableName, ProcessorWorkflowResult, RunData
+from runtime.config import Config
+from runtime.config.signatures import digest_payload
+
+
+def effective_processor_config(
+    config: Config,
+    *,
+    apply_skimjoin: bool | None,
+    apply_segmentation: bool | None = None,
+) -> Config:
+    """Return a runtime-effective config for processor/cache identity decisions."""
+    effective = config
+    if apply_skimjoin is not None and bool(config.skimjoin.enabled) != apply_skimjoin:
+        if apply_skimjoin:
+            raise ValueError(
+                "Cannot force integrated skimjoin on when the loaded config has it disabled."
+            )
+        effective = replace(
+            effective,
+            skimjoin=replace(
+                effective.skimjoin,
+                enabled=False,
+                config_digest=None,
+                normalized_config=None,
+                resolved_skim_files=(),
+                resolved_network_los_file=None,
+            ),
+        )
+    if (
+        apply_segmentation is not None
+        and bool(effective.segmentation.enabled) != apply_segmentation
+    ):
+        if apply_segmentation:
+            raise ValueError(
+                "Cannot force segmentation on when the loaded config has it disabled."
+            )
+        effective = replace(
+            effective,
+            segmentation=replace(
+                effective.segmentation,
+                enabled=False,
+            ),
+        )
+    if effective is config:
+        return config
+    effective.prepare_config_digest = digest_payload(effective.prepare_signature_payload())
+    effective.summary_config_digest = digest_payload(effective.summary_signature_payload())
+    return effective
 
 
 def summary_cache_dirs_for_load(

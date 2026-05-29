@@ -109,21 +109,29 @@ def load_summary_runs_from_cache(
             )
             or {}
         )
-        summary_runs.extend(
-            summary_cache.load_summary_run_bundle(
-                cache_dir,
-                config,
-                expected_modes=config.weighting_modes,
-                expected_summary_ids=summary_cache.requested_summary_ids(config),
-                expected_summary_config_digest=config.summary_config_digest,
-                expected_run_fingerprint=expectations.get("expected_run_fingerprint"),
-                expected_prepared_manifest_identity=expectations.get(
-                    "expected_prepared_manifest_identity"
-                ),
-                expected_label=expectations.get("expected_label"),
-                expected_run_key=expectations.get("expected_run_key"),
+        try:
+            summary_runs.extend(
+                summary_cache.load_summary_run_bundle(
+                    cache_dir,
+                    config,
+                    expected_modes=config.weighting_modes,
+                    expected_summary_ids=summary_cache.requested_summary_ids(config),
+                    expected_summary_config_digest=config.summary_config_digest,
+                    expected_run_fingerprint=expectations.get("expected_run_fingerprint"),
+                    expected_prepared_manifest_identity=expectations.get(
+                        "expected_prepared_manifest_identity"
+                    ),
+                    expected_label=expectations.get("expected_label"),
+                    expected_run_key=expectations.get("expected_run_key"),
+                )
             )
-        )
+        except summary_cache.SummaryCacheError as exc:
+            raise ValueError(
+                "dashboard-only run could not load cached summaries from "
+                f"{cache_dir} because the cache is stale or incompatible with the current "
+                "config. Run the pipeline with the summarize step enabled to refresh the "
+                f"cache. Details: {exc}"
+            ) from exc
     return summary_runs
 
 

@@ -16,13 +16,18 @@ from .common import (
     normalize_string_list,
 )
 from .constants import DEFAULT_RUN_COLORS, FILE_MAPPING_DEFAULTS
-from .legacy import warn_ignored_legacy_key, warn_supported_legacy_key
+from .legacy import (
+    emit_grouped_legacy_summary,
+    warn_ignored_legacy_key,
+    warn_supported_legacy_key,
+)
 from .models import (
     Config,
     ExportDashboardSettings,
     ExportHTMLSettings,
     ExportSelectorRequest,
     GeographyAggregationSettings,
+    PipelineSettings,
     PrepareAutoSufficiencySettings,
 )
 from .normalize_categories import (
@@ -53,6 +58,411 @@ from .signatures import digest_payload
 
 ConfigT = TypeVar("ConfigT", bound=Config)
 
+_PIPELINE_STEP_ORDER = ("prepare", "skimjoin", "segment", "summarize", "dashboard")
+_VALID_PIPELINE_STEPS = set(_PIPELINE_STEP_ORDER)
+_VALID_DASHBOARD_MODES = {"none", "live", "export", "host"}
+
+
+def _mapping(raw_value, *, field_name: str) -> dict:
+    if raw_value is None:
+        return {}
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{field_name} must be a mapping when provided.")
+    return raw_value
+
+
+def _synthesized_pipeline_steps(
+    *,
+    legacy_skimjoin_enabled: bool,
+    legacy_segmentation_enabled: bool,
+) -> tuple[str, ...]:
+    steps = ["summarize", "dashboard"]
+    if legacy_skimjoin_enabled:
+        steps = ["prepare", "skimjoin", *steps]
+    if legacy_segmentation_enabled:
+        steps.insert(steps.index("dashboard"), "segment")
+    return tuple(steps)
+
+
+def _normalize_pipeline_settings(
+    raw_value,
+    *,
+    legacy_skimjoin_enabled: bool,
+    legacy_segmentation_enabled: bool,
+) -> PipelineSettings:
+    synthesized_steps = _synthesized_pipeline_steps(
+        legacy_skimjoin_enabled=legacy_skimjoin_enabled,
+        legacy_segmentation_enabled=legacy_segmentation_enabled,
+    )
+    if raw_value is None:
+        return PipelineSettings(steps=synthesized_steps)
+    if not isinstance(raw_value, dict):
+        raise ValueError("pipeline must be a mapping when provided.")
+
+    steps_raw = raw_value.get("steps")
+    if steps_raw is None:
+        steps = list(synthesized_steps)
+    else:
+        if not isinstance(steps_raw, list) or not steps_raw:
+            raise ValueError("pipeline.steps must be a non-empty list when provided.")
+        steps = []
+        seen_steps: set[str] = set()
+        for idx, raw_step in enumerate(steps_raw):
+            if not isinstance(raw_step, str):
+                raise ValueError("pipeline.steps entries must be strings.")
+            step = raw_step.strip()
+            if step != step.lower():
+                raise ValueError(
+                    f"pipeline.steps[{idx}] must already be normalized lowercase."
+                )
+            if step not in _VALID_PIPELINE_STEPS:
+                raise ValueError(
+                    "pipeline.steps contains unsupported step "
+                    f"{step!r}. Allowed steps: {', '.join(_PIPELINE_STEP_ORDER)}."
+                )
+            if step in seen_steps:
+                raise ValueError(f"pipeline.steps contains duplicate step {step!r}.")
+            seen_steps.add(step)
+            steps.append(step)
+
+    dashboard_mode = str(raw_value.get("dashboard_mode", "live")).strip().lower()
+    if dashboard_mode not in _VALID_DASHBOARD_MODES:
+        raise ValueError(
+            "pipeline.dashboard_mode must be one of none, live, export, or host."
+        )
+
+    overwrite = raw_value.get("overwrite", False)
+    if not isinstance(overwrite, bool):
+        raise ValueError("pipeline.overwrite must be true or false when provided.")
+
+    if "skimjoin" in steps and "prepare" not in steps:
+        raise ValueError("pipeline.steps cannot include 'skimjoin' without 'prepare'.")
+    if "segment" in steps and "summarize" not in steps:
+        raise ValueError("pipeline.steps cannot include 'segment' without 'summarize'.")
+    if "dashboard" in steps and steps[-1] != "dashboard":
+        raise ValueError("pipeline.steps must place 'dashboard' last when present.")
+
+    return PipelineSettings(
+        steps=tuple(steps),
+        dashboard_mode=dashboard_mode,
+        overwrite=overwrite,
+    )
+
+
+def _compatibility_normalize_raw_config(
+    raw: dict,
+) -> tuple[dict, PipelineSettings, list[tuple[str, str, str]]]:
+    legacy_warnings: list[tuple[str, str, str]] = []
+    processor_cfg = dict(_mapping(raw.get("processor"), field_name="processor"))
+    processor_summaries_cfg = dict(
+        _mapping(processor_cfg.get("summaries"), field_name="processor.summaries")
+    )
+    visualizer_cfg = dict(_mapping(raw.get("visualizer"), field_name="visualizer"))
+    dashboard_cfg = _mapping(raw.get("dashboard"), field_name="dashboard")
+    dashboard_live_cfg = _mapping(dashboard_cfg.get("live"), field_name="dashboard.live")
+    summarize_cfg = _mapping(raw.get("summarize"), field_name="summarize")
+    display_cfg = _mapping(raw.get("display"), field_name="display")
+    segment_cfg = _mapping(raw.get("segment"), field_name="segment")
+    legacy_segmentation_cfg = _mapping(raw.get("segmentation"), field_name="segmentation")
+    legacy_skimjoin_cfg = _mapping(raw.get("skimjoin"), field_name="skimjoin")
+    modes_cfg = _mapping(raw.get("modes"), field_name="modes")
+
+    pipeline = _normalize_pipeline_settings(
+        raw.get("pipeline"),
+        legacy_skimjoin_enabled=bool(legacy_skimjoin_cfg.get("enabled", False)),
+        legacy_segmentation_enabled=bool(legacy_segmentation_cfg.get("enabled", False)),
+    )
+
+    normalized = dict(raw)
+
+    if "root" in raw:
+        warn_ignored_legacy_key(
+            mapping=processor_cfg,
+            key="root",
+            legacy_field_name="processor.root",
+            replacement_field_name="root",
+            collector=legacy_warnings,
+        )
+        warn_ignored_legacy_key(
+            mapping=_mapping(raw.get("summaries"), field_name="summaries"),
+            key="root",
+            legacy_field_name="summaries.root",
+            replacement_field_name="root",
+            collector=legacy_warnings,
+        )
+        processor_cfg["root"] = raw["root"]
+    elif "root" in _mapping(raw.get("summaries"), field_name="summaries"):
+        warn_supported_legacy_key(
+            mapping=_mapping(raw.get("summaries"), field_name="summaries"),
+            key="root",
+            legacy_field_name="summaries.root",
+            replacement_field_name="processor.root",
+            collector=legacy_warnings,
+        )
+
+    if "weighting_modes" in summarize_cfg:
+        warn_ignored_legacy_key(
+            mapping=processor_summaries_cfg,
+            key="weighting_modes",
+            legacy_field_name="processor.summaries.weighting_modes",
+            replacement_field_name="summarize.weighting_modes",
+            collector=legacy_warnings,
+        )
+        warn_ignored_legacy_key(
+            mapping=_mapping(raw.get("summaries"), field_name="summaries"),
+            key="weighting_modes",
+            legacy_field_name="summaries.weighting_modes",
+            replacement_field_name="summarize.weighting_modes",
+            collector=legacy_warnings,
+        )
+        processor_summaries_cfg["weighting_modes"] = summarize_cfg["weighting_modes"]
+    elif "weighting_modes" in _mapping(raw.get("summaries"), field_name="summaries"):
+        warn_supported_legacy_key(
+            mapping=_mapping(raw.get("summaries"), field_name="summaries"),
+            key="weighting_modes",
+            legacy_field_name="summaries.weighting_modes",
+            replacement_field_name="processor.summaries.weighting_modes",
+            collector=legacy_warnings,
+        )
+
+    if processor_summaries_cfg:
+        processor_cfg["summaries"] = processor_summaries_cfg
+    if processor_cfg:
+        normalized["processor"] = processor_cfg
+
+    if "log_level" in raw:
+        warn_ignored_legacy_key(
+            mapping=visualizer_cfg,
+            key="log_level",
+            legacy_field_name="visualizer.log_level",
+            replacement_field_name="log_level",
+            collector=legacy_warnings,
+        )
+        visualizer_cfg["log_level"] = raw["log_level"]
+
+    if "title" in dashboard_cfg:
+        warn_ignored_legacy_key(
+            mapping=visualizer_cfg,
+            key="dashboard_title",
+            legacy_field_name="visualizer.dashboard_title",
+            replacement_field_name="dashboard.title",
+            collector=legacy_warnings,
+        )
+        warn_ignored_legacy_key(
+            mapping=raw,
+            key="dashboard_title",
+            legacy_field_name="dashboard_title",
+            replacement_field_name="dashboard.title",
+            collector=legacy_warnings,
+        )
+        visualizer_cfg["dashboard_title"] = dashboard_cfg["title"]
+
+    if "pages" in dashboard_live_cfg:
+        warn_ignored_legacy_key(
+            mapping=visualizer_cfg,
+            key="dashboard_pages",
+            legacy_field_name="visualizer.dashboard_pages",
+            replacement_field_name="dashboard.live.pages",
+            collector=legacy_warnings,
+        )
+        warn_ignored_legacy_key(
+            mapping=dashboard_cfg,
+            key="pages",
+            legacy_field_name="dashboard.pages",
+            replacement_field_name="dashboard.live.pages",
+            collector=legacy_warnings,
+        )
+        visualizer_cfg["dashboard_pages"] = dashboard_live_cfg["pages"]
+    elif "pages" in dashboard_cfg:
+        warn_supported_legacy_key(
+            mapping=dashboard_cfg,
+            key="pages",
+            legacy_field_name="dashboard.pages",
+            replacement_field_name="dashboard.live.pages",
+            collector=legacy_warnings,
+        )
+        warn_ignored_legacy_key(
+            mapping=visualizer_cfg,
+            key="dashboard_pages",
+            legacy_field_name="visualizer.dashboard_pages",
+            replacement_field_name="dashboard.live.pages",
+            collector=legacy_warnings,
+        )
+        visualizer_cfg["dashboard_pages"] = dashboard_cfg["pages"]
+
+    if "export" in dashboard_cfg:
+        warn_ignored_legacy_key(
+            mapping=visualizer_cfg,
+            key="export_html",
+            legacy_field_name="visualizer.export_html",
+            replacement_field_name="dashboard.export",
+            collector=legacy_warnings,
+        )
+        export_cfg = dict(_mapping(dashboard_cfg.get("export"), field_name="dashboard.export"))
+        warn_supported_legacy_key(
+            mapping=export_cfg,
+            key="enabled",
+            legacy_field_name="dashboard.export.enabled",
+            replacement_field_name="pipeline.dashboard_mode",
+            collector=legacy_warnings,
+        )
+        visualizer_cfg["export_html"] = export_cfg
+    elif (
+        raw.get("pipeline")
+        and pipeline.has_step("dashboard")
+        and pipeline.dashboard_mode == "export"
+        and "export_html" not in visualizer_cfg
+    ):
+        visualizer_cfg["export_html"] = {}
+
+    if "enable_maz_geographies" in dashboard_cfg:
+        warn_ignored_legacy_key(
+            mapping=visualizer_cfg,
+            key="enable_maz_geographies",
+            legacy_field_name="visualizer.enable_maz_geographies",
+            replacement_field_name="dashboard.enable_maz_geographies",
+            collector=legacy_warnings,
+        )
+        visualizer_cfg["enable_maz_geographies"] = dashboard_cfg["enable_maz_geographies"]
+
+    if "run_colors" in display_cfg:
+        warn_ignored_legacy_key(
+            mapping=raw,
+            key="run_colors",
+            legacy_field_name="run_colors",
+            replacement_field_name="display.run_colors",
+            collector=legacy_warnings,
+        )
+        warn_ignored_legacy_key(
+            mapping=visualizer_cfg,
+            key="run_colors",
+            legacy_field_name="visualizer.run_colors",
+            replacement_field_name="display.run_colors",
+            collector=legacy_warnings,
+        )
+        visualizer_cfg["run_colors"] = display_cfg["run_colors"]
+
+    if visualizer_cfg:
+        normalized["visualizer"] = visualizer_cfg
+
+    if "labels" in display_cfg:
+        warn_ignored_legacy_key(
+            mapping=raw,
+            key="dashboard_labels",
+            legacy_field_name="dashboard_labels",
+            replacement_field_name="display.labels",
+            collector=legacy_warnings,
+        )
+        normalized["dashboard_labels"] = display_cfg["labels"]
+
+    if "geography" in summarize_cfg:
+        warn_ignored_legacy_key(
+            mapping=raw,
+            key="geography",
+            legacy_field_name="geography",
+            replacement_field_name="summarize.geography",
+            collector=legacy_warnings,
+        )
+        normalized["geography"] = summarize_cfg["geography"]
+
+    for key in (
+        "group_joint_tour_purposes",
+        "group_atwork_tour_purposes",
+        "group_school_tour_purposes",
+    ):
+        if key in summarize_cfg:
+            warn_ignored_legacy_key(
+                mapping=raw,
+                key=key,
+                legacy_field_name=key,
+                replacement_field_name=f"summarize.{key}",
+                collector=legacy_warnings,
+            )
+            normalized[key] = summarize_cfg[key]
+        else:
+            warn_supported_legacy_key(
+                mapping=raw,
+                key=key,
+                legacy_field_name=key,
+                replacement_field_name=f"summarize.{key}",
+                collector=legacy_warnings,
+            )
+
+    if "pnr_tour_modes" in summarize_cfg:
+        warn_ignored_legacy_key(
+            mapping=modes_cfg,
+            key="pnr_tour_modes",
+            legacy_field_name="modes.pnr_tour_modes",
+            replacement_field_name="summarize.pnr_tour_modes",
+            collector=legacy_warnings,
+        )
+    elif "pnr_tour_modes" in modes_cfg:
+        warn_supported_legacy_key(
+            mapping=modes_cfg,
+            key="pnr_tour_modes",
+            legacy_field_name="modes.pnr_tour_modes",
+            replacement_field_name="summarize.pnr_tour_modes",
+            collector=legacy_warnings,
+        )
+
+    if segment_cfg:
+        warn_ignored_legacy_key(
+            mapping=raw,
+            key="segmentation",
+            legacy_field_name="segmentation",
+            replacement_field_name="segment",
+            collector=legacy_warnings,
+        )
+        synthesized_segment = dict(segment_cfg)
+        warn_supported_legacy_key(
+            mapping=synthesized_segment,
+            key="enabled",
+            legacy_field_name="segment.enabled",
+            replacement_field_name="pipeline.steps",
+            collector=legacy_warnings,
+        )
+        if "enabled" not in synthesized_segment:
+            synthesized_segment["enabled"] = pipeline.has_step("segment") or bool(
+                synthesized_segment.get("definitions")
+            )
+        normalized["segmentation"] = synthesized_segment
+
+    if legacy_skimjoin_cfg:
+        normalized_skimjoin = dict(legacy_skimjoin_cfg)
+        if "distance_skim" in normalized_skimjoin:
+            warn_ignored_legacy_key(
+                mapping=raw,
+                key="skim",
+                legacy_field_name="skim",
+                replacement_field_name="skimjoin.distance_skim",
+                collector=legacy_warnings,
+            )
+            normalized["skim"] = normalized_skimjoin["distance_skim"]
+        if "defaults" in normalized_skimjoin:
+            warn_ignored_legacy_key(
+                mapping=normalized_skimjoin,
+                key="config_path",
+                legacy_field_name="skimjoin.config_path",
+                replacement_field_name="skimjoin.defaults.config_path",
+                collector=legacy_warnings,
+            )
+        if raw.get("pipeline") is not None:
+            warn_supported_legacy_key(
+                mapping=normalized_skimjoin,
+                key="enabled",
+                legacy_field_name="skimjoin.enabled",
+                replacement_field_name="pipeline.steps",
+                collector=legacy_warnings,
+            )
+            normalized_skimjoin["enabled"] = pipeline.has_step("skimjoin")
+        elif "enabled" not in normalized_skimjoin and "defaults" in normalized_skimjoin:
+            normalized_skimjoin["enabled"] = True
+        normalized["skimjoin"] = normalized_skimjoin
+    elif raw.get("pipeline") is not None and pipeline.has_step("skimjoin"):
+        normalized["skimjoin"] = {"enabled": True}
+
+    return normalized, pipeline, legacy_warnings
+
 
 def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> ConfigT:
     config_path = Path(path).resolve()
@@ -60,6 +470,7 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
     raw = yaml.safe_load(config_bytes.decode("utf-8")) or {}
     if not isinstance(raw, dict):
         raise ValueError("config file must parse to a mapping.")
+    raw, pipeline, legacy_warnings = _compatibility_normalize_raw_config(raw)
 
     processor_cfg = raw.get("processor") or {}
     if not isinstance(processor_cfg, dict):
@@ -75,6 +486,9 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
     visualizer_cfg = raw.get("visualizer") or {}
     if not isinstance(visualizer_cfg, dict):
         raise ValueError("visualizer must be a mapping when provided.")
+    dashboard_cfg = _mapping(raw.get("dashboard"), field_name="dashboard")
+    dashboard_live_cfg = _mapping(dashboard_cfg.get("live"), field_name="dashboard.live")
+    summarize_cfg = _mapping(raw.get("summarize"), field_name="summarize")
 
     files = normalize_file_mapping(
         raw.get("files"),
@@ -195,57 +609,70 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
             key="dashboard_title",
             legacy_field_name="dashboard_title",
             replacement_field_name="visualizer.dashboard_title",
+            collector=legacy_warnings,
         )
     warn_ignored_legacy_key(
         mapping=raw,
         key="dashboard_pages",
         legacy_field_name="dashboard_pages",
         replacement_field_name="visualizer.dashboard_pages",
+        collector=legacy_warnings,
     )
     warn_ignored_legacy_key(
         mapping=raw,
         key="run_colors",
         legacy_field_name="run_colors",
         replacement_field_name="visualizer.run_colors",
+        collector=legacy_warnings,
     )
     warn_ignored_legacy_key(
         mapping=outputs_cfg,
         key="summary_root",
         legacy_field_name="outputs.summary_root",
         replacement_field_name="processor.root",
+        collector=legacy_warnings,
     )
     warn_ignored_legacy_key(
         mapping=outputs_cfg,
         key="weighting_modes",
         legacy_field_name="outputs.weighting_modes",
         replacement_field_name="processor.summaries.weighting_modes",
+        collector=legacy_warnings,
     )
     warn_ignored_legacy_key(
         mapping=outputs_cfg,
         key="export_html",
         legacy_field_name="outputs.export_html",
         replacement_field_name="visualizer.export_html",
+        collector=legacy_warnings,
     )
     warn_supported_legacy_key(
         mapping=summaries_cfg,
         key="root",
         legacy_field_name="summaries.root",
         replacement_field_name="processor.root",
+        collector=legacy_warnings,
     )
     warn_supported_legacy_key(
         mapping=summaries_cfg,
         key="weighting_modes",
         legacy_field_name="summaries.weighting_modes",
         replacement_field_name="processor.summaries.weighting_modes",
+        collector=legacy_warnings,
     )
 
     dashboard_pages_cfg = visualizer_cfg.get("dashboard_pages")
+    dashboard_pages_field_name = "visualizer.dashboard_pages"
+    if "pages" in dashboard_live_cfg:
+        dashboard_pages_field_name = "dashboard.live.pages"
+    elif "pages" in dashboard_cfg:
+        dashboard_pages_field_name = "dashboard.pages"
     dashboard_pages = (
         None
         if dashboard_pages_cfg is None
         else normalize_dashboard_page_entries(
             dashboard_pages_cfg,
-            field_name="visualizer.dashboard_pages",
+            field_name=dashboard_pages_field_name,
         )
     )
 
@@ -285,12 +712,14 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         key="weighting",
         legacy_field_name="visualizer.export_html.weighting",
         replacement_field_name="visualizer.export_html.dashboard.weighting",
+        collector=legacy_warnings,
     )
     warn_ignored_legacy_key(
         mapping=export_html_cfg,
         key="values",
         legacy_field_name="visualizer.export_html.values",
         replacement_field_name="visualizer.export_html.dashboard.values",
+        collector=legacy_warnings,
     )
     export_enabled_raw = export_html_cfg.get("enabled")
     if export_enabled_raw is None:
@@ -320,7 +749,7 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         output_path=normalize_optional_path_string(
             export_html_cfg.get("output_path"),
             field_name="visualizer.export_html.output_path",
-            config_dir=config_path.parent,
+            config_dir=summary_root,
         ),
         dashboard=ExportDashboardSettings(
             weighting=normalize_export_html_selection(
@@ -456,31 +885,67 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
 
     group_joint_tour_purposes = (
         normalize_optional_bool(
-            raw.get("group_joint_tour_purposes"),
-            field_name="group_joint_tour_purposes",
+            summarize_cfg.get(
+                "group_joint_tour_purposes",
+                raw.get("group_joint_tour_purposes"),
+            ),
+            field_name=(
+                "summarize.group_joint_tour_purposes"
+                if "group_joint_tour_purposes" in summarize_cfg
+                else "group_joint_tour_purposes"
+            ),
         )
-        if raw.get("group_joint_tour_purposes") is not None
+        if (
+            "group_joint_tour_purposes" in summarize_cfg
+            or raw.get("group_joint_tour_purposes") is not None
+        )
         else True
     )
     group_atwork_tour_purposes = (
         normalize_optional_bool(
-            raw.get("group_atwork_tour_purposes"),
-            field_name="group_atwork_tour_purposes",
+            summarize_cfg.get(
+                "group_atwork_tour_purposes",
+                raw.get("group_atwork_tour_purposes"),
+            ),
+            field_name=(
+                "summarize.group_atwork_tour_purposes"
+                if "group_atwork_tour_purposes" in summarize_cfg
+                else "group_atwork_tour_purposes"
+            ),
         )
-        if raw.get("group_atwork_tour_purposes") is not None
+        if (
+            "group_atwork_tour_purposes" in summarize_cfg
+            or raw.get("group_atwork_tour_purposes") is not None
+        )
         else True
     )
     group_school_tour_purposes = (
         normalize_optional_bool(
-            raw.get("group_school_tour_purposes"),
-            field_name="group_school_tour_purposes",
+            summarize_cfg.get(
+                "group_school_tour_purposes",
+                raw.get("group_school_tour_purposes"),
+            ),
+            field_name=(
+                "summarize.group_school_tour_purposes"
+                if "group_school_tour_purposes" in summarize_cfg
+                else "group_school_tour_purposes"
+            ),
         )
-        if raw.get("group_school_tour_purposes") is not None
+        if (
+            "group_school_tour_purposes" in summarize_cfg
+            or raw.get("group_school_tour_purposes") is not None
+        )
         else True
     )
     student_types = normalize_student_types(
         raw.get("student_types"),
         field_name="student_types",
+    )
+
+    pnr_tour_modes_field_name = (
+        "summarize.pnr_tour_modes"
+        if "pnr_tour_modes" in summarize_cfg
+        else "modes.pnr_tour_modes"
     )
 
     config = cls(
@@ -492,6 +957,7 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         name=raw.get("name", ""),
         dashboard_title=str(dashboard_title),
         log_level=log_level,
+        pipeline=pipeline,
         dashboard_pages=dashboard_pages,
         enable_maz_geographies=enable_maz_geographies_raw,
         run_colors=run_colors,
@@ -796,22 +1262,26 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         skim_file=skim_cfg.get("file"),
         skim_matrix=skim_cfg.get("matrix", "SOV_DIST__MD"),
         mode_order=modes_cfg.get("order"),
-        mode_groups=modes_cfg.get("groups"),
-        pnr_tour_modes=(
-            normalize_string_list(
-                modes_cfg.get("pnr_tour_modes"),
-                field_name="modes.pnr_tour_modes",
-            )
-            if "pnr_tour_modes" in modes_cfg
-            else ["PNR_TRANSIT"]
-        ),
-        runs=runs,
-    )
+            mode_groups=modes_cfg.get("groups"),
+            pnr_tour_modes=(
+                normalize_string_list(
+                    summarize_cfg.get("pnr_tour_modes", modes_cfg.get("pnr_tour_modes")),
+                    field_name=pnr_tour_modes_field_name,
+                )
+                if (
+                    "pnr_tour_modes" in summarize_cfg
+                    or "pnr_tour_modes" in modes_cfg
+                )
+                else ["PNR_TRANSIT"]
+            ),
+            runs=runs,
+        )
     if not config.pnr_tour_modes:
-        raise ValueError("modes.pnr_tour_modes must resolve to at least one mode.")
+        raise ValueError(f"{pnr_tour_modes_field_name} must resolve to at least one mode.")
     config.prepare_config_digest = digest_payload(config.prepare_signature_payload())
     config.summary_config_digest = digest_payload(config.summary_signature_payload())
     config.presentation_config_digest = digest_payload(
         config.presentation_signature_payload()
     )
+    emit_grouped_legacy_summary(legacy_warnings)
     return config

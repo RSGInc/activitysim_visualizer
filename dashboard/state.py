@@ -143,11 +143,12 @@ class DashboardState(param.Parameterized):
                 if run.is_full_segment
                 or run.segmentation_type == self._dashboard_segmentation_type
             ]
-        visibility = self._segmentation_display_mode
-        if visibility == "full_only":
-            runs = [run for run in runs if run.is_full_segment]
-        elif visibility == "segments_only":
-            runs = [run for run in runs if not run.is_full_segment]
+        if self.has_segmented_summary_series:
+            visibility = self._segmentation_display_mode
+            if visibility == "full_only":
+                runs = [run for run in runs if run.is_full_segment]
+            elif visibility == "segments_only":
+                runs = [run for run in runs if not run.is_full_segment]
         return runs
 
     def get_prepared_runs_if_loaded(

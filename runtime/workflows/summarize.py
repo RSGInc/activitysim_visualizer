@@ -211,8 +211,15 @@ def run_summary_workflow(
     write_cache: bool,
     prepared_prefer_cache: bool = True,
     existing_result: ProcessorWorkflowResult | None = None,
+    apply_skimjoin: bool | None = None,
+    apply_segmentation: bool | None = None,
 ) -> ProcessorWorkflowResult:
     """Build or reuse summaries for the configured runs."""
+    config = shared.effective_processor_config(
+        config,
+        apply_skimjoin=apply_skimjoin,
+        apply_segmentation=apply_segmentation,
+    )
     summary_runs: list[Any] = []
     prepared_root = prepared_root or prepared_cache_root(config, create=True)
     prepare_result = existing_result
@@ -259,6 +266,7 @@ def run_summary_workflow(
             prefer_cache=prepared_prefer_cache,
             write_cache=True,
             existing_result=prepare_result,
+            apply_skimjoin=apply_skimjoin,
         )
         if run_key not in prepare_result.prepared_runs_by_key:
             LOGGER.warning(

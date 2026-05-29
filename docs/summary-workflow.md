@@ -1,14 +1,43 @@
 # Summary and Dashboard Workflow
 
-This project now exposes three explicit execution steps:
+This project now has five logical pipeline steps in config:
 
 1. `prepare`
-2. `summarize`
-3. `dashboard`
+2. `skimjoin`
+3. `summarize`
+4. `segment`
+5. `dashboard`
 
-Those steps can be run on their own or combined in one invocation.
+At runtime those currently collapse into three executable workflow boundaries:
+`prepare`, `summarize`, and `dashboard`. `skimjoin` runs inside prepare, and
+`segment` runs inside summarize.
+
+Those steps can be selected explicitly from CLI flags or supplied as defaults in
+`pipeline.steps` within the YAML config.
 
 Understanding which workflow you are in makes the rest of the codebase much easier to follow.
+
+## Effective Plan Resolution
+
+`run.py` resolves execution in this order:
+
+1. Load config and normalize any legacy keys to the canonical config schema.
+2. Start from `pipeline.steps` when CLI step flags are absent.
+3. Apply CLI overrides such as `--prepare-only`, `--summarize`, `--dashboard`,
+   `--from-csvs`, and `--no-dashboard`.
+4. Collapse logical steps into runtime workflow boundaries.
+5. Resolve dashboard mode from CLI first, then `pipeline.dashboard_mode`.
+
+`pipeline.overwrite: true` changes the default cache preference for selected
+workflow steps, while explicit refresh flags still force cache deletion and
+rebuild behavior.
+
+Dashboard mode supports:
+
+- `none`: do not run dashboard
+- `live`: build/serve the live Panel app
+- `export`: write standalone HTML
+- `host`: reserved for future hosted deployment behavior; current runtime falls back to live mode
 
 ## Step 1: Prepare
 
@@ -29,10 +58,11 @@ High-level path:
 6. After any prepared run is loaded, the workflow optionally validates cross-table key relationships according to `prepare.validation.relationship_checks` (`warn` by default).
 7. `processor.prepare.cache.write_prepared_run_cache()` writes one prepared cache directory per raw-derived run.
 
-Integrated skimjoin, when enabled, runs against those prepared tables. That now
-includes a prepared tour column named `first_inbound_trip_depart`, derived from
-the first inbound trip on each tour so inbound tour PERIOD lookups do not reuse
-the outbound tour start time.
+Integrated skimjoin, when enabled through `pipeline.steps`, legacy
+`skimjoin.enabled`, or run/global skimjoin config, runs against those prepared
+tables. That now includes a prepared tour column named
+`first_inbound_trip_depart`, derived from the first inbound trip on each tour so
+inbound tour PERIOD lookups do not reuse the outbound tour start time.
 
 Prepared cache layout:
 
@@ -84,6 +114,8 @@ High-level path:
 3. On a summary-cache miss, summarize reuses in-memory prepared runs, then loads custom `prepared_table_map` inputs when configured, then tries prepared cache, then rebuilds prepare from raw inputs only if needed.
 4. `processor.summarize.cache.build_mode_summaries_with_metadata()` builds weighted and optionally unweighted tables.
 5. `processor.summarize.cache.write_summary_run_cache()` writes one cache directory per run unless `--skip-summary-cache-write` is set.
+6. If segmentation is enabled, summary generation also builds segment-specific
+   analysis units within this same workflow boundary.
 
 Cache layout:
 
@@ -111,7 +143,7 @@ Summary building is now best-effort per summary. Each registered builder can dec
 
 ## Step 3: Dashboard
 
-Typical command:
+Typical cache-backed command:
 
 ```bash
 python run.py --from-csvs
@@ -119,7 +151,7 @@ python run.py --from-csvs
 
 High-level path:
 
-1. `run.py` loads config.
+1. `run.py` loads config and resolves the effective plan.
 2. `runtime.workflows.load_summary_runs_from_cache()` reads each cache directory and validates its manifest.
 3. `dashboard.page_registry` resolves the enabled live pages from config.
 4. `dashboard.app.build_dashboard()` builds the shared `DashboardState`, the sidebar controls, and the page controllers.
@@ -128,17 +160,22 @@ High-level path:
 Important behavior:
 
 - Summary-backed pages do not rebuild summary tables.
+- Dashboard-only runs can now load summary caches either from explicit
+  `--from-csvs` directories or from the configured runs when the summarize step
+  is omitted.
 - If an enabled page requires disaggregate tables, `run.py` loads prepared runs for that page set from memory, custom `prepared_table_map` inputs, prepared cache, or the prepare workflow.
 - Most pages should stay summary-backed and declare their requirements through `PAGE.required_summary_ids`.
 - Prepared-data pages must also declare `PAGE.required_prepared_tables`, which lets the workflow prune unused prepared tables before dashboard startup/export.
 
-When you want one invocation to do both processor work and dashboard startup, run the steps explicitly together:
+When you want one invocation to do both processor work and dashboard startup, run
+the steps explicitly together:
 
 ```bash
 python run.py --summarize --dashboard
 ```
 
-`python run.py` currently remains a compatibility shortcut for that same combination.
+`python run.py` can also follow `pipeline.steps` from config when no CLI step
+flags are supplied.
 
 ## Standalone HTML Export
 
@@ -147,6 +184,10 @@ Typical command:
 ```bash
 python run.py --from-csvs --export-html output.html
 ```
+
+Config-driven export is also supported with `pipeline.dashboard_mode: export`,
+with the output path coming from `dashboard.export.output_path` when present.
+Relative export output paths resolve from `root`.
 
 High-level path:
 
