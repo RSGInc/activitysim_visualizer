@@ -7,43 +7,28 @@ import polars as pl
 
 from dashboard.components import density_chart
 from dashboard.helpers.category_helpers import column_options, nonempty
+from dashboard.helpers.time_distance_helpers import max_timebin, timebin_label
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
 
-def _time_label(timebin: int, maxbin: int) -> str:
-    step = 30 if maxbin == 48 else 60
-    total_minutes = ((int(timebin) - 1) * step + 3 * 60) % (24 * 60)
-    hh = total_minutes // 60
-    mm = total_minutes % 60
-    return f"{hh:02d}:{mm:02d}"
-
-
-def _max_timebin(data_list: list[tuple[str, pl.DataFrame]]) -> int:
-    for _, df in nonempty(data_list):
-        if "time_bin" in df.columns:
-            return int(df["time_bin"].max())
-    return 48
-
-
-def _profile(
+def profile_chart_frame(
     df: pl.DataFrame,
-    val_col: str,
+    *,
+    value_col: str,
     purpose: str,
-    maxbin: int,
+    observed_max_timebin: int,
 ) -> pl.DataFrame:
+    """Return one clock-time distribution for one selected tour purpose."""
     return (
         df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
         .filter(pl.col("tour_purpose") == purpose)
-        .select(
-            pl.col("time_bin"),
-            pl.col(val_col),
-        )
+        .select(pl.col("time_bin"), pl.col(value_col))
         .sort("time_bin")
         .with_columns(
             pl.col("time_bin")
             .map_elements(
-                lambda tb: _time_label(int(tb), maxbin),
+                lambda value: timebin_label(int(value), observed_max_timebin),
                 return_dtype=pl.Utf8,
             )
             .alias("clock_time")
@@ -55,27 +40,41 @@ def trip_stop_time_chart_data(
     data_list: list[tuple[str, pl.DataFrame]],
     tour_purpose: str,
 ) -> tuple[list[tuple[str, pl.DataFrame]], list[tuple[str, pl.DataFrame]]]:
-    maxbin = _max_timebin(data_list)
+    """Build chart-ready trip and stop departure distributions for one purpose."""
+    observed_max_timebin = max_timebin(data_list)
     trip_data = []
     stop_data = []
     for label, df in nonempty(data_list):
         trip_data.append(
-            (label, _profile(df, "departure_trip_count", tour_purpose, maxbin))
+            (
+                label,
+                profile_chart_frame(
+                    df,
+                    value_col="departure_trip_count",
+                    purpose=tour_purpose,
+                    observed_max_timebin=observed_max_timebin,
+                ),
+            )
         )
         stop_data.append(
-            (label, _profile(df, "departure_stop_count", tour_purpose, maxbin))
+            (
+                label,
+                profile_chart_frame(
+                    df,
+                    value_col="departure_stop_count",
+                    purpose=tour_purpose,
+                    observed_max_timebin=observed_max_timebin,
+                ),
+            )
         )
     return trip_data, stop_data
 
 
 class TripStopTimePage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
-        tod_data = self.state.get_summary_table_set(
-            "trip_departure_time_by_purpose",
-            "weighted",
-        )
         purpose_opts, self._purpose_to_raw = column_options(
-            tod_data or [],
+            self.state.get_summary_table_set("trip_departure_time_by_purpose", "weighted")
+            or [],
             "tour_purpose",
             category_id="tour_purpose",
             config=self.config,
@@ -108,10 +107,7 @@ class TripStopTimePage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Trip and Stop Time"),
-            pn.Row(
-                pn.pane.Markdown("**Tour Purpose:**"),
-                self.tour_purpose_sel,
-            ),
+            pn.Row(pn.pane.Markdown("**Tour Purpose:**"), self.tour_purpose_sel),
             self._body,
             sizing_mode="stretch_width",
         )
@@ -120,9 +116,8 @@ class TripStopTimePage(DashboardPage):
         summaries = self.require_summaries(*self.required_summary_ids)
         if summaries is None:
             return
-        tod_list = summaries["trip_departure_time_by_purpose"]
         purpose_opts, self._purpose_to_raw = column_options(
-            tod_list,
+            summaries["trip_departure_time_by_purpose"],
             "tour_purpose",
             category_id="tour_purpose",
             config=self.config,
@@ -136,76 +131,70 @@ class TripStopTimePage(DashboardPage):
             total_raw="all_tour_purposes",
             total_label="Total",
         )
-        if purpose_opts:
-            self.tour_purpose_sel.options = purpose_opts
-            if self.tour_purpose_sel.value not in purpose_opts:
-                self.tour_purpose_sel.value = purpose_opts[0]
+        self.tour_purpose_sel.options = purpose_opts or ["Total"]
+        if self.tour_purpose_sel.value not in self.tour_purpose_sel.options:
+            self.tour_purpose_sel.value = self.tour_purpose_sel.options[0]
 
-    def render_body(self):
-        if not self.state.run_labels:
-            return [pn.pane.Markdown("No runs loaded.")]
+    def _selected_purpose(self) -> tuple[str, str]:
+        display_purpose = self.tour_purpose_sel.value
+        raw_purpose = self._purpose_to_raw.get(display_purpose, display_purpose)
+        return display_purpose, str(raw_purpose)
 
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
-            return [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
-                )
-            ]
-
-        tod_list = summaries["trip_departure_time_by_purpose"]
-        if not self.tour_purpose_sel.options:
-            purpose_opts, self._purpose_to_raw = column_options(
-                tod_list,
-                "tour_purpose",
-                category_id="tour_purpose",
-                config=self.config,
-                state=self.state,
-                cache_key=(
-                    "trip_stop_time",
-                    "trip_departure_time_by_purpose",
-                    "tour_purpose",
-                    self.weighting_key,
-                ),
-                total_raw="all_tour_purposes",
-                total_label="Total",
-            )
-            if not purpose_opts:
-                return [pn.pane.Markdown("No trip/stop time data available.")]
-            self.tour_purpose_sel.options = purpose_opts
-            self.tour_purpose_sel.value = purpose_opts[0]
-
-        tour_purpose = self.tour_purpose_sel.value
-        raw_purpose = self._purpose_to_raw.get(tour_purpose, tour_purpose)
-
+    def _time_chart(
+        self,
+        data_list: list[tuple[str, pl.DataFrame]],
+        *,
+        raw_purpose: str,
+        display_purpose: str,
+        cache_key: str,
+        title: str,
+        y_col: str,
+        yaxis_title: str,
+    ) -> pn.viewable.Viewable:
         trip_data, stop_data = self.get_filtered_view(
             "trip_stop_departure_time",
             raw_purpose,
-            tuple(label for label, _ in tod_list),
-            factory=lambda: trip_stop_time_chart_data(tod_list, str(raw_purpose)),
+            tuple(label for label, _ in data_list),
+            factory=lambda: trip_stop_time_chart_data(data_list, raw_purpose),
+        )
+        chart_data = trip_data if y_col == "departure_trip_count" else stop_data
+        return density_chart(
+            chart_data,
+            x_col="clock_time",
+            y_col=y_col,
+            title=f"{title} - {display_purpose}",
+            xaxis_title="Clock Time (start at 03:00)",
+            normalize=False,
+            yaxis_title=yaxis_title,
+            as_percent=self.as_percent,
         )
 
+    def render_body(self):
+        if not self.state.run_labels:
+            return [self.no_runs_message()]
+        summaries = self.require_summaries(*self.required_summary_ids)
+        if summaries is None:
+            return [self.summary_only_unavailable_card()]
+        display_purpose, raw_purpose = self._selected_purpose()
+        tod_list = summaries["trip_departure_time_by_purpose"]
         return [
-            density_chart(
-                trip_data,
-                x_col="clock_time",
+            self._time_chart(
+                tod_list,
+                raw_purpose=raw_purpose,
+                display_purpose=display_purpose,
+                cache_key="trip_departure",
+                title="Trip Departure Time Distribution",
                 y_col="departure_trip_count",
-                title=f"Trip Departure Time Distribution - {tour_purpose}",
-                xaxis_title="Clock Time (start at 03:00)",
-                normalize=False,
                 yaxis_title="Trips",
-                as_percent=self.as_percent,
             ),
-            density_chart(
-                stop_data,
-                x_col="clock_time",
+            self._time_chart(
+                tod_list,
+                raw_purpose=raw_purpose,
+                display_purpose=display_purpose,
+                cache_key="stop_departure",
+                title="Stop Departure Time Distribution",
                 y_col="departure_stop_count",
-                title=f"Stop Departure Time Distribution - {tour_purpose}",
-                xaxis_title="Clock Time (start at 03:00)",
-                normalize=False,
                 yaxis_title="Stops",
-                as_percent=self.as_percent,
             ),
         ]
 

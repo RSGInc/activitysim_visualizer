@@ -7,48 +7,42 @@ import polars as pl
 
 from dashboard.components import density_chart
 from dashboard.helpers.category_helpers import column_options, nonempty
+from dashboard.helpers.time_distance_helpers import (
+    max_timebin,
+    timebin_duration_hours,
+    timebin_label,
+)
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
 
-def _time_label(timebin: int, maxbin: int) -> str:
-    step = 30 if maxbin == 48 else 60
-    total_minutes = ((int(timebin) - 1) * step + 3 * 60) % (24 * 60)
-    hh = total_minutes // 60
-    mm = total_minutes % 60
-    return f"{hh:02d}:{mm:02d}"
-
-
-def _duration_hours(timebin: int, maxbin: int) -> float:
-    step = 0.5 if maxbin == 48 else 1.0
-    return round(float(timebin) * step, 2)
-
-
-def _max_timebin(data_list: list[tuple[str, pl.DataFrame]]) -> int:
-    for _, df in nonempty(data_list):
-        if "time_bin" in df.columns:
-            return int(df["time_bin"].max())
-    return 48
-
-
-def tour_time_chart_data(data_list: list[tuple[str, pl.DataFrame]], purpose: str):
-    maxbin = _max_timebin(data_list)
+def tour_time_chart_data(
+    data_list: list[tuple[str, pl.DataFrame]],
+    purpose: str,
+) -> tuple[
+    list[tuple[str, pl.DataFrame]],
+    list[tuple[str, pl.DataFrame]],
+    list[tuple[str, pl.DataFrame]],
+]:
+    """Build departure, arrival, and duration distributions for one tour purpose."""
+    observed_max_timebin = max_timebin(data_list)
     dep_data = []
     arr_data = []
     dur_data = []
     for label, df in nonempty(data_list):
-        df = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8)).filter(
+        filtered = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8)).filter(
             pl.col("tour_purpose") == purpose
         )
         dep_data.append(
             (
                 label,
-                df.select(pl.col("time_bin"), pl.col("departure_tour_count"))
+                filtered.select("time_bin", "departure_tour_count")
                 .sort("time_bin")
                 .with_columns(
                     pl.col("time_bin")
                     .map_elements(
-                        lambda tb: _time_label(int(tb), maxbin), return_dtype=pl.Utf8
+                        lambda value: timebin_label(int(value), observed_max_timebin),
+                        return_dtype=pl.Utf8,
                     )
                     .alias("clock_time")
                 ),
@@ -57,12 +51,13 @@ def tour_time_chart_data(data_list: list[tuple[str, pl.DataFrame]], purpose: str
         arr_data.append(
             (
                 label,
-                df.select(pl.col("time_bin"), pl.col("arrival_tour_count"))
+                filtered.select("time_bin", "arrival_tour_count")
                 .sort("time_bin")
                 .with_columns(
                     pl.col("time_bin")
                     .map_elements(
-                        lambda tb: _time_label(int(tb), maxbin), return_dtype=pl.Utf8
+                        lambda value: timebin_label(int(value), observed_max_timebin),
+                        return_dtype=pl.Utf8,
                     )
                     .alias("clock_time")
                 ),
@@ -71,12 +66,14 @@ def tour_time_chart_data(data_list: list[tuple[str, pl.DataFrame]], purpose: str
         dur_data.append(
             (
                 label,
-                df.select(pl.col("time_bin"), pl.col("duration_tour_count"))
+                filtered.select("time_bin", "duration_tour_count")
                 .sort("time_bin")
                 .with_columns(
                     pl.col("time_bin")
                     .map_elements(
-                        lambda tb: _duration_hours(int(tb), maxbin),
+                        lambda value: timebin_duration_hours(
+                            int(value), observed_max_timebin
+                        ),
                         return_dtype=pl.Float64,
                     )
                     .alias("duration_hours")
@@ -88,16 +85,19 @@ def tour_time_chart_data(data_list: list[tuple[str, pl.DataFrame]], purpose: str
 
 class TourTimePage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
-        purpose_opts = self._purpose_options()
         self.purpose_sel = self.selector(
             "tour_purpose",
             widget=pn.widgets.Select(
-                name="Tour Purpose", options=purpose_opts, value=purpose_opts[0]
+                name="Tour Purpose",
+                options=self._purpose_options(),
+                value=self._purpose_options()[0],
             ),
             label="Tour Purpose",
         )
         self._body = self.section(
-            "tour_time_body", selectors=("tour_purpose",), render=self.render_body
+            "tour_time_body",
+            selectors=("tour_purpose",),
+            render=self.render_body,
         )
         return self.new_section(
             pn.pane.Markdown("## Tour Time"),
@@ -108,9 +108,11 @@ class TourTimePage(DashboardPage):
 
     def _purpose_options(self) -> list[str]:
         data = self.state.get_summary_table_set(
-            "tour_time_of_day_by_tour_purpose", "weighted"
+            "tour_time_of_day_by_tour_purpose",
+            "weighted",
         )
         if data is None:
+            self._purpose_to_raw = {"Total": "all_tour_purposes"}
             return ["Total"]
         options, self._purpose_to_raw = column_options(
             data,
@@ -148,35 +150,33 @@ class TourTimePage(DashboardPage):
             total_raw="all_tour_purposes",
             total_label="Total",
         )
-        self.purpose_sel.options = purpose_opts
-        if self.purpose_sel.value not in purpose_opts:
-            self.purpose_sel.value = purpose_opts[0]
+        self.purpose_sel.options = purpose_opts or ["Total"]
+        if self.purpose_sel.value not in self.purpose_sel.options:
+            self.purpose_sel.value = self.purpose_sel.options[0]
 
-    def render_body(self):
-        if not self.state.run_labels:
-            return [pn.pane.Markdown("No runs loaded.")]
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
-            return [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
-                )
-            ]
-        tod_list = summaries["tour_time_of_day_by_tour_purpose"]
-        purpose = self.purpose_sel.value
-        raw_purpose = self._purpose_to_raw.get(purpose, "all_tour_purposes")
+    def _selected_purpose(self) -> tuple[str, str]:
+        display_purpose = self.purpose_sel.value
+        raw_purpose = self._purpose_to_raw.get(display_purpose, "all_tour_purposes")
+        return display_purpose, str(raw_purpose)
+
+    def _time_charts(
+        self,
+        tod_list: list[tuple[str, pl.DataFrame]],
+        *,
+        raw_purpose: str,
+        display_purpose: str,
+    ) -> tuple[pn.viewable.Viewable, pn.viewable.Viewable, pn.viewable.Viewable]:
         dep_data, arr_data, dur_data = self.get_filtered_view(
             "tour_time",
             raw_purpose,
             factory=lambda: tour_time_chart_data(tod_list, raw_purpose),
         )
-        return [
+        return (
             density_chart(
                 dep_data,
                 "clock_time",
                 "departure_tour_count",
-                f"Tour Departure Time Distribution - {purpose}",
+                f"Tour Departure Time Distribution - {display_purpose}",
                 "Clock Time (start at 03:00)",
                 normalize=False,
                 yaxis_title="Tours",
@@ -186,7 +186,7 @@ class TourTimePage(DashboardPage):
                 arr_data,
                 "clock_time",
                 "arrival_tour_count",
-                f"Tour Arrival Time Distribution - {purpose}",
+                f"Tour Arrival Time Distribution - {display_purpose}",
                 "Clock Time (start at 03:00)",
                 normalize=False,
                 yaxis_title="Tours",
@@ -196,13 +196,27 @@ class TourTimePage(DashboardPage):
                 dur_data,
                 "duration_hours",
                 "duration_tour_count",
-                f"Tour Duration Distribution - {purpose}",
+                f"Tour Duration Distribution - {display_purpose}",
                 "Tour Duration (hours)",
                 normalize=False,
                 yaxis_title="Tours",
                 as_percent=self.as_percent,
             ),
-        ]
+        )
+
+    def render_body(self):
+        if not self.state.run_labels:
+            return [self.no_runs_message()]
+        summaries = self.require_summaries(*self.required_summary_ids)
+        if summaries is None:
+            return [self.summary_only_unavailable_card()]
+        display_purpose, raw_purpose = self._selected_purpose()
+        departure_chart, arrival_chart, duration_chart = self._time_charts(
+            summaries["tour_time_of_day_by_tour_purpose"],
+            raw_purpose=raw_purpose,
+            display_purpose=display_purpose,
+        )
+        return [departure_chart, arrival_chart, duration_chart]
 
 
 PAGE = DashboardPageDefinition(

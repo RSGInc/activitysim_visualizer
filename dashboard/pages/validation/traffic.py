@@ -1,4 +1,4 @@
-"""Traffic validation page."""
+"""Traffic validation page with count and screenline comparison charts."""
 
 from __future__ import annotations
 
@@ -6,54 +6,9 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import scatter_chart
+from dashboard.helpers.category_helpers import common_column_options, nonempty
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
-
-
-def _nonempty(
-    data_list: list[tuple[str, pl.DataFrame]],
-) -> list[tuple[str, pl.DataFrame]]:
-    return [(label, df) for label, df in data_list if df is not None and len(df) > 0]
-
-
-def _options(
-    data_list: list[tuple[str, pl.DataFrame]],
-    col: str,
-    total_label: str = "All",
-) -> list[str]:
-    first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
-    if first_df is None or col not in first_df.columns:
-        return [total_label]
-
-    vals = (
-        first_df.select(col).drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
-    )
-    return [total_label] + sorted(v for v in vals if v != total_label)
-
-
-def _common_options(
-    *data_lists: list[tuple[str, pl.DataFrame]] | None,
-    col: str,
-    total_label: str = "All",
-) -> list[str]:
-    available_sets: list[set[str]] = []
-    for data_list in data_lists:
-        if data_list is None:
-            continue
-        per_run_sets: list[set[str]] = []
-        for _, df in _nonempty(data_list):
-            if col not in df.columns:
-                continue
-            values = (
-                df.select(col).drop_nulls().unique().to_series().cast(pl.Utf8).to_list()
-            )
-            per_run_sets.append(set(values))
-        if per_run_sets:
-            available_sets.append(set.intersection(*per_run_sets))
-    if not available_sets:
-        return [total_label]
-    common = set.intersection(*available_sets)
-    return [total_label] + sorted(v for v in common if v != total_label)
 
 
 def validation_chart_data(
@@ -61,65 +16,59 @@ def validation_chart_data(
     direction: str,
     count_period: str,
 ) -> list[tuple[str, pl.DataFrame]]:
+    """Filter one validation summary list and aggregate to one observed/modeled point per id."""
     out = []
-
-    for label, df in _nonempty(data_list):
-        if "direction" in df.columns:
-            df = df.with_columns(pl.col("direction").cast(pl.Utf8))
-            if direction != "All":
-                df = df.filter(pl.col("direction") == direction)
-
-        if "count_period" in df.columns:
-            df = df.with_columns(pl.col("count_period").cast(pl.Utf8))
-            if count_period != "All":
-                df = df.filter(pl.col("count_period") == count_period)
+    for label, df in nonempty(data_list):
+        filtered = df
+        if "direction" in filtered.columns and direction != "All":
+            filtered = filtered.with_columns(pl.col("direction").cast(pl.Utf8)).filter(
+                pl.col("direction") == direction
+            )
+        if "count_period" in filtered.columns and count_period != "All":
+            filtered = filtered.with_columns(
+                pl.col("count_period").cast(pl.Utf8)
+            ).filter(pl.col("count_period") == count_period)
 
         id_col = None
-        if "count_location_id" in df.columns:
+        if "count_location_id" in filtered.columns:
             id_col = "count_location_id"
-        elif "screenline_id" in df.columns:
+        elif "screenline_id" in filtered.columns:
             id_col = "screenline_id"
         if id_col is not None:
-            df = (
-                df.group_by(id_col)
+            filtered = (
+                filtered.group_by(id_col)
                 .agg(
                     observed_volume=pl.col("observed_volume").sum(),
                     modeled_volume=pl.col("modeled_volume").sum(),
                 )
                 .sort(id_col)
             )
-
-        out.append((label, df))
-
+        out.append((label, filtered))
     return out
 
 
 class TrafficValidationPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
-        traffic_data = self.state.get_summary_table_set(
-            "traffic_count_comparisons",
-            "weighted",
+        direction_opts, _ = common_column_options(
+            self.state.get_summary_table_set("traffic_count_comparisons", "weighted"),
+            self.state.get_summary_table_set("screenline_flow_comparisons", "weighted"),
+            column="direction",
+            total_raw="All",
+            total_label="All",
         )
-        screenline_data = self.state.get_summary_table_set(
-            "screenline_flow_comparisons",
-            "weighted",
-        )
-        direction_opts = _common_options(
-            traffic_data,
-            screenline_data,
-            col="direction",
-        )
-        period_opts = _common_options(
-            traffic_data,
-            screenline_data,
-            col="count_period",
+        period_opts, _ = common_column_options(
+            self.state.get_summary_table_set("traffic_count_comparisons", "weighted"),
+            self.state.get_summary_table_set("screenline_flow_comparisons", "weighted"),
+            column="count_period",
+            total_raw="All",
+            total_label="All",
         )
         self.direction_sel = self.selector(
             "direction",
             widget=pn.widgets.Select(
                 name="Direction",
-                options=direction_opts,
-                value=direction_opts[0],
+                options=direction_opts or ["All"],
+                value=(direction_opts or ["All"])[0],
             ),
             label="Direction",
         )
@@ -127,8 +76,8 @@ class TrafficValidationPage(DashboardPage):
             "count_period",
             widget=pn.widgets.Select(
                 name="Count Period",
-                options=period_opts,
-                value=period_opts[0],
+                options=period_opts or ["All"],
+                value=(period_opts or ["All"])[0],
             ),
             label="Count Period",
         )
@@ -158,92 +107,83 @@ class TrafficValidationPage(DashboardPage):
             "screenline_flow_comparisons",
             self.weighting_key,
         )
-        direction_opts = _common_options(
+        direction_opts, _ = common_column_options(
             traffic_list,
             screenline_list,
-            col="direction",
+            column="direction",
+            total_raw="All",
+            total_label="All",
         )
-        self.direction_sel.options = direction_opts
-        if self.direction_sel.value not in direction_opts:
-            self.direction_sel.value = direction_opts[0]
-        period_opts = _common_options(
+        period_opts, _ = common_column_options(
             traffic_list,
             screenline_list,
-            col="count_period",
+            column="count_period",
+            total_raw="All",
+            total_label="All",
         )
-        self.count_period_sel.options = period_opts
-        if self.count_period_sel.value not in period_opts:
-            self.count_period_sel.value = period_opts[0]
+        self.direction_sel.options = direction_opts or ["All"]
+        if self.direction_sel.value not in self.direction_sel.options:
+            self.direction_sel.value = self.direction_sel.options[0]
+        self.count_period_sel.options = period_opts or ["All"]
+        if self.count_period_sel.value not in self.count_period_sel.options:
+            self.count_period_sel.value = self.count_period_sel.options[0]
+
+    def _validation_chart(
+        self,
+        data_list: list[tuple[str, pl.DataFrame]] | None,
+        *,
+        cache_key: str,
+        title: str,
+        detail: str,
+        missing_summary_id: str,
+    ) -> pn.viewable.Viewable:
+        if data_list is None:
+            return self.data_not_available_card(
+                detail=detail,
+                missing_items=[missing_summary_id],
+            )
+        direction = self.direction_sel.value
+        count_period = self.count_period_sel.value
+        chart_data = self.get_filtered_view(
+            cache_key,
+            (direction, count_period),
+            factory=lambda: validation_chart_data(data_list, direction, count_period),
+        )
+        return scatter_chart(
+            chart_data,
+            x_col="observed_volume",
+            y_col="modeled_volume",
+            title=title,
+            xaxis_title="Observed Traffic Volume",
+            yaxis_title="Modeled Traffic Volume",
+        )
 
     def render_body(self):
         if not self.state.run_labels:
-            return [pn.pane.Markdown("No runs loaded.")]
-
-        traffic_list = self.state.get_summary_table_set(
-            "traffic_count_comparisons",
-            self.weighting_key,
-        )
-        screenline_list = self.state.get_summary_table_set(
-            "screenline_flow_comparisons",
-            self.weighting_key,
-        )
-        direction = self.direction_sel.value
-        count_period = self.count_period_sel.value
-
-        if traffic_list is not None:
-            traffic_data = self.get_filtered_view(
-                "traffic_count_comparisons",
-                (direction, count_period),
-                factory=lambda: validation_chart_data(
-                    traffic_list,
-                    direction,
-                    count_period,
-                ),
-            )
-            traffic_chart: pn.viewable.Viewable = scatter_chart(
-                traffic_data,
-                x_col="observed_volume",
-                y_col="modeled_volume",
-                title="Traffic Count Comparisons",
-                xaxis_title="Observed Traffic Volume",
-                yaxis_title="Modeled Traffic Volume",
-            )
-        else:
-            traffic_chart = self.data_not_available_card(
-                detail="Traffic count comparisons are unavailable.",
-                missing_items=["traffic_count_comparisons"],
-            )
-
-        if screenline_list is not None:
-            screenline_data = self.get_filtered_view(
-                "screenline_flow_comparisons",
-                (direction, count_period),
-                factory=lambda: validation_chart_data(
-                    screenline_list,
-                    direction,
-                    count_period,
-                ),
-            )
-            screenline_chart: pn.viewable.Viewable = scatter_chart(
-                screenline_data,
-                x_col="observed_volume",
-                y_col="modeled_volume",
-                title="Screenline Flow Comparisons",
-                xaxis_title="Observed Traffic Volume",
-                yaxis_title="Modeled Traffic Volume",
-            )
-        else:
-            screenline_chart = self.data_not_available_card(
-                detail="Screenline flow comparisons are unavailable.",
-                missing_items=["screenline_flow_comparisons"],
-            )
+            return [self.no_runs_message()]
 
         return [
             pn.Row(
-                traffic_chart,
-                screenline_chart,
+                self._validation_chart(
+                    self.state.get_summary_table_set(
+                        "traffic_count_comparisons", self.weighting_key
+                    ),
+                    cache_key="traffic_count_comparisons",
+                    title="Traffic Count Comparisons",
+                    detail="Traffic count comparisons are unavailable.",
+                    missing_summary_id="traffic_count_comparisons",
+                ),
+                self._validation_chart(
+                    self.state.get_summary_table_set(
+                        "screenline_flow_comparisons", self.weighting_key
+                    ),
+                    cache_key="screenline_flow_comparisons",
+                    title="Screenline Flow Comparisons",
+                    detail="Screenline flow comparisons are unavailable.",
+                    missing_summary_id="screenline_flow_comparisons",
+                ),
                 sizing_mode="stretch_width",
-            ),
+            )
         ]
 
 
