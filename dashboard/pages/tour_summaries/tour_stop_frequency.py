@@ -120,7 +120,7 @@ class TourStopFrequencyPage(DashboardPage):
         display_purpose = self.purpose_sel.value
         return display_purpose, self._purpose_to_raw.get(display_purpose)
 
-    def _direction_chart(
+    def render_direction_chart(
         self,
         stop_list: list[tuple[str, pl.DataFrame]],
         *,
@@ -165,7 +165,7 @@ class TourStopFrequencyPage(DashboardPage):
             xaxis_categoryarray=label_values,
         )
 
-    def _atwork_chart(
+    def render_atwork_chart(
         self,
         atwork_list: list[tuple[str, pl.DataFrame]],
     ) -> pn.viewable.Viewable:
@@ -209,7 +209,7 @@ class TourStopFrequencyPage(DashboardPage):
         atwork_list = nonempty(summaries["atwork_subtour_frequency_distribution"])
         display_purpose, raw_purpose = self._selected_purpose()
         charts = [
-            self._direction_chart(
+            self.render_direction_chart(
                 stop_list,
                 raw_purpose=raw_purpose,
                 display_purpose=display_purpose,
@@ -222,7 +222,7 @@ class TourStopFrequencyPage(DashboardPage):
             pn.Row(pn.pane.Markdown("**Tour Purpose:**"), self.purpose_sel),
             *charts,
             pn.pane.Markdown("### At-Work Sub-Tour Frequency"),
-            self._atwork_chart(atwork_list),
+            self.render_atwork_chart(atwork_list),
         ]
 
 

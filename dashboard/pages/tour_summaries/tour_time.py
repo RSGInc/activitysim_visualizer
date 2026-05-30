@@ -159,7 +159,7 @@ class TourTimePage(DashboardPage):
         raw_purpose = self._purpose_to_raw.get(display_purpose, "all_tour_purposes")
         return display_purpose, str(raw_purpose)
 
-    def _time_charts(
+    def render_time_charts(
         self,
         tod_list: list[tuple[str, pl.DataFrame]],
         *,
@@ -211,7 +211,7 @@ class TourTimePage(DashboardPage):
         if summaries is None:
             return [self.summary_only_unavailable_card()]
         display_purpose, raw_purpose = self._selected_purpose()
-        departure_chart, arrival_chart, duration_chart = self._time_charts(
+        departure_chart, arrival_chart, duration_chart = self.render_time_charts(
             summaries["tour_time_of_day_by_tour_purpose"],
             raw_purpose=raw_purpose,
             display_purpose=display_purpose,

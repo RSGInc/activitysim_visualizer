@@ -88,48 +88,9 @@ class VehicleOwnershipTypePage(DashboardPage):
         auto_ownership = summaries["auto_ownership_distribution"]
         av_ownership = summaries["autonomous_vehicle_ownership_totals"]
 
-        if auto_ownership is not None:
-            top_row.append(
-                bar_chart(
-                    _cast_category(auto_ownership, "household_vehicle_count"),
-                    x_col="household_vehicle_count",
-                    y_col="household_count",
-                    title="Auto Ownership by Household Size",
-                    xaxis_title="Household Vehicles",
-                    yaxis_title="Households",
-                    pct_col="pct",
-                    as_percent=self.as_percent,
-                )
-            )
-        else:
-            top_row.append(
-                self.data_not_available_card(
-                    detail="The auto ownership summary is unavailable.",
-                    missing_items=["auto_ownership_distribution"],
-                )
-            )
+        top_row.append(self.render_auto_ownership_chart(auto_ownership))
 
-        if av_ownership is not None:
-            av_values = _av_kpi_values(av_ownership)
-            top_row.append(
-                kpi_box(
-                    "Autonomous Vehicle Ownership",
-                    av_values,
-                    format_fn=lambda value: f"{value:,.0f}",
-                )
-                if av_values
-                else self.data_not_available_card(
-                    detail="The autonomous vehicle ownership summary is empty.",
-                    missing_items=["autonomous_vehicle_ownership_totals"],
-                )
-            )
-        else:
-            top_row.append(
-                self.data_not_available_card(
-                    detail="The autonomous vehicle ownership summary is unavailable.",
-                    missing_items=["autonomous_vehicle_ownership_totals"],
-                )
-            )
+        top_row.append(self.render_autonomous_vehicle_kpi(av_ownership))
 
         return [pn.Row(*top_row, sizing_mode="stretch_width")]
 
@@ -168,34 +129,87 @@ class VehicleOwnershipTypePage(DashboardPage):
 
         for summary_id, canonical_col, legacy_col, title, xaxis_title in chart_specs:
             summary = summaries[summary_id]
-            if summary is None:
-                vehicle_views.append(
-                    self.data_not_available_card(
-                        detail=f"The {title.lower()} summary is unavailable.",
-                        missing_items=[summary_id],
-                    )
-                )
-                continue
-
-            normalized = _normalize_vehicle_summary_columns(
-                summary,
-                canonical_col=canonical_col,
-                legacy_col=legacy_col,
-            )
             vehicle_views.append(
-                bar_chart(
-                    _cast_category(normalized, canonical_col),
-                    x_col=canonical_col,
-                    y_col="vehicle_count",
+                self.render_vehicle_attribute_chart(
+                    summary,
+                    summary_id=summary_id,
+                    canonical_col=canonical_col,
+                    legacy_col=legacy_col,
                     title=title,
                     xaxis_title=xaxis_title,
-                    yaxis_title="Vehicles",
-                    pct_col="pct",
-                    as_percent=self.as_percent,
                 )
             )
 
         return [pn.Row(*vehicle_views, sizing_mode="stretch_width")]
+
+    def render_auto_ownership_chart(self, summary_data):
+        """Render household auto ownership or an unavailable card."""
+        if summary_data is None:
+            return self.data_not_available_card(
+                detail="The auto ownership summary is unavailable.",
+                missing_items=["auto_ownership_distribution"],
+            )
+        return bar_chart(
+            _cast_category(summary_data, "household_vehicle_count"),
+            x_col="household_vehicle_count",
+            y_col="household_count",
+            title="Auto Ownership by Household Size",
+            xaxis_title="Household Vehicles",
+            yaxis_title="Households",
+            pct_col="pct",
+            as_percent=self.as_percent,
+        )
+
+    def render_autonomous_vehicle_kpi(self, summary_data):
+        """Render the autonomous vehicle ownership KPI or an unavailable state."""
+        if summary_data is None:
+            return self.data_not_available_card(
+                detail="The autonomous vehicle ownership summary is unavailable.",
+                missing_items=["autonomous_vehicle_ownership_totals"],
+            )
+        av_values = _av_kpi_values(summary_data)
+        if not av_values:
+            return self.data_not_available_card(
+                detail="The autonomous vehicle ownership summary is empty.",
+                missing_items=["autonomous_vehicle_ownership_totals"],
+            )
+        return kpi_box(
+            "Autonomous Vehicle Ownership",
+            av_values,
+            format_fn=lambda value: f"{value:,.0f}",
+        )
+
+    def render_vehicle_attribute_chart(
+        self,
+        summary_data,
+        *,
+        summary_id: str,
+        canonical_col: str,
+        legacy_col: str,
+        title: str,
+        xaxis_title: str,
+    ):
+        """Render one vehicle attribute distribution chart or its unavailable state."""
+        if summary_data is None:
+            return self.data_not_available_card(
+                detail=f"The {title.lower()} summary is unavailable.",
+                missing_items=[summary_id],
+            )
+        normalized = _normalize_vehicle_summary_columns(
+            summary_data,
+            canonical_col=canonical_col,
+            legacy_col=legacy_col,
+        )
+        return bar_chart(
+            _cast_category(normalized, canonical_col),
+            x_col=canonical_col,
+            y_col="vehicle_count",
+            title=title,
+            xaxis_title=xaxis_title,
+            yaxis_title="Vehicles",
+            pct_col="pct",
+            as_percent=self.as_percent,
+        )
 
 
 PAGE = DashboardPageDefinition(

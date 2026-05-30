@@ -132,7 +132,7 @@ class TripModePage(DashboardPage):
         trip_mode_labels = self.config.ordered_labels("mode", trip_mode_values)
         return trip_mode_values, trip_mode_labels, tour_modes
 
-    def _mode_chart(
+    def render_mode_chart(
         self,
         trip_mode_list: list[tuple[str, pl.DataFrame]],
         *,
@@ -192,14 +192,14 @@ class TripModePage(DashboardPage):
         trip_mode_list = summaries["trip_mode_by_tour_purpose_and_tour_mode"]
         display_purpose, raw_purpose = self._selected_purpose()
         trip_mode_values, trip_mode_label_values, tour_modes = self._mode_axes(trip_mode_list)
-        overall_chart = self._mode_chart(
+        overall_chart = self.render_mode_chart(
             trip_mode_list,
             raw_purpose=raw_purpose,
             trip_mode_values=trip_mode_values,
             trip_mode_label_values=trip_mode_label_values,
         )
         grid_cards = [
-            self._mode_chart(
+            self.render_mode_chart(
                 trip_mode_list,
                 raw_purpose=raw_purpose,
                 trip_mode_values=trip_mode_values,

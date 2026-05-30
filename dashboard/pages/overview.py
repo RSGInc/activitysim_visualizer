@@ -152,6 +152,50 @@ class OverviewPage(DashboardPage):
             ],
         )
 
+    def render_person_type_chart(self, ptype_result) -> pn.viewable.Viewable:
+        """Render the person type distribution chart when its summary is available."""
+        return (
+            bar_chart(
+                person_type_chart_data(
+                    ptype_result.usable_by_input["person_type_distribution"]
+                ),
+                x_col="person_type_label",
+                y_col="person_count",
+                title="Person Type Distribution",
+                xaxis_title="Person Type",
+                yaxis_title="Persons",
+                pct_col="pct",
+                as_percent=self.as_percent,
+            )
+            if ptype_result.has_usable_runs
+            else self.unavailable_visualization(
+                ptype_result,
+                detail="Person type distribution is unavailable.",
+            )
+        )
+
+    def render_household_size_chart(self, hhsize_result) -> pn.viewable.Viewable:
+        """Render the household size distribution chart when its summary is available."""
+        return (
+            bar_chart(
+                hh_size_chart_data(
+                    hhsize_result.usable_by_input["household_size_distribution"]
+                ),
+                x_col="household_size",
+                y_col="household_count",
+                title="Household Size Distribution",
+                xaxis_title="Household Size",
+                yaxis_title="Households",
+                pct_col="pct",
+                as_percent=self.as_percent,
+            )
+            if hhsize_result.has_usable_runs
+            else self.unavailable_visualization(
+                hhsize_result,
+                detail="Household size distribution is unavailable.",
+            )
+        )
+
     def render_kpis(self) -> SectionContent:
         if not self.state.run_labels:
             return [self.no_runs_message()]
@@ -240,47 +284,12 @@ class OverviewPage(DashboardPage):
             return []
 
         ptype_result, hhsize_result = self._demographic_results()
-        ptype_widget = (
-            bar_chart(
-                person_type_chart_data(
-                    ptype_result.usable_by_input["person_type_distribution"]
-                ),
-                x_col="person_type_label",
-                y_col="person_count",
-                title="Person Type Distribution",
-                xaxis_title="Person Type",
-                yaxis_title="Persons",
-                pct_col="pct",
-                as_percent=self.as_percent,
-            )
-            if ptype_result.has_usable_runs
-            else self.unavailable_visualization(
-                ptype_result,
-                detail="Person type distribution is unavailable.",
-            )
-        )
-        hhsize_widget = (
-            bar_chart(
-                hh_size_chart_data(
-                    hhsize_result.usable_by_input["household_size_distribution"]
-                ),
-                x_col="household_size",
-                y_col="household_count",
-                title="Household Size Distribution",
-                xaxis_title="Household Size",
-                yaxis_title="Households",
-                pct_col="pct",
-                as_percent=self.as_percent,
-            )
-            if hhsize_result.has_usable_runs
-            else self.unavailable_visualization(
-                hhsize_result,
-                detail="Household size distribution is unavailable.",
-            )
-        )
         return [
             pn.pane.Markdown("### Demographic Distributions"),
-            pn.Row(ptype_widget, hhsize_widget),
+            pn.Row(
+                self.render_person_type_chart(ptype_result),
+                self.render_household_size_chart(hhsize_result),
+            ),
         ]
 
 

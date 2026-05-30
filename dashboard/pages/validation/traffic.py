@@ -128,7 +128,7 @@ class TrafficValidationPage(DashboardPage):
         if self.count_period_sel.value not in self.count_period_sel.options:
             self.count_period_sel.value = self.count_period_sel.options[0]
 
-    def _validation_chart(
+    def render_validation_chart(
         self,
         data_list: list[tuple[str, pl.DataFrame]] | None,
         *,
@@ -164,7 +164,7 @@ class TrafficValidationPage(DashboardPage):
 
         return [
             pn.Row(
-                self._validation_chart(
+                self.render_validation_chart(
                     self.state.get_summary_table_set(
                         "traffic_count_comparisons", self.weighting_key
                     ),
@@ -173,7 +173,7 @@ class TrafficValidationPage(DashboardPage):
                     detail="Traffic count comparisons are unavailable.",
                     missing_summary_id="traffic_count_comparisons",
                 ),
-                self._validation_chart(
+                self.render_validation_chart(
                     self.state.get_summary_table_set(
                         "screenline_flow_comparisons", self.weighting_key
                     ),

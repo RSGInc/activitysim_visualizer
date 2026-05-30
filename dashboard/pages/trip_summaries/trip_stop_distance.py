@@ -105,7 +105,7 @@ class TripStopDistancePage(DashboardPage):
         raw_purpose = self._tour_purpose_to_raw.get(display_purpose, "all_tour_purposes")
         return display_purpose, raw_purpose
 
-    def _distance_chart(
+    def render_distance_chart(
         self,
         *,
         summary_data: list[tuple[str, pl.DataFrame]],
@@ -143,7 +143,7 @@ class TripStopDistancePage(DashboardPage):
 
         display_purpose, raw_purpose = self._selected_purpose()
         return [
-            self._distance_chart(
+            self.render_distance_chart(
                 summary_data=summaries["trip_distance_by_purpose"],
                 cache_key="trip_distance",
                 raw_purpose=raw_purpose,
@@ -154,7 +154,7 @@ class TripStopDistancePage(DashboardPage):
                 xaxis_title="Distance (miles)",
                 yaxis_title="Trips",
             ),
-            self._distance_chart(
+            self.render_distance_chart(
                 summary_data=summaries["stop_out_of_direction_distance_by_tour_purpose"],
                 cache_key="stop_out_of_direction_distance",
                 raw_purpose=raw_purpose,

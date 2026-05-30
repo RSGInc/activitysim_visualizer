@@ -140,7 +140,7 @@ class TripStopTimePage(DashboardPage):
         raw_purpose = self._purpose_to_raw.get(display_purpose, display_purpose)
         return display_purpose, str(raw_purpose)
 
-    def _time_chart(
+    def render_time_chart(
         self,
         data_list: list[tuple[str, pl.DataFrame]],
         *,
@@ -178,7 +178,7 @@ class TripStopTimePage(DashboardPage):
         display_purpose, raw_purpose = self._selected_purpose()
         tod_list = summaries["trip_departure_time_by_purpose"]
         return [
-            self._time_chart(
+            self.render_time_chart(
                 tod_list,
                 raw_purpose=raw_purpose,
                 display_purpose=display_purpose,
@@ -187,7 +187,7 @@ class TripStopTimePage(DashboardPage):
                 y_col="departure_trip_count",
                 yaxis_title="Trips",
             ),
-            self._time_chart(
+            self.render_time_chart(
                 tod_list,
                 raw_purpose=raw_purpose,
                 display_purpose=display_purpose,

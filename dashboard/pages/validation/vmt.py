@@ -62,7 +62,7 @@ class VMTValidationPage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def _commercial_chart(self) -> pn.viewable.Viewable:
+    def render_commercial_chart(self) -> pn.viewable.Viewable:
         commercial_vmt = self.state.get_summary_table_set(
             "commercial_vmt_totals",
             self.weighting_key,
@@ -100,7 +100,7 @@ class VMTValidationPage(DashboardPage):
             xaxis_categoryarray=commercial_vehicle_type_values,
         )
 
-    def _bicycle_chart(self) -> pn.viewable.Viewable:
+    def render_bicycle_chart(self) -> pn.viewable.Viewable:
         bicycle_vmt = self.state.get_summary_table_set(
             "bicycle_vmt_by_facility_type",
             self.weighting_key,
@@ -131,9 +131,9 @@ class VMTValidationPage(DashboardPage):
                         pn.pane.Markdown("**Commercial VMT View:**"),
                         self.vmt_view_sel,
                     ),
-                    self._commercial_chart(),
+                    self.render_commercial_chart(),
                 ),
-                pn.Column(control_row_spacer(), self._bicycle_chart()),
+                pn.Column(control_row_spacer(), self.render_bicycle_chart()),
                 sizing_mode="stretch_width",
             )
         ]

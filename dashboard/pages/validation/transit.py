@@ -142,7 +142,9 @@ class TransitValidationPage(DashboardPage):
             }
         )
 
-    def _boardings_chart(self, operator_values: list[str]) -> pn.viewable.Viewable:
+    def render_boardings_chart(
+        self, operator_values: list[str]
+    ) -> pn.viewable.Viewable:
         boarding_list = self.state.get_summary_table_set(
             "transit_boardings_by_operator_and_technology",
             self.weighting_key,
@@ -170,7 +172,9 @@ class TransitValidationPage(DashboardPage):
             xaxis_categoryarray=operator_values,
         )
 
-    def _transfer_chart(self, operator_values: list[str]) -> pn.viewable.Viewable:
+    def render_transfer_chart(
+        self, operator_values: list[str]
+    ) -> pn.viewable.Viewable:
         transfer_list = self.state.get_summary_table_set(
             "transit_transfer_rate",
             self.weighting_key,
@@ -212,13 +216,16 @@ class TransitValidationPage(DashboardPage):
         operator_values = self._operator_values(boarding_list, transfer_list)
         return [
             pn.Row(
-                pn.Column(control_row_spacer(), self._boardings_chart(operator_values)),
+                pn.Column(
+                    control_row_spacer(),
+                    self.render_boardings_chart(operator_values),
+                ),
                 pn.Column(
                     control_row(
                         pn.pane.Markdown("**Access Mode:**"),
                         self.access_mode_sel,
                     ),
-                    self._transfer_chart(operator_values),
+                    self.render_transfer_chart(operator_values),
                 ),
                 sizing_mode="stretch_width",
             )

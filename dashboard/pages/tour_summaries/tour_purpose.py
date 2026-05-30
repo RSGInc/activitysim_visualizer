@@ -15,7 +15,7 @@ from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
 
-def _distribution_chart(
+def render_distribution_chart(
     data_list: list[tuple[str, pl.DataFrame]],
     *,
     source_col: str,
@@ -75,7 +75,7 @@ class TourPurposePage(DashboardPage):
         purpose_data = nonempty(summaries["tour_purpose_distribution"])
         return [
             pn.Row(
-                _distribution_chart(
+                render_distribution_chart(
                     category_data,
                     source_col="tour_category",
                     category_id="tour_category",
@@ -84,7 +84,7 @@ class TourPurposePage(DashboardPage):
                     config=self.config,
                     as_percent=self.as_percent,
                 ),
-                _distribution_chart(
+                render_distribution_chart(
                     purpose_data,
                     source_col="tour_purpose",
                     category_id="tour_purpose",

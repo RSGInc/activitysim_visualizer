@@ -164,7 +164,7 @@ class TripStopPurposePage(DashboardPage):
         display_purpose = self.tour_purpose_sel.value
         return display_purpose, self._tour_purpose_to_raw.get(display_purpose)
 
-    def _trip_purpose_chart(
+    def render_trip_purpose_chart(
         self,
         trip_purpose_list: list[tuple[str, pl.DataFrame]],
         *,
@@ -205,7 +205,7 @@ class TripStopPurposePage(DashboardPage):
             xaxis_categoryarray=label_values,
         )
 
-    def _stop_purpose_chart(
+    def render_stop_purpose_chart(
         self,
         stop_purpose_list: list[tuple[str, pl.DataFrame]],
         *,
@@ -267,11 +267,11 @@ class TripStopPurposePage(DashboardPage):
                     sizing_mode="stretch_width",
                 ),
                 pn.Row(
-                    self._trip_purpose_chart(
+                    self.render_trip_purpose_chart(
                         summaries["trip_purpose_distribution"],
                         raw_tour_purpose=raw_tour_purpose,
                     ),
-                    self._stop_purpose_chart(
+                    self.render_stop_purpose_chart(
                         summaries["stop_destination_purpose_by_tour_purpose"],
                         raw_tour_purpose=raw_tour_purpose,
                         display_purpose=display_purpose,
