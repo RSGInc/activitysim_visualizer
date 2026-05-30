@@ -8,10 +8,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from dashboard import DashboardState
 from dashboard.export.protocols import validate_export_page
+from dashboard.export.payload import resolve_page_parts
 from dashboard.page_registry import (
     all_page_definitions,
+    build_registered_live_pages,
     build_registered_export_pages,
 )
+from _dashboard_expectations import EXPECTED_DEFAULT_LEAF_PAGE_IDS
 from test_export_html import _full_summary_run, _write_config
 
 
@@ -44,6 +47,72 @@ def test_registered_export_pages_expose_runtime_selectors_with_unique_ids(
     for page in pages:
         selector_ids = [selector.selector_id for selector in page.registered_selectors]
         assert len(selector_ids) == len(set(selector_ids))
+
+
+def test_all_registered_live_pages_build_views_and_runtime_contracts(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    state = DashboardState(
+        summary_runs=[_full_summary_run()],
+        weighting_modes=config.weighting_modes,
+    )
+
+    pages = build_registered_live_pages(state, config)
+
+    assert [page.page_id() for page in pages] == EXPECTED_DEFAULT_LEAF_PAGE_IDS
+    for page in pages:
+        assert page.view is not None
+        selector_ids = [selector.selector_id for selector in page.registered_selectors]
+        section_ids = [section.section_id for section in page.registered_sections]
+
+        assert len(selector_ids) == len(set(selector_ids))
+        assert len(section_ids) == len(set(section_ids))
+
+        for section in page.registered_sections:
+            assert page.section_view(section.section_id) is section.container
+            assert set(section.selector_ids).issubset(selector_ids)
+
+        page.refresh(force=True)
+
+
+def test_representative_export_pages_keep_expected_runtime_sections(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    state = DashboardState(
+        summary_runs=[_full_summary_run()],
+        weighting_modes=config.weighting_modes,
+    )
+    pages_by_id = {
+        page.page_id(): page for page in build_registered_export_pages(state, config)
+    }
+
+    expected_sections = {
+        "overview": [("body", ())],
+        "daily_activity_pattern": [("activity_pattern_body", ("person_type",))],
+        "escorted_tours": [
+            ("escorted_tours_static_body", ()),
+            ("escorted_tours_directional_body", ("direction",)),
+        ],
+        "trip_mode": [("trip_summary_mode_body", ("tour_purpose",))],
+        "mandatory_location_choice": [
+            ("worker_geography", ("geography_level", "geography")),
+            ("commuting_flows", ("geography_level", "geography")),
+            ("mandatory_distance_table", ("geography_level", "geography")),
+            ("distance_distribution", ("geography_level", "geography")),
+            ("remote_work", ("geography_level", "geography")),
+        ],
+    }
+
+    for page_id, expected in expected_sections.items():
+        page = pages_by_id[page_id]
+        resolved_parts = resolve_page_parts(page, page_def=page.definition)
+
+        assert [
+            (part_def.part_id, tuple(part_def.selector_ids))
+            for part_def, _ in resolved_parts
+        ] == expected
 
 
 def test_registered_page_definitions_keep_legacy_selector_ids_unique_per_page() -> None:

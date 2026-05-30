@@ -60,13 +60,64 @@ The public lifecycle hooks are:
 - register selectors
 - register sections
 - return one stable root view
+- avoid heavy data reshaping or cross-run filtering work
 
 `sync_controls()` is optional. It runs before every refresh pass and is the right place to:
 
 - populate selector options from current data availability
 - reset invalid widget values to safe defaults
+- keep selector value/bootstrap logic out of `render_*()` methods
 
 `on_global_state_changed()` is optional. Use it for page-local cache invalidation when weighting mode, value mode, or available runs change.
+
+## Target Structure
+
+When adding or refactoring a page, aim for this shape:
+
+1. `build_page()`
+   - declare widgets
+   - register selectors
+   - register sections
+   - return the stable root layout
+
+2. `sync_controls()`
+   - compute selector options from current dashboard state
+   - keep selector defaults valid
+
+3. `render_*()` section methods
+   - one logical section per render method
+   - narrow control flow
+   - prefer pure helper functions for chart-ready reshaping
+
+4. shared helpers
+   - use `dashboard/helpers/` for logic that appears in multiple pages
+   - keep page-local helpers only for truly page-specific business rules
+
+As a rule of thumb:
+
+- `build_page()` should read like layout assembly
+- `sync_controls()` should read like selector synchronization
+- `render_*()` should read like "load data, handle missing state, render views"
+
+## Reference Pages
+
+Use the current pages below as implementation references when possible:
+
+- `dashboard/pages/overview.py`
+  - simplest summary-only page
+  - good reference for straightforward section rendering
+- `dashboard/pages/raw_trip_demo.py`
+  - smallest prepared-data page
+  - good reference for `resolve_prepared_visualization(...)`
+- `dashboard/pages/trip_summaries/trip_mode.py`
+  - good reference for one-selector, one-section chart pages
+- `dashboard/pages/long_term_choices/mandatory_location_choice.py`
+  - good reference for multi-section geography-driven pages
+  - also the main complexity target when refactoring shared geography helpers
+- `dashboard/pages/skim_summaries/trip_skims.py`
+  - strongest current example of selector sync plus independently refreshed sections
+- `dashboard/pages/skim_summaries/tour_skims.py`
+  - strongest current example of sectioned live distributions with non-exportable controls
 
 ## Public Helpers
 
@@ -175,6 +226,9 @@ Do:
 - register every refreshable content area with `section(...)`
 - return content from section render functions
 - keep expensive reshaping work behind `get_filtered_view(...)`
+- prefer `require_summaries(...)`, `optional_summary(...)`, `resolve_summary_visualization(...)`, and `resolve_prepared_visualization(...)` over repeated ad hoc state lookups in render code
+- add a concise module docstring that explains what the page shows
+- add short docstrings to helper functions when they encode a business rule that is not obvious from the function name
 
 Do not:
 
@@ -183,6 +237,8 @@ Do not:
 - declare page-local selector metadata in `PAGE`
 - declare export regions in `PAGE`
 - use `child_id`
+- put large data-transformation blocks inline in `build_page()`
+- let `render_*()` methods become catch-all implementations for the entire page
 
 ## Refresh Semantics
 
@@ -254,6 +310,8 @@ dashboard:
 3. If the page belongs to a group, set `group_id` on `PAGE` and keep the package `GROUP` aligned with `default_page_id`.
 4. Implement `build_page()`.
 5. Register selectors and sections.
-6. Declare the summary/prepared-data contract in `PAGE`.
-7. Add or update tests covering selector refresh and missing-data behavior.
-8. If the page should export interactively, add an export-focused test slice too.
+6. Keep selector option logic in `sync_controls()`.
+7. Keep section renderers short and move reusable transforms into shared helpers.
+8. Declare the summary/prepared-data contract in `PAGE`.
+9. Add or update tests covering selector refresh and missing-data behavior.
+10. If the page should export interactively, add an export-focused test slice too.

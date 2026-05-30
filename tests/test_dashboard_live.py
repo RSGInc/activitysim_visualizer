@@ -24,7 +24,8 @@ from dashboard.app import build_dashboard
 from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
-from dashboard.pages.skims import SkimSummariesPage
+from dashboard.pages.skim_summaries.trip_skims import TripSkimsPage
+from dashboard.pages.skim_summaries.tour_skims import TourSkimsPage
 import dashboard.pages as dashboard_pages_package
 from dashboard.page_registry import (
     all_page_definitions,
@@ -173,7 +174,7 @@ def test_resolve_page_definitions_supports_nested_group_child_selection(
     ]
 
 
-def test_enabled_prepared_data_mode_only_flips_on_for_pages_that_request_it(
+def test_enabled_prepared_data_mode_tracks_optional_and_required_page_sets(
     tmp_path: Path,
 ) -> None:
     summary_only_config = _write_config(tmp_path / "summary_only")
@@ -182,7 +183,7 @@ def test_enabled_prepared_data_mode_only_flips_on_for_pages_that_request_it(
         dashboard_pages=["overview", "raw_trip_demo"],
     )
 
-    assert enabled_prepared_data_mode(summary_only_config) == "none"
+    assert enabled_prepared_data_mode(summary_only_config) == "optional"
     assert enabled_prepared_data_mode(raw_demo_config) == "required"
 
 
@@ -250,10 +251,7 @@ def test_build_dashboard_can_refresh_every_default_page_from_precomputed_summari
     for index, page in enumerate(pages):
         tabs.active = index
         assert page.view is not None
-    assert state.page_state["Overview"]["last_rendered_state"] == (
-        state.weighting_key(),
-        state.value_key(),
-    )
+    assert state.page_state["Overview"]["last_rendered_state"] == state.global_state_key()
 
     leaf_pages = {page.page_id(): page for page in template._dashboard_leaf_pages}
     assert [
@@ -282,7 +280,7 @@ def test_build_dashboard_can_refresh_every_default_page_from_precomputed_summari
     assert leaf_pages["trip_mode"].tour_purpose_sel.options == ["All", "eatout", "social"]
 
 
-def test_build_dashboard_keeps_prepared_runs_out_of_summary_only_default_state(
+def test_build_dashboard_loads_prepared_runs_for_optional_default_pages_when_available(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -292,8 +290,11 @@ def test_build_dashboard_keeps_prepared_runs_out_of_summary_only_default_state(
         summary_runs=[_full_summary_run()],
     )
 
-    assert template._dashboard_state.prepared_run_availability == "not_requested"
-    assert template._dashboard_state.get_prepared_runs_if_loaded(weighted=True) is None
+    assert template._dashboard_state.prepared_run_availability == "loaded"
+    weighted_runs = template._dashboard_state.get_prepared_runs_if_loaded(weighted=True)
+
+    assert weighted_runs is not None
+    assert weighted_runs[0][0] == "Base"
 
 
 def test_build_dashboard_loads_prepared_runs_when_demo_page_is_enabled(tmp_path: Path) -> None:
@@ -384,33 +385,33 @@ def test_build_dashboard_switches_tabs_and_refreshes_only_the_active_page(
     tabs = template.main[0]
 
     assert state.active_tab == 0
-    assert state.page_state["Overview"]["last_rendered_state"] == ("weighted", "percent")
+    assert state.page_state["Overview"]["last_rendered_state"] == state.global_state_key()
     assert state.page_state["Daily Activity Pattern"].get("last_rendered_state") is None
 
     tabs.active = 1
 
     assert state.active_tab == 1
-    assert state.page_state["Overview"]["last_rendered_state"] == ("weighted", "percent")
-    assert state.page_state["Daily Activity Pattern"]["last_rendered_state"] == (
-        "weighted",
-        "percent",
+    assert state.page_state["Overview"]["last_rendered_state"] == state.global_state_key()
+    assert (
+        state.page_state["Daily Activity Pattern"]["last_rendered_state"]
+        == state.global_state_key()
     )
     assert state.page_state["Tour Purpose"].get("last_rendered_state") is None
 
     state.weight_mode = "Unweighted"
 
     assert state.page_state["Overview"]["last_rendered_state"] is None
-    assert state.page_state["Daily Activity Pattern"]["last_rendered_state"] == (
-        "unweighted",
-        "percent",
+    assert (
+        state.page_state["Daily Activity Pattern"]["last_rendered_state"]
+        == state.global_state_key()
     )
     assert state.page_state["Tour Purpose"].get("last_rendered_state") is None
 
     state.value_mode = "Count"
 
-    assert state.page_state["Daily Activity Pattern"]["last_rendered_state"] == (
-        "unweighted",
-        "count",
+    assert (
+        state.page_state["Daily Activity Pattern"]["last_rendered_state"]
+        == state.global_state_key()
     )
     assert state.page_state["Overview"].get("last_rendered_state") is None
     assert state.page_state["Mandatory Location Choice"].get("last_rendered_state") is None
@@ -490,7 +491,7 @@ def test_dashboard_page_cache_helpers_reuse_summary_and_filtered_view_results(
     assert state.cache_stats["filtered_view"] == {"hits": 2, "misses": 1}
 
 
-def test_skims_page_renders_component_selector_and_independent_sections(
+def test_skim_pages_render_selector_controls_and_independent_sections(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -503,8 +504,8 @@ def test_skims_page_renders_component_selector_and_independent_sections(
                 **summary_run.summaries_by_mode["weighted"],
                 "skimjoin_trip_component_stats": pl.DataFrame(
                     {
-                        "trip_mode": ["DRIVE", "WALK"],
-                        "component": ["skim_time", "skim_time"],
+                        "trip_mode": ["SOV", "WALK"],
+                        "component": ["skim_auto_time", "skim_walk_distance"],
                         "n_total": [6.0, 2.0],
                         "n_valid": [3.0, 2.0],
                         "mean": [6.67, 5.0],
@@ -519,8 +520,13 @@ def test_skims_page_renders_component_selector_and_independent_sections(
                 ),
                 "skimjoin_trip_component_ecdf": pl.DataFrame(
                     {
-                        "trip_mode": ["DRIVE", "DRIVE", "WALK", "WALK"],
-                        "component": ["skim_time", "skim_time", "skim_time", "skim_time"],
+                        "trip_mode": ["SOV", "SOV", "WALK", "WALK"],
+                        "component": [
+                            "skim_auto_time",
+                            "skim_auto_time",
+                            "skim_walk_distance",
+                            "skim_walk_distance",
+                        ],
                         "percentile": [0.0, 1.0, 0.0, 1.0],
                         "value": [0.0, 10.0, 5.0, 5.0],
                         "n_valid": [3.0, 3.0, 2.0, 2.0],
@@ -528,27 +534,50 @@ def test_skims_page_renders_component_selector_and_independent_sections(
                 ),
                 "skimjoin_tour_component_stats": pl.DataFrame(
                     {
-                        "tour_mode": ["DRIVE", "WALK"],
-                        "component": ["skim_time", "skim_time"],
-                        "n_total": [6.0, 2.0],
-                        "n_valid": [3.0, 2.0],
-                        "mean": [6.67, 5.0],
-                        "std": [4.71, 0.0],
-                        "min": [0.0, 5.0],
-                        "max": [10.0, 5.0],
-                        "median": [10.0, 5.0],
-                        "mode": [10.0, 5.0],
-                        "zero_share": [0.33, 0.0],
-                        "missing_share": [0.5, 0.0],
+                        "tour_mode": ["SOV", "SOV", "WALK", "WALK"],
+                        "component": [
+                            "skim_auto_time_outbound",
+                            "skim_auto_time_inbound",
+                            "skim_walk_distance_outbound",
+                            "skim_walk_distance_inbound",
+                        ],
+                        "n_total": [6.0, 6.0, 2.0, 2.0],
+                        "n_valid": [3.0, 3.0, 2.0, 2.0],
+                        "mean": [6.67, 6.67, 5.0, 5.0],
+                        "std": [4.71, 4.71, 0.0, 0.0],
+                        "min": [0.0, 0.0, 5.0, 5.0],
+                        "max": [10.0, 10.0, 5.0, 5.0],
+                        "median": [10.0, 10.0, 5.0, 5.0],
+                        "mode": [10.0, 10.0, 5.0, 5.0],
+                        "zero_share": [0.33, 0.33, 0.0, 0.0],
+                        "missing_share": [0.5, 0.5, 0.0, 0.0],
                     }
                 ),
                 "skimjoin_tour_component_ecdf": pl.DataFrame(
                     {
-                        "tour_mode": ["DRIVE", "DRIVE", "WALK", "WALK"],
-                        "component": ["skim_time", "skim_time", "skim_time", "skim_time"],
-                        "percentile": [0.0, 1.0, 0.0, 1.0],
-                        "value": [0.0, 10.0, 5.0, 5.0],
-                        "n_valid": [3.0, 3.0, 2.0, 2.0],
+                        "tour_mode": [
+                            "SOV",
+                            "SOV",
+                            "SOV",
+                            "SOV",
+                            "WALK",
+                            "WALK",
+                            "WALK",
+                            "WALK",
+                        ],
+                        "component": [
+                            "skim_auto_time_outbound",
+                            "skim_auto_time_outbound",
+                            "skim_auto_time_inbound",
+                            "skim_auto_time_inbound",
+                            "skim_walk_distance_outbound",
+                            "skim_walk_distance_outbound",
+                            "skim_walk_distance_inbound",
+                            "skim_walk_distance_inbound",
+                        ],
+                        "percentile": [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
+                        "value": [0.0, 10.0, 0.0, 10.0, 5.0, 5.0, 5.0, 5.0],
+                        "n_valid": [3.0, 3.0, 3.0, 3.0, 2.0, 2.0, 2.0, 2.0],
                     }
                 ),
             },
@@ -556,8 +585,8 @@ def test_skims_page_renders_component_selector_and_independent_sections(
                 **summary_run.summaries_by_mode["unweighted"],
                 "skimjoin_trip_component_stats": pl.DataFrame(
                     {
-                        "trip_mode": ["DRIVE"],
-                        "component": ["skim_time"],
+                        "trip_mode": ["SOV"],
+                        "component": ["skim_auto_time"],
                         "n_total": [3.0],
                         "n_valid": [2.0],
                         "mean": [5.0],
@@ -572,8 +601,8 @@ def test_skims_page_renders_component_selector_and_independent_sections(
                 ),
                 "skimjoin_trip_component_ecdf": pl.DataFrame(
                     {
-                        "trip_mode": ["DRIVE", "DRIVE"],
-                        "component": ["skim_time", "skim_time"],
+                        "trip_mode": ["SOV", "SOV"],
+                        "component": ["skim_auto_time", "skim_auto_time"],
                         "percentile": [0.0, 1.0],
                         "value": [0.0, 10.0],
                         "n_valid": [2.0, 2.0],
@@ -581,27 +610,35 @@ def test_skims_page_renders_component_selector_and_independent_sections(
                 ),
                 "skimjoin_tour_component_stats": pl.DataFrame(
                     {
-                        "tour_mode": ["DRIVE"],
-                        "component": ["skim_time"],
-                        "n_total": [3.0],
-                        "n_valid": [2.0],
-                        "mean": [5.0],
-                        "std": [5.0],
-                        "min": [0.0],
-                        "max": [10.0],
-                        "median": [0.0],
-                        "mode": [0.0],
-                        "zero_share": [0.5],
-                        "missing_share": [1.0 / 3.0],
+                        "tour_mode": ["SOV", "SOV"],
+                        "component": [
+                            "skim_auto_time_outbound",
+                            "skim_auto_time_inbound",
+                        ],
+                        "n_total": [3.0, 3.0],
+                        "n_valid": [2.0, 2.0],
+                        "mean": [5.0, 5.0],
+                        "std": [5.0, 5.0],
+                        "min": [0.0, 0.0],
+                        "max": [10.0, 10.0],
+                        "median": [0.0, 0.0],
+                        "mode": [0.0, 0.0],
+                        "zero_share": [0.5, 0.5],
+                        "missing_share": [1.0 / 3.0, 1.0 / 3.0],
                     }
                 ),
                 "skimjoin_tour_component_ecdf": pl.DataFrame(
                     {
-                        "tour_mode": ["DRIVE", "DRIVE"],
-                        "component": ["skim_time", "skim_time"],
-                        "percentile": [0.0, 1.0],
-                        "value": [0.0, 10.0],
-                        "n_valid": [2.0, 2.0],
+                        "tour_mode": ["SOV", "SOV", "SOV", "SOV"],
+                        "component": [
+                            "skim_auto_time_outbound",
+                            "skim_auto_time_outbound",
+                            "skim_auto_time_inbound",
+                            "skim_auto_time_inbound",
+                        ],
+                        "percentile": [0.0, 1.0, 0.0, 1.0],
+                        "value": [0.0, 10.0, 0.0, 10.0],
+                        "n_valid": [2.0, 2.0, 2.0, 2.0],
                     }
                 ),
             },
@@ -614,25 +651,43 @@ def test_skims_page_renders_component_selector_and_independent_sections(
         weighting_modes=config.weighting_modes,
     )
 
-    page = SkimSummariesPage(state, config)
-    page.refresh(force=True)
+    trip_page = TripSkimsPage(state, config)
+    trip_page.refresh(force=True)
 
-    assert page.component_sel.options == ["skim_time"]
-    assert list(page.trip_mode_sel.options) == ["DRIVE", "WALK"]
-    assert list(page.tour_mode_sel.options) == ["DRIVE", "WALK"]
-    assert len(page._trip_section.objects) == 3
-    assert len(page._trip_distribution_section.objects) == 2
-    assert len(page._tour_section.objects) == 3
-    assert len(page._tour_distribution_section.objects) == 2
+    assert trip_page.trip_component_sel.options == [
+        "skim_auto_time",
+        "skim_walk_distance",
+    ]
+    assert list(trip_page.trip_mode_sel.options) == ["All Modes", "SOV"]
+    assert len(trip_page._summary_section.objects) == 1
+    assert len(trip_page._distribution_section.objects) == 2
 
-    page.trip_mode_sel.value = "WALK"
-    assert len(page._trip_section.objects) == 3
-    assert len(page._trip_distribution_section.objects) == 2
-    assert len(page._tour_section.objects) == 3
-    assert len(page._tour_distribution_section.objects) == 2
+    trip_page.trip_component_sel.value = "skim_walk_distance"
+
+    assert list(trip_page.trip_mode_sel.options) == ["All Modes", "WALK"]
+    assert len(trip_page._summary_section.objects) == 1
+    assert len(trip_page._distribution_section.objects) == 2
+
+    tour_page = TourSkimsPage(state, config)
+    tour_page.refresh(force=True)
+
+    assert tour_page.tour_component_sel.options == [
+        "skim_auto_time",
+        "skim_walk_distance",
+    ]
+    assert list(tour_page.tour_direction_sel.options) == ["Outbound", "Inbound"]
+    assert list(tour_page.tour_mode_sel.options) == ["All Modes", "SOV"]
+    assert len(tour_page._summary_section.objects) == 1
+    assert len(tour_page._distribution_section.objects) == 4
+
+    tour_page.tour_component_sel.value = "skim_walk_distance"
+
+    assert list(tour_page.tour_mode_sel.options) == ["All Modes", "WALK"]
+    assert len(tour_page._summary_section.objects) == 1
+    assert len(tour_page._distribution_section.objects) == 4
 
 
-def test_skims_page_mode_selectors_exclude_component_modes_with_no_valid_observations(
+def test_skim_pages_mode_selectors_exclude_component_modes_with_no_valid_observations(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -679,36 +734,52 @@ def test_skims_page_mode_selectors_exclude_component_modes_with_no_valid_observa
                 ),
                 "skimjoin_tour_component_stats": pl.DataFrame(
                     {
-                        "tour_mode": ["SOV", "WALK", "HOV2"],
+                        "tour_mode": ["SOV", "SOV", "WALK", "WALK", "HOV2", "HOV2"],
                         "component": [
-                            "skim_auto_time",
-                            "skim_auto_time",
-                            "skim_walk_distance",
+                            "skim_auto_time_outbound",
+                            "skim_auto_time_inbound",
+                            "skim_auto_time_outbound",
+                            "skim_auto_time_inbound",
+                            "skim_walk_distance_outbound",
+                            "skim_walk_distance_inbound",
                         ],
-                        "n_total": [10.0, 5.0, 3.0],
-                        "n_valid": [10.0, 0.0, 3.0],
-                        "mean": [12.0, None, 1.5],
-                        "std": [2.0, None, 0.2],
-                        "min": [8.0, None, 1.2],
-                        "max": [16.0, None, 1.8],
-                        "median": [12.0, None, 1.5],
-                        "mode": [12.0, None, 1.2],
-                        "zero_share": [0.0, None, 0.0],
-                        "missing_share": [0.0, 1.0, 0.0],
+                        "n_total": [10.0, 10.0, 5.0, 5.0, 3.0, 3.0],
+                        "n_valid": [10.0, 10.0, 0.0, 0.0, 3.0, 3.0],
+                        "mean": [12.0, 12.0, None, None, 1.5, 1.5],
+                        "std": [2.0, 2.0, None, None, 0.2, 0.2],
+                        "min": [8.0, 8.0, None, None, 1.2, 1.2],
+                        "max": [16.0, 16.0, None, None, 1.8, 1.8],
+                        "median": [12.0, 12.0, None, None, 1.5, 1.5],
+                        "mode": [12.0, 12.0, None, None, 1.2, 1.2],
+                        "zero_share": [0.0, 0.0, None, None, 0.0, 0.0],
+                        "missing_share": [0.0, 0.0, 1.0, 1.0, 0.0, 0.0],
                     }
                 ),
                 "skimjoin_tour_component_ecdf": pl.DataFrame(
                     {
-                        "tour_mode": ["SOV", "SOV", "HOV2", "HOV2"],
-                        "component": [
-                            "skim_auto_time",
-                            "skim_auto_time",
-                            "skim_walk_distance",
-                            "skim_walk_distance",
+                        "tour_mode": [
+                            "SOV",
+                            "SOV",
+                            "SOV",
+                            "SOV",
+                            "HOV2",
+                            "HOV2",
+                            "HOV2",
+                            "HOV2",
                         ],
-                        "percentile": [0.0, 1.0, 0.0, 1.0],
-                        "value": [8.0, 16.0, 1.2, 1.8],
-                        "n_valid": [10.0, 10.0, 3.0, 3.0],
+                        "component": [
+                            "skim_auto_time_outbound",
+                            "skim_auto_time_outbound",
+                            "skim_auto_time_inbound",
+                            "skim_auto_time_inbound",
+                            "skim_walk_distance_outbound",
+                            "skim_walk_distance_outbound",
+                            "skim_walk_distance_inbound",
+                            "skim_walk_distance_inbound",
+                        ],
+                        "percentile": [0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
+                        "value": [8.0, 16.0, 8.0, 16.0, 1.2, 1.8, 1.2, 1.8],
+                        "n_valid": [10.0, 10.0, 10.0, 10.0, 3.0, 3.0, 3.0, 3.0],
                     }
                 ),
             },
@@ -728,20 +799,34 @@ def test_skims_page_mode_selectors_exclude_component_modes_with_no_valid_observa
         weighting_modes=config.weighting_modes,
     )
 
-    page = SkimSummariesPage(state, config)
-    page.refresh(force=True)
+    trip_page = TripSkimsPage(state, config)
+    trip_page.refresh(force=True)
 
-    assert page.component_sel.options == ["skim_auto_time", "skim_walk_distance"]
-    assert list(page.trip_mode_sel.options) == ["SOV"]
-    assert list(page.tour_mode_sel.options) == ["SOV"]
+    assert trip_page.trip_component_sel.options == [
+        "skim_auto_time",
+        "skim_walk_distance",
+    ]
+    assert list(trip_page.trip_mode_sel.options) == ["All Modes", "SOV"]
 
-    page.component_sel.value = "skim_walk_distance"
+    trip_page.trip_component_sel.value = "skim_walk_distance"
 
-    assert list(page.trip_mode_sel.options) == ["HOV2"]
-    assert list(page.tour_mode_sel.options) == ["HOV2"]
+    assert list(trip_page.trip_mode_sel.options) == ["All Modes", "HOV2"]
+
+    tour_page = TourSkimsPage(state, config)
+    tour_page.refresh(force=True)
+
+    assert tour_page.tour_component_sel.options == [
+        "skim_auto_time",
+        "skim_walk_distance",
+    ]
+    assert list(tour_page.tour_mode_sel.options) == ["All Modes", "SOV"]
+
+    tour_page.tour_component_sel.value = "skim_walk_distance"
+
+    assert list(tour_page.tour_mode_sel.options) == ["All Modes", "HOV2"]
 
 
-def test_skims_page_renders_disaggregated_distribution_plots_when_prepared_runs_are_loaded(
+def test_skim_pages_render_disaggregated_distribution_plots_when_prepared_runs_are_loaded(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -779,27 +864,37 @@ def test_skims_page_renders_disaggregated_distribution_plots_when_prepared_runs_
                 ),
                 "skimjoin_tour_component_stats": pl.DataFrame(
                     {
-                        "tour_mode": ["SOV"],
-                        "component": ["skim_auto_time"],
-                        "n_total": [100.0],
-                        "n_valid": [100.0],
-                        "mean": [13.88],
-                        "std": [18.71],
-                        "min": [10.0],
-                        "max": [200.0],
-                        "median": [12.0],
-                        "mode": [10.0],
-                        "zero_share": [0.0],
-                        "missing_share": [0.0],
+                        "tour_mode": ["SOV", "SOV"],
+                        "component": [
+                            "skim_auto_time_outbound",
+                            "skim_auto_time_inbound",
+                        ],
+                        "n_total": [100.0, 100.0],
+                        "n_valid": [100.0, 100.0],
+                        "mean": [13.88, 13.88],
+                        "std": [18.71, 18.71],
+                        "min": [10.0, 10.0],
+                        "max": [200.0, 200.0],
+                        "median": [12.0, 12.0],
+                        "mode": [10.0, 10.0],
+                        "zero_share": [0.0, 0.0],
+                        "missing_share": [0.0, 0.0],
                     }
                 ),
                 "skimjoin_tour_component_ecdf": pl.DataFrame(
                     {
-                        "tour_mode": ["SOV", "SOV", "SOV"],
-                        "component": ["skim_auto_time", "skim_auto_time", "skim_auto_time"],
-                        "percentile": [0.0, 0.99, 1.0],
-                        "value": [10.0, 14.0, 200.0],
-                        "n_valid": [100.0, 100.0, 100.0],
+                        "tour_mode": ["SOV", "SOV", "SOV", "SOV", "SOV", "SOV"],
+                        "component": [
+                            "skim_auto_time_outbound",
+                            "skim_auto_time_outbound",
+                            "skim_auto_time_outbound",
+                            "skim_auto_time_inbound",
+                            "skim_auto_time_inbound",
+                            "skim_auto_time_inbound",
+                        ],
+                        "percentile": [0.0, 0.99, 1.0, 0.0, 0.99, 1.0],
+                        "value": [10.0, 14.0, 200.0, 10.0, 14.0, 200.0],
+                        "n_valid": [100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
                     }
                 ),
             },
@@ -823,7 +918,8 @@ def test_skims_page_renders_disaggregated_distribution_plots_when_prepared_runs_
         tours=pl.DataFrame(
             {
                 "tour_mode": ["SOV", "SOV", "SOV", "SOV"],
-                "skim_auto_time": [10.0, 12.0, 14.0, 200.0],
+                "skim_auto_time_outbound": [10.0, 12.0, 14.0, 200.0],
+                "skim_auto_time_inbound": [10.0, 12.0, 14.0, 200.0],
                 "finalweight": [33.0, 33.0, 33.0, 1.0],
             }
         ),
@@ -847,38 +943,73 @@ def test_skims_page_renders_disaggregated_distribution_plots_when_prepared_runs_
         ),
     )
 
-    page = SkimSummariesPage(state, config)
-    page.refresh(force=True)
+    trip_page = TripSkimsPage(state, config)
+    trip_page.refresh(force=True)
 
-    assert isinstance(page._trip_distribution_section.objects[-1], pn.pane.Plotly)
-    assert isinstance(page._tour_distribution_section.objects[-1], pn.pane.Plotly)
-    assert tuple(page._trip_distribution_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
+    assert isinstance(trip_page._distribution_section.objects[-1], pn.pane.Plotly)
+    assert tuple(trip_page._distribution_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
         (10.0, 200.0)
     )
-    assert tuple(page._tour_distribution_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
-        (10.0, 200.0)
+    assert trip_page._distribution_section.objects[-1].object.layout.title.text == (
+        "Trip Distribution - skim_auto_time / All Modes"
     )
-    assert page._trip_distribution_section.objects[-1].object.layout.title.text == "Trip Distribution - skim_auto_time / SOV"
-    assert page._tour_distribution_section.objects[-1].object.layout.title.text == "Tour Distribution - skim_auto_time / SOV"
 
-    page.trip_min_sel.value = 11.0
-    page.trip_max_sel.value = 13.0
-    page.tour_min_sel.value = 11.0
-    page.tour_max_sel.value = 13.0
+    trip_page.trip_min_sel.value = 11.0
+    trip_page.trip_max_sel.value = 13.0
 
-    assert tuple(page._trip_distribution_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
-        (11.0, 13.0)
-    )
-    assert tuple(page._tour_distribution_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
+    assert tuple(trip_page._distribution_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
         (11.0, 13.0)
     )
 
-    page.trip_reset_btn.clicks = page.trip_reset_btn.clicks + 1
-    page.tour_reset_btn.clicks = page.tour_reset_btn.clicks + 1
+    trip_page.trip_reset_btn.clicks = trip_page.trip_reset_btn.clicks + 1
 
-    assert tuple(page._trip_distribution_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
+    assert tuple(trip_page._distribution_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
         (10.0, 200.0)
     )
-    assert tuple(page._tour_distribution_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
+
+    tour_page = TourSkimsPage(state, config)
+    tour_page.refresh(force=True)
+
+    outbound_plot = tour_page._distribution_section.objects[1]
+    inbound_plot = tour_page._distribution_section.objects[3]
+
+    assert isinstance(outbound_plot, pn.pane.Plotly)
+    assert isinstance(inbound_plot, pn.pane.Plotly)
+    assert tuple(outbound_plot.object.layout.xaxis.range) == pytest.approx(
+        (10.0, 200.0)
+    )
+    assert tuple(inbound_plot.object.layout.xaxis.range) == pytest.approx(
+        (10.0, 200.0)
+    )
+    assert outbound_plot.object.layout.title.text == (
+        "Outbound Tour Distribution - skim_auto_time_outbound / All Modes"
+    )
+    assert inbound_plot.object.layout.title.text == (
+        "Inbound Tour Distribution - skim_auto_time_inbound / All Modes"
+    )
+
+    tour_page.outbound_min_sel.value = 11.0
+    tour_page.outbound_max_sel.value = 13.0
+    tour_page.inbound_min_sel.value = 11.0
+    tour_page.inbound_max_sel.value = 13.0
+
+    outbound_plot = tour_page._distribution_section.objects[1]
+    inbound_plot = tour_page._distribution_section.objects[3]
+    assert tuple(outbound_plot.object.layout.xaxis.range) == pytest.approx(
+        (11.0, 13.0)
+    )
+    assert tuple(inbound_plot.object.layout.xaxis.range) == pytest.approx(
+        (11.0, 13.0)
+    )
+
+    tour_page.outbound_reset_btn.clicks = tour_page.outbound_reset_btn.clicks + 1
+    tour_page.inbound_reset_btn.clicks = tour_page.inbound_reset_btn.clicks + 1
+
+    outbound_plot = tour_page._distribution_section.objects[1]
+    inbound_plot = tour_page._distribution_section.objects[3]
+    assert tuple(outbound_plot.object.layout.xaxis.range) == pytest.approx(
+        (10.0, 200.0)
+    )
+    assert tuple(inbound_plot.object.layout.xaxis.range) == pytest.approx(
         (10.0, 200.0)
     )
