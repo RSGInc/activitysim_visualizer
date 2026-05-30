@@ -352,6 +352,25 @@ class DashboardPage:
             missing_items=missing_items,
         )
 
+    def no_runs_message(self) -> pn.pane.Markdown:
+        """Return the standard no-runs-loaded placeholder used across pages."""
+        return pn.pane.Markdown("No runs loaded.")
+
+    def summary_only_unavailable_card(
+        self,
+        *,
+        summary_ids: list[str] | tuple[str, ...] | None = None,
+        detail: str = "This page only renders from precomputed summary tables.",
+        title: str = "Data Not Available",
+    ) -> pn.Card:
+        """Return the standard summary-only unavailable card for this page."""
+        missing_items = list(summary_ids or self.required_summary_ids)
+        return self.data_not_available_card(
+            detail=detail,
+            missing_items=missing_items,
+            title=title,
+        )
+
     @property
     def missing_data_display(self) -> str:
         return self.config.missing_data_display
@@ -547,6 +566,21 @@ class DashboardPage:
         if not selection.has_usable_runs:
             return None
         return [(label, table) for label, table in selection.usable_runs]
+
+    def optional_summaries_dict(
+        self,
+        *summary_names: str,
+        required_columns_by_summary: dict[str, tuple[str, ...]] | None = None,
+    ) -> dict[str, Any]:
+        """Return optional summaries keyed by summary id without failing the whole page."""
+        required_columns_by_summary = required_columns_by_summary or {}
+        return {
+            summary_name: self.optional_summary(
+                summary_name,
+                required_columns=required_columns_by_summary.get(summary_name, ()),
+            )
+            for summary_name in summary_names
+        }
 
     def require_summaries(self, *summary_names: str) -> dict[str, Any] | None:
         """Return multiple summary tables or ``None`` when any are missing."""

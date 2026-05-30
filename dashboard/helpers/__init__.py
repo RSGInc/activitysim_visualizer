@@ -1,1 +1,1 @@
-"""Shared dashboard helper modules."""
+"""Shared dashboard helper modules for page-level selector and transform logic."""
