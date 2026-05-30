@@ -65,7 +65,10 @@ def parking_scatter_data(
 
 
 class ParkingLocationPage(DashboardPage):
+    """Join parking summaries with prepared land-use capacity data."""
+
     def build_page(self) -> pn.viewable.Viewable:
+        """Build the page around one exportable body section."""
         self._body = self.section(
             "parking_location_body",
             export_data_mode="required",
@@ -78,8 +81,9 @@ class ParkingLocationPage(DashboardPage):
         )
 
     def render_body(self):
+        """Render the parking scatterplot plus the joined comparison table."""
         if not self.state.run_labels:
-            return [pn.pane.Markdown("No runs loaded.")]
+            return [self.no_runs_message()]
 
         parking_result = self.resolve_summary_visualization(
             "parking_location_scatter",
@@ -127,17 +131,31 @@ class ParkingLocationPage(DashboardPage):
             ]
 
         return [
-            scatter_chart(
-                scatter_data,
-                x_col="parking_capacity",
-                y_col="trip_count",
-                title="Parking Capacity vs Trips Parked by Zone",
-                xaxis_title="Parking Capacity",
-                yaxis_title="Trips Parked",
-                drop_zero_y=False,
-            ),
-            data_table(scatter_data, "Parking Capacity vs Trips Parked"),
+            self.render_scatter_chart(scatter_data),
+            self.render_comparison_table(scatter_data),
         ]
+
+    def render_scatter_chart(
+        self,
+        scatter_data: list[tuple[str, pl.DataFrame]],
+    ) -> pn.viewable.Viewable:
+        """Render the parking capacity versus trips scatterplot."""
+        return scatter_chart(
+            scatter_data,
+            x_col="parking_capacity",
+            y_col="trip_count",
+            title="Parking Capacity vs Trips Parked by Zone",
+            xaxis_title="Parking Capacity",
+            yaxis_title="Trips Parked",
+            drop_zero_y=False,
+        )
+
+    def render_comparison_table(
+        self,
+        scatter_data: list[tuple[str, pl.DataFrame]],
+    ) -> pn.viewable.Viewable:
+        """Render the joined capacity/trips table below the chart."""
+        return data_table(scatter_data, "Parking Capacity vs Trips Parked")
 
 
 PAGE = DashboardPageDefinition(

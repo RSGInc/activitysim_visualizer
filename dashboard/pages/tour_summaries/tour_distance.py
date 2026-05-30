@@ -6,148 +6,45 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import data_table, density_chart
-from dashboard.helpers.geography_helpers import ordered_visible_geography_levels
 from dashboard.helpers.category_helpers import (
     column_options,
-    label_category_data,
     nonempty,
     ordered_category_values,
-    raw_display_options,
 )
-from dashboard.page_base import DashboardPage
+from dashboard.helpers.comparison_helpers import (
+    build_base_run_percent_difference_table,
+    weighted_average_lookup,
+)
+from dashboard.helpers.geography_helpers import (
+    filter_geography,
+    filter_geography_level,
+    geography_level_options,
+    geography_options_for_level,
+    normalize_geography_data,
+)
+from dashboard.helpers.time_distance_helpers import distance_sort_expr
+from dashboard.page_base import DashboardPage, SectionContent
 from dashboard.page_definitions import DashboardPageDefinition
 
-GEO_LEVEL_COL = "geography_level"
-GEO_TYPE_COL = "geography_type"
-GEO_ID_COL = "geography_id"
-ALL_GEOGRAPHIES_VALUE = "all_geographies"
-ALL_WITHIN_LEVEL_VALUE = "All"
 
-
-def _options(
+def tour_distance_chart_data(
     data_list: list[tuple[str, pl.DataFrame]],
-    col: str,
-    total_label: str = "All",
-    config=None,
-) -> list[str]:
-    first_df = next((df for _, df in data_list if df is not None and len(df) > 0), None)
-    if first_df is None:
-        return [total_label]
-    source_col = col
-    if source_col not in first_df.columns and col == GEO_LEVEL_COL and GEO_TYPE_COL in first_df.columns:
-        source_col = GEO_TYPE_COL
-    if source_col not in first_df.columns:
-        return [total_label]
-    vals = (
-        first_df.select(source_col)
-        .drop_nulls()
-        .unique()
-        .to_series()
-        .cast(pl.Utf8)
-        .to_list()
-    )
-    if config is not None and col == GEO_LEVEL_COL:
-        vals = ordered_visible_geography_levels(vals, config=config)
-    else:
-        vals = sorted(v for v in vals if v != total_label)
-    return [total_label] + [v for v in vals if v != total_label]
-
-
-def _geography_options(
-    data_list: list[tuple[str, pl.DataFrame]],
-    geo_level: str,
-    *,
-    config,
-) -> list[str]:
-    if geo_level == ALL_GEOGRAPHIES_VALUE:
-        return [ALL_GEOGRAPHIES_VALUE]
-    if geo_level in {"All", "Total"}:
-        return [ALL_WITHIN_LEVEL_VALUE]
-
-    ids: set[str] = set()
-    for _, df in nonempty(data_list):
-        if {GEO_TYPE_COL, GEO_ID_COL}.issubset(df.columns):
-            values = (
-                df.with_columns(
-                    pl.col(GEO_TYPE_COL).cast(pl.Utf8),
-                    pl.col(GEO_ID_COL).cast(pl.Utf8),
-                )
-                .filter(pl.col(GEO_TYPE_COL) == geo_level)
-                .select(GEO_ID_COL)
-                .drop_nulls()
-                .unique()
-                .to_series()
-                .to_list()
-            )
-            ids.update(str(value) for value in values)
-        elif {GEO_LEVEL_COL, "geography"}.issubset(df.columns):
-            values = (
-                df.with_columns(
-                    pl.col(GEO_LEVEL_COL).cast(pl.Utf8),
-                    pl.col("geography").cast(pl.Utf8),
-                )
-                .filter(pl.col(GEO_LEVEL_COL) == geo_level)
-                .select("geography")
-                .drop_nulls()
-                .unique()
-                .to_series()
-                .to_list()
-            )
-            ids.update(str(value) for value in values)
-    ordered = config.ordered_values("geography", sorted(ids))
-    return [ALL_WITHIN_LEVEL_VALUE] + ordered if ordered else [ALL_WITHIN_LEVEL_VALUE]
-
-
-def _purpose_options(
-    data_list: list[tuple[str, pl.DataFrame]],
-    column: str,
-    *,
-    config,
-    state=None,
-    cache_key: tuple[object, ...] | None = None,
-    total_label: str = "All",
-) -> tuple[list[str], dict[str, str]]:
-    raw_values = ordered_category_values(
-        data_list,
-        column,
-        category_id="tour_purpose",
-        config=config,
-        state=state,
-        cache_key=cache_key,
-    )
-    return raw_display_options(
-        raw_values,
-        category_id="tour_purpose",
-        config=config,
-        total_raw=total_label,
-        total_label=total_label,
-    )
-
-
-def _distance_sort_expr(column: str) -> pl.Expr:
-    return (
-        pl.when(pl.col(column).cast(pl.Utf8) == "40+")
-        .then(999)
-        .otherwise(pl.col(column).cast(pl.Int64, strict=False))
-    )
-
-
-def tour_distance_chart_data(data_list: list[tuple[str, pl.DataFrame]], purpose: str):
-    out = []
+    purpose: str,
+) -> list[tuple[str, pl.DataFrame]]:
+    """Prepare the distance distribution for one tour purpose."""
+    out: list[tuple[str, pl.DataFrame]] = []
     for label, df in nonempty(data_list):
-        df = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8)).filter(
+        filtered = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8)).filter(
             pl.col("tour_purpose") == purpose
         )
         out.append(
             (
                 label,
-                df.select(
+                filtered.select(
                     pl.col("distance_bin").cast(pl.Utf8),
                     pl.col("tour_count"),
                 )
-                .with_columns(
-                    _distance_sort_expr("distance_bin").alias("_sort_distance")
-                )
+                .with_columns(distance_sort_expr("distance_bin").alias("_sort_distance"))
                 .sort("_sort_distance")
                 .drop("_sort_distance"),
             )
@@ -155,180 +52,78 @@ def tour_distance_chart_data(data_list: list[tuple[str, pl.DataFrame]], purpose:
     return out
 
 
-def avg_distance_table_data(
+def average_distance_comparison_table(
     data_list: list[tuple[str, pl.DataFrame]],
-    geo_level: str,
+    geography_level: str,
     geography: str,
-    purpose_col: str,
-    purpose: str,
-    config=None,
-):
-    out = []
-    for label, df in nonempty(data_list):
-        if GEO_LEVEL_COL in df.columns and geo_level != "All":
-            df = df.with_columns(pl.col(GEO_LEVEL_COL).cast(pl.Utf8)).filter(
-                pl.col(GEO_LEVEL_COL) == geo_level
-            )
-        elif GEO_TYPE_COL in df.columns and geo_level not in {"All", "Total"}:
-            df = df.with_columns(pl.col(GEO_TYPE_COL).cast(pl.Utf8)).filter(
-                pl.col(GEO_TYPE_COL) == geo_level
-            )
-        if GEO_ID_COL in df.columns and geography not in {
-            ALL_WITHIN_LEVEL_VALUE,
-            "All",
-            "Total",
-        }:
-            df = df.with_columns(pl.col(GEO_ID_COL).cast(pl.Utf8)).filter(
-                pl.col(GEO_ID_COL) == geography
-            )
-        elif "geography" in df.columns and geography not in {
-            ALL_WITHIN_LEVEL_VALUE,
-            "All",
-            "Total",
-        }:
-            df = df.with_columns(pl.col("geography").cast(pl.Utf8)).filter(
-                pl.col("geography") == geography
-            )
-        if purpose_col in df.columns and purpose != "All":
-            df = df.with_columns(pl.col(purpose_col).cast(pl.Utf8)).filter(
-                pl.col(purpose_col) == purpose
-            )
-        if config is not None and purpose_col in df.columns:
-            df = label_category_data(
-                [(label, df)],
-                source_col=purpose_col,
-                category_id="tour_purpose",
-                config=config,
-                target_col=purpose_col,
-            )[0][1]
-        out.append((label, df))
-    return out
-
-
-def avg_distance_comparison_table(
-    data_list: list[tuple[str, pl.DataFrame]],
-    geo_level: str,
-    geography: str,
-    purpose_col: str,
     purpose: str,
     *,
     config,
 ) -> pl.DataFrame:
-    filtered = avg_distance_table_data(
-        data_list,
-        geo_level,
+    """Compare average non-mandatory tour distances against the base run."""
+    filtered = filter_geography(
+        filter_geography_level(data_list, geography_level),
         geography,
-        purpose_col,
-        purpose,
-        config=None,
     )
-    nonempty_runs = nonempty(filtered)
-    if not nonempty_runs:
+    if purpose != "All":
+        filtered = [
+            (
+                label,
+                df.with_columns(pl.col("nonmandatory_tour_purpose").cast(pl.Utf8)).filter(
+                    pl.col("nonmandatory_tour_purpose") == purpose
+                ),
+            )
+            for label, df in nonempty(filtered)
+        ]
+
+    runs = nonempty(filtered)
+    if not runs:
         return pl.DataFrame()
 
     purpose_values = ordered_category_values(
-        nonempty_runs,
-        purpose_col,
+        runs,
+        "nonmandatory_tour_purpose",
         category_id="tour_purpose",
         config=config,
     )
     if not purpose_values:
         return pl.DataFrame()
 
-    base_label, _ = nonempty_runs[0]
-
-    def _lookup(df: pl.DataFrame) -> dict[str, float]:
-        if df.is_empty():
-            return {}
-        if "tour_count" in df.columns:
-            aggregated = (
-                df.group_by(purpose_col)
-                .agg(
-                    tour_count=pl.col("tour_count").sum(),
-                    weighted_distance=(
-                        pl.col("average_tour_distance") * pl.col("tour_count")
-                    ).sum(),
-                )
-                .with_columns(
-                    pl.when(pl.col("tour_count") > 0)
-                    .then(pl.col("weighted_distance") / pl.col("tour_count"))
-                    .otherwise(None)
-                    .alias("average_tour_distance")
-                )
-                .select(purpose_col, "average_tour_distance")
-            )
-        else:
-            aggregated = df.select(purpose_col, "average_tour_distance")
-        return {
-            str(row[purpose_col]): float(row["average_tour_distance"])
-            for row in aggregated.to_dicts()
-            if row.get(purpose_col) is not None
-            and row.get("average_tour_distance") is not None
-        }
-
-    lookups_by_label = {
-        run_label: _lookup(run_df)
-        for run_label, run_df in nonempty_runs
-    }
-    base_lookup = lookups_by_label[base_label]
-
-    rows: list[dict[str, object]] = []
+    run_labels = [label for label, _ in runs]
+    base_run_label = run_labels[0]
+    row_values: dict[str, dict[str, float | None]] = {}
     for raw_purpose in purpose_values:
-        row = {
-            "Non-Mandatory Tour Purpose": config.label_value(
-                "tour_purpose",
-                raw_purpose,
-            )
-        }
-        base_value = base_lookup.get(str(raw_purpose))
-        row[base_label] = "0.00%" if base_value is not None else ""
-        for run_label, _ in nonempty_runs[1:]:
-            run_value = lookups_by_label[run_label].get(str(raw_purpose))
-            if run_value in {None} or base_value in {None, 0.0}:
-                row[run_label] = ""
-                continue
-            pct_diff = ((run_value - base_value) / base_value) * 100.0
-            row[run_label] = f"{pct_diff:.2f}%"
-        rows.append(row)
-    return pl.DataFrame(rows) if rows else pl.DataFrame()
+        display_purpose = config.label_value("tour_purpose", raw_purpose)
+        row_values[display_purpose] = {}
+        for run_label, run_df in runs:
+            row_values[display_purpose][run_label] = weighted_average_lookup(
+                run_df,
+                category_col="nonmandatory_tour_purpose",
+                average_col="average_tour_distance",
+                weight_col="tour_count",
+            ).get(str(raw_purpose))
+
+    return build_base_run_percent_difference_table(
+        run_labels=run_labels,
+        base_run_label=base_run_label,
+        row_header="Non-Mandatory Tour Purpose",
+        row_values=row_values,
+    )
 
 
 class TourDistancePage(DashboardPage):
+    """Render tour distance distributions and average-distance comparisons."""
+
     def build_page(self) -> pn.viewable.Viewable:
-        dist_data = self.state.get_summary_table_set(
-            "tour_distance_by_tour_purpose", "weighted"
-        )
-        mand_data = self.state.get_summary_table_set(
-            "average_mandatory_tour_distance_by_purpose_and_geography", "weighted"
-        )
-        nonmand_data = self.state.get_summary_table_set(
-            "average_nonmandatory_tour_distance_by_purpose_and_geography", "weighted"
-        )
-        self._mand_purpose_to_raw = {"All": "All"}
-        self._nonmand_purpose_to_raw = {"All": "All"}
-        purpose_opts, self._tour_purpose_to_raw = column_options(
-            dist_data or [],
-            "tour_purpose",
-            category_id="tour_purpose",
-            config=self.config,
-            state=self.state,
-            cache_key=(
-                "tour_distance",
-                "tour_distance_by_tour_purpose",
-                "tour_purpose",
-                "weighted",
-            ),
-            total_raw="all_tour_purposes",
-            total_label="Total",
-        )
-        if not purpose_opts:
-            purpose_opts = ["Total"]
+        """Build the persistent page layout and selector widgets."""
+        self._tour_purpose_to_raw: dict[str, str | None] = {}
+        self._nonmandatory_purpose_to_raw: dict[str, str | None] = {}
         self.tour_purpose_sel = self.selector(
             "tour_purpose",
             widget=pn.widgets.Select(
                 name="Tour Purpose",
-                options=purpose_opts,
-                value=purpose_opts[0],
+                options=["Total"],
+                value="Total",
             ),
             label="Tour Purpose",
         )
@@ -336,16 +131,8 @@ class TourDistancePage(DashboardPage):
             "geography_level",
             widget=pn.widgets.Select(
                 name="Geography Level",
-                options=_options(
-                    nonmand_data or mand_data or [],
-                    GEO_LEVEL_COL,
-                    config=self.config,
-                ),
-                value=_options(
-                    nonmand_data or mand_data or [],
-                    GEO_LEVEL_COL,
-                    config=self.config,
-                )[0],
+                options=["Total"],
+                value="Total",
             ),
             label="Geography Level",
         )
@@ -353,55 +140,29 @@ class TourDistancePage(DashboardPage):
             "geography",
             widget=pn.widgets.Select(
                 name="Geography",
-                options=[ALL_GEOGRAPHIES_VALUE],
-                value=ALL_GEOGRAPHIES_VALUE,
+                options=["All"],
+                value="All",
             ),
             label="Geography",
         )
-        self.nonmand_purpose_sel = self.selector(
+        self.nonmandatory_purpose_sel = self.selector(
             "nonmandatory_tour_purpose",
             widget=pn.widgets.Select(
                 name="Non-Mandatory Tour Purpose",
-                options=_purpose_options(
-                    nonmand_data or [],
-                    "nonmandatory_tour_purpose",
-                    config=self.config,
-                    state=self.state,
-                    cache_key=(
-                        "tour_distance",
-                        "average_nonmandatory_tour_distance_by_purpose_and_geography",
-                        "nonmandatory_tour_purpose",
-                        "weighted",
-                    ),
-                )[0],
-                value=_purpose_options(
-                    nonmand_data or [],
-                    "nonmandatory_tour_purpose",
-                    config=self.config,
-                    state=self.state,
-                    cache_key=(
-                        "tour_distance",
-                        "average_nonmandatory_tour_distance_by_purpose_and_geography",
-                        "nonmandatory_tour_purpose",
-                        "weighted",
-                    ),
-                )[0][0],
+                options=["All"],
+                value="All",
             ),
             label="Non-Mandatory Tour Purpose",
         )
         self._distance_section = self.section(
             "tour_distance_distribution",
             selectors=("tour_purpose",),
-            render=self.render_distance,
+            render=self.render_distance_section,
         )
         self._average_section = self.section(
             "tour_distance_averages",
-            selectors=(
-                "geography_level",
-                "geography",
-                "nonmandatory_tour_purpose",
-            ),
-            render=self.render_averages,
+            selectors=("geography_level", "geography", "nonmandatory_tour_purpose"),
+            render=self.render_average_section,
         )
         return self.new_section(
             pn.pane.Markdown("## Tour Distance"),
@@ -409,22 +170,26 @@ class TourDistancePage(DashboardPage):
             self._average_section,
         )
 
-    def _summaries(self):
+    def _summaries(self) -> dict[str, object] | None:
+        """Return the required summary bundle for this page."""
         return self.require_summaries(*self.required_summary_ids)
 
     def sync_controls(self) -> None:
+        """Recompute selector domains from the current summary tables."""
         summaries = self._summaries()
         if summaries is None:
             return
-        dist_list = summaries["tour_distance_by_tour_purpose"]
-        mand_list = summaries[
-            "average_mandatory_tour_distance_by_purpose_and_geography"
-        ]
-        nonmand_list = summaries[
-            "average_nonmandatory_tour_distance_by_purpose_and_geography"
-        ]
-        purpose_opts, self._tour_purpose_to_raw = column_options(
-            dist_list,
+
+        distance_summary = summaries["tour_distance_by_tour_purpose"]
+        nonmandatory_average = normalize_geography_data(
+            summaries["average_nonmandatory_tour_distance_by_purpose_and_geography"]
+        )
+        mandatory_average = normalize_geography_data(
+            summaries["average_mandatory_tour_distance_by_purpose_and_geography"]
+        )
+
+        tour_purpose_options, self._tour_purpose_to_raw = column_options(
+            distance_summary,
             "tour_purpose",
             category_id="tour_purpose",
             config=self.config,
@@ -438,9 +203,10 @@ class TourDistancePage(DashboardPage):
             total_raw="all_tour_purposes",
             total_label="Total",
         )
-        nonmand_purpose_opts, self._nonmand_purpose_to_raw = _purpose_options(
-            nonmand_list,
+        nonmandatory_options, self._nonmandatory_purpose_to_raw = column_options(
+            nonmandatory_average,
             "nonmandatory_tour_purpose",
+            category_id="tour_purpose",
             config=self.config,
             state=self.state,
             cache_key=(
@@ -449,91 +215,108 @@ class TourDistancePage(DashboardPage):
                 "nonmandatory_tour_purpose",
                 self.weighting_key,
             ),
+            total_raw="All",
+            total_label="All",
         )
-        for widget, opts in [
-            (self.tour_purpose_sel, purpose_opts),
-        ]:
-            widget.options = opts
-            if widget.value not in opts:
-                widget.value = opts[0]
-        geo_level_opts = _options(
-            nonmand_list or mand_list,
-            GEO_LEVEL_COL,
+        geography_level_options_list = geography_level_options(
+            nonmandatory_average or None,
+            mandatory_average or None,
             config=self.config,
+            total_label="Total",
         )
-        self.geo_level_sel.options = geo_level_opts
-        if self.geo_level_sel.value not in geo_level_opts:
-            self.geo_level_sel.value = geo_level_opts[0]
-        geography_opts = _geography_options(
-            nonmand_list,
+        geography_options = geography_options_for_level(
             str(self.geo_level_sel.value),
+            nonmandatory_average or None,
+            mandatory_average or None,
             config=self.config,
         )
-        self.geography_sel.options = geography_opts
-        if self.geography_sel.value not in geography_opts:
-            self.geography_sel.value = geography_opts[0]
-        self.nonmand_purpose_sel.options = nonmand_purpose_opts
-        if self.nonmand_purpose_sel.value not in nonmand_purpose_opts:
-            self.nonmand_purpose_sel.value = nonmand_purpose_opts[0]
 
-    def render_distance(self):
+        for widget, options in (
+            (self.tour_purpose_sel, tour_purpose_options or ["Total"]),
+            (self.nonmandatory_purpose_sel, nonmandatory_options or ["All"]),
+            (self.geo_level_sel, geography_level_options_list or ["Total"]),
+        ):
+            widget.options = options
+            if widget.value not in options:
+                widget.value = options[0]
+
+        geography_options = geography_options_for_level(
+            str(self.geo_level_sel.value),
+            nonmandatory_average or None,
+            mandatory_average or None,
+            config=self.config,
+        )
+        self.geography_sel.options = geography_options
+        if self.geography_sel.value not in geography_options:
+            self.geography_sel.value = geography_options[0]
+
+    def render_distance_section(self) -> SectionContent:
+        """Render the tour distance distribution chart."""
         if not self.state.run_labels:
-            return [pn.pane.Markdown("No runs loaded.")]
+            return [self.no_runs_message()]
+
         summaries = self._summaries()
         if summaries is None:
-            return [
-                self.data_not_available_card(
-                    detail="This page only renders from precomputed summary tables.",
-                    missing_items=list(self.required_summary_ids),
-                )
-            ]
-        tour_purpose = self.tour_purpose_sel.value
-        raw_tour_purpose = self._tour_purpose_to_raw.get(
-            tour_purpose, "all_tour_purposes"
-        )
+            return [self.summary_only_unavailable_card()]
+
+        selected_purpose = str(self.tour_purpose_sel.value)
+        raw_purpose = self._tour_purpose_to_raw.get(selected_purpose, "all_tour_purposes")
         distance_data = self.get_filtered_view(
             "tour_distance",
-            raw_tour_purpose,
+            raw_purpose,
             factory=lambda: tour_distance_chart_data(
                 summaries["tour_distance_by_tour_purpose"],
-                raw_tour_purpose,
+                str(raw_purpose),
             ),
         )
         return [
             pn.pane.Markdown("### Tour Distance Distribution"),
             pn.Row(pn.pane.Markdown("**Tour Purpose:**"), self.tour_purpose_sel),
-            density_chart(
-                distance_data,
-                "distance_bin",
-                "tour_count",
-                f"Tour Distance Distribution - {tour_purpose}",
-                "Distance (miles)",
-                normalize=False,
-                yaxis_title="Tours",
-                as_percent=self.as_percent,
-            ),
+            self.render_distance_chart(distance_data, selected_purpose),
         ]
 
-    def render_averages(self):
+    def render_distance_chart(
+        self,
+        distance_data: list[tuple[str, pl.DataFrame]],
+        display_purpose: str,
+    ) -> pn.viewable.Viewable:
+        """Render the distance distribution chart for one selected purpose."""
+        return density_chart(
+            distance_data,
+            "distance_bin",
+            "tour_count",
+            f"Tour Distance Distribution - {display_purpose}",
+            "Distance (miles)",
+            normalize=False,
+            yaxis_title="Tours",
+            as_percent=self.as_percent,
+        )
+
+    def render_average_section(self) -> SectionContent:
+        """Render the average non-mandatory distance comparison table."""
         summaries = self._summaries()
         if summaries is None:
             return []
-        geo_level = self.geo_level_sel.value
-        geography = self.geography_sel.value
-        nonmand_purpose = self._nonmand_purpose_to_raw.get(
-            self.nonmand_purpose_sel.value, self.nonmand_purpose_sel.value
+
+        nonmandatory_average = normalize_geography_data(
+            summaries["average_nonmandatory_tour_distance_by_purpose_and_geography"]
         )
-        nonmand_avg_data = self.get_filtered_view(
+        geo_level = str(self.geo_level_sel.value)
+        geography = str(self.geography_sel.value)
+        raw_purpose = str(
+            self._nonmandatory_purpose_to_raw.get(
+                str(self.nonmandatory_purpose_sel.value),
+                self.nonmandatory_purpose_sel.value,
+            )
+        )
+        comparison_df = self.get_filtered_view(
             "average_nonmandatory_tour_distance",
-            (geo_level, geography, nonmand_purpose),
-            factory=lambda: avg_distance_comparison_table(
-                summaries[
-                    "average_nonmandatory_tour_distance_by_purpose_and_geography"
-                ],
+            (geo_level, geography, raw_purpose),
+            factory=lambda: average_distance_comparison_table(
+                nonmandatory_average,
                 geo_level,
                 geography,
-                "nonmandatory_tour_purpose",
-                nonmand_purpose,
+                raw_purpose,
                 config=self.config,
             ),
         )
@@ -548,14 +331,18 @@ class TourDistancePage(DashboardPage):
             pn.Column(
                 pn.Row(
                     pn.pane.Markdown("**Non-Mandatory Tour Purpose:**"),
-                    self.nonmand_purpose_sel,
+                    self.nonmandatory_purpose_sel,
                 ),
-                data_table(
-                    [("Comparison", nonmand_avg_data)],
-                    "Average Non-Mandatory Tour Distance vs Base Run",
-                ),
+                self.render_average_distance_table(comparison_df),
             ),
         ]
+
+    def render_average_distance_table(self, comparison_df: pl.DataFrame) -> pn.viewable.Viewable:
+        """Render the average-distance comparison table."""
+        return data_table(
+            [("Comparison", comparison_df)],
+            "Average Non-Mandatory Tour Distance vs Base Run",
+        )
 
 
 PAGE = DashboardPageDefinition(
