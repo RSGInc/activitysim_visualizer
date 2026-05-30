@@ -11,9 +11,11 @@ from dashboard.components import (
     format_numeric_frame_for_display,
     kpi_box,
 )
+from dashboard.helpers.comparison_helpers import (
+    build_base_run_percent_difference_table,
+)
 from dashboard.page_base import DashboardPage, SectionContent
 from dashboard.page_definitions import DashboardPageDefinition
-from runtime.config import Config
 
 KPI_METRICS = [
     ("person_count", "Population"),
@@ -49,20 +51,23 @@ def percent_difference_table(
     """Build percent difference rows versus the first run."""
     if not totals_list or not vmt_list:
         return pl.DataFrame()
-    pct_rows = []
     base_label, base_df = totals_list[0]
     _, base_vmt_df = vmt_list[0]
+    row_values: dict[str, dict[str, float | None]] = {}
     for metric, label in KPI_METRICS:
         source_list = vmt_list if metric == "auto_vmt" else totals_list
         source_base = base_vmt_df if metric == "auto_vmt" else base_df
-        base_val = metric_value(source_base, metric)
-        row = {"Metric": label, base_label: "0.00%"}
-        for run_label, source_df in source_list[1:]:
-            val = metric_value(source_df, metric)
-            pct = ((val - base_val) / base_val * 100.0) if base_val != 0 else 0.0
-            row[run_label] = f"{pct:.2f}%"
-        pct_rows.append(row)
-    return pl.DataFrame(pct_rows) if pct_rows else pl.DataFrame()
+        row_values[label] = {
+            run_label: metric_value(source_df, metric)
+            for run_label, source_df in source_list
+        }
+        row_values[label][base_label] = metric_value(source_base, metric)
+    return build_base_run_percent_difference_table(
+        run_labels=[run_label for run_label, _ in totals_list],
+        base_run_label=base_label,
+        row_header="Metric",
+        row_values=row_values,
+    )
 
 
 def person_type_chart_data(
@@ -87,16 +92,19 @@ def hh_size_chart_data(
 
 class OverviewPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
-        self._body = self.section("body", render=self.render_body)
-        return self._body
+        self._kpi_section = self.section("overview_kpis", render=self.render_kpis)
+        self._demographics_section = self.section(
+            "overview_demographics",
+            render=self.render_demographics,
+        )
+        return self.new_section(
+            pn.pane.Markdown("## Overview"),
+            self._kpi_section,
+            self._demographics_section,
+        )
 
-    def render_body(self) -> SectionContent:
-        if not self.state.run_labels:
-            return [pn.pane.Markdown("No runs loaded.")]
-
-        objects: list[pn.viewable.Viewable] = [pn.pane.Markdown("## Overview")]
-
-        kpi_result = self.resolve_summary_visualization(
+    def _kpi_result(self):
+        return self.resolve_summary_visualization(
             "overview_kpis",
             summary_requirements={
                 "population_totals": (
@@ -109,7 +117,49 @@ class OverviewPage(DashboardPage):
                 "auto_vmt_totals": ("auto_vmt",),
             },
         )
-        objects.append(pn.pane.Markdown("### Key Performance Indicators"))
+
+    def _demographic_results(self):
+        return (
+            self.resolve_summary_visualization(
+                "overview_person_type_distribution",
+                summary_requirements={
+                    "person_type_distribution": ("person_type_label", "person_count")
+                },
+            ),
+            self.resolve_summary_visualization(
+                "overview_household_size_distribution",
+                summary_requirements={
+                    "household_size_distribution": (
+                        "household_size",
+                        "household_count",
+                    )
+                },
+            ),
+        )
+
+    def _kpi_card(
+        self,
+        totals_list: list[tuple[str, pl.DataFrame]],
+        *,
+        metric: str,
+        label: str,
+    ) -> pn.viewable.Viewable:
+        return kpi_box(
+            label=label,
+            values=[
+                (run_label, metric_value(tot_df, metric))
+                for run_label, tot_df in totals_list
+            ],
+        )
+
+    def render_kpis(self) -> SectionContent:
+        if not self.state.run_labels:
+            return [self.no_runs_message()]
+
+        objects: list[pn.viewable.Viewable] = [
+            pn.pane.Markdown("### Key Performance Indicators")
+        ]
+        kpi_result = self._kpi_result()
         if kpi_result.has_usable_runs:
             totals_list = kpi_result.usable_by_input["population_totals"]
             vmt_list = kpi_result.usable_by_input["auto_vmt_totals"]
@@ -118,16 +168,6 @@ class OverviewPage(DashboardPage):
                 tuple(label for label, _ in totals_list),
                 factory=lambda: percent_difference_table(totals_list, vmt_list),
             )
-
-            def _card(metric: str, label: str):
-                return kpi_box(
-                    label=label,
-                    values=[
-                        (run_label, metric_value(tot_df, metric))
-                        for run_label, tot_df in totals_list
-                    ],
-                )
-
             vmt_box = kpi_box(
                 label="VMT",
                 values=[
@@ -138,15 +178,35 @@ class OverviewPage(DashboardPage):
             objects.extend(
                 [
                     pn.Row(
-                        _card("person_count", "Population"),
-                        _card("household_count", "Households"),
+                        self._kpi_card(
+                            totals_list,
+                            metric="person_count",
+                            label="Population",
+                        ),
+                        self._kpi_card(
+                            totals_list,
+                            metric="household_count",
+                            label="Households",
+                        ),
                         vmt_box,
                         sizing_mode="stretch_width",
                     ),
                     pn.Row(
-                        _card("tour_count", "Tours"),
-                        _card("trip_count", "Trips"),
-                        _card("stop_count", "Stops"),
+                        self._kpi_card(
+                            totals_list,
+                            metric="tour_count",
+                            label="Tours",
+                        ),
+                        self._kpi_card(
+                            totals_list,
+                            metric="trip_count",
+                            label="Trips",
+                        ),
+                        self._kpi_card(
+                            totals_list,
+                            metric="stop_count",
+                            label="Stops",
+                        ),
                         sizing_mode="stretch_width",
                     ),
                     pn.pane.Markdown("### Percent Difference vs Base Run"),
@@ -173,20 +233,13 @@ class OverviewPage(DashboardPage):
                     detail="Overview KPIs require the population totals and auto VMT summary tables.",
                 )
             )
+        return objects
 
-        objects.append(pn.pane.Markdown("### Demographic Distributions"))
-        ptype_result = self.resolve_summary_visualization(
-            "overview_person_type_distribution",
-            summary_requirements={
-                "person_type_distribution": ("person_type_label", "person_count")
-            },
-        )
-        hhsize_result = self.resolve_summary_visualization(
-            "overview_household_size_distribution",
-            summary_requirements={
-                "household_size_distribution": ("household_size", "household_count")
-            },
-        )
+    def render_demographics(self) -> SectionContent:
+        if not self.state.run_labels:
+            return []
+
+        ptype_result, hhsize_result = self._demographic_results()
         ptype_widget = (
             bar_chart(
                 person_type_chart_data(
@@ -225,8 +278,10 @@ class OverviewPage(DashboardPage):
                 detail="Household size distribution is unavailable.",
             )
         )
-        objects.append(pn.Row(ptype_widget, hhsize_widget))
-        return objects
+        return [
+            pn.pane.Markdown("### Demographic Distributions"),
+            pn.Row(ptype_widget, hhsize_widget),
+        ]
 
 
 PAGE = DashboardPageDefinition(
