@@ -9,6 +9,7 @@ import polars as pl
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from dashboard.components import bar_chart
 from dashboard.helpers.category_helpers import (
     column_value_intersection,
     common_column_options,
@@ -233,6 +234,32 @@ def test_comparison_helpers_format_and_build_comparison_tables() -> None:
         {"Metric": "Tours", "Base": "0.00%", "Build": "10.00%"},
         {"Metric": "Trips", "Base": "0.00%", "Build": "-10.00%"},
     ]
+
+
+def test_bar_chart_omits_pct_hover_lines() -> None:
+    chart = bar_chart(
+        [
+            (
+                "Base",
+                pl.DataFrame(
+                    {
+                        "mode": ["Walk"],
+                        "trip_count": [5.0],
+                        "pct": [100.0],
+                    }
+                ),
+            )
+        ],
+        x_col="mode",
+        y_col="trip_count",
+        pct_col="pct",
+        xaxis_categoryarray=["Walk", "Bike"],
+    )
+
+    hover = list(chart.object.data[0].customdata)
+
+    assert "Pct:" not in hover[0]
+    assert "Pct:" not in hover[1]
 
 
 def test_dashboard_page_phase1_convenience_helpers(tmp_path: Path) -> None:

@@ -152,8 +152,6 @@ def bar_chart(
         fill_exprs = []
         if y_col in aligned.columns:
             fill_exprs.append(pl.col(y_col).fill_null(0.0).cast(pl.Float64).alias(y_col))
-        if pct_col and pct_col in aligned.columns:
-            fill_exprs.append(pl.col(pct_col).fill_null(0.0).cast(pl.Float64).alias(pct_col))
         return aligned.with_columns(fill_exprs) if fill_exprs else aligned
 
     fig = go.Figure()
@@ -178,9 +176,6 @@ def bar_chart(
             f"{label}<br>{xaxis_title or x_col}: {xi}<br>{yy_title}: {yi:,.1f}"
             for xi, yi in zip(x, y_list)
         ]
-        if pct_col and pct_col in df.columns:
-            pct = df[pct_col].to_list()
-            hover = [h + f"<br>Pct: {p:.1f}%" for h, p in zip(hover, pct)]
         fig.add_trace(
             go.Bar(
                 name=label,
