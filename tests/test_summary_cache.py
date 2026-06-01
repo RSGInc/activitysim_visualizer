@@ -1225,7 +1225,7 @@ def test_tour_stop_frequency_live_page_uses_shared_summary_helpers(
     page = TourStopFrequencyPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.purpose_sel.options) == ["All", "eatout", "social"]
+    assert list(page.purpose_sel.options) == ["All Tour Purposes", "eatout", "social"]
     page.purpose_sel.value = "social"
     page.refresh(force=True)
     assert page._body.objects
@@ -1284,7 +1284,7 @@ def test_trip_mode_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None
     page = TripModePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.tour_purpose_sel.options) == ["All", "eatout", "social"]
+    assert list(page.tour_purpose_sel.options) == ["All Tour Purposes", "eatout", "social"]
     page.tour_purpose_sel.value = "social"
     page.refresh(force=True)
     assert page._body.objects
@@ -1333,7 +1333,7 @@ def test_trip_mode_selector_uses_union_across_runs_and_zero_fills_missing_modes(
     page = TripModePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.tour_purpose_sel.options) == ["All", "eatout", "social"]
+    assert list(page.tour_purpose_sel.options) == ["All Tour Purposes", "eatout", "social"]
     page.tour_purpose_sel.value = "social"
     charts = page.render_body()
     overall_chart = charts[0]
@@ -1469,7 +1469,7 @@ def test_tour_purpose_selectors_use_category_labels_from_config(tmp_path: Path) 
             "categories:",
             "  tour_purpose:",
             "    mapping:",
-            "      all_tour_purposes: Total",
+            "      all_tour_purposes: All Tour Purposes",
             "      eatout: Eat Out",
             "      social: Social Time",
         ],
@@ -1514,12 +1514,16 @@ def test_tour_purpose_selectors_use_category_labels_from_config(tmp_path: Path) 
 
     tour_time_page = TourTimePage(state, config)
     tour_time_page.refresh(force=True)
-    assert list(tour_time_page.purpose_sel.options) == ["Total", "Eat Out", "Social Time"]
+    assert list(tour_time_page.purpose_sel.options) == [
+        "All Tour Purposes",
+        "Eat Out",
+        "Social Time",
+    ]
 
     trip_stop_time_page = TripStopTimePage(state, config)
     trip_stop_time_page.refresh(force=True)
     assert list(trip_stop_time_page.tour_purpose_sel.options) == [
-        "Total",
+        "All Tour Purposes",
         "Eat Out",
         "Social Time",
     ]
@@ -1557,7 +1561,7 @@ def test_trip_stop_time_live_page_uses_shared_summary_helpers(
     page = TripStopTimePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.tour_purpose_sel.options) == ["Total", "eatout", "social"]
+    assert list(page.tour_purpose_sel.options) == ["All Tour Purposes", "eatout", "social"]
     page.tour_purpose_sel.value = "social"
     page.refresh(force=True)
     assert page._body.objects
@@ -1790,8 +1794,8 @@ def test_trip_stop_distance_live_page_uses_shared_summary_helpers(
     page = TripStopDistancePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.tour_purpose_sel.options) == ["Total", "eatout", "social"]
-    assert page.tour_purpose_sel.value == "Total"
+    assert list(page.tour_purpose_sel.options) == ["All Tour Purposes", "eatout", "social"]
+    assert page.tour_purpose_sel.value == "All Tour Purposes"
     assert len(page._body.objects) == 2
 
     page.tour_purpose_sel.value = "social"
@@ -1878,7 +1882,7 @@ def test_daily_activity_pattern_live_page_uses_shared_summary_helpers(
     page = DailyActivityPatternPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.person_type_sel.options) == ["Total", "worker"]
+    assert list(page.person_type_sel.options) == ["All Person Types", "worker"]
     page.person_type_sel.value = "worker"
     page.refresh(force=True)
     assert page._body.objects
@@ -2036,6 +2040,15 @@ def test_joint_travel_participation_page_uses_counts_and_runtime_percent_mode(
         if str(plot.object.layout.title.text)
         == "People Taking Part in a Joint Tour by Household Size"
     )
+    household_plot = next(
+        plot
+        for plot in plots
+        if str(plot.object.layout.title.text)
+        == "Households Taking Part in a Joint Tour - All"
+    )
+    assert list(people_plot.object.layout.xaxis.categoryarray) == ["2", "3"]
+    assert list(household_plot.object.layout.xaxis.categoryarray) == ["0", "1"]
+    assert list(household_plot.object.data[0].x) == ["0", "1"]
     assert list(people_plot.object.data[0].y) == [50.0, 100.0]
 
     state.value_mode = "Count"
@@ -2047,6 +2060,7 @@ def test_joint_travel_participation_page_uses_counts_and_runtime_percent_mode(
         if str(plot.object.layout.title.text)
         == "People Taking Part in a Joint Tour by Household Size"
     )
+    assert list(people_plot.object.layout.xaxis.categoryarray) == ["2", "3"]
     assert list(people_plot.object.data[0].y) == [2.0, 3.0]
 
 
@@ -2242,7 +2256,7 @@ def test_tour_purpose_labels_render_consistently_across_pages(tmp_path: Path) ->
             "categories:",
             "  tour_purpose:",
             "    mapping:",
-            "      all_tour_purposes: Total",
+            "      all_tour_purposes: All Tour Purposes",
             "      work: Work Trips",
             "      shop: Shopping",
             "      eatout: Eat Out",
@@ -2349,7 +2363,7 @@ def test_tour_purpose_labels_render_consistently_across_pages(tmp_path: Path) ->
         plot
         for plot in daily_activity_plots
         if plot.object.layout.title.text
-        == "Daily Tour Rate per Person by Tour Purpose - Total"
+        == "Daily Tour Rate per Person by Tour Purpose - All Person Types"
     )
     assert list(daily_tour_rate_chart.object.layout.xaxis.categoryarray) == [
         "Work Trips",
@@ -2372,7 +2386,7 @@ def test_tour_purpose_labels_render_consistently_across_pages(tmp_path: Path) ->
     tour_distance_page = TourDistancePage(state, config)
     tour_distance_page.refresh(force=True)
     assert list(tour_distance_page.nonmand_purpose_sel.options) == [
-        "All",
+        "All Tour Purposes",
         "Eat Out",
         "Social Time",
     ]
@@ -2439,7 +2453,11 @@ def test_trip_stop_purpose_page_uses_trip_and_stop_purpose_dashboard_labels(
     page = TripStopPurposePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.tour_purpose_sel.options) == ["All", "Work Tours", "Shopping Tours"]
+    assert list(page.tour_purpose_sel.options) == [
+        "All Tour Purposes",
+        "Work Tours",
+        "Shopping Tours",
+    ]
 
     plots = _collect_plotly_panes(page._body)
     trip_chart = next(
@@ -2449,7 +2467,7 @@ def test_trip_stop_purpose_page_uses_trip_and_stop_purpose_dashboard_labels(
         plot
         for plot in plots
         if plot.object.layout.title.text
-        == "Stop Destination Purpose by Tour Purpose - All"
+        == "Stop Destination Purpose by Tour Purpose - All Tour Purposes"
     )
     assert list(trip_chart.object.layout.xaxis.categoryarray) == [
         "Work Trips",
@@ -3086,7 +3104,7 @@ def test_tour_summaries_tour_mode_page_renders_main_chart_without_vehicle_summar
     page = TourSummariesTourModePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.purpose_sel.options) == ["Total", "work"]
+    assert list(page.purpose_sel.options) == ["All Tour Purposes", "work"]
     assert len(page._mode_section.objects) == 6
     chart_titles = [
         obj.object.layout.title.text
@@ -3208,7 +3226,7 @@ def test_mandatory_location_choice_uses_union_of_available_geographies(
     page = MandatoryLocationChoicePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["all_geographies", "district"]
+    assert list(page.geo_level_sel.options) == ["All Geographies", "district"]
     commuting_widget = page._commuting_flows_section.objects[0]
     assert not isinstance(commuting_widget, pn.Card)
 
@@ -3245,7 +3263,7 @@ def test_mandatory_location_choice_can_show_maz_when_enabled(
     page = MandatoryLocationChoicePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["all_geographies", "maz"]
+    assert list(page.geo_level_sel.options) == ["All Geographies", "maz"]
 
 
 def test_tour_mode_vehicle_filters_sort_categories_stably() -> None:
@@ -3356,7 +3374,7 @@ def test_internal_external_tours_geo_selector_uses_union_levels_across_tables(
     page = InternalExternalToursPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["all_geographies", "district", "maz"]
+    assert list(page.geo_level_sel.options) == ["All Geographies", "district", "maz"]
 
 
 def test_internal_external_tours_geo_selector_hides_only_maz_when_disabled(
@@ -3391,7 +3409,7 @@ def test_internal_external_tours_geo_selector_hides_only_maz_when_disabled(
     page = InternalExternalToursPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["all_geographies", "district"]
+    assert list(page.geo_level_sel.options) == ["All Geographies", "district"]
 
 
 def test_shadow_pricing_geo_selector_keeps_maz_available_when_disabled(
@@ -3451,7 +3469,7 @@ def test_shadow_pricing_geo_selector_keeps_maz_available_when_disabled(
     page = ShadowPricingPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["all_geographies", "district", "maz"]
+    assert list(page.geo_level_sel.options) == ["All Geographies", "district", "maz"]
 
 
 def test_shadow_pricing_geo_selector_shows_detailed_levels_when_enabled(
@@ -3511,7 +3529,7 @@ def test_shadow_pricing_geo_selector_shows_detailed_levels_when_enabled(
     page = ShadowPricingPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["all_geographies", "district", "maz"]
+    assert list(page.geo_level_sel.options) == ["All Geographies", "district", "maz"]
 
 
 def test_shadow_pricing_page_uses_residual_histograms_and_filters_school_student_type(
@@ -4091,7 +4109,7 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
 
     assert not hasattr(page, "location_type_sel")
     assert hasattr(page, "geography_sel")
-    assert list(page.geography_sel.options) == ["all_geographies"]
+    assert list(page.geography_sel.options) == ["All Geographies"]
     assert page.view.objects.index(page._remote_work_section) < page.view.objects.index(
         page._distance_section
     )
@@ -4227,7 +4245,7 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
     page.refresh(force=True)
 
     assert "school_district" in list(page.geo_level_sel.options)
-    assert list(page.geography_sel.options) == ["all_geographies"]
+    assert list(page.geography_sel.options) == ["All Geographies"]
     page.geo_level_sel.value = "school_district"
     page.refresh(force=True)
     assert list(page.geography_sel.options) == ["All", "North", "South"]
@@ -4767,7 +4785,7 @@ def test_tour_time_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None
     page = TourTimePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.purpose_sel.options) == ["Total", "work"]
+    assert list(page.purpose_sel.options) == ["All Tour Purposes", "work"]
     page.purpose_sel.value = "work"
     page.refresh(force=True)
     assert page._body.objects

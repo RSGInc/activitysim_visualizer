@@ -8,8 +8,10 @@ import polars as pl
 from dashboard.components import data_table, density_chart
 from dashboard.helpers.comparison_helpers import format_percent_error_table
 from dashboard.helpers.geography_helpers import (
+    ALL_GEOGRAPHIES_LABEL,
     filter_geography_level,
     geography_column_options,
+    is_all_geographies,
     normalize_geography_data,
 )
 from dashboard.page_base import DashboardPage, SectionContent
@@ -29,9 +31,50 @@ def filter_student_type(
             continue
         filtered = df
         if "student_type" in filtered.columns:
-            filtered = filtered.with_columns(pl.col("student_type").cast(pl.Utf8)).filter(
-                pl.col("student_type") == student_type
-            )
+            filtered = filtered.with_columns(pl.col("student_type").cast(pl.Utf8))
+            if student_type == "All":
+                explicit_all = filtered.filter(pl.col("student_type") == "All")
+                if len(explicit_all) > 0:
+                    filtered = explicit_all
+                else:
+                    group_cols = [
+                        column
+                        for column in (
+                            "geography_level",
+                            "geography_type",
+                            "geography",
+                            "geography_id",
+                        )
+                        if column in filtered.columns
+                    ]
+                    agg_exprs: list[pl.Expr] = []
+                    if "target_count" in filtered.columns:
+                        agg_exprs.append(pl.col("target_count").sum().alias("target_count"))
+                    if "modeled_count" in filtered.columns:
+                        agg_exprs.append(pl.col("modeled_count").sum().alias("modeled_count"))
+                    if "residual_count" in filtered.columns:
+                        agg_exprs.append(pl.col("residual_count").sum().alias("residual_count"))
+                    if "absolute_residual_count" in filtered.columns:
+                        agg_exprs.append(
+                            pl.col("absolute_residual_count").sum().alias("absolute_residual_count")
+                        )
+                    if "geography_count" in filtered.columns:
+                        agg_exprs.append(pl.col("geography_count").sum().alias("geography_count"))
+                    filtered = (
+                        filtered.group_by(group_cols)
+                        .agg(agg_exprs)
+                        .with_columns(
+                            pl.lit("All").alias("student_type"),
+                            pl.when(pl.col("target_count") != 0)
+                            .then(pl.col("residual_count") / pl.col("target_count") * 100.0)
+                            .otherwise(None)
+                            .alias("percent_error")
+                            if {"target_count", "residual_count"}.issubset(filtered.columns)
+                            else pl.lit(None).alias("percent_error")
+                        )
+                    )
+            else:
+                filtered = filtered.filter(pl.col("student_type") == student_type)
         out.append((label, filtered))
     return out
 
@@ -61,8 +104,8 @@ class ShadowPricingPage(DashboardPage):
             "geography_level",
             widget=pn.widgets.Select(
                 name="Geography Level",
-                options=["all_geographies"],
-                value="all_geographies",
+                options=[ALL_GEOGRAPHIES_LABEL],
+                value=ALL_GEOGRAPHIES_LABEL,
             ),
             label="Geography Level",
         )
@@ -119,7 +162,7 @@ class ShadowPricingPage(DashboardPage):
         if not self.state.run_labels:
             return {
                 "mode": "no_runs",
-                "geo_opts": ["all_geographies"],
+                "geo_opts": [ALL_GEOGRAPHIES_LABEL],
                 "student_opts": ["All"],
             }
 
@@ -141,7 +184,7 @@ class ShadowPricingPage(DashboardPage):
                 workplace_hist or school_hist or workplace_summary or school_summary,
                 "geography_level",
                 config=self.config,
-                total_label="all_geographies",
+                total_label=ALL_GEOGRAPHIES_LABEL,
                 include_all_geographies=True,
             ),
             "student_opts": geography_column_options(
@@ -170,7 +213,7 @@ class ShadowPricingPage(DashboardPage):
             ]
 
         geo_level = str(self.geo_level_sel.value)
-        if geo_level == "all_geographies":
+        if is_all_geographies(geo_level):
             return [
                 pn.pane.Markdown("### Workplace Shadow Pricing"),
                 pn.Row(pn.pane.Markdown("**Geography Level:**"), self.geo_level_sel),
@@ -258,7 +301,7 @@ class ShadowPricingPage(DashboardPage):
 
         geo_level = str(self.geo_level_sel.value)
         student_type = str(self.student_type_sel.value)
-        if geo_level == "all_geographies":
+        if is_all_geographies(geo_level):
             return [
                 pn.pane.Markdown("### School Shadow Pricing"),
                 pn.Row(pn.pane.Markdown("**Student Type:**"), self.student_type_sel),

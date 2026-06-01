@@ -11,6 +11,7 @@ from dashboard.helpers.category_helpers import (
     ordered_category_values,
 )
 from dashboard.helpers.person_type_helpers import (
+    ALL_PERSON_TYPES,
     PERSON_TYPE_COL,
     filter_person_type_counts,
     filter_person_type_rates,
@@ -68,15 +69,15 @@ class DailyActivityPatternPage(DashboardPage):
         """Return display labels plus the page-local raw-value mapping."""
         data = self._person_type_source_data(weighting_key)
         if data is None:
-            self._person_type_to_raw = {"Total": "all_person_types"}
-            return ["Total"]
+            self._person_type_to_raw = {"All Person Types": ALL_PERSON_TYPES}
+            return ["All Person Types"]
         options, self._person_type_to_raw = person_type_selector_options(
             data,
             config=self.config,
             state=self.state,
             cache_key=("daily_activity_pattern", PERSON_TYPE_COL, weighting_key),
         )
-        return options or ["Total"]
+        return options or ["All Person Types"]
 
     def sync_controls(self) -> None:
         options = self._person_type_options(self.weighting_key)

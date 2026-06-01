@@ -84,6 +84,8 @@ def tour_time_chart_data(
 
 
 class TourTimePage(DashboardPage):
+    TOTAL_PURPOSE_LABEL = "All Tour Purposes"
+
     def build_page(self) -> pn.viewable.Viewable:
         self.purpose_sel = self.selector(
             "tour_purpose",
@@ -112,8 +114,8 @@ class TourTimePage(DashboardPage):
             "weighted",
         )
         if data is None:
-            self._purpose_to_raw = {"Total": "all_tour_purposes"}
-            return ["Total"]
+            self._purpose_to_raw = {self.TOTAL_PURPOSE_LABEL: "all_tour_purposes"}
+            return [self.TOTAL_PURPOSE_LABEL]
         options, self._purpose_to_raw = column_options(
             data,
             "tour_purpose",
@@ -127,9 +129,9 @@ class TourTimePage(DashboardPage):
                 "weighted",
             ),
             total_raw="all_tour_purposes",
-            total_label="Total",
+            total_label=self.TOTAL_PURPOSE_LABEL,
         )
-        return options or ["Total"]
+        return options or [self.TOTAL_PURPOSE_LABEL]
 
     def sync_controls(self) -> None:
         summaries = self.require_summaries(*self.required_summary_ids)
@@ -148,9 +150,9 @@ class TourTimePage(DashboardPage):
                 self.weighting_key,
             ),
             total_raw="all_tour_purposes",
-            total_label="Total",
+            total_label=self.TOTAL_PURPOSE_LABEL,
         )
-        self.purpose_sel.options = purpose_opts or ["Total"]
+        self.purpose_sel.options = purpose_opts or [self.TOTAL_PURPOSE_LABEL]
         if self.purpose_sel.value not in self.purpose_sel.options:
             self.purpose_sel.value = self.purpose_sel.options[0]
 

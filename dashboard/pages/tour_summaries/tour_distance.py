@@ -113,6 +113,7 @@ def average_distance_comparison_table(
 
 class TourDistancePage(DashboardPage):
     """Render tour distance distributions and average-distance comparisons."""
+    TOTAL_PURPOSE_LABEL = "All Tour Purposes"
 
     def build_page(self) -> pn.viewable.Viewable:
         """Build the persistent page layout and selector widgets."""
@@ -122,8 +123,8 @@ class TourDistancePage(DashboardPage):
             "tour_purpose",
             widget=pn.widgets.Select(
                 name="Tour Purpose",
-                options=["Total"],
-                value="Total",
+                options=[self.TOTAL_PURPOSE_LABEL],
+                value=self.TOTAL_PURPOSE_LABEL,
             ),
             label="Tour Purpose",
         )
@@ -140,8 +141,8 @@ class TourDistancePage(DashboardPage):
             "geography",
             widget=pn.widgets.Select(
                 name="Geography",
-                options=["All"],
-                value="All",
+                options=[self.TOTAL_PURPOSE_LABEL],
+                value=self.TOTAL_PURPOSE_LABEL,
             ),
             label="Geography",
         )
@@ -201,7 +202,7 @@ class TourDistancePage(DashboardPage):
                 self.weighting_key,
             ),
             total_raw="all_tour_purposes",
-            total_label="Total",
+            total_label=self.TOTAL_PURPOSE_LABEL,
         )
         nonmandatory_options, self._nonmandatory_purpose_to_raw = column_options(
             nonmandatory_average,
@@ -216,7 +217,7 @@ class TourDistancePage(DashboardPage):
                 self.weighting_key,
             ),
             total_raw="All",
-            total_label="All",
+            total_label=self.TOTAL_PURPOSE_LABEL,
         )
         geography_level_options_list = geography_level_options(
             nonmandatory_average or None,
@@ -232,8 +233,8 @@ class TourDistancePage(DashboardPage):
         )
 
         for widget, options in (
-            (self.tour_purpose_sel, tour_purpose_options or ["Total"]),
-            (self.nonmandatory_purpose_sel, nonmandatory_options or ["All"]),
+            (self.tour_purpose_sel, tour_purpose_options or [self.TOTAL_PURPOSE_LABEL]),
+            (self.nonmandatory_purpose_sel, nonmandatory_options or [self.TOTAL_PURPOSE_LABEL]),
             (self.geo_level_sel, geography_level_options_list or ["Total"]),
         ):
             widget.options = options

@@ -71,6 +71,8 @@ def trip_stop_time_chart_data(
 
 
 class TripStopTimePage(DashboardPage):
+    TOTAL_PURPOSE_LABEL = "All Tour Purposes"
+
     def build_page(self) -> pn.viewable.Viewable:
         purpose_opts, self._purpose_to_raw = column_options(
             self.state.get_summary_table_set("trip_departure_time_by_purpose", "weighted")
@@ -86,11 +88,11 @@ class TripStopTimePage(DashboardPage):
                 "weighted",
             ),
             total_raw="all_tour_purposes",
-            total_label="Total",
+            total_label=self.TOTAL_PURPOSE_LABEL,
         )
         if not purpose_opts:
-            purpose_opts = ["Total"]
-            self._purpose_to_raw = {"Total": "all_tour_purposes"}
+            purpose_opts = [self.TOTAL_PURPOSE_LABEL]
+            self._purpose_to_raw = {self.TOTAL_PURPOSE_LABEL: "all_tour_purposes"}
         self.tour_purpose_sel = self.selector(
             "tour_purpose",
             widget=pn.widgets.Select(
@@ -129,9 +131,9 @@ class TripStopTimePage(DashboardPage):
                 self.weighting_key,
             ),
             total_raw="all_tour_purposes",
-            total_label="Total",
+            total_label=self.TOTAL_PURPOSE_LABEL,
         )
-        self.tour_purpose_sel.options = purpose_opts or ["Total"]
+        self.tour_purpose_sel.options = purpose_opts or [self.TOTAL_PURPOSE_LABEL]
         if self.tour_purpose_sel.value not in self.tour_purpose_sel.options:
             self.tour_purpose_sel.value = self.tour_purpose_sel.options[0]
 

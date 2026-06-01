@@ -54,6 +54,8 @@ def stop_frequency_chart_data(
 
 
 class TourStopFrequencyPage(DashboardPage):
+    TOTAL_PURPOSE_LABEL = "All Tour Purposes"
+
     def build_page(self) -> pn.viewable.Viewable:
         purpose_opts, self._purpose_to_raw = column_options(
             self.state.get_summary_table_set(
@@ -71,14 +73,14 @@ class TourStopFrequencyPage(DashboardPage):
                 "weighted",
             ),
             total_raw=None,
-            total_label="All",
+            total_label=self.TOTAL_PURPOSE_LABEL,
         )
         self.purpose_sel = self.selector(
             "tour_purpose",
             widget=pn.widgets.Select(
                 name="Tour Purpose",
-                options=purpose_opts or ["All"],
-                value=(purpose_opts or ["All"])[0],
+                options=purpose_opts or [self.TOTAL_PURPOSE_LABEL],
+                value=(purpose_opts or [self.TOTAL_PURPOSE_LABEL])[0],
             ),
             label="Tour Purpose",
         )
@@ -110,9 +112,9 @@ class TourStopFrequencyPage(DashboardPage):
                 self.weighting_key,
             ),
             total_raw=None,
-            total_label="All",
+            total_label=self.TOTAL_PURPOSE_LABEL,
         )
-        self.purpose_sel.options = purpose_opts or ["All"]
+        self.purpose_sel.options = purpose_opts or [self.TOTAL_PURPOSE_LABEL]
         if self.purpose_sel.value not in self.purpose_sel.options:
             self.purpose_sel.value = self.purpose_sel.options[0]
 

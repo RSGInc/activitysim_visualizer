@@ -39,6 +39,8 @@ def distance_chart_data(
 
 
 class TripStopDistancePage(DashboardPage):
+    TOTAL_PURPOSE_LABEL = "All Tour Purposes"
+
     def build_page(self) -> pn.viewable.Viewable:
         purpose_opts, self._tour_purpose_to_raw = column_options(
             self.state.get_summary_table_set("trip_distance_by_purpose", "weighted") or [],
@@ -53,9 +55,9 @@ class TripStopDistancePage(DashboardPage):
                 "weighted",
             ),
             total_raw="all_tour_purposes",
-            total_label="Total",
+            total_label=self.TOTAL_PURPOSE_LABEL,
         )
-        purpose_opts = purpose_opts or ["Total"]
+        purpose_opts = purpose_opts or [self.TOTAL_PURPOSE_LABEL]
         self.tour_purpose_sel = self.selector(
             "tour_purpose",
             widget=pn.widgets.Select(
@@ -94,9 +96,9 @@ class TripStopDistancePage(DashboardPage):
                 self.weighting_key,
             ),
             total_raw="all_tour_purposes",
-            total_label="Total",
+            total_label=self.TOTAL_PURPOSE_LABEL,
         )
-        self.tour_purpose_sel.options = purpose_opts or ["Total"]
+        self.tour_purpose_sel.options = purpose_opts or [self.TOTAL_PURPOSE_LABEL]
         if self.tour_purpose_sel.value not in self.tour_purpose_sel.options:
             self.tour_purpose_sel.value = self.tour_purpose_sel.options[0]
 

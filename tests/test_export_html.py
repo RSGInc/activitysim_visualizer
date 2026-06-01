@@ -1235,28 +1235,28 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     assert page_defs["daily_activity_pattern"]["selectors"][0]["id"] == "person_type"
     assert page_defs["daily_activity_pattern"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["daily_activity_pattern"]["selectors"][0]["resolved_values"] == [
-        "Total",
+        "All Person Types",
         "worker",
     ]
     assert page_defs["daily_activity_pattern"]["selectors"][0]["export_enabled"] is True
     assert page_defs["tour_time"]["selectors"][0]["id"] == "tour_purpose"
     assert page_defs["tour_time"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["tour_time"]["selectors"][0]["resolved_values"] == [
-        "Total",
+        "All Tour Purposes",
         "work",
     ]
     assert page_defs["tour_time"]["selectors"][0]["export_enabled"] is True
     assert page_defs["tour_mode"]["selectors"][0]["id"] == "tour_purpose"
     assert page_defs["tour_mode"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["tour_mode"]["selectors"][0]["resolved_values"] == [
-        "Total",
+        "All Tour Purposes",
         "work",
     ]
     assert page_defs["tour_mode"]["selectors"][0]["export_enabled"] is True
     assert page_defs["tour_stop_frequency"]["selectors"][0]["id"] == "tour_purpose"
     assert page_defs["tour_stop_frequency"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["tour_stop_frequency"]["selectors"][0]["resolved_values"] == [
-        "All",
+        "All Tour Purposes",
         "eatout",
         "social",
     ]
@@ -1264,7 +1264,7 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     assert page_defs["trip_stop_time"]["selectors"][0]["id"] == "tour_purpose"
     assert page_defs["trip_stop_time"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["trip_stop_time"]["selectors"][0]["resolved_values"] == [
-        "Total",
+        "All Tour Purposes",
         "eatout",
         "social",
     ]
@@ -1272,7 +1272,7 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     assert page_defs["trip_mode"]["selectors"][0]["id"] == "tour_purpose"
     assert page_defs["trip_mode"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["trip_mode"]["selectors"][0]["resolved_values"] == [
-        "All",
+        "All Tour Purposes",
         "eatout",
         "social",
     ]
@@ -1284,14 +1284,14 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     assert daily_activity_pattern["kind"] == "page"
     assert _region_nodes(daily_activity_pattern)["activity_pattern_body"]["selector_ids"] == ["person_type"]
     assert sorted(_region_nodes(daily_activity_pattern)["activity_pattern_body"]["variants"]) == [
-        '["Total"]',
+        '["All Person Types"]',
         '["worker"]',
     ]
     tour_time = weighted_percent["tour_time"]
     assert tour_time["kind"] == "page"
     assert _region_nodes(tour_time)["tour_time_body"]["selector_ids"] == ["tour_purpose"]
     assert sorted(_region_nodes(tour_time)["tour_time_body"]["variants"]) == [
-        '["Total"]',
+        '["All Tour Purposes"]',
         '["work"]',
     ]
     tour_mode = weighted_percent["tour_mode"]
@@ -1300,7 +1300,7 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
         "tour_purpose",
     ]
     assert sorted(_region_nodes(tour_mode)["tour_mode_modes"]["variants"]) == [
-        '["Total"]',
+        '["All Tour Purposes"]',
         '["work"]',
     ]
     tour_stop_frequency = weighted_percent["tour_stop_frequency"]
@@ -1309,7 +1309,7 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
         "tour_purpose",
     ]
     assert sorted(_region_nodes(tour_stop_frequency)["tour_stop_frequency_body"]["variants"]) == [
-        '["All"]',
+        '["All Tour Purposes"]',
         '["eatout"]',
         '["social"]',
     ]
@@ -1319,7 +1319,7 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
         "tour_purpose"
     ]
     assert sorted(_region_nodes(trip_stop_time)["trip_stop_time_body"]["variants"]) == [
-        '["Total"]',
+        '["All Tour Purposes"]',
         '["eatout"]',
         '["social"]',
     ]
@@ -1327,7 +1327,7 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     assert trip_mode["kind"] == "page"
     assert _region_nodes(trip_mode)["trip_summary_mode_body"]["selector_ids"] == ["tour_purpose"]
     assert sorted(_region_nodes(trip_mode)["trip_summary_mode_body"]["variants"]) == [
-        '["All"]',
+        '["All Tour Purposes"]',
         '["eatout"]',
         '["social"]',
     ]
@@ -1523,39 +1523,39 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
 
     assert page_defs["daily_activity_pattern"]["selectors"][0]["request_mode"] == "explicit"
     assert page_defs["daily_activity_pattern"]["selectors"][0]["resolved_values"] == [
-        "Total",
+        "All Person Types",
         "worker",
     ]
     assert page_defs["daily_activity_pattern"]["selectors"][0]["export_enabled"] is True
     assert page_defs["tour_stop_frequency"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["tour_stop_frequency"]["selectors"][0]["resolved_values"] == [
-        "All",
+        "All Tour Purposes",
         "eatout",
         "social",
     ]
     assert page_defs["tour_stop_frequency"]["selectors"][0]["export_enabled"] is True
     assert page_defs["trip_stop_time"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["trip_stop_time"]["selectors"][0]["resolved_values"] == [
-        "Total",
+        "All Tour Purposes",
         "eatout",
         "social",
     ]
     assert page_defs["trip_stop_time"]["selectors"][0]["export_enabled"] is True
     assert page_defs["tour_time"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["tour_time"]["selectors"][0]["resolved_values"] == [
-        "Total",
+        "All Tour Purposes",
         "work",
     ]
     assert page_defs["tour_time"]["selectors"][0]["export_enabled"] is True
     assert page_defs["tour_mode"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["tour_mode"]["selectors"][0]["resolved_values"] == [
-        "Total",
+        "All Tour Purposes",
         "work",
     ]
     assert page_defs["tour_mode"]["selectors"][0]["export_enabled"] is True
     assert page_defs["trip_mode"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["trip_mode"]["selectors"][0]["resolved_values"] == [
-        "All",
+        "All Tour Purposes",
         "eatout",
         "social",
     ]
@@ -1564,7 +1564,7 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
     weighted_percent = payload["states"]["Weighted||Percent"]["daily_activity_pattern"]
     assert weighted_percent["kind"] == "page"
     assert sorted(_region_nodes(weighted_percent)["activity_pattern_body"]["variants"]) == [
-        '["Total"]',
+        '["All Person Types"]',
         '["worker"]',
     ]
     daily_activity_pattern_weighted_percent = payload["states"]["Weighted||Percent"][
@@ -1574,7 +1574,7 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
     assert sorted(
         _region_nodes(daily_activity_pattern_weighted_percent)["activity_pattern_body"]["variants"]
     ) == [
-        '["Total"]',
+        '["All Person Types"]',
         '["worker"]',
     ]
     tour_stop_frequency_weighted_percent = payload["states"]["Weighted||Percent"][
@@ -1582,21 +1582,21 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
     ]
     assert tour_stop_frequency_weighted_percent["kind"] == "page"
     assert sorted(_region_nodes(tour_stop_frequency_weighted_percent)["tour_stop_frequency_body"]["variants"]) == [
-        '["All"]',
+        '["All Tour Purposes"]',
         '["eatout"]',
         '["social"]',
     ]
     trip_stop_time_weighted_percent = payload["states"]["Weighted||Percent"]["trip_stop_time"]
     assert trip_stop_time_weighted_percent["kind"] == "page"
     assert sorted(_region_nodes(trip_stop_time_weighted_percent)["trip_stop_time_body"]["variants"]) == [
-        '["Total"]',
+        '["All Tour Purposes"]',
         '["eatout"]',
         '["social"]',
     ]
     tour_time_weighted_percent = payload["states"]["Weighted||Percent"]["tour_time"]
     assert tour_time_weighted_percent["kind"] == "page"
     assert sorted(_region_nodes(tour_time_weighted_percent)["tour_time_body"]["variants"]) == [
-        '["Total"]',
+        '["All Tour Purposes"]',
         '["work"]',
     ]
     tour_mode_weighted_percent = payload["states"]["Weighted||Percent"]["tour_mode"]
@@ -1605,13 +1605,13 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
         "tour_purpose",
     ]
     assert sorted(_region_nodes(tour_mode_weighted_percent)["tour_mode_modes"]["variants"]) == [
-        '["Total"]',
+        '["All Tour Purposes"]',
         '["work"]',
     ]
     trip_mode_weighted_percent = payload["states"]["Weighted||Percent"]["trip_mode"]
     assert trip_mode_weighted_percent["kind"] == "page"
     assert sorted(_region_nodes(trip_mode_weighted_percent)["trip_summary_mode_body"]["variants"]) == [
-        '["All"]',
+        '["All Tour Purposes"]',
         '["eatout"]',
         '["social"]',
     ]
@@ -1646,12 +1646,12 @@ def test_build_export_html_document_keeps_grouped_tour_mode_chart_when_mode_grou
         "tour_purpose",
     ]
     assert sorted(_region_nodes(tour_mode)["tour_mode_modes"]["variants"]) == [
-        '["Total"]',
+        '["All Tour Purposes"]',
         '["work"]',
     ]
     region_nodes = _region_nodes(tour_mode)
     variant_nodes = _walk_nodes(
-        region_nodes["tour_mode_modes"]["variants"]['["Total"]']
+        region_nodes["tour_mode_modes"]["variants"]['["All Tour Purposes"]']
     )
     assert any(
         node.get("kind") == "plotly"
@@ -1737,7 +1737,7 @@ def test_build_export_html_document_serializes_long_term_geography_variants(
     assert page_defs["mandatory_location_choice"]["selectors"][0]["id"] == "geography_level"
     assert page_defs["mandatory_location_choice"]["selectors"][0]["request_mode"] == "all"
     assert set(page_defs["mandatory_location_choice"]["selectors"][0]["resolved_values"]) == {
-        "All",
+        "All Geographies",
         "Suburban",
         "Urban",
     }
@@ -1802,7 +1802,7 @@ def test_build_export_html_document_serializes_stop_frequency_four_chart_variant
 
     assert tour_stop_frequency["kind"] == "page"
     assert sorted(_region_nodes(tour_stop_frequency)["tour_stop_frequency_body"]["variants"]) == [
-        '["All"]',
+        '["All Tour Purposes"]',
         '["eatout"]',
         '["social"]',
     ]
@@ -1841,12 +1841,14 @@ def test_build_export_html_document_serializes_stop_timing_two_chart_variant(
 
     assert trip_stop_time["kind"] == "page"
     assert sorted(_region_nodes(trip_stop_time)["trip_stop_time_body"]["variants"]) == [
-        '["Total"]',
+        '["All Tour Purposes"]',
         '["eatout"]',
         '["social"]',
     ]
     variant_nodes = _walk_nodes(
-        _region_nodes(trip_stop_time)["trip_stop_time_body"]["variants"]['["Total"]']
+        _region_nodes(trip_stop_time)["trip_stop_time_body"]["variants"][
+            '["All Tour Purposes"]'
+        ]
     )
     assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 2
 
@@ -1870,7 +1872,7 @@ def test_build_export_html_document_serializes_joint_tours_hh_size_variants(
 
     assert daily_activity_pattern["kind"] == "page"
     assert sorted(_region_nodes(daily_activity_pattern)["activity_pattern_body"]["variants"]) == [
-        '["Total"]',
+        '["All Person Types"]',
         '["worker"]',
     ]
     variant_nodes = _walk_nodes(
@@ -1900,7 +1902,7 @@ def test_build_export_html_document_serializes_trip_mode_tour_purpose_variants(
 
     assert trip_mode["kind"] == "page"
     assert sorted(_region_nodes(trip_mode)["trip_summary_mode_body"]["variants"]) == [
-        '["All"]',
+        '["All Tour Purposes"]',
         '["eatout"]',
         '["social"]',
     ]

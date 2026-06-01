@@ -475,16 +475,17 @@ class Config:
         spec = self.dashboard_label_spec(category_id)
         if spec is not None and raw_value_str in spec.labels_by_raw:
             return spec.labels_by_raw[raw_value_str]
-        if category_id == "tour_purpose" and raw_value_str == "all_tour_purposes":
-            return "All"
+        aggregate_defaults = {
+            "all_person_types": "All Person Types",
+            "all_tour_purposes": "All Tour Purposes",
+            "all_geographies": "All Geographies",
+        }
+        if raw_value_str in aggregate_defaults:
+            return aggregate_defaults[raw_value_str]
         return raw_value_str
 
     def ordered_values(self, category_id: str, raw_values: list[str]) -> list[str]:
-        spec = self.dashboard_label_spec(category_id)
         values = [str(value) for value in raw_values]
-        if spec is None:
-            return values
-
         seen: set[str] = set()
         unique_values: list[str] = []
         for value in values:
@@ -492,6 +493,10 @@ class Config:
                 continue
             unique_values.append(value)
             seen.add(value)
+
+        spec = self.dashboard_label_spec(category_id)
+        if spec is None:
+            return unique_values
 
         ordered = [value for value in spec.raw_values_in_order if value in seen]
         extras = [value for value in unique_values if value not in ordered]

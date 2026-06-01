@@ -6,7 +6,12 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart, control_row, control_row_spacer
-from dashboard.helpers.category_helpers import column_options, label_category_data, nonempty
+from dashboard.helpers.category_helpers import (
+    column_options,
+    complete_category_counts,
+    label_category_data,
+    nonempty,
+)
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
@@ -29,6 +34,51 @@ def household_size_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[st
         total_label="All",
     )
     return opts or ["All"]
+
+
+def joint_household_size_values(
+    *data_lists: list[tuple[str, pl.DataFrame]],
+) -> list[str]:
+    """Return every household size from 2 through the observed maximum, inclusive."""
+    values: set[int] = set()
+    for data_list in data_lists:
+        for _, df in nonempty(data_list):
+            if "household_size" not in df.columns:
+                continue
+            values.update(
+                value
+                for value in df.select(
+                    pl.col("household_size").cast(pl.Int64, strict=False)
+                ).to_series().to_list()
+                if value is not None and value >= 2
+            )
+    if not values:
+        return []
+    return [str(value) for value in range(2, max(values) + 1)]
+
+
+def complete_joint_household_size_data(
+    data_list: list[tuple[str, pl.DataFrame]],
+    *,
+    value_col: str,
+    household_size_values: list[str],
+) -> list[tuple[str, pl.DataFrame]]:
+    """Complete household-size categories so joint-travel charts show every bin."""
+    normalized = [
+        (
+            label,
+            df.with_columns(pl.col("household_size").cast(pl.Utf8))
+            .filter(pl.col("household_size") != "1")
+            .select("household_size", value_col),
+        )
+        for label, df in nonempty(data_list)
+    ]
+    return complete_category_counts(
+        normalized,
+        category_col="household_size",
+        category_values=household_size_values,
+        value_cols=(value_col,),
+    )
 
 
 def ordered_composition(df: pl.DataFrame) -> pl.DataFrame:
@@ -231,7 +281,10 @@ class JointTravelPage(DashboardPage):
             (label, df.with_columns(pl.col("party_size").cast(pl.Utf8)))
             for label, df in nonempty(summaries["joint_tour_party_size_distribution"])
         ]
-        household_size_values = self._values_for_column(joint_tours_hhsize_data, "household_size")
+        household_size_values = joint_household_size_values(
+            joint_tours_hhsize_data,
+            summaries["person_jtp_by_household_size"],
+        )
         party_size_values = self._values_for_column(party_size_data, "party_size")
         composition_label_values = self.config.ordered_labels(
             "tour_composition",
@@ -263,7 +316,11 @@ class JointTravelPage(DashboardPage):
                 ),
                 pn.Row(
                     self.render_household_size_chart(
-                        joint_tours_hhsize_data,
+                        complete_joint_household_size_data(
+                            joint_tours_hhsize_data,
+                            value_col="joint_tour_hh_count",
+                            household_size_values=household_size_values,
+                        ),
                         household_size_values,
                     ),
                     self.render_party_size_chart(
@@ -301,7 +358,10 @@ class JointTravelPage(DashboardPage):
                 summaries["household_jtp_by_household_size_and_jtf"], hhsize
             ),
         )
-        household_size_values = self._values_for_column(person_participation, "household_size")
+        household_size_values = joint_household_size_values(
+            person_participation,
+            summaries["joint_tours_by_household_size"],
+        )
         jtf_values = self.config.ordered_labels(
             "jtf",
             [
@@ -324,7 +384,11 @@ class JointTravelPage(DashboardPage):
                 ),
                 pn.Row(
                     self.render_person_participation_chart(
-                        person_participation,
+                        complete_joint_household_size_data(
+                            person_participation,
+                            value_col="person_value",
+                            household_size_values=household_size_values,
+                        ),
                         household_size_values,
                     ),
                     self.render_household_participation_chart(

@@ -61,12 +61,17 @@ def build_base_run_percent_difference_table(
     """Build a page-ready comparison table from pre-aggregated run values."""
     if not run_labels or base_run_label not in run_labels:
         return pl.DataFrame()
+    base_column_label = (
+        base_run_label
+        if base_run_label == "Base"
+        else f"{base_run_label} (Base Run)"
+    )
 
     rows: list[dict[str, Any]] = []
     for row_label, values_by_run in row_values.items():
         row: dict[str, Any] = {row_header: row_label}
         base_value = values_by_run.get(base_run_label)
-        row[base_run_label] = (
+        row[base_column_label] = (
             f"{0.0:.{precision}f}%"
             if base_value is not None
             else ""

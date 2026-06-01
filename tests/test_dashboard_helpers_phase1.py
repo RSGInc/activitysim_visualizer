@@ -120,13 +120,13 @@ def test_geography_helpers_normalize_and_build_options(tmp_path: Path) -> None:
     geo_levels = geography_level_options(summary, flow_summary, config=config)
     district_options = geography_options_for_level("district", summary, config=config)
     flattened = export_geography_options(
-        {"district": district_options, "all_geographies": ["all_geographies"]},
+        {"district": district_options, "all_geographies": ["All Geographies"]},
         config=config,
     )
     filtered = filter_geography_level(summary, "district")
 
     assert {"geography_level", "geography"}.issubset(normalized.columns)
-    assert geo_levels == ["all_geographies", "district"]
+    assert geo_levels == ["All Geographies", "district"]
     assert district_options == ["All", "Suburban", "Urban"]
     assert flattened == ["All", "Suburban", "Urban"]
     assert filtered[0][1]["geography_id"].to_list() == ["Urban", "Suburban"]
@@ -180,8 +180,8 @@ def test_person_type_helpers_support_selector_domains_and_weighted_rollups(
         person_weights=weights,
     )
 
-    assert options == ["Total", "worker", "student"]
-    assert mapping["Total"] == ALL_PERSON_TYPES
+    assert options == ["All Person Types", "worker", "student"]
+    assert mapping["All Person Types"] == ALL_PERSON_TYPES
     assert filtered_counts[0][1]["person_count"].to_list() == [6.0]
     assert rolled_up[0][1]["tour_rate"].to_list() == [1.6]
 
@@ -234,6 +234,13 @@ def test_comparison_helpers_format_and_build_comparison_tables() -> None:
         {"Metric": "Tours", "Base": "0.00%", "Build": "10.00%"},
         {"Metric": "Trips", "Base": "0.00%", "Build": "-10.00%"},
     ]
+    renamed_table = build_base_run_percent_difference_table(
+        run_labels=["Reference", "Build"],
+        base_run_label="Reference",
+        row_header="Metric",
+        row_values={"Tours": {"Reference": 100.0, "Build": 110.0}},
+    )
+    assert renamed_table.columns == ["Metric", "Reference (Base Run)", "Build"]
 
 
 def test_bar_chart_omits_pct_hover_lines() -> None:

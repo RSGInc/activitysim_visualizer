@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 PERSON_TYPE_COL = "person_type"
 ALL_PERSON_TYPES = "all_person_types"
 DEFAULT_TOTAL_LABEL = "Total"
+DEFAULT_PERSON_TYPE_TOTAL_LABEL = "All Person Types"
 
 
 def _person_type_filter_expr(
@@ -135,7 +136,7 @@ def person_type_selector_options(
     category_id: str = "person_type",
     person_type_col: str = PERSON_TYPE_COL,
     total_raw: str = ALL_PERSON_TYPES,
-    total_label: str = DEFAULT_TOTAL_LABEL,
+    total_label: str = DEFAULT_PERSON_TYPE_TOTAL_LABEL,
 ) -> tuple[list[str], dict[str, str | None]]:
     """Build one person-type selector domain across multiple possible source summaries."""
     raw_values: list[str] = []

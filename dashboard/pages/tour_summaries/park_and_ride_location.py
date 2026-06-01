@@ -8,6 +8,8 @@ import polars as pl
 from dashboard.components import data_table, density_chart
 from dashboard.helpers.comparison_helpers import format_percent_error_table
 from dashboard.helpers.geography_helpers import (
+    ALL_GEOGRAPHIES_LABEL,
+    is_all_geographies,
     geography_column_options,
     normalize_geography_data,
     filter_geography_level,
@@ -41,8 +43,8 @@ class ParkAndRideLocationPage(DashboardPage):
             "geography_level",
             widget=pn.widgets.Select(
                 name="Geography Level",
-                options=["all_geographies"],
-                value="all_geographies",
+                options=[ALL_GEOGRAPHIES_LABEL],
+                value=ALL_GEOGRAPHIES_LABEL,
             ),
             label="Geography Level",
         )
@@ -74,7 +76,7 @@ class ParkAndRideLocationPage(DashboardPage):
     def _collect_data(self) -> dict[str, object]:
         """Collect and normalize park-and-ride summaries."""
         if not self.state.run_labels:
-            return {"mode": "no_runs", "geo_opts": ["all_geographies"]}
+            return {"mode": "no_runs", "geo_opts": [ALL_GEOGRAPHIES_LABEL]}
 
         residuals = normalize_geography_data(
             self.optional_summary("park_and_ride_location_residuals")
@@ -88,7 +90,7 @@ class ParkAndRideLocationPage(DashboardPage):
                 histogram or residuals,
                 "geography_level",
                 config=self.config,
-                total_label="all_geographies",
+                total_label=ALL_GEOGRAPHIES_LABEL,
                 include_all_geographies=True,
             ),
             "residuals": residuals or None,
@@ -110,7 +112,7 @@ class ParkAndRideLocationPage(DashboardPage):
             ]
 
         geo_level = str(self.geo_level_sel.value)
-        if geo_level == "all_geographies":
+        if is_all_geographies(geo_level):
             return [
                 pn.Row(pn.pane.Markdown("**Geography Level:**"), self.geo_level_sel),
                 self._all_geographies_distribution_card(),

@@ -22,8 +22,10 @@ from dashboard.helpers.geography_helpers import (
     DEFAULT_GEO_COL,
     DEFAULT_GEO_LEVEL_COL,
     ALL_WITHIN_LEVEL_VALUE,
+    AGGREGATE_GEOGRAPHY_LEVEL,
     filter_geography,
     filter_geography_level,
+    is_all_geographies,
     normalize_geography_data,
     rename_present,
 )
@@ -77,7 +79,9 @@ def external_workplace_percent_data(
     geo_level: str,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Compute percent-of-all-workers values for the all-geographies aggregate view."""
-    if geo_level != "all_geographies":
+    if is_all_geographies(geo_level):
+        geo_level = AGGREGATE_GEOGRAPHY_LEVEL
+    if geo_level != AGGREGATE_GEOGRAPHY_LEVEL:
         return external_workplace
 
     out: list[tuple[str, pl.DataFrame]] = []
@@ -108,6 +112,10 @@ def work_from_home_chart_data(
     geography: str = ALL_WITHIN_LEVEL_VALUE,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Prepare work-from-home counts and rates for the selected geography slice."""
+    if is_all_geographies(geography_level):
+        geography_level = AGGREGATE_GEOGRAPHY_LEVEL
+    if is_all_geographies(geography):
+        geography = AGGREGATE_GEOGRAPHY_LEVEL
     out: list[tuple[str, pl.DataFrame]] = []
     for label, df in nonempty(wfh_list):
         chart_df = (

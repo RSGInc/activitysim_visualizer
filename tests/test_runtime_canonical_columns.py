@@ -500,6 +500,11 @@ def test_category_specs_apply_ascending_descending_and_data_fallbacks(
     assert config.ordered_values("alpha", ["b", "c", "a"]) == ["a", "b", "c"]
     assert config.ordered_values("omega", ["b", "c", "a"]) == ["c", "b", "a"]
     assert config.ordered_values("seen", ["b", "c", "a"]) == ["b", "c", "a"]
+    assert config.ordered_values("unconfigured", ["0", "1", "0", "2+"]) == [
+        "0",
+        "1",
+        "2+",
+    ]
 
 
 def test_categories_override_legacy_label_and_order_settings(

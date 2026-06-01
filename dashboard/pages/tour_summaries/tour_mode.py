@@ -113,6 +113,7 @@ def tour_mode_chart_data(
 
 class TourModePage(DashboardPage):
     """Render tour mode splits and allocated vehicle characteristics."""
+    TOTAL_PURPOSE_LABEL = "All Tour Purposes"
 
     def build_page(self) -> pn.viewable.Viewable:
         """Build the page shell and persistent selectors."""
@@ -173,9 +174,9 @@ class TourModePage(DashboardPage):
                 "weighted",
             ),
             total_raw="all_tour_purposes",
-            total_label="Total",
+            total_label=self.TOTAL_PURPOSE_LABEL,
         )
-        return options or ["Total"]
+        return options or [self.TOTAL_PURPOSE_LABEL]
 
     def _initial_occupancy_options(self) -> list[str]:
         """Populate the occupancy selector before the first page refresh."""
@@ -226,7 +227,7 @@ class TourModePage(DashboardPage):
                 self.weighting_key,
             ),
             total_raw="all_tour_purposes",
-            total_label="Total",
+            total_label=self.TOTAL_PURPOSE_LABEL,
         )
         occupancy_options, _ = common_column_options(
             summaries["allocated_vehicle_age_by_occupancy"],
@@ -237,7 +238,7 @@ class TourModePage(DashboardPage):
             total_label="All",
         )
         for widget, options in (
-            (self.purpose_sel, purpose_options or ["Total"]),
+            (self.purpose_sel, purpose_options or [self.TOTAL_PURPOSE_LABEL]),
             (self.occupancy_sel, occupancy_options or ["All"]),
         ):
             widget.options = options

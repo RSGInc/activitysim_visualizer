@@ -327,11 +327,13 @@ class IndividualChoicesPage(DashboardPage):
             y_col="person_count",
             title=(
                 "Transit Subsidy Type Among Workers - "
-                f"{'All Workers' if display_person_type == 'Total' else display_person_type}"
+                f"{'All Workers' if raw_person_type == ALL_PERSON_TYPES else display_person_type}"
             ),
             xaxis_title="Transit Subsidy Status",
             yaxis_title=(
-                "All Workers" if display_person_type == "Total" else f"{display_person_type}"
+                "All Workers"
+                if raw_person_type == ALL_PERSON_TYPES
+                else f"{display_person_type}"
             ),
             pct_col="pct",
             as_percent=self.as_percent,

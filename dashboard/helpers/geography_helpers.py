@@ -20,6 +20,7 @@ PREFERRED_TYPED_GEO_ORDER = [
 ]
 AGGREGATE_GEOGRAPHY_LEVEL = "all_geographies"
 ALL_WITHIN_LEVEL_VALUE = "All"
+ALL_GEOGRAPHIES_LABEL = "All Geographies"
 DEFAULT_GEO_LEVEL_COL = "geography_level"
 DEFAULT_GEO_COL = "geography"
 DEFAULT_GEO_TYPE_COL = "geography_type"
@@ -28,7 +29,7 @@ DEFAULT_GEO_ID_COL = "geography_id"
 
 def is_all_geographies(value: str | None) -> bool:
     """Return whether a selector value targets the cross-level aggregate geography."""
-    return str(value) == AGGREGATE_GEOGRAPHY_LEVEL
+    return str(value) in {AGGREGATE_GEOGRAPHY_LEVEL, ALL_GEOGRAPHIES_LABEL}
 
 
 def is_all_within_level(value: str | None) -> bool:
@@ -188,7 +189,10 @@ def geography_level_options(
     if not available_sets:
         return [total_label]
     ordered = detail_geography_levels(set().union(*available_sets), config=config)
-    return ordered or [total_label]
+    return [
+        config.label_value("geography", value) if is_all_geographies(value) else value
+        for value in (ordered or [total_label])
+    ]
 
 
 def geography_id_option_set(
@@ -263,7 +267,7 @@ def geography_options_for_level(
     if geo_level in {"Total", "All"}:
         return [all_within_level_label]
     if is_all_geographies(geo_level):
-        return [AGGREGATE_GEOGRAPHY_LEVEL]
+        return [ALL_GEOGRAPHIES_LABEL]
 
     available_sets = [
         geography_id_option_set(summary, geo_level)
@@ -289,7 +293,7 @@ def export_geography_options(
     for options in geography_opts_by_level.values():
         for option in options:
             option_str = str(option)
-            if option_str in {all_within_level_label, AGGREGATE_GEOGRAPHY_LEVEL}:
+            if option_str == all_within_level_label or is_all_geographies(option_str):
                 continue
             values.add(option_str)
     ordered = config.ordered_values("geography", sorted(values))
@@ -308,6 +312,8 @@ def filter_geography_level(
     """Filter a run-indexed summary list to one geography level."""
     if not data_list:
         return []
+    if is_all_geographies(geo_level):
+        geo_level = AGGREGATE_GEOGRAPHY_LEVEL
     out: list[tuple[str, pl.DataFrame]] = []
     for label, df in nonempty(data_list):
         filtered = df
@@ -344,6 +350,8 @@ def filter_geography(
         return []
     if is_all_within_level(geography):
         return nonempty(data_list)
+    if is_all_geographies(geography):
+        geography = AGGREGATE_GEOGRAPHY_LEVEL
 
     out: list[tuple[str, pl.DataFrame]] = []
     for label, df in nonempty(data_list):
@@ -373,6 +381,8 @@ def filter_origin_geography(
         return []
     if is_all_within_level(geography):
         return nonempty(data_list)
+    if is_all_geographies(geography):
+        geography = AGGREGATE_GEOGRAPHY_LEVEL
 
     out: list[tuple[str, pl.DataFrame]] = []
     for label, df in nonempty(data_list):
@@ -413,12 +423,18 @@ def geography_column_options(
         if include_all_geographies:
             detail_values = sorted(value for value in values if value != AGGREGATE_GEOGRAPHY_LEVEL)
             return (
-                [AGGREGATE_GEOGRAPHY_LEVEL] + detail_values
+                [config.label_value("geography", AGGREGATE_GEOGRAPHY_LEVEL)] + detail_values
                 if AGGREGATE_GEOGRAPHY_LEVEL in values
                 else detail_values or [total_label]
             )
         ordered = detail_geography_levels(values, config=config)
-        return ordered or [total_label]
+        return [
+            config.label_value("geography", value) if is_all_geographies(value) else value
+            for value in (ordered or [total_label])
+        ]
 
     ordered = sorted(value for value in values if value != total_label)
+    if include_all_geographies and config is not None and AGGREGATE_GEOGRAPHY_LEVEL in ordered:
+        ordered = [value for value in ordered if value != AGGREGATE_GEOGRAPHY_LEVEL]
+        return [config.label_value("geography", AGGREGATE_GEOGRAPHY_LEVEL)] + ordered
     return [total_label] + ordered

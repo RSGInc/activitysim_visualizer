@@ -46,7 +46,7 @@ STOP_SEGMENT_LABELS = {
 }
 STUDENT_ESCORT_DESCRIPTION = (
     "Student school tours by escort type. `Both Directions` means the same child "
-    "school tour is escorted outbound and inbound."
+    "school tour is escorted in both outbound and inbound directions."
 )
 HOUSEHOLD_ESCORT_DESCRIPTION = (
     "Households with school escorting by number of students per household. "
@@ -54,20 +54,19 @@ HOUSEHOLD_ESCORT_DESCRIPTION = (
     "selected direction."
 )
 SCHOOLKIDS_DESCRIPTION = (
-    "Average `num_escortees` on adult escort tours, grouped by number of students "
-    "in the household. `Both Directions` only counts adult/chauffer tours where "
+    "Average number of escortees on adult chauffer tours, grouped by number of students "
+    "in the household. `Both Directions` only counts chauffer tours where "
     "escorting occurred in both directions."
 )
 STOP_DISTRIBUTION_DESCRIPTION = (
-    "Number of stops before and after each adult chauffeur trips. Matched "
-    "`escort_participants` to child school and home trips to determine the stop count."
+    "Number of stops before and after the dropoff/pickup on each adult chauffeur trip. "
 )
 PERSON_TYPE_DESCRIPTION = (
-    "Adult chauffeur escort tours by person type. `Both Directions` means the "
+    "Adult chauffeur tours by person type. `Both Directions` means the "
     "chauffer escorted in both outbound and inbound directions."
 )
 DISTANCE_DESCRIPTION = (
-    "Distance distributions for adult chauffeur escort tours and trips. "
+    "Distance distributions for adult chauffeur tours and trips. "
     "`Both Directions` means the chauffer escorted in both outbound and inbound "
     "directions."
 )
@@ -149,7 +148,9 @@ def escort_distance_chart_data(
 ) -> list[tuple[str, pl.DataFrame]]:
     """Build one complete distance distribution for escort tours or trips."""
     out: list[tuple[str, pl.DataFrame]] = []
-    bins_df = pl.DataFrame({"distance_bin": DISTANCE_BINS}, schema={"distance_bin": pl.Utf8})
+    bins_df = pl.DataFrame(
+        {"distance_bin": DISTANCE_BINS}, schema={"distance_bin": pl.Utf8}
+    )
     for label, df in nonempty(data_list):
         filtered = (
             df.with_columns(pl.col(DIRECTION_COL).cast(pl.Utf8))
@@ -222,7 +223,11 @@ def household_school_escort_chart_data(
                 .with_columns(
                     pl.col("household_count").fill_null(0.0),
                     pl.when(pl.col("total_household_count") > 0)
-                    .then(pl.col("household_count") / pl.col("total_household_count") * 100.0)
+                    .then(
+                        pl.col("household_count")
+                        / pl.col("total_household_count")
+                        * 100.0
+                    )
                     .otherwise(0.0)
                     .alias("pct"),
                 )
@@ -264,7 +269,9 @@ def student_count_category_values(
             continue
         values.update(
             value
-            for value in df.select(pl.col("student_count").cast(pl.Int64)).to_series().to_list()
+            for value in df.select(pl.col("student_count").cast(pl.Int64))
+            .to_series()
+            .to_list()
             if value is not None
         )
     return [str(value) for value in sorted(values)]
@@ -280,7 +287,9 @@ def stop_count_category_values(
             continue
         values.update(
             value
-            for value in df.select(pl.col("stop_count").cast(pl.Int64)).to_series().to_list()
+            for value in df.select(pl.col("stop_count").cast(pl.Int64))
+            .to_series()
+            .to_list()
             if value is not None
         )
     return [str(value) for value in sorted(values)]
@@ -371,13 +380,17 @@ class EscortedToursPage(DashboardPage):
         body_objects.extend(
             self.render_household_school_escort_section(
                 summaries["student_households_by_student_count"],
-                summaries["households_with_school_escorting_by_student_count_and_direction"],
+                summaries[
+                    "households_with_school_escorting_by_student_count_and_direction"
+                ],
                 student_count_values,
             )
         )
         body_objects.extend(
             self.render_schoolkids_per_escorted_tour_section(
-                summaries["schoolkids_per_escorted_tour_by_student_count_and_direction"],
+                summaries[
+                    "schoolkids_per_escorted_tour_by_student_count_and_direction"
+                ],
                 student_count_values,
             )
         )
@@ -497,7 +510,9 @@ class EscortedToursPage(DashboardPage):
                         (
                             run_label,
                             df.with_columns(
-                                pl.col("student_count").cast(pl.Utf8).alias("student_count")
+                                pl.col("student_count")
+                                .cast(pl.Utf8)
+                                .alias("student_count")
                             ),
                         )
                         for run_label, df in household_school_escort_chart_data(
@@ -544,10 +559,12 @@ class EscortedToursPage(DashboardPage):
             description=SCHOOLKIDS_DESCRIPTION,
             charts=charts,
             unavailable_detail=(
-                "This section only renders when the schoolkids-per-escorted-tour "
+                "This section only renders when the schoolkids-per-chauffer-tour "
                 "summary is available."
             ),
-            missing_items=["schoolkids_per_escorted_tour_by_student_count_and_direction"],
+            missing_items=[
+                "schoolkids_per_escorted_tour_by_student_count_and_direction"
+            ],
         )
 
     def render_schoolkids_per_escorted_tour_charts(
@@ -573,7 +590,9 @@ class EscortedToursPage(DashboardPage):
                         (
                             run_label,
                             df.with_columns(
-                                pl.col("student_count").cast(pl.Utf8).alias("student_count")
+                                pl.col("student_count")
+                                .cast(pl.Utf8)
+                                .alias("student_count")
                             ),
                         )
                         for run_label, df in schoolkids_per_escorted_tour_chart_data(
@@ -591,9 +610,9 @@ class EscortedToursPage(DashboardPage):
                     chart_data,
                     x_col="student_count",
                     y_col="avg_schoolkids_per_tour",
-                    title=f"Schoolkids Per Escorted Tour - {label}",
+                    title=f"Schoolkids Per Adult Chauffer Tour - {label}",
                     xaxis_title="Students in Household",
-                    yaxis_title="Average Schoolkids per Escorted Tour",
+                    yaxis_title="Average Schoolkids per Adult Chauffer Tour",
                     as_percent=False,
                     xaxis_categoryarray=student_count_values,
                 )
@@ -616,7 +635,7 @@ class EscortedToursPage(DashboardPage):
             for segment, title in STOP_SEGMENT_LABELS.items()
         ]
         return [
-            pn.pane.Markdown("### Chauffer Escorting Stop Distribution"),
+            pn.pane.Markdown("### Chauffer Stop Distribution"),
             pn.pane.Markdown(STOP_DISTRIBUTION_DESCRIPTION),
             pn.Row(*charts[:2], sizing_mode="stretch_width"),
             pn.Row(*charts[2:], sizing_mode="stretch_width"),
@@ -690,8 +709,9 @@ class EscortedToursPage(DashboardPage):
         raw_direction = adult_raw_direction(direction_label)
         return [
             pn.Column(
+                pn.pane.Markdown("## Adult Chauffer Tours and Trips"),
                 pn.Row(pn.pane.Markdown("**Direction:**"), self.direction_sel),
-                pn.pane.Markdown("### Chauffer Escorting Person Type Distribution"),
+                pn.pane.Markdown("### Chauffer Person Type Distribution"),
                 pn.pane.Markdown(PERSON_TYPE_DESCRIPTION),
                 pn.Row(
                     self.render_person_type_chart(
@@ -701,7 +721,7 @@ class EscortedToursPage(DashboardPage):
                     ),
                     sizing_mode="stretch_width",
                 ),
-                pn.pane.Markdown("### Chauffer Escorting Tour and Trip Distance Distributions"),
+                pn.pane.Markdown("### Chauffer Tour and Trip Distance Distributions"),
                 pn.pane.Markdown(DISTANCE_DESCRIPTION),
                 self.render_distance_chart(
                     summaries["adult_escorted_tour_distance_distribution_by_direction"],
@@ -709,8 +729,8 @@ class EscortedToursPage(DashboardPage):
                     direction_label,
                     cache_key="adult_escorted_tour_distance_distribution_by_direction",
                     y_col="tour_count",
-                    title_prefix="Chauffer Escorting Tour Distance Distribution",
-                    yaxis_title="Chauffer Escorting Tours",
+                    title_prefix="Chauffer Tour Distance Distribution",
+                    yaxis_title="Chauffer Tours",
                 ),
                 self.render_distance_chart(
                     summaries["adult_escorted_trip_distance_distribution_by_direction"],
@@ -718,8 +738,8 @@ class EscortedToursPage(DashboardPage):
                     direction_label,
                     cache_key="adult_escorted_trip_distance_distribution_by_direction",
                     y_col="trip_count",
-                    title_prefix="Chauffer Escorting Trip Distance Distribution",
-                    yaxis_title="Chauffer Escorting Trips",
+                    title_prefix="Chauffer Trip Distance Distribution",
+                    yaxis_title="Chauffer Trips",
                 ),
             )
         ]
@@ -757,12 +777,14 @@ class EscortedToursPage(DashboardPage):
             ),
             x_col="person_type_label",
             y_col="tour_count",
-            title=f"Chauffer Escorting Tours by Person Type - {direction_label}",
+            title=f"Chauffer Tours by Person Type - {direction_label}",
             xaxis_title="Person Type",
-            yaxis_title="Chauffer Escorting Tours",
+            yaxis_title="Chauffer Tours",
             pct_col="pct",
             as_percent=self.as_percent,
-            xaxis_categoryarray=self.config.ordered_labels("person_type", person_type_values),
+            xaxis_categoryarray=self.config.ordered_labels(
+                "person_type", person_type_values
+            ),
         )
 
     def render_distance_chart(
