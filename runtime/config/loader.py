@@ -153,6 +153,7 @@ def _compatibility_normalize_raw_config(
     raw: dict,
 ) -> tuple[dict, PipelineSettings, list[tuple[str, str, str]]]:
     legacy_warnings: list[tuple[str, str, str]] = []
+    prepare_cfg = dict(_mapping(raw.get("prepare"), field_name="prepare"))
     processor_cfg = dict(_mapping(raw.get("processor"), field_name="processor"))
     processor_summaries_cfg = dict(
         _mapping(processor_cfg.get("summaries"), field_name="processor.summaries")
@@ -174,6 +175,10 @@ def _compatibility_normalize_raw_config(
     )
 
     normalized = dict(raw)
+
+    legacy_distance_skim = raw.get("skim")
+    if legacy_distance_skim is not None and not isinstance(legacy_distance_skim, dict):
+        raise ValueError("skim must be a mapping when provided.")
 
     if "root" in raw:
         warn_ignored_legacy_key(
@@ -430,14 +435,30 @@ def _compatibility_normalize_raw_config(
     if legacy_skimjoin_cfg:
         normalized_skimjoin = dict(legacy_skimjoin_cfg)
         if "distance_skim" in normalized_skimjoin:
+            if "distance_skim" in prepare_cfg:
+                warn_ignored_legacy_key(
+                    mapping=normalized_skimjoin,
+                    key="distance_skim",
+                    legacy_field_name="skimjoin.distance_skim",
+                    replacement_field_name="prepare.distance_skim",
+                    collector=legacy_warnings,
+                )
+            else:
+                warn_supported_legacy_key(
+                    mapping=normalized_skimjoin,
+                    key="distance_skim",
+                    legacy_field_name="skimjoin.distance_skim",
+                    replacement_field_name="prepare.distance_skim",
+                    collector=legacy_warnings,
+                )
+                prepare_cfg["distance_skim"] = normalized_skimjoin["distance_skim"]
             warn_ignored_legacy_key(
                 mapping=raw,
                 key="skim",
                 legacy_field_name="skim",
-                replacement_field_name="skimjoin.distance_skim",
+                replacement_field_name="prepare.distance_skim",
                 collector=legacy_warnings,
             )
-            normalized["skim"] = normalized_skimjoin["distance_skim"]
         if "defaults" in normalized_skimjoin:
             warn_ignored_legacy_key(
                 mapping=normalized_skimjoin,
@@ -460,6 +481,19 @@ def _compatibility_normalize_raw_config(
         normalized["skimjoin"] = normalized_skimjoin
     elif raw.get("pipeline") is not None and pipeline.has_step("skimjoin"):
         normalized["skimjoin"] = {"enabled": True}
+
+    if legacy_distance_skim is not None and "distance_skim" not in prepare_cfg:
+        warn_supported_legacy_key(
+            mapping=raw,
+            key="skim",
+            legacy_field_name="skim",
+            replacement_field_name="prepare.distance_skim",
+            collector=legacy_warnings,
+        )
+        prepare_cfg["distance_skim"] = legacy_distance_skim
+
+    if prepare_cfg:
+        normalized["prepare"] = prepare_cfg
 
     return normalized, pipeline, legacy_warnings
 
@@ -552,9 +586,11 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         config_dir=config_path.parent,
     )
 
-    skim_cfg = raw.get("skim", {})
+    skim_cfg = prepare_cfg.get("distance_skim", {})
+    if skim_cfg is None:
+        skim_cfg = {}
     if not isinstance(skim_cfg, dict):
-        raise ValueError("skim must be a mapping when provided.")
+        raise ValueError("prepare.distance_skim must be a mapping when provided.")
     skimjoin = normalize_skimjoin_settings(
         raw.get("skimjoin"),
         config_dir=config_path.parent,

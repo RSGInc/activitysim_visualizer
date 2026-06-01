@@ -44,7 +44,9 @@ def tour_distance_chart_data(
                     pl.col("distance_bin").cast(pl.Utf8),
                     pl.col("tour_count"),
                 )
-                .with_columns(distance_sort_expr("distance_bin").alias("_sort_distance"))
+                .with_columns(
+                    distance_sort_expr("distance_bin").alias("_sort_distance")
+                )
                 .sort("_sort_distance")
                 .drop("_sort_distance"),
             )
@@ -69,9 +71,9 @@ def average_distance_comparison_table(
         filtered = [
             (
                 label,
-                df.with_columns(pl.col("nonmandatory_tour_purpose").cast(pl.Utf8)).filter(
-                    pl.col("nonmandatory_tour_purpose") == purpose
-                ),
+                df.with_columns(
+                    pl.col("nonmandatory_tour_purpose").cast(pl.Utf8)
+                ).filter(pl.col("nonmandatory_tour_purpose") == purpose),
             )
             for label, df in nonempty(filtered)
         ]
@@ -113,6 +115,7 @@ def average_distance_comparison_table(
 
 class TourDistancePage(DashboardPage):
     """Render tour distance distributions and average-distance comparisons."""
+
     TOTAL_PURPOSE_LABEL = "All Tour Purposes"
 
     def build_page(self) -> pn.viewable.Viewable:
@@ -234,7 +237,10 @@ class TourDistancePage(DashboardPage):
 
         for widget, options in (
             (self.tour_purpose_sel, tour_purpose_options or [self.TOTAL_PURPOSE_LABEL]),
-            (self.nonmandatory_purpose_sel, nonmandatory_options or [self.TOTAL_PURPOSE_LABEL]),
+            (
+                self.nonmandatory_purpose_sel,
+                nonmandatory_options or [self.TOTAL_PURPOSE_LABEL],
+            ),
             (self.geo_level_sel, geography_level_options_list or ["Total"]),
         ):
             widget.options = options
@@ -261,7 +267,9 @@ class TourDistancePage(DashboardPage):
             return [self.summary_only_unavailable_card()]
 
         selected_purpose = str(self.tour_purpose_sel.value)
-        raw_purpose = self._tour_purpose_to_raw.get(selected_purpose, "all_tour_purposes")
+        raw_purpose = self._tour_purpose_to_raw.get(
+            selected_purpose, "all_tour_purposes"
+        )
         distance_data = self.get_filtered_view(
             "tour_distance",
             raw_purpose,
@@ -322,7 +330,7 @@ class TourDistancePage(DashboardPage):
             ),
         )
         return [
-            pn.pane.Markdown("### Average Tour Distance by Geography"),
+            pn.pane.Markdown("### Average Non-Mandatory Tour Distance vs Base Run"),
             selector_row(self.geo_level_sel, self.geography_sel),
             pn.Column(
                 selector_row(self.nonmandatory_purpose_sel),
@@ -330,11 +338,13 @@ class TourDistancePage(DashboardPage):
             ),
         ]
 
-    def render_average_distance_table(self, comparison_df: pl.DataFrame) -> pn.viewable.Viewable:
+    def render_average_distance_table(
+        self, comparison_df: pl.DataFrame
+    ) -> pn.viewable.Viewable:
         """Render the average-distance comparison table."""
         return data_table(
             [("Comparison", comparison_df)],
-            "Average Non-Mandatory Tour Distance vs Base Run",
+            # "Average Non-Mandatory Tour Distance vs Base Run",
         )
 
 

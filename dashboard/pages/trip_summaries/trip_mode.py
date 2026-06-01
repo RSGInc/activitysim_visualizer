@@ -181,7 +181,7 @@ class TripModePage(DashboardPage):
             yaxis_title="Trips",
             pct_col="pct",
             as_percent=self.as_percent,
-            height=320 if tour_mode is not None else None,
+            height=320 if tour_mode is not None else 400,
             xaxis_categoryarray=trip_mode_label_values,
         )
 

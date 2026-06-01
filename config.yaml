@@ -1,265 +1,267 @@
 # ActivitySim Visualizer Configuration
-# Adapt this file for each model deployment.
-# Only the sections you need are required — see comments for which are optional.
+# Canonical config example using the current schema.
 
-name: "Default Settings"
+name: "Example ActivitySim Visualizer"
+root: artifacts
+log_level: INFO
 
-
-# ---------------------------------------------------------------------------
-# Output Processor Settings
-# root: location to save summary CSVs
-# weighting_modes: options for sets of weights to apply; defaults to weighted and unweighted.
-# ---------------------------------------------------------------------------
-summaries:
-  root: artifacts/summary_cache
-  weighting_modes:
-    - weighted
-    - unweighted
-
-# ---------------------------------------------------------------------------
-# Output Visualizer Settings
-# 
-# dashboard_title: title to show in the live and static versions of the dashboard 
-# dashboard_pages: pages to show in the live dashboard. Use the name of the Python file
-# in the dashboard/pages/ directory. The order in the config is the order in which the 
-# pages are presented in the live dashboard.
-# run_colors: colors to present the data from each run on plots and KPI cards
-# export_html: settings for the static HTML version of the dashboard
-#   dashboard: dashboard-level widget settings
-#   pages: page-level widget settings. Pages are exported in the order they are presented.
-#          include the name of each widget to export its state in the HTML.
-#             widget settings include default, all, or a list of specific widget states.
-#          pages with no widgets can be included using an empty dictionary {}  in place of the widget name
-# ---------------------------------------------------------------------------
-visualizer:
-  dashboard_title: "ActivitySim Comparison Visualizer"
-
-  # Optional: control which dashboard pages appear and in what order.
-  # Keep the raw-data demo page out of this list unless you intentionally
-  # want the dashboard to request full run data.
-  dashboard_pages:
-    - overview
-    - long_term_choices
-    - daily_travel
-    - joint_travel
-    - tour_summaries
-    - trip_summaries
-    - validation
-    # - raw_trip_demo
-
-  run_colors:
-    - "#298c8c" # Teal
-    - "#a00000" # Red
-    - "#b8b8b8"  # Light gray
-    - "#384860"  # Dark blue-gray
-    - "#ff7f0e"  # Orange
-    # - "#1f77b4"
-    # - "#ff7f0e"
-    # - "#2ca02c"
-    # - "#d62728"
-    # - "#9467bd"
-    # - "#8c564b"
-    # - "#e377c2"
-    # - "#7f7f7f"
-
-  export_html:
-#   # Omit `pages` to mirror `dashboard_pages`.
-#   # Omit selector overrides to export all widget states.
-#   # Uncomment only when you want to narrow the default export:
-#   # dashboard:
-#   #   weighting: [unweighted]
-#   #   values: [percent]
-# The below overrides the widget exports for the geography_level and student_type widgets
-# and "turns off" the workplace and school vs land use tables
-    pages:
-      long_term_choices:
-        shadow_pricing:
-          geography_level: [all]
-          student_type: [all]
-          parts:
-            workplace_table:
-              enabled: false
-            school_table:
-              enabled: false
-
-# ---------------------------------------------------------------------------
-# Runs to compare
-# Each entry specifies a run directory, a display label, and optional overrides.
-# `file_map` overrides the default top-level `files:` mapping for that run only.
-# `prepared_table_map` points directly at user-managed canonical prepared tables
-# for that run. Values must be explicit `.parquet` or `.csv` paths and take
-# precedence over raw-run prepare for summarize and prepared-data pages.
-# Example:
-#   file_map:
-#     households: final_hh
-#     trips: trip_linked
-#   prepared_table_map:
-#     households: path\to\prepared\households.parquet
-#     persons: path\to\prepared\persons.csv
-#
-# Weight columns (all optional — leave as null or omit to use default rules):
-#   hh_weight_col:     explicit household weight column in final_households
-#   person_weight_col: explicit person weight column in final_persons
-#   trip_weight_col:   explicit trip weight column in final_trips
-#                      (tour weight = average of its trips' weights when set)
-#
-# If none of the above are set and sample_rate is not in columns, all weights = 1.
-# ---------------------------------------------------------------------------
-runs:
-  - dir:              path\to\activitysim\output\run1
-    label:            Base
-    # file_map:
-    #   households: final_hh
-    #   trips: trip_linked
-    # prepared_table_map:
-    #   households: path\to\prepared\households.parquet
-    #   persons: path\to\prepared\persons.csv
-    #   tours: path\to\prepared\tours.parquet
-    #   trips: path\to\prepared\trips.csv
-    #   joint_tour_participants: path\to\prepared\joint_tour_participants.parquet
-    #   land_use: path\to\prepared\land_use.csv
-    skim_file:        null
-    hh_weight_col:    null
-    person_weight_col: null
-    trip_weight_col:  null
-  - dir:              path\to\activitysim\output\run2
-    label:            Build
-    skim_file:        null
-    hh_weight_col:    null
-    person_weight_col: null
-    trip_weight_col:  null
-
-# ---------------------------------------------------------------------------
-# Skim file (global default — can be overridden per run below)
-# ---------------------------------------------------------------------------
-skim:
-  file: path\to\skims.omx       # path relative to run directory, or absolute
-  matrix: SOV_TIMEVOT2__MD    # matrix name inside the OMX file
-
-prepare:
-  output:
-    file_format: parquet   # prepared cache output format; supports parquet or csv
-  validation:
-    relationship_checks: warn   # off, warn, or error for cross-table prepared-key checks
-
-
-# ---------------------------------------------------------------------------
-# Zone system
-# Set use_maz: false for TAZ-only models (zone IDs in outputs are already TAZs).
-# For 2-zone (MAZ+TAZ) models, specify which columns in final_land_use
-# hold the MAZ and TAZ IDs.
-# ---------------------------------------------------------------------------
-zones:
-  use_maz:  false          # false = TAZ-only model, no MAZ→TAZ conversion needed
-  maz_col:  zone_id       # column in final_land_use containing MAZ IDs
-  taz_col:  TAZ           # column in final_land_use containing TAZ IDs
-
+pipeline:
+  steps:
+    - prepare
+    - skimjoin
+    - segment
+    - summarize
+    - dashboard
+  dashboard_mode: live # live | export | host
+  overwrite: false
 
 # ---------------------------------------------------------------------------
 # ActivitySim output file names
-# Use stems (no extension) for automatic format detection: the reader will try
-# .parquet first, then .csv.  You may also specify an explicit extension to
-# force a particular format (e.g. final_households.csv or final_tours.parquet).
-# These are the default filenames used for all runs unless a run-specific
-# `runs[*].file_map` override is provided.
+# Use stems (no extension) for automatic format detection.
 # ---------------------------------------------------------------------------
 files:
-  households:              final_households
-  persons:                 final_persons
-  tours:                   final_tours
-  trips:                   final_trips
+  households: final_households
+  persons: final_persons
+  tours: final_tours
+  trips: final_trips
   joint_tour_participants: final_joint_tour_participants
-  land_use:                final_land_use
+  land_use: final_land_use
+
+# Optional shared fallback files for optional inputs that may be missing in
+# some run folders. These must be explicit .csv or .parquet paths.
+# fallback_files:
+#   land_use: C:\path\to\shared\land_use.csv
+
+# ---------------------------------------------------------------------------
+# Runs to compare
+# `runs[*].skimjoin` overrides the global `skimjoin.defaults` settings.
+# `prepared_table_map` entries must be explicit .csv or .parquet paths.
+#
+# Use `file_map` when using non-standard input filenames
+#
+# use `prepared_table_map` if you have prepared tables you want to use other
+# than the cached prepared tables. For example, you could run the `prepare`
+# step of the pipeline, perform your own filtering operations on the 
+# prepared tables, then read your filtered prepared tables into the
+# `summarize` and `dashboard` steps.
+# ---------------------------------------------------------------------------
+runs:
+  - dir: path\to\activitysim\output\run1
+    label: Base
+    # skimjoin:
+    #   config_path: configs/example_skimjoin.yaml
+    #   skim_files:
+    #     - C:\path\to\model_skims\*.omx
+    #     - C:\path\to\model_skims\maz_stop_walk.csv
+    #   network_los_file: C:\path\to\model_skims\network_los.yaml
+
+  - dir: path\to\activitysim\output\run2
+    label: Build
+    # file_map:
+    #   households: household
+    #   persons: person
+    #   tours: tour
+    #   trips: trip_linked
+    #   joint_tour_participants: joint_tour_participants
+    #   land_use: land_use
+    # prepared_table_map:
+    #   households: path\to\prepared\households.parquet
+    #   persons: path\to\prepared\persons.parquet
+    #   tours: path\to\prepared\tours.parquet
+    #   trips: path\to\prepared\trips.parquet
+    #   joint_tour_participants: path\to\prepared\joint_tour_participants.parquet
+    #   land_use: path\to\prepared\land_use.parquet
+
+# ---------------------------------------------------------------------------
+# Zone system
+# Set use_maz: false for TAZ-only models.
+# ---------------------------------------------------------------------------
+zones:
+  use_maz: false
+  maz_col: zone_id
+  taz_col: TAZ
 
 # ---------------------------------------------------------------------------
 # Column names in the ActivitySim output files
-# Change only if your outputs use non-standard column names.
-# For mixed-run comparisons, alias-capable fields may be either:
-# - a single string, or
-# - an ordered list of candidate names to try independently for each run.
-# Example:
-#   tour_purpose: [primary_purpose, tour_type, purpose]
+# Alias-capable fields may be a single string or an ordered list of candidates.
 # ---------------------------------------------------------------------------
 columns:
-  ptype:          ptype           # person type column in persons file
-  hhsize:         hhsize          # HH size column in households file
-  auto_ownership: auto_ownership  # vehicle count column in households file
-  num_workers:    num_workers     # workers per HH in households file
-  num_adults:     num_adults      # adults per HH in households file
+  ptype: ptype
+  hhsize: hhsize
+  auto_ownership: auto_ownership
+  num_workers: num_workers
+  num_adults: num_adults
+  # sample_rate: sample_rate
   # household_id: [household_id, hh_id]
   # person_id: [person_id, pid]
   # tour_id: [tour_id, tid]
   # trip_id: [trip_id, tripid]
-  # tour_purpose: [primary_purpose, tour_type, purpose]
-  # trip_purpose: [purpose, stop_purpose]
+  # tour_purpose: [tour_purpose, primary_purpose, purpose]
+  # trip_purpose: [trip_purpose, purpose]
   # tour_mode: [tour_mode, mode]
   # trip_mode: [trip_mode, mode]
-  # tour_category: [tour_category, category]
-  # tour_start: [start, start_hour]
-  # tour_end: [end, end_hour]
-  # tour_duration: [duration, tourdur]
-  # trip_depart: [depart, depart_hour]
-  # total_employment: [EMPLOY_TOT, TOTEMP, total_employment, employment]
-  # sample_rate: sample_rate     # OPTIONAL override; if omitted, code auto-detects
-                                 # a households column literally named 'sample_rate'.
-                                 # finalweight = 1/sample_rate (unless explicit run weight columns are provided)
 
-# OPTIONAL person type display labels used in dropdowns/charts
-# Keys should match raw ptype values in outputs
-person_types:
-  1: Full-time worker
-  2: Part-time worker
-  3: University student
-  4: Non-worker adult
-  5: Retired
-  6: Driving-age student
-  7: Non-driving-age student
-  8: Preschool
 
 # ---------------------------------------------------------------------------
-# Geography grouping (OPTIONAL)
-# Enables district/county/zone-group level breakdowns.
-# Remove this section (or set enabled: false) to disable both the legacy
-# geography labels and the newer aggregation-derived geography columns.
+# Settings for the `prepare` step.
 # ---------------------------------------------------------------------------
-geography:
-  enabled: false
-  landuse_col:   COUNTY         # column in final_land_use to use as group label
-  # mapping: optional — maps raw column values to display names.
-  # If omitted, the raw values from the column are used as-is.
-  mapping:
-    1: County_name1
-    2: County_name2
-    3: County_name3
-  
+prepare:
+  output:
+    file_format: parquet # parquet | csv
+  validation:
+    relationship_checks: warn # off | warn | error
+  distance_skim:
+    file: path\to\skims.omx
+    matrix: SOV_DIST__MD
+  # auto_sufficiency_basis: licensed_drivers # licensed_drivers | workers | adults
+  # vot_bins:
+  #   source_column: income_segment
+  #   output_column: vot_bin
+  #   fallback_value: M
+  #   mappings:
+  #     base:
+  #       1: L
+  #       2: M
+  #       3: H
+
 # ---------------------------------------------------------------------------
-# Mode display (OPTIONAL)
-# order: controls the display order for mode charts.
-# groups: rolls up individual modes into aggregate categories for summary charts.
-# If omitted, modes appear in the order found in the data with no grouping.
+# Settings for the `skimjoin` step, to be used as defaults.
 # ---------------------------------------------------------------------------
-# modes:
-#   order:
-#     - DRIVEALONE
-#     - SHARED2
-#     - SHARED3
-#     - WALK
-#     - BIKE
-#     - WALK_LOC
-#     - WALK_MIX
-#     - WALK_PRM
-#     - PNR_LOC
-#     - PNR_MIX
-#     - PNR_PRM
-#     - KNR_LOC
-#     - KNR_MIX
-#     - KNR_PRM
-#     - SCHOOLBUS
-#     - TAXI
-#     - TNC_SINGLE
-#     - TNC_SHARED
-#   groups:
-#     Auto:           [DRIVEALONE, SHARED2, SHARED3]
-#     Transit:        [WALK_LOC, WALK_MIX, WALK_PRM, PNR_LOC, PNR_MIX, PNR_PRM, KNR_LOC, KNR_MIX, KNR_PRM]
-#     Non-Motorized:  [WALK, BIKE]
-#     Other:          [SCHOOLBUS, TAXI, TNC_SINGLE, TNC_SHARED]
+skimjoin:
+  defaults:
+    config_path: configs/example_skimjoin.yaml
+    skim_files:
+      - C:\path\to\model_skims\*.omx
+      - C:\path\to\model_skims\maz_stop_walk.csv
+      - C:\path\to\model_skims\maz_maz_walk.csv
+    network_los_file: C:\path\to\model_skims\network_los.yaml
+
+# ---------------------------------------------------------------------------
+# Settings for the `segment` step. 
+# ---------------------------------------------------------------------------
+segment:
+  dashboard:
+    segmentation_type: person_sex
+    visibility: segments_only   # full_only | segments_only | full_and_segments
+  definitions:
+    signup_platform:
+      include_full: true
+      persist_segmented_prepared_tables: false
+      allow_overlapping: false
+      on_empty_segment: warn
+      source:
+        type: prepared_column 
+        source_table: hh
+        column: signup_platform
+      segments:
+        - id: rmove
+          label: RMove
+          values: ["rmove"]
+        - id: browser
+          label: Browser
+          values: ["browser"]
+        - id: call
+          label: Call
+          values: ["call"]
+
+# ---------------------------------------------------------------------------
+# Settings for the `summarize` step.
+# ---------------------------------------------------------------------------
+summarize:
+  weighting_modes: [weighted, unweighted]
+  pnr_tour_modes:
+    - PNR_TRANSIT
+  geography:
+    enabled: false
+    # landuse_col: COUNTY
+    # mapping:
+    #   1: County 1
+    # aggregations:
+    #   district:
+    #     source_zone_system: maz
+    #     file: C:\path\to\land_use.csv
+    #     zone_id_col: MAZ
+    #     geography_col: DISTRICT
+
+# ---------------------------------------------------------------------------
+# Settings for the `dashboard` step.
+# ---------------------------------------------------------------------------
+dashboard:
+  title: "ActivitySim Comparison Visualizer"
+  enable_maz_geographies: false
+  live:
+    pages:
+      - overview
+      - long_term_choices
+      - daily_travel
+      - joint_travel
+      - tour_summaries
+      - trip_summaries
+      - validation
+  export:
+    output_path: exports/dashboard.html
+    # dashboard:
+    #   weighting: [unweighted]
+    # pages:
+    #   long_term_choices:
+    #     shadow_pricing:
+    #       geography_level: [all]
+    #       student_type: [all]
+    #       parts:
+    #         workplace_table:
+    #           enabled: false
+    #         school_table:
+    #           enabled: false
+
+display:
+  labels:
+    person_type:
+      mapping:
+        all_person_types: All Person Types
+        1: Full-time worker
+        2: Part-time worker
+        3: University student
+        4: Non-worker adult
+        5: Retired
+        6: Driving-age student
+        7: Non-driving-age student
+        8: Preschool
+
+    geography:
+      mapping:
+        all_geographies: All Geographies
+        county: County
+
+    tour_purpose:
+      mapping:
+        all_tour_purposes: All Tour Purposes
+        work: Work
+        school: School
+        escort: Escort
+        shopping: Shopping
+        othmaint: Other Maintenance
+        eatout: Eat Out
+        social: Social
+        othdiscr: Other Discretionary
+        atwork: At-Work
+        joint: Joint
+
+    mode:
+      mapping:
+        SOV: Drive Alone
+        HOV2: Shared Ride 2
+        HOV3: Shared Ride 3+
+        WALK: Walk
+        BIKE: Bike
+        WALK_TRANSIT: Walk-Transit
+        PNR_TRANSIT: PNR-Transit
+        KNR_TRANSIT: KNR-Transit
+        TNC_SINGLE: TNC-Single
+        TNC_SHARED: TNC-Pool
+
+  run_colors:
+    - "#298c8c"
+    - "#a00000"
+    - "#b8b8b8"
+    - "#384860"
+    - "#ff7f0e"

@@ -1,0 +1,126 @@
+project:
+  skim_files:
+    - C:\path\to\model_skims\*.omx
+    - C:\path\to\model_skims\maz_stop_walk.csv
+    - C:\path\to\model_skims\maz_maz_walk.csv
+  network_los_file: C:\path\to\model_skims\network_los.yaml
+
+  # These standalone CLI inputs are optional for integrated runtime use.
+  # trips_table: C:\path\to\prepared\trips.parquet
+  # tours_table: C:\path\to\prepared\tours.parquet
+  # output_dir: skimjoin_output
+
+activitysim:
+  trip_mode_column: trip_mode
+  trip_id_column: trip_id
+  tour_mode_column: tour_mode
+  tour_id_column: tour_id
+  outbound_column: outbound
+
+defaults:
+  origin: OTAZ
+  destination: DTAZ
+  output_prefix: skim_
+  sentinel_values:
+    - 9999
+    - 999999
+
+zone_mapping:
+  lookup_name: taz
+  file_lookup_names:
+    fares.omx: zone_number
+  missing_zone_policy: error
+
+dimensions:
+  PERIOD:
+    source_columns:
+      trip_source_column: depart
+      outbound_tour_source_column: start
+      inbound_tour_source_column: first_inbound_trip_depart
+    values_from_network_los: true
+
+  VOT:
+    source_columns:
+      trip_source_column: vot_bin
+      outbound_tour_source_column: vot_bin
+      inbound_tour_source_column: vot_bin
+    values:
+      L: L
+      M: M
+      H: H
+
+ignore_modes:
+  - BIKE
+  - EBIKE
+  - ESCOOTER
+  - BIKE_TRANSIT
+  - OTHER
+
+modes:
+  SOV:
+    output_prefix: skim_auto_
+    time: "SOV_{VOT}_TIME__{PERIOD}"
+    cost: "SOV_{VOT}_COST__{PERIOD}"
+    distance: "SOV_{VOT}_DIST__{PERIOD}"
+
+  HOV2:
+    output_prefix: skim_auto_
+    time: "SR2_{VOT}_TIME__{PERIOD}"
+    cost: "SR2_{VOT}_COST__{PERIOD}"
+    distance: "SR2_{VOT}_DIST__{PERIOD}"
+
+  HOV3:
+    output_prefix: skim_auto_
+    time: "SR3_{VOT}_TIME__{PERIOD}"
+    cost: "SR3_{VOT}_COST__{PERIOD}"
+    distance: "SR3_{VOT}_DIST__{PERIOD}"
+
+  WALK:
+    output_prefix: skim_walk_
+    distance: WLK_DIST
+
+  WALK_TRANSIT:
+    output_prefix: skim_
+    access_walk_time:
+      output: skim_walk_time
+      combine: sum
+      matrix: "WTW_ACC__{PERIOD}"
+    transit_auxiliary_walk_time: "WTW_AUX__{PERIOD}"
+    transit_bus_ivtt: "WTW_BUS__{PERIOD}"
+    egress_walk_time:
+      output: skim_walk_time
+      combine: sum
+      matrix: "WTW_EGR__{PERIOD}"
+    transit_first_wait_time: "WTW_FWT__{PERIOD}"
+    transit_fare: "fare__{PERIOD}"
+
+  PNR_TRANSIT:
+    output_prefix: skim_
+    segment_on: outbound
+    segments:
+      true:
+        auto_time:
+          matrix: "SOV_{VOT}_TIME__{PERIOD}"
+          origin: OTAZ
+          destination: pnr_taz
+        auto_distance:
+          matrix: "SOV_{VOT}_DIST__{PERIOD}"
+          origin: OTAZ
+          destination: pnr_taz
+        transit_tiv:
+          matrix: "WTW_TIV__{PERIOD}"
+          origin: pnr_taz
+          destination: DTAZ
+      false:
+        auto_time:
+          matrix: "SOV_{VOT}_TIME__{PERIOD}"
+          origin: pnr_taz
+          destination: DTAZ
+        auto_distance:
+          matrix: "SOV_{VOT}_DIST__{PERIOD}"
+          origin: pnr_taz
+          destination: DTAZ
+        transit_tiv:
+          matrix: "WTW_TIV__{PERIOD}"
+          origin: OTAZ
+          destination: pnr_taz

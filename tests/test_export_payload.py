@@ -38,6 +38,10 @@ def _first_plot_trace_names(page_payload: dict) -> list[str]:
     return [str(trace.get("name")) for trace in plot.get("figure", {}).get("data", [])]
 
 
+def _plot_nodes(page_payload: dict) -> list[dict]:
+    return [node for node in _walk_nodes(page_payload) if node.get("kind") == "plotly"]
+
+
 def test_build_export_payload_has_stable_top_level_contract() -> None:
     tmp_path = _workspace_tmp_dir("payload_contract")
     config = _write_config(
@@ -76,6 +80,30 @@ def test_build_export_payload_has_stable_top_level_contract() -> None:
         "Weighted||Count",
         "Weighted||Percent",
     ]
+
+
+def test_trip_mode_export_keeps_explicit_height_for_overall_plot() -> None:
+    tmp_path = _workspace_tmp_dir("payload_trip_mode_height")
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=["trip_mode"],
+        export_html_lines=[
+            "pages:",
+            "  trip_mode: {}",
+        ],
+    )
+
+    payload = build_export_payload([], config, summary_runs=[_full_summary_run()])
+    plots = _plot_nodes(payload["states"]["Weighted||Count"]["trip_mode"])
+    overall_plot = next(
+        plot
+        for plot in plots
+        if plot.get("figure", {}).get("layout", {}).get("title", {}).get("text")
+        == "Trip Mode Distribution - All Tour Purposes"
+    )
+
+    assert overall_plot["height"] == 400
+    assert overall_plot["figure"]["layout"]["height"] == 400
 
 
 def test_build_export_payload_defaults_to_live_segmentation_filter() -> None:

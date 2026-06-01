@@ -133,14 +133,15 @@ def test_new_config_layout_normalizes_to_existing_runtime_fields(tmp_path: Path)
             "        - id: urban",
             "          label: Urban",
             "          values: [1]",
+            "prepare:",
+            "  distance_skim:",
+            f"    file: {skim_path.name}",
+            "    matrix: SOV_TIME__EA",
             "skimjoin:",
             "  defaults:",
             f"    config_path: {skimjoin_config_path.name}",
             f"    skim_files: [{skim_path.name}]",
             f"    network_los_file: {network_los_path.name}",
-            "  distance_skim:",
-            f"    file: {skim_path.name}",
-            "    matrix: SOV_TIME__EA",
             "runs: []",
         ],
     )
@@ -180,6 +181,67 @@ def test_new_config_layout_normalizes_to_existing_runtime_fields(tmp_path: Path)
     assert config.skimjoin.config_path == str(skimjoin_config_path.resolve())
     assert config.skimjoin.resolved_skim_files == (str(skim_path.resolve()),)
     assert config.skimjoin.resolved_network_los_file == str(network_los_path.resolve())
+
+
+def test_legacy_distance_skim_locations_still_normalize_to_prepare_distance_skim(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    skim_path = tmp_path / "legacy.omx"
+    network_los_path = tmp_path / "network_los.yaml"
+    skimjoin_config_path = tmp_path / "skimjoin.yaml"
+    _write_omx(skim_path, matrix_name="SOV_DIST__MD")
+    _write_network_los(network_los_path)
+    skimjoin_config_path.write_text(
+        "\n".join(
+            [
+                "project:",
+                f"  skim_files: [{skim_path.name}]",
+                f"  network_los_file: {network_los_path.name}",
+                "activitysim:",
+                "  trip_mode_column: trip_mode",
+                "  trip_id_column: trip_id",
+                "  tour_id_column: tour_id",
+                "  outbound_column: outbound",
+                "dimensions:",
+                "  PERIOD:",
+                "    source_columns:",
+                "      trip_source_column: depart",
+                "      outbound_tour_source_column: start",
+                "      inbound_tour_source_column: first_inbound_trip_depart",
+                "    values_from_network_los: true",
+                "modes:",
+                "  SOV:",
+                "    distance:",
+                "      matrix: SOV_DIST__{PERIOD}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    config = _write_config(
+        tmp_path,
+        [
+            'name: "Legacy Distance Skim"',
+            "skimjoin:",
+            "  defaults:",
+            f"    config_path: {skimjoin_config_path.name}",
+            f"    skim_files: [{skim_path.name}]",
+            f"    network_los_file: {network_los_path.name}",
+            "  distance_skim:",
+            f"    file: {skim_path.name}",
+            "    matrix: SOV_DIST__MD",
+            "runs: []",
+        ],
+    )
+
+    assert config.skim_file == str(skim_path.name)
+    assert config.skim_matrix == "SOV_DIST__MD"
+    captured = capsys.readouterr()
+    combined_output = caplog.text + captured.err + captured.out
+    assert "skimjoin.distance_skim" in combined_output
+    assert "prepare.distance_skim" in combined_output
 
 
 def test_new_keys_take_precedence_over_legacy_equivalents_and_warn(
