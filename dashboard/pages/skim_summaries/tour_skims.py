@@ -23,7 +23,10 @@ from dashboard.pages.skim_summaries._shared import (
 
 
 class TourSkimsPage(DashboardPage):
+    """Summary and live-distribution page for tour skim families."""
+
     def build_page(self) -> pn.viewable.Viewable:
+        """Build the summary shell and the live directional distribution controls."""
         tour_stats = self.state.get_summary_series_set(
             TOUR_STATS_SUMMARY_ID, "weighted"
         )
@@ -169,15 +172,18 @@ class TourSkimsPage(DashboardPage):
         return self.new_section(*content)
 
     def _tour_summaries(self):
+        """Return the skim tour statistics for the current weighting mode."""
         return self.state.get_summary_series_set(
             TOUR_STATS_SUMMARY_ID,
             self.weighting_key,
         )
 
     def _tour_prepared_runs(self):
+        """Return prepared runs in the weighting mode expected by live distributions."""
         return self.get_prepared_runs(weighted=(self.weighting_key == "weighted"))
 
     def sync_controls(self) -> None:
+        """Keep family, direction, component, mode, and x-range controls aligned."""
         tour_stats = self._tour_summaries()
 
         family_options = skim_family_options(
@@ -213,9 +219,11 @@ class TourSkimsPage(DashboardPage):
         self._sync_distribution_range_controls("inbound")
 
     def _directional_component(self, direction: str) -> str:
+        """Map the selected component base to one directional skim component."""
         return directional_component_name(self.tour_component_sel.value, direction)
 
     def _sync_distribution_range_controls(self, direction: str) -> None:
+        """Auto-reset range widgets when the directional distribution context changes."""
         min_widget = getattr(self, f"{direction}_min_sel")
         max_widget = getattr(self, f"{direction}_max_sel")
         component = self._directional_component(direction)
@@ -256,13 +264,15 @@ class TourSkimsPage(DashboardPage):
         self._page_state[auto_key] = tuple(bounds)
 
     def _reset_distribution_range(self, direction: str) -> None:
+        """Restore one directional distribution x-range to its full observed extent."""
         auto_range = self._page_state.get(f"{direction}_distribution_auto_range")
         if not auto_range:
             return
         getattr(self, f"{direction}_min_sel").value = float(auto_range[0])
         getattr(self, f"{direction}_max_sel").value = float(auto_range[1])
 
-    def _render_summary_table(self):
+    def render_summary_table(self):
+        """Render the summary-statistics table for the selected family and direction."""
         tour_stats = self._tour_summaries()
         family = self.tour_family_sel.value
         direction = self.tour_direction_sel.value
@@ -309,14 +319,16 @@ class TourSkimsPage(DashboardPage):
         )
 
     def render_summary_section(self):
+        """Render the selected tour skim summary table."""
         if not self.state.run_labels:
-            return [pn.pane.Markdown("No runs loaded.")]
+            return [self.no_runs_message()]
 
         return [
-            self._render_summary_table(),
+            self.render_summary_table(),
         ]
 
-    def _render_directional_distribution(self, direction: str):
+    def render_directional_distribution_chart(self, direction: str):
+        """Render one directional live tour skim distribution."""
         component = self._directional_component(direction)
         mode = self.tour_mode_sel.value
         min_widget = getattr(self, f"{direction}_min_sel")
@@ -368,8 +380,9 @@ class TourSkimsPage(DashboardPage):
         )
 
     def render_distribution_section(self):
+        """Render the outbound and inbound live distribution controls and charts."""
         if not self.state.run_labels:
-            return [pn.pane.Markdown("No runs loaded.")]
+            return [self.no_runs_message()]
 
         return [
             control_row(
@@ -379,7 +392,7 @@ class TourSkimsPage(DashboardPage):
                 self.outbound_max_sel,
                 self.outbound_reset_btn,
             ),
-            self._render_directional_distribution("outbound"),
+            self.render_directional_distribution_chart("outbound"),
             control_row(
                 pn.pane.Markdown("**Inbound Min:**"),
                 self.inbound_min_sel,
@@ -387,7 +400,7 @@ class TourSkimsPage(DashboardPage):
                 self.inbound_max_sel,
                 self.inbound_reset_btn,
             ),
-            self._render_directional_distribution("inbound"),
+            self.render_directional_distribution_chart("inbound"),
         ]
 
 

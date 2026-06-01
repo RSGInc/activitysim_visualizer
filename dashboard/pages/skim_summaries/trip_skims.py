@@ -21,7 +21,10 @@ from dashboard.pages.skim_summaries._shared import (
 
 
 class TripSkimsPage(DashboardPage):
+    """Summary and live-distribution page for trip skim families."""
+
     def build_page(self) -> pn.viewable.Viewable:
+        """Build the skim summary shell and the live-only distribution controls."""
         trip_stats = self.state.get_summary_series_set(
             TRIP_STATS_SUMMARY_ID, "weighted"
         )
@@ -130,15 +133,18 @@ class TripSkimsPage(DashboardPage):
         return self.new_section(*content)
 
     def _trip_summaries(self):
+        """Return the skim trip statistics for the current weighting mode."""
         return self.state.get_summary_series_set(
             TRIP_STATS_SUMMARY_ID,
             self.weighting_key,
         )
 
     def _trip_prepared_runs(self):
+        """Return prepared runs in the weighting mode expected by distribution charts."""
         return self.get_prepared_runs(weighted=(self.weighting_key == "weighted"))
 
     def sync_controls(self) -> None:
+        """Keep family, component, mode, and x-range controls in sync."""
         trip_stats = self._trip_summaries()
 
         trip_family_options = skim_family_options(
@@ -168,6 +174,7 @@ class TripSkimsPage(DashboardPage):
         self._sync_distribution_range_controls()
 
     def _sync_distribution_range_controls(self) -> None:
+        """Auto-reset range widgets when the selected mode/component context changes."""
         context_key = (
             self.trip_component_sel.value,
             self.trip_mode_sel.value,
@@ -210,6 +217,7 @@ class TripSkimsPage(DashboardPage):
         self._page_state["trip_distribution_auto_range"] = tuple(target_range)
 
     def _reset_distribution_range(self) -> None:
+        """Restore the current trip distribution x-range to its full observed extent."""
         auto_range = self._page_state.get("trip_distribution_auto_range")
         if not auto_range:
             return
@@ -217,8 +225,9 @@ class TripSkimsPage(DashboardPage):
         self.trip_max_sel.value = float(auto_range[1])
 
     def render_summary_section(self):
+        """Render summary statistics for the selected trip skim family."""
         if not self.state.run_labels:
-            return [pn.pane.Markdown("No runs loaded.")]
+            return [self.no_runs_message()]
 
         trip_stats = self._trip_summaries()
         if trip_stats is None:
@@ -257,18 +266,13 @@ class TripSkimsPage(DashboardPage):
             ]
 
         return [
-            data_table(
-                trip_stats_data,
-                title=f"Trip Summary Statistics - {family}",
-                height=280,
-                numeric_precision=2,
-                numeric_precision_by_column=skim_summary_precision_overrides(),
-            ),
+            self.render_summary_table(trip_stats_data, family),
         ]
 
     def render_distribution_section(self):
+        """Render the live prepared-trip skim distribution controls and chart."""
         if not self.state.run_labels:
-            return [pn.pane.Markdown("No runs loaded.")]
+            return [self.no_runs_message()]
 
         component = self.trip_component_sel.value
         trip_mode = self.trip_mode_sel.value
@@ -308,17 +312,11 @@ class TripSkimsPage(DashboardPage):
         )
 
         trip_distribution_view = (
-            density_chart(
+            self.render_distribution_chart(
                 trip_distribution_data,
-                x_col="bin_mid",
-                y_col="freq",
-                title=f"Trip Distribution - {component} / {trip_mode}",
-                xaxis_title="Skim Value",
-                yaxis_title="Trips",
-                normalize=self.as_percent,
-                height=320,
-                as_percent=False,
-                xaxis_range=trip_distribution_x_range,
+                component=component,
+                trip_mode=trip_mode,
+                x_range=trip_distribution_x_range,
             )
             if any(not df.is_empty() for _, df in trip_distribution_data)
             else self.data_not_available_card(
@@ -339,6 +337,42 @@ class TripSkimsPage(DashboardPage):
             ),
             trip_distribution_view,
         ]
+
+    def render_summary_table(
+        self,
+        trip_stats_data,
+        family: str,
+    ) -> pn.viewable.Viewable:
+        """Render the summary-statistics table for one skim family."""
+        return data_table(
+            trip_stats_data,
+            title=f"Trip Summary Statistics - {family}",
+            height=280,
+            numeric_precision=2,
+            numeric_precision_by_column=skim_summary_precision_overrides(),
+        )
+
+    def render_distribution_chart(
+        self,
+        trip_distribution_data,
+        *,
+        component: str,
+        trip_mode: str,
+        x_range: tuple[float, float],
+    ) -> pn.viewable.Viewable:
+        """Render the live prepared-trip skim distribution chart."""
+        return density_chart(
+            trip_distribution_data,
+            x_col="bin_mid",
+            y_col="freq",
+            title=f"Trip Distribution - {component} / {trip_mode}",
+            xaxis_title="Skim Value",
+            yaxis_title="Trips",
+            normalize=self.as_percent,
+            height=320,
+            as_percent=False,
+            xaxis_range=x_range,
+        )
 
 
 PAGE = DashboardPageDefinition(

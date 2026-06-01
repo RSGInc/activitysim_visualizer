@@ -41,6 +41,26 @@ python run.py --config local_config.yaml
 
 By default, `python run.py` follows `pipeline.steps` from the loaded config when no explicit step flags are supplied. The shipped example config defaults to `summarize` + `dashboard`, so a normal run will reuse summary caches when possible, rebuild them when needed, and then start the live dashboard on [http://localhost:5006](http://localhost:5006).
 
+## Dashboard Pages
+
+Dashboard pages now use one shared authoring model:
+
+- page modules export `PAGE = DashboardPageDefinition(...)`
+- page classes subclass `DashboardPage`
+- page-local controls are registered with `selector(...)`
+- refreshable regions are registered with `section(...)`
+- live refresh and export metadata both derive from those registrations
+
+The main shared page-helper modules live under `dashboard/helpers/`:
+
+- `category_helpers.py`
+- `geography_helpers.py`
+- `person_type_helpers.py`
+- `time_distance_helpers.py`
+- `comparison_helpers.py`
+
+If you are adding or refactoring a page, read [docs/adding-dashboard-pages.md](docs/adding-dashboard-pages.md) first. For the broader runtime picture, see [docs/architecture.md](docs/architecture.md).
+
 ## Config Setup
 
 The repo ships with `config.yaml` as a template. In practice, most people should:

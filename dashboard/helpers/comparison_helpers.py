@@ -90,9 +90,27 @@ def weighted_average_lookup(
     average_col: str,
     weight_col: str,
 ) -> dict[str, float]:
-    """Aggregate one frame into weighted averages keyed by category."""
+    """Aggregate one frame into averages keyed by category.
+
+    When `weight_col` is present, this returns a weighted average. Some summary
+    tables only expose a pre-aggregated average column, so this helper falls
+    back to a simple mean in that case to preserve export-time compatibility.
+    """
     if df.is_empty():
         return {}
+    if category_col not in df.columns or average_col not in df.columns:
+        return {}
+    if weight_col not in df.columns:
+        aggregated = (
+            df.group_by(category_col)
+            .agg(pl.col(average_col).mean().alias(average_col))
+            .select(category_col, average_col)
+        )
+        return {
+            str(row[category_col]): float(row[average_col])
+            for row in aggregated.to_dicts()
+            if row.get(category_col) is not None and row.get(average_col) is not None
+        }
     aggregated = (
         df.group_by(category_col)
         .agg(

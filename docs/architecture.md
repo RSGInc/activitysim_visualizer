@@ -122,6 +122,20 @@ The framework now owns:
 
 That means live refresh behavior and export behavior both derive from the same selector/section registration graph rather than from separate page metadata declarations.
 
+The shared helper layer under `dashboard/helpers/` is now part of that page
+authoring model:
+
+- `category_helpers.py` centralizes selector domains, labels, and category completion
+- `geography_helpers.py` centralizes geography normalization, option discovery, and filters
+- `person_type_helpers.py` centralizes person-type selectors and total-row handling
+- `time_distance_helpers.py` centralizes repeated time-bin and distance-bin behavior
+- `comparison_helpers.py` centralizes percent-error formatting and base-run comparisons
+
+The skim pages intentionally keep their own family-specific shared module at
+`dashboard/pages/skim_summaries/_shared.py`. That file is the reference pattern
+for shared logic that is reusable within one page family but not broad enough
+for `dashboard/helpers/`.
+
 ## Repository Map
 
 ```text

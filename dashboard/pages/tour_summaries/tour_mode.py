@@ -40,6 +40,11 @@ def auto_sufficiency_definitions_markdown(config) -> str:
     """
 
 
+def _auto_sufficiency_definitions_markdown(config) -> str:
+    """Backward-compatible alias used by existing serializer and summary tests."""
+    return auto_sufficiency_definitions_markdown(config)
+
+
 def vehicle_attribute_data(
     data_list: list[tuple[str, pl.DataFrame]],
     occupancy: str,

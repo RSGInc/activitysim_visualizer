@@ -156,6 +156,39 @@ The most commonly used data helpers remain available on `DashboardPage`:
 - `as_percent`
 - `weighting_key`
 
+## Shared Helper Map
+
+When page logic starts repeating, prefer one of the existing helper modules before
+adding page-local utility functions:
+
+- `dashboard/helpers/category_helpers.py`
+  - selector option building
+  - config-ordered category values
+  - config-driven label columns
+  - category completion for charts and tables
+- `dashboard/helpers/geography_helpers.py`
+  - geography column normalization
+  - geography level and geography id selector domains
+  - geography-level and geography-id filtering
+  - all-geographies and all-within-level handling
+- `dashboard/helpers/person_type_helpers.py`
+  - person-type selector domains
+  - person-type filtering
+  - total-person-type rollups and weights
+- `dashboard/helpers/time_distance_helpers.py`
+  - time-bin labels and durations
+  - distance-bin sorting
+- `dashboard/helpers/comparison_helpers.py`
+  - percent-error formatting
+  - base-run percent-difference tables
+  - weighted average lookups for comparison tables
+- `dashboard/pages/skim_summaries/_shared.py`
+  - skim-page-specific shared logic that should stay local to skim pages
+
+If a transform is clearly reusable across unrelated pages, move it into
+`dashboard/helpers/`. If it only makes sense for one page family, keep it close
+to that family, as with the skim shared module or a page-local support module.
+
 ## Minimal Example
 
 ```python
@@ -315,3 +348,15 @@ dashboard:
 8. Declare the summary/prepared-data contract in `PAGE`.
 9. Add or update tests covering selector refresh and missing-data behavior.
 10. If the page should export interactively, add an export-focused test slice too.
+
+## Short Recipe
+
+For most new pages, the fastest safe workflow is:
+
+1. Start from a nearby reference page with similar selectors and data shape.
+2. Keep `build_page()` limited to widget creation, selector registration, section registration, and layout.
+3. Move selector domain logic into `sync_controls()`.
+4. Keep each `render_*()` method focused on one section.
+5. Extract chart-ready reshaping into a small helper or shared helper module.
+6. Use `get_filtered_view(...)` around any repeated cross-run filtering or aggregation.
+7. Add one live refresh test and, if the page exports, one export-oriented test slice.

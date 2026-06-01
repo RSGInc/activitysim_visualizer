@@ -45,6 +45,7 @@ class RawTripDemoPage(DashboardPage):
     """Example page for future prepared-data pages to follow."""
 
     def build_page(self) -> pn.viewable.Viewable:
+        """Build the page shell around one prepared-data-backed section."""
         self._body = self.section(
             "raw_trip_demo_body",
             export_data_mode="required",
@@ -53,8 +54,9 @@ class RawTripDemoPage(DashboardPage):
         return self._body
 
     def render_body(self):
+        """Render the prepared-run trip mode demo or an unavailable placeholder."""
         if not self.state.run_labels:
-            return [pn.pane.Markdown("No runs loaded.")]
+            return [self.no_runs_message()]
 
         prepared_result = self.resolve_prepared_visualization(
             "raw_trip_demo_trip_modes",
@@ -85,16 +87,23 @@ class RawTripDemoPage(DashboardPage):
                 "This page demonstrates the opt-in prepared-data path by aggregating "
                 "trip records directly from the loaded prepared runs."
             ),
-            bar_chart(
-                trip_mode_list,
-                x_col="trip_mode",
-                y_col="freq",
-                title="Trip Mode Distribution From Raw Trips",
-                xaxis_title="Trip Mode",
-                yaxis_title="Trips",
-                as_percent=self.as_percent,
-            ),
+            self.render_trip_mode_chart(trip_mode_list),
         ]
+
+    def render_trip_mode_chart(
+        self,
+        trip_mode_list: list[tuple[str, pl.DataFrame]],
+    ) -> pn.viewable.Viewable:
+        """Render the prepared-run trip mode distribution."""
+        return bar_chart(
+            trip_mode_list,
+            x_col="trip_mode",
+            y_col="freq",
+            title="Trip Mode Distribution From Raw Trips",
+            xaxis_title="Trip Mode",
+            yaxis_title="Trips",
+            as_percent=self.as_percent,
+        )
 
 
 PAGE = DashboardPageDefinition(

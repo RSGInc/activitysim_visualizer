@@ -91,7 +91,10 @@ def hh_size_chart_data(
 
 
 class OverviewPage(DashboardPage):
+    """Render top-line KPIs plus two demographic distributions."""
+
     def build_page(self) -> pn.viewable.Viewable:
+        """Build the overview page from separate KPI and demographic sections."""
         self._kpi_section = self.section("overview_kpis", render=self.render_kpis)
         self._demographics_section = self.section(
             "overview_demographics",
@@ -104,6 +107,7 @@ class OverviewPage(DashboardPage):
         )
 
     def _kpi_result(self):
+        """Resolve the summary inputs required for the KPI cards and comparison table."""
         return self.resolve_summary_visualization(
             "overview_kpis",
             summary_requirements={
@@ -119,6 +123,7 @@ class OverviewPage(DashboardPage):
         )
 
     def _demographic_results(self):
+        """Resolve the two demographic charts independently for better fallbacks."""
         return (
             self.resolve_summary_visualization(
                 "overview_person_type_distribution",
@@ -144,12 +149,31 @@ class OverviewPage(DashboardPage):
         metric: str,
         label: str,
     ) -> pn.viewable.Viewable:
+        """Render one KPI card from the run-indexed totals table."""
         return kpi_box(
             label=label,
             values=[
                 (run_label, metric_value(tot_df, metric))
                 for run_label, tot_df in totals_list
             ],
+        )
+
+    def render_percent_difference_table(
+        self,
+        pct_df: pl.DataFrame,
+    ) -> pn.viewable.Viewable:
+        """Render the KPI percent-difference table when comparison rows exist."""
+        if len(pct_df) == 0:
+            return pn.pane.Markdown("")
+        return pn.widgets.Tabulator(
+            _to_pandas(
+                format_numeric_frame_for_display(
+                    pct_df,
+                    numeric_precision=2,
+                )
+            ),
+            sizing_mode="stretch_width",
+            height=260,
         )
 
     def render_person_type_chart(self, ptype_result) -> pn.viewable.Viewable:
@@ -197,6 +221,7 @@ class OverviewPage(DashboardPage):
         )
 
     def render_kpis(self) -> SectionContent:
+        """Render KPI cards plus the base-run percent difference table."""
         if not self.state.run_labels:
             return [self.no_runs_message()]
 
@@ -254,20 +279,7 @@ class OverviewPage(DashboardPage):
                         sizing_mode="stretch_width",
                     ),
                     pn.pane.Markdown("### Percent Difference vs Base Run"),
-                    (
-                        pn.widgets.Tabulator(
-                            _to_pandas(
-                                format_numeric_frame_for_display(
-                                    pct_df,
-                                    numeric_precision=2,
-                                )
-                            ),
-                            sizing_mode="stretch_width",
-                            height=260,
-                        )
-                        if len(pct_df) > 0
-                        else pn.pane.Markdown("")
-                    ),
+                    self.render_percent_difference_table(pct_df),
                 ]
             )
         else:
@@ -280,6 +292,7 @@ class OverviewPage(DashboardPage):
         return objects
 
     def render_demographics(self) -> SectionContent:
+        """Render the demographic distribution charts."""
         if not self.state.run_labels:
             return []
 
