@@ -69,12 +69,12 @@ def test_serialize_viewable_supports_plotly_and_table_nodes() -> None:
 
 def test_serialize_viewable_supports_widget_nodes_with_export_metadata() -> None:
     radio = pn.widgets.RadioButtonGroup(
-        name="Mode",
+        name="Legacy Mode Name",
         options=["All", "Drive", "Walk"],
         value="All",
     )
     select = pn.widgets.Select(
-        name="Purpose",
+        name="Legacy Purpose Name",
         options=["Total", "eatout", "social"],
         value="Total",
         disabled=True,
@@ -83,6 +83,7 @@ def test_serialize_viewable_supports_widget_nodes_with_export_metadata() -> None
         id(radio): (
             "mode",
             {
+                "label": "Mode",
                 "export_enabled": False,
                 "resolved_values": ["All", "Drive", "Walk"],
             },
@@ -90,6 +91,7 @@ def test_serialize_viewable_supports_widget_nodes_with_export_metadata() -> None
         id(select): (
             "purpose",
             {
+                "label": "Purpose",
                 "export_enabled": True,
                 "resolved_values": ["Total", "social"],
             },

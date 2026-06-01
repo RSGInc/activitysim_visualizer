@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import density_chart
+from dashboard.components import density_chart, selector_row
 from dashboard.helpers.category_helpers import column_options, nonempty
 from dashboard.helpers.time_distance_helpers import (
     max_timebin,
@@ -103,7 +103,7 @@ class TourTimePage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Tour Time"),
-            pn.Row(pn.pane.Markdown("**Tour Purpose:**"), self.purpose_sel),
+            selector_row(self.purpose_sel),
             self._body,
             sizing_mode="stretch_width",
         )

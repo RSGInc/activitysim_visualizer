@@ -330,7 +330,12 @@ def test_build_export_payload_serializes_representative_page_region_structure(
     assert any(
         node.get("kind") == "widget"
         and node.get("selector_id") == "tour_purpose"
+        and node.get("name") == "Tour Purpose"
         and node.get("export_enabled")
+        for node in page_nodes
+    )
+    assert not any(
+        node.get("kind") == "html" and "Tour Purpose:" in node.get("html", "")
         for node in page_nodes
     )
     assert not any(node.get("selector_id") == "tour_mode" for node in page_nodes)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import data_table, density_chart
+from dashboard.components import data_table, density_chart, selector_row
 from dashboard.helpers.comparison_helpers import format_percent_error_table
 from dashboard.helpers.geography_helpers import (
     ALL_GEOGRAPHIES_LABEL,
@@ -114,7 +114,7 @@ class ParkAndRideLocationPage(DashboardPage):
         geo_level = str(self.geo_level_sel.value)
         if is_all_geographies(geo_level):
             return [
-                pn.Row(pn.pane.Markdown("**Geography Level:**"), self.geo_level_sel),
+                selector_row(self.geo_level_sel),
                 self._all_geographies_distribution_card(),
             ]
 
@@ -124,7 +124,7 @@ class ParkAndRideLocationPage(DashboardPage):
             factory=lambda: filter_geography_level(histogram, geo_level),
         )
         return [
-            pn.Row(pn.pane.Markdown("**Geography Level:**"), self.geo_level_sel),
+            selector_row(self.geo_level_sel),
             density_chart(
                 filtered,
                 x_col="bin_start",

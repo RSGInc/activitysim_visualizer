@@ -28,6 +28,30 @@ SectionContent = (
     pn.viewable.Viewable | list[pn.viewable.Viewable] | tuple[pn.viewable.Viewable, ...]
 )
 
+PAGE_SELECTOR_STYLESHEET = """
+:host(.page-selector-widget) {
+  max-width: 300px;
+}
+
+:host(.page-selector-widget) .bk-input-group {
+  width: auto;
+}
+
+:host(.page-selector-widget) .bk-input-group-label,
+:host(.page-selector-widget) label {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 6px;
+}
+
+:host(.page-selector-widget) select,
+:host(.page-selector-widget) input {
+  font-size: 13px;
+  font-weight: 500;
+}
+"""
+
 
 @dataclass(frozen=True)
 class RegisteredPageSelector:
@@ -154,6 +178,16 @@ class DashboardPage:
             raise ValueError(
                 f"Dashboard page {self.name!r} declares duplicate selector id {selector_id!r}."
             )
+        if hasattr(widget, "name"):
+            widget.name = label
+        css_classes = list(getattr(widget, "css_classes", []) or [])
+        if "page-selector-widget" not in css_classes:
+            css_classes.append("page-selector-widget")
+        widget.css_classes = css_classes
+        stylesheets = list(getattr(widget, "stylesheets", []) or [])
+        if PAGE_SELECTOR_STYLESHEET not in stylesheets:
+            stylesheets.append(PAGE_SELECTOR_STYLESHEET)
+        widget.stylesheets = stylesheets
         selector = RegisteredPageSelector(
             selector_id=selector_id,
             widget=widget,
@@ -520,9 +554,9 @@ class DashboardPage:
             summary_name,
             weighting_key=self.weighting_key,
         )
-        self._page_state.setdefault("required_summary_selections", {})[
-            summary_name
-        ] = selection
+        self._page_state.setdefault("required_summary_selections", {})[summary_name] = (
+            selection
+        )
         if not selection.has_usable_runs:
             self._warn_once(
                 f"missing-summary:{summary_name}",
@@ -547,9 +581,9 @@ class DashboardPage:
             weighting_key=self.weighting_key,
             required_columns=required_columns,
         )
-        self._page_state.setdefault("required_summary_selections", {})[
-            summary_name
-        ] = selection
+        self._page_state.setdefault("required_summary_selections", {})[summary_name] = (
+            selection
+        )
         return selection
 
     def optional_summary(

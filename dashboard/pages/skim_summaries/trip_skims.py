@@ -111,22 +111,14 @@ class TripSkimsPage(DashboardPage):
 
         content = [
             pn.pane.Markdown("## Trip Skims"),
-            control_row(
-                pn.pane.Markdown("**Trip Skim Family:**"),
-                self.trip_family_sel,
-            ),
+            control_row(self.trip_family_sel),
             self._summary_section,
         ]
         if not self.state.export_mode:
             content.extend(
                 [
                     pn.pane.Markdown("### Live Trip Distributions"),
-                    control_row(
-                        pn.pane.Markdown("**Trip Distribution Component:**"),
-                        self.trip_component_sel,
-                        pn.pane.Markdown("**Trip Distribution Mode:**"),
-                        self.trip_mode_sel,
-                    ),
+                    control_row(self.trip_component_sel, self.trip_mode_sel),
                     self._distribution_section,
                 ]
             )
@@ -282,13 +274,7 @@ class TripSkimsPage(DashboardPage):
         )
         if trip_distribution_x_range is None:
             return [
-                control_row(
-                    pn.pane.Markdown("**Trip Distribution Min:**"),
-                    self.trip_min_sel,
-                    pn.pane.Markdown("**Trip Distribution Max:**"),
-                    self.trip_max_sel,
-                    self.trip_reset_btn,
-                ),
+                control_row(self.trip_min_sel, self.trip_max_sel, self.trip_reset_btn),
                 self.data_not_available_card(
                     detail="Trip distribution controls require finite values with min less than max.",
                 ),
@@ -328,13 +314,7 @@ class TripSkimsPage(DashboardPage):
         )
 
         return [
-            control_row(
-                pn.pane.Markdown("**Trip Distribution Min:**"),
-                self.trip_min_sel,
-                pn.pane.Markdown("**Trip Distribution Max:**"),
-                self.trip_max_sel,
-                self.trip_reset_btn,
-            ),
+            control_row(self.trip_min_sel, self.trip_max_sel, self.trip_reset_btn),
             trip_distribution_view,
         ]
 

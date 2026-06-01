@@ -148,24 +148,14 @@ class TourSkimsPage(DashboardPage):
 
         content = [
             pn.pane.Markdown("## Tour Skims"),
-            control_row(
-                pn.pane.Markdown("**Tour Skim Family:**"),
-                self.tour_family_sel,
-                pn.pane.Markdown("**Direction:**"),
-                self.tour_direction_sel,
-            ),
+            control_row(self.tour_family_sel, self.tour_direction_sel),
             self._summary_section,
         ]
         if not self.state.export_mode:
             content.extend(
                 [
                     pn.pane.Markdown("### Live Tour Distributions"),
-                    control_row(
-                        pn.pane.Markdown("**Tour Distribution Component:**"),
-                        self.tour_component_sel,
-                        pn.pane.Markdown("**Tour Distribution Mode:**"),
-                        self.tour_mode_sel,
-                    ),
+                    control_row(self.tour_component_sel, self.tour_mode_sel),
                     self._distribution_section,
                 ]
             )
@@ -385,21 +375,9 @@ class TourSkimsPage(DashboardPage):
             return [self.no_runs_message()]
 
         return [
-            control_row(
-                pn.pane.Markdown("**Outbound Min:**"),
-                self.outbound_min_sel,
-                pn.pane.Markdown("**Outbound Max:**"),
-                self.outbound_max_sel,
-                self.outbound_reset_btn,
-            ),
+            control_row(self.outbound_min_sel, self.outbound_max_sel, self.outbound_reset_btn),
             self.render_directional_distribution_chart("outbound"),
-            control_row(
-                pn.pane.Markdown("**Inbound Min:**"),
-                self.inbound_min_sel,
-                pn.pane.Markdown("**Inbound Max:**"),
-                self.inbound_max_sel,
-                self.inbound_reset_btn,
-            ),
+            control_row(self.inbound_min_sel, self.inbound_max_sel, self.inbound_reset_btn),
             self.render_directional_distribution_chart("inbound"),
         ]
 

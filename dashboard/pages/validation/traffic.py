@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import scatter_chart
+from dashboard.components import scatter_chart, selector_row
 from dashboard.helpers.category_helpers import common_column_options, nonempty
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
@@ -88,12 +88,7 @@ class TrafficValidationPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Traffic Validation"),
-            pn.Row(
-                pn.pane.Markdown("**Direction:**"),
-                self.direction_sel,
-                pn.pane.Markdown("**Count Period:**"),
-                self.count_period_sel,
-            ),
+            selector_row(self.direction_sel, self.count_period_sel),
             self._body,
             sizing_mode="stretch_width",
         )

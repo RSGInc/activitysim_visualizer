@@ -23,9 +23,11 @@ from test_export_html import _full_summary_run, _write_config
 from dashboard.app import build_dashboard
 from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.page_base import DashboardPage
+from dashboard.page_base import PAGE_SELECTOR_STYLESHEET
 from dashboard.page_definitions import DashboardPageDefinition
 from dashboard.pages.skim_summaries.trip_skims import TripSkimsPage
 from dashboard.pages.skim_summaries.tour_skims import TourSkimsPage
+from dashboard.pages.trip_summaries.trip_mode import TripModePage
 import dashboard.pages as dashboard_pages_package
 from dashboard.page_registry import (
     all_page_definitions,
@@ -133,6 +135,25 @@ def test_resolve_page_definitions_defaults_to_default_pages_when_unconfigured(
     resolved_pages = resolve_page_definitions(config)
 
     assert [page.title for page in resolved_pages] == EXPECTED_DEFAULT_LEAF_PAGE_TITLES
+
+
+def test_page_selectors_render_with_widget_label_instead_of_duplicate_markdown(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    state = DashboardState(
+        summary_runs=[_full_summary_run()],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = TripModePage(state, config)
+
+    selector_row = page.view.objects[1]
+    assert isinstance(selector_row, pn.Row)
+    assert selector_row.objects == [page.tour_purpose_sel]
+    assert page.tour_purpose_sel.name == "Tour Purpose"
+    assert "page-selector-widget" in page.tour_purpose_sel.css_classes
+    assert PAGE_SELECTOR_STYLESHEET in page.tour_purpose_sel.stylesheets
 
 
 def test_resolve_page_definitions_respects_configured_page_order_and_subset(

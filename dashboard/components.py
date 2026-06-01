@@ -578,15 +578,26 @@ def data_unavailable_card(
     )
 
 
-def control_row(*objects, height: int = 56) -> pn.Row:
-    """Return a standard fixed-height control row for chart alignment."""
+def control_row(*objects, height: int = 72) -> pn.Row:
+    """Return a standard right-aligned control row for chart alignment."""
     return pn.Row(
         *objects,
         sizing_mode="stretch_width",
         min_height=height,
-        height=height,
         margin=(0, 0, 8, 0),
+        styles={
+            "justify-content": "flex-end",
+            "align-items": "flex-start",
+            "flex-wrap": "wrap",
+            "row-gap": "8px",
+            "column-gap": "12px",
+        },
     )
+
+
+def selector_row(*objects, height: int = 72) -> pn.Row:
+    """Return a standard right-aligned row for page-local selector widgets."""
+    return control_row(*objects, height=height)
 
 
 def control_row_spacer(height: int = 56) -> pn.pane.HTML:

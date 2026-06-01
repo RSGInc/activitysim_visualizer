@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, control_row, control_row_spacer
+from dashboard.components import bar_chart, control_row, control_row_spacer, selector_row
 from dashboard.helpers.category_helpers import (
     column_options,
     complete_category_counts,
@@ -304,16 +304,7 @@ class JointTravelPage(DashboardPage):
         return [
             pn.pane.Markdown("### Joint Tour Characteristics"),
             pn.Column(
-                pn.Row(
-                    pn.Column(control_row_spacer()),
-                    pn.Column(control_row_spacer()),
-                    pn.Column(
-                        control_row(
-                            pn.pane.Markdown("**Party Size:**"), self.party_size_sel
-                        )
-                    ),
-                    sizing_mode="stretch_width",
-                ),
+                selector_row(self.party_size_sel),
                 pn.Row(
                     self.render_household_size_chart(
                         complete_joint_household_size_data(
@@ -375,11 +366,7 @@ class JointTravelPage(DashboardPage):
             pn.Column(
                 pn.Row(
                     pn.Column(control_row_spacer()),
-                    pn.Column(
-                        control_row(
-                            pn.pane.Markdown("**Household Size:**"), self.hhsize_sel
-                        )
-                    ),
+                    pn.Column(control_row(self.hhsize_sel)),
                     sizing_mode="stretch_width",
                 ),
                 pn.Row(

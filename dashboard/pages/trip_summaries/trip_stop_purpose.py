@@ -261,12 +261,7 @@ class TripStopPurposePage(DashboardPage):
             pn.Column(
                 pn.Row(
                     pn.Column(control_row_spacer()),
-                    pn.Column(
-                        control_row(
-                            pn.pane.Markdown("**Tour Purpose:**"),
-                            self.tour_purpose_sel,
-                        )
-                    ),
+                    pn.Column(control_row(self.tour_purpose_sel)),
                     sizing_mode="stretch_width",
                 ),
                 pn.Row(

@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart
+from dashboard.components import bar_chart, selector_row
 from dashboard.helpers.category_helpers import column_options, label_category_data, nonempty
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
@@ -221,7 +221,7 @@ class TourStopFrequencyPage(DashboardPage):
         ]
         return [
             pn.pane.Markdown("### Tour Stop Frequency"),
-            pn.Row(pn.pane.Markdown("**Tour Purpose:**"), self.purpose_sel),
+            selector_row(self.purpose_sel),
             *charts,
             pn.pane.Markdown("### At-Work Sub-Tour Frequency"),
             self.render_atwork_chart(atwork_list),

@@ -127,10 +127,7 @@ class VMTValidationPage(DashboardPage):
         return [
             pn.Row(
                 pn.Column(
-                    control_row(
-                        pn.pane.Markdown("**Commercial VMT View:**"),
-                        self.vmt_view_sel,
-                    ),
+                    control_row(self.vmt_view_sel),
                     self.render_commercial_chart(),
                 ),
                 pn.Column(control_row_spacer(), self.render_bicycle_chart()),

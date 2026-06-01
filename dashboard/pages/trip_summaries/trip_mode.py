@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart
+from dashboard.components import bar_chart, selector_row
 from dashboard.helpers.category_helpers import (
     column_options,
     complete_category_counts,
@@ -78,7 +78,7 @@ class TripModePage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Trip Mode"),
-            pn.Row(pn.pane.Markdown("**Tour Purpose:**"), self.tour_purpose_sel),
+            selector_row(self.tour_purpose_sel),
             self._body,
             sizing_mode="stretch_width",
         )

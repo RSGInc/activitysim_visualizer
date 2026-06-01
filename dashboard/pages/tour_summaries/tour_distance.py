@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import data_table, density_chart
+from dashboard.components import data_table, density_chart, selector_row
 from dashboard.helpers.category_helpers import (
     column_options,
     nonempty,
@@ -272,7 +272,7 @@ class TourDistancePage(DashboardPage):
         )
         return [
             pn.pane.Markdown("### Tour Distance Distribution"),
-            pn.Row(pn.pane.Markdown("**Tour Purpose:**"), self.tour_purpose_sel),
+            selector_row(self.tour_purpose_sel),
             self.render_distance_chart(distance_data, selected_purpose),
         ]
 
@@ -323,17 +323,9 @@ class TourDistancePage(DashboardPage):
         )
         return [
             pn.pane.Markdown("### Average Tour Distance by Geography"),
-            pn.Row(
-                pn.pane.Markdown("**Geography Level:**"),
-                self.geo_level_sel,
-                pn.pane.Markdown("**Geography:**"),
-                self.geography_sel,
-            ),
+            selector_row(self.geo_level_sel, self.geography_sel),
             pn.Column(
-                pn.Row(
-                    pn.pane.Markdown("**Non-Mandatory Tour Purpose:**"),
-                    self.nonmandatory_purpose_sel,
-                ),
+                selector_row(self.nonmandatory_purpose_sel),
                 self.render_average_distance_table(comparison_df),
             ),
         ]

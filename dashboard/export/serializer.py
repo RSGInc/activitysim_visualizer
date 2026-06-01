@@ -149,6 +149,11 @@ def serialize_viewable(
         if id(obj) in hidden_widget_ids:
             return {"kind": "spacer", "height": 0, "width": 0}
         selector_id, selector_meta = widget_metadata.get(id(obj), (None, None))
+        widget_name = (
+            str(selector_meta.get("label"))
+            if selector_meta and selector_meta.get("label")
+            else obj.name or ""
+        )
         options = list(obj.options)
         disabled = True if disable_widgets else bool(obj.disabled)
         if selector_meta:
@@ -160,7 +165,7 @@ def serialize_viewable(
         return {
             "kind": "widget",
             "widget_type": "radio_button_group",
-            "name": obj.name or "",
+            "name": widget_name,
             "value": obj.value,
             "options": options,
             "disabled": disabled,
@@ -171,6 +176,11 @@ def serialize_viewable(
         if id(obj) in hidden_widget_ids:
             return {"kind": "spacer", "height": 0, "width": 0}
         selector_id, selector_meta = widget_metadata.get(id(obj), (None, None))
+        widget_name = (
+            str(selector_meta.get("label"))
+            if selector_meta and selector_meta.get("label")
+            else obj.name or ""
+        )
         options = list(obj.options)
         disabled = True if disable_widgets else bool(obj.disabled)
         if selector_meta:
@@ -182,7 +192,7 @@ def serialize_viewable(
         return {
             "kind": "widget",
             "widget_type": "select",
-            "name": obj.name or "",
+            "name": widget_name,
             "value": obj.value,
             "options": options,
             "disabled": disabled,
@@ -193,13 +203,18 @@ def serialize_viewable(
         if id(obj) in hidden_widget_ids:
             return {"kind": "spacer", "height": 0, "width": 0}
         selector_id, selector_meta = widget_metadata.get(id(obj), (None, None))
+        widget_name = (
+            str(selector_meta.get("label"))
+            if selector_meta and selector_meta.get("label")
+            else obj.name or ""
+        )
         disabled = True if disable_widgets else bool(obj.disabled)
         if selector_meta and not selector_meta["export_enabled"]:
             disabled = True
         return {
             "kind": "widget",
             "widget_type": "float_input",
-            "name": obj.name or "",
+            "name": widget_name,
             "value": obj.value,
             "options": [],
             "step": obj.step,

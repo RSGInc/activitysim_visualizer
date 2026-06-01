@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import data_table, density_chart
+from dashboard.components import data_table, density_chart, selector_row
 from dashboard.helpers.comparison_helpers import format_percent_error_table
 from dashboard.helpers.geography_helpers import (
     ALL_GEOGRAPHIES_LABEL,
@@ -216,7 +216,7 @@ class ShadowPricingPage(DashboardPage):
         if is_all_geographies(geo_level):
             return [
                 pn.pane.Markdown("### Workplace Shadow Pricing"),
-                pn.Row(pn.pane.Markdown("**Geography Level:**"), self.geo_level_sel),
+                selector_row(self.geo_level_sel),
                 self._all_geographies_distribution_card(subject="Workplace"),
             ]
 
@@ -227,7 +227,7 @@ class ShadowPricingPage(DashboardPage):
         )
         return [
             pn.pane.Markdown("### Workplace Shadow Pricing"),
-            pn.Row(pn.pane.Markdown("**Geography Level:**"), self.geo_level_sel),
+            selector_row(self.geo_level_sel),
             density_chart(
                 workplace_data,
                 x_col="bin_start",
@@ -304,7 +304,7 @@ class ShadowPricingPage(DashboardPage):
         if is_all_geographies(geo_level):
             return [
                 pn.pane.Markdown("### School Shadow Pricing"),
-                pn.Row(pn.pane.Markdown("**Student Type:**"), self.student_type_sel),
+                selector_row(self.student_type_sel),
                 self._all_geographies_distribution_card(subject="School"),
             ]
 
@@ -318,7 +318,7 @@ class ShadowPricingPage(DashboardPage):
         )
         return [
             pn.pane.Markdown("### School Shadow Pricing"),
-            pn.Row(pn.pane.Markdown("**Student Type:**"), self.student_type_sel),
+            selector_row(self.student_type_sel),
             density_chart(
                 school_data,
                 x_col="bin_start",

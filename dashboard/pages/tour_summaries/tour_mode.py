@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart
+from dashboard.components import bar_chart, selector_row
 from dashboard.helpers.category_helpers import (
     column_options,
     common_column_options,
@@ -257,7 +257,7 @@ class TourModePage(DashboardPage):
         if mode_summary is None:
             return [
                 pn.pane.Markdown("### Tour Mode"),
-                pn.Row(pn.pane.Markdown("**Tour Purpose:**"), self.purpose_sel),
+                selector_row(self.purpose_sel),
                 self.data_not_available_card(
                     detail="The tour mode summary is unavailable.",
                     missing_items=["tour_mode_by_tour_purpose_and_auto_sufficiency"],
@@ -276,7 +276,7 @@ class TourModePage(DashboardPage):
         ]
         return [
             pn.pane.Markdown("### Tour Mode"),
-            pn.Row(pn.pane.Markdown("**Tour Purpose:**"), self.purpose_sel),
+            selector_row(self.purpose_sel),
             *[
                 self.render_tour_mode_chart(
                     mode_summary,
@@ -332,7 +332,7 @@ class TourModePage(DashboardPage):
         occupancy = str(self.occupancy_sel.value)
         return [
             pn.pane.Markdown("### Allocated Vehicle Characteristics"),
-            pn.Row(pn.pane.Markdown("**Vehicle Occupancy:**"), self.occupancy_sel),
+            selector_row(self.occupancy_sel),
             pn.Row(
                 self.render_vehicle_age_chart(
                     summaries["allocated_vehicle_age_by_occupancy"],

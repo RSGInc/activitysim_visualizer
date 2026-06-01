@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, density_chart
+from dashboard.components import bar_chart, density_chart, selector_row
 from dashboard.helpers.category_helpers import (
     complete_category_counts,
     label_category_data,
@@ -710,7 +710,7 @@ class EscortedToursPage(DashboardPage):
         return [
             pn.Column(
                 pn.pane.Markdown("## Adult Chauffer Tours and Trips"),
-                pn.Row(pn.pane.Markdown("**Direction:**"), self.direction_sel),
+                selector_row(self.direction_sel),
                 pn.pane.Markdown("### Chauffer Person Type Distribution"),
                 pn.pane.Markdown(PERSON_TYPE_DESCRIPTION),
                 pn.Row(

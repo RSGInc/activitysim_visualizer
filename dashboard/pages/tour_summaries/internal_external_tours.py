@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import panel as pn
 
-from dashboard.components import data_table
+from dashboard.components import data_table, selector_row
 from dashboard.helpers.geography_helpers import (
     filter_geography_level,
     geography_level_options,
@@ -35,7 +35,7 @@ class InternalExternalToursPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Internal vs. External Tours"),
-            pn.Row(pn.pane.Markdown("**Geography Level:**"), self.geo_level_sel),
+            selector_row(self.geo_level_sel),
             self._body,
             sizing_mode="stretch_width",
         )

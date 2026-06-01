@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart
+from dashboard.components import bar_chart, selector_row
 from dashboard.helpers.category_helpers import (
     complete_category_counts,
     label_category_data,
@@ -77,7 +77,7 @@ class IndividualChoicesPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Individual Choices"),
-            pn.Row(pn.pane.Markdown("**Person Type:**"), self.person_type_sel),
+            selector_row(self.person_type_sel),
             self._body,
             sizing_mode="stretch_width",
         )

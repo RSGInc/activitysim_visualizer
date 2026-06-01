@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, data_table, density_chart
+from dashboard.components import bar_chart, data_table, density_chart, selector_row
 from dashboard.helpers.geography_helpers import (
     ALL_WITHIN_LEVEL_VALUE,
     export_geography_options,
@@ -14,6 +14,7 @@ from dashboard.helpers.geography_helpers import (
     filter_origin_geography,
     geography_level_options,
     geography_options_for_level,
+    is_all_geographies,
     normalize_geography_data,
 )
 from dashboard.page_base import DashboardPage, SectionContent
@@ -88,12 +89,7 @@ class MandatoryLocationChoicePage(DashboardPage):
 
         return self.new_section(
             pn.pane.Markdown("## Mandatory Location Choice"),
-            pn.Row(
-                pn.pane.Markdown("**Geography Level:**"),
-                self.geo_level_sel,
-                pn.pane.Markdown("**Geography:**"),
-                self.geography_sel,
-            ),
+            selector_row(self.geo_level_sel, self.geography_sel),
             self._remote_work_section,
             self._distance_section,
             self._worker_section,
@@ -323,18 +319,18 @@ class MandatoryLocationChoicePage(DashboardPage):
             x_col="workplace_location",
             y_col=(
                 "external_worker_percent"
-                if self.as_percent and geo_level == "all_geographies"
+                if self.as_percent and is_all_geographies(geo_level)
                 else "person_count"
             ),
             title="External Worker Workplace Location",
             xaxis_title="Workplace Location",
             yaxis_title=(
                 "Workers with External Workplaces (%)"
-                if self.as_percent and geo_level == "all_geographies"
+                if self.as_percent and is_all_geographies(geo_level)
                 else "External Workers"
             ),
             pct_col="pct",
-            as_percent=False if geo_level == "all_geographies" else self.as_percent,
+            as_percent=False if is_all_geographies(geo_level) else self.as_percent,
             xaxis_categoryarray=workplace_location_values,
         )
 
