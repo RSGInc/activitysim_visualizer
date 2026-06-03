@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, control_row, control_row_spacer
+from dashboard.components import bar_chart, selector_row
 from dashboard.helpers.category_helpers import nonempty
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
@@ -58,6 +58,7 @@ class VMTValidationPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## VMT Validation"),
+            selector_row(self.vmt_view_sel),
             self._body,
             sizing_mode="stretch_width",
         )
@@ -125,14 +126,8 @@ class VMTValidationPage(DashboardPage):
         if not self.state.run_labels:
             return [self.no_runs_message()]
         return [
-            pn.Row(
-                pn.Column(
-                    control_row(self.vmt_view_sel),
-                    self.render_commercial_chart(),
-                ),
-                pn.Column(control_row_spacer(), self.render_bicycle_chart()),
-                sizing_mode="stretch_width",
-            )
+            self.render_commercial_chart(),
+            self.render_bicycle_chart(),
         ]
 
 

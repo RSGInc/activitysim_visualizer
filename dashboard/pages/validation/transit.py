@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, control_row, control_row_spacer, selector_row
+from dashboard.components import bar_chart, selector_row
 from dashboard.helpers.category_helpers import common_column_options, column_options, nonempty
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
@@ -88,7 +88,7 @@ class TransitValidationPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Transit Validation"),
-            selector_row(self.technology_sel),
+            selector_row(self.technology_sel, self.access_mode_sel),
             self._body,
             sizing_mode="stretch_width",
         )
@@ -212,17 +212,8 @@ class TransitValidationPage(DashboardPage):
         )
         operator_values = self._operator_values(boarding_list, transfer_list)
         return [
-            pn.Row(
-                pn.Column(
-                    control_row_spacer(),
-                    self.render_boardings_chart(operator_values),
-                ),
-                pn.Column(
-                    control_row(self.access_mode_sel),
-                    self.render_transfer_chart(operator_values),
-                ),
-                sizing_mode="stretch_width",
-            )
+            self.render_boardings_chart(operator_values),
+            self.render_transfer_chart(operator_values),
         ]
 
 
