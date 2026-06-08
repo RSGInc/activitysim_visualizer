@@ -800,6 +800,130 @@
       registeredPlots.add(element);
     }
 
+    function isArrayLikeValue(value) {
+      return Array.isArray(value) || ArrayBuffer.isView(value);
+    }
+
+    function csvEscape(value) {
+      if (value === undefined || value === null) {
+        return "";
+      }
+      let stringValue = "";
+      if (typeof value === "object") {
+        try {
+          stringValue = JSON.stringify(value);
+        } catch (error) {
+          stringValue = String(value);
+        }
+      } else {
+        stringValue = String(value);
+      }
+      if (/[",\n]/.test(stringValue)) {
+        return '"' + stringValue.replace(/"/g, '""') + '"';
+      }
+      return stringValue;
+    }
+
+    function getTraceFieldLength(value) {
+      if (isArrayLikeValue(value)) {
+        return value.length;
+      }
+      if (value === undefined || value === null) {
+        return 0;
+      }
+      return 1;
+    }
+
+    function getTraceFieldValue(value, index) {
+      if (isArrayLikeValue(value)) {
+        return index < value.length ? value[index] : "";
+      }
+      if (index === 0 && value !== undefined && value !== null) {
+        return value;
+      }
+      return "";
+    }
+
+    function slugifyFilenameBase(value) {
+      const normalized = String(value || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      return normalized || "plot-data";
+    }
+
+    function resolvePlotCsvFilename(figure) {
+      const layout = figure && figure.layout ? figure.layout : {};
+      const titleValue = layout && layout.title;
+      const titleText = typeof titleValue === "string"
+        ? titleValue
+        : (titleValue && titleValue.text) || "";
+      return slugifyFilenameBase(titleText) + ".csv";
+    }
+
+    function buildTraceCsvRows(gd) {
+      const rows = [[
+        "trace_index",
+        "trace_name",
+        "trace_type",
+        "point_index",
+        "x",
+        "y",
+        "text",
+        "customdata",
+      ]];
+      const traces = gd && Array.isArray(gd.data) ? gd.data : [];
+      traces.forEach((trace, traceIndex) => {
+        const pointCount = Math.max(
+          getTraceFieldLength(trace && trace.x),
+          getTraceFieldLength(trace && trace.y),
+          getTraceFieldLength(trace && trace.text),
+          getTraceFieldLength(trace && trace.customdata)
+        );
+        const traceName = trace && trace.name ? trace.name : "trace_" + String(traceIndex + 1);
+        const traceType = trace && trace.type ? trace.type : "";
+        for (let pointIndex = 0; pointIndex < pointCount; pointIndex += 1) {
+          rows.push([
+            traceIndex,
+            traceName,
+            traceType,
+            pointIndex,
+            getTraceFieldValue(trace && trace.x, pointIndex),
+            getTraceFieldValue(trace && trace.y, pointIndex),
+            getTraceFieldValue(trace && trace.text, pointIndex),
+            getTraceFieldValue(trace && trace.customdata, pointIndex),
+          ]);
+        }
+      });
+      return rows;
+    }
+
+    function downloadCsvRows(rows, filename) {
+      const csv = rows
+        .map((row) => row.map(csvEscape).join(","))
+        .join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.click();
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+      }, 0);
+    }
+
+    function makePlotCsvDownloadButton(figure) {
+      return {
+        name: "Download CSV",
+        title: "Download plot data as CSV",
+        icon: plotly && plotly.Icons ? plotly.Icons.disk : undefined,
+        click: function (gd) {
+          downloadCsvRows(buildTraceCsvRows(gd), resolvePlotCsvFilename(figure));
+        },
+      };
+    }
+
     /**
      * Render any plot containers that were added during the latest DOM paint.
      */
@@ -819,7 +943,11 @@
         Promise.resolve(
           plotly.react(div, figure.data || [], figure.layout || {}, {
             responsive: true,
-            displayModeBar: false,
+            displayModeBar: "hover",
+            toImageButtonOptions: {
+              scale: 2,
+            },
+            modeBarButtonsToAdd: [makePlotCsvDownloadButton(figure)],
           })
         ).catch((error) => {
           onRuntimeError("Plot rendering failed while loading this export.", error);
@@ -948,28 +1076,131 @@
    */
   function renderTable(node) {
     const table = el("table", { className: "export-table" });
+    const columns = node.columns || [];
+    const rows = (node.rows || []).slice();
+    const sortState = {
+      column: null,
+      direction: "asc",
+    };
+
+    function parseSortableNumber(value) {
+      const text = value == null ? "" : String(value).trim();
+      if (!text) {
+        return null;
+      }
+      let candidate = text.replace(/,/g, "");
+      let sign = 1;
+      const parenthesized = candidate.match(/^\((.*)\)$/);
+      if (parenthesized) {
+        sign = -1;
+        candidate = parenthesized[1];
+      }
+      candidate = candidate.replace(/^\$/, "");
+      candidate = candidate.replace(/%$/, "");
+      if (!/^-?\d+(\.\d+)?$/.test(candidate)) {
+        return null;
+      }
+      return sign * Number(candidate);
+    }
+
+    function compareCellValues(leftValue, rightValue) {
+      const leftNumber = parseSortableNumber(leftValue);
+      const rightNumber = parseSortableNumber(rightValue);
+      if (leftNumber !== null && rightNumber !== null) {
+        return leftNumber - rightNumber;
+      }
+      return String(leftValue == null ? "" : leftValue).localeCompare(
+        String(rightValue == null ? "" : rightValue),
+        undefined,
+        { numeric: true, sensitivity: "base" }
+      );
+    }
+
+    function sortRows(column, direction) {
+      rows.sort((leftRow, rightRow) => {
+        const comparison = compareCellValues(leftRow[column], rightRow[column]);
+        if (comparison !== 0) {
+          return direction === "asc" ? comparison : -comparison;
+        }
+        return 0;
+      });
+    }
+
+    function updateHeaderState() {
+      for (const headerButton of table.querySelectorAll(".export-table-sort")) {
+        const isActive = headerButton.getAttribute("data-column") === sortState.column;
+        const direction = isActive ? sortState.direction : "none";
+        const indicator = headerButton.querySelector(".export-table-sort-indicator");
+        headerButton.setAttribute("aria-sort", direction);
+        if (indicator) {
+          indicator.textContent = (
+            direction === "asc"
+              ? "▲"
+              : direction === "desc"
+                ? "▼"
+                : "↕"
+          );
+        }
+      }
+    }
+
+    function renderBody() {
+      const tbody = document.createElement("tbody");
+      for (const row of rows) {
+        const tr = document.createElement("tr");
+        for (const column of columns) {
+          const value = row[column];
+          tr.appendChild(
+            el("td", {
+              text: value == null ? "" : String(value),
+            })
+          );
+        }
+        tbody.appendChild(tr);
+      }
+      const existing = table.querySelector("tbody");
+      if (existing) {
+        table.replaceChild(tbody, existing);
+      } else {
+        table.appendChild(tbody);
+      }
+    }
+
+    function toggleSort(column) {
+      if (sortState.column === column) {
+        sortState.direction = sortState.direction === "asc" ? "desc" : "asc";
+      } else {
+        sortState.column = column;
+        sortState.direction = "asc";
+      }
+      sortRows(column, sortState.direction);
+      renderBody();
+      updateHeaderState();
+    }
+
     const thead = document.createElement("thead");
     const headRow = document.createElement("tr");
-    for (const column of node.columns || []) {
-      headRow.appendChild(el("th", { text: column }));
+    for (const column of columns) {
+      const button = el("button", {
+        className: "export-table-sort",
+        attrs: {
+          type: "button",
+          "data-column": column,
+          "aria-sort": "none",
+        },
+      }, [
+        el("span", { className: "export-table-sort-label", text: column }),
+        el("span", { className: "export-table-sort-indicator", text: "↕" }),
+      ]);
+      button.addEventListener("click", () => {
+        toggleSort(column);
+      });
+      headRow.appendChild(el("th", {}, [button]));
     }
     thead.appendChild(headRow);
     table.appendChild(thead);
-
-    const tbody = document.createElement("tbody");
-    for (const row of node.rows || []) {
-      const tr = document.createElement("tr");
-      for (const column of node.columns || []) {
-        const value = row[column];
-        tr.appendChild(
-          el("td", {
-            text: value == null ? "" : String(value),
-          })
-        );
-      }
-      tbody.appendChild(tr);
-    }
-    table.appendChild(tbody);
+    renderBody();
+    updateHeaderState();
 
     return el("div", { className: "table-wrap" }, [table]);
   }

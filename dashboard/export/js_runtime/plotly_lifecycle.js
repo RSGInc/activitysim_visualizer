@@ -105,6 +105,130 @@
       registeredPlots.add(element);
     }
 
+    function isArrayLikeValue(value) {
+      return Array.isArray(value) || ArrayBuffer.isView(value);
+    }
+
+    function csvEscape(value) {
+      if (value === undefined || value === null) {
+        return "";
+      }
+      let stringValue = "";
+      if (typeof value === "object") {
+        try {
+          stringValue = JSON.stringify(value);
+        } catch (error) {
+          stringValue = String(value);
+        }
+      } else {
+        stringValue = String(value);
+      }
+      if (/[",\n]/.test(stringValue)) {
+        return '"' + stringValue.replace(/"/g, '""') + '"';
+      }
+      return stringValue;
+    }
+
+    function getTraceFieldLength(value) {
+      if (isArrayLikeValue(value)) {
+        return value.length;
+      }
+      if (value === undefined || value === null) {
+        return 0;
+      }
+      return 1;
+    }
+
+    function getTraceFieldValue(value, index) {
+      if (isArrayLikeValue(value)) {
+        return index < value.length ? value[index] : "";
+      }
+      if (index === 0 && value !== undefined && value !== null) {
+        return value;
+      }
+      return "";
+    }
+
+    function slugifyFilenameBase(value) {
+      const normalized = String(value || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      return normalized || "plot-data";
+    }
+
+    function resolvePlotCsvFilename(figure) {
+      const layout = figure && figure.layout ? figure.layout : {};
+      const titleValue = layout && layout.title;
+      const titleText = typeof titleValue === "string"
+        ? titleValue
+        : (titleValue && titleValue.text) || "";
+      return slugifyFilenameBase(titleText) + ".csv";
+    }
+
+    function buildTraceCsvRows(gd) {
+      const rows = [[
+        "trace_index",
+        "trace_name",
+        "trace_type",
+        "point_index",
+        "x",
+        "y",
+        "text",
+        "customdata",
+      ]];
+      const traces = gd && Array.isArray(gd.data) ? gd.data : [];
+      traces.forEach((trace, traceIndex) => {
+        const pointCount = Math.max(
+          getTraceFieldLength(trace && trace.x),
+          getTraceFieldLength(trace && trace.y),
+          getTraceFieldLength(trace && trace.text),
+          getTraceFieldLength(trace && trace.customdata)
+        );
+        const traceName = trace && trace.name ? trace.name : "trace_" + String(traceIndex + 1);
+        const traceType = trace && trace.type ? trace.type : "";
+        for (let pointIndex = 0; pointIndex < pointCount; pointIndex += 1) {
+          rows.push([
+            traceIndex,
+            traceName,
+            traceType,
+            pointIndex,
+            getTraceFieldValue(trace && trace.x, pointIndex),
+            getTraceFieldValue(trace && trace.y, pointIndex),
+            getTraceFieldValue(trace && trace.text, pointIndex),
+            getTraceFieldValue(trace && trace.customdata, pointIndex),
+          ]);
+        }
+      });
+      return rows;
+    }
+
+    function downloadCsvRows(rows, filename) {
+      const csv = rows
+        .map((row) => row.map(csvEscape).join(","))
+        .join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.click();
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+      }, 0);
+    }
+
+    function makePlotCsvDownloadButton(figure) {
+      return {
+        name: "Download CSV",
+        title: "Download plot data as CSV",
+        icon: plotly && plotly.Icons ? plotly.Icons.disk : undefined,
+        click: function (gd) {
+          downloadCsvRows(buildTraceCsvRows(gd), resolvePlotCsvFilename(figure));
+        },
+      };
+    }
+
     /**
      * Render any plot containers that were added during the latest DOM paint.
      */
@@ -124,7 +248,11 @@
         Promise.resolve(
           plotly.react(div, figure.data || [], figure.layout || {}, {
             responsive: true,
-            displayModeBar: false,
+            displayModeBar: "hover",
+            toImageButtonOptions: {
+              scale: 2,
+            },
+            modeBarButtonsToAdd: [makePlotCsvDownloadButton(figure)],
           })
         ).catch((error) => {
           onRuntimeError("Plot rendering failed while loading this export.", error);

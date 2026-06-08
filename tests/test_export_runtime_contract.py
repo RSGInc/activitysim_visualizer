@@ -130,6 +130,29 @@ def test_runtime_asset_contains_explicit_context_action_and_region_helpers() -> 
     assert "function makeButton(config)" in runtime_js
     assert "function buildRegionVariantKey(selectorValues)" in runtime_js
     assert "const PLOT_RESIZE_RETRY_DELAYS_MS = [60, 180, 320];" in runtime_js
+    assert 'displayModeBar: "hover"' in runtime_js
+    assert "scale: 2" in runtime_js
+    assert 'name: "Download CSV"' in runtime_js
+    assert 'title: "Download plot data as CSV"' in runtime_js
+    assert "modeBarButtonsToAdd: [makePlotCsvDownloadButton(figure)]" in runtime_js
+
+
+def test_runtime_asset_contains_plot_csv_export_helpers() -> None:
+    runtime_js = load_export_runtime_js()
+
+    assert "function csvEscape(value)" in runtime_js
+    assert "function slugifyFilenameBase(value)" in runtime_js
+    assert "function resolvePlotCsvFilename(figure)" in runtime_js
+    assert "function buildTraceCsvRows(gd)" in runtime_js
+    assert '"trace_index"' in runtime_js
+    assert '"trace_name"' in runtime_js
+    assert '"trace_type"' in runtime_js
+    assert '"point_index"' in runtime_js
+    assert '"x"' in runtime_js
+    assert '"y"' in runtime_js
+    assert '"text"' in runtime_js
+    assert '"customdata"' in runtime_js
+    assert 'return normalized || "plot-data";' in runtime_js
 
 
 def test_runtime_asset_restores_export_selector_widgets_from_runtime_state() -> None:
@@ -138,6 +161,16 @@ def test_runtime_asset_restores_export_selector_widgets_from_runtime_state() -> 
     assert "function resolveWidgetValue(node, context, leafPageId)" in runtime_js
     assert "const pageSelectorState = getPageSelectorState(context.state, leafPageId);" in runtime_js
     assert "const effectiveValue = resolveWidgetValue(node, context, leafPageId);" in runtime_js
+
+
+def test_runtime_asset_contains_sortable_export_table_helpers() -> None:
+    runtime_js = load_export_runtime_js()
+
+    assert "function parseSortableNumber(value)" in runtime_js
+    assert "function compareCellValues(leftValue, rightValue)" in runtime_js
+    assert "function toggleSort(column)" in runtime_js
+    assert 'className: "export-table-sort"' in runtime_js
+    assert 'className: "export-table-sort-indicator"' in runtime_js
 
 
 def test_generated_export_html_contains_no_raw_nan_or_infinity(tmp_path: Path) -> None:

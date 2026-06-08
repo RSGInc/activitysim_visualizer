@@ -307,6 +307,28 @@ table.export-table thead th {
   z-index: 1;
 }
 
+.export-table-sort {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+
+.export-table-sort-indicator {
+  color: var(--muted);
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
 .local-tab-panel {
   margin-top: 12px;
 }
