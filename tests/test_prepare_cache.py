@@ -411,6 +411,35 @@ def test_prepared_cache_round_trip_creates_default_layout(tmp_path: Path) -> Non
     assert loaded.trip_weight_col == "trip_weight"
 
 
+def test_write_prepared_run_cache_removes_legacy_prepared_cache_sibling(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    prepared = _prepared_run(config)
+    output_root = Path(config.summary_root)
+    legacy_dir = output_root / "prepared_cache" / "base"
+    legacy_dir.mkdir(parents=True, exist_ok=True)
+    (legacy_dir / "stale.txt").write_text("old", encoding="utf-8")
+
+    entry = write_prepared_run_cache(
+        prepared,
+        config,
+        run_key="base",
+        output_root=output_root,
+        run_fingerprint=build_run_fingerprint(
+            label=prepared.label,
+            run_dir=prepared.run_dir,
+            skim_file=prepared.skim_file,
+            hh_weight_col=prepared.hh_weight_col,
+            person_weight_col=prepared.person_weight_col,
+            trip_weight_col=prepared.trip_weight_col,
+        ),
+    )
+
+    assert entry.cache_dir == output_root / "base" / "prepared_tables"
+    assert not legacy_dir.exists()
+
+
 def test_prepare_config_digest_ignores_presentation_only_changes(
     tmp_path: Path,
 ) -> None:

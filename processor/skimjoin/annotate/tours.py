@@ -58,11 +58,16 @@ def _directional_tour_context(
     outbound: bool,
 ) -> pl.DataFrame:
     activitysim = normalized.activitysim
-    origin_column = activitysim.tour_origin_column
-    destination_column = activitysim.tour_destination_column
-    context_origin = pl.col(origin_column) if outbound else pl.col(destination_column)
+    od_columns = _tour_od_columns(tours, normalized)
+    context_origin = (
+        pl.col(od_columns["origin"]) if outbound else pl.col(od_columns["destination"])
+    )
     context_destination = (
-        pl.col(destination_column) if outbound else pl.col(origin_column)
+        pl.col(od_columns["destination"]) if outbound else pl.col(od_columns["origin"])
+    )
+    maz_origin = pl.col(od_columns["o_maz"]) if outbound else pl.col(od_columns["d_maz"])
+    maz_destination = (
+        pl.col(od_columns["d_maz"]) if outbound else pl.col(od_columns["o_maz"])
     )
     depart_expr = _tour_departure_expr(tours)
     return tours.with_columns(
@@ -75,8 +80,56 @@ def _directional_tour_context(
         depart_expr.alias("depart"),
         context_origin.cast(pl.Float64).alias("OTAZ"),
         context_destination.cast(pl.Float64).alias("DTAZ"),
-        context_origin.cast(pl.Float64).alias("o_maz"),
-        context_destination.cast(pl.Float64).alias("d_maz"),
+        maz_origin.cast(pl.Float64).alias("o_maz"),
+        maz_destination.cast(pl.Float64).alias("d_maz"),
+    )
+
+
+def _tour_od_columns(
+    tours: pl.DataFrame,
+    normalized: NormalizedConfig,
+) -> dict[str, str]:
+    defaults = normalized.defaults
+    return {
+        "origin": _first_present_column(
+            tours,
+            defaults.origin,
+            "OTAZ",
+            "origin",
+        ),
+        "destination": _first_present_column(
+            tours,
+            defaults.destination,
+            "DTAZ",
+            "destination",
+        ),
+        "o_maz": _first_present_column(
+            tours,
+            "o_maz",
+            defaults.origin,
+            "OTAZ",
+            "origin",
+        ),
+        "d_maz": _first_present_column(
+            tours,
+            "d_maz",
+            defaults.destination,
+            "DTAZ",
+            "destination",
+        ),
+    }
+
+
+def _first_present_column(
+    tours: pl.DataFrame,
+    *candidates: str,
+) -> str:
+    for column in candidates:
+        if column in tours.columns:
+            return column
+    raise ValueError(
+        "Tour skimjoin context requires one of the configured origin/destination "
+        f"columns, but none were present. Tried: {', '.join(repr(column) for column in candidates)}"
     )
 
 

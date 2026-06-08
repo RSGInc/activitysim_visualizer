@@ -533,6 +533,22 @@ def test_summary_cache_round_trip_creates_configured_layout(tmp_path: Path) -> N
     assert loaded.summaries_by_mode["weighted"]["geo_flows"].width == 0
 
 
+def test_write_summary_run_cache_removes_legacy_summary_cache_sibling(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _sample_summary_run()
+    output_root = Path(config.summary_root)
+    legacy_dir = output_root / "summary_cache" / "base"
+    legacy_dir.mkdir(parents=True, exist_ok=True)
+    (legacy_dir / "stale.txt").write_text("old", encoding="utf-8")
+
+    cache_dir = write_summary_run_cache(summary_run, config, output_root=output_root)
+
+    assert cache_dir == output_root / "base"
+    assert not legacy_dir.exists()
+
+
 def test_summary_cache_detects_file_map_only_run_fingerprint_mismatch(
     tmp_path: Path,
 ) -> None:

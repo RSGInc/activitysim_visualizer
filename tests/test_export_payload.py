@@ -429,6 +429,43 @@ def test_build_export_payload_normalizes_group_default_page_ids_to_leaf_page_ids
     assert page_by_id["trip_summaries"]["default_page_id"] != "purpose"
 
 
+def test_build_export_payload_keeps_grouped_trip_selector_pages_export_ready() -> None:
+    tmp_path = _workspace_tmp_dir("payload_grouped_trip_selectors")
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=[{"trip_summaries": ["trip_mode", "trip_stop_time"]}],
+        export_html_lines=[
+            "pages:",
+            "  trip_summaries:",
+            "    trip_mode:",
+            "      tour_purpose: all",
+            "    trip_stop_time:",
+            "      tour_purpose: all",
+        ],
+    )
+
+    payload = build_export_payload([], config, summary_runs=[_full_summary_run()])
+    grouped_page = payload["pages"][0]
+    weighted_percent = payload["states"]["Weighted||Percent"]
+
+    assert grouped_page["id"] == "trip_summaries"
+    assert grouped_page["default_page_id"] == "trip_mode"
+    assert [child["id"] for child in grouped_page["children"]] == [
+        "trip_mode",
+        "trip_stop_time",
+    ]
+    assert any(
+        selector["id"] == "tour_purpose" and selector["export_enabled"]
+        for selector in grouped_page["children"][0]["selectors"]
+    )
+    assert any(
+        selector["id"] == "tour_purpose" and selector["export_enabled"]
+        for selector in grouped_page["children"][1]["selectors"]
+    )
+    assert "trip_mode" in weighted_percent
+    assert "trip_stop_time" in weighted_percent
+
+
 def test_build_export_payload_applies_excluded_pages_and_groups() -> None:
     tmp_path = _workspace_tmp_dir("payload_exclusions")
     config = _write_config(

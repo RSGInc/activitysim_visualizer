@@ -434,6 +434,10 @@ class Config:
     def run_color(self, idx: int) -> str:
         return self.run_colors[idx % len(self.run_colors)]
 
+    def skimjoin_step_enabled(self) -> bool:
+        """Return whether the active pipeline includes integrated skimjoin."""
+        return self.pipeline.has_step("skimjoin")
+
     @property
     def categories(self) -> dict[str, CategorySpec]:
         """Compatibility alias for pre-split display-oriented category lookups."""

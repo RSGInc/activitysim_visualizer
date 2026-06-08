@@ -151,7 +151,7 @@ def prepare_signature_payload(config: Config) -> dict[str, Any]:
         "geography": _geography_payload(config),
         "skim": {"matrix": config.skim_matrix},
         "skimjoin": {
-            "enabled": config.skimjoin.enabled,
+            "enabled": config.skimjoin_step_enabled(),
             "config_digest": config.skimjoin.config_digest,
         },
         "prepare": {
@@ -282,7 +282,7 @@ def summary_signature_payload(config: Config) -> dict[str, Any]:
             "pnr_tour_modes": list(config.pnr_tour_modes),
         },
         "skimjoin": {
-            "enabled": config.skimjoin.enabled,
+            "enabled": config.skimjoin_step_enabled(),
             "config_digest": config.skimjoin.config_digest,
         },
         "prepare": {

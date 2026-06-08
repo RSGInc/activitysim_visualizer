@@ -286,7 +286,7 @@ def test_config_loads_separate_skimjoin_config_and_digest(tmp_path: Path) -> Non
 
     config = _write_main_config(tmp_path, skimjoin_enabled=True)
 
-    assert config.skimjoin.enabled is True
+    assert config.skimjoin_step_enabled() is True
     assert config.skimjoin.config_path == str((tmp_path / "skimjoin.yaml").resolve())
     assert config.skimjoin.config_digest
     assert "skimjoin_trip_component_stats" in summary_cache.requested_summary_ids(
@@ -321,7 +321,7 @@ def test_config_loads_integrated_skimjoin_without_activitysim_table_paths(
 
     config = _write_main_config(tmp_path, skimjoin_enabled=True)
 
-    assert config.skimjoin.enabled is True
+    assert config.skimjoin_step_enabled() is True
     assert config.skimjoin.normalized_config is not None
 
 
@@ -396,7 +396,7 @@ def test_config_allows_run_level_skimjoin_config_without_global_path(
         run_skimjoin_lines=[f"config_path: {run_config_path.name}"],
     )
 
-    assert config.skimjoin.enabled is True
+    assert config.skimjoin_step_enabled() is True
     assert config.skimjoin.config_path is None
     resolved = config_for_run(config, config.runs[0])
     assert resolved.skimjoin.config_path == str(run_config_path.resolve())

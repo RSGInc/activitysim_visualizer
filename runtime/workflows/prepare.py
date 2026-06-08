@@ -353,7 +353,7 @@ def run_prepare_workflow(
             existing_prepared_runs_by_key=existing_prepared_runs_by_key,
             prefer_cache=prefer_cache,
             write_cache=write_cache,
-            run_skimjoin=bool(config.skimjoin.enabled),
+            run_skimjoin=config.skimjoin_step_enabled(),
         )
         if prepared_loaded is None:
             continue

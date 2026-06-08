@@ -2,13 +2,30 @@
    * Widget renderers for export payload nodes.
    */
 
-  function renderWidget(node, context, actions) {
+  function resolveWidgetValue(node, context, leafPageId) {
+    if (!(node.export_enabled && node.selector_id && leafPageId)) {
+      return node.value;
+    }
+    const pageSelectorState = getPageSelectorState(context.state, leafPageId);
+    const runtimeValue = pageSelectorState[node.selector_id];
+    if (
+      runtimeValue !== undefined
+      && runtimeValue !== null
+      && (node.options || []).indexOf(runtimeValue) !== -1
+    ) {
+      return runtimeValue;
+    }
+    return node.value;
+  }
+
+  function renderWidget(node, context, actions, leafPageId) {
     const wrapper = el("div", { className: "widget-shell" }, [
       el("div", {
         className: "widget-label",
         text: node.name || "",
       }),
     ]);
+    const effectiveValue = resolveWidgetValue(node, context, leafPageId);
 
     if (node.widget_type === "select") {
       const select = document.createElement("select");
@@ -17,7 +34,7 @@
         const opt = document.createElement("option");
         opt.value = option;
         opt.textContent = option;
-        if (option === node.value) {
+        if (option === effectiveValue) {
           opt.selected = true;
         }
         select.appendChild(opt);
@@ -38,7 +55,7 @@
         el("div", { className: "widget-radio-options" }, (node.options || []).map((option) => {
           return makeButton({
             label: option,
-            active: option === node.value,
+            active: option === effectiveValue,
             disabled: !!node.disabled,
             onClick: () => {
               if (node.export_enabled && node.selector_id) {

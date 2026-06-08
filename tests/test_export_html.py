@@ -1828,6 +1828,7 @@ def test_build_export_html_document_serializes_stop_timing_two_chart_variant(
 ) -> None:
     config = _write_config(
         tmp_path,
+        dashboard_pages=["trip_stop_time"],
         export_html_lines=[
             "pages:",
             "  trip_stop_time:",
@@ -1847,6 +1848,83 @@ def test_build_export_html_document_serializes_stop_timing_two_chart_variant(
     ]
     variant_nodes = _walk_nodes(
         _region_nodes(trip_stop_time)["trip_stop_time_body"]["variants"][
+            '["All Tour Purposes"]'
+        ]
+    )
+    assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 2
+
+
+def test_build_export_html_document_serializes_trip_stop_distance_two_chart_variant(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=["trip_stop_distance"],
+        export_html_lines=[
+            "pages:",
+            "  trip_stop_distance:",
+            "    tour_purpose: all",
+        ],
+    )
+
+    summary_run = _full_summary_run()
+    distance_summary_run = type(summary_run)(
+        label=summary_run.label,
+        run_key=summary_run.run_key,
+        summaries_by_mode={
+            mode: {
+                **summary_run.summaries_by_mode[mode],
+                "trip_distance_by_purpose": pl.DataFrame(
+                    {
+                        "tour_purpose": [
+                            "all_tour_purposes",
+                            "all_tour_purposes",
+                            "eatout",
+                            "eatout",
+                            "social",
+                            "social",
+                        ],
+                        "distance_bin": ["0-1", "1-2", "0-1", "1-2", "0-1", "1-2"],
+                        "trip_count": [10.0, 8.0, 4.0, 2.0, 3.0, 1.0],
+                        "pct": [0.56, 0.44, 0.67, 0.33, 0.75, 0.25],
+                    }
+                ),
+                "stop_out_of_direction_distance_by_tour_purpose": pl.DataFrame(
+                    {
+                        "tour_purpose": [
+                            "all_tour_purposes",
+                            "all_tour_purposes",
+                            "eatout",
+                            "eatout",
+                            "social",
+                            "social",
+                        ],
+                        "distance_bin": ["0-1", "1-2", "0-1", "1-2", "0-1", "1-2"],
+                        "stop_count": [7.0, 5.0, 3.0, 1.0, 2.0, 1.0],
+                        "pct": [0.58, 0.42, 0.75, 0.25, 0.67, 0.33],
+                    }
+                ),
+            }
+            for mode in summary_run.summaries_by_mode
+        },
+        source_run_dir=summary_run.source_run_dir,
+        manifest=summary_run.manifest,
+    )
+
+    html = build_export_html_document([], config, summary_runs=[distance_summary_run])
+    payload = _extract_payload(html)
+    trip_stop_distance = payload["states"]["Weighted||Percent"]["trip_stop_distance"]
+
+    assert trip_stop_distance["kind"] == "page"
+    assert sorted(
+        _region_nodes(trip_stop_distance)["trip_stop_distance_body"]["variants"]
+    ) == [
+        '["All Tour Purposes"]',
+        '["eatout"]',
+        '["social"]',
+    ]
+    variant_nodes = _walk_nodes(
+        _region_nodes(trip_stop_distance)["trip_stop_distance_body"]["variants"][
             '["All Tour Purposes"]'
         ]
     )
@@ -1888,11 +1966,12 @@ def test_build_export_html_document_serializes_trip_mode_tour_purpose_variants(
 ) -> None:
     config = _write_config(
         tmp_path,
+        dashboard_pages=["trip_mode"],
         export_html_lines=[
             "pages:",
             "  trip_summaries:",
             "    trip_mode:",
-            "      tour_purpose: all",
+                "      tour_purpose: all",
         ],
     )
 

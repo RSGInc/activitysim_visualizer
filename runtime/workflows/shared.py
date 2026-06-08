@@ -19,13 +19,20 @@ def effective_processor_config(
 ) -> Config:
     """Return a runtime-effective config for processor/cache identity decisions."""
     effective = config
-    if apply_skimjoin is not None and bool(config.skimjoin.enabled) != apply_skimjoin:
+    skimjoin_enabled = effective.skimjoin_step_enabled()
+    if apply_skimjoin is not None and skimjoin_enabled != apply_skimjoin:
         if apply_skimjoin:
             raise ValueError(
                 "Cannot force integrated skimjoin on when the loaded config has it disabled."
             )
         effective = replace(
             effective,
+            pipeline=replace(
+                effective.pipeline,
+                steps=tuple(
+                    step for step in effective.pipeline.steps if step != "skimjoin"
+                ),
+            ),
             skimjoin=replace(
                 effective.skimjoin,
                 enabled=False,

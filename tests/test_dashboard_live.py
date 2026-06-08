@@ -452,13 +452,95 @@ def test_build_dashboard_preserves_widget_state_across_tab_switches(
     )
 
     tabs.active = 1
-    assert daily_activity_pattern_page.person_type_sel.options == ["Total", "worker"]
+    assert daily_activity_pattern_page.person_type_sel.options == [
+        "All Person Types",
+        "worker",
+    ]
 
     daily_activity_pattern_page.person_type_sel.value = "worker"
     tabs.active = 0
     tabs.active = 1
 
     assert daily_activity_pattern_page.person_type_sel.value == "worker"
+
+
+def test_build_dashboard_preserves_individual_choices_person_type_across_tab_switches(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _full_summary_run()
+    worker_summary_run = type(summary_run)(
+        label=summary_run.label,
+        run_key=summary_run.run_key,
+        summaries_by_mode={
+            mode: {
+                **summary_run.summaries_by_mode[mode],
+                "license_holding_status_distribution": pl.DataFrame(
+                    {
+                        "person_type": ["all_person_types", "worker"],
+                        "license_holding_status": ["has_license", "has_license"],
+                        "person_count": [80.0, 40.0],
+                        "pct": [0.8, 1.0],
+                    }
+                ),
+                "bicycle_comfort_level_distribution": pl.DataFrame(
+                    {
+                        "person_type": ["all_person_types", "worker"],
+                        "bicycle_comfort_level": ["InterestedButConcerned", "StrongAndFearless"],
+                        "person_count": [50.0, 20.0],
+                        "pct": [0.5, 0.5],
+                    }
+                ),
+                "transit_pass_ownership_by_person_type": pl.DataFrame(
+                    {
+                        "person_type": ["all_person_types", "worker"],
+                        "transit_pass_ownership_status": ["no_pass", "has_pass"],
+                        "person_count": [70.0, 15.0],
+                        "pct": [0.7, 0.375],
+                    }
+                ),
+                "transit_subsidy_by_person_type": pl.DataFrame(
+                    {
+                        "person_type": ["all_person_types", "worker"],
+                        "transit_subsidy_status": ["none", "full"],
+                        "person_count": [65.0, 10.0],
+                        "pct": [0.65, 0.25],
+                    }
+                ),
+            }
+            for mode in summary_run.summaries_by_mode
+        },
+        source_run_dir=summary_run.source_run_dir,
+        manifest=summary_run.manifest,
+    )
+    template = build_dashboard([], config, summary_runs=[worker_summary_run])
+    top_tabs = template.main[0]
+    long_term_choices_index = next(
+        index
+        for index, page in enumerate(template._dashboard_pages)
+        if page.page_id() == "long_term_choices"
+    )
+    long_term_choices_page = template._dashboard_pages[long_term_choices_index]
+    individual_choices_index = next(
+        index
+        for index, page in enumerate(long_term_choices_page.pages)
+        if page.page_id() == "individual_choices"
+    )
+    individual_choices_page = long_term_choices_page.pages[individual_choices_index]
+
+    top_tabs.active = long_term_choices_index
+    long_term_choices_page.view.active = individual_choices_index
+    assert individual_choices_page.person_type_sel.options == [
+        "All Person Types",
+        "worker",
+    ]
+
+    individual_choices_page.person_type_sel.value = "worker"
+    top_tabs.active = 0
+    top_tabs.active = long_term_choices_index
+    long_term_choices_page.view.active = individual_choices_index
+
+    assert individual_choices_page.person_type_sel.value == "worker"
 
 
 def test_dashboard_page_cache_helpers_reuse_summary_and_filtered_view_results(

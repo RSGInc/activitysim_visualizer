@@ -132,6 +132,14 @@ def test_runtime_asset_contains_explicit_context_action_and_region_helpers() -> 
     assert "const PLOT_RESIZE_RETRY_DELAYS_MS = [60, 180, 320];" in runtime_js
 
 
+def test_runtime_asset_restores_export_selector_widgets_from_runtime_state() -> None:
+    runtime_js = load_export_runtime_js()
+
+    assert "function resolveWidgetValue(node, context, leafPageId)" in runtime_js
+    assert "const pageSelectorState = getPageSelectorState(context.state, leafPageId);" in runtime_js
+    assert "const effectiveValue = resolveWidgetValue(node, context, leafPageId);" in runtime_js
+
+
 def test_generated_export_html_contains_no_raw_nan_or_infinity(tmp_path: Path) -> None:
     config = _write_config(
         tmp_path,

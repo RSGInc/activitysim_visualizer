@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+import shutil
 
 import polars as pl
 
@@ -183,6 +184,12 @@ def _segment_manifest_entry(
     }
 
 
+def _remove_legacy_summary_cache_dir(output_root: Path, run_key: str) -> None:
+    legacy_dir = output_root / "summary_cache" / run_key
+    if legacy_dir.exists():
+        shutil.rmtree(legacy_dir)
+
+
 def write_summary_run_cache(
     summary_run: SummaryRun,
     config: Config,
@@ -242,6 +249,7 @@ def write_summary_run_cache(
         summary_filename_by_id=summary_filename_by_id,
     )
     write_manifest(run_dir, manifest)
+    _remove_legacy_summary_cache_dir(output_root, summary_run.run_key)
     summary_run.manifest = manifest
     return run_dir
 
@@ -364,6 +372,7 @@ def write_summary_run_bundle(
         for key in sorted(segmentation_type_entries)
     ]
     write_manifest(run_dir, manifest)
+    _remove_legacy_summary_cache_dir(output_root, run_key)
     for summary_run in summary_runs:
         summary_run.manifest = manifest
     return run_dir

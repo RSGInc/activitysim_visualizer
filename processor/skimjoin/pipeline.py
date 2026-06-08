@@ -27,7 +27,7 @@ LOGGER = get_logger("processor.skimjoin")
 
 def apply_skimjoin(rd: RunData, config: Config) -> RunData:
     """Apply optional skim enrichment to prepared trips and tours."""
-    if not config.skimjoin.enabled:
+    if not config.skimjoin_step_enabled():
         return _package_disabled_skimjoin(rd)
 
     LOGGER.info("[skimjoin] Starting skim enrichment for '%s'", rd.label)

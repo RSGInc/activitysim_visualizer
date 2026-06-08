@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from pathlib import Path
 import sys
 
@@ -395,6 +396,10 @@ def test_run_prepare_workflow_applies_integrated_skimjoin_when_enabled_for_effec
         config_path="skimjoin.yaml",
         config_digest="digest-123",
         normalized_config=object(),
+    )
+    config.pipeline = replace(
+        config.pipeline,
+        steps=("prepare", "skimjoin", "summarize", "dashboard"),
     )
     skimjoin_calls: list[str] = []
 

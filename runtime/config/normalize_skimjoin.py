@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -246,8 +247,15 @@ def normalize_skimjoin_settings(
 
 
 def resolve_run_skimjoin_settings(config: Config, run_entry: dict[str, Any]) -> SkimjoinSettings:
-    if not config.skimjoin.enabled:
-        return config.skimjoin
+    if not config.skimjoin_step_enabled():
+        return replace(
+            config.skimjoin,
+            enabled=False,
+            config_digest=None,
+            normalized_config=None,
+            resolved_skim_files=(),
+            resolved_network_los_file=None,
+        )
 
     run_label = str(
         run_entry.get("label", Path(str(run_entry.get("dir", ""))).name or "run")
