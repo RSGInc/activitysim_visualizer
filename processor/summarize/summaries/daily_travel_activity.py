@@ -102,7 +102,7 @@ def indiv_nm_summary(rd: RunData, config: Config) -> pl.DataFrame:
 
     if "tour_category" in rd.tours.columns:
         inm_counts = (
-            rd.tours.filter(pl.col("tour_category") == "non-mandatory")
+            rd.tours.filter(pl.col("tour_category") == "non_mandatory")
             .group_by("person_id")
             .agg(pl.len().alias("inmTours"))
         )
