@@ -144,6 +144,7 @@ class SkimjoinSettings:
     normalized_config: Any | None = None
     resolved_skim_files: tuple[str, ...] = ()
     resolved_network_los_file: str | None = None
+    generate_hypothetical_sidecars: bool = False
 
 
 @dataclass(frozen=True)
@@ -153,6 +154,7 @@ class RunSkimjoinOverrides:
     config_path: str | None = None
     skim_files: tuple[str, ...] = ()
     network_los_file: str | None = None
+    generate_hypothetical_sidecars: bool | None = None
 
 
 @dataclass(frozen=True)

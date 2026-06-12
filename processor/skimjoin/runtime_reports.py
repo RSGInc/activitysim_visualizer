@@ -21,6 +21,9 @@ def _skimjoin_manifest(
     warning_count: int = 0,
     fallback_count: int = 0,
     fallback_outputs: list[str] | None = None,
+    hypothetical_sidecars_enabled: bool = False,
+    trip_hypothetical_rows: int = 0,
+    tour_hypothetical_rows: int = 0,
     failure_detail: str | None = None,
 ) -> dict[str, object]:
     return {
@@ -32,6 +35,9 @@ def _skimjoin_manifest(
         "skimjoin_warning_count": int(warning_count),
         "skimjoin_fallback_count": int(fallback_count),
         "skimjoin_fallback_outputs": list(fallback_outputs or []),
+        "skimjoin_hypothetical_sidecars_enabled": bool(hypothetical_sidecars_enabled),
+        "skimjoin_trip_hypothetical_rows": int(trip_hypothetical_rows),
+        "skimjoin_tour_hypothetical_rows": int(tour_hypothetical_rows),
         "skimjoin_failure_detail": failure_detail,
     }
 

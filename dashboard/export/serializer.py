@@ -43,6 +43,18 @@ def serialize_viewable(
     hidden_view_ids = hidden_view_ids or set()
     if id(obj) in region_nodes_by_id:
         return region_nodes_by_id[id(obj)]
+
+    def _container_styles(viewable: Any) -> dict[str, Any]:
+        styles = getattr(viewable, "styles", None)
+        if not isinstance(styles, dict):
+            return {}
+        return {str(key): value for key, value in styles.items() if value is not None}
+
+    def _container_css_classes(viewable: Any) -> list[str]:
+        css_classes = getattr(viewable, "css_classes", None)
+        if not css_classes:
+            return []
+        return [str(css_class) for css_class in css_classes if css_class]
     if isinstance(obj, pn.Card):
         children = [
             serialize_viewable(
@@ -85,6 +97,8 @@ def serialize_viewable(
             "layout": "column",
             "child_count": len(children),
             "children": children,
+            "styles": _container_styles(obj),
+            "css_classes": _container_css_classes(obj),
         }
     if isinstance(obj, pn.Row):
         children = [
@@ -107,6 +121,8 @@ def serialize_viewable(
             "layout": "row",
             "child_count": len(children),
             "children": children,
+            "styles": _container_styles(obj),
+            "css_classes": _container_css_classes(obj),
         }
     if isinstance(obj, pn.Tabs):
         return {

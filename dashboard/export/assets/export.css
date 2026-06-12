@@ -205,6 +205,24 @@ body {
   justify-content: flex-end;
 }
 
+.container-row--controls {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  min-width: 0;
+  gap: 14px;
+  padding-inline: 8px;
+}
+
+.container-row--controls > .container-item--controls {
+  display: flex;
+  justify-content: flex-start;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
 .container-item--plot,
 .container-item--table,
 .container-item--card,
@@ -242,6 +260,15 @@ body {
   box-sizing: border-box;
   align-items: flex-start;
   margin-left: auto;
+}
+
+.container-row--controls .widget-shell {
+  width: min(100%, 190px);
+  min-width: min(160px, 100%);
+  margin-left: 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  box-shadow: 0 4px 14px rgba(31, 41, 55, 0.05);
 }
 
 .widget-label {

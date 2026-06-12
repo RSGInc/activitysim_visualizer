@@ -40,6 +40,7 @@ def apply_skimjoin(rd: RunData, config: Config) -> RunData:
         result = _run_integrated_skimjoin(
             rd=rd,
             normalized=normalized,
+            generate_hypothetical_sidecars=config.skimjoin.generate_hypothetical_sidecars,
             annotate_trips_fn=annotate_trips,
             annotate_tours_fn=annotate_tours,
         )
@@ -49,6 +50,8 @@ def apply_skimjoin(rd: RunData, config: Config) -> RunData:
 
 
 def _package_disabled_skimjoin(rd: RunData) -> RunData:
+    rd.trip_hypothetical_skims = pl.DataFrame()
+    rd.tour_hypothetical_skims = pl.DataFrame()
     manifest = _skimjoin_manifest(
         enabled=False,
         status="disabled",
@@ -65,6 +68,8 @@ def _package_disabled_skimjoin(rd: RunData) -> RunData:
 
 
 def _package_failed_skimjoin(rd: RunData, config: Config, exc: Exception) -> RunData:
+    rd.trip_hypothetical_skims = pl.DataFrame()
+    rd.tour_hypothetical_skims = pl.DataFrame()
     failure_detail = f"{type(exc).__name__}: {exc}"
     manifest = _skimjoin_manifest(
         enabled=True,
@@ -119,6 +124,8 @@ def _package_applied_skimjoin(rd: RunData, config: Config, result: object) -> Ru
 
     rd.trips = result.annotated_trips
     rd.tours = result.enriched_tours
+    rd.trip_hypothetical_skims = result.trip_hypothetical_skims
+    rd.tour_hypothetical_skims = result.tour_hypothetical_skims
     manifest = _skimjoin_manifest(
         enabled=True,
         status=status,
@@ -128,6 +135,9 @@ def _package_applied_skimjoin(rd: RunData, config: Config, result: object) -> Ru
         warning_count=int(result.missing_lookup_report.height),
         fallback_count=int(result.fallback_lookup_report.height),
         fallback_outputs=fallback_outputs,
+        hypothetical_sidecars_enabled=config.skimjoin.generate_hypothetical_sidecars,
+        trip_hypothetical_rows=int(result.trip_hypothetical_skims.height),
+        tour_hypothetical_rows=int(result.tour_hypothetical_skims.height),
     )
     reports = {
         "skim_lookup_summary": result.lookup_summary,

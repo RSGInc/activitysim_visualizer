@@ -74,6 +74,9 @@ class ContainerNode(TypedDict):
     kind: Literal["container"]
     layout: ContainerLayout
     children: list["ExportNode"]
+    child_count: int
+    styles: dict[str, Any]
+    css_classes: list[str]
 
 
 class CardNode(TypedDict):

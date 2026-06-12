@@ -1503,6 +1503,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
 
     assert trip_stats.to_dicts() == [
         {
+            "skim_scenario": "chosen_mode",
             "trip_mode": "All Modes",
             "component": "skim_time",
             "n_total": 1.0,
@@ -1517,6 +1518,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "missing_share": 0.0,
         },
         {
+            "skim_scenario": "chosen_mode",
             "trip_mode": "SOV",
             "component": "skim_time",
             "n_total": 1.0,
@@ -1533,6 +1535,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
     ]
     assert tour_stats.to_dicts() == [
         {
+            "skim_scenario": "chosen_mode",
             "tour_mode": "All Modes",
             "component": "skim_time_inbound",
             "n_total": 1.0,
@@ -1547,6 +1550,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "missing_share": 0.0,
         },
         {
+            "skim_scenario": "chosen_mode",
             "tour_mode": "All Modes",
             "component": "skim_time_outbound",
             "n_total": 1.0,
@@ -1561,6 +1565,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "missing_share": 0.0,
         },
         {
+            "skim_scenario": "chosen_mode",
             "tour_mode": "SOV",
             "component": "skim_time_inbound",
             "n_total": 1.0,
@@ -1575,6 +1580,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "missing_share": 0.0,
         },
         {
+            "skim_scenario": "chosen_mode",
             "tour_mode": "SOV",
             "component": "skim_time_outbound",
             "n_total": 1.0,
@@ -2877,6 +2883,9 @@ def test_apply_skimjoin_disabled_resets_manifest_and_reports(tmp_path: Path) -> 
         "skimjoin_warning_count": 0,
         "skimjoin_fallback_count": 0,
         "skimjoin_fallback_outputs": [],
+        "skimjoin_hypothetical_sidecars_enabled": False,
+        "skimjoin_trip_hypothetical_rows": 0,
+        "skimjoin_tour_hypothetical_rows": 0,
         "skimjoin_failure_detail": None,
     }
     assert result.skimjoin_reports == {}
@@ -3048,6 +3057,7 @@ def test_trip_skim_component_stats_follow_weighted_contract(tmp_path: Path) -> N
     ).to_dicts()[0]
 
     assert drive_time == {
+        "skim_scenario": "chosen_mode",
         "trip_mode": "DRIVE",
         "component": "skim_time",
         "n_total": 6.0,
@@ -3062,6 +3072,7 @@ def test_trip_skim_component_stats_follow_weighted_contract(tmp_path: Path) -> N
         "missing_share": 0.5,
     }
     assert drive_cost == {
+        "skim_scenario": "chosen_mode",
         "trip_mode": "DRIVE",
         "component": "skim_cost",
         "n_total": 6.0,
@@ -3076,6 +3087,7 @@ def test_trip_skim_component_stats_follow_weighted_contract(tmp_path: Path) -> N
         "missing_share": 0.0,
     }
     assert all_modes_time == {
+        "skim_scenario": "chosen_mode",
         "trip_mode": "All Modes",
         "component": "skim_time",
         "n_total": 8.0,

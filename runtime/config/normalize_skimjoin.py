@@ -69,6 +69,7 @@ def load_resolved_skimjoin_settings(
     config_path: str,
     skim_files_override: tuple[str, ...] = (),
     network_los_file_override: str | None = None,
+    generate_hypothetical_sidecars: bool = False,
     context_label: str,
 ) -> SkimjoinSettings:
     from .signatures import digest_payload
@@ -116,6 +117,7 @@ def load_resolved_skimjoin_settings(
         normalized_config=normalized_config,
         resolved_skim_files=tuple(skim_files),
         resolved_network_los_file=(None if project is None else project.network_los_file),
+        generate_hypothetical_sidecars=bool(generate_hypothetical_sidecars),
     )
 
 
@@ -157,10 +159,18 @@ def normalize_run_skimjoin_overrides(
         field_name=f"{field_name}.network_los_file",
         config_dir=config_dir,
     )
+    generate_hypothetical_sidecars = raw_value.get("generate_hypothetical_sidecars")
+    if generate_hypothetical_sidecars is not None and not isinstance(
+        generate_hypothetical_sidecars, bool
+    ):
+        raise ValueError(
+            f"{field_name}.generate_hypothetical_sidecars must be true or false when provided."
+        )
     return RunSkimjoinOverrides(
         config_path=config_path,
         skim_files=skim_files,
         network_los_file=network_los_file,
+        generate_hypothetical_sidecars=generate_hypothetical_sidecars,
     )
 
 
@@ -190,6 +200,14 @@ def normalize_skimjoin_settings(
     enabled = raw_value.get("enabled", enabled_default)
     if not isinstance(enabled, bool):
         raise ValueError(f"{field_name}.enabled must be true or false when provided.")
+    generate_hypothetical_sidecars = raw_value.get(
+        "generate_hypothetical_sidecars",
+        False,
+    )
+    if not isinstance(generate_hypothetical_sidecars, bool):
+        raise ValueError(
+            f"{field_name}.generate_hypothetical_sidecars must be true or false when provided."
+        )
     config_path_raw = (
         defaults.get("config_path")
         if defaults is not None and "config_path" in defaults
@@ -234,14 +252,23 @@ def normalize_skimjoin_settings(
     )
 
     if not enabled:
-        return SkimjoinSettings(enabled=False, config_path=resolved_config_path)
+        return SkimjoinSettings(
+            enabled=False,
+            config_path=resolved_config_path,
+            generate_hypothetical_sidecars=generate_hypothetical_sidecars,
+        )
 
     if resolved_config_path is None:
-        return SkimjoinSettings(enabled=True, config_path=None)
+        return SkimjoinSettings(
+            enabled=True,
+            config_path=None,
+            generate_hypothetical_sidecars=generate_hypothetical_sidecars,
+        )
     return load_resolved_skimjoin_settings(
         config_path=resolved_config_path,
         skim_files_override=skim_files,
         network_los_file_override=network_los_file,
+        generate_hypothetical_sidecars=generate_hypothetical_sidecars,
         context_label="global",
     )
 
@@ -282,14 +309,21 @@ def resolve_run_skimjoin_settings(config: Config, run_entry: dict[str, Any]) -> 
         overrides.config_path is None
         and not overrides.skim_files
         and overrides.network_los_file is None
+        and overrides.generate_hypothetical_sidecars is None
         and config.skimjoin.config_path == effective_config_path
         and config.skimjoin.normalized_config is not None
     ):
         return config.skimjoin
 
+    generate_hypothetical_sidecars = (
+        config.skimjoin.generate_hypothetical_sidecars
+        if overrides.generate_hypothetical_sidecars is None
+        else overrides.generate_hypothetical_sidecars
+    )
     return load_resolved_skimjoin_settings(
         config_path=effective_config_path,
         skim_files_override=overrides.skim_files,
         network_los_file_override=overrides.network_los_file,
+        generate_hypothetical_sidecars=generate_hypothetical_sidecars,
         context_label=f"run '{run_label}'",
     )

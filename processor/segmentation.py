@@ -333,6 +333,14 @@ def _slice_run_data_from_source_subset(
             vehicles=prepared_run.vehicles.join(household_ids, on="household_id", how="inner")
             if "household_id" in prepared_run.vehicles.columns
             else prepared_run.vehicles.head(0),
+            trip_hypothetical_skims=_filter_trip_sidecar(
+                prepared_run.trip_hypothetical_skims,
+                trips,
+            ),
+            tour_hypothetical_skims=_filter_tour_sidecar(
+                prepared_run.tour_hypothetical_skims,
+                tours,
+            ),
             joint_participants=joint,
             land_use=land_use,
             skim_matrix=prepared_run.skim_matrix,
@@ -370,6 +378,14 @@ def _copy_run_data(
         tours=tours,
         trips=trips,
         vehicles=vehicles,
+        trip_hypothetical_skims=_filter_trip_sidecar(
+            prepared_run.trip_hypothetical_skims,
+            trips,
+        ),
+        tour_hypothetical_skims=_filter_tour_sidecar(
+            prepared_run.tour_hypothetical_skims,
+            tours,
+        ),
         joint_participants=joint_participants,
         land_use=prepared_run.land_use,
         skim_matrix=prepared_run.skim_matrix,
@@ -382,6 +398,24 @@ def _copy_run_data(
         skimjoin_manifest=prepared_run.skimjoin_manifest,
         skimjoin_reports=prepared_run.skimjoin_reports,
     )
+
+
+def _filter_trip_sidecar(
+    sidecar: pl.DataFrame,
+    trips: pl.DataFrame,
+) -> pl.DataFrame:
+    if sidecar.is_empty() or "trip_id" not in sidecar.columns or "trip_id" not in trips.columns:
+        return sidecar
+    return sidecar.join(trips.select("trip_id").unique(), on="trip_id", how="inner")
+
+
+def _filter_tour_sidecar(
+    sidecar: pl.DataFrame,
+    tours: pl.DataFrame,
+) -> pl.DataFrame:
+    if sidecar.is_empty() or "tour_id" not in sidecar.columns or "tour_id" not in tours.columns:
+        return sidecar
+    return sidecar.join(tours.select("tour_id").unique(), on="tour_id", how="inner")
 
 
 def build_analysis_units_for_run(
