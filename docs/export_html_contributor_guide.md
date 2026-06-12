@@ -139,7 +139,7 @@ If you change the payload or runtime behavior:
 2. update `dashboard/export/payload.py`
 3. update `dashboard/export/serializer.py` if node serialization changed
 4. update `dashboard/export/assets/export_runtime.js`
-5. update `docs/export_html_schema.md`
+5. update `wiki/34-html-export.md`
 6. update the export payload and smoke tests
 
 The generated runtime asset is now built from `dashboard/export/js_runtime/` by

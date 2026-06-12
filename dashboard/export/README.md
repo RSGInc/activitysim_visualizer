@@ -68,7 +68,7 @@ When you change payload structure:
 6. Update contract and smoke tests.
 7. Bump `EXPORT_SCHEMA_VERSION` if the runtime can no longer safely read older payloads.
 
-The contract reference lives in [`docs/export_html_schema.md`](../../docs/export_html_schema.md).
+The export reference lives in [`wiki/34-html-export.md`](../../wiki/34-html-export.md).
 
 ## Trusted HTML Boundary
 
@@ -134,6 +134,6 @@ Supported `segmentation_visibility` values are `full_only`,
 ## Related Docs
 
 - `js_runtime_guide.md`
-- `docs/export_html_schema.md`
-- `docs/export_html_contributor_guide.md`
-- `docs/adding-dashboard-pages.md`
+- `wiki/34-html-export.md`
+- `wiki/32-figures-and-widgets.md`
+- `wiki/33-dashboard-page-recipes.md`
