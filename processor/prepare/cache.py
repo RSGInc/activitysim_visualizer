@@ -20,6 +20,7 @@ from processor.cache_infra import (
 from processor.cache_identity import (
     build_run_fingerprint,
     build_run_keys,
+    file_identity,
     slugify,
 )
 from processor.models import RunData
@@ -92,22 +93,12 @@ def build_prepared_manifest_identity(
         normalized_table_map = dict(sorted((prepared_table_map or {}).items()))
         identity["prepared_table_map"] = normalized_table_map
         identity["prepared_table_fingerprints"] = {
-            table_id: _file_identity(path)
+            table_id: file_identity(path)
             for table_id, path in normalized_table_map.items()
         }
     else:
         identity["run_fingerprint"] = dict(run_fingerprint)
     return identity
-
-
-def _file_identity(path: str | Path) -> dict[str, object]:
-    resolved = Path(path).resolve()
-    stat = resolved.stat()
-    return {
-        "path": str(resolved),
-        "size": int(stat.st_size),
-        "mtime_ns": int(stat.st_mtime_ns),
-    }
 
 
 def _table_file_map(file_format: str) -> dict[str, str]:

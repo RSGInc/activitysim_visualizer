@@ -113,8 +113,9 @@ High-level path:
 2. `runtime.workflows.run_summary_workflow()` tries summary-cache reuse first.
 3. On a summary-cache miss, summarize reuses in-memory prepared runs, then loads custom `prepared_table_map` inputs when configured, then tries prepared cache, then rebuilds prepare from raw inputs only if needed.
 4. `processor.summarize.cache.build_mode_summaries_with_metadata()` builds weighted and optionally unweighted tables.
-5. `processor.summarize.cache.write_summary_run_cache()` writes one cache directory per run unless `--skip-summary-cache-write` is set.
-6. If segmentation is enabled, summary generation also builds segment-specific
+5. If a run defines `summary_table_map`, those dashboard-ready summary files are loaded and overlaid on the generated summaries for the listed summary IDs.
+6. `processor.summarize.cache.write_summary_run_cache()` writes one cache directory per run unless `--skip-summary-cache-write` is set.
+7. If segmentation is enabled, summary generation also builds segment-specific
    analysis units within this same workflow boundary.
 
 Cache layout:
@@ -152,7 +153,7 @@ python run.py --from-csvs
 High-level path:
 
 1. `run.py` loads config and resolves the effective plan.
-2. `runtime.workflows.load_summary_runs_from_cache()` reads each cache directory and validates its manifest.
+2. `runtime.workflows.load_summary_runs_from_cache()` reads each cache directory and validates its manifest, or loads configured `summary_table_map` files directly for summary-only runs.
 3. `dashboard.page_registry` resolves the enabled live pages from config.
 4. `dashboard.app.build_dashboard()` builds the shared `DashboardState`, the sidebar controls, and the page controllers.
 5. Each page pulls one summary table per run from `DashboardState`.
@@ -163,6 +164,9 @@ Important behavior:
 - Dashboard-only runs can now load summary caches either from explicit
   `--from-csvs` directories or from the configured runs when the summarize step
   is omitted.
+- `--from-csvs` still means visualizer summary-cache directories with manifests.
+  Loose dashboard-ready CSV/parquet files should be configured with
+  `runs[*].summary_table_map`.
 - If an enabled page requires disaggregate tables, `run.py` loads prepared runs for that page set from memory, custom `prepared_table_map` inputs, prepared cache, or the prepare workflow.
 - Most pages should stay summary-backed and declare their requirements through `PAGE.required_summary_ids`.
 - Prepared-data pages must also declare `PAGE.required_prepared_tables`, which lets the workflow prune unused prepared tables before dashboard startup/export.

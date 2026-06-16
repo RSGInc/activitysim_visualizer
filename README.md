@@ -59,7 +59,7 @@ The main shared page-helper modules live under `dashboard/helpers/`:
 - `time_distance_helpers.py`
 - `comparison_helpers.py`
 
-If you are adding or refactoring a page, read [docs/adding-dashboard-pages.md](docs/adding-dashboard-pages.md) first. For the broader runtime picture, see [docs/architecture.md](docs/architecture.md).
+If you are adding or refactoring a page, start with [wiki/33-dashboard-page-recipes.md](wiki/33-dashboard-page-recipes.md). For the broader runtime picture, see [wiki/12-running-workflows.md](wiki/12-running-workflows.md).
 
 ## Config Setup
 
@@ -179,6 +179,23 @@ skimjoined and then optionally filtered or otherwise post-processed outside this
 repo. When a run uses `prepared_table_map`, the workflow loads those prepared
 tables directly and does not rerun raw prepare or integrated skimjoin for that run.
 
+If a run already has dashboard-ready summary tables, point directly at those
+files with `runs[*].summary_table_map`:
+
+```yaml
+runs:
+  - label: Summary Only Demo
+    summary_table_map:
+      totals: path\to\summaries\totals.csv
+      traffic_count_comparisons: path\to\summaries\traffic_count_comparisons.parquet
+```
+
+`summary_table_map` uses registered summary IDs as keys, accepts explicit
+`.csv` or `.parquet` paths, and resolves relative paths from the config file
+directory. Mapped summaries are expected to already use the dashboard's canonical
+columns. During summarize they override the listed generated summaries; missing
+summaries can still be generated from raw/prepared inputs when those inputs exist.
+
 Integrated skim enrichment can now be selected per run without forcing one
 shared skimjoin config for every skim structure. Keep the explicit skimjoin
 YAML logic in separate files, then choose the file and optional project-input
@@ -290,6 +307,7 @@ Important path rules:
 - File entries under `files` can be bare stems like `final_trips` or explicit filenames like `final_trips.csv`.
 - `runs[*].file_map` uses the same filename rules as `files`, but applies only to that run.
 - `runs[*].prepared_table_map` must use explicit `.parquet` or `.csv` paths and resolves relative paths from the config file directory.
+- `runs[*].summary_table_map` must use registered summary IDs with explicit `.parquet` or `.csv` paths and resolves relative paths from the config file directory.
 - `prepare.output.file_format` controls how standard prepared caches are written; supported values are `parquet` and `csv`, with `parquet` as the default.
 - `prepare.validation.relationship_checks` controls prepared-table foreign-key validation. Use `warn` to log inconsistencies and continue, `error` to fail the run, or `off` to skip the checks.
 - `dashboard.export.output_path`, when relative, is resolved from `root`.
@@ -302,7 +320,7 @@ These are the sections most people need to touch:
 |---|---|
 | `root` | Where summary caches are stored |
 | `pipeline` | Default workflow steps, dashboard mode, and overwrite behavior |
-| `runs` | Run directories, display labels, and optional per-run skim, raw file-map, custom prepared-table map, and weight overrides |
+| `runs` | Run directories, display labels, and optional per-run skim, raw file-map, custom prepared-table map, custom summary-table map, and weight overrides |
 | `skimjoin.distance_skim` | Default distance skim file and matrix name used by summaries |
 | `zones` | MAZ/TAZ settings for skim joins and zone normalization |
 | `files` | Default ActivitySim output file stems or filenames used unless a run overrides them |
@@ -439,8 +457,9 @@ Common commands:
 
 Behavior details:
 
-- `--from-csvs` is cache-only: it will not rebuild missing summaries.
+- `--from-csvs` is cache-only: it reads visualizer summary-cache directories with manifests, not loose summary CSVs.
 - `--from-csvs path\to\cache1 path\to\cache2` lets you point directly at specific summary cache directories.
+- Use `runs[*].summary_table_map` when you have loose dashboard-ready summary files instead of visualizer cache directories.
 - `--dashboard` by itself is valid when summary caches already exist for the configured runs.
 - During summarize, the app will reuse prepared cache when possible and rebuild from raw outputs only when needed.
 - `--refresh-prepared-cache` deletes the selected runs' prepared-cache directories first, then disables prepared-cache reuse for that invocation.
@@ -528,26 +547,28 @@ activitysim_visualizer/
 `-- tests/
 ```
 
-## Contributor Docs
+## Wiki
 
-Contributor-oriented docs live under [`docs/`](docs/):
+User and contributor documentation lives under [`wiki/`](wiki/):
 
-- [`docs/architecture.md`](docs/architecture.md)
-- [`docs/summary-workflow.md`](docs/summary-workflow.md)
-- [`docs/adding-summaries.md`](docs/adding-summaries.md)
-- [`docs/adding-dashboard-pages.md`](docs/adding-dashboard-pages.md)
-- [`docs/plotting-summary-tables.md`](docs/plotting-summary-tables.md)
-- [`docs/export_html_schema.md`](docs/export_html_schema.md)
-- [`docs/export_html_contributor_guide.md`](docs/export_html_contributor_guide.md)
+- [`wiki/00-home.md`](wiki/00-home.md)
+- [`wiki/10-getting-started.md`](wiki/10-getting-started.md)
+- [`wiki/11-configuring-your-data.md`](wiki/11-configuring-your-data.md)
+- [`wiki/12-running-workflows.md`](wiki/12-running-workflows.md)
+- [`wiki/20-output-processor.md`](wiki/20-output-processor.md)
+- [`wiki/30-output-visualizer.md`](wiki/30-output-visualizer.md)
+- [`wiki/40-developer-workflows.md`](wiki/40-developer-workflows.md)
+- [`wiki/90-troubleshooting.md`](wiki/90-troubleshooting.md)
 
-If you are new to the codebase, start with `docs/architecture.md`, then `docs/summary-workflow.md`.
+If you are running or configuring the tool, start with `wiki/10-getting-started.md`.
+If you are changing the codebase, start with `wiki/40-developer-workflows.md`.
 
 ## Documentation Maintenance Checklist
 
 When behavior changes, update docs in the same change:
 
-- New config key or config behavior: update this README and any affected workflow guide.
-- New summary contract or registration pattern: update `docs/adding-summaries.md`.
-- New page, selector, or export behavior: update `docs/adding-dashboard-pages.md`.
-- New export payload/runtime behavior: update `docs/export_html_schema.md` and `docs/export_html_contributor_guide.md`.
-- Architecture or runtime-flow changes: update `docs/architecture.md` or `docs/summary-workflow.md`.
+- New config key or config behavior: update this README and affected wiki chapters.
+- New summary contract or registration pattern: update `wiki/23-summary-functions.md` and regenerate catalogs.
+- New page, selector, or export behavior: update `wiki/31-dashboard-pages.md`, `wiki/32-figures-and-widgets.md`, or `wiki/33-dashboard-page-recipes.md`.
+- New export payload/runtime behavior: update `wiki/34-html-export.md`.
+- Architecture or runtime-flow changes: update `wiki/12-running-workflows.md`, `wiki/20-output-processor.md`, or `wiki/30-output-visualizer.md`.

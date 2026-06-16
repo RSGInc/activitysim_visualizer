@@ -216,6 +216,37 @@ def normalize_prepared_table_map(
     return normalized
 
 
+def normalize_summary_table_map(
+    raw_value,
+    *,
+    field_name: str,
+    config_dir: Path,
+) -> dict[str, str]:
+    if raw_value is None:
+        raw_value = {}
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{field_name} must be a mapping when provided.")
+
+    normalized: dict[str, str] = {}
+    for raw_key, raw_path in raw_value.items():
+        key = str(raw_key)
+        if not key.strip():
+            raise ValueError(f"{field_name} contains an empty summary id.")
+        if not isinstance(raw_path, str):
+            raise ValueError(f"{field_name}.{key} must be a non-empty path string.")
+        token = raw_path.strip()
+        if not token:
+            raise ValueError(f"{field_name}.{key} must be a non-empty path string.")
+        suffix = Path(token).suffix.lower()
+        if suffix not in {".parquet", ".csv"}:
+            raise ValueError(f"{field_name}.{key} must end with '.parquet' or '.csv'.")
+        resolved = Path(token).expanduser()
+        if not resolved.is_absolute():
+            resolved = (config_dir / resolved).resolve()
+        normalized[key] = str(resolved)
+    return normalized
+
+
 def normalize_runs(
     raw_value,
     *,
@@ -247,6 +278,12 @@ def normalize_runs(
                 raise ValueError(
                     f"{field_name}[{index}] cannot define both file_map and prepared_table_map."
                 )
+        if "summary_table_map" in raw_entry:
+            normalized_entry["summary_table_map"] = normalize_summary_table_map(
+                raw_entry.get("summary_table_map"),
+                field_name=f"{field_name}[{index}].summary_table_map",
+                config_dir=config_dir,
+            )
         if "skimjoin" in raw_entry:
             normalized_entry["skimjoin"] = normalize_run_skimjoin_overrides(
                 raw_entry.get("skimjoin"),

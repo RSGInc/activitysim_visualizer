@@ -73,8 +73,14 @@ def _write_config(
         if prepared_table_map:
             lines.append("    prepared_table_map:")
             for table_id, path in prepared_table_map.items():
-                normalized_path = str(path).replace("\\", "/")
+                normalized_path = str(Path(path).resolve()).replace("\\", "/")
                 lines.append(f'      {table_id}: "{normalized_path}"')
+        summary_table_map = run_entry.get("summary_table_map")
+        if summary_table_map:
+            lines.append("    summary_table_map:")
+            for summary_id, path in summary_table_map.items():
+                normalized_path = str(Path(path).resolve()).replace("\\", "/")
+                lines.append(f'      {summary_id}: "{normalized_path}"')
     if extra_lines:
         lines.extend(extra_lines)
     config_path.write_text("\n".join(lines), encoding="utf-8")
@@ -187,6 +193,24 @@ def _write_inconsistent_custom_prepared_tables(
     return paths
 
 
+def _write_summary_table(path: Path, value: float) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame(
+        {
+            "households": [value],
+            "population": [value],
+            "tours": [value],
+            "trips": [value],
+            "stops": [value],
+            "vehicle_trips": [value],
+            "vmt": [value],
+            "pmt": [value],
+            "employment": [value],
+        }
+    ).write_csv(path)
+    return str(path.resolve())
+
+
 def _prepared_identity(
     *,
     config: Config,
@@ -206,6 +230,194 @@ def _prepared_identity(
             trip_weight_col=None,
         ),
     )
+
+
+def test_load_runtime_config_rejects_unknown_summary_table_map_id(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "outside" / "unknown.csv"
+    _write_summary_table(summary_path, 1.0)
+    _write_config(
+        tmp_path,
+        runs=[
+            {
+                "label": "External",
+                "summary_table_map": {"unknown_summary": summary_path},
+            }
+        ],
+    )
+
+    with pytest.raises(ValueError, match="unsupported summary ids"):
+        runtime_workflows.load_runtime_config(tmp_path / "config.yaml")
+
+
+def test_run_summary_workflow_loads_summary_only_run_without_prepared_inputs(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "outside" / "totals.csv"
+    _write_summary_table(summary_path, 11.0)
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {
+                "label": "External",
+                "summary_table_map": {"totals": summary_path},
+            }
+        ],
+    )
+
+    result = runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=True,
+    )
+
+    assert result.prepared_runs == []
+    assert [run.label for run in result.summary_runs] == ["External"]
+    assert (
+        result.summary_runs[0].summaries_by_mode["weighted"]["totals"]["population"][0]
+        == 11.0
+    )
+    assert (
+        result.summary_runs[0].summaries_by_mode["unweighted"]["totals"]["population"][0]
+        == 11.0
+    )
+
+
+def test_run_summary_workflow_overlays_summary_table_map_on_generated_summaries(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    summary_path = tmp_path / "outside" / "totals.csv"
+    _write_summary_table(summary_path, 99.0)
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {
+                "dir": str(run_dir),
+                "label": "Run A",
+                "summary_table_map": {"totals": summary_path},
+            }
+        ],
+    )
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals", "population_totals"])
+    monkeypatch.setattr(
+        summary_cache,
+        "build_mode_summaries_with_metadata",
+        lambda rd, config, summary_ids=None: (
+            {
+                "weighted": {
+                    summary_id: pl.DataFrame({"metric": [summary_id], "value": [1.0]})
+                    for summary_id in summary_ids
+                },
+                "unweighted": {
+                    summary_id: pl.DataFrame({"metric": [summary_id], "value": [2.0]})
+                    for summary_id in summary_ids
+                },
+            },
+            {
+                mode: {
+                    summary_id: {"state": "available"}
+                    for summary_id in summary_ids
+                }
+                for mode in ("weighted", "unweighted")
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        prepare_workflow,
+        "read_run",
+        lambda run_dir, config, label=None, **kwargs: _fake_run_data(
+            label or "Run A",
+            str(run_dir),
+        ),
+    )
+    monkeypatch.setattr(prepare_workflow, "prepare_data", lambda rd, config: rd)
+
+    result = runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=False,
+    )
+
+    weighted = result.summary_runs[0].summaries_by_mode["weighted"]
+    assert weighted["totals"]["population"][0] == 99.0
+    assert weighted["population_totals"].to_dicts() == [
+        {"metric": "population_totals", "value": 1.0}
+    ]
+
+
+def test_summary_table_map_file_identity_invalidates_summary_cache(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "outside" / "totals.csv"
+    _write_summary_table(summary_path, 11.0)
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {
+                "label": "External",
+                "summary_table_map": {"totals": summary_path},
+            }
+        ],
+    )
+    runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=True,
+    )
+    _write_summary_table(summary_path, 12.0)
+
+    result = runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=True,
+        write_cache=False,
+    )
+
+    assert (
+        result.summary_runs[0].summaries_by_mode["weighted"]["totals"]["population"][0]
+        == 12.0
+    )
+
+
+def test_dashboard_only_loads_summary_table_map_without_cache(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "outside" / "totals.csv"
+    _write_summary_table(summary_path, 21.0)
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {
+                "label": "External",
+                "summary_table_map": {"totals": summary_path},
+            }
+        ],
+    )
+
+    loaded = runtime_workflows.load_summary_runs_from_cache(
+        config=config,
+        cache_root=Path(config.summary_root),
+        explicit_cache_dirs=None,
+        run_entries=config.runs,
+        required_summary_ids=("totals",),
+    )
+
+    assert [run.label for run in loaded] == ["External"]
+    assert loaded[0].summaries_by_mode["weighted"]["totals"]["population"][0] == 21.0
 
 
 def test_run_prepare_workflow_uses_cache_hit_without_raw_read_or_prepare_rebuild(

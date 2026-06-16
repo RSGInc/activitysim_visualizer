@@ -11,6 +11,20 @@ from runtime.config import Config
 from runtime.config.signatures import digest_payload
 
 
+def summary_run_fingerprint(
+    run_fingerprint: dict[str, object],
+    entry: dict,
+) -> dict[str, object]:
+    """Return the run fingerprint used specifically by summary caches."""
+    from processor.summarize.external import summary_table_map_identity
+
+    fingerprint = dict(run_fingerprint)
+    summary_identity = summary_table_map_identity(entry.get("summary_table_map") or None)
+    if summary_identity is not None:
+        fingerprint["summary_table_map_identity"] = summary_identity
+    return fingerprint
+
+
 def effective_processor_config(
     config: Config,
     *,
@@ -123,7 +137,7 @@ def summary_cache_load_expectations(
                 "resolved_skim_files": list(resolved_skimjoin.resolved_skim_files),
                 "resolved_network_los_file": resolved_skimjoin.resolved_network_los_file,
             }
-    expected_run_fingerprint = build_run_fingerprint_fn(
+    base_run_fingerprint = build_run_fingerprint_fn(
         label=expected_label,
         run_dir=None if uses_custom_prepared_tables else run_dir,
         skim_file=(
@@ -150,6 +164,10 @@ def summary_cache_load_expectations(
         if uses_custom_prepared_tables
         else entry.get("trip_weight_col") or None,
     )
+    expected_run_fingerprint = summary_run_fingerprint(
+        base_run_fingerprint,
+        entry,
+    )
     return {
         "expected_label": expected_label,
         "expected_run_key": expected_run_key,
@@ -157,7 +175,7 @@ def summary_cache_load_expectations(
         "expected_prepared_manifest_identity": build_prepared_manifest_identity_fn(
             run_key=expected_run_key,
             config=config,
-            run_fingerprint=expected_run_fingerprint,
+            run_fingerprint=base_run_fingerprint,
             source_type=(
                 "custom_prepared_table_map"
                 if uses_custom_prepared_tables
