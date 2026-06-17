@@ -100,6 +100,7 @@ class DashboardPageDefinition:
     )
     export_parts: tuple[PageExportPartDefinition, ...] = field(default_factory=tuple)
     required_summary_ids: tuple[str, ...] = field(default_factory=tuple)
+    optional_summary_ids: tuple[str, ...] = field(default_factory=tuple)
     required_prepared_tables: tuple[PreparedTableName, ...] = field(
         default_factory=tuple
     )
@@ -111,9 +112,22 @@ class DashboardDataRequirements:
 
     prepared_data_mode: PreparedDataMode = "none"
     required_summary_ids: tuple[str, ...] = field(default_factory=tuple)
+    optional_summary_ids: tuple[str, ...] = field(default_factory=tuple)
     required_prepared_tables: tuple[PreparedTableName, ...] = field(
         default_factory=tuple
     )
+
+    @property
+    def summary_ids_for_pruning(self) -> tuple[str, ...]:
+        """Return all summary IDs that pages may render."""
+        merged: list[str] = []
+        seen: set[str] = set()
+        for summary_id in (*self.required_summary_ids, *self.optional_summary_ids):
+            if summary_id in seen:
+                continue
+            merged.append(summary_id)
+            seen.add(summary_id)
+        return tuple(merged)
 
 
 @dataclass(frozen=True)

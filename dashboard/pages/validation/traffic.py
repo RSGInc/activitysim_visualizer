@@ -5,10 +5,17 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import scatter_chart, selector_row
+from dashboard.components import bar_chart, data_table, scatter_chart, selector_row
 from dashboard.helpers.category_helpers import common_column_options, nonempty
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
+
+EXTERNAL_TIME_PERIODS = {
+    "AM": "am_vol",
+    "MD": "md_vol",
+    "PM": "pm_vol",
+    "Day": "day_vol",
+}
 
 
 def validation_chart_data(
@@ -47,6 +54,109 @@ def validation_chart_data(
     return out
 
 
+def external_facility_options(
+    *data_lists: list[tuple[str, pl.DataFrame]] | None,
+) -> list[str]:
+    values = {
+        str(value)
+        for data_list in data_lists
+        for _, df in nonempty(data_list or [])
+        if "FACTYPE" in df.columns
+        for value in df["FACTYPE"].drop_nulls().cast(pl.Utf8).to_list()
+    }
+    return ["All", *sorted(values, key=lambda value: (len(value), value))]
+
+
+def _filter_facility(df: pl.DataFrame, facility_type: str) -> pl.DataFrame:
+    if facility_type == "All" or "FACTYPE" not in df.columns:
+        return df
+    return df.with_columns(pl.col("FACTYPE").cast(pl.Utf8)).filter(
+        pl.col("FACTYPE") == facility_type
+    )
+
+
+def external_count_scatter_data(
+    count_list: list[tuple[str, pl.DataFrame]],
+    volume_list: list[tuple[str, pl.DataFrame]],
+    *,
+    volume_col: str,
+    facility_type: str,
+) -> list[tuple[str, pl.DataFrame]]:
+    volume_by_label = dict(volume_list)
+    out: list[tuple[str, pl.DataFrame]] = []
+    for label, count_df in nonempty(count_list):
+        volume_df = volume_by_label.get(label)
+        if volume_df is None or volume_df.is_empty():
+            continue
+        count_df = _filter_facility(count_df, facility_type)
+        volume_df = _filter_facility(volume_df, facility_type)
+        if volume_col not in count_df.columns or volume_col not in volume_df.columns:
+            continue
+        joined = (
+            count_df.select("id", "FACTYPE", pl.col(volume_col).alias("count_volume"))
+            .join(
+                volume_df.select(
+                    "id",
+                    "FACTYPE",
+                    pl.col(volume_col).alias("modeled_volume"),
+                ),
+                on=["id", "FACTYPE"],
+                how="inner",
+            )
+            .sort("id")
+        )
+        out.append((label, joined))
+    return out
+
+
+def external_link_aggregate_data(
+    link_list: list[tuple[str, pl.DataFrame]],
+    *,
+    volume_col: str,
+    facility_type: str,
+) -> list[tuple[str, pl.DataFrame]]:
+    out: list[tuple[str, pl.DataFrame]] = []
+    for label, df in nonempty(link_list):
+        if volume_col not in df.columns:
+            continue
+        filtered = _filter_facility(df, facility_type)
+        chart_df = (
+            filtered.with_columns(pl.col("FACTYPE").cast(pl.Utf8))
+            .group_by("FACTYPE")
+            .agg(pl.col(volume_col).sum().alias("volume"))
+            .sort("FACTYPE")
+        )
+        out.append((label, chart_df))
+    return out
+
+
+def external_top_links_table(
+    link_list: list[tuple[str, pl.DataFrame]],
+    *,
+    volume_col: str,
+    facility_type: str,
+    top_n: int,
+) -> list[tuple[str, pl.DataFrame]]:
+    out: list[tuple[str, pl.DataFrame]] = []
+    for label, df in nonempty(link_list):
+        if volume_col not in df.columns:
+            continue
+        filtered = _filter_facility(df, facility_type)
+        table = (
+            filtered.select(
+                "id",
+                "From_Node",
+                "To_Node",
+                "FACTYPE",
+                pl.col(volume_col).alias("volume"),
+            )
+            .sort("volume", descending=True)
+            .head(top_n)
+        )
+        out.append((label, table))
+    return out
+
+
 class TrafficValidationPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
         direction_opts, _ = common_column_options(
@@ -81,14 +191,66 @@ class TrafficValidationPage(DashboardPage):
             ),
             label="Count Period",
         )
+        external_link_list = self.state.get_summary_table_set(
+            "external_link_summary", "weighted"
+        )
+        external_count_list = self.state.get_summary_table_set(
+            "external_count_location_counts", "weighted"
+        )
+        external_volume_list = self.state.get_summary_table_set(
+            "external_count_location_volumes", "weighted"
+        )
+        facility_opts = external_facility_options(
+            external_link_list,
+            external_count_list,
+            external_volume_list,
+        )
+        self.external_period_sel = self.selector(
+            "external_period",
+            widget=pn.widgets.Select(
+                name="External Period",
+                options=list(EXTERNAL_TIME_PERIODS),
+                value="Day",
+            ),
+            label="External Period",
+        )
+        self.external_facility_sel = self.selector(
+            "external_facility_type",
+            widget=pn.widgets.Select(
+                name="Facility Type",
+                options=facility_opts,
+                value=facility_opts[0],
+            ),
+            label="Facility Type",
+        )
+        self.external_top_n_sel = self.selector(
+            "external_top_n",
+            widget=pn.widgets.Select(
+                name="Top Links",
+                options=[10, 25, 50, 100],
+                value=25,
+            ),
+            label="Top Links",
+        )
         self._body = self.section(
             "traffic_body",
-            selectors=("direction", "count_period"),
+            selectors=(
+                "direction",
+                "count_period",
+                "external_period",
+                "external_facility_type",
+                "external_top_n",
+            ),
             render=self.render_body,
         )
         return self.new_section(
             pn.pane.Markdown("## Traffic Validation"),
             selector_row(self.direction_sel, self.count_period_sel),
+            selector_row(
+                self.external_period_sel,
+                self.external_facility_sel,
+                self.external_top_n_sel,
+            ),
             self._body,
             sizing_mode="stretch_width",
         )
@@ -122,6 +284,23 @@ class TrafficValidationPage(DashboardPage):
         self.count_period_sel.options = period_opts or ["All"]
         if self.count_period_sel.value not in self.count_period_sel.options:
             self.count_period_sel.value = self.count_period_sel.options[0]
+        external_link_list = self.state.get_summary_table_set(
+            "external_link_summary", self.weighting_key
+        )
+        external_count_list = self.state.get_summary_table_set(
+            "external_count_location_counts", self.weighting_key
+        )
+        external_volume_list = self.state.get_summary_table_set(
+            "external_count_location_volumes", self.weighting_key
+        )
+        facility_opts = external_facility_options(
+            external_link_list,
+            external_count_list,
+            external_volume_list,
+        )
+        self.external_facility_sel.options = facility_opts
+        if self.external_facility_sel.value not in facility_opts:
+            self.external_facility_sel.value = facility_opts[0]
 
     def render_validation_chart(
         self,
@@ -157,7 +336,7 @@ class TrafficValidationPage(DashboardPage):
         if not self.state.run_labels:
             return [self.no_runs_message()]
 
-        return [
+        content = [
             pn.Row(
                 self.render_validation_chart(
                     self.state.get_summary_table_set(
@@ -180,6 +359,100 @@ class TrafficValidationPage(DashboardPage):
                 sizing_mode="stretch_width",
             )
         ]
+        content.extend(self.render_external_traffic_section())
+        return content
+
+    def render_external_traffic_section(self) -> list[pn.viewable.Viewable]:
+        link_list = self.state.get_summary_table_set(
+            "external_link_summary", self.weighting_key
+        )
+        count_list = self.state.get_summary_table_set(
+            "external_count_location_counts", self.weighting_key
+        )
+        volume_list = self.state.get_summary_table_set(
+            "external_count_location_volumes", self.weighting_key
+        )
+        if not any((link_list, count_list, volume_list)):
+            return []
+        period = self.external_period_sel.value
+        volume_col = EXTERNAL_TIME_PERIODS[str(period)]
+        facility_type = str(self.external_facility_sel.value)
+        top_n = int(self.external_top_n_sel.value)
+        section: list[pn.viewable.Viewable] = [
+            pn.pane.Markdown("### External Traffic Summaries")
+        ]
+        if count_list is not None and volume_list is not None:
+            scatter_data = self.get_filtered_view(
+                "external_count_scatter",
+                (period, facility_type),
+                factory=lambda: external_count_scatter_data(
+                    count_list,
+                    volume_list,
+                    volume_col=volume_col,
+                    facility_type=facility_type,
+                ),
+            )
+            section.append(
+                scatter_chart(
+                    scatter_data,
+                    x_col="count_volume",
+                    y_col="modeled_volume",
+                    title=f"Count Location Counts vs Volumes - {period}",
+                    xaxis_title="Count Location Counts",
+                    yaxis_title="Count Location Volumes",
+                )
+            )
+        else:
+            section.append(
+                self.data_not_available_card(
+                    detail="External count-location counts and volumes are both required for this scatter plot.",
+                    missing_items=[
+                        "external_count_location_counts",
+                        "external_count_location_volumes",
+                    ],
+                )
+            )
+        if link_list is not None:
+            aggregate_data = self.get_filtered_view(
+                "external_link_aggregate",
+                (period, facility_type),
+                factory=lambda: external_link_aggregate_data(
+                    link_list,
+                    volume_col=volume_col,
+                    facility_type=facility_type,
+                ),
+            )
+            top_links = self.get_filtered_view(
+                "external_top_links",
+                (period, facility_type, top_n),
+                factory=lambda: external_top_links_table(
+                    link_list,
+                    volume_col=volume_col,
+                    facility_type=facility_type,
+                    top_n=top_n,
+                ),
+            )
+            section.extend(
+                [
+                    bar_chart(
+                        aggregate_data,
+                        x_col="FACTYPE",
+                        y_col="volume",
+                        title=f"External Link Volume by Facility Type - {period}",
+                        xaxis_title="Facility Type",
+                        yaxis_title="Volume",
+                    ),
+                    data_table(top_links, f"Top {top_n} External Links - {period}"),
+                ]
+            )
+        else:
+            section.append(
+                self.data_not_available_card(
+                    detail="External link summaries are unavailable.",
+                    missing_items=["external_link_summary"],
+                )
+            )
+        return section
 
 
 PAGE = DashboardPageDefinition(
@@ -191,6 +464,11 @@ PAGE = DashboardPageDefinition(
     required_summary_ids=(
         "traffic_count_comparisons",
         "screenline_flow_comparisons",
+    ),
+    optional_summary_ids=(
+        "external_link_summary",
+        "external_count_location_counts",
+        "external_count_location_volumes",
     ),
 )
 

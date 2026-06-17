@@ -141,7 +141,7 @@ skimjoin:
 # ---------------------------------------------------------------------------
 segment:
   dashboard:
-    segmentation_type: person_sex
+    segmentation_type: signup_platform
     visibility: segments_only   # full_only | segments_only | full_and_segments
   definitions:
     signup_platform:

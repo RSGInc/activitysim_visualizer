@@ -28,8 +28,24 @@ from dashboard.page_definitions import DashboardPageDefinition
 from dashboard.pages.skim_summaries.trip_skims import TripSkimsPage
 from dashboard.pages.skim_summaries.tour_skims import TourSkimsPage
 from dashboard.pages.trip_summaries.trip_mode import TripModePage
+from dashboard.pages.validation.regional import (
+    flow_heatmap,
+    normalize_flow_matrix,
+    wfh_rate_data,
+)
+from dashboard.pages.validation.traffic import (
+    external_count_scatter_data,
+    external_link_aggregate_data,
+)
+from dashboard.pages.validation.vmt import (
+    PERSONAL_AUTO_VMT_SUMMARY_ID,
+    VMTValidationPage,
+    personal_auto_vmt_chart_data,
+    wide_tod_chart_data,
+)
 import dashboard.pages as dashboard_pages_package
 from dashboard.page_registry import (
+    _validate_page_definition,
     all_page_definitions,
     data_requirements_for_pages,
     default_page_definitions,
@@ -39,7 +55,7 @@ from dashboard.page_registry import (
 )
 from dashboard.state import DashboardState
 from processor.models import RunData
-from processor.summarize.cache import SUMMARY_SPEC_BY_ID
+from processor.summarize.cache import SUMMARY_SPEC_BY_ID, create_summary_run
 
 
 def _raw_trip_run() -> RunData:
@@ -125,6 +141,366 @@ def test_page_registry_smoke_checks_ids_titles_and_selector_uniqueness() -> None
             summary_id in SUMMARY_SPEC_BY_ID
             for summary_id in definition.required_summary_ids
         )
+        assert len(set(definition.optional_summary_ids)) == len(
+            definition.optional_summary_ids
+        )
+        assert all(
+            summary_id in SUMMARY_SPEC_BY_ID
+            for summary_id in definition.optional_summary_ids
+        )
+
+
+def test_page_registry_accepts_non_default_registered_summary_id() -> None:
+    class ExternalAutoVmtDemoPage(DashboardPage):
+        pass
+
+    definition = DashboardPageDefinition(
+        page_id="external_auto_vmt_demo",
+        title="External Auto VMT Demo",
+        page_cls=ExternalAutoVmtDemoPage,
+        required_summary_ids=("external_auto_vmt_summary",),
+        default_enabled=False,
+    )
+
+    _validate_page_definition(definition)
+    requirements = data_requirements_for_pages([definition])
+
+    assert requirements.required_summary_ids == ("external_auto_vmt_summary",)
+
+
+def test_dashboard_state_reports_missing_non_default_summary_as_diagnostic() -> None:
+    summary_run = create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode={
+            "weighted": {"totals": pl.DataFrame({"population": [1.0]})},
+            "unweighted": {"totals": pl.DataFrame({"population": [1.0]})},
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=["weighted", "unweighted"],
+    )
+
+    selection = state.inspect_summary_table("external_auto_vmt_summary")
+
+    assert selection.usable_runs == []
+    assert [excluded.status for excluded in selection.excluded_runs] == ["missing"]
+    assert selection.excluded_runs[0].source_id == "external_auto_vmt_summary"
+
+
+def test_external_traffic_helpers_filter_period_and_facility_type() -> None:
+    counts = [
+        (
+            "Run",
+            pl.DataFrame(
+                {
+                    "id": [1, 2],
+                    "FACTYPE": [3, 4],
+                    "am_vol": [10.0, 20.0],
+                    "day_vol": [100.0, 200.0],
+                }
+            ),
+        )
+    ]
+    volumes = [
+        (
+            "Run",
+            pl.DataFrame(
+                {
+                    "id": [1, 2],
+                    "FACTYPE": [3, 4],
+                    "am_vol": [11.0, 21.0],
+                    "day_vol": [110.0, 210.0],
+                }
+            ),
+        )
+    ]
+    links = [
+        (
+            "Run",
+            pl.DataFrame(
+                {
+                    "id": [10, 11],
+                    "From_Node": [100, 101],
+                    "To_Node": [200, 201],
+                    "FACTYPE": [3, 4],
+                    "day_vol": [5.0, 15.0],
+                }
+            ),
+        )
+    ]
+
+    scatter = external_count_scatter_data(
+        counts,
+        volumes,
+        volume_col="day_vol",
+        facility_type="4",
+    )
+    aggregate = external_link_aggregate_data(
+        links,
+        volume_col="day_vol",
+        facility_type="All",
+    )
+
+    assert scatter[0][1].to_dicts() == [
+        {"id": 2, "FACTYPE": "4", "count_volume": 200.0, "modeled_volume": 210.0}
+    ]
+    assert aggregate[0][1].to_dicts() == [
+        {"FACTYPE": "3", "volume": 5.0},
+        {"FACTYPE": "4", "volume": 15.0},
+    ]
+
+
+def test_external_vmt_helper_reshapes_wide_tod_table() -> None:
+    data = [
+        (
+            "Run",
+            pl.DataFrame(
+                {
+                    "TOD": ["AM", "Daily"],
+                    "SOV": [10.0, 20.0],
+                    "HOV2": [2.0, 4.0],
+                    "Total": [12.0, 24.0],
+                }
+            ),
+        )
+    ]
+
+    chart_data = wide_tod_chart_data(
+        data,
+        tod_col="TOD",
+        value_columns=["SOV", "HOV2"],
+    )
+
+    assert chart_data[0][1].to_dicts() == [
+        {"tod": "AM", "category": "SOV", "value": 10.0},
+        {"tod": "AM", "category": "HOV2", "value": 2.0},
+    ]
+
+
+def test_personal_auto_vmt_helper_aggregates_time_period_with_filters() -> None:
+    data = [
+        (
+            "Run",
+            pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies"] * 4,
+                    "geography_id": ["all_geographies"] * 4,
+                    "income_segment": ["low", "low", "high", "low"],
+                    "household_size": ["1", "2", "1", "1"],
+                    "time_period": ["AM", "PM", "AM", "EA"],
+                    "auto_vmt": [10.0, 5.0, 99.0, 3.0],
+                    "trip_count": [2.0, 1.0, 9.0, 1.0],
+                }
+            ),
+        )
+    ]
+
+    chart_data = personal_auto_vmt_chart_data(
+        data,
+        breakdown="Time Period",
+        geography_type="all_geographies",
+        geography_id="all_geographies",
+        time_period="All",
+        income_segment="low",
+        household_size="All",
+    )
+
+    assert chart_data[0][1].to_dicts() == [
+        {"category": "EA", "auto_vmt": 3.0, "trip_count": 1.0},
+        {"category": "AM", "auto_vmt": 10.0, "trip_count": 2.0},
+        {"category": "PM", "auto_vmt": 5.0, "trip_count": 1.0},
+    ]
+
+
+def test_personal_auto_vmt_helper_ignores_active_breakdown_selector() -> None:
+    data = [
+        (
+            "Run",
+            pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies"] * 3,
+                    "geography_id": ["all_geographies"] * 3,
+                    "income_segment": ["low", "high", "low"],
+                    "household_size": ["1", "1", "2"],
+                    "time_period": ["AM", "AM", "PM"],
+                    "auto_vmt": [10.0, 20.0, 30.0],
+                    "trip_count": [1.0, 2.0, 3.0],
+                }
+            ),
+        )
+    ]
+
+    chart_data = personal_auto_vmt_chart_data(
+        data,
+        breakdown="Income Segment",
+        geography_type="all_geographies",
+        geography_id="all_geographies",
+        time_period="AM",
+        income_segment="low",
+        household_size="All",
+    )
+
+    assert chart_data[0][1].to_dicts() == [
+        {"category": "high", "auto_vmt": 20.0, "trip_count": 2.0},
+        {"category": "low", "auto_vmt": 10.0, "trip_count": 1.0},
+    ]
+
+
+def test_personal_auto_vmt_helper_caps_home_geography_breakdown() -> None:
+    data = [
+        (
+            "Run",
+            pl.DataFrame(
+                {
+                    "geography_type": ["home_taz"] * 30,
+                    "geography_id": [str(value) for value in range(30)],
+                    "income_segment": ["all_income_segments"] * 30,
+                    "household_size": ["all_household_sizes"] * 30,
+                    "time_period": ["Daily"] * 30,
+                    "auto_vmt": [float(value) for value in range(30)],
+                    "trip_count": [1.0] * 30,
+                }
+            ),
+        )
+    ]
+
+    chart_data = personal_auto_vmt_chart_data(
+        data,
+        breakdown="Home Geography",
+        geography_type="home_taz",
+        geography_id="All",
+        time_period="Daily",
+        income_segment="All",
+        household_size="All",
+    )
+
+    rows = chart_data[0][1].to_dicts()
+    assert len(rows) == 25
+    assert rows[0] == {"category": "29", "auto_vmt": 29.0, "trip_count": 1.0}
+    assert rows[-1] == {"category": "5", "auto_vmt": 5.0, "trip_count": 1.0}
+
+
+def test_vmt_page_registers_personal_auto_vmt_and_renders_missing_card(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode={
+            "weighted": {"totals": pl.DataFrame({"population": [1.0]})},
+            "unweighted": {"totals": pl.DataFrame({"population": [1.0]})},
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = VMTValidationPage(state, config)
+    page.refresh(force=True)
+
+    assert PERSONAL_AUTO_VMT_SUMMARY_ID in page.required_summary_ids
+    assert page._personal_vmt_body.objects
+
+
+def test_vmt_page_disables_active_personal_auto_vmt_filter_selector(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    personal_vmt = pl.DataFrame(
+        {
+            "geography_type": ["all_geographies", "all_geographies"],
+            "geography_id": ["all_geographies", "all_geographies"],
+            "income_segment": ["low", "high"],
+            "household_size": ["1", "2"],
+            "time_period": ["AM", "PM"],
+            "auto_vmt": [10.0, 20.0],
+            "trip_count": [1.0, 2.0],
+            "distance_source": ["skim_auto_distance", "skim_auto_distance"],
+            "time_period_source": ["trip_period", "trip_period"],
+        }
+    )
+    summary_run = create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode={
+            "weighted": {PERSONAL_AUTO_VMT_SUMMARY_ID: personal_vmt},
+            "unweighted": {PERSONAL_AUTO_VMT_SUMMARY_ID: personal_vmt},
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = VMTValidationPage(state, config)
+    page.refresh(force=True)
+
+    assert page.personal_vmt_time_period_sel.disabled is True
+    assert page.personal_vmt_income_segment_sel.disabled is False
+    assert page.personal_vmt_household_size_sel.disabled is False
+
+    page.personal_vmt_breakdown_sel.value = "Income Segment"
+    page.refresh(force=True)
+
+    assert page.personal_vmt_time_period_sel.disabled is False
+    assert page.personal_vmt_income_segment_sel.disabled is True
+    assert page.personal_vmt_income_segment_sel.value == "All"
+    assert page.personal_vmt_household_size_sel.disabled is False
+
+
+def test_regional_helpers_rename_blank_origin_and_compute_wfh_rate() -> None:
+    matrix = pl.DataFrame(
+        {
+            "": ["A", "Total"],
+            "A": [1.0, 2.0],
+            "Total": [3.0, 4.0],
+        }
+    )
+    wfh = [
+        (
+            "Run",
+            pl.DataFrame(
+                {
+                    "District": ["A", "Total"],
+                    "Workers": [10.0, 20.0],
+                    "WFH": [2.0, 5.0],
+                }
+            ),
+        )
+    ]
+
+    normalized = normalize_flow_matrix(matrix, include_totals=False)
+    wfh_chart = wfh_rate_data(wfh)
+
+    assert normalized.to_dicts() == [{"Origin": "A", "A": 1.0}]
+    assert wfh_chart[0][1].to_dicts() == [
+        {"District": "A", "Workers": 10.0, "WFH": 2.0, "wfh_rate": 20.0}
+    ]
+
+
+def test_regional_flow_heatmap_labels_cells_with_matrix_values() -> None:
+    matrix = pl.DataFrame(
+        {
+            "": ["A", "B"],
+            "A": [1200.0, 30.0],
+            "B": [45.0, 6789.0],
+        }
+    )
+
+    heatmap = flow_heatmap(
+        [("Run", matrix)],
+        include_totals=False,
+        title="District flows",
+    )
+    plot = heatmap.objects[0][0]
+    trace = plot.object.data[0]
+
+    assert trace.text == (["1,200", "45"], ["30", "6,789"])
+    assert trace.texttemplate == "%{text}"
 
 
 def test_resolve_page_definitions_defaults_to_default_pages_when_unconfigured(
@@ -217,6 +593,19 @@ def test_data_requirements_for_pages_aggregates_summary_and_prepared_dependencie
     assert requirements.prepared_data_mode == "required"
     assert requirements.required_prepared_tables == ("trips",)
     assert requirements.required_summary_ids == overview.required_summary_ids
+
+
+def test_data_requirements_for_pages_tracks_optional_summary_dependencies() -> None:
+    vmt = page_definition_by_id("vmt")
+    regional = page_definition_by_id("regional_validation")
+
+    requirements = data_requirements_for_pages([vmt, regional])
+
+    assert PERSONAL_AUTO_VMT_SUMMARY_ID in requirements.required_summary_ids
+    assert "commercial_vmt_totals" in requirements.required_summary_ids
+    assert "external_auto_vmt_summary" in requirements.optional_summary_ids
+    assert "external_county_flows" in requirements.optional_summary_ids
+    assert "external_auto_vmt_summary" in requirements.summary_ids_for_pruning
 
 
 def test_resolve_page_definitions_rejects_unknown_configured_page_ids(

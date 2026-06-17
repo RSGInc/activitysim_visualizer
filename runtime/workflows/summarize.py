@@ -246,7 +246,12 @@ def run_summary_workflow(
         metadata = _run_cache_metadata(entry=entry, run_key=run_key, config=config)
         label = str(metadata["label"])
         run_fingerprint = dict(metadata["run_fingerprint"])
-        prepared_manifest_identity = dict(metadata["prepared_manifest_identity"])
+        raw_prepared_manifest_identity = metadata["prepared_manifest_identity"]
+        prepared_manifest_identity = (
+            dict(raw_prepared_manifest_identity)
+            if raw_prepared_manifest_identity is not None
+            else None
+        )
         summary_table_map = entry.get("summary_table_map") or None
         external_summary_run = None
         external_summary_ids: set[str] = set()

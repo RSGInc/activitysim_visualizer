@@ -211,6 +211,21 @@ def _write_summary_table(path: Path, value: float) -> str:
     return str(path.resolve())
 
 
+def _write_external_auto_vmt_summary(path: Path, value: float) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame(
+        {
+            "TOD": ["Daily"],
+            "SOV": [value],
+            "HOV2": [0.0],
+            "HOV3": [0.0],
+            "Truck": [0.0],
+            "Total": [value],
+        }
+    ).write_csv(path)
+    return str(path.resolve())
+
+
 def _prepared_identity(
     *,
     config: Config,
@@ -251,6 +266,22 @@ def test_load_runtime_config_rejects_unknown_summary_table_map_id(
         runtime_workflows.load_runtime_config(tmp_path / "config.yaml")
 
 
+def test_non_default_summary_specs_remain_registered_but_not_default_built(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path, runs=[{"label": "External"}])
+
+    spec = summary_cache.SUMMARY_SPEC_BY_ID["external_auto_vmt_summary"]
+
+    assert spec.build_by_default is False
+    assert (
+        summary_cache.SUMMARY_FILENAME_BY_ID["external_auto_vmt_summary"]
+        == "vmtSummary.csv"
+    )
+    assert "external_auto_vmt_summary" not in summary_cache.DEFAULT_SUMMARY_IDS
+    assert "external_auto_vmt_summary" not in summary_cache.requested_summary_ids(config)
+
+
 def test_run_summary_workflow_loads_summary_only_run_without_prepared_inputs(
     tmp_path: Path,
 ) -> None:
@@ -285,6 +316,112 @@ def test_run_summary_workflow_loads_summary_only_run_without_prepared_inputs(
         result.summary_runs[0].summaries_by_mode["unweighted"]["totals"]["population"][0]
         == 11.0
     )
+
+
+def test_summary_only_run_loads_non_default_summary_table_map_id(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "outside" / "vmtSummary.csv"
+    _write_external_auto_vmt_summary(summary_path, 42.0)
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {
+                "label": "External",
+                "summary_table_map": {
+                    "external_auto_vmt_summary": summary_path,
+                },
+            }
+        ],
+    )
+
+    result = runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=True,
+    )
+
+    weighted = result.summary_runs[0].summaries_by_mode["weighted"]
+    assert weighted["external_auto_vmt_summary"].to_dicts() == [
+        {
+            "TOD": "Daily",
+            "SOV": 42.0,
+            "HOV2": 0.0,
+            "HOV3": 0.0,
+            "Truck": 0.0,
+            "Total": 42.0,
+        }
+    ]
+    assert not (
+        Path(config.summary_root)
+        / "external"
+        / "summary_tables"
+        / "weighted"
+        / "totals.csv"
+    ).exists()
+
+
+def test_summary_only_run_bypasses_skimjoin_when_pipeline_enables_it(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "outside" / "totals.csv"
+    _write_summary_table(summary_path, 41.0)
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {
+                "label": "External",
+                "summary_table_map": {"totals": summary_path},
+            }
+        ],
+        extra_lines=[
+            "pipeline:",
+            "  steps:",
+            "    - prepare",
+            "    - skimjoin",
+            "    - summarize",
+            "skimjoin:",
+            "  defaults:",
+            "    generate_hypothetical_sidecars: true",
+        ],
+    )
+
+    prepare_result = runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=True,
+        write_cache=True,
+        apply_skimjoin=True,
+    )
+    result = runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=True,
+        existing_result=prepare_result,
+        apply_skimjoin=True,
+    )
+
+    assert prepare_result.prepared_runs == []
+    assert [run.label for run in result.summary_runs] == ["External"]
+    assert (
+        result.summary_runs[0].summaries_by_mode["weighted"]["totals"]["population"][0]
+        == 41.0
+    )
+    loaded = runtime_workflows.load_summary_runs_from_cache(
+        config=config,
+        cache_root=Path(config.summary_root),
+        explicit_cache_dirs=None,
+        run_entries=config.runs,
+        required_summary_ids=("totals",),
+    )
+    assert loaded[0].summaries_by_mode["weighted"]["totals"]["population"][0] == 41.0
 
 
 def test_run_summary_workflow_overlays_summary_table_map_on_generated_summaries(
@@ -354,6 +491,145 @@ def test_run_summary_workflow_overlays_summary_table_map_on_generated_summaries(
     ]
 
 
+def test_run_summary_workflow_does_not_build_non_default_registered_summaries(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+    )
+    build_calls: list[list[str] | None] = []
+
+    def fake_build_mode_summaries_with_metadata(rd, config, summary_ids=None):
+        build_calls.append(list(summary_ids) if summary_ids is not None else None)
+        requested = list(summary_ids or [])
+        return (
+            {
+                mode: {
+                    summary_id: pl.DataFrame({"value": [1.0]})
+                    for summary_id in requested
+                }
+                for mode in config.weighting_modes
+            },
+            {
+                mode: {
+                    summary_id: {"state": "available"}
+                    for summary_id in requested
+                }
+                for mode in config.weighting_modes
+            },
+        )
+
+    monkeypatch.setattr(
+        summary_cache,
+        "build_mode_summaries_with_metadata",
+        fake_build_mode_summaries_with_metadata,
+    )
+    monkeypatch.setattr(
+        prepare_workflow,
+        "read_run",
+        lambda run_dir, config, label=None, **kwargs: _fake_run_data(
+            label or "Run A",
+            str(run_dir),
+        ),
+    )
+    monkeypatch.setattr(prepare_workflow, "prepare_data", lambda rd, config: rd)
+
+    result = runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=True,
+    )
+
+    assert build_calls
+    assert all("external_auto_vmt_summary" not in call for call in build_calls if call)
+    assert (
+        "external_auto_vmt_summary"
+        not in result.summary_runs[0].summaries_by_mode["weighted"]
+    )
+    assert not (
+        Path(config.summary_root)
+        / "run-a"
+        / "summary_tables"
+        / "weighted"
+        / "vmtSummary.csv"
+    ).exists()
+
+
+def test_mixed_run_preserves_generated_defaults_and_overlays_non_default_summary(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    summary_path = tmp_path / "outside" / "vmtSummary.csv"
+    _write_external_auto_vmt_summary(summary_path, 88.0)
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {
+                "dir": str(run_dir),
+                "label": "Run A",
+                "summary_table_map": {
+                    "external_auto_vmt_summary": summary_path,
+                },
+            }
+        ],
+    )
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(
+        summary_cache,
+        "build_mode_summaries_with_metadata",
+        lambda rd, config, summary_ids=None: (
+            {
+                mode: {
+                    "totals": pl.DataFrame({"population": [1.0]}),
+                }
+                for mode in config.weighting_modes
+            },
+            {
+                mode: {"totals": {"state": "available"}}
+                for mode in config.weighting_modes
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        prepare_workflow,
+        "read_run",
+        lambda run_dir, config, label=None, **kwargs: _fake_run_data(
+            label or "Run A",
+            str(run_dir),
+        ),
+    )
+    monkeypatch.setattr(prepare_workflow, "prepare_data", lambda rd, config: rd)
+
+    result = runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=False,
+    )
+
+    weighted = result.summary_runs[0].summaries_by_mode["weighted"]
+    assert weighted["totals"].to_dicts() == [{"population": 1.0}]
+    assert weighted["external_auto_vmt_summary"].to_dicts() == [
+        {
+            "TOD": "Daily",
+            "SOV": 88.0,
+            "HOV2": 0.0,
+            "HOV3": 0.0,
+            "Truck": 0.0,
+            "Total": 88.0,
+        }
+    ]
+
+
 def test_summary_table_map_file_identity_invalidates_summary_cache(
     tmp_path: Path,
 ) -> None:
@@ -418,6 +694,152 @@ def test_dashboard_only_loads_summary_table_map_without_cache(
 
     assert [run.label for run in loaded] == ["External"]
     assert loaded[0].summaries_by_mode["weighted"]["totals"]["population"][0] == 21.0
+
+
+def test_dashboard_only_loads_non_default_summary_table_map_id(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "outside" / "vmtSummary.csv"
+    _write_external_auto_vmt_summary(summary_path, 31.0)
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {
+                "label": "External",
+                "summary_table_map": {
+                    "external_auto_vmt_summary": summary_path,
+                },
+            }
+        ],
+    )
+
+    loaded = runtime_workflows.load_summary_runs_from_cache(
+        config=config,
+        cache_root=Path(config.summary_root),
+        explicit_cache_dirs=None,
+        run_entries=config.runs,
+        required_summary_ids=("external_auto_vmt_summary",),
+    )
+
+    assert [run.label for run in loaded] == ["External"]
+    loaded_table = loaded[0].summaries_by_mode["weighted"]["external_auto_vmt_summary"]
+    assert loaded_table.to_dicts() == [
+        {
+            "TOD": "Daily",
+            "SOV": 31.0,
+            "HOV2": 0.0,
+            "HOV3": 0.0,
+            "Truck": 0.0,
+            "Total": 31.0,
+        }
+    ]
+
+
+def test_dashboard_only_respects_empty_required_summary_ids_for_optional_only_page(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "outside" / "vmtSummary.csv"
+    _write_external_auto_vmt_summary(summary_path, 17.0)
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {
+                "label": "External",
+                "summary_table_map": {
+                    "external_auto_vmt_summary": summary_path,
+                },
+            }
+        ],
+    )
+
+    loaded = runtime_workflows.load_summary_runs_from_cache(
+        config=config,
+        cache_root=Path(config.summary_root),
+        explicit_cache_dirs=None,
+        run_entries=config.runs,
+        required_summary_ids=(),
+    )
+
+    assert loaded[0].summaries_by_mode["weighted"]["external_auto_vmt_summary"][
+        "SOV"
+    ][0] == 17.0
+
+
+def test_summary_table_map_contract_rejects_missing_external_columns(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "outside" / "vmtSummary.csv"
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame({"TOD": ["Daily"], "SOV": [1.0]}).write_csv(summary_path)
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {
+                "label": "External",
+                "summary_table_map": {
+                    "external_auto_vmt_summary": summary_path,
+                },
+            }
+        ],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"summary_table_map\['external_auto_vmt_summary'\] is missing required columns",
+    ):
+        runtime_workflows.run_summary_workflow(
+            config=config,
+            cache_root=Path(config.summary_root),
+            prepared_root=Path(config.summary_root),
+            run_entries=config.runs,
+            prefer_cache=False,
+            write_cache=False,
+        )
+
+
+def test_prune_summary_runs_keeps_optional_summary_ids_when_requested() -> None:
+    summary_run = create_summary_run(
+        label="External",
+        run_key="external",
+        summaries_by_mode={
+            "weighted": {
+                "totals": pl.DataFrame({"population": [1.0]}),
+                "external_auto_vmt_summary": pl.DataFrame(
+                    {
+                        "TOD": ["Daily"],
+                        "SOV": [2.0],
+                        "HOV2": [0.0],
+                        "HOV3": [0.0],
+                        "Truck": [0.0],
+                        "Total": [2.0],
+                    }
+                ),
+            },
+            "unweighted": {
+                "totals": pl.DataFrame({"population": [1.0]}),
+                "external_auto_vmt_summary": pl.DataFrame(
+                    {
+                        "TOD": ["Daily"],
+                        "SOV": [2.0],
+                        "HOV2": [0.0],
+                        "HOV3": [0.0],
+                        "Truck": [0.0],
+                        "Total": [2.0],
+                    }
+                ),
+            },
+        },
+    )
+
+    pruned = runtime_workflows.prune_summary_runs(
+        [summary_run],
+        ("totals", "external_auto_vmt_summary"),
+    )
+
+    assert set(pruned[0].summaries_by_mode["weighted"]) == {
+        "totals",
+        "external_auto_vmt_summary",
+    }
 
 
 def test_run_prepare_workflow_uses_cache_hit_without_raw_read_or_prepare_rebuild(

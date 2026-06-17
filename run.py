@@ -481,7 +481,7 @@ def main() -> None:
         prepared_runs = []
         processor_result = runtime_workflows.prune_processor_result(
             processor_result,
-            required_summary_ids=dashboard_requirements.required_summary_ids,
+            required_summary_ids=dashboard_requirements.summary_ids_for_pruning,
             required_prepared_tables=dashboard_requirements.required_prepared_tables,
         )
         if processor_result is not None:
@@ -489,7 +489,7 @@ def main() -> None:
         else:
             summary_runs = runtime_workflows.prune_summary_runs(
                 summary_runs,
-                dashboard_requirements.required_summary_ids,
+                dashboard_requirements.summary_ids_for_pruning,
             )
 
         requires_prepared_data = dashboard_requirements.prepared_data_mode != "none"

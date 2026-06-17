@@ -2760,6 +2760,73 @@ def test_annotate_trips_nullifies_configured_keyed_csv_sentinel_values(tmp_path:
     assert missing["reason"].to_list() == ["sentinel_value"]
 
 
+def test_annotate_trips_adds_trip_period_from_period_dimension(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    _write_omx(skim_path, matrix_name="SOV_TIME__EA")
+    handle = omx.open_file(str(skim_path), "a")
+    handle["SOV_TIME__AM"] = np.array([[5.0, 6.0], [7.0, 8.0]])
+    handle.close()
+    (tmp_path / "skimjoin.yaml").write_text(
+        "\n".join(
+            [
+                "project:",
+                "  skim_files:",
+                f"    - {skim_path.name}",
+                "activitysim:",
+                "  trip_mode_column: trip_mode",
+                "  trip_id_column: trip_id",
+                "  tour_id_column: tour_id",
+                "  outbound_column: outbound",
+                "defaults:",
+                "  origin: OTAZ",
+                "  destination: DTAZ",
+                "zone_mapping:",
+                "  lookup_name: taz",
+                "dimensions:",
+                "  PERIOD:",
+                "    source_columns:",
+                "      trip_source_column: depart_hour",
+                "      outbound_tour_source_column: start_hour",
+                "      inbound_tour_source_column: first_inbound_trip_depart",
+                "    values:",
+                "      1: EA",
+                "      7: AM",
+                "modes:",
+                "  SOV:",
+                "    time: SOV_TIME__{PERIOD}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1, 2],
+            "trip_mode": ["SOV", "SOV"],
+            "OTAZ": [101, 101],
+            "DTAZ": [102, 102],
+            "depart_hour": [1, 7],
+        }
+    )
+    inventory = inventory_skim_files(normalized.skim_files)
+
+    annotated, lookup_summary, missing = annotate_trips(
+        trips,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+    )
+
+    assert annotated["trip_period"].to_list() == ["EA", "AM"]
+    assert annotated["skim_time"].to_list() == [2.0, 6.0]
+    assert lookup_summary.height == 2
+    assert missing.is_empty()
+
+
 def test_annotate_trips_handles_late_matrix_names_in_missing_report_without_schema_failure(
     tmp_path: Path,
 ) -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
 
@@ -409,6 +410,42 @@ def test_prepared_cache_round_trip_creates_default_layout(tmp_path: Path) -> Non
     assert loaded.hh_weight_col == "hh_weight"
     assert loaded.person_weight_col == "person_weight"
     assert loaded.trip_weight_col == "trip_weight"
+
+
+def test_prepared_cache_round_trips_skimjoin_resolved_network_los(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    prepared = _prepared_run(config)
+    network_los = tmp_path / "network_los.yaml"
+    network_los.write_text("skim_time_periods: {}\n", encoding="utf-8")
+    prepared.skimjoin_manifest = {
+        "skimjoin_enabled": True,
+        "skimjoin_config_digest": "abc123",
+        "skimjoin_status": "applied",
+        "skimjoin_resolved_network_los_file": str(network_los),
+    }
+
+    entry = write_prepared_run_cache(prepared, config, run_key="base")
+    loaded = load_prepared_run_cache(entry.cache_dir, config)
+
+    assert entry.manifest["skimjoin_resolved_network_los_file"] == str(network_los)
+    assert loaded.skimjoin_manifest["skimjoin_resolved_network_los_file"] == str(
+        network_los
+    )
+
+    manifest_path = entry.cache_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.pop("skimjoin_resolved_network_los_file")
+    manifest["run_fingerprint"] = {
+        "skimjoin": {"resolved_network_los_file": str(network_los)}
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    loaded_from_nested = load_prepared_run_cache(entry.cache_dir, config)
+    assert loaded_from_nested.skimjoin_manifest[
+        "skimjoin_resolved_network_los_file"
+    ] == str(network_los)
 
 
 def test_write_prepared_run_cache_removes_legacy_prepared_cache_sibling(

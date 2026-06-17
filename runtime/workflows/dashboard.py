@@ -36,7 +36,7 @@ def run_dashboard_workflow(
     )
     summary_runs = prune_summary_runs(
         summary_runs,
-        requirements.required_summary_ids,
+        requirements.summary_ids_for_pruning,
     )
     prepared_runs = (
         prune_prepared_runs(prepared_runs, requirements.required_prepared_tables)

@@ -106,8 +106,10 @@ def load_summary_runs_from_cache(
         discover_cache_dirs_fn=summary_cache.discover_cache_dirs,
     )
 
-    required_summary_ids = list(
-        required_summary_ids or summary_cache.requested_summary_ids(config)
+    required_summary_ids = (
+        list(summary_cache.requested_summary_ids(config))
+        if required_summary_ids is None
+        else list(required_summary_ids)
     )
     if not cache_dirs and not run_entries:
         raise ValueError("no summary cache directories were found to load.")

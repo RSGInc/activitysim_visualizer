@@ -349,6 +349,12 @@ class DashboardPage:
         return self.definition.required_summary_ids
 
     @property
+    def optional_summary_ids(self) -> tuple[str, ...]:
+        if self.definition is None:
+            return ()
+        return self.definition.optional_summary_ids
+
+    @property
     def prepared_data_mode(self) -> str:
         if self.definition is None:
             return "none"

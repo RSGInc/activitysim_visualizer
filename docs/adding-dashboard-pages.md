@@ -36,6 +36,7 @@ Each page module still exports a module-level `PAGE = DashboardPageDefinition(..
 - `default_enabled`
 - `prepared_data_mode`
 - `required_summary_ids`
+- `optional_summary_ids`
 - `required_prepared_tables`
 
 Grouped navigation is declared in a sibling `GROUP = DashboardGroupDefinition(...)` inside the package `__init__.py`.
@@ -43,6 +44,11 @@ Grouped navigation is declared in a sibling `GROUP = DashboardGroupDefinition(..
 `DashboardGroupDefinition` now uses `default_page_id`, not `default_child_id`.
 
 There is no `child_id`.
+
+Use `required_summary_ids` for tables that must be present before the page can
+render its primary workflow. Use `optional_summary_ids` for add-on sections or
+demo/external summaries that should be retained when available but should not
+make ordinary dashboard/cache loading fail when missing.
 
 ## Page Lifecycle
 

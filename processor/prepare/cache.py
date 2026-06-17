@@ -120,6 +120,22 @@ def _manifest_table_map(manifest: dict[str, object]) -> dict[str, str]:
     }
 
 
+def _skimjoin_resolved_network_los_file(
+    rd: RunData | None = None,
+    run_fingerprint: dict[str, object] | None = None,
+) -> str | None:
+    if rd is not None:
+        value = rd.skimjoin_manifest.get("skimjoin_resolved_network_los_file")
+        if value:
+            return str(value)
+    skimjoin = (run_fingerprint or {}).get("skimjoin")
+    if isinstance(skimjoin, dict):
+        value = skimjoin.get("resolved_network_los_file")
+        if value:
+            return str(value)
+    return None
+
+
 def _prepared_tables_dir(cache_dir: Path, manifest: dict[str, object] | None = None) -> Path:
     if manifest is not None:
         table_root = str(manifest.get("table_root", "")).strip()
@@ -330,6 +346,10 @@ def write_prepared_run_cache(
         "prepare_diagnostics": dict(rd.prepare_diagnostics),
         "skimjoin_enabled": bool(rd.skimjoin_manifest.get("skimjoin_enabled", False)),
         "skimjoin_config_digest": rd.skimjoin_manifest.get("skimjoin_config_digest"),
+        "skimjoin_resolved_network_los_file": _skimjoin_resolved_network_los_file(
+            rd,
+            run_fingerprint,
+        ),
         "skimjoin_status": rd.skimjoin_manifest.get("skimjoin_status"),
         "skimjoin_applied_outputs": list(
             rd.skimjoin_manifest.get("skimjoin_applied_outputs", [])
@@ -496,6 +516,12 @@ def load_prepared_run_cache(
             skimjoin_manifest={
                 "skimjoin_enabled": bool(manifest.get("skimjoin_enabled", False)),
                 "skimjoin_config_digest": manifest.get("skimjoin_config_digest"),
+                "skimjoin_resolved_network_los_file": manifest.get(
+                    "skimjoin_resolved_network_los_file"
+                )
+                or _skimjoin_resolved_network_los_file(
+                    run_fingerprint=dict(manifest.get("run_fingerprint", {}))
+                ),
                 "skimjoin_status": manifest.get("skimjoin_status"),
                 "skimjoin_applied_outputs": list(
                     manifest.get("skimjoin_applied_outputs", [])

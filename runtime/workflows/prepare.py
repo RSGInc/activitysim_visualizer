@@ -344,6 +344,13 @@ def run_prepare_workflow(
     ) = shared.init_processor_result(existing_result)
 
     for entry, run_key in run_entries_with_keys(run_entries):
+        if shared.is_summary_table_map_only_run(entry):
+            label = str(entry.get("label", run_key))
+            LOGGER.info(
+                "Skipping prepare for summary-table-map-only run: %r",
+                label,
+            )
+            continue
         metadata = _run_cache_metadata(entry=entry, run_key=run_key, config=config)
         prepared_loaded = _resolve_prepared_run(
             entry=entry,

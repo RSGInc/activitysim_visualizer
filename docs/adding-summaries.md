@@ -7,7 +7,7 @@ The short version is:
 1. Add or update a builder function in `processor/summarize/summaries/`.
 2. Register it in `processor/summarize/summary_specs.py`.
 3. Declare the builder contract once so summarize can derive empty fallback schema and dashboard-facing columns from the builder itself.
-4. Wire it into a dashboard page through `required_summary_ids` if a page needs it.
+4. Wire it into a dashboard page through `required_summary_ids` or `optional_summary_ids` if a page needs it.
 5. Add tests.
 
 ## Mental Model
@@ -104,6 +104,7 @@ SummarySpec("trip_distance_by_mode", "tripDistanceByMode", trips.trip_distance_b
 - `summary_id`: stable id used by dashboard pages and tests
 - `filename`: CSV filename stem written under each weighting mode directory
 - `builder`: function that returns the summary table
+- `build_by_default`: whether raw/prepared runs generate this summary automatically
 
 The cache module derives these related structures from `SUMMARY_SPECS`:
 
@@ -111,7 +112,15 @@ The cache module derives these related structures from `SUMMARY_SPECS`:
 - `SUMMARY_FILENAME_BY_ID`
 - `DEFAULT_SUMMARY_IDS`
 
-If the summary is not in `SUMMARY_SPECS`, it does not exist to the rest of the application.
+Registered summaries are valid IDs for dashboard pages, cache filenames,
+contracts, and `runs[*].summary_table_map`. Default-built summaries are the
+registered subset generated automatically for normal raw/prepared runs. Use
+`build_by_default=False` for external/demo-only summaries that should be loaded
+through `summary_table_map` without producing `__empty__` cache CSVs for normal
+runs.
+
+If the summary is not in `SUMMARY_SPECS`, it does not exist to the rest of the
+application.
 
 ## Step 4: Use Derived Output Schema Metadata When Needed
 
@@ -129,7 +138,7 @@ Skip it when the table is private, transitional, or not yet used as a stable das
 
 If a page should consume the summary:
 
-1. Add the summary id to the page's `PAGE.required_summary_ids`.
+1. Add the summary id to the page's `PAGE.required_summary_ids`, or to `PAGE.optional_summary_ids` when the page can still render without it.
 2. Use `require_summary(...)` or `require_summaries(...)` in a section render function.
 3. Keep page-specific filtering and chart shaping in the page module.
 
@@ -154,7 +163,7 @@ Use this order when adding a new summary that will appear in the dashboard:
 2. Register it in `processor/summarize/summary_specs.py` with a stable `summary_id`.
 3. Add or update the builder contract schema if the page will treat it as a stable reusable table.
 4. Add a new page or update an existing page in `dashboard/pages/`.
-5. Declare the page dependency in `PAGE.required_summary_ids`.
+5. Declare the page dependency in `PAGE.required_summary_ids` or `PAGE.optional_summary_ids`.
 6. Add export selector metadata only if the page has page-local controls that must work in HTML export.
 7. Add tests covering the summary output shape and the page wiring.
 

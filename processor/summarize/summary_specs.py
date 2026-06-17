@@ -11,6 +11,7 @@ from runtime.config import Config
 from processor.summarize.summaries import (
     daily_travel,
     demographics,
+    external_validation,
     joint_travel,
     legacy,
     long_term,
@@ -26,6 +27,7 @@ class SummarySpec:
     summary_id: str
     filename: str
     builder: Callable[[RunData, Config], pl.DataFrame]
+    build_by_default: bool = True
 
 
 SUMMARY_SPECS: tuple[SummarySpec, ...] = (
@@ -440,6 +442,11 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
     ),
     SummarySpec("auto_vmt_totals", "auto_vmt_totals", validation.auto_vmt_totals),
     SummarySpec(
+        "auto_vmt_by_home_geography_income_hhsize_time_period",
+        "auto_vmt_by_home_geography_income_hhsize_time_period",
+        validation.auto_vmt_by_home_geography_income_hhsize_time_period,
+    ),
+    SummarySpec(
         "commercial_vmt_totals",
         "commercial_vmt_totals",
         validation.commercial_vehicle_vmt,
@@ -448,6 +455,73 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         "bicycle_vmt_by_facility_type",
         "bicycle_vmt_by_facility_type",
         validation.bicycle_vmt_by_facility,
+    ),
+    # EXTERNAL VALIDATION SUMMARIES
+    SummarySpec(
+        "external_link_summary",
+        "allLinkSummary",
+        external_validation.link_summary,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "external_count_location_counts",
+        "countLocCounts",
+        external_validation.count_location_counts,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "external_count_location_volumes",
+        "countLocVolumes",
+        external_validation.count_location_volumes,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "external_county_flows",
+        "countyFlows",
+        external_validation.county_flows,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "external_county_flows_joja",
+        "countyFlows_JoJa",
+        external_validation.county_flows_joja,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "external_commercial_vehicle_summary",
+        "cvm_summary",
+        external_validation.commercial_vehicle_summary,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "external_commercial_vehicle_vmt_summary",
+        "cvm_vmt_summary",
+        external_validation.commercial_vehicle_vmt_summary,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "external_external_trip_summary",
+        "ext_summary",
+        external_validation.external_trip_summary,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "external_external_vmt_summary",
+        "ext_vmt_summary",
+        external_validation.external_vmt_summary,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "external_auto_vmt_summary",
+        "vmtSummary",
+        external_validation.auto_vmt_summary,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "external_work_from_home_summary",
+        "wfh_summary",
+        external_validation.work_from_home_summary,
+        build_by_default=False,
     ),
     # TEMPORARY LEGACY SUMMARIES
     SummarySpec("geo_flows", "geoFlows", legacy.geo_flows),
@@ -474,4 +548,6 @@ SUMMARY_SPEC_BY_ID = {spec.summary_id: spec for spec in SUMMARY_SPECS}
 SUMMARY_FILENAME_BY_ID = {
     spec.summary_id: f"{spec.filename}.csv" for spec in SUMMARY_SPECS
 }
-DEFAULT_SUMMARY_IDS = [spec.summary_id for spec in SUMMARY_SPECS]
+DEFAULT_SUMMARY_IDS = [
+    spec.summary_id for spec in SUMMARY_SPECS if spec.build_by_default
+]

@@ -25,6 +25,13 @@ def summary_run_fingerprint(
     return fingerprint
 
 
+def is_summary_table_map_only_run(entry: dict) -> bool:
+    """Return whether a run entry only contributes user-supplied summary tables."""
+    return bool(entry.get("summary_table_map")) and not (
+        entry.get("dir") or entry.get("prepared_table_map")
+    )
+
+
 def effective_processor_config(
     config: Config,
     *,
@@ -124,8 +131,9 @@ def summary_cache_load_expectations(
     expected_label = entry.get("label", Path(run_dir).name)
     expected_run_key = cache_dir.name
     uses_custom_prepared_tables = bool(entry.get("prepared_table_map"))
+    uses_summary_table_map_only = is_summary_table_map_only_run(entry)
     expected_skimjoin = None
-    if not uses_custom_prepared_tables:
+    if not (uses_custom_prepared_tables or uses_summary_table_map_only):
         from runtime.config import resolve_run_skimjoin_settings
 
         resolved_skimjoin = resolve_run_skimjoin_settings(config, entry)
@@ -139,40 +147,46 @@ def summary_cache_load_expectations(
             }
     base_run_fingerprint = build_run_fingerprint_fn(
         label=expected_label,
-        run_dir=None if uses_custom_prepared_tables else run_dir,
+        run_dir=(
+            None
+            if (uses_custom_prepared_tables or uses_summary_table_map_only)
+            else run_dir
+        ),
         skim_file=(
             None
-            if uses_custom_prepared_tables
+            if (uses_custom_prepared_tables or uses_summary_table_map_only)
             else resolve_skim_path_fn(
                 entry.get("skim_file") or None,
                 config.skim_file,
                 run_dir,
             )
         ),
-        file_map=None if uses_custom_prepared_tables else entry.get("file_map") or None,
+        file_map=None
+        if (uses_custom_prepared_tables or uses_summary_table_map_only)
+        else entry.get("file_map") or None,
         fallback_file_map=(
-            None if uses_custom_prepared_tables else config.fallback_files or None
+            None
+            if (uses_custom_prepared_tables or uses_summary_table_map_only)
+            else config.fallback_files or None
         ),
         skimjoin=expected_skimjoin,
         hh_weight_col=None
-        if uses_custom_prepared_tables
+        if (uses_custom_prepared_tables or uses_summary_table_map_only)
         else entry.get("hh_weight_col") or None,
         person_weight_col=None
-        if uses_custom_prepared_tables
+        if (uses_custom_prepared_tables or uses_summary_table_map_only)
         else entry.get("person_weight_col") or None,
         trip_weight_col=None
-        if uses_custom_prepared_tables
+        if (uses_custom_prepared_tables or uses_summary_table_map_only)
         else entry.get("trip_weight_col") or None,
     )
     expected_run_fingerprint = summary_run_fingerprint(
         base_run_fingerprint,
         entry,
     )
-    return {
-        "expected_label": expected_label,
-        "expected_run_key": expected_run_key,
-        "expected_run_fingerprint": expected_run_fingerprint,
-        "expected_prepared_manifest_identity": build_prepared_manifest_identity_fn(
+    expected_prepared_manifest_identity = None
+    if not uses_summary_table_map_only:
+        expected_prepared_manifest_identity = build_prepared_manifest_identity_fn(
             run_key=expected_run_key,
             config=config,
             run_fingerprint=base_run_fingerprint,
@@ -182,7 +196,12 @@ def summary_cache_load_expectations(
                 else "prepared_cache"
             ),
             prepared_table_map=entry.get("prepared_table_map") or None,
-        ),
+        )
+    return {
+        "expected_label": expected_label,
+        "expected_run_key": expected_run_key,
+        "expected_run_fingerprint": expected_run_fingerprint,
+        "expected_prepared_manifest_identity": expected_prepared_manifest_identity,
     }
 
 
@@ -304,8 +323,9 @@ def run_cache_metadata(
     label = entry.get("label", Path(run_dir).name)
     skim = entry.get("skim_file") or None
     uses_custom_prepared_tables = bool(entry.get("prepared_table_map"))
+    uses_summary_table_map_only = is_summary_table_map_only_run(entry)
     resolved_skimjoin_payload = None
-    if not uses_custom_prepared_tables:
+    if not (uses_custom_prepared_tables or uses_summary_table_map_only):
         from runtime.config import resolve_run_skimjoin_settings
 
         resolved_skimjoin = resolve_run_skimjoin_settings(config, entry)
@@ -318,27 +338,40 @@ def run_cache_metadata(
                 "resolved_network_los_file": resolved_skimjoin.resolved_network_los_file,
             }
     resolved_skim = (
-        None if uses_custom_prepared_tables else resolve_skim_path_fn(skim, config.skim_file, run_dir)
+        None
+        if (uses_custom_prepared_tables or uses_summary_table_map_only)
+        else resolve_skim_path_fn(skim, config.skim_file, run_dir)
     )
     run_fingerprint = build_run_fingerprint_fn(
         label=label,
-        run_dir=None if uses_custom_prepared_tables else run_dir,
+        run_dir=(
+            None
+            if (uses_custom_prepared_tables or uses_summary_table_map_only)
+            else run_dir
+        ),
         skim_file=resolved_skim,
         skimjoin=resolved_skimjoin_payload,
-        file_map=None if uses_custom_prepared_tables else entry.get("file_map") or None,
+        file_map=None
+        if (uses_custom_prepared_tables or uses_summary_table_map_only)
+        else entry.get("file_map") or None,
         fallback_file_map=(
-            None if uses_custom_prepared_tables else config.fallback_files or None
+            None
+            if (uses_custom_prepared_tables or uses_summary_table_map_only)
+            else config.fallback_files or None
         ),
-        hh_weight_col=None if uses_custom_prepared_tables else entry.get("hh_weight_col") or None,
-        person_weight_col=None if uses_custom_prepared_tables else entry.get("person_weight_col") or None,
-        trip_weight_col=None if uses_custom_prepared_tables else entry.get("trip_weight_col") or None,
+        hh_weight_col=None
+        if (uses_custom_prepared_tables or uses_summary_table_map_only)
+        else entry.get("hh_weight_col") or None,
+        person_weight_col=None
+        if (uses_custom_prepared_tables or uses_summary_table_map_only)
+        else entry.get("person_weight_col") or None,
+        trip_weight_col=None
+        if (uses_custom_prepared_tables or uses_summary_table_map_only)
+        else entry.get("trip_weight_col") or None,
     )
-    return {
-        "label": label,
-        "run_dir": run_dir,
-        "skim": skim,
-        "run_fingerprint": run_fingerprint,
-        "prepared_manifest_identity": build_prepared_manifest_identity_fn(
+    prepared_manifest_identity = None
+    if not uses_summary_table_map_only:
+        prepared_manifest_identity = build_prepared_manifest_identity_fn(
             run_key=run_key,
             config=config,
             run_fingerprint=run_fingerprint,
@@ -348,7 +381,13 @@ def run_cache_metadata(
                 else "prepared_cache"
             ),
             prepared_table_map=entry.get("prepared_table_map") or None,
-        ),
+        )
+    return {
+        "label": label,
+        "run_dir": run_dir,
+        "skim": skim,
+        "run_fingerprint": run_fingerprint,
+        "prepared_manifest_identity": prepared_manifest_identity,
     }
 
 

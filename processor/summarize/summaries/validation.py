@@ -1,9 +1,20 @@
 """Validation summaries."""
 
+from pathlib import Path
+
+from activitysim_viz_logging import get_logger
 import polars as pl
 from runtime.config import Config
 from processor.models import RunData
-from processor.summarize.contracts import summary_contract
+from processor.skimjoin.config.network_los import load_network_los_period_mapping
+from processor.summarize.contracts import empty_summary_frame, summary_contract
+
+
+LOGGER = get_logger("processor.summarize.validation")
+ALL_GEOGRAPHIES = "all_geographies"
+ALL_INCOME_SEGMENTS = "all_income_segments"
+ALL_HOUSEHOLD_SIZES = "all_household_sizes"
+DAILY_TIME_PERIOD = "Daily"
 
 
 # TODO: Update with actual fields from Visum outputs/traffic count inputs
@@ -388,6 +399,364 @@ def auto_vmt_totals(rd: RunData, config: Config) -> pl.DataFrame:
     return pl.DataFrame(
         [{"auto_vmt": float(auto_vmt) if auto_vmt else 0.0}],
         schema={"auto_vmt": pl.Float64},
+    )
+
+
+def _auto_mode_filter(config: Config | None) -> pl.Expr:
+    auto_modes: list[str] | None = None
+    if config is not None and config.mode_groups and "Auto" in config.mode_groups:
+        auto_modes = config.mode_groups["Auto"]
+
+    if auto_modes is not None:
+        return pl.col("trip_mode").cast(pl.Utf8).is_in(auto_modes)
+    return (
+        pl.col("trip_mode")
+        .cast(pl.Utf8)
+        .str.to_uppercase()
+        .str.contains("DRIVE|SHARED|SOV|HOV|AUTO")
+    )
+
+
+def _resolved_network_los_file(rd: RunData, config: Config | None) -> str | None:
+    value = rd.skimjoin_manifest.get("skimjoin_resolved_network_los_file")
+    if value:
+        return str(value)
+    if config is not None and config.skimjoin.resolved_network_los_file:
+        return config.skimjoin.resolved_network_los_file
+    return None
+
+
+def _network_los_period_mapping(
+    rd: RunData,
+    config: Config | None,
+) -> dict[str, str] | None:
+    path = _resolved_network_los_file(rd, config)
+    if not path:
+        return None
+    if not Path(path).exists():
+        LOGGER.warning(
+            "[vmt_by_segment] Run %r network_los_file is unavailable; using Daily time period: %s",
+            rd.label,
+            path,
+        )
+        return None
+    try:
+        return load_network_los_period_mapping(path)
+    except Exception as exc:
+        LOGGER.warning(
+            "[vmt_by_segment] Run %r network_los_file could not be read; using Daily time period: %s",
+            rd.label,
+            exc,
+        )
+        return None
+
+
+def _distance_base(
+    rd: RunData,
+    config: Config | None,
+) -> tuple[pl.DataFrame, str] | None:
+    trips = rd.trips
+    if "finalweight" not in trips.columns:
+        return None
+
+    if (
+        "skim_auto_distance" in trips.columns
+        and trips["skim_auto_distance"].is_not_null().any()
+    ):
+        LOGGER.info(
+            "[vmt_by_segment] Run %r using distance_source=skim_auto_distance",
+            rd.label,
+        )
+        return (
+            trips.filter(pl.col("skim_auto_distance").is_not_null()).with_columns(
+                pl.col("skim_auto_distance").cast(pl.Float64).alias("_vmt_distance")
+            ),
+            "skim_auto_distance",
+        )
+
+    if "od_dist" not in trips.columns or "trip_mode" not in trips.columns:
+        LOGGER.warning(
+            "[vmt_by_segment] Run %r has no usable auto distance source.",
+            rd.label,
+        )
+        return None
+
+    LOGGER.info(
+        "[vmt_by_segment] Run %r using distance_source=od_dist",
+        rd.label,
+    )
+    return (
+        trips.filter(_auto_mode_filter(config) & pl.col("od_dist").is_not_null())
+        .with_columns(pl.col("od_dist").cast(pl.Float64).alias("_vmt_distance")),
+        "od_dist",
+    )
+
+
+def _with_time_period(
+    df: pl.DataFrame,
+    rd: RunData,
+    config: Config | None,
+) -> tuple[pl.DataFrame, str]:
+    if "trip_period" in df.columns and df["trip_period"].is_not_null().any():
+        LOGGER.info(
+            "[vmt_by_segment] Run %r using time_period_source=trip_period",
+            rd.label,
+        )
+        return (
+            df.with_columns(
+                pl.col("trip_period")
+                .cast(pl.Utf8)
+                .fill_null(DAILY_TIME_PERIOD)
+                .alias("time_period")
+            ),
+            "trip_period",
+        )
+
+    period_mapping = _network_los_period_mapping(rd, config)
+    if period_mapping and "depart_hour" in df.columns:
+        LOGGER.info(
+            "[vmt_by_segment] Run %r using time_period_source=network_los",
+            rd.label,
+        )
+        return (
+            df.with_columns(
+                pl.col("depart_hour")
+                .cast(pl.Int64, strict=False)
+                .cast(pl.Utf8)
+                .map_elements(
+                    lambda value: period_mapping.get(value),
+                    return_dtype=pl.Utf8,
+                )
+                .fill_null(DAILY_TIME_PERIOD)
+                .alias("time_period")
+            ),
+            "network_los",
+        )
+
+    LOGGER.info(
+        "[vmt_by_segment] Run %r using time_period_source=daily",
+        rd.label,
+    )
+    return df.with_columns(pl.lit(DAILY_TIME_PERIOD).alias("time_period")), "daily"
+
+
+def _household_join_columns(hh: pl.DataFrame) -> list[str]:
+    candidates = [
+        "household_id",
+        "income_segment",
+        "HHSIZE",
+        "hhsize",
+        "home_taz",
+        "home_mpo",
+        "home_county",
+        "DISTRICT9",
+        *sorted(column for column in hh.columns if column.startswith("home_geo__")),
+    ]
+    return list(dict.fromkeys(column for column in candidates if column in hh.columns))
+
+
+def _home_geography_dimensions(df: pl.DataFrame) -> list[tuple[str, str | None]]:
+    dimensions: list[tuple[str, str | None]] = [(ALL_GEOGRAPHIES, None)]
+    for column in [
+        "home_taz",
+        "home_mpo",
+        "home_county",
+        "DISTRICT9",
+        *sorted(column for column in df.columns if column.startswith("home_geo__")),
+    ]:
+        if column in df.columns and df[column].is_not_null().any():
+            geography_type = column.removeprefix("home_geo__")
+            dimensions.append((geography_type, column))
+    return dimensions
+
+
+def _aggregate_vmt_for_geography(
+    df: pl.DataFrame,
+    *,
+    geography_type: str,
+    geography_col: str | None,
+    distance_source: str,
+    time_period_source: str,
+) -> pl.DataFrame:
+    working = df
+    if geography_col is None:
+        working = working.with_columns(
+            pl.lit(ALL_GEOGRAPHIES).alias("_geography_id")
+        )
+    else:
+        working = working.filter(pl.col(geography_col).is_not_null()).with_columns(
+            pl.col(geography_col).cast(pl.Utf8).alias("_geography_id")
+        )
+
+    if working.is_empty():
+        return empty_summary_frame(auto_vmt_by_home_geography_income_hhsize_time_period)
+
+    return (
+        working.group_by(
+            ["_geography_id", "income_segment", "household_size", "time_period"]
+        )
+        .agg(
+            pl.col("auto_vmt").sum().alias("auto_vmt"),
+            pl.col("finalweight").sum().alias("trip_count"),
+        )
+        .with_columns(
+            pl.lit(geography_type).alias("geography_type"),
+            pl.col("_geography_id").alias("geography_id"),
+            pl.lit(distance_source).alias("distance_source"),
+            pl.lit(time_period_source).alias("time_period_source"),
+        )
+        .select(
+            "geography_type",
+            "geography_id",
+            "income_segment",
+            "household_size",
+            "time_period",
+            "auto_vmt",
+            "trip_count",
+            "distance_source",
+            "time_period_source",
+        )
+    )
+
+
+@summary_contract(
+    schema={
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
+        "income_segment": pl.Utf8,
+        "household_size": pl.Utf8,
+        "time_period": pl.Utf8,
+        "auto_vmt": pl.Float64,
+        "trip_count": pl.Float64,
+        "distance_source": pl.Utf8,
+        "time_period_source": pl.Utf8,
+    },
+    required_columns={"trips": ("finalweight",)},
+)
+def auto_vmt_by_home_geography_income_hhsize_time_period(
+    rd: RunData,
+    config: Config,
+) -> pl.DataFrame:
+    distance_selection = _distance_base(rd, config)
+    if distance_selection is None:
+        return empty_summary_frame(auto_vmt_by_home_geography_income_hhsize_time_period)
+
+    base, distance_source = distance_selection
+    base, time_period_source = _with_time_period(base, rd, config)
+
+    if "household_id" in base.columns and not rd.hh.is_empty():
+        household_columns = _household_join_columns(rd.hh)
+        if "household_id" in household_columns:
+            household_preferred_columns = [
+                column
+                for column in household_columns
+                if column not in {"household_id", "income_segment"}
+            ]
+            base = base.drop(household_preferred_columns, strict=False)
+            base = base.join(
+                rd.hh.select(household_columns).rename(
+                    {"income_segment": "income_segment_hh"}
+                    if "income_segment" in household_columns
+                    else {}
+                ),
+                on="household_id",
+                how="left",
+            )
+
+    income_exprs: list[pl.Expr] = []
+    if "income_segment" in base.columns and "income_segment_hh" in base.columns:
+        income_exprs.append(
+            pl.coalesce(
+                [pl.col("income_segment"), pl.col("income_segment_hh")]
+            ).alias("_income_segment")
+        )
+    elif "income_segment" in base.columns:
+        income_exprs.append(pl.col("income_segment").alias("_income_segment"))
+    elif "income_segment_hh" in base.columns:
+        income_exprs.append(pl.col("income_segment_hh").alias("_income_segment"))
+    else:
+        income_exprs.append(pl.lit(ALL_INCOME_SEGMENTS).alias("_income_segment"))
+
+    household_size_expr = (
+        pl.col("HHSIZE")
+        if "HHSIZE" in base.columns
+        else pl.col("hhsize")
+        if "hhsize" in base.columns
+        else pl.lit(ALL_HOUSEHOLD_SIZES)
+    )
+    occupancy_expr = (
+        pl.col("num_participants").fill_null(1).clip(lower_bound=1)
+        if "num_participants" in base.columns
+        else pl.lit(1)
+    )
+
+    base = (
+        base.with_columns(*income_exprs)
+        .with_columns(
+            pl.col("_income_segment")
+            .cast(pl.Utf8)
+            .fill_null(ALL_INCOME_SEGMENTS)
+            .alias("income_segment"),
+            household_size_expr.cast(pl.Utf8)
+            .fill_null(ALL_HOUSEHOLD_SIZES)
+            .alias("household_size"),
+            (
+                pl.col("_vmt_distance")
+                * pl.col("finalweight").cast(pl.Float64)
+                / occupancy_expr
+            ).alias("auto_vmt"),
+        )
+        .filter(pl.col("auto_vmt").is_not_null())
+    )
+
+    geography_dimensions = _home_geography_dimensions(base)
+    LOGGER.info(
+        "[vmt_by_segment] Run %r home geography dimensions: %s",
+        rd.label,
+        ", ".join(geography_type for geography_type, _ in geography_dimensions),
+    )
+    if len(geography_dimensions) == 1:
+        LOGGER.info(
+            "[vmt_by_segment] Run %r using all_geographies only.",
+            rd.label,
+        )
+
+    outputs = [
+        _aggregate_vmt_for_geography(
+            base,
+            geography_type=geography_type,
+            geography_col=geography_col,
+            distance_source=distance_source,
+            time_period_source=time_period_source,
+        )
+        for geography_type, geography_col in geography_dimensions
+    ]
+    outputs = [output for output in outputs if not output.is_empty()]
+    if not outputs:
+        return empty_summary_frame(auto_vmt_by_home_geography_income_hhsize_time_period)
+
+    return (
+        pl.concat(outputs, how="vertical")
+        .with_columns(
+            pl.col("geography_type").cast(pl.Utf8),
+            pl.col("geography_id").cast(pl.Utf8),
+            pl.col("income_segment").cast(pl.Utf8),
+            pl.col("household_size").cast(pl.Utf8),
+            pl.col("time_period").cast(pl.Utf8),
+            pl.col("auto_vmt").cast(pl.Float64),
+            pl.col("trip_count").cast(pl.Float64),
+            pl.col("distance_source").cast(pl.Utf8),
+            pl.col("time_period_source").cast(pl.Utf8),
+        )
+        .sort(
+            [
+                "geography_type",
+                "geography_id",
+                "income_segment",
+                "household_size",
+                "time_period",
+            ]
+        )
     )
 
 
