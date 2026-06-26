@@ -111,6 +111,16 @@ def _collect_tabulators(viewable) -> list[pn.widgets.Tabulator]:
     return tables
 
 
+def _collect_tabs(viewable) -> list[pn.Tabs]:
+    tabs: list[pn.Tabs] = []
+    if isinstance(viewable, pn.Tabs):
+        tabs.append(viewable)
+    if hasattr(viewable, "objects"):
+        for child in viewable.objects:
+            tabs.extend(_collect_tabs(child))
+    return tabs
+
+
 def _write_config(
     tmp_path: Path,
     *,
@@ -4146,13 +4156,32 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
         "University Location Distance Distribution",
     ]
     comparison_table = _collect_tabulators(page._mandatory_distance_table_section)[0].value
-    assert comparison_table.columns.tolist() == ["Mandatory Tour Purpose", "Base"]
+    comparison_tabs = _collect_tabs(page._mandatory_distance_table_section)[0]
+    assert list(comparison_tabs._names) == ["Base"]
+    assert comparison_table.columns.tolist() == [
+        "Mandatory Tour Purpose",
+        "Average Mandatory Tour Distance",
+        "Base Run Average Mandatory Tour Distance",
+        "% Diff",
+        "RMSE",
+    ]
     assert comparison_table["Mandatory Tour Purpose"].tolist() == [
         "work",
         "school",
         "university",
     ]
-    assert comparison_table["Base"].tolist() == ["0.00%", "0.00%", "0.00%"]
+    assert comparison_table["Average Mandatory Tour Distance"].tolist() == [
+        "8",
+        "4",
+        "10",
+    ]
+    assert comparison_table["Base Run Average Mandatory Tour Distance"].tolist() == [
+        "8",
+        "4",
+        "10",
+    ]
+    assert comparison_table["% Diff"].tolist() == ["0.00%", "0.00%", "0.00%"]
+    assert comparison_table["RMSE"].tolist() == ["0", "0", "0"]
 
 
 def test_mandatory_location_choice_supports_configured_geography_levels_for_distance_sections(
@@ -4314,8 +4343,27 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
     assert list(telecommute_plot.object.data[0].x) == ["never", "often"]
 
     comparison_table = _collect_tabulators(page._mandatory_distance_table_section)[0].value
-    assert comparison_table.columns.tolist() == ["Mandatory Tour Purpose", "Base"]
-    assert comparison_table["Base"].tolist() == ["0.00%", "0.00%", "0.00%"]
+    comparison_tabs = _collect_tabs(page._mandatory_distance_table_section)[0]
+    assert list(comparison_tabs._names) == ["Base"]
+    assert comparison_table.columns.tolist() == [
+        "Mandatory Tour Purpose",
+        "Average Mandatory Tour Distance",
+        "Base Run Average Mandatory Tour Distance",
+        "% Diff",
+        "RMSE",
+    ]
+    assert comparison_table["Average Mandatory Tour Distance"].tolist() == [
+        "8",
+        "4",
+        "10",
+    ]
+    assert comparison_table["Base Run Average Mandatory Tour Distance"].tolist() == [
+        "8",
+        "4",
+        "10",
+    ]
+    assert comparison_table["% Diff"].tolist() == ["0.00%", "0.00%", "0.00%"]
+    assert comparison_table["RMSE"].tolist() == ["0", "0", "0"]
 
     page.geography_sel.value = "South"
     page.refresh(force=True)
@@ -4475,6 +4523,104 @@ def test_traffic_validation_shared_selectors_use_common_summary_options(
 
     assert list(page.direction_sel.options) == ["All", "outbound"]
     assert list(page.count_period_sel.options) == ["All", "AM"]
+
+
+def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "traffic_count_comparisons": pl.DataFrame(
+                {
+                    "direction": ["outbound"],
+                    "count_period": ["AM"],
+                    "count_location_id": ["1"],
+                    "observed_volume": [10.0],
+                    "modeled_volume": [11.0],
+                }
+            ),
+            "screenline_flow_comparisons": pl.DataFrame(
+                {
+                    "direction": ["outbound"],
+                    "count_period": ["AM"],
+                    "screenline_id": ["A"],
+                    "observed_volume": [15.0],
+                    "modeled_volume": [14.0],
+                }
+            ),
+            "external_link_summary": pl.DataFrame(
+                {
+                    "id": [1, 2],
+                    "From_Node": [100, 101],
+                    "To_Node": [200, 201],
+                    "FACTYPE": [3, 4],
+                    "am_vol": [10.0, 20.0],
+                    "md_vol": [0.0, 0.0],
+                    "pm_vol": [0.0, 0.0],
+                    "day_vol": [100.0, 200.0],
+                }
+            ),
+            "external_count_location_counts": pl.DataFrame(
+                {
+                    "id": [1, 2],
+                    "FACTYPE": [3, 4],
+                    "am_vol": [10.0, 20.0],
+                    "md_vol": [0.0, 0.0],
+                    "pm_vol": [0.0, 0.0],
+                    "day_vol": [100.0, 200.0],
+                }
+            ),
+            "external_count_location_volumes": pl.DataFrame(
+                {
+                    "id": [1, 2],
+                    "FACTYPE": [3, 4],
+                    "am_vol": [11.0, 21.0],
+                    "md_vol": [0.0, 0.0],
+                    "pm_vol": [0.0, 0.0],
+                    "day_vol": [110.0, 210.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = TrafficValidationPage(state, config)
+    page.refresh(force=True)
+    page.external_facility_sel.value = "3"
+    page.refresh(force=True)
+
+    tables = _collect_tabulators(page._body)
+    tabs = _collect_tabs(page._body)
+    assert len(tables) == 1
+    assert list(tabs[-1]._names) == ["Base"]
+    table = tables[0].value
+    assert table.columns.tolist() == [
+        "id",
+        "facility_type",
+        "From_Node",
+        "To_Node",
+        "Observed Link Volume",
+        "Modeled Link Volume",
+        "% Diff",
+        "RMSE",
+    ]
+    assert table.to_dict("records") == [
+        {
+            "id": "1",
+            "facility_type": "3",
+            "From_Node": "100",
+            "To_Node": "200",
+            "Observed Link Volume": "100",
+            "Modeled Link Volume": "110",
+            "% Diff": "-9.09%",
+            "RMSE": "10",
+        }
+    ]
 
 
 def test_transit_validation_technology_selector_uses_common_summary_options(
@@ -4657,18 +4803,42 @@ def test_tour_distance_nonmandatory_average_table_compares_to_base_run(
     page.refresh(force=True)
 
     tables = _collect_tabulators(page._average_section)
-    comparison_table = tables[0].value
-    assert comparison_table.columns.tolist() == [
+    comparison_tabs = _collect_tabs(page._average_section)[0]
+    assert list(comparison_tabs._names) == ["Base", "Build"]
+    assert len(tables) == 2
+    base_table = tables[0].value
+    build_table = tables[1].value
+    expected_columns = [
         "Non-Mandatory Tour Purpose",
-        "Base",
-        "Build",
+        "Average Non-Mandatory Tour Distance",
+        "Base Run Average Non-Mandatory Tour Distance",
+        "% Diff",
+        "RMSE",
     ]
-    assert comparison_table["Non-Mandatory Tour Purpose"].tolist() == [
+    assert base_table.columns.tolist() == expected_columns
+    assert build_table.columns.tolist() == expected_columns
+    assert base_table["Non-Mandatory Tour Purpose"].tolist() == [
         "shopping",
         "eatout",
     ]
-    assert comparison_table["Base"].tolist() == ["0.00%", "0.00%"]
-    assert comparison_table["Build"].tolist() == ["25.00%", "-25.00%"]
+    assert build_table["Non-Mandatory Tour Purpose"].tolist() == [
+        "shopping",
+        "eatout",
+    ]
+    assert base_table["Average Non-Mandatory Tour Distance"].tolist() == ["4", "8"]
+    assert base_table["Base Run Average Non-Mandatory Tour Distance"].tolist() == [
+        "4",
+        "8",
+    ]
+    assert base_table["% Diff"].tolist() == ["0.00%", "0.00%"]
+    assert base_table["RMSE"].tolist() == ["0", "0"]
+    assert build_table["Average Non-Mandatory Tour Distance"].tolist() == ["5", "6"]
+    assert build_table["Base Run Average Non-Mandatory Tour Distance"].tolist() == [
+        "4",
+        "8",
+    ]
+    assert build_table["% Diff"].tolist() == ["25.00%", "-25.00%"]
+    assert build_table["RMSE"].tolist() == ["1", "2"]
 
 
 def test_tour_distance_nonmandatory_average_table_filters_to_selected_geography(
@@ -4745,10 +4915,21 @@ def test_tour_distance_nonmandatory_average_table_filters_to_selected_geography(
     page.geography_sel.value = "South"
     page.refresh(force=True)
 
-    comparison_table = _collect_tabulators(page._average_section)[0].value
-    assert comparison_table["Non-Mandatory Tour Purpose"].tolist() == ["shopping"]
-    assert comparison_table["Base"].tolist() == ["0.00%"]
-    assert comparison_table["Build"].tolist() == ["50.00%"]
+    comparison_tabs = _collect_tabs(page._average_section)[0]
+    assert list(comparison_tabs._names) == ["Base", "Build"]
+    tables = _collect_tabulators(page._average_section)
+    base_table = tables[0].value
+    build_table = tables[1].value
+    assert base_table["Non-Mandatory Tour Purpose"].tolist() == ["shopping"]
+    assert build_table["Non-Mandatory Tour Purpose"].tolist() == ["shopping"]
+    assert base_table["Average Non-Mandatory Tour Distance"].tolist() == ["8"]
+    assert base_table["Base Run Average Non-Mandatory Tour Distance"].tolist() == ["8"]
+    assert base_table["% Diff"].tolist() == ["0.00%"]
+    assert base_table["RMSE"].tolist() == ["0"]
+    assert build_table["Average Non-Mandatory Tour Distance"].tolist() == ["12"]
+    assert build_table["Base Run Average Non-Mandatory Tour Distance"].tolist() == ["8"]
+    assert build_table["% Diff"].tolist() == ["50.00%"]
+    assert build_table["RMSE"].tolist() == ["4"]
 
 
 def test_bar_chart_pins_category_order_from_input_sequence() -> None:

@@ -57,7 +57,9 @@ def test_auto_vmt_segment_summary_prefers_skim_auto_distance() -> None:
                 "income_segment": [3],
                 "HHSIZE": [2],
                 "home_taz": [101],
+                "home_county": ["County"],
                 "home_mpo": ["Metro"],
+                "DISTRICT9": ["Legacy District"],
             }
         ),
     )
@@ -80,9 +82,11 @@ def test_auto_vmt_segment_summary_prefers_skim_auto_distance() -> None:
     ]
     assert set(result["geography_type"].to_list()) == {
         "all_geographies",
+        "home_county",
         "home_mpo",
         "home_taz",
     }
+    assert "DISTRICT9" not in set(result["geography_type"].to_list())
 
 
 def test_auto_vmt_segment_summary_falls_back_to_od_dist_auto_modes() -> None:

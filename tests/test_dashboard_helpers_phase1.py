@@ -9,7 +9,7 @@ import polars as pl
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from dashboard.components import bar_chart
+from dashboard.components import bar_chart, column_titles_for_display, data_table
 from dashboard.helpers.category_helpers import (
     column_value_intersection,
     common_column_options,
@@ -18,6 +18,8 @@ from dashboard.helpers.category_helpers import (
     numeric_like_sort_expr,
 )
 from dashboard.helpers.comparison_helpers import (
+    build_ab_comparison_row,
+    build_ab_comparison_table,
     build_base_run_percent_difference_table,
     format_percent_error_table,
     weighted_average_lookup,
@@ -241,6 +243,106 @@ def test_comparison_helpers_format_and_build_comparison_tables() -> None:
         row_values={"Tours": {"Reference": 100.0, "Build": 110.0}},
     )
     assert renamed_table.columns == ["Metric", "Reference (Base Run)", "Build"]
+
+
+def test_ab_comparison_helper_formats_percent_and_rmse() -> None:
+    table = build_ab_comparison_table(
+        [
+            build_ab_comparison_row(
+                keys={"Metric": "Tours"},
+                quantity_a=110.0,
+                quantity_b=100.0,
+                quantity_a_column="Build Value",
+                quantity_b_column="Base Value",
+            ),
+            build_ab_comparison_row(
+                keys={"Metric": "Trips"},
+                quantity_a=45.0,
+                quantity_b=0.0,
+                quantity_a_column="Build Value",
+                quantity_b_column="Base Value",
+            ),
+            build_ab_comparison_row(
+                keys={"Metric": "Distance"},
+                quantity_a=None,
+                quantity_b=10.0,
+                quantity_a_column="Build Value",
+                quantity_b_column="Base Value",
+            ),
+        ],
+        key_columns=["Metric"],
+        quantity_a_column="Build Value",
+        quantity_b_column="Base Value",
+    )
+
+    assert table.to_dicts() == [
+        {
+            "Metric": "Tours",
+            "Build Value": 110.0,
+            "Base Value": 100.0,
+            "% Diff": "10.00%",
+            "RMSE": 10.0,
+        },
+        {
+            "Metric": "Trips",
+            "Build Value": 45.0,
+            "Base Value": 0.0,
+            "% Diff": "",
+            "RMSE": 45.0,
+        },
+        {
+            "Metric": "Distance",
+            "Build Value": None,
+            "Base Value": 10.0,
+            "% Diff": "",
+            "RMSE": None,
+        },
+    ]
+
+
+def test_data_table_drops_index_columns_and_hides_pandas_index() -> None:
+    table = data_table(
+        [
+            (
+                "Run",
+                pl.DataFrame(
+                    {
+                        "index": [0],
+                        "__index_level_0__": [99],
+                        "metric": ["Tours"],
+                        "value": [10.0],
+                    }
+                ),
+            )
+        ]
+    )
+    tabulator = table.objects[0]
+
+    assert tabulator.show_index is False
+    assert tabulator.value.columns.tolist() == ["metric", "value"]
+    assert tabulator.titles == {"metric": "Metric", "value": "Value"}
+
+
+def test_column_titles_for_display_humanizes_machine_column_names() -> None:
+    titles = column_titles_for_display(
+        [
+            "id",
+            "facility_type",
+            "From_Node",
+            "auto_vmt",
+            "pm_vol",
+            "nonmandatory_tour_purpose",
+        ]
+    )
+
+    assert titles == {
+        "id": "ID",
+        "facility_type": "Facility Type",
+        "From_Node": "From Node",
+        "auto_vmt": "Auto VMT",
+        "pm_vol": "PM Volume",
+        "nonmandatory_tour_purpose": "Non-Mandatory Tour Purpose",
+    }
 
 
 def test_bar_chart_omits_pct_hover_lines() -> None:

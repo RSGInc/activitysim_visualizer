@@ -150,13 +150,20 @@ def serialize_viewable(
         return {"kind": "plotly", "figure": figure, "height": height}
     if isinstance(obj, pn.widgets.Tabulator):
         frame = obj.value
+        title_map = {
+            str(column): str(title)
+            for column, title in (obj.titles or {}).items()
+            if title is not None
+        }
+        columns = [str(column) for column in frame.columns]
+        display_columns = [title_map.get(column, column) for column in columns]
         return {
             "kind": "table",
-            "columns": [str(column) for column in frame.columns],
+            "columns": display_columns,
             "rows": [
                 {
-                    str(column): _serialize_table_cell(value)
-                    for column, value in row.items()
+                    display_column: _serialize_table_cell(row.get(column))
+                    for column, display_column in zip(columns, display_columns)
                 }
                 for row in frame.to_dict(orient="records")
             ],

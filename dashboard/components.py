@@ -531,6 +531,95 @@ def drop_index_columns_for_display(df: pl.DataFrame) -> pl.DataFrame:
     return df.drop(index_columns) if index_columns else df
 
 
+_COLUMN_NAME_OVERRIDES = {
+    "% Diff": "% Diff",
+    "FACTYPE": "Facility Type",
+    "From_Node": "From Node",
+    "To_Node": "To Node",
+}
+
+_COLUMN_WORD_OVERRIDES = {
+    "aadt": "AADT",
+    "am": "AM",
+    "av": "AV",
+    "avg": "Average",
+    "brt": "BRT",
+    "cvm": "CVM",
+    "da": "DA",
+    "dest": "Destination",
+    "hh": "Household",
+    "hov": "HOV",
+    "hov2": "HOV2",
+    "hov3": "HOV3",
+    "id": "ID",
+    "ids": "IDs",
+    "lrt": "LRT",
+    "maz": "MAZ",
+    "md": "MD",
+    "mgra": "MGRA",
+    "n": "Number",
+    "nonmandatory": "Non-Mandatory",
+    "num": "Number",
+    "orig": "Origin",
+    "pm": "PM",
+    "pmt": "PMT",
+    "pct": "Percent",
+    "rmse": "RMSE",
+    "sov": "SOV",
+    "tap": "TAP",
+    "taz": "TAZ",
+    "tnc": "TNC",
+    "tod": "Time of Day",
+    "vmt": "VMT",
+    "vol": "Volume",
+}
+
+_LOWERCASE_COLUMN_WORDS = {"and", "of"}
+
+
+def _humanize_column_token(token: str) -> str:
+    normalized = token.strip()
+    if not normalized:
+        return ""
+    lookup_key = normalized.lower()
+    if lookup_key in _COLUMN_WORD_OVERRIDES:
+        return _COLUMN_WORD_OVERRIDES[lookup_key]
+    if lookup_key in _LOWERCASE_COLUMN_WORDS:
+        return lookup_key
+    if normalized.isupper() and len(normalized) > 1:
+        return normalized
+    return normalized[:1].upper() + normalized[1:].lower()
+
+
+def humanize_column_header(column: object) -> str:
+    """Return a dashboard-friendly display label for a dataframe column."""
+    column_name = str(column)
+    if column_name in _COLUMN_NAME_OVERRIDES:
+        return _COLUMN_NAME_OVERRIDES[column_name]
+    if " " in column_name and "_" not in column_name:
+        return column_name
+    normalized = column_name.replace("-", "_").replace(" ", "_")
+    tokens = [token for token in normalized.split("_") if token]
+    if not tokens:
+        return column_name
+    title = " ".join(_humanize_column_token(token) for token in tokens)
+    return title.replace("Non Mandatory", "Non-Mandatory")
+
+
+def column_titles_for_display(columns: list[object] | tuple[object, ...]) -> dict[str, str]:
+    """Build unique, human-readable Tabulator titles for dataframe columns."""
+    titles: dict[str, str] = {}
+    used_titles: dict[str, int] = {}
+    for column in columns:
+        display_title = humanize_column_header(column)
+        count = used_titles.get(display_title, 0) + 1
+        used_titles[display_title] = count
+        if count > 1:
+            display_title = f"{display_title} ({count})"
+        titles[str(column)] = display_title
+    return titles
+
+
 def data_table(
     data_list: list[tuple[str, pl.DataFrame]],
     title: str = "",
@@ -557,6 +646,7 @@ def data_table(
                         height=height,
                         sizing_mode="stretch_width",
                         theme="simple",
+                        titles=column_titles_for_display(display_df.columns),
                         show_index=False,
                     ),
                 )

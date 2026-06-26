@@ -35,7 +35,10 @@ from dashboard.pages.validation.regional import (
 )
 from dashboard.pages.validation.traffic import (
     external_count_scatter_data,
+    external_count_scatter_data_from_sources,
+    external_count_fit_line_data,
     external_link_aggregate_data,
+    external_volume_comparison_table,
 )
 from dashboard.pages.validation.vmt import (
     PERSONAL_AUTO_VMT_SUMMARY_ID,
@@ -231,7 +234,7 @@ def test_external_traffic_helpers_filter_period_and_facility_type() -> None:
         )
     ]
 
-    scatter = external_count_scatter_data(
+    scatter = external_count_scatter_data_from_sources(
         counts,
         volumes,
         volume_col="day_vol",
@@ -244,12 +247,123 @@ def test_external_traffic_helpers_filter_period_and_facility_type() -> None:
     )
 
     assert scatter[0][1].to_dicts() == [
-        {"id": 2, "FACTYPE": "4", "count_volume": 200.0, "modeled_volume": 210.0}
+        {
+            "id": 2,
+            "facility_type": "4",
+            "observed_volume": 200.0,
+            "modeled_volume": 210.0,
+        }
     ]
     assert aggregate[0][1].to_dicts() == [
         {"FACTYPE": "3", "volume": 5.0},
         {"FACTYPE": "4", "volume": 15.0},
     ]
+    comparison = external_volume_comparison_table(
+        counts,
+        volumes,
+        link_list=[
+            (
+                "Run",
+                pl.DataFrame(
+                    {
+                        "id": [1, 2],
+                        "From_Node": [100, 101],
+                        "To_Node": [200, 201],
+                    }
+                ),
+            )
+        ],
+        volume_col="day_vol",
+        facility_type="4",
+        top_n=10,
+    )
+    assert comparison[0][1].to_dicts() == [
+        {
+            "id": 2,
+            "facility_type": "4",
+            "From_Node": 101,
+            "To_Node": 201,
+            "Observed Link Volume": 200.0,
+            "Modeled Link Volume": 210.0,
+            "% Diff": "-4.76%",
+            "RMSE": 10.0,
+        }
+    ]
+    comparison_without_metadata = external_volume_comparison_table(
+        counts,
+        volumes,
+        volume_col="day_vol",
+        facility_type="4",
+        top_n=10,
+    )
+    assert comparison_without_metadata[0][1].columns == [
+        "id",
+        "facility_type",
+        "Observed Link Volume",
+        "Modeled Link Volume",
+        "% Diff",
+        "RMSE",
+    ]
+
+    derived_scatter = external_count_scatter_data(
+        [
+            (
+                "Run",
+                pl.DataFrame(
+                    {
+                        "id": [1, 2, 3],
+                        "facility_type": ["3", "4", "4"],
+                        "period": ["Day", "AM", "Day"],
+                        "observed_volume": [100.0, 20.0, 300.0],
+                        "modeled_volume": [110.0, 21.0, 310.0],
+                    }
+                ),
+            )
+        ],
+        period="Day",
+        facility_type="4",
+    )
+    assert derived_scatter[0][1].to_dicts() == [
+        {
+            "id": 3,
+            "facility_type": "4",
+            "period": "Day",
+            "observed_volume": 300.0,
+            "modeled_volume": 310.0,
+        }
+    ]
+
+
+def test_external_count_fit_line_helper_builds_plot_data() -> None:
+    fit_lines = external_count_fit_line_data(
+        [
+            (
+                "Run",
+                pl.DataFrame(
+                    {
+                        "facility_type": ["All", "4"],
+                        "period": ["Day", "Day"],
+                        "slope": [2.0, 3.0],
+                        "intercept": [5.0, 7.0],
+                        "r_squared": [1.0, 0.9],
+                        "n_locations": [3, 2],
+                        "observed_min": [10.0, 20.0],
+                        "observed_max": [30.0, 40.0],
+                        "equation_label": ["y = 2.00x + 5.00", "y = 3.00x + 7.00"],
+                        "r_squared_label": ["R^2 = 1.00", "R^2 = 0.90"],
+                    }
+                ),
+            )
+        ],
+        period="Day",
+        facility_type="4",
+    )
+
+    assert fit_lines[0][1].select("observed_volume", "modeled_volume").to_dicts() == [
+        {"observed_volume": 20.0, "modeled_volume": 67.0},
+        {"observed_volume": 40.0, "modeled_volume": 127.0},
+    ]
+    assert "y = 3.00x + 7.00" in fit_lines[0][1]["annotation"][0]
 
 
 def test_external_vmt_helper_reshapes_wide_tod_table() -> None:

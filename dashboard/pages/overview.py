@@ -8,6 +8,7 @@ import polars as pl
 from dashboard.components import (
     _to_pandas,
     bar_chart,
+    column_titles_for_display,
     drop_index_columns_for_display,
     format_numeric_frame_for_display,
     kpi_box,
@@ -166,15 +167,15 @@ class OverviewPage(DashboardPage):
         """Render the KPI percent-difference table when comparison rows exist."""
         if len(pct_df) == 0:
             return pn.pane.Markdown("")
+        display_df = format_numeric_frame_for_display(
+            drop_index_columns_for_display(pct_df),
+            numeric_precision=2,
+        )
         return pn.widgets.Tabulator(
-            _to_pandas(
-                format_numeric_frame_for_display(
-                    drop_index_columns_for_display(pct_df),
-                    numeric_precision=2,
-                )
-            ),
+            _to_pandas(display_df),
             sizing_mode="stretch_width",
             height=260,
+            titles=column_titles_for_display(display_df.columns),
             show_index=False,
         )
 

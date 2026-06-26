@@ -171,8 +171,13 @@ summarize:
   weighting_modes: [weighted, unweighted]
   pnr_tour_modes:
     - PNR_TRANSIT
+  # Controls additional mapped geography aggregations only. Summaries may still
+  # emit all_geographies totals, and native prepared home geographies such as
+  # home_taz, home_county, and home_mpo can appear when those columns exist.
   geography:
     enabled: false
+    # Configured mappings create columns such as home_geo__district,
+    # work_geo__county, or land_use_geo__district.
     # landuse_col: COUNTY
     # mapping:
     #   1: County 1
