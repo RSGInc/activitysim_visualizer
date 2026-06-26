@@ -320,9 +320,12 @@ def scatter_chart(
     yaxis_title: str = "",
     height: int = 400,
     drop_zero_y: bool = False,
+    fit_overlays: list[tuple[str, pl.DataFrame]] | None = None,
+    fit_annotation_col: str = "annotation",
 ) -> pn.pane.Plotly:
     """Create a scatterplot comparing multiple runs."""
     fig = go.Figure()
+    label_indices = {label: i for i, (label, _) in enumerate(data_list)}
 
     for i, (label, df) in enumerate(data_list):
         if df is None or len(df) == 0:
@@ -356,6 +359,41 @@ def scatter_chart(
                 customdata=hover,
             )
         )
+
+    for i, (label, df) in enumerate(fit_overlays or []):
+        if df is None or len(df) == 0:
+            continue
+        if x_col not in df.columns or y_col not in df.columns:
+            continue
+        color = run_color_for_label(label, label_indices.get(label, i))
+        fig.add_trace(
+            go.Scatter(
+                name=f"{label} fit",
+                x=df[x_col].to_list(),
+                y=df[y_col].to_list(),
+                mode="lines",
+                line=dict(color=color, width=2),
+                hovertemplate=f"{label} fit<extra></extra>",
+            )
+        )
+        if fit_annotation_col in df.columns:
+            annotation = str(df[fit_annotation_col][0] or "").strip()
+            if annotation:
+                fig.add_annotation(
+                    text=annotation,
+                    xref="paper",
+                    yref="paper",
+                    x=0.02,
+                    y=max(0.05, 0.98 - 0.12 * i),
+                    xanchor="left",
+                    yanchor="top",
+                    showarrow=False,
+                    align="left",
+                    font=dict(color=color, size=12),
+                    bgcolor="rgba(255,255,255,0.75)",
+                    bordercolor=color,
+                    borderwidth=1,
+                )
 
     _layout(
         fig,
@@ -483,6 +521,16 @@ def format_numeric_frame_for_display(
     return df.with_columns(exprs) if exprs else df
 
 
+def drop_index_columns_for_display(df: pl.DataFrame) -> pl.DataFrame:
+    """Remove dataframe-index artifacts before rendering dashboard tables."""
+    index_columns = [
+        column
+        for column in df.columns
+        if column == "index" or column.startswith("__index_level_")
+    ]
+    return df.drop(index_columns) if index_columns else df
+
+
 def data_table(
     data_list: list[tuple[str, pl.DataFrame]],
     title: str = "",
@@ -497,7 +545,7 @@ def data_table(
     for label, df in data_list:
         if df is not None and len(df) > 0:
             display_df = format_numeric_frame_for_display(
-                df,
+                drop_index_columns_for_display(df),
                 numeric_precision=numeric_precision,
                 numeric_precision_by_column=numeric_precision_by_column,
             )
@@ -509,6 +557,7 @@ def data_table(
                         height=height,
                         sizing_mode="stretch_width",
                         theme="simple",
+                        show_index=False,
                     ),
                 )
             )

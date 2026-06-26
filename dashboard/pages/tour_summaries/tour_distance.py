@@ -12,7 +12,8 @@ from dashboard.helpers.category_helpers import (
     ordered_category_values,
 )
 from dashboard.helpers.comparison_helpers import (
-    build_base_run_percent_difference_table,
+    build_ab_comparison_row,
+    build_ab_comparison_table,
     weighted_average_lookup,
 )
 from dashboard.helpers.geography_helpers import (
@@ -61,7 +62,7 @@ def average_distance_comparison_table(
     purpose: str,
     *,
     config,
-) -> pl.DataFrame:
+) -> list[tuple[str, pl.DataFrame]]:
     """Compare average non-mandatory tour distances against the base run."""
     filtered = filter_geography(
         filter_geography_level(data_list, geography_level),
@@ -80,7 +81,7 @@ def average_distance_comparison_table(
 
     runs = nonempty(filtered)
     if not runs:
-        return pl.DataFrame()
+        return []
 
     purpose_values = ordered_category_values(
         runs,
@@ -89,28 +90,47 @@ def average_distance_comparison_table(
         config=config,
     )
     if not purpose_values:
-        return pl.DataFrame()
+        return []
 
-    run_labels = [label for label, _ in runs]
-    base_run_label = run_labels[0]
-    row_values: dict[str, dict[str, float | None]] = {}
-    for raw_purpose in purpose_values:
-        display_purpose = config.label_value("tour_purpose", raw_purpose)
-        row_values[display_purpose] = {}
-        for run_label, run_df in runs:
-            row_values[display_purpose][run_label] = weighted_average_lookup(
-                run_df,
-                category_col="nonmandatory_tour_purpose",
-                average_col="average_tour_distance",
-                weight_col="tour_count",
-            ).get(str(raw_purpose))
-
-    return build_base_run_percent_difference_table(
-        run_labels=run_labels,
-        base_run_label=base_run_label,
-        row_header="Non-Mandatory Tour Purpose",
-        row_values=row_values,
+    _, base_run_df = runs[0]
+    base_lookup = weighted_average_lookup(
+        base_run_df,
+        category_col="nonmandatory_tour_purpose",
+        average_col="average_tour_distance",
+        weight_col="tour_count",
     )
+    quantity_a_column = "Average Non-Mandatory Tour Distance"
+    quantity_b_column = "Base Run Average Non-Mandatory Tour Distance"
+    out: list[tuple[str, pl.DataFrame]] = []
+    for run_label, run_df in runs:
+        run_lookup = weighted_average_lookup(
+            run_df,
+            category_col="nonmandatory_tour_purpose",
+            average_col="average_tour_distance",
+            weight_col="tour_count",
+        )
+        rows = []
+        for raw_purpose in purpose_values:
+            display_purpose = config.label_value("tour_purpose", raw_purpose)
+            rows.append(
+                build_ab_comparison_row(
+                    keys={"Non-Mandatory Tour Purpose": display_purpose},
+                    quantity_a=run_lookup.get(str(raw_purpose)),
+                    quantity_b=base_lookup.get(str(raw_purpose)),
+                    quantity_a_column=quantity_a_column,
+                    quantity_b_column=quantity_b_column,
+                )
+            )
+
+        table = build_ab_comparison_table(
+            rows,
+            key_columns=["Non-Mandatory Tour Purpose"],
+            quantity_a_column=quantity_a_column,
+            quantity_b_column=quantity_b_column,
+        )
+        if not table.is_empty():
+            out.append((run_label, table))
+    return out
 
 
 class TourDistancePage(DashboardPage):
@@ -318,7 +338,7 @@ class TourDistancePage(DashboardPage):
                 self.nonmandatory_purpose_sel.value,
             )
         )
-        comparison_df = self.get_filtered_view(
+        comparison_tables = self.get_filtered_view(
             "average_nonmandatory_tour_distance",
             (geo_level, geography, raw_purpose),
             factory=lambda: average_distance_comparison_table(
@@ -334,18 +354,15 @@ class TourDistancePage(DashboardPage):
             selector_row(self.geo_level_sel, self.geography_sel),
             pn.Column(
                 selector_row(self.nonmandatory_purpose_sel),
-                self.render_average_distance_table(comparison_df),
+                self.render_average_distance_table(comparison_tables),
             ),
         ]
 
     def render_average_distance_table(
-        self, comparison_df: pl.DataFrame
+        self, comparison_tables: list[tuple[str, pl.DataFrame]]
     ) -> pn.viewable.Viewable:
         """Render the average-distance comparison table."""
-        return data_table(
-            [("Comparison", comparison_df)],
-            # "Average Non-Mandatory Tour Distance vs Base Run",
-        )
+        return data_table(comparison_tables)
 
 
 PAGE = DashboardPageDefinition(

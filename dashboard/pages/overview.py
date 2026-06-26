@@ -8,6 +8,7 @@ import polars as pl
 from dashboard.components import (
     _to_pandas,
     bar_chart,
+    drop_index_columns_for_display,
     format_numeric_frame_for_display,
     kpi_box,
 )
@@ -168,12 +169,13 @@ class OverviewPage(DashboardPage):
         return pn.widgets.Tabulator(
             _to_pandas(
                 format_numeric_frame_for_display(
-                    pct_df,
+                    drop_index_columns_for_display(pct_df),
                     numeric_precision=2,
                 )
             ),
             sizing_mode="stretch_width",
             height=260,
+            show_index=False,
         )
 
     def render_person_type_chart(self, ptype_result) -> pn.viewable.Viewable:

@@ -576,7 +576,7 @@ class MandatoryLocationChoicePage(DashboardPage):
                 )
             ]
 
-        comparison_df = self.get_filtered_view(
+        comparison_tables = self.get_filtered_view(
             "mandatory_distance_comparison_table",
             (geo_level, geography),
             factory=lambda: mandatory_distance_comparison_table(
@@ -586,7 +586,7 @@ class MandatoryLocationChoicePage(DashboardPage):
                 config=self.config,
             ),
         )
-        if comparison_df.is_empty():
+        if not comparison_tables:
             return [
                 self.data_not_available_card(
                     detail=(
@@ -601,7 +601,7 @@ class MandatoryLocationChoicePage(DashboardPage):
 
         return [
             data_table(
-                [("Comparison", comparison_df)],
+                comparison_tables,
                 "Average Mandatory Tour Distance vs Base Run",
             )
         ]

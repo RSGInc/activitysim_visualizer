@@ -83,6 +83,31 @@ def vehicle_attribute_data(
     return out
 
 
+def _filter_col(
+    data_list: list[tuple[str, pl.DataFrame]],
+    column: str,
+    value: str,
+) -> list[tuple[str, pl.DataFrame]]:
+    """Backward-compatible wrapper for older tests around vehicle filters."""
+    first_category_col = None
+    for _, df in nonempty(data_list):
+        candidates = [
+            candidate
+            for candidate in df.columns
+            if candidate not in {column, "vehicle_count"}
+        ]
+        if candidates:
+            first_category_col = candidates[0]
+            break
+    if first_category_col is None:
+        return nonempty(data_list)
+    return vehicle_attribute_data(
+        data_list,
+        value,
+        category_col=first_category_col,
+    )
+
+
 def tour_mode_chart_data(
     data_list: list[tuple[str, pl.DataFrame]],
     purpose: str,

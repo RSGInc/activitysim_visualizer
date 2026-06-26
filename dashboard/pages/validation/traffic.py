@@ -7,6 +7,10 @@ import polars as pl
 
 from dashboard.components import bar_chart, data_table, scatter_chart, selector_row
 from dashboard.helpers.category_helpers import common_column_options, nonempty
+from dashboard.helpers.comparison_helpers import (
+    build_ab_comparison_row,
+    build_ab_comparison_table,
+)
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
@@ -61,8 +65,10 @@ def external_facility_options(
         str(value)
         for data_list in data_lists
         for _, df in nonempty(data_list or [])
-        if "FACTYPE" in df.columns
-        for value in df["FACTYPE"].drop_nulls().cast(pl.Utf8).to_list()
+        for column in ("facility_type", "FACTYPE")
+        if column in df.columns
+        for value in df[column].drop_nulls().cast(pl.Utf8).to_list()
+        if str(value) != "All"
     }
     return ["All", *sorted(values, key=lambda value: (len(value), value))]
 
@@ -76,6 +82,38 @@ def _filter_facility(df: pl.DataFrame, facility_type: str) -> pl.DataFrame:
 
 
 def external_count_scatter_data(
+    scatter_list: list[tuple[str, pl.DataFrame]],
+    *,
+    period: str,
+    facility_type: str,
+) -> list[tuple[str, pl.DataFrame]]:
+    out: list[tuple[str, pl.DataFrame]] = []
+    for label, df in nonempty(scatter_list):
+        required = {"facility_type", "period", "observed_volume", "modeled_volume"}
+        if not required.issubset(set(df.columns)):
+            continue
+        filtered = df.with_columns(
+            pl.col("facility_type").cast(pl.Utf8),
+            pl.col("period").cast(pl.Utf8),
+        ).filter(pl.col("period") == period)
+        if facility_type != "All":
+            filtered = filtered.filter(pl.col("facility_type") == facility_type)
+        out.append(
+            (
+                label,
+                filtered.select(
+                    "id",
+                    "facility_type",
+                    "period",
+                    "observed_volume",
+                    "modeled_volume",
+                ).sort("id"),
+            )
+        )
+    return out
+
+
+def external_count_scatter_data_from_sources(
     count_list: list[tuple[str, pl.DataFrame]],
     volume_list: list[tuple[str, pl.DataFrame]],
     *,
@@ -93,19 +131,89 @@ def external_count_scatter_data(
         if volume_col not in count_df.columns or volume_col not in volume_df.columns:
             continue
         joined = (
-            count_df.select("id", "FACTYPE", pl.col(volume_col).alias("count_volume"))
+            count_df.select(
+                "id",
+                pl.col("FACTYPE").cast(pl.Utf8).alias("facility_type"),
+                pl.col(volume_col).alias("observed_volume"),
+            )
             .join(
                 volume_df.select(
                     "id",
-                    "FACTYPE",
+                    pl.col("FACTYPE").cast(pl.Utf8).alias("facility_type"),
                     pl.col(volume_col).alias("modeled_volume"),
                 ),
-                on=["id", "FACTYPE"],
+                on=["id", "facility_type"],
                 how="inner",
             )
             .sort("id")
         )
         out.append((label, joined))
+    return out
+
+
+def external_count_fit_line_data(
+    fit_list: list[tuple[str, pl.DataFrame]] | None,
+    *,
+    period: str,
+    facility_type: str,
+) -> list[tuple[str, pl.DataFrame]]:
+    out: list[tuple[str, pl.DataFrame]] = []
+    for label, df in nonempty(fit_list or []):
+        required = {
+            "facility_type",
+            "period",
+            "slope",
+            "intercept",
+            "r_squared",
+            "n_locations",
+            "observed_min",
+            "observed_max",
+            "equation_label",
+            "r_squared_label",
+        }
+        if not required.issubset(set(df.columns)):
+            continue
+        selected = (
+            df.with_columns(
+                pl.col("facility_type").cast(pl.Utf8),
+                pl.col("period").cast(pl.Utf8),
+            )
+            .filter(
+                (pl.col("period") == period)
+                & (pl.col("facility_type") == str(facility_type))
+                & pl.col("slope").is_not_null()
+                & pl.col("intercept").is_not_null()
+                & pl.col("observed_min").is_not_null()
+                & pl.col("observed_max").is_not_null()
+            )
+            .head(1)
+        )
+        if selected.is_empty():
+            continue
+        row = selected.row(0, named=True)
+        observed_min = float(row["observed_min"])
+        observed_max = float(row["observed_max"])
+        slope = float(row["slope"])
+        intercept = float(row["intercept"])
+        annotation = (
+            f"{label}<br>{row['equation_label']}<br>"
+            f"{row['r_squared_label']}<br>n = {int(row['n_locations'])}"
+        )
+        out.append(
+            (
+                label,
+                pl.DataFrame(
+                    {
+                        "observed_volume": [observed_min, observed_max],
+                        "modeled_volume": [
+                            slope * observed_min + intercept,
+                            slope * observed_max + intercept,
+                        ],
+                        "annotation": [annotation, annotation],
+                    }
+                ),
+            )
+        )
     return out
 
 
@@ -130,30 +238,106 @@ def external_link_aggregate_data(
     return out
 
 
-def external_top_links_table(
-    link_list: list[tuple[str, pl.DataFrame]],
+def external_volume_comparison_table(
+    count_list: list[tuple[str, pl.DataFrame]],
+    volume_list: list[tuple[str, pl.DataFrame]],
     *,
+    link_list: list[tuple[str, pl.DataFrame]] | None = None,
     volume_col: str,
     facility_type: str,
     top_n: int,
 ) -> list[tuple[str, pl.DataFrame]]:
+    volume_by_label = dict(volume_list)
+    link_by_label = dict(link_list or [])
+    quantity_a_column = "Observed Link Volume"
+    quantity_b_column = "Modeled Link Volume"
     out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in nonempty(link_list):
-        if volume_col not in df.columns:
+    for label, count_df in nonempty(count_list):
+        volume_df = volume_by_label.get(label)
+        if volume_df is None or volume_df.is_empty():
             continue
-        filtered = _filter_facility(df, facility_type)
-        table = (
-            filtered.select(
-                "id",
-                "From_Node",
-                "To_Node",
-                "FACTYPE",
-                pl.col(volume_col).alias("volume"),
+        if volume_col not in count_df.columns or volume_col not in volume_df.columns:
+            continue
+        required = {"id", "FACTYPE"}
+        if not required.issubset(count_df.columns) or not required.issubset(
+            volume_df.columns
+        ):
+            continue
+
+        count_filtered = _filter_facility(count_df, facility_type)
+        volume_filtered = _filter_facility(volume_df, facility_type)
+        joined = (
+            count_filtered.select(
+                pl.col("id").cast(pl.Int64, strict=False),
+                pl.col("FACTYPE").cast(pl.Utf8).alias("facility_type"),
+                pl.col(volume_col).cast(pl.Float64).alias("_quantity_a"),
             )
-            .sort("volume", descending=True)
+            .join(
+                volume_filtered.select(
+                    pl.col("id").cast(pl.Int64, strict=False),
+                    pl.col("FACTYPE").cast(pl.Utf8).alias("facility_type"),
+                    pl.col(volume_col).cast(pl.Float64).alias("_quantity_b"),
+                ),
+                on=["id", "facility_type"],
+                how="inner",
+            )
+            .filter(
+                pl.col("id").is_not_null()
+                & pl.col("facility_type").is_not_null()
+                & pl.col("_quantity_a").is_not_null()
+                & pl.col("_quantity_b").is_not_null()
+            )
+        )
+        link_df = link_by_label.get(label)
+        has_link_metadata = (
+            link_df is not None
+            and {"id", "From_Node", "To_Node"}.issubset(link_df.columns)
+        )
+        if has_link_metadata:
+            link_metadata = (
+                link_df.select(
+                    pl.col("id").cast(pl.Int64, strict=False),
+                    pl.col("From_Node"),
+                    pl.col("To_Node"),
+                )
+                .drop_nulls("id")
+                .unique("id")
+            )
+            joined = joined.join(link_metadata, on="id", how="left")
+
+        joined = (
+            joined.sort(["_quantity_b", "id"], descending=[True, False])
             .head(top_n)
         )
-        out.append((label, table))
+        rows = []
+        for row in joined.iter_rows(named=True):
+            keys = {
+                "id": row["id"],
+                "facility_type": row["facility_type"],
+            }
+            if has_link_metadata:
+                keys["From_Node"] = row.get("From_Node")
+                keys["To_Node"] = row.get("To_Node")
+            rows.append(
+                build_ab_comparison_row(
+                    keys=keys,
+                    quantity_a=row["_quantity_a"],
+                    quantity_b=row["_quantity_b"],
+                    quantity_a_column=quantity_a_column,
+                    quantity_b_column=quantity_b_column,
+                )
+            )
+        key_columns = ["id", "facility_type"]
+        if has_link_metadata:
+            key_columns.extend(["From_Node", "To_Node"])
+        table = build_ab_comparison_table(
+            rows,
+            key_columns=key_columns,
+            quantity_a_column=quantity_a_column,
+            quantity_b_column=quantity_b_column,
+        )
+        if not table.is_empty():
+            out.append((label, table))
     return out
 
 
@@ -200,10 +384,18 @@ class TrafficValidationPage(DashboardPage):
         external_volume_list = self.state.get_summary_table_set(
             "external_count_location_volumes", "weighted"
         )
+        external_scatter_list = self.state.get_summary_table_set(
+            "external_count_location_scatter", "weighted"
+        )
+        external_fit_list = self.state.get_summary_table_set(
+            "external_count_location_fit", "weighted"
+        )
         facility_opts = external_facility_options(
             external_link_list,
             external_count_list,
             external_volume_list,
+            external_scatter_list,
+            external_fit_list,
         )
         self.external_period_sel = self.selector(
             "external_period",
@@ -226,11 +418,11 @@ class TrafficValidationPage(DashboardPage):
         self.external_top_n_sel = self.selector(
             "external_top_n",
             widget=pn.widgets.Select(
-                name="Top Links",
+                name="Top Count Locations",
                 options=[10, 25, 50, 100],
                 value=25,
             ),
-            label="Top Links",
+            label="Top Count Locations",
         )
         self._body = self.section(
             "traffic_body",
@@ -293,10 +485,18 @@ class TrafficValidationPage(DashboardPage):
         external_volume_list = self.state.get_summary_table_set(
             "external_count_location_volumes", self.weighting_key
         )
+        external_scatter_list = self.state.get_summary_table_set(
+            "external_count_location_scatter", self.weighting_key
+        )
+        external_fit_list = self.state.get_summary_table_set(
+            "external_count_location_fit", self.weighting_key
+        )
         facility_opts = external_facility_options(
             external_link_list,
             external_count_list,
             external_volume_list,
+            external_scatter_list,
+            external_fit_list,
         )
         self.external_facility_sel.options = facility_opts
         if self.external_facility_sel.value not in facility_opts:
@@ -372,7 +572,13 @@ class TrafficValidationPage(DashboardPage):
         volume_list = self.state.get_summary_table_set(
             "external_count_location_volumes", self.weighting_key
         )
-        if not any((link_list, count_list, volume_list)):
+        scatter_list = self.state.get_summary_table_set(
+            "external_count_location_scatter", self.weighting_key
+        )
+        fit_list = self.state.get_summary_table_set(
+            "external_count_location_fit", self.weighting_key
+        )
+        if not any((link_list, count_list, volume_list, scatter_list, fit_list)):
             return []
         period = self.external_period_sel.value
         volume_col = EXTERNAL_TIME_PERIODS[str(period)]
@@ -381,11 +587,41 @@ class TrafficValidationPage(DashboardPage):
         section: list[pn.viewable.Viewable] = [
             pn.pane.Markdown("### External Traffic Summaries")
         ]
-        if count_list is not None and volume_list is not None:
+        if scatter_list is not None:
             scatter_data = self.get_filtered_view(
                 "external_count_scatter",
                 (period, facility_type),
                 factory=lambda: external_count_scatter_data(
+                    scatter_list,
+                    period=str(period),
+                    facility_type=facility_type,
+                ),
+            )
+            fit_data = self.get_filtered_view(
+                "external_count_fit",
+                (period, facility_type),
+                factory=lambda: external_count_fit_line_data(
+                    fit_list,
+                    period=str(period),
+                    facility_type=facility_type,
+                ),
+            )
+            section.append(
+                scatter_chart(
+                    scatter_data,
+                    x_col="observed_volume",
+                    y_col="modeled_volume",
+                    title=f"Count Location Observed vs Modeled - {period}",
+                    xaxis_title="Observed Count",
+                    yaxis_title="Modeled Volume",
+                    fit_overlays=fit_data,
+                )
+            )
+        elif count_list is not None and volume_list is not None:
+            scatter_data = self.get_filtered_view(
+                "external_count_scatter_fallback",
+                (period, facility_type),
+                factory=lambda: external_count_scatter_data_from_sources(
                     count_list,
                     volume_list,
                     volume_col=volume_col,
@@ -395,11 +631,11 @@ class TrafficValidationPage(DashboardPage):
             section.append(
                 scatter_chart(
                     scatter_data,
-                    x_col="count_volume",
+                    x_col="observed_volume",
                     y_col="modeled_volume",
-                    title=f"Count Location Counts vs Volumes - {period}",
-                    xaxis_title="Count Location Counts",
-                    yaxis_title="Count Location Volumes",
+                    title=f"Count Location Observed vs Modeled - {period}",
+                    xaxis_title="Observed Count",
+                    yaxis_title="Modeled Volume",
                 )
             )
         else:
@@ -422,34 +658,50 @@ class TrafficValidationPage(DashboardPage):
                     facility_type=facility_type,
                 ),
             )
-            top_links = self.get_filtered_view(
-                "external_top_links",
-                (period, facility_type, top_n),
-                factory=lambda: external_top_links_table(
-                    link_list,
-                    volume_col=volume_col,
-                    facility_type=facility_type,
-                    top_n=top_n,
-                ),
-            )
-            section.extend(
-                [
-                    bar_chart(
-                        aggregate_data,
-                        x_col="FACTYPE",
-                        y_col="volume",
-                        title=f"External Link Volume by Facility Type - {period}",
-                        xaxis_title="Facility Type",
-                        yaxis_title="Volume",
-                    ),
-                    data_table(top_links, f"Top {top_n} External Links - {period}"),
-                ]
+            section.append(
+                bar_chart(
+                    aggregate_data,
+                    x_col="FACTYPE",
+                    y_col="volume",
+                    title=f"External Link Volume by Facility Type - {period}",
+                    xaxis_title="Facility Type",
+                    yaxis_title="Volume",
+                )
             )
         else:
             section.append(
                 self.data_not_available_card(
                     detail="External link summaries are unavailable.",
                     missing_items=["external_link_summary"],
+                )
+            )
+        if count_list is not None and volume_list is not None:
+            volume_comparison = self.get_filtered_view(
+                "external_volume_comparison",
+                (period, facility_type, top_n),
+                factory=lambda: external_volume_comparison_table(
+                    count_list,
+                    volume_list,
+                    link_list=link_list,
+                    volume_col=volume_col,
+                    facility_type=facility_type,
+                    top_n=top_n,
+                ),
+            )
+            section.append(
+                data_table(
+                    volume_comparison,
+                    f"Top {top_n} Count Location Observed vs Modeled Volumes - {period}",
+                )
+            )
+        elif link_list is not None:
+            section.append(
+                self.data_not_available_card(
+                    detail="External count-location counts and volumes are both required for this comparison table.",
+                    missing_items=[
+                        "external_count_location_counts",
+                        "external_count_location_volumes",
+                    ],
                 )
             )
         return section
@@ -469,6 +721,8 @@ PAGE = DashboardPageDefinition(
         "external_link_summary",
         "external_count_location_counts",
         "external_count_location_volumes",
+        "external_count_location_scatter",
+        "external_count_location_fit",
     ),
 )
 

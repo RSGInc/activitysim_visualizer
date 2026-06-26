@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, Mapping
 
 import polars as pl
 
@@ -48,6 +48,95 @@ def percent_difference_string(
         return ""
     pct_diff = ((float(compare_value) - float(base_value)) / float(base_value)) * 100.0
     return f"{pct_diff:.{precision}f}%"
+
+
+def _finite_float(value: float | int | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    return numeric if math.isfinite(numeric) else None
+
+
+def ab_percent_difference_string(
+    quantity_a: float | int | None,
+    quantity_b: float | int | None,
+    *,
+    precision: int = 2,
+) -> str:
+    """Return formatted percent difference using the second value as denominator."""
+    a_value = _finite_float(quantity_a)
+    b_value = _finite_float(quantity_b)
+    if a_value is None or b_value is None or b_value == 0.0:
+        return ""
+    pct_diff = ((a_value - b_value) / b_value) * 100.0
+    return f"{pct_diff:.{precision}f}%"
+
+
+def ab_rmse_value(
+    quantity_a: float | int | None,
+    quantity_b: float | int | None,
+) -> float | None:
+    """Return row-level RMSE for a single A/B comparison."""
+    a_value = _finite_float(quantity_a)
+    b_value = _finite_float(quantity_b)
+    if a_value is None or b_value is None:
+        return None
+    return math.sqrt((a_value - b_value) ** 2)
+
+
+def build_ab_comparison_row(
+    *,
+    keys: Mapping[str, Any],
+    quantity_a: float | int | None,
+    quantity_b: float | int | None,
+    quantity_a_column: str,
+    quantity_b_column: str,
+    precision: int = 2,
+) -> dict[str, Any]:
+    """Build one long-form A/B comparison row with caller-supplied value labels."""
+    a_value = _finite_float(quantity_a)
+    b_value = _finite_float(quantity_b)
+    return {
+        **dict(keys),
+        quantity_a_column: a_value,
+        quantity_b_column: b_value,
+        "% Diff": ab_percent_difference_string(
+            a_value,
+            b_value,
+            precision=precision,
+        ),
+        "RMSE": ab_rmse_value(a_value, b_value),
+    }
+
+
+def build_ab_comparison_table(
+    rows: list[Mapping[str, Any]],
+    *,
+    key_columns: list[str],
+    quantity_a_column: str,
+    quantity_b_column: str,
+) -> pl.DataFrame:
+    """Return rows with stable key/A/B/%/RMSE column ordering."""
+    columns = [
+        *key_columns,
+        quantity_a_column,
+        quantity_b_column,
+        "% Diff",
+        "RMSE",
+    ]
+    if not rows:
+        schema = {
+            **{column: pl.Utf8 for column in key_columns},
+            quantity_a_column: pl.Float64,
+            quantity_b_column: pl.Float64,
+            "% Diff": pl.Utf8,
+            "RMSE": pl.Float64,
+        }
+        return pl.DataFrame(schema=schema).select(columns)
+    return pl.DataFrame(rows).select(columns)
 
 
 def build_base_run_percent_difference_table(

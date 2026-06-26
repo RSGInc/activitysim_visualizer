@@ -476,6 +476,18 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         build_by_default=False,
     ),
     SummarySpec(
+        "external_count_location_scatter",
+        "countLocScatter",
+        external_validation.count_location_scatter,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "external_count_location_fit",
+        "countLocFit",
+        external_validation.count_location_fit,
+        build_by_default=False,
+    ),
+    SummarySpec(
         "external_county_flows",
         "countyFlows",
         external_validation.county_flows,

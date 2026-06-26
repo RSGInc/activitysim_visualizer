@@ -8,6 +8,9 @@ from runtime.config import Config
 from processor.models import RunData
 from processor.skimjoin.config.network_los import load_network_los_period_mapping
 from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize.summaries.summary_helpers import (
+    _configured_geography_dimensions,
+)
 
 
 LOGGER = get_logger("processor.summarize.validation")
@@ -547,27 +550,11 @@ def _household_join_columns(hh: pl.DataFrame) -> list[str]:
         "HHSIZE",
         "hhsize",
         "home_taz",
-        "home_mpo",
         "home_county",
-        "DISTRICT9",
+        "home_mpo",
         *sorted(column for column in hh.columns if column.startswith("home_geo__")),
     ]
     return list(dict.fromkeys(column for column in candidates if column in hh.columns))
-
-
-def _home_geography_dimensions(df: pl.DataFrame) -> list[tuple[str, str | None]]:
-    dimensions: list[tuple[str, str | None]] = [(ALL_GEOGRAPHIES, None)]
-    for column in [
-        "home_taz",
-        "home_mpo",
-        "home_county",
-        "DISTRICT9",
-        *sorted(column for column in df.columns if column.startswith("home_geo__")),
-    ]:
-        if column in df.columns and df[column].is_not_null().any():
-            geography_type = column.removeprefix("home_geo__")
-            dimensions.append((geography_type, column))
-    return dimensions
 
 
 def _aggregate_vmt_for_geography(
@@ -709,7 +696,16 @@ def auto_vmt_by_home_geography_income_hhsize_time_period(
         .filter(pl.col("auto_vmt").is_not_null())
     )
 
-    geography_dimensions = _home_geography_dimensions(base)
+    geography_dimensions: list[tuple[str, str | None]] = [
+        (ALL_GEOGRAPHIES, None),
+        *_configured_geography_dimensions(
+            base,
+            config=config,
+            base_type="home_taz",
+            base_col="home_taz",
+            role_prefix="home",
+        ),
+    ]
     LOGGER.info(
         "[vmt_by_segment] Run %r home geography dimensions: %s",
         rd.label,

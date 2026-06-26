@@ -55,6 +55,37 @@ def count_location_volumes(rd: RunData, config: Config) -> pl.DataFrame:
 
 @summary_contract(
     schema={
+        "id": pl.Int64,
+        "facility_type": pl.Utf8,
+        "period": pl.Utf8,
+        "observed_volume": pl.Float64,
+        "modeled_volume": pl.Float64,
+    }
+)
+def count_location_scatter(rd: RunData, config: Config) -> pl.DataFrame:
+    return empty_summary_frame(count_location_scatter)
+
+
+@summary_contract(
+    schema={
+        "facility_type": pl.Utf8,
+        "period": pl.Utf8,
+        "slope": pl.Float64,
+        "intercept": pl.Float64,
+        "r_squared": pl.Float64,
+        "n_locations": pl.Int64,
+        "observed_min": pl.Float64,
+        "observed_max": pl.Float64,
+        "equation_label": pl.Utf8,
+        "r_squared_label": pl.Utf8,
+    }
+)
+def count_location_fit(rd: RunData, config: Config) -> pl.DataFrame:
+    return empty_summary_frame(count_location_fit)
+
+
+@summary_contract(
+    schema={
         "": pl.Utf8,
         "Albany": pl.Float64,
         "Corvallis": pl.Float64,

@@ -114,14 +114,32 @@ def _configured_geography_dimensions(
     base_col: str,
     role_prefix: str,
 ) -> list[tuple[str, str]]:
-    """Return available geography dimensions for one semantic role."""
+    """Return available native and configured geography dimensions for one role."""
     dimensions: list[tuple[str, str]] = []
+    seen_columns: set[str] = set()
+
+    def _append(geography_type: str, column: str) -> None:
+        if column and column in df.columns and column not in seen_columns:
+            dimensions.append((geography_type, column))
+            seen_columns.add(column)
+
     if base_col in df.columns:
-        dimensions.append((base_type, base_col))
-    for aggregation in config.geography_aggregations.aggregations:
+        _append(base_type, base_col)
+    if role_prefix == "home":
+        for geography_type, column in [
+            ("home_taz", "home_taz"),
+            ("home_county", "home_county"),
+            ("home_mpo", "home_mpo"),
+        ]:
+            _append(geography_type, column)
+    geography_aggregations = getattr(
+        getattr(config, "geography_aggregations", None),
+        "aggregations",
+        (),
+    )
+    for aggregation in geography_aggregations:
         column = f"{role_prefix}_geo__{aggregation.name}"
-        if column in df.columns:
-            dimensions.append((aggregation.name, column))
+        _append(aggregation.name, column)
     return dimensions
 
 
@@ -131,7 +149,7 @@ def _configured_geography_columns(
     config,
     role_prefix: str,
 ) -> list[str]:
-    """Return configured prepared geography columns present for one role."""
+    """Return native and configured prepared geography columns present for one role."""
     return [
         column
         for _, column in _configured_geography_dimensions(

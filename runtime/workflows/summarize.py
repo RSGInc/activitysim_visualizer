@@ -282,7 +282,12 @@ def run_summary_workflow(
             if cached_run is not None:
                 stale_summary_ids = list(cached_run["stale_summary_ids"])
                 if not stale_summary_ids:
-                    summary_runs.extend(cached_run["summary_runs"])
+                    summary_runs.extend(
+                        merge_summary_table_map_run(
+                            cached_run["summary_runs"],
+                            external_summary_run,
+                        )
+                    )
                     cached_prepared_run = existing_prepared_runs_by_key.get(run_key)
                     if cached_prepared_run is not None:
                         prepared_runs_by_key[run_key] = cached_prepared_run
