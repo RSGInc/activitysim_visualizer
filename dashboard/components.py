@@ -626,6 +626,7 @@ def data_table(
     height: int = 300,
     numeric_precision: int | None = 2,
     numeric_precision_by_column: dict[str, int] | None = None,
+    column_sorters: dict[str, str] | None = None,
 ) -> pn.viewable.Viewable:
     """
     Display a data table. If multiple runs, show side by side.
@@ -648,6 +649,17 @@ def data_table(
                         theme="simple",
                         titles=column_titles_for_display(display_df.columns),
                         show_index=False,
+                        configuration=(
+                            {
+                                "columns": [
+                                    {"field": str(column), "sorter": sorter}
+                                    for column, sorter in column_sorters.items()
+                                    if str(column) in display_df.columns
+                                ]
+                            }
+                            if column_sorters
+                            else {}
+                        ),
                     ),
                 )
             )
