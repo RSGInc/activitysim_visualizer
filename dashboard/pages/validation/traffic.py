@@ -6,13 +6,19 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart, data_table, scatter_chart, selector_row
-from dashboard.helpers.category_helpers import nonempty
+from dashboard.helpers.category_helpers import (
+    label_category_data,
+    label_category_frame,
+    nonempty,
+    raw_display_options,
+)
 from dashboard.helpers.comparison_helpers import (
     build_ab_comparison_row,
     build_ab_comparison_table,
 )
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
+from runtime.config import Config
 
 EXTERNAL_TIME_PERIODS = {
     "AM": "am_vol",
@@ -20,6 +26,8 @@ EXTERNAL_TIME_PERIODS = {
     "PM": "pm_vol",
     "Day": "day_vol",
 }
+
+FACILITY_TYPE_CATEGORY_ID = "facility_type"
 
 
 def validation_chart_data(
@@ -49,17 +57,29 @@ def validation_chart_data(
 
 def external_facility_options(
     *data_lists: list[tuple[str, pl.DataFrame]] | None,
-) -> list[str]:
-    values = {
-        str(value)
-        for data_list in data_lists
-        for _, df in nonempty(data_list or [])
-        for column in ("facility_type", "FACTYPE")
-        if column in df.columns
-        for value in df[column].drop_nulls().cast(pl.Utf8).to_list()
-        if str(value) != "All"
-    }
-    return ["All", *sorted(values, key=lambda value: (len(value), value))]
+    config: Config,
+) -> tuple[list[str], dict[str, str | None]]:
+    values: list[str] = []
+    seen: set[str] = set()
+    for data_list in data_lists:
+        for _, df in nonempty(data_list or []):
+            for column in ("facility_type", "FACTYPE"):
+                if column not in df.columns:
+                    continue
+                for value in df[column].drop_nulls().cast(pl.Utf8).to_list():
+                    value_str = str(value)
+                    if value_str == "All" or value_str in seen:
+                        continue
+                    values.append(value_str)
+                    seen.add(value_str)
+    ordered_values = config.ordered_values(FACILITY_TYPE_CATEGORY_ID, values)
+    return raw_display_options(
+        ordered_values,
+        category_id=FACILITY_TYPE_CATEGORY_ID,
+        config=config,
+        total_raw="All",
+        total_label="All",
+    )
 
 
 def _filter_facility(df: pl.DataFrame, facility_type: str) -> pl.DataFrame:
@@ -211,6 +231,7 @@ def external_link_aggregate_data(
     *,
     volume_col: str,
     facility_type: str,
+    config: Config,
 ) -> list[tuple[str, pl.DataFrame]]:
     out: list[tuple[str, pl.DataFrame]] = []
     for label, df in nonempty(link_list):
@@ -222,6 +243,13 @@ def external_link_aggregate_data(
             .group_by("FACTYPE")
             .agg(pl.col(volume_col).sum().alias("volume"))
             .sort("FACTYPE")
+        )
+        chart_df = label_category_frame(
+            chart_df,
+            source_col="FACTYPE",
+            category_id=FACILITY_TYPE_CATEGORY_ID,
+            config=config,
+            target_col="facility_type_label",
         )
         out.append((label, chart_df))
     return out
@@ -347,12 +375,13 @@ class TrafficValidationPage(DashboardPage):
         external_fit_list = self.state.get_summary_table_set(
             "external_count_location_fit", "weighted"
         )
-        facility_opts = external_facility_options(
+        facility_opts, self.external_facility_raw_by_label = external_facility_options(
             external_link_list,
             external_count_list,
             external_volume_list,
             external_scatter_list,
             external_fit_list,
+            config=self.config,
         )
         self.external_period_sel = self.selector(
             "external_period",
@@ -426,16 +455,22 @@ class TrafficValidationPage(DashboardPage):
         external_fit_list = self.state.get_summary_table_set(
             "external_count_location_fit", self.weighting_key
         )
-        facility_opts = external_facility_options(
+        facility_opts, self.external_facility_raw_by_label = external_facility_options(
             external_link_list,
             external_count_list,
             external_volume_list,
             external_scatter_list,
             external_fit_list,
+            config=self.config,
         )
         self.external_facility_sel.options = facility_opts
         if self.external_facility_sel.value not in facility_opts:
             self.external_facility_sel.value = facility_opts[0]
+
+    def selected_facility_type_raw(self) -> str:
+        selected = str(self.external_facility_sel.value)
+        raw_value = self.external_facility_raw_by_label.get(selected, selected)
+        return "All" if raw_value is None else str(raw_value)
 
     def render_validation_chart(
         self,
@@ -503,10 +538,16 @@ class TrafficValidationPage(DashboardPage):
             return []
         period = self.external_period_sel.value
         volume_col = EXTERNAL_TIME_PERIODS[str(period)]
-        facility_type = str(self.external_facility_sel.value)
+        facility_type = self.selected_facility_type_raw()
+        facility_label = str(self.external_facility_sel.value)
         top_period = self.external_top_period_sel.value
         top_volume_col = EXTERNAL_TIME_PERIODS[str(top_period)]
         top_n = int(self.external_top_n_sel.value)
+        facility_categoryarray = (
+            [facility_label]
+            if facility_type != "All"
+            else [option for option in self.external_facility_sel.options if option != "All"]
+        )
         section: list[pn.viewable.Viewable] = [
             pn.pane.Markdown("### Traffic Volume Summaries")
         ]
@@ -579,16 +620,18 @@ class TrafficValidationPage(DashboardPage):
                     link_list,
                     volume_col=volume_col,
                     facility_type=facility_type,
+                    config=self.config,
                 ),
             )
             section.append(
                 bar_chart(
                     aggregate_data,
-                    x_col="FACTYPE",
+                    x_col="facility_type_label",
                     y_col="volume",
                     title=f"Link Volume by Facility Type - {period}",
                     xaxis_title="Facility Type",
                     yaxis_title="Volume",
+                    xaxis_categoryarray=facility_categoryarray,
                 )
             )
         else:
@@ -602,13 +645,19 @@ class TrafficValidationPage(DashboardPage):
             volume_comparison = self.get_filtered_view(
                 "external_volume_comparison",
                 (top_period, facility_type, top_n),
-                factory=lambda: external_volume_comparison_table(
-                    count_list,
-                    volume_list,
-                    link_list=link_list,
-                    volume_col=top_volume_col,
-                    facility_type=facility_type,
-                    top_n=top_n,
+                factory=lambda: label_category_data(
+                    external_volume_comparison_table(
+                        count_list,
+                        volume_list,
+                        link_list=link_list,
+                        volume_col=top_volume_col,
+                        facility_type=facility_type,
+                        top_n=top_n,
+                    ),
+                    source_col="facility_type",
+                    category_id=FACILITY_TYPE_CATEGORY_ID,
+                    config=self.config,
+                    target_col="facility_type",
                 ),
             )
             section.append(
