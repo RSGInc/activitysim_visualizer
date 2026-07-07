@@ -22,6 +22,7 @@ _DEFAULT_RUN_COLORS = [
 RUN_COLORS = list(_DEFAULT_RUN_COLORS)
 RUN_LABEL_ORDER: list[str] = []
 _DISPLAY_PERCENT_MODE = False
+_BAR_HOVER_MODE = "closest"
 _DENSITY_HOVER_MODE = "closest"
 
 
@@ -55,11 +56,25 @@ def set_percent_mode(enabled: bool) -> None:
     _DISPLAY_PERCENT_MODE = bool(enabled)
 
 
-def set_density_hover_mode(mode: str | None) -> None:
-    global _DENSITY_HOVER_MODE
+def _normalized_hover_mode(mode: str | None) -> str:
     normalized = str(mode or "closest").strip().lower()
     if normalized not in {"closest", "all"}:
         normalized = "closest"
+    return normalized
+
+
+def set_bar_hover_mode(mode: str | None) -> None:
+    global _BAR_HOVER_MODE
+    _BAR_HOVER_MODE = _normalized_hover_mode(mode)
+
+
+def bar_hover_mode() -> str:
+    return _BAR_HOVER_MODE
+
+
+def set_density_hover_mode(mode: str | None) -> None:
+    global _DENSITY_HOVER_MODE
+    normalized = _normalized_hover_mode(mode)
     _DENSITY_HOVER_MODE = normalized
 
 
@@ -208,6 +223,8 @@ def bar_chart(
         height,
         barmode=barmode,
     )
+    if bar_hover_mode() == "all":
+        fig.update_layout(hovermode="x unified")
     if showlegend is not None:
         fig.update_layout(showlegend=showlegend)
     final_category_order = xaxis_categoryarray or category_order

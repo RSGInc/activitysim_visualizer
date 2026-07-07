@@ -14,6 +14,7 @@ from dashboard.components import (
     column_titles_for_display,
     data_table,
     density_chart,
+    set_bar_hover_mode,
     set_density_hover_mode,
 )
 from dashboard.helpers.category_helpers import (
@@ -409,6 +410,7 @@ def test_column_titles_for_display_humanizes_machine_column_names() -> None:
 
 
 def test_bar_chart_omits_pct_hover_lines() -> None:
+    set_bar_hover_mode("closest")
     chart = bar_chart(
         [
             (
@@ -432,6 +434,20 @@ def test_bar_chart_omits_pct_hover_lines() -> None:
 
     assert "Pct:" not in hover[0]
     assert "Pct:" not in hover[1]
+    assert chart.object.layout.hovermode != "x unified"
+
+
+def test_bar_chart_uses_configured_all_series_hover_mode() -> None:
+    data = [
+        ("Base", pl.DataFrame({"mode": ["Walk", "Bike"], "trip_count": [5.0, 1.0]})),
+        ("Build", pl.DataFrame({"mode": ["Walk", "Bike"], "trip_count": [7.0, 0.5]})),
+    ]
+
+    set_bar_hover_mode("all")
+    all_hover_chart = bar_chart(data, x_col="mode", y_col="trip_count")
+    set_bar_hover_mode("closest")
+
+    assert all_hover_chart.object.layout.hovermode == "x unified"
 
 
 def test_density_chart_uses_configured_all_series_hover_mode() -> None:

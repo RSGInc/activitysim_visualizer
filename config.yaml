@@ -219,6 +219,8 @@ dashboard:
     #           enabled: false
 
 display:
+  # bar_hover_mode: all # closest | all
+  # density_hover_mode: all # closest | all
   labels:
     person_type:
       mapping:

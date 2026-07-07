@@ -323,6 +323,7 @@ class Config:
     enable_maz_geographies: bool
     run_colors: list[str]
     missing_data_display: str
+    bar_hover_mode: Literal["closest", "all"]
     density_hover_mode: Literal["closest", "all"]
     summary_root: str
     weighting_modes: list[str]
