@@ -422,15 +422,26 @@ class TrafficValidationPage(DashboardPage):
             ),
             label="Top Count Locations",
         )
-        self._body = self.section(
-            "traffic_body",
+        self._external_volume_body = self.section(
+            "traffic_volume_body",
             selectors=(
                 "external_period",
+                "external_facility_type",
+            ),
+            render=self.render_external_traffic_section,
+        )
+        self._external_top_body = self.section(
+            "traffic_top_count_body",
+            selectors=(
                 "external_facility_type",
                 "external_top_period",
                 "external_top_n",
             ),
-            render=self.render_body,
+            render=self.render_external_top_count_section,
+        )
+        self._screenline_body = self.section(
+            "screenline_flow_body",
+            render=self.render_screenline_flow_section,
         )
         return self.new_section(
             pn.pane.Markdown("## Traffic Validation"),
@@ -438,7 +449,11 @@ class TrafficValidationPage(DashboardPage):
                 self.external_period_sel,
                 self.external_facility_sel,
             ),
-            self._body,
+            self._external_volume_body,
+            selector_row(self.external_top_period_sel, self.external_top_n_sel),
+            self._external_top_body,
+            pn.pane.Markdown("### Screenline Flow Summaries"),
+            self._screenline_body,
             sizing_mode="stretch_width",
         )
 
@@ -502,13 +517,11 @@ class TrafficValidationPage(DashboardPage):
             yaxis_title="Modeled Traffic Volume",
         )
 
-    def render_body(self):
+    def render_screenline_flow_section(self):
         if not self.state.run_labels:
             return [self.no_runs_message()]
 
-        content = self.render_external_traffic_section()
-        content.append(pn.pane.Markdown("### Screenline Flow Summaries"))
-        content.append(
+        return [
             self.render_validation_chart(
                 self.state.get_summary_table_set(
                     "screenline_flow_comparisons", self.weighting_key
@@ -518,10 +531,12 @@ class TrafficValidationPage(DashboardPage):
                 detail="Screenline flow comparisons are unavailable.",
                 missing_summary_id="screenline_flow_comparisons",
             )
-        )
-        return content
+        ]
 
     def render_external_traffic_section(self) -> list[pn.viewable.Viewable]:
+        if not self.state.run_labels:
+            return [self.no_runs_message()]
+
         link_list = self.state.get_summary_table_set(
             "external_link_summary", self.weighting_key
         )
@@ -543,9 +558,6 @@ class TrafficValidationPage(DashboardPage):
         volume_col = EXTERNAL_TIME_PERIODS[str(period)]
         facility_type = self.selected_facility_type_raw()
         facility_label = str(self.external_facility_sel.value)
-        top_period = self.external_top_period_sel.value
-        top_volume_col = EXTERNAL_TIME_PERIODS[str(top_period)]
-        top_n = int(self.external_top_n_sel.value)
         facility_categoryarray = (
             [facility_label]
             if facility_type != "All"
@@ -644,6 +656,29 @@ class TrafficValidationPage(DashboardPage):
                     missing_items=["external_link_summary"],
                 )
             )
+        return section
+
+    def render_external_top_count_section(self) -> list[pn.viewable.Viewable]:
+        if not self.state.run_labels:
+            return [self.no_runs_message()]
+
+        link_list = self.state.get_summary_table_set(
+            "external_link_summary", self.weighting_key
+        )
+        count_list = self.state.get_summary_table_set(
+            "external_count_location_counts", self.weighting_key
+        )
+        volume_list = self.state.get_summary_table_set(
+            "external_count_location_volumes", self.weighting_key
+        )
+        if not any((link_list, count_list, volume_list)):
+            return []
+
+        facility_type = self.selected_facility_type_raw()
+        top_period = self.external_top_period_sel.value
+        top_volume_col = EXTERNAL_TIME_PERIODS[str(top_period)]
+        top_n = int(self.external_top_n_sel.value)
+
         if count_list is not None and volume_list is not None:
             volume_comparison = self.get_filtered_view(
                 "external_volume_comparison",
@@ -663,21 +698,17 @@ class TrafficValidationPage(DashboardPage):
                     target_col="facility_type",
                 ),
             )
-            section.append(
-                pn.Column(
-                    pn.pane.Markdown(
-                        f"### Top Count Location Observed vs Modeled Volumes - {top_period}"
-                    ),
-                    selector_row(self.external_top_period_sel, self.external_top_n_sel),
-                    data_table(
-                        volume_comparison,
-                        column_sorters={"RMSE": "number"},
-                    ),
-                    sizing_mode="stretch_width",
+            return [
+                pn.pane.Markdown(
+                    f"### Top Count Location Observed vs Modeled Volumes - {top_period}"
                 ),
-            )
-        elif link_list is not None:
-            section.append(
+                data_table(
+                    volume_comparison,
+                    column_sorters={"RMSE": "number"},
+                ),
+            ]
+        if link_list is not None:
+            return [
                 self.data_not_available_card(
                     detail="External count-location counts and volumes are both required for this comparison table.",
                     missing_items=[
@@ -685,8 +716,8 @@ class TrafficValidationPage(DashboardPage):
                         "external_count_location_volumes",
                     ],
                 )
-            )
-        return section
+            ]
+        return []
 
 
 PAGE = DashboardPageDefinition(

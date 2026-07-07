@@ -162,6 +162,24 @@ class DashboardPage:
     def sync_controls(self) -> None:
         """Update selector options/values before rendering dirty sections."""
 
+    def export_ignored_selectors(
+        self,
+        section_id: str,
+        selected_values: dict[str, str],
+    ) -> set[str]:
+        """Return selectors ignored by one export section state."""
+        return set()
+
+    def export_canonical_selector_value(
+        self,
+        section_id: str,
+        selector_id: str,
+        value: str,
+        selected_values: dict[str, str],
+    ) -> str:
+        """Return the canonical value for one selector during export enumeration."""
+        return value
+
     def on_global_state_changed(self) -> None:
         """Hook for page-local cache invalidation on global dashboard state changes."""
 

@@ -51,6 +51,14 @@
     if (node.variants && Object.prototype.hasOwnProperty.call(node.variants, variantLookupKey)) {
       return node.variants[variantLookupKey];
     }
+    if (
+      node.variant_aliases
+      && Object.prototype.hasOwnProperty.call(node.variant_aliases, variantLookupKey)
+      && node.variants
+      && Object.prototype.hasOwnProperty.call(node.variants, node.variant_aliases[variantLookupKey])
+    ) {
+      return node.variants[node.variant_aliases[variantLookupKey]];
+    }
     // Falling back to default_content is expected when Python intentionally
     // emitted a default snapshot for unmatched selector combinations. If that
     // was not intended, this usually indicates payload/schema drift.

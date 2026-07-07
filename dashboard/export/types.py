@@ -135,6 +135,7 @@ class RegionNode(TypedDict):
     default_key: str
     default_content: "ExportNode"
     variants: dict[str, "ExportNode"]
+    variant_aliases: dict[str, str]
 
 
 ExportNode = (

@@ -143,6 +143,38 @@ class MandatoryLocationChoicePage(DashboardPage):
         raw_value = self._geography_raw_by_label.get(selected, selected)
         return ALL_WITHIN_LEVEL_VALUE if raw_value is None else str(raw_value)
 
+    def export_canonical_selector_value(
+        self,
+        section_id: str,
+        selector_id: str,
+        value: str,
+        selected_values: dict[str, str],
+    ) -> str:
+        if selector_id != "geography":
+            return value
+
+        selected_geo_level = selected_values.get("geography_level")
+        raw_geo_level = self._geo_level_raw_by_label.get(
+            str(selected_geo_level),
+            selected_geo_level,
+        )
+        raw_geo_level = (
+            ALL_GEOGRAPHY_TYPES_VALUE if raw_geo_level is None else str(raw_geo_level)
+        )
+        geography_opts_by_level = self._current_data.get("geography_opts_by_level", {})
+        _, raw_by_label = geography_opts_by_level.get(
+            raw_geo_level,
+            ([ALL_WITHIN_LEVEL_VALUE], {ALL_WITHIN_LEVEL_VALUE: ALL_WITHIN_LEVEL_VALUE}),
+        )
+        raw_geography = self._geography_raw_by_label.get(value, value)
+        raw_geography = (
+            ALL_WITHIN_LEVEL_VALUE if raw_geography is None else str(raw_geography)
+        )
+        valid_values = {str(raw) for raw in raw_by_label.values() if raw is not None}
+        if raw_geography in valid_values:
+            return value
+        return ALL_WITHIN_LEVEL_VALUE
+
     def _selected_geography(self) -> tuple[str, str]:
         """Return the effective geography selection, honoring export-mode flattening."""
         geo_level = self.selected_geography_level_raw()

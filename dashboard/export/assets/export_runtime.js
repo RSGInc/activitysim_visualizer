@@ -858,40 +858,31 @@
       const titleText = typeof titleValue === "string"
         ? titleValue
         : (titleValue && titleValue.text) || "";
-      return slugifyFilenameBase(titleText) + ".csv";
+      const yaxis = layout && layout.yaxis ? layout.yaxis : {};
+      const yaxisTitle = yaxis && yaxis.title;
+      const yaxisTitleText = typeof yaxisTitle === "string"
+        ? yaxisTitle
+        : (yaxisTitle && yaxisTitle.text) || "";
+      const valueMode = /percent|\(%\)/i.test(String(yaxisTitleText))
+        ? "percent"
+        : "count";
+      return slugifyFilenameBase(titleText) + "-" + valueMode + ".csv";
     }
 
     function buildTraceCsvRows(gd) {
-      const rows = [[
-        "trace_index",
-        "trace_name",
-        "trace_type",
-        "point_index",
-        "x",
-        "y",
-        "text",
-        "customdata",
-      ]];
+      const rows = [["run_name", "x", "y"]];
       const traces = gd && Array.isArray(gd.data) ? gd.data : [];
       traces.forEach((trace, traceIndex) => {
         const pointCount = Math.max(
           getTraceFieldLength(trace && trace.x),
-          getTraceFieldLength(trace && trace.y),
-          getTraceFieldLength(trace && trace.text),
-          getTraceFieldLength(trace && trace.customdata)
+          getTraceFieldLength(trace && trace.y)
         );
         const traceName = trace && trace.name ? trace.name : "trace_" + String(traceIndex + 1);
-        const traceType = trace && trace.type ? trace.type : "";
         for (let pointIndex = 0; pointIndex < pointCount; pointIndex += 1) {
           rows.push([
-            traceIndex,
             traceName,
-            traceType,
-            pointIndex,
             getTraceFieldValue(trace && trace.x, pointIndex),
             getTraceFieldValue(trace && trace.y, pointIndex),
-            getTraceFieldValue(trace && trace.text, pointIndex),
-            getTraceFieldValue(trace && trace.customdata, pointIndex),
           ]);
         }
       });
@@ -1327,6 +1318,14 @@
     const variantLookupKey = buildRegionVariantKey(selectorValues);
     if (node.variants && Object.prototype.hasOwnProperty.call(node.variants, variantLookupKey)) {
       return node.variants[variantLookupKey];
+    }
+    if (
+      node.variant_aliases
+      && Object.prototype.hasOwnProperty.call(node.variant_aliases, variantLookupKey)
+      && node.variants
+      && Object.prototype.hasOwnProperty.call(node.variants, node.variant_aliases[variantLookupKey])
+    ) {
+      return node.variants[node.variant_aliases[variantLookupKey]];
     }
     // Falling back to default_content is expected when Python intentionally
     // emitted a default snapshot for unmatched selector combinations. If that

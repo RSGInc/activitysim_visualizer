@@ -792,6 +792,24 @@ class VMTValidationPage(DashboardPage):
         raw_value = self.personal_vmt_geo_type_raw_by_label.get(selected, selected)
         return ALL_GEOGRAPHY_TYPES_VALUE if raw_value is None else str(raw_value)
 
+    def export_ignored_selectors(
+        self,
+        section_id: str,
+        selected_values: dict[str, str],
+    ) -> set[str]:
+        if section_id != "personal_auto_vmt_body":
+            return set()
+
+        breakdown = selected_values.get("personal_auto_vmt_breakdown")
+        if breakdown == "Home Geography":
+            return {"personal_auto_vmt_geography"}
+        if breakdown:
+            return {
+                "personal_auto_vmt_geography_type",
+                "personal_auto_vmt_geography",
+            }
+        return set()
+
     def selected_personal_vmt_geography_raw(self) -> str:
         selected = str(self.personal_vmt_geography_sel.value)
         raw_value = self.personal_vmt_geo_raw_by_label.get(selected, selected)
