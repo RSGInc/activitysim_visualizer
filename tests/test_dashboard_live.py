@@ -279,7 +279,7 @@ def test_external_traffic_helpers_filter_period_and_facility_type() -> None:
     )
     assert comparison[0][1].to_dicts() == [
         {
-            "id": 2,
+            "link_id": 2,
             "facility_type": "4",
             "From_Node": 101,
             "To_Node": 201,
@@ -297,7 +297,34 @@ def test_external_traffic_helpers_filter_period_and_facility_type() -> None:
         top_n=10,
     )
     assert comparison_without_metadata[0][1].columns == [
-        "id",
+        "link_id",
+        "facility_type",
+        "Observed Link Volume",
+        "Modeled Link Volume",
+        "% Diff",
+        "RMSE",
+    ]
+    comparison_with_empty_metadata = external_volume_comparison_table(
+        counts,
+        volumes,
+        link_list=[
+            (
+                "Run",
+                pl.DataFrame(
+                    {
+                        "id": [1, 2],
+                        "From_Node": [None, None],
+                        "To_Node": [None, None],
+                    }
+                ),
+            )
+        ],
+        volume_col="day_vol",
+        facility_type="4",
+        top_n=10,
+    )
+    assert comparison_with_empty_metadata[0][1].columns == [
+        "link_id",
         "facility_type",
         "Observed Link Volume",
         "Modeled Link Volume",
@@ -396,7 +423,7 @@ def test_external_vmt_helper_reshapes_wide_tod_table() -> None:
 def test_personal_auto_vmt_helper_aggregates_time_period_with_filters() -> None:
     data = [
         (
-            "Run",
+            "Period Run",
             pl.DataFrame(
                 {
                     "geography_type": ["all_geographies"] * 4,
@@ -408,7 +435,21 @@ def test_personal_auto_vmt_helper_aggregates_time_period_with_filters() -> None:
                     "trip_count": [2.0, 1.0, 9.0, 1.0],
                 }
             ),
-        )
+        ),
+        (
+            "Daily Run",
+            pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies"],
+                    "geography_id": ["all_geographies"],
+                    "income_segment": ["low"],
+                    "household_size": ["1"],
+                    "time_period": ["Daily"],
+                    "auto_vmt": [7.0],
+                    "trip_count": [2.0],
+                }
+            ),
+        ),
     ]
 
     chart_data = personal_auto_vmt_chart_data(
@@ -421,11 +462,204 @@ def test_personal_auto_vmt_helper_aggregates_time_period_with_filters() -> None:
         household_size="All",
     )
 
-    assert chart_data[0][1].to_dicts() == [
+    assert chart_data[0][1].select("category", "auto_vmt", "trip_count").to_dicts() == [
         {"category": "EA", "auto_vmt": 3.0, "trip_count": 1.0},
         {"category": "AM", "auto_vmt": 10.0, "trip_count": 2.0},
         {"category": "PM", "auto_vmt": 5.0, "trip_count": 1.0},
     ]
+    assert chart_data[1][1].select("category", "auto_vmt", "trip_count").to_dicts() == [
+        {"category": "Daily", "auto_vmt": 7.0, "trip_count": 2.0},
+    ]
+
+
+def test_personal_auto_vmt_time_period_percent_uses_daily_total() -> None:
+    chart_data = personal_auto_vmt_chart_data(
+        [
+            (
+                "Run",
+                pl.DataFrame(
+                    {
+                        "geography_type": ["all_geographies"] * 3,
+                        "geography_id": ["all_geographies"] * 3,
+                        "income_segment": ["low"] * 3,
+                        "household_size": ["1"] * 3,
+                        "time_period": ["AM", "PM", "Daily"],
+                        "auto_vmt": [10.0, 5.0, 15.0],
+                        "trip_count": [2.0, 1.0, 3.0],
+                    }
+                ),
+            )
+        ],
+        breakdown="Time Period",
+        geography_type="all_geographies",
+        geography_id="all_geographies",
+        time_period="All",
+        income_segment="low",
+        household_size="1",
+    )
+
+    rows = chart_data[0][1].select("category", "auto_vmt_percent").to_dicts()
+    assert rows == [
+        {"category": "AM", "auto_vmt_percent": pytest.approx(66.6666666667)},
+        {"category": "PM", "auto_vmt_percent": pytest.approx(33.3333333333)},
+        {"category": "Daily", "auto_vmt_percent": 100.0},
+    ]
+
+
+def test_personal_auto_vmt_all_time_period_filter_prefers_daily_totals() -> None:
+    chart_data = personal_auto_vmt_chart_data(
+        [
+            (
+                "Run",
+                pl.DataFrame(
+                    {
+                        "geography_type": ["all_geographies"] * 3,
+                        "geography_id": ["all_geographies"] * 3,
+                        "income_segment": ["low"] * 3,
+                        "household_size": ["1"] * 3,
+                        "time_period": ["AM", "PM", "Daily"],
+                        "auto_vmt": [10.0, 5.0, 15.0],
+                        "trip_count": [2.0, 1.0, 3.0],
+                    }
+                ),
+            )
+        ],
+        breakdown="Income Segment",
+        geography_type="all_geographies",
+        geography_id="all_geographies",
+        time_period="All",
+        income_segment="All",
+        household_size="1",
+    )
+
+    assert chart_data[0][1].to_dicts() == [
+        {"category": "low", "auto_vmt": 15.0, "trip_count": 3.0},
+    ]
+
+
+def test_personal_auto_vmt_helper_breaks_down_by_mode() -> None:
+    chart_data = personal_auto_vmt_chart_data(
+        [
+            (
+                "Run",
+                pl.DataFrame(
+                    {
+                        "geography_type": ["all_geographies"] * 4,
+                        "geography_id": ["all_geographies"] * 4,
+                        "income_segment": ["low"] * 4,
+                        "household_size": ["1"] * 4,
+                        "time_period": ["AM", "Daily", "AM", "Daily"],
+                        "mode": ["SOV", "SOV", "HOV2", "HOV2"],
+                        "auto_vmt": [10.0, 10.0, 3.0, 3.0],
+                        "trip_count": [1.0, 1.0, 1.0, 1.0],
+                    }
+                ),
+            )
+        ],
+        breakdown="Mode",
+        geography_type="all_geographies",
+        geography_id="all_geographies",
+        time_period="All",
+        income_segment="low",
+        household_size="1",
+    )
+
+    assert chart_data[0][1].to_dicts() == [
+        {"category": "SOV", "auto_vmt": 10.0, "trip_count": 1.0},
+        {"category": "HOV2", "auto_vmt": 3.0, "trip_count": 1.0},
+    ]
+
+
+def test_personal_auto_vmt_helper_filters_by_mode() -> None:
+    chart_data = personal_auto_vmt_chart_data(
+        [
+            (
+                "Run",
+                pl.DataFrame(
+                    {
+                        "geography_type": ["all_geographies"] * 4,
+                        "geography_id": ["all_geographies"] * 4,
+                        "income_segment": ["low", "low", "high", "high"],
+                        "household_size": ["1"] * 4,
+                        "time_period": ["Daily"] * 4,
+                        "mode": ["SOV", "HOV2", "SOV", "HOV2"],
+                        "auto_vmt": [10.0, 3.0, 20.0, 7.0],
+                        "trip_count": [1.0, 1.0, 2.0, 2.0],
+                    }
+                ),
+            )
+        ],
+        breakdown="Income Segment",
+        geography_type="all_geographies",
+        geography_id="all_geographies",
+        time_period="Daily",
+        mode="HOV2",
+        income_segment="All",
+        household_size="1",
+    )
+
+    assert chart_data[0][1].to_dicts() == [
+        {"category": "high", "auto_vmt": 7.0, "trip_count": 2.0},
+        {"category": "low", "auto_vmt": 3.0, "trip_count": 1.0},
+    ]
+
+
+def test_vmt_page_labels_personal_auto_modes_from_display_config(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "display:",
+            "  labels:",
+            "    mode:",
+            "      mapping:",
+            "        SOV: Drive Alone",
+            "        HOV2: Shared Ride 2",
+            "        TAXI: Taxi",
+        ],
+    )
+    personal_vmt = pl.DataFrame(
+        {
+            "geography_type": ["all_geographies"] * 3,
+            "geography_id": ["all_geographies"] * 3,
+            "income_segment": ["low"] * 3,
+            "household_size": ["1"] * 3,
+            "time_period": ["Daily"] * 3,
+            "mode": ["SOV", "HOV2", "TAXI"],
+            "auto_vmt": [10.0, 3.0, 4.0],
+            "trip_count": [1.0, 1.0, 1.0],
+            "distance_source": ["od_dist"] * 3,
+            "time_period_source": ["trip_period"] * 3,
+        }
+    )
+    summary_run = create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode={
+            "weighted": {PERSONAL_AUTO_VMT_SUMMARY_ID: personal_vmt},
+            "unweighted": {PERSONAL_AUTO_VMT_SUMMARY_ID: personal_vmt},
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = VMTValidationPage(state, config)
+    page.refresh(force=True)
+
+    assert list(page.personal_vmt_mode_sel.options) == [
+        "All",
+        "Drive Alone",
+        "Shared Ride 2",
+        "Taxi",
+    ]
+    page.personal_vmt_breakdown_sel.value = "Income Segment"
+    page.personal_vmt_mode_sel.value = "Taxi"
+    page.refresh(force=True)
+
+    assert page.selected_personal_vmt_mode_raw() == "TAXI"
 
 
 def test_personal_auto_vmt_helper_ignores_active_breakdown_selector() -> None:
@@ -531,6 +765,7 @@ def test_vmt_page_disables_active_personal_auto_vmt_filter_selector(
             "income_segment": ["low", "high"],
             "household_size": ["1", "2"],
             "time_period": ["AM", "PM"],
+            "mode": ["SOV", "HOV2"],
             "auto_vmt": [10.0, 20.0],
             "trip_count": [1.0, 2.0],
             "distance_source": ["skim_auto_distance", "skim_auto_distance"],
@@ -554,6 +789,7 @@ def test_vmt_page_disables_active_personal_auto_vmt_filter_selector(
     page.refresh(force=True)
 
     assert page.personal_vmt_time_period_sel.disabled is True
+    assert page.personal_vmt_mode_sel.disabled is False
     assert page.personal_vmt_income_segment_sel.disabled is False
     assert page.personal_vmt_household_size_sel.disabled is False
 
@@ -561,8 +797,18 @@ def test_vmt_page_disables_active_personal_auto_vmt_filter_selector(
     page.refresh(force=True)
 
     assert page.personal_vmt_time_period_sel.disabled is False
+    assert page.personal_vmt_mode_sel.disabled is False
     assert page.personal_vmt_income_segment_sel.disabled is True
     assert page.personal_vmt_income_segment_sel.value == "All"
+    assert page.personal_vmt_household_size_sel.disabled is False
+
+    page.personal_vmt_breakdown_sel.value = "Mode"
+    page.refresh(force=True)
+
+    assert page.personal_vmt_time_period_sel.disabled is False
+    assert page.personal_vmt_mode_sel.disabled is True
+    assert page.personal_vmt_mode_sel.value == "All"
+    assert page.personal_vmt_income_segment_sel.disabled is False
     assert page.personal_vmt_household_size_sel.disabled is False
 
 

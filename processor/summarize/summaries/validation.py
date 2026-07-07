@@ -17,6 +17,7 @@ LOGGER = get_logger("processor.summarize.validation")
 ALL_GEOGRAPHIES = "all_geographies"
 ALL_INCOME_SEGMENTS = "all_income_segments"
 ALL_HOUSEHOLD_SIZES = "all_household_sizes"
+ALL_AUTO_MODES = "All Auto"
 DAILY_TIME_PERIOD = "Daily"
 
 
@@ -416,7 +417,7 @@ def _auto_mode_filter(config: Config | None) -> pl.Expr:
         pl.col("trip_mode")
         .cast(pl.Utf8)
         .str.to_uppercase()
-        .str.contains("DRIVE|SHARED|SOV|HOV|AUTO")
+        .str.contains("DRIVE|SHARED|SOV|HOV|AUTO|TAXI|TNC")
     )
 
 
@@ -578,9 +579,9 @@ def _aggregate_vmt_for_geography(
     if working.is_empty():
         return empty_summary_frame(auto_vmt_by_home_geography_income_hhsize_time_period)
 
-    return (
+    aggregated = (
         working.group_by(
-            ["_geography_id", "income_segment", "household_size", "time_period"]
+            ["_geography_id", "income_segment", "household_size", "time_period", "mode"]
         )
         .agg(
             pl.col("auto_vmt").sum().alias("auto_vmt"),
@@ -598,12 +599,57 @@ def _aggregate_vmt_for_geography(
             "income_segment",
             "household_size",
             "time_period",
+            "mode",
             "auto_vmt",
             "trip_count",
             "distance_source",
             "time_period_source",
         )
     )
+    return _with_derived_daily_vmt_rows(aggregated)
+
+
+def _with_derived_daily_vmt_rows(df: pl.DataFrame) -> pl.DataFrame:
+    """Add a Daily total for segment groups that have time-period rows."""
+    if df.is_empty() or "time_period" not in df.columns:
+        return df
+
+    group_cols = [
+        "geography_type",
+        "geography_id",
+        "income_segment",
+        "household_size",
+        "mode",
+        "distance_source",
+        "time_period_source",
+    ]
+    if not set(group_cols).issubset(df.columns):
+        return df
+
+    non_daily = df.filter(pl.col("time_period") != DAILY_TIME_PERIOD)
+    if non_daily.is_empty():
+        return df
+
+    groups_with_period_rows = non_daily.select(group_cols).unique()
+    daily_only_rows = (
+        df.filter(pl.col("time_period") == DAILY_TIME_PERIOD)
+        .join(groups_with_period_rows, on=group_cols, how="anti")
+    )
+    derived_daily_rows = (
+        df.join(groups_with_period_rows, on=group_cols, how="inner")
+        .group_by(group_cols)
+        .agg(
+            pl.col("auto_vmt").sum().alias("auto_vmt"),
+            pl.col("trip_count").sum().alias("trip_count"),
+        )
+        .with_columns(pl.lit(DAILY_TIME_PERIOD).alias("time_period"))
+        .select(df.columns)
+    )
+
+    return pl.concat(
+        [non_daily, daily_only_rows, derived_daily_rows],
+        how="vertical",
+    ).select(df.columns)
 
 
 @summary_contract(
@@ -613,6 +659,7 @@ def _aggregate_vmt_for_geography(
         "income_segment": pl.Utf8,
         "household_size": pl.Utf8,
         "time_period": pl.Utf8,
+        "mode": pl.Utf8,
         "auto_vmt": pl.Float64,
         "trip_count": pl.Float64,
         "distance_source": pl.Utf8,
@@ -688,6 +735,11 @@ def auto_vmt_by_home_geography_income_hhsize_time_period(
             .fill_null(ALL_HOUSEHOLD_SIZES)
             .alias("household_size"),
             (
+                pl.col("trip_mode").cast(pl.Utf8).fill_null(ALL_AUTO_MODES)
+                if "trip_mode" in base.columns
+                else pl.lit(ALL_AUTO_MODES)
+            ).alias("mode"),
+            (
                 pl.col("_vmt_distance")
                 * pl.col("finalweight").cast(pl.Float64)
                 / occupancy_expr
@@ -739,6 +791,7 @@ def auto_vmt_by_home_geography_income_hhsize_time_period(
             pl.col("income_segment").cast(pl.Utf8),
             pl.col("household_size").cast(pl.Utf8),
             pl.col("time_period").cast(pl.Utf8),
+            pl.col("mode").cast(pl.Utf8),
             pl.col("auto_vmt").cast(pl.Float64),
             pl.col("trip_count").cast(pl.Float64),
             pl.col("distance_source").cast(pl.Utf8),
@@ -750,6 +803,7 @@ def auto_vmt_by_home_geography_income_hhsize_time_period(
                 "geography_id",
                 "income_segment",
                 "household_size",
+                "mode",
                 "time_period",
             ]
         )

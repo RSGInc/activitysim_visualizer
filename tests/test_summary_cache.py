@@ -4486,7 +4486,7 @@ def test_mandatory_location_choice_reuses_collected_data_on_selector_changes(
     assert call_count == 1
 
 
-def test_traffic_validation_shared_selectors_use_common_summary_options(
+def test_traffic_validation_removes_direction_period_selectors_and_count_card(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -4521,14 +4521,41 @@ def test_traffic_validation_shared_selectors_use_common_summary_options(
     page = TrafficValidationPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.direction_sel.options) == ["All", "outbound"]
-    assert list(page.count_period_sel.options) == ["All", "AM"]
+    assert [selector.selector_id for selector in page.registered_selectors] == [
+        "external_period",
+        "external_facility_type",
+        "external_top_period",
+        "external_top_n",
+    ]
+    assert page.external_period_sel.name == "Period"
+    assert page.external_top_period_sel.name == "Period"
+    assert not hasattr(page, "direction_sel")
+    assert not hasattr(page, "count_period_sel")
+    assert list(page.view.objects[1].objects) == [
+        page.external_period_sel,
+        page.external_facility_sel,
+    ]
+    assert page._body.objects[0].object == "### Screenline Flow Summaries"
+    plot_titles = [
+        plot.object.layout.title.text for plot in _collect_plotly_panes(page._body)
+    ]
+    assert plot_titles == ["Screenline Flow Comparisons"]
 
 
 def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
     tmp_path: Path,
 ) -> None:
-    config = _write_config(tmp_path)
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "display:",
+            "  labels:",
+            "    facility_type:",
+            "      mapping:",
+            "        4: Minor Arterial",
+            "        3: Principal Arterial",
+        ],
+    )
     summary_run = _summary_run_with_tables(
         label="Base",
         weighted={
@@ -4591,7 +4618,13 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
 
     page = TrafficValidationPage(state, config)
     page.refresh(force=True)
-    page.external_facility_sel.value = "3"
+    assert list(page.external_facility_sel.options) == [
+        "All",
+        "Minor Arterial",
+        "Principal Arterial",
+    ]
+    page.external_period_sel.value = "AM"
+    page.external_facility_sel.value = "Principal Arterial"
     page.refresh(force=True)
 
     tables = _collect_tabulators(page._body)
@@ -4600,7 +4633,7 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
     assert list(tabs[-1]._names) == ["Base"]
     table = tables[0].value
     assert table.columns.tolist() == [
-        "id",
+        "link_id",
         "facility_type",
         "From_Node",
         "To_Node",
@@ -4609,10 +4642,11 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
         "% Diff",
         "RMSE",
     ]
+    assert tables[0].titles["link_id"] == "Link ID"
     assert table.to_dict("records") == [
         {
-            "id": "1",
-            "facility_type": "3",
+            "link_id": "1",
+            "facility_type": "Principal Arterial",
             "From_Node": "100",
             "To_Node": "200",
             "Observed Link Volume": "100",
@@ -4621,6 +4655,44 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
             "RMSE": "10",
         }
     ]
+    assert tables[0]._configuration == {
+        "columns": [{"field": "RMSE", "sorter": "number"}]
+    }
+    assert list(page.view.objects[1].objects) == [
+        page.external_period_sel,
+        page.external_facility_sel,
+    ]
+    assert page._body.objects[0].object == "### Traffic Volume Summaries"
+    assert page._body.objects[-2].object == "### Screenline Flow Summaries"
+    top_count_section = next(
+        obj
+        for obj in page._body.objects
+        if isinstance(obj, pn.Column)
+        and obj.objects
+        and isinstance(obj.objects[0], pn.pane.Markdown)
+        and obj.objects[0].object.startswith("### Top Count Location")
+    )
+    assert (
+        top_count_section.objects[0].object
+        == "### Top Count Location Observed vs Modeled Volumes - Day"
+    )
+    assert top_count_section.objects[1].objects == [
+        page.external_top_period_sel,
+        page.external_top_n_sel,
+    ]
+    plot_titles = [
+        plot.object.layout.title.text for plot in _collect_plotly_panes(page._body)
+    ]
+    bar_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._body)
+        if plot.object.layout.title.text == "Link Volume by Facility Type - AM"
+    )
+    assert list(bar_plot.object.data[0].x) == ["Principal Arterial"]
+    assert plot_titles[-1] == "Screenline Flow Comparisons"
+    assert "Traffic Count Comparisons" not in plot_titles
+    assert "External Link Volume by Facility Type - Day" not in plot_titles
+    assert "Link Volume by Facility Type - AM" in plot_titles
 
 
 def test_transit_validation_technology_selector_uses_common_summary_options(

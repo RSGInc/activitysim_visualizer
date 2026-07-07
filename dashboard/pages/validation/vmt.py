@@ -7,7 +7,12 @@ import polars as pl
 import plotly.graph_objects as go
 
 from dashboard.components import bar_chart, data_table, selector_row
-from dashboard.helpers.category_helpers import column_value_union, nonempty
+from dashboard.helpers.category_helpers import (
+    column_value_union,
+    label_category_data,
+    nonempty,
+    raw_display_options,
+)
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
@@ -54,20 +59,79 @@ PERSONAL_AUTO_VMT_REQUIRED_COLUMNS = (
     "distance_source",
     "time_period_source",
 )
+PERSONAL_AUTO_VMT_ALL_MODES = "All Auto"
+PERSONAL_AUTO_VMT_MODE_CATEGORY_ID = "mode"
 PERSONAL_AUTO_VMT_BREAKDOWN_COLUMNS = {
     "Time Period": "time_period",
+    "Mode": "mode",
     "Income Segment": "income_segment",
     "Household Size": "household_size",
     "Home Geography": "geography_id",
 }
 PERSONAL_AUTO_VMT_BREAKDOWN_AXIS_TITLES = {
     "Time Period": "Time Period",
+    "Mode": "Mode",
     "Income Segment": "Income Segment",
     "Household Size": "Household Size",
     "Home Geography": "Home Geography",
 }
 PERSONAL_AUTO_VMT_TIME_ORDER = ["EA", "AM", "MD", "PM", "EV", "EV1", "EV2", "Daily"]
+PERSONAL_AUTO_VMT_MODE_ORDER = ["SOV", "HOV2", "HOV3"]
 PERSONAL_AUTO_VMT_TOP_GEOGRAPHIES = 25
+
+
+def _prefer_daily_rows_for_all_time_periods(
+    df: pl.DataFrame,
+    *,
+    breakdown_col: str,
+    selected_time_period: str,
+) -> pl.DataFrame:
+    """Use Daily total rows for all-day non-period breakdowns when available."""
+    if (
+        df.is_empty()
+        or breakdown_col == "time_period"
+        or selected_time_period != "All"
+        or "time_period" not in df.columns
+    ):
+        return df
+
+    group_cols = [
+        column
+        for column in (
+            "geography_type",
+            "geography_id",
+            "mode",
+            "income_segment",
+            "household_size",
+        )
+        if column in df.columns
+    ]
+    daily_rows = df.filter(pl.col("time_period") == "Daily")
+    if daily_rows.is_empty() or not group_cols:
+        return df
+
+    daily_groups = daily_rows.select(group_cols).unique()
+    period_rows_without_daily_total = df.filter(
+        pl.col("time_period") != "Daily"
+    ).join(daily_groups, on=group_cols, how="anti")
+    return pl.concat([daily_rows, period_rows_without_daily_total], how="vertical")
+
+
+def _with_time_period_percent_of_daily(
+    chart_df: pl.DataFrame,
+) -> pl.DataFrame:
+    """Add percent VMT values using Daily as the denominator when present."""
+    if chart_df.is_empty() or not {"category", "auto_vmt"}.issubset(chart_df.columns):
+        return chart_df
+
+    daily_total = chart_df.filter(pl.col("category") == "Daily")["auto_vmt"].sum()
+    denominator = daily_total if daily_total and daily_total > 0 else chart_df["auto_vmt"].sum()
+    if not denominator or denominator <= 0:
+        return chart_df.with_columns(pl.lit(0.0).alias("auto_vmt_percent"))
+
+    return chart_df.with_columns(
+        (pl.col("auto_vmt") / denominator * 100.0).alias("auto_vmt_percent")
+    )
 
 
 def _ordered_values(
@@ -101,6 +165,22 @@ def _selector_values(
         preferred=preferred,
     )
     return ["All", *values] if include_all else values
+
+
+def personal_auto_mode_options(
+    data_list: list[tuple[str, pl.DataFrame]] | None,
+    *,
+    config,
+) -> tuple[list[str], dict[str, str | None]]:
+    values = column_value_union(data_list or [], "mode")
+    ordered_values = config.ordered_values(PERSONAL_AUTO_VMT_MODE_CATEGORY_ID, values)
+    return raw_display_options(
+        ordered_values,
+        category_id=PERSONAL_AUTO_VMT_MODE_CATEGORY_ID,
+        config=config,
+        total_raw="All",
+        total_label="All",
+    )
 
 
 def geography_id_options(
@@ -143,6 +223,8 @@ def personal_auto_vmt_chart_data(
     time_period: str,
     income_segment: str,
     household_size: str,
+    mode: str = "All",
+    mode_order: list[str] | None = None,
     top_geographies: int = PERSONAL_AUTO_VMT_TOP_GEOGRAPHIES,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Filter and aggregate personal auto VMT rows for the selected breakdown."""
@@ -170,6 +252,11 @@ def personal_auto_vmt_chart_data(
             pl.col("income_segment").cast(pl.Utf8),
             pl.col("household_size").cast(pl.Utf8),
             pl.col("time_period").cast(pl.Utf8),
+            (
+                pl.col("mode").cast(pl.Utf8).fill_null(PERSONAL_AUTO_VMT_ALL_MODES)
+                if "mode" in df.columns
+                else pl.lit(PERSONAL_AUTO_VMT_ALL_MODES)
+            ).alias("mode"),
         )
         if geography_type != "All":
             filtered = filtered.filter(pl.col("geography_type") == geography_type)
@@ -177,10 +264,17 @@ def personal_auto_vmt_chart_data(
             filtered = filtered.filter(pl.col("geography_id") == geography_id)
         if breakdown_col != "time_period" and time_period != "All":
             filtered = filtered.filter(pl.col("time_period") == time_period)
+        if breakdown_col != "mode" and mode != "All":
+            filtered = filtered.filter(pl.col("mode") == mode)
         if breakdown_col != "income_segment" and income_segment != "All":
             filtered = filtered.filter(pl.col("income_segment") == income_segment)
         if breakdown_col != "household_size" and household_size != "All":
             filtered = filtered.filter(pl.col("household_size") == household_size)
+        filtered = _prefer_daily_rows_for_all_time_periods(
+            filtered,
+            breakdown_col=breakdown_col,
+            selected_time_period=time_period,
+        )
 
         if filtered.is_empty():
             out.append(
@@ -214,6 +308,18 @@ def personal_auto_vmt_chart_data(
                 .replace_strict(
                     {value: index for index, value in enumerate(PERSONAL_AUTO_VMT_TIME_ORDER)},
                     default=len(PERSONAL_AUTO_VMT_TIME_ORDER),
+                    return_dtype=pl.Int64,
+                )
+                .alias("_sort_order")
+            ).sort("_sort_order", "category").drop("_sort_order")
+            chart_df = _with_time_period_percent_of_daily(chart_df)
+        elif breakdown_col == "mode":
+            mode_order = mode_order or PERSONAL_AUTO_VMT_MODE_ORDER
+            chart_df = chart_df.with_columns(
+                pl.col("category")
+                .replace_strict(
+                    {value: index for index, value in enumerate(mode_order)},
+                    default=len(mode_order),
                     return_dtype=pl.Int64,
                 )
                 .alias("_sort_order")
@@ -332,6 +438,17 @@ def wide_tod_bar_chart(
 
 class VMTValidationPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
+        personal_vmt = self.state.get_summary_table_set(
+            PERSONAL_AUTO_VMT_SUMMARY_ID,
+            "weighted",
+        )
+        mode_options, self.personal_vmt_mode_raw_by_label = personal_auto_mode_options(
+            personal_vmt,
+            config=self.config,
+        )
+        if not mode_options:
+            mode_options = ["All"]
+            self.personal_vmt_mode_raw_by_label = {"All": "All"}
         self.personal_vmt_breakdown_sel = self.selector(
             "personal_auto_vmt_breakdown",
             widget=pn.widgets.Select(
@@ -367,6 +484,15 @@ class VMTValidationPage(DashboardPage):
                 value="All",
             ),
             label="Time Period",
+        )
+        self.personal_vmt_mode_sel = self.selector(
+            "personal_auto_vmt_mode",
+            widget=pn.widgets.Select(
+                name="Mode",
+                options=mode_options,
+                value=mode_options[0],
+            ),
+            label="Mode",
         )
         self.personal_vmt_income_segment_sel = self.selector(
             "personal_auto_vmt_income_segment",
@@ -420,6 +546,7 @@ class VMTValidationPage(DashboardPage):
                 "personal_auto_vmt_geography_type",
                 "personal_auto_vmt_geography",
                 "personal_auto_vmt_time_period",
+                "personal_auto_vmt_mode",
                 "personal_auto_vmt_income_segment",
                 "personal_auto_vmt_household_size",
             ),
@@ -444,6 +571,7 @@ class VMTValidationPage(DashboardPage):
             ),
             selector_row(
                 self.personal_vmt_time_period_sel,
+                self.personal_vmt_mode_sel,
                 self.personal_vmt_income_segment_sel,
                 self.personal_vmt_household_size_sel,
             ),
@@ -498,6 +626,17 @@ class VMTValidationPage(DashboardPage):
         if self.personal_vmt_time_period_sel.value not in time_period_options:
             self.personal_vmt_time_period_sel.value = "All"
 
+        mode_options, self.personal_vmt_mode_raw_by_label = personal_auto_mode_options(
+            personal_vmt,
+            config=self.config,
+        )
+        if not mode_options:
+            mode_options = ["All"]
+            self.personal_vmt_mode_raw_by_label = {"All": "All"}
+        self.personal_vmt_mode_sel.options = mode_options
+        if self.personal_vmt_mode_sel.value not in mode_options:
+            self.personal_vmt_mode_sel.value = "All"
+
         income_options = _selector_values(
             personal_vmt,
             "income_segment",
@@ -517,10 +656,12 @@ class VMTValidationPage(DashboardPage):
             self.personal_vmt_household_size_sel.value = "All"
 
         self.personal_vmt_time_period_sel.disabled = False
+        self.personal_vmt_mode_sel.disabled = False
         self.personal_vmt_income_segment_sel.disabled = False
         self.personal_vmt_household_size_sel.disabled = False
         breakdown_filter_selector = {
             "Time Period": self.personal_vmt_time_period_sel,
+            "Mode": self.personal_vmt_mode_sel,
             "Income Segment": self.personal_vmt_income_segment_sel,
             "Household Size": self.personal_vmt_household_size_sel,
         }.get(str(self.personal_vmt_breakdown_sel.value))
@@ -528,6 +669,11 @@ class VMTValidationPage(DashboardPage):
             if "All" in breakdown_filter_selector.options:
                 breakdown_filter_selector.value = "All"
             breakdown_filter_selector.disabled = True
+
+    def selected_personal_vmt_mode_raw(self) -> str:
+        selected = str(self.personal_vmt_mode_sel.value)
+        raw_value = self.personal_vmt_mode_raw_by_label.get(selected, selected)
+        return "All" if raw_value is None else str(raw_value)
 
     def render_personal_auto_vmt_section(self) -> list[pn.viewable.Viewable]:
         if not self.state.run_labels:
@@ -548,8 +694,19 @@ class VMTValidationPage(DashboardPage):
         geography_type = str(self.personal_vmt_geography_type_sel.value)
         geography_id = str(self.personal_vmt_geography_sel.value)
         time_period = str(self.personal_vmt_time_period_sel.value)
+        mode = self.selected_personal_vmt_mode_raw()
         income_segment = str(self.personal_vmt_income_segment_sel.value)
         household_size = str(self.personal_vmt_household_size_sel.value)
+        mode_values = [
+            value
+            for _, df in personal_vmt
+            if "mode" in df.columns
+            for value in df["mode"].drop_nulls().cast(pl.Utf8).to_list()
+        ]
+        mode_order = self.config.ordered_values(
+            PERSONAL_AUTO_VMT_MODE_CATEGORY_ID,
+            list(dict.fromkeys(mode_values)),
+        )
         chart_data = self.get_filtered_view(
             "personal_auto_vmt",
             (
@@ -557,6 +714,7 @@ class VMTValidationPage(DashboardPage):
                 geography_type,
                 geography_id,
                 time_period,
+                mode,
                 income_segment,
                 household_size,
             ),
@@ -566,10 +724,20 @@ class VMTValidationPage(DashboardPage):
                 geography_type=geography_type,
                 geography_id=geography_id,
                 time_period=time_period,
+                mode=mode,
                 income_segment=income_segment,
                 household_size=household_size,
+                mode_order=mode_order,
             ),
         )
+        if breakdown == "Mode":
+            chart_data = label_category_data(
+                chart_data,
+                source_col="category",
+                category_id=PERSONAL_AUTO_VMT_MODE_CATEGORY_ID,
+                config=self.config,
+                target_col="category",
+            )
         category_values = [
             value
             for _, df in chart_data
@@ -584,16 +752,28 @@ class VMTValidationPage(DashboardPage):
                 list(dict.fromkeys(str(value) for value in category_values)),
                 preferred=PERSONAL_AUTO_VMT_TIME_ORDER,
             )
+        elif breakdown == "Mode":
+            xaxis_categoryarray = [
+                self.config.label_value(PERSONAL_AUTO_VMT_MODE_CATEGORY_ID, value)
+                for value in mode_order
+                if self.config.label_value(PERSONAL_AUTO_VMT_MODE_CATEGORY_ID, value)
+                in {str(category) for category in category_values}
+            ]
         else:
             xaxis_categoryarray = list(dict.fromkeys(str(value) for value in category_values))
+        use_time_period_percent = self.as_percent and breakdown == "Time Period"
         chart = bar_chart(
             chart_data,
             x_col="category",
-            y_col="auto_vmt",
+            y_col="auto_vmt_percent" if use_time_period_percent else "auto_vmt",
             title=f"Personal Auto VMT by {breakdown}",
             xaxis_title=PERSONAL_AUTO_VMT_BREAKDOWN_AXIS_TITLES[breakdown],
-            yaxis_title="Vehicle Miles Traveled",
-            as_percent=self.as_percent,
+            yaxis_title=(
+                "Percent of Vehicle Miles Traveled (%)"
+                if use_time_period_percent
+                else "Vehicle Miles Traveled"
+            ),
+            as_percent=False if use_time_period_percent else self.as_percent,
             xaxis_categoryarray=xaxis_categoryarray,
         )
         return [chart]

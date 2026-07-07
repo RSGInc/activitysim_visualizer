@@ -231,7 +231,7 @@ def external_link_aggregate_data(
     *,
     volume_col: str,
     facility_type: str,
-    config: Config,
+    config: Config | None = None,
 ) -> list[tuple[str, pl.DataFrame]]:
     out: list[tuple[str, pl.DataFrame]] = []
     for label, df in nonempty(link_list):
@@ -244,13 +244,14 @@ def external_link_aggregate_data(
             .agg(pl.col(volume_col).sum().alias("volume"))
             .sort("FACTYPE")
         )
-        chart_df = label_category_frame(
-            chart_df,
-            source_col="FACTYPE",
-            category_id=FACILITY_TYPE_CATEGORY_ID,
-            config=config,
-            target_col="facility_type_label",
-        )
+        if config is not None:
+            chart_df = label_category_frame(
+                chart_df,
+                source_col="FACTYPE",
+                category_id=FACILITY_TYPE_CATEGORY_ID,
+                config=config,
+                target_col="facility_type_label",
+            )
         out.append((label, chart_df))
     return out
 
@@ -326,15 +327,19 @@ def external_volume_comparison_table(
             joined.sort(["_quantity_b", "id"], descending=[True, False])
             .head(top_n)
         )
+        metadata_columns: list[str] = []
+        if has_link_metadata:
+            for column in ("From_Node", "To_Node"):
+                if joined.select(pl.col(column).is_not_null().any()).item():
+                    metadata_columns.append(column)
         rows = []
         for row in joined.iter_rows(named=True):
             keys = {
-                "id": row["id"],
+                "link_id": row["id"],
                 "facility_type": row["facility_type"],
             }
-            if has_link_metadata:
-                keys["From_Node"] = row.get("From_Node")
-                keys["To_Node"] = row.get("To_Node")
+            for metadata_column in metadata_columns:
+                keys[metadata_column] = row.get(metadata_column)
             rows.append(
                 build_ab_comparison_row(
                     keys=keys,
@@ -344,9 +349,7 @@ def external_volume_comparison_table(
                     quantity_b_column=quantity_b_column,
                 )
             )
-        key_columns = ["id", "facility_type"]
-        if has_link_metadata:
-            key_columns.extend(["From_Node", "To_Node"])
+        key_columns = ["link_id", "facility_type", *metadata_columns]
         table = build_ab_comparison_table(
             rows,
             key_columns=key_columns,
