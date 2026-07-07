@@ -3252,7 +3252,10 @@ def test_mandatory_location_choice_uses_union_of_available_geographies(
     page = MandatoryLocationChoicePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["All Geographies", "district"]
+    assert list(page.geo_level_sel.options) == [
+        "All Geography Types",
+        "District",
+    ]
     commuting_widget = page._commuting_flows_section.objects[0]
     assert not isinstance(commuting_widget, pn.Card)
 
@@ -3289,7 +3292,10 @@ def test_mandatory_location_choice_can_show_maz_when_enabled(
     page = MandatoryLocationChoicePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["All Geographies", "maz"]
+    assert list(page.geo_level_sel.options) == [
+        "All Geography Types",
+        "MAZ",
+    ]
 
 
 def test_tour_mode_vehicle_filters_sort_categories_stably() -> None:
@@ -3400,7 +3406,7 @@ def test_internal_external_tours_geo_selector_uses_union_levels_across_tables(
     page = InternalExternalToursPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["All Geographies", "district", "maz"]
+    assert list(page.geo_level_sel.options) == ["All Geography Types", "District", "MAZ"]
 
 
 def test_internal_external_tours_geo_selector_hides_only_maz_when_disabled(
@@ -3435,7 +3441,7 @@ def test_internal_external_tours_geo_selector_hides_only_maz_when_disabled(
     page = InternalExternalToursPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["All Geographies", "district"]
+    assert list(page.geo_level_sel.options) == ["All Geography Types", "District"]
 
 
 def test_shadow_pricing_geo_selector_keeps_maz_available_when_disabled(
@@ -3495,7 +3501,7 @@ def test_shadow_pricing_geo_selector_keeps_maz_available_when_disabled(
     page = ShadowPricingPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["All Geographies", "district", "maz"]
+    assert list(page.geo_level_sel.options) == ["All Geography Types", "District", "MAZ"]
 
 
 def test_shadow_pricing_geo_selector_shows_detailed_levels_when_enabled(
@@ -3555,7 +3561,7 @@ def test_shadow_pricing_geo_selector_shows_detailed_levels_when_enabled(
     page = ShadowPricingPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["All Geographies", "district", "maz"]
+    assert list(page.geo_level_sel.options) == ["All Geography Types", "District", "MAZ"]
 
 
 def test_shadow_pricing_page_uses_residual_histograms_and_filters_school_student_type(
@@ -3690,7 +3696,7 @@ def test_shadow_pricing_page_uses_residual_histograms_and_filters_school_student
 
     page = ShadowPricingPage(state, config)
     page.refresh(force=True)
-    page.geo_level_sel.value = "district"
+    page.geo_level_sel.value = "District"
     page.refresh(force=True)
 
     workplace_plot = next(
@@ -3786,7 +3792,7 @@ def test_shadow_pricing_school_all_student_type_uses_upstream_rollup_histogram(
 
     page = ShadowPricingPage(state, config)
     page.refresh(force=True)
-    page.geo_level_sel.value = "district"
+    page.geo_level_sel.value = "District"
     page.student_type_sel.value = "All"
     page.refresh(force=True)
 
@@ -3912,7 +3918,7 @@ def test_park_and_ride_location_page_uses_residual_plot_and_table(
 
     page = ParkAndRideLocationPage(state, config)
     page.refresh(force=True)
-    page.geo_level_sel.value = "district"
+    page.geo_level_sel.value = "District"
     page.refresh(force=True)
 
     plot = next(
@@ -3974,7 +3980,7 @@ def test_park_and_ride_location_all_geographies_and_maz_table_behavior(
     assert _collect_plotly_panes(page._plot_section) == []
     assert _collect_tabulators(page._table_section) != []
 
-    page.geo_level_sel.value = "maz"
+    page.geo_level_sel.value = "MAZ"
     page.refresh(force=True)
 
     cards = _collect_cards(page._table_section)
@@ -4289,11 +4295,11 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
     page = MandatoryLocationChoicePage(state, config)
     page.refresh(force=True)
 
-    assert "school_district" in list(page.geo_level_sel.options)
+    assert "School District" in list(page.geo_level_sel.options)
     assert list(page.geography_sel.options) == ["All Geographies"]
-    page.geo_level_sel.value = "school_district"
+    page.geo_level_sel.value = "School District"
     page.refresh(force=True)
-    assert list(page.geography_sel.options) == ["All", "North", "South"]
+    assert list(page.geography_sel.options) == ["All School Districts", "North", "South"]
     page.geography_sel.value = "North"
     page.refresh(force=True)
 
@@ -4479,7 +4485,7 @@ def test_mandatory_location_choice_reuses_collected_data_on_selector_changes(
     page.refresh(force=True)
     assert call_count == 1
 
-    page.geo_level_sel.value = "school_district"
+    page.geo_level_sel.value = "School District"
     assert call_count == 1
 
     page.geography_sel.value = "North"
@@ -4868,7 +4874,7 @@ def test_tour_distance_nonmandatory_average_table_compares_to_base_run(
     page = TourDistancePage(state, config)
     page.refresh(force=True)
 
-    page.geo_level_sel.value = "district"
+    page.geo_level_sel.value = "District"
     page.refresh(force=True)
     assert list(page.geography_sel.options) == ["All", "North"]
     page.geography_sel.value = "North"
@@ -4980,7 +4986,7 @@ def test_tour_distance_nonmandatory_average_table_filters_to_selected_geography(
 
     page = TourDistancePage(state, config)
     page.refresh(force=True)
-    page.geo_level_sel.value = "district"
+    page.geo_level_sel.value = "District"
     page.refresh(force=True)
     assert list(page.geography_sel.options) == ["All", "North", "South"]
 

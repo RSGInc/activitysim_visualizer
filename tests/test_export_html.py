@@ -1737,7 +1737,7 @@ def test_build_export_html_document_serializes_long_term_geography_variants(
     assert page_defs["mandatory_location_choice"]["selectors"][0]["id"] == "geography_level"
     assert page_defs["mandatory_location_choice"]["selectors"][0]["request_mode"] == "all"
     assert set(page_defs["mandatory_location_choice"]["selectors"][0]["resolved_values"]) == {
-        "All Geographies",
+        "All Geography Types",
         "Suburban",
         "Urban",
     }
@@ -1752,7 +1752,7 @@ def test_build_export_html_document_serializes_long_term_geography_variants(
     commuting_variants = sorted(
         _region_nodes(mandatory_location_choice)["commuting_flows"]["variants"]
     )
-    assert '["All","All"]' in commuting_variants
+    assert '["All Geography Types","All"]' in commuting_variants
     assert any("Urban" in key for key in commuting_variants)
     assert any("Suburban" in key for key in commuting_variants)
 

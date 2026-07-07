@@ -25,8 +25,13 @@ from dashboard.helpers.comparison_helpers import (
     weighted_average_lookup,
 )
 from dashboard.helpers.geography_helpers import (
+    all_within_geography_type_label,
+    export_geography_name_options,
     geography_level_options,
+    geography_name_options_for_type,
+    geography_name_selector_label,
     geography_options_for_level,
+    geography_type_options,
     normalize_geography_columns,
     export_geography_options,
     filter_geography_level,
@@ -94,14 +99,35 @@ def test_geography_helpers_normalize_and_build_options(tmp_path: Path) -> None:
     config = _write_config(
         tmp_path,
         geography_lines=["enabled: true", "landuse_col: COUNTY"],
+        extra_lines=[
+            "display:",
+            "  labels:",
+            "    geography:",
+            "      mapping:",
+            "        all_geographies: All Geographies",
+            "        home_county: County",
+            "        district: District",
+        ],
     )
     summary = [
         (
             "Base",
             pl.DataFrame(
                 {
-                    "geography_type": ["all_geographies", "district", "district"],
-                    "geography_id": ["all_geographies", "Urban", "Suburban"],
+                    "geography_type": [
+                        "all_geographies",
+                        "district",
+                        "district",
+                        "home_county",
+                        "home_county",
+                    ],
+                    "geography_id": [
+                        "all_geographies",
+                        "Urban",
+                        "Suburban",
+                        "Wake",
+                        "Durham",
+                    ],
                 }
             ),
         )
@@ -120,17 +146,48 @@ def test_geography_helpers_normalize_and_build_options(tmp_path: Path) -> None:
 
     normalized = normalize_geography_columns(summary[0][1])
     geo_levels = geography_level_options(summary, flow_summary, config=config)
+    geo_type_options, geo_type_raw_by_label = geography_type_options(
+        summary,
+        flow_summary,
+        config=config,
+        include_all_types=True,
+    )
+    county_options, county_raw_by_label = geography_name_options_for_type(
+        "home_county",
+        summary,
+        config=config,
+    )
     district_options = geography_options_for_level("district", summary, config=config)
     flattened = export_geography_options(
         {"district": district_options, "all_geographies": ["All Geographies"]},
         config=config,
     )
+    flattened_display, flattened_raw_by_label = export_geography_name_options(
+        {
+            "home_county": (county_options, county_raw_by_label),
+        },
+        config=config,
+    )
     filtered = filter_geography_level(summary, "district")
 
     assert {"geography_level", "geography"}.issubset(normalized.columns)
-    assert geo_levels == ["All Geographies", "district"]
+    assert geo_levels == ["All Geography Types", "County", "District"]
+    assert geo_type_options == [
+        "All Geography Types",
+        "County",
+        "District",
+    ]
+    assert geo_type_raw_by_label["All Geography Types"] == "all_geographies"
+    assert geo_type_raw_by_label["County"] == "home_county"
+    assert all_within_geography_type_label("home_county", config=config) == "All Counties"
+    assert geography_name_selector_label("home_county", config=config) == "County Name"
+    assert county_options == ["All Counties", "Durham", "Wake"]
+    assert county_raw_by_label["All Counties"] == "All"
+    assert county_raw_by_label["Wake"] == "Wake"
     assert district_options == ["All", "Suburban", "Urban"]
     assert flattened == ["All", "Suburban", "Urban"]
+    assert flattened_display == ["All", "Durham", "Wake"]
+    assert flattened_raw_by_label["Wake"] == "Wake"
     assert filtered[0][1]["geography_id"].to_list() == ["Urban", "Suburban"]
 
 

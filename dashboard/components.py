@@ -122,6 +122,7 @@ def bar_chart(
     height: int = 400,
     as_percent: bool | None = None,
     xaxis_categoryarray: list[object] | None = None,
+    showlegend: bool | None = None,
 ) -> pn.pane.Plotly:
     """
     Create a grouped bar chart comparing multiple runs.
@@ -194,6 +195,8 @@ def bar_chart(
         height,
         barmode=barmode,
     )
+    if showlegend is not None:
+        fig.update_layout(showlegend=showlegend)
     final_category_order = xaxis_categoryarray or category_order
     if final_category_order:
         fig.update_xaxes(

@@ -27,6 +27,9 @@ from dashboard.page_base import PAGE_SELECTOR_STYLESHEET
 from dashboard.page_definitions import DashboardPageDefinition
 from dashboard.pages.skim_summaries.trip_skims import TripSkimsPage
 from dashboard.pages.skim_summaries.tour_skims import TourSkimsPage
+from dashboard.pages.long_term_choices.mandatory_location_choice import (
+    MandatoryLocationChoicePage,
+)
 from dashboard.pages.trip_summaries.trip_mode import TripModePage
 from dashboard.pages.validation.regional import (
     flow_heatmap,
@@ -43,6 +46,8 @@ from dashboard.pages.validation.traffic import (
 from dashboard.pages.validation.vmt import (
     PERSONAL_AUTO_VMT_SUMMARY_ID,
     VMTValidationPage,
+    external_commercial_filter_options,
+    external_commercial_vehicle_chart_data,
     personal_auto_vmt_chart_data,
     wide_tod_chart_data,
 )
@@ -418,6 +423,96 @@ def test_external_vmt_helper_reshapes_wide_tod_table() -> None:
         {"tod": "AM", "category": "SOV", "value": 10.0},
         {"tod": "AM", "category": "HOV2", "value": 2.0},
     ]
+
+
+def test_external_commercial_vehicle_helper_aggregates_selected_breakdown(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "display:",
+            "  labels:",
+            "    commercial_vehicle_type:",
+            "      mapping:",
+            "        car: Car",
+            "        su: Single-Unit Truck",
+            "        mu: Multi-Unit Truck",
+        ],
+    )
+    data = [
+        (
+            "Run",
+            pl.DataFrame(
+                {
+                    "tod": ["AM", "PM", "Daily"],
+                    "car": [10.0, 20.0, 100.0],
+                    "mu": [30.0, 10.0, 200.0],
+                    "su": [5.0, 15.0, 300.0],
+                }
+            ),
+        )
+    ]
+
+    by_period = external_commercial_vehicle_chart_data(
+        data,
+        breakdown="Time Period",
+    )
+    by_type = external_commercial_vehicle_chart_data(
+        data,
+        breakdown="Commercial Vehicle Type",
+        time_period="AM",
+    )
+    by_type_daily = external_commercial_vehicle_chart_data(
+        data,
+        breakdown="Commercial Vehicle Type",
+        time_period="Daily",
+    )
+    time_period_options, (vehicle_type_options, raw_by_label) = (
+        external_commercial_filter_options(data, config=config)
+    )
+
+    assert by_period[0][1].to_dicts() == [
+        {
+            "category": "AM",
+            "value": 45.0,
+            "value_percent": pytest.approx(7.5),
+        },
+        {
+            "category": "PM",
+            "value": 45.0,
+            "value_percent": pytest.approx(7.5),
+        },
+        {
+            "category": "Daily",
+            "value": 600.0,
+            "value_percent": 100.0,
+        },
+    ]
+    assert by_period[0][1].select("category", "value_percent").to_dicts() == [
+        {"category": "AM", "value_percent": pytest.approx(7.5)},
+        {"category": "PM", "value_percent": pytest.approx(7.5)},
+        {"category": "Daily", "value_percent": 100.0},
+    ]
+    assert by_type[0][1].to_dicts() == [
+        {"category": "car", "value": 10.0},
+        {"category": "mu", "value": 30.0},
+        {"category": "su", "value": 5.0},
+    ]
+    assert by_type_daily[0][1].to_dicts() == [
+        {"category": "car", "value": 100.0},
+        {"category": "mu", "value": 200.0},
+        {"category": "su", "value": 300.0},
+    ]
+    assert time_period_options == ["Daily", "AM", "PM"]
+    assert vehicle_type_options == [
+        "All",
+        "Car",
+        "Single-Unit Truck",
+        "Multi-Unit Truck",
+    ]
+    assert raw_by_label["Car"] == "car"
+    assert raw_by_label["Multi-Unit Truck"] == "mu"
 
 
 def test_personal_auto_vmt_helper_aggregates_time_period_with_filters() -> None:
@@ -808,8 +903,219 @@ def test_vmt_page_disables_active_personal_auto_vmt_filter_selector(
     assert page.personal_vmt_time_period_sel.disabled is False
     assert page.personal_vmt_mode_sel.disabled is True
     assert page.personal_vmt_mode_sel.value == "All"
-    assert page.personal_vmt_income_segment_sel.disabled is False
-    assert page.personal_vmt_household_size_sel.disabled is False
+
+
+def test_vmt_page_geography_selectors_use_display_labels_and_raw_filters(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "display:",
+            "  labels:",
+            "    geography:",
+            "      mapping:",
+            "        all_geographies: All Geographies",
+            "        home_county: County",
+        ],
+    )
+    personal_vmt = pl.DataFrame(
+        {
+            "geography_type": ["all_geographies", "home_county", "home_county"],
+            "geography_id": ["all_geographies", "Wake", "Durham"],
+            "income_segment": ["low", "low", "low"],
+            "household_size": ["1", "1", "1"],
+            "time_period": ["Daily", "Daily", "Daily"],
+            "mode": ["SOV", "SOV", "SOV"],
+            "auto_vmt": [30.0, 10.0, 20.0],
+            "trip_count": [3.0, 1.0, 2.0],
+            "distance_source": ["skim_auto_distance"] * 3,
+            "time_period_source": ["trip_period"] * 3,
+        }
+    )
+    summary_run = create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode={
+            "weighted": {PERSONAL_AUTO_VMT_SUMMARY_ID: personal_vmt},
+            "unweighted": {PERSONAL_AUTO_VMT_SUMMARY_ID: personal_vmt},
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = VMTValidationPage(state, config)
+    page.refresh(force=True)
+
+    assert list(page.personal_vmt_geography_type_sel.options) == [
+        "All Geography Types",
+        "County",
+    ]
+
+    page.personal_vmt_geography_type_sel.value = "County"
+    page.refresh(force=True)
+
+    assert page.personal_vmt_geography_sel.name == "County Name"
+    assert list(page.personal_vmt_geography_sel.options) == [
+        "All Counties",
+        "Durham",
+        "Wake",
+    ]
+    page.personal_vmt_geography_sel.value = "Durham"
+
+    assert page.selected_personal_vmt_geography_type_raw() == "home_county"
+    assert page.selected_personal_vmt_geography_raw() == "Durham"
+
+
+def test_vmt_external_commercial_vehicle_chart_uses_breakdown_and_percent_mode(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "display:",
+            "  labels:",
+            "    commercial_vehicle_type:",
+            "      mapping:",
+            "        car: Car",
+            "        su: Single-Unit Truck",
+            "        mu: Multi-Unit Truck",
+        ],
+    )
+    external_commercial = pl.DataFrame(
+        {
+            "tod": ["AM", "PM", "Daily"],
+            "car": [10.0, 20.0, 100.0],
+            "mu": [30.0, 10.0, 200.0],
+            "su": [5.0, 15.0, 300.0],
+        }
+    )
+    summary_run = create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode={
+            "weighted": {
+                "external_commercial_vehicle_summary": external_commercial,
+            },
+            "unweighted": {
+                "external_commercial_vehicle_summary": external_commercial,
+            },
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+    state.value_mode = "Percent"
+
+    page = VMTValidationPage(state, config)
+    page.refresh(force=True)
+    page.external_commercial_metric_sel.value = "Trips"
+    page.external_commercial_breakdown_sel.value = "Time Period"
+    page.external_commercial_vehicle_type_sel.value = "Car"
+
+    chart = page.render_external_commercial_chart()
+    fig = chart.object
+
+    assert fig.layout.title.text == "Commercial Vehicle Trips by Time Period"
+    assert fig.layout.showlegend is True
+    assert fig.layout.yaxis.title.text == "Percent of Trips (%)"
+    assert len(fig.data) == 1
+    assert list(fig.data[0].x) == ["EA", "AM", "MD", "PM", "EV", "EV1", "EV2", "Daily"]
+    assert list(fig.data[0].y) == [0.0, 10.0, 0.0, 20.0, 0.0, 0.0, 0.0, 100.0]
+    assert list(page.external_commercial_time_period_sel.options) == [
+        "Daily",
+        "AM",
+        "PM",
+    ]
+    assert list(page.external_commercial_vehicle_type_sel.options) == [
+        "All",
+        "Car",
+        "Single-Unit Truck",
+        "Multi-Unit Truck",
+    ]
+    assert page.selected_external_commercial_vehicle_type_raw() == "car"
+
+    page.refresh(force=True)
+    assert page.external_commercial_time_period_sel.disabled is True
+    assert page.external_commercial_time_period_sel.value == "Daily"
+    assert page.external_commercial_vehicle_type_sel.disabled is False
+
+    page.external_commercial_breakdown_sel.value = "Commercial Vehicle Type"
+    page.external_commercial_time_period_sel.value = "AM"
+    chart = page.render_external_commercial_chart()
+
+    assert chart.object.layout.title.text == (
+        "Commercial Vehicle Trips by Commercial Vehicle Type"
+    )
+    assert list(chart.object.layout.xaxis.categoryarray) == [
+        "Car",
+        "Single-Unit Truck",
+        "Multi-Unit Truck",
+    ]
+
+
+def test_mandatory_location_choice_geography_labels_filter_raw_and_export(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "display:",
+            "  labels:",
+            "    geography:",
+            "      mapping:",
+            "        all_geographies: All Geographies",
+            "        home_county: County",
+        ],
+    )
+    commuting_flows = pl.DataFrame(
+        {
+            "origin_geography_type": [
+                "all_geographies",
+                "home_county",
+                "home_county",
+            ],
+            "origin_geography_id": ["all_geographies", "Wake", "Durham"],
+            "destination_geography_type": [
+                "all_geographies",
+                "home_county",
+                "home_county",
+            ],
+            "destination_geography_id": ["all_geographies", "Wake", "Durham"],
+            "commuter_count": [30.0, 10.0, 20.0],
+        }
+    )
+    summary_run = create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode={
+            "weighted": {"commuting_flows": commuting_flows},
+            "unweighted": {"commuting_flows": commuting_flows},
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+        export_mode=True,
+    )
+
+    page = MandatoryLocationChoicePage(state, config)
+    page.refresh(force=True)
+
+    assert list(page.geo_level_sel.options) == [
+        "All Geography Types",
+        "County",
+    ]
+    assert "Durham" in page.geography_sel.options
+    assert "Wake" in page.geography_sel.options
+
+    page.geo_level_sel.value = "County"
+    page.geography_sel.value = "Durham"
+
+    assert page._selected_geography() == ("home_county", "Durham")
 
 
 def test_regional_helpers_rename_blank_origin_and_compute_wfh_rate() -> None:
@@ -962,10 +1268,11 @@ def test_data_requirements_for_pages_tracks_optional_summary_dependencies() -> N
     requirements = data_requirements_for_pages([vmt, regional])
 
     assert PERSONAL_AUTO_VMT_SUMMARY_ID in requirements.required_summary_ids
-    assert "commercial_vmt_totals" in requirements.required_summary_ids
-    assert "external_auto_vmt_summary" in requirements.optional_summary_ids
+    assert "commercial_vmt_totals" not in requirements.required_summary_ids
+    assert "commercial_vmt_totals" not in requirements.optional_summary_ids
+    assert "external_auto_vmt_summary" not in requirements.optional_summary_ids
     assert "external_county_flows" in requirements.optional_summary_ids
-    assert "external_auto_vmt_summary" in requirements.summary_ids_for_pruning
+    assert "external_auto_vmt_summary" not in requirements.summary_ids_for_pruning
 
 
 def test_resolve_page_definitions_rejects_unknown_configured_page_ids(
@@ -1031,23 +1338,27 @@ def test_build_dashboard_can_refresh_every_default_page_from_precomputed_summari
         "tour_purpose",
     ]
     assert leaf_pages["daily_activity_pattern"].person_type_sel.options == [
-        "Total",
+        "All Person Types",
         "worker",
     ]
     assert leaf_pages["joint_travel"].hhsize_sel.options == ["All", "2", "3"]
-    assert leaf_pages["tour_time"].purpose_sel.options == ["Total", "work"]
-    assert leaf_pages["tour_mode"].purpose_sel.options == ["Total", "work"]
+    assert leaf_pages["tour_time"].purpose_sel.options == ["All Tour Purposes", "work"]
+    assert leaf_pages["tour_mode"].purpose_sel.options == ["All Tour Purposes", "work"]
     assert leaf_pages["tour_stop_frequency"].purpose_sel.options == [
-        "All",
+        "All Tour Purposes",
         "eatout",
         "social",
     ]
     assert leaf_pages["trip_stop_time"].tour_purpose_sel.options == [
-        "Total",
+        "All Tour Purposes",
         "eatout",
         "social",
     ]
-    assert leaf_pages["trip_mode"].tour_purpose_sel.options == ["All", "eatout", "social"]
+    assert leaf_pages["trip_mode"].tour_purpose_sel.options == [
+        "All Tour Purposes",
+        "eatout",
+        "social",
+    ]
 
 
 def test_build_dashboard_loads_prepared_runs_for_optional_default_pages_when_available(
