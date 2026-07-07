@@ -7,6 +7,7 @@ import panel as pn
 from dashboard import DashboardState
 from dashboard.components import (
     build_run_legend_panes,
+    set_bar_hover_mode,
     set_density_hover_mode,
     set_percent_mode,
     set_run_colors,
@@ -41,6 +42,7 @@ def build_dashboard(
 ) -> pn.template.FastListTemplate:
     """Assemble the full Panel dashboard from a list of (label, RunData) tuples."""
     set_run_colors(config.run_colors)
+    set_bar_hover_mode(config.bar_hover_mode)
     set_density_hover_mode(config.density_hover_mode)
     prepared_run_provider = build_dashboard_prepared_run_provider(prepared_runs, config)
     state = DashboardState(
