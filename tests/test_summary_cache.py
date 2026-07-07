@@ -3233,13 +3233,12 @@ def test_mandatory_location_choice_uses_union_of_available_geographies(
             "internal_external_worker_by_geography": empty_summary_frame(
                 SUMMARY_SPEC_BY_ID["internal_external_worker_by_geography"].builder
             ),
-            "commuting_flows": pl.DataFrame(
+            "work_location_distance_distribution_by_geography": pl.DataFrame(
                 {
-                    "origin_geography_type": ["all_geographies", "district", "maz"],
-                    "origin_geography_id": ["all_geographies", "A", "10"],
-                    "destination_geography_type": ["all_geographies", "district", "maz"],
-                    "destination_geography_id": ["all_geographies", "B", "30"],
-                    "commuter_count": [12.0, 5.0, 7.0],
+                    "distance_bin": [1, 1, 1],
+                    "geography_type": ["all_geographies", "district", "maz"],
+                    "geography_id": ["all_geographies", "A", "10"],
+                    "person_count": [12.0, 5.0, 7.0],
                 }
             ),
         },
@@ -3256,8 +3255,6 @@ def test_mandatory_location_choice_uses_union_of_available_geographies(
         "All Geography Types",
         "District",
     ]
-    commuting_widget = page._commuting_flows_section.objects[0]
-    assert not isinstance(commuting_widget, pn.Card)
 
 
 def test_mandatory_location_choice_can_show_maz_when_enabled(
@@ -3273,13 +3270,12 @@ def test_mandatory_location_choice_can_show_maz_when_enabled(
             "internal_external_worker_by_geography": empty_summary_frame(
                 SUMMARY_SPEC_BY_ID["internal_external_worker_by_geography"].builder
             ),
-            "commuting_flows": pl.DataFrame(
+            "work_location_distance_distribution_by_geography": pl.DataFrame(
                 {
-                    "origin_geography_type": ["all_geographies", "maz", "maz"],
-                    "origin_geography_id": ["all_geographies", "10", "20"],
-                    "destination_geography_type": ["all_geographies", "maz", "maz"],
-                    "destination_geography_id": ["all_geographies", "30", "40"],
-                    "commuter_count": [12.0, 5.0, 7.0],
+                    "distance_bin": [1, 1, 1],
+                    "geography_type": ["all_geographies", "maz", "maz"],
+                    "geography_id": ["all_geographies", "10", "20"],
+                    "person_count": [12.0, 5.0, 7.0],
                 }
             ),
         },
@@ -4063,15 +4059,6 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
                     "all_worker_count": [4.0],
                 }
             ),
-            "commuting_flows": pl.DataFrame(
-                {
-                    "origin_geography_type": ["all_geographies"],
-                    "origin_geography_id": ["all_geographies"],
-                    "destination_geography_type": ["all_geographies"],
-                    "destination_geography_id": ["all_geographies"],
-                    "commuter_count": [4.0],
-                }
-            ),
             "work_location_distance_distribution_by_geography": pl.DataFrame(
                 {
                     "distance_bin": [1, 2],
@@ -4149,9 +4136,6 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
         page._worker_section
     )
     assert page.view.objects.index(page._worker_section) < page.view.objects.index(
-        page._commuting_flows_section
-    )
-    assert page.view.objects.index(page._commuting_flows_section) < page.view.objects.index(
         page._mandatory_distance_table_section
     )
 
@@ -4211,15 +4195,6 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
                     "geography_id": ["all_geographies", "North"],
                     "external_worker_count": [1.0, 1.0],
                     "all_worker_count": [4.0, 3.0],
-                }
-            ),
-            "commuting_flows": pl.DataFrame(
-                {
-                    "origin_geography_type": ["all_geographies", "school_district"],
-                    "origin_geography_id": ["all_geographies", "North"],
-                    "destination_geography_type": ["all_geographies", "school_district"],
-                    "destination_geography_id": ["all_geographies", "North"],
-                    "commuter_count": [4.0, 3.0],
                 }
             ),
             "work_location_distance_distribution_by_geography": pl.DataFrame(
@@ -4327,9 +4302,6 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
         if plot.object.layout.title.text == "External Worker Workplace Location"
     )
     assert list(external_workplace_plot.object.data[0].x) == ["North"]
-
-    commuting_table = _collect_tabulators(page._commuting_flows_section)[0].value
-    assert commuting_table["origin_geography_id"].tolist() == ["North"]
 
     remote_work_plots = _collect_plotly_panes(page._remote_work_section)
     wfh_plot = next(

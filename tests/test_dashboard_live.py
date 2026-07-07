@@ -32,9 +32,10 @@ from dashboard.pages.long_term_choices.mandatory_location_choice import (
 )
 from dashboard.pages.trip_summaries.trip_mode import TripModePage
 from dashboard.pages.validation.regional import (
+    RegionalValidationPage,
+    flow_comparison_data,
     flow_heatmap,
     normalize_flow_matrix,
-    wfh_rate_data,
 )
 from dashboard.pages.validation.traffic import (
     external_count_scatter_data,
@@ -1071,29 +1072,24 @@ def test_mandatory_location_choice_geography_labels_filter_raw_and_export(
             "        home_county: County",
         ],
     )
-    commuting_flows = pl.DataFrame(
+    internal_external = pl.DataFrame(
         {
-            "origin_geography_type": [
+            "geography_type": [
                 "all_geographies",
                 "home_county",
                 "home_county",
             ],
-            "origin_geography_id": ["all_geographies", "Wake", "Durham"],
-            "destination_geography_type": [
-                "all_geographies",
-                "home_county",
-                "home_county",
-            ],
-            "destination_geography_id": ["all_geographies", "Wake", "Durham"],
-            "commuter_count": [30.0, 10.0, 20.0],
+            "geography_id": ["all_geographies", "Wake", "Durham"],
+            "internal_worker_count": [30.0, 10.0, 20.0],
+            "external_worker_count": [3.0, 1.0, 2.0],
         }
     )
     summary_run = create_summary_run(
         label="Base",
         run_key="base",
         summaries_by_mode={
-            "weighted": {"commuting_flows": commuting_flows},
-            "unweighted": {"commuting_flows": commuting_flows},
+            "weighted": {"internal_external_worker_by_geography": internal_external},
+            "unweighted": {"internal_external_worker_by_geography": internal_external},
         },
     )
     state = DashboardState(
@@ -1118,7 +1114,7 @@ def test_mandatory_location_choice_geography_labels_filter_raw_and_export(
     assert page._selected_geography() == ("home_county", "Durham")
 
 
-def test_regional_helpers_rename_blank_origin_and_compute_wfh_rate() -> None:
+def test_regional_helpers_rename_blank_origin() -> None:
     matrix = pl.DataFrame(
         {
             "": ["A", "Total"],
@@ -1126,26 +1122,10 @@ def test_regional_helpers_rename_blank_origin_and_compute_wfh_rate() -> None:
             "Total": [3.0, 4.0],
         }
     )
-    wfh = [
-        (
-            "Run",
-            pl.DataFrame(
-                {
-                    "District": ["A", "Total"],
-                    "Workers": [10.0, 20.0],
-                    "WFH": [2.0, 5.0],
-                }
-            ),
-        )
-    ]
 
     normalized = normalize_flow_matrix(matrix, include_totals=False)
-    wfh_chart = wfh_rate_data(wfh)
 
     assert normalized.to_dicts() == [{"Origin": "A", "A": 1.0}]
-    assert wfh_chart[0][1].to_dicts() == [
-        {"District": "A", "Workers": 10.0, "WFH": 2.0, "wfh_rate": 20.0}
-    ]
 
 
 def test_regional_flow_heatmap_labels_cells_with_matrix_values() -> None:
@@ -1167,6 +1147,152 @@ def test_regional_flow_heatmap_labels_cells_with_matrix_values() -> None:
 
     assert trace.text == (["1,200", "45"], ["30", "6,789"])
     assert trace.texttemplate == "%{text}"
+
+
+def test_regional_flow_comparison_aligns_observed_and_modeled_flows() -> None:
+    observed = [
+        (
+            "Base",
+            pl.DataFrame(
+                {
+                    "": ["A", "B", "Total"],
+                    "A": [10.0, 3.0, 13.0],
+                    "B": [5.0, 20.0, 25.0],
+                    "Total": [15.0, 23.0, 38.0],
+                }
+            ),
+        )
+    ]
+    modeled = [
+        (
+            "Base",
+            pl.DataFrame(
+                {
+                    "origin_geography_type": ["home_county"] * 4,
+                    "origin_geography_id": ["A", "A", "B", "B"],
+                    "destination_geography_type": ["home_county"] * 4,
+                    "destination_geography_id": ["A", "B", "A", "B"],
+                    "commuter_count": [12.0, 4.0, 3.0, 18.0],
+                }
+            ),
+        )
+    ]
+
+    comparison = flow_comparison_data(
+        observed,
+        modeled,
+        geography_type="home_county",
+        include_totals=False,
+    )
+
+    assert comparison[0][1].select(
+        "Origin",
+        "Destination",
+        "observed",
+        "modeled",
+        "difference",
+        "percent_difference",
+    ).to_dicts() == [
+        {
+            "Origin": "A",
+            "Destination": "A",
+            "observed": 10.0,
+            "modeled": 12.0,
+            "difference": 2.0,
+            "percent_difference": 20.0,
+        },
+        {
+            "Origin": "A",
+            "Destination": "B",
+            "observed": 5.0,
+            "modeled": 4.0,
+            "difference": -1.0,
+            "percent_difference": -20.0,
+        },
+        {
+            "Origin": "B",
+            "Destination": "A",
+            "observed": 3.0,
+            "modeled": 3.0,
+            "difference": 0.0,
+            "percent_difference": 0.0,
+        },
+        {
+            "Origin": "B",
+            "Destination": "B",
+            "observed": 20.0,
+            "modeled": 18.0,
+            "difference": -2.0,
+            "percent_difference": -10.0,
+        },
+    ]
+
+
+def test_regional_validation_page_compares_county_flows_to_commuting_flows(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    observed = pl.DataFrame(
+        {
+            "": ["A", "B", "Total"],
+            "A": [10.0, 3.0, 13.0],
+            "B": [5.0, 20.0, 25.0],
+            "Total": [15.0, 23.0, 38.0],
+        }
+    )
+    modeled = pl.DataFrame(
+        {
+            "origin_geography_type": ["home_county"] * 4,
+            "origin_geography_id": ["A", "A", "B", "B"],
+            "destination_geography_type": ["home_county"] * 4,
+            "destination_geography_id": ["A", "B", "A", "B"],
+            "commuter_count": [12.0, 4.0, 3.0, 18.0],
+        }
+    )
+    summary_run = create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode={
+            "weighted": {
+                "external_county_flows_joja": observed,
+                "commuting_flows": modeled,
+            },
+            "unweighted": {
+                "external_county_flows_joja": observed,
+                "commuting_flows": modeled,
+            },
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = RegionalValidationPage(state, config)
+    page.refresh(force=True)
+
+    assert list(page.flow_matrix_sel.options) == ["County flows"]
+    assert list(page.comparison_metric_sel.options) == [
+        "Observed",
+        "Difference",
+        "Percent Difference",
+        "Absolute Percent Difference",
+        "Modeled",
+    ]
+    chart = page.render_flow_section()
+    tabs = chart.objects[0]
+    plot = tabs.objects[0][0]
+
+    assert plot.object.layout.title.text == "Observed County flows"
+    assert plot.object.data[0].z == ([10.0, 5.0], [3.0, 20.0])
+
+    page.comparison_metric_sel.value = "Difference"
+    chart = page.render_flow_section()
+    tabs = chart.objects[0]
+    plot = tabs.objects[0][0]
+
+    assert plot.object.layout.title.text == "Difference County flows"
+    assert plot.object.data[0].z == ([2.0, -1.0], [0.0, -2.0])
 
 
 def test_resolve_page_definitions_defaults_to_default_pages_when_unconfigured(
@@ -1272,6 +1398,7 @@ def test_data_requirements_for_pages_tracks_optional_summary_dependencies() -> N
     assert "commercial_vmt_totals" not in requirements.optional_summary_ids
     assert "external_auto_vmt_summary" not in requirements.optional_summary_ids
     assert "external_county_flows" in requirements.optional_summary_ids
+    assert "commuting_flows" in requirements.optional_summary_ids
     assert "external_auto_vmt_summary" not in requirements.summary_ids_for_pruning
 
 

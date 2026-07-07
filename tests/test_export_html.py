@@ -1749,12 +1749,7 @@ def test_build_export_html_document_serializes_long_term_geography_variants(
 
     mandatory_location_choice = payload["states"]["Weighted||Percent"]["mandatory_location_choice"]
     assert mandatory_location_choice["kind"] == "page"
-    commuting_variants = sorted(
-        _region_nodes(mandatory_location_choice)["commuting_flows"]["variants"]
-    )
-    assert '["All Geography Types","All"]' in commuting_variants
-    assert any("Urban" in key for key in commuting_variants)
-    assert any("Suburban" in key for key in commuting_variants)
+    assert "commuting_flows" not in _region_nodes(mandatory_location_choice)
 
 
 def test_build_export_html_document_warns_and_falls_back_when_long_term_geography_is_unavailable(

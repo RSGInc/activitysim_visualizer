@@ -15,7 +15,6 @@ from dashboard.helpers.geography_helpers import (
     export_geography_name_options,
     filter_geography,
     filter_geography_level,
-    filter_origin_geography,
     geography_name_options_for_type,
     geography_name_selector_label,
     geography_type_options,
@@ -25,7 +24,6 @@ from dashboard.helpers.geography_helpers import (
 from dashboard.page_base import DashboardPage, SectionContent
 from dashboard.page_definitions import DashboardPageDefinition
 from dashboard.pages.long_term_choices._mandatory_location_choice_support import (
-    adapt_commuting_flows,
     adapt_external_workplace,
     distance_distribution_chart_data,
     external_workplace_percent_data,
@@ -87,11 +85,6 @@ class MandatoryLocationChoicePage(DashboardPage):
             selectors=("geography_level", "geography"),
             render=self.render_worker_geography_section,
         )
-        self._commuting_flows_section = self.section(
-            "commuting_flows",
-            selectors=("geography_level", "geography"),
-            render=self.render_commuting_flows_section,
-        )
         self._mandatory_distance_table_section = self.section(
             "mandatory_distance_table",
             selectors=("geography_level", "geography"),
@@ -104,7 +97,6 @@ class MandatoryLocationChoicePage(DashboardPage):
             self._remote_work_section,
             self._distance_section,
             self._worker_section,
-            self._commuting_flows_section,
             self._mandatory_distance_table_section,
         )
 
@@ -188,7 +180,6 @@ class MandatoryLocationChoicePage(DashboardPage):
         summaries = self.optional_summaries_dict(
             "internal_external_worker_by_geography",
             "external_worker_workplace_locations",
-            "commuting_flows",
             "work_from_home_rate_by_geography",
             "telecommute_frequency_distribution",
             "work_location_distance_distribution_by_geography",
@@ -218,7 +209,6 @@ class MandatoryLocationChoicePage(DashboardPage):
         external_workplace = adapt_external_workplace(
             summaries["external_worker_workplace_locations"]
         )
-        commuting_flows = adapt_commuting_flows(summaries["commuting_flows"])
         work_from_home = normalize_geography_data(
             summaries["work_from_home_rate_by_geography"]
         )
@@ -240,14 +230,16 @@ class MandatoryLocationChoicePage(DashboardPage):
 
         geo_opts, geo_raw_by_label = geography_type_options(
             internal_external or None,
-            commuting_flows or None,
             work_from_home or None,
+            work_distance or None,
+            school_distance or None,
+            university_distance or None,
+            average_distance or None,
             config=self.config,
             include_all_types=True,
         )
         geography_option_sources = (
             internal_external or None,
-            commuting_flows or None,
             work_distance or None,
             school_distance or None,
             university_distance or None,
@@ -269,7 +261,6 @@ class MandatoryLocationChoicePage(DashboardPage):
             "geography_opts_by_level": geography_opts_by_level,
             "internal_external": internal_external or None,
             "external_workplace": external_workplace or None,
-            "commuting_flows": commuting_flows or None,
             "work_from_home": work_from_home or None,
             "telecommute": telecommute or None,
             "work_distance": work_distance or None,
@@ -384,31 +375,6 @@ class MandatoryLocationChoicePage(DashboardPage):
             as_percent=False if is_all_geographies(geo_level) else self.as_percent,
             xaxis_categoryarray=workplace_location_values,
         )
-
-    def render_commuting_flows_section(self) -> SectionContent:
-        """Render origin-to-destination commuting flow tables."""
-        if self._current_data["mode"] != "ready":
-            return []
-
-        geo_level, geography = self._selected_geography()
-        commuting_flows = self._current_data["commuting_flows"]
-        if commuting_flows is None:
-            return [
-                self.data_not_available_card(
-                    detail="The commuting flows summary is unavailable.",
-                    missing_items=["commuting_flows"],
-                )
-            ]
-
-        commuting_table = self.get_filtered_view(
-            "mandatory_commuting_flows",
-            (geo_level, geography),
-            factory=lambda: filter_origin_geography(
-                filter_geography_level(commuting_flows, geo_level),
-                geography,
-            ),
-        )
-        return [data_table(commuting_table, "Commuting Flows")]
 
     def render_distance_distribution_section(self) -> SectionContent:
         """Render the three mandatory distance distributions side by side."""
@@ -667,7 +633,6 @@ PAGE = DashboardPageDefinition(
     required_summary_ids=(
         "internal_external_worker_by_geography",
         "external_worker_workplace_locations",
-        "commuting_flows",
         "work_location_distance_distribution_by_geography",
         "school_location_distance_distribution_by_geography",
         "university_location_distance_distribution_by_geography",
