@@ -7,13 +7,18 @@ import polars as pl
 
 from dashboard.components import bar_chart, data_table, density_chart, selector_row
 from dashboard.helpers.geography_helpers import (
+    ALL_GEOGRAPHY_TYPES_LABEL,
+    ALL_GEOGRAPHY_TYPES_VALUE,
     ALL_WITHIN_LEVEL_VALUE,
-    export_geography_options,
+    GEOGRAPHY_NAME_SELECTOR_LABEL,
+    GEOGRAPHY_TYPE_SELECTOR_LABEL,
+    export_geography_name_options,
     filter_geography,
     filter_geography_level,
     filter_origin_geography,
-    geography_level_options,
-    geography_options_for_level,
+    geography_name_options_for_type,
+    geography_name_selector_label,
+    geography_type_options,
     is_all_geographies,
     normalize_geography_data,
 )
@@ -43,23 +48,29 @@ class MandatoryLocationChoicePage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
         """Build the persistent selectors and stable section containers."""
         self._current_data: dict[str, object] = {}
+        self._geo_level_raw_by_label: dict[str, str | None] = {
+            ALL_GEOGRAPHY_TYPES_LABEL: ALL_GEOGRAPHY_TYPES_VALUE
+        }
+        self._geography_raw_by_label: dict[str, str | None] = {
+            ALL_WITHIN_LEVEL_VALUE: ALL_WITHIN_LEVEL_VALUE
+        }
         self.geo_level_sel = self.selector(
             "geography_level",
             widget=pn.widgets.Select(
-                name="Geography Level",
-                options=["Total"],
-                value="Total",
+                name=GEOGRAPHY_TYPE_SELECTOR_LABEL,
+                options=[ALL_GEOGRAPHY_TYPES_LABEL],
+                value=ALL_GEOGRAPHY_TYPES_LABEL,
             ),
-            label="Geography Level",
+            label=GEOGRAPHY_TYPE_SELECTOR_LABEL,
         )
         self.geography_sel = self.selector(
             "geography",
             widget=pn.widgets.Select(
-                name="Geography",
+                name=GEOGRAPHY_NAME_SELECTOR_LABEL,
                 options=[ALL_WITHIN_LEVEL_VALUE],
                 value=ALL_WITHIN_LEVEL_VALUE,
             ),
-            label="Geography",
+            label=GEOGRAPHY_NAME_SELECTOR_LABEL,
         )
         self._remote_work_section = self.section(
             "remote_work",
@@ -103,34 +114,56 @@ class MandatoryLocationChoicePage(DashboardPage):
             self._current_data = self._collect_data()
 
         geo_opts = self._current_data["geo_opts"]
+        self._geo_level_raw_by_label = self._current_data["geo_raw_by_label"]
         self.geo_level_sel.options = geo_opts
         if self.geo_level_sel.value not in geo_opts:
             self.geo_level_sel.value = geo_opts[0]
 
         geography_opts_by_level = self._current_data["geography_opts_by_level"]
+        selected_geo_level = self.selected_geography_level_raw()
         if self.state.export_mode:
-            geography_opts = export_geography_options(
+            geography_opts, self._geography_raw_by_label = export_geography_name_options(
                 geography_opts_by_level,
                 config=self.config,
             )
         else:
-            geography_opts = geography_opts_by_level.get(
-                str(self.geo_level_sel.value),
-                [ALL_WITHIN_LEVEL_VALUE],
+            geography_opts, self._geography_raw_by_label = geography_opts_by_level.get(
+                selected_geo_level,
+                ([ALL_WITHIN_LEVEL_VALUE], {ALL_WITHIN_LEVEL_VALUE: ALL_WITHIN_LEVEL_VALUE}),
             )
+        self.geography_sel.name = geography_name_selector_label(
+            selected_geo_level,
+            config=self.config,
+        )
         self.geography_sel.options = geography_opts
         if self.geography_sel.value not in geography_opts:
             self.geography_sel.value = geography_opts[0]
 
+    def selected_geography_level_raw(self) -> str:
+        """Return the raw geography type value selected in the display selector."""
+        selected = str(self.geo_level_sel.value)
+        raw_value = self._geo_level_raw_by_label.get(selected, selected)
+        return ALL_GEOGRAPHY_TYPES_VALUE if raw_value is None else str(raw_value)
+
+    def selected_geography_raw(self) -> str:
+        """Return the raw geography name/id value selected in the display selector."""
+        selected = str(self.geography_sel.value)
+        raw_value = self._geography_raw_by_label.get(selected, selected)
+        return ALL_WITHIN_LEVEL_VALUE if raw_value is None else str(raw_value)
+
     def _selected_geography(self) -> tuple[str, str]:
         """Return the effective geography selection, honoring export-mode flattening."""
-        geo_level = str(self.geo_level_sel.value)
-        geography = str(self.geography_sel.value)
+        geo_level = self.selected_geography_level_raw()
+        geography = self.selected_geography_raw()
         if not self.state.export_mode:
             return geo_level, geography
 
         geography_opts_by_level = self._current_data.get("geography_opts_by_level", {})
-        valid_options = set(geography_opts_by_level.get(geo_level, [ALL_WITHIN_LEVEL_VALUE]))
+        _, raw_by_label = geography_opts_by_level.get(
+            geo_level,
+            ([ALL_WITHIN_LEVEL_VALUE], {ALL_WITHIN_LEVEL_VALUE: ALL_WITHIN_LEVEL_VALUE}),
+        )
+        valid_options = {str(value) for value in raw_by_label.values() if value is not None}
         if geography in valid_options:
             return geo_level, geography
         return geo_level, ALL_WITHIN_LEVEL_VALUE
@@ -140,8 +173,16 @@ class MandatoryLocationChoicePage(DashboardPage):
         if not self.state.run_labels:
             return {
                 "mode": "no_runs",
-                "geo_opts": ["Total"],
-                "geography_opts_by_level": {"Total": [ALL_WITHIN_LEVEL_VALUE]},
+                "geo_opts": [ALL_GEOGRAPHY_TYPES_LABEL],
+                "geo_raw_by_label": {
+                    ALL_GEOGRAPHY_TYPES_LABEL: ALL_GEOGRAPHY_TYPES_VALUE
+                },
+                "geography_opts_by_level": {
+                    ALL_GEOGRAPHY_TYPES_VALUE: (
+                        [ALL_WITHIN_LEVEL_VALUE],
+                        {ALL_WITHIN_LEVEL_VALUE: ALL_WITHIN_LEVEL_VALUE},
+                    )
+                },
             }
 
         summaries = self.optional_summaries_dict(
@@ -159,8 +200,16 @@ class MandatoryLocationChoicePage(DashboardPage):
         if not any(summary is not None for summary in summaries.values()):
             return {
                 "mode": "unavailable",
-                "geo_opts": ["Total"],
-                "geography_opts_by_level": {"Total": [ALL_WITHIN_LEVEL_VALUE]},
+                "geo_opts": [ALL_GEOGRAPHY_TYPES_LABEL],
+                "geo_raw_by_label": {
+                    ALL_GEOGRAPHY_TYPES_LABEL: ALL_GEOGRAPHY_TYPES_VALUE
+                },
+                "geography_opts_by_level": {
+                    ALL_GEOGRAPHY_TYPES_VALUE: (
+                        [ALL_WITHIN_LEVEL_VALUE],
+                        {ALL_WITHIN_LEVEL_VALUE: ALL_WITHIN_LEVEL_VALUE},
+                    )
+                },
             }
 
         internal_external = normalize_geography_data(
@@ -189,12 +238,12 @@ class MandatoryLocationChoicePage(DashboardPage):
             summaries["average_mandatory_tour_distance_by_purpose_and_geography"]
         )
 
-        geo_opts = geography_level_options(
+        geo_opts, geo_raw_by_label = geography_type_options(
             internal_external or None,
             commuting_flows or None,
             work_from_home or None,
             config=self.config,
-            total_label="Total",
+            include_all_types=True,
         )
         geography_option_sources = (
             internal_external or None,
@@ -205,16 +254,18 @@ class MandatoryLocationChoicePage(DashboardPage):
             average_distance or None,
         )
         geography_opts_by_level = {
-            geo_level: geography_options_for_level(
-                geo_level,
+            str(raw_geo_level): geography_name_options_for_type(
+                str(raw_geo_level),
                 *geography_option_sources,
                 config=self.config,
             )
-            for geo_level in geo_opts
+            for raw_geo_level in geo_raw_by_label.values()
+            if raw_geo_level is not None
         }
         return {
             "mode": "ready",
             "geo_opts": geo_opts,
+            "geo_raw_by_label": geo_raw_by_label,
             "geography_opts_by_level": geography_opts_by_level,
             "internal_external": internal_external or None,
             "external_workplace": external_workplace or None,

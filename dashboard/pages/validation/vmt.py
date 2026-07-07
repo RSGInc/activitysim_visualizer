@@ -13,6 +13,15 @@ from dashboard.helpers.category_helpers import (
     nonempty,
     raw_display_options,
 )
+from dashboard.helpers.geography_helpers import (
+    ALL_GEOGRAPHY_TYPES_LABEL,
+    ALL_GEOGRAPHY_TYPES_VALUE,
+    GEOGRAPHY_NAME_SELECTOR_LABEL,
+    GEOGRAPHY_TYPE_SELECTOR_LABEL,
+    geography_name_options_for_type,
+    geography_name_selector_label,
+    geography_type_options,
+)
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
@@ -25,6 +34,7 @@ VMT_VIEW_OPTIONS = [
 EXTERNAL_TOD_ORDER = ["EA", "AM", "MD", "PM", "EV", "EV1", "EV2"]
 EXTERNAL_AUTO_MODE_COLUMNS = ["SOV", "HOV2", "HOV3", "Truck"]
 EXTERNAL_COMMERCIAL_COLUMNS = ["car", "mu", "su"]
+EXTERNAL_COMMERCIAL_BREAKDOWN_OPTIONS = ["Time Period", "Commercial Vehicle Type"]
 EXTERNAL_PURPOSE_COLUMNS = [
     "hbcoll",
     "hbo",
@@ -181,37 +191,6 @@ def personal_auto_mode_options(
         total_raw="All",
         total_label="All",
     )
-
-
-def geography_id_options(
-    data_list: list[tuple[str, pl.DataFrame]] | None,
-    geography_type: str,
-) -> list[str]:
-    """Return geography id selector options for the selected geography type."""
-    values: list[str] = []
-    seen: set[str] = set()
-    for _, df in nonempty(data_list or []):
-        if not {"geography_type", "geography_id"}.issubset(df.columns):
-            continue
-        filtered = df.with_columns(
-            pl.col("geography_type").cast(pl.Utf8),
-            pl.col("geography_id").cast(pl.Utf8),
-        )
-        if geography_type != "All":
-            filtered = filtered.filter(pl.col("geography_type") == geography_type)
-        for value in filtered["geography_id"].drop_nulls().to_list():
-            value_str = str(value)
-            if value_str in seen:
-                continue
-            seen.add(value_str)
-            values.append(value_str)
-    values = _ordered_values(
-        values,
-        preferred=["all_geographies"] if geography_type == "all_geographies" else None,
-    )
-    if geography_type == "all_geographies":
-        return values or ["all_geographies"]
-    return ["All", *values] if values else ["All"]
 
 
 def personal_auto_vmt_chart_data(
@@ -382,6 +361,63 @@ def wide_tod_chart_data(
     return out
 
 
+def external_commercial_vehicle_chart_data(
+    data_list: list[tuple[str, pl.DataFrame]],
+    *,
+    breakdown: str,
+    tod_col: str = "tod",
+    value_columns: list[str] | None = None,
+    exclude_total_period: bool = True,
+) -> list[tuple[str, pl.DataFrame]]:
+    """Aggregate external commercial vehicle summaries for one chart breakdown."""
+    value_columns = value_columns or EXTERNAL_COMMERCIAL_COLUMNS
+    out: list[tuple[str, pl.DataFrame]] = []
+    for label, df in nonempty(data_list):
+        available_columns = [column for column in value_columns if column in df.columns]
+        if tod_col not in df.columns or not available_columns:
+            continue
+        filtered = df.with_columns(pl.col(tod_col).cast(pl.Utf8))
+        if exclude_total_period:
+            filtered = filtered.filter(pl.col(tod_col).str.to_lowercase() != "daily")
+        long_df = filtered.unpivot(
+            index=tod_col,
+            on=available_columns,
+            variable_name="commercial_vehicle_type",
+            value_name="value",
+        ).rename({tod_col: "time_period"})
+        if breakdown == "Commercial Vehicle Type":
+            chart_df = (
+                long_df.group_by("commercial_vehicle_type")
+                .agg(pl.col("value").sum().alias("value"))
+                .rename({"commercial_vehicle_type": "category"})
+                .with_columns(pl.col("category").cast(pl.Utf8))
+            )
+            order = value_columns
+        else:
+            chart_df = (
+                long_df.group_by("time_period")
+                .agg(pl.col("value").sum().alias("value"))
+                .rename({"time_period": "category"})
+                .with_columns(pl.col("category").cast(pl.Utf8))
+            )
+            order = EXTERNAL_TOD_ORDER
+        chart_df = (
+            chart_df.with_columns(
+                pl.col("category")
+                .replace_strict(
+                    {value: index for index, value in enumerate(order)},
+                    default=len(order),
+                    return_dtype=pl.Int64,
+                )
+                .alias("_sort_order")
+            )
+            .sort("_sort_order", "category")
+            .drop("_sort_order")
+        )
+        out.append((label, chart_df))
+    return out
+
+
 def wide_tod_bar_chart(
     data_list: list[tuple[str, pl.DataFrame]],
     *,
@@ -442,6 +478,28 @@ class VMTValidationPage(DashboardPage):
             PERSONAL_AUTO_VMT_SUMMARY_ID,
             "weighted",
         )
+        geography_type_options_display, self.personal_vmt_geo_type_raw_by_label = (
+            geography_type_options(
+                personal_vmt,
+                config=self.config,
+                include_all_types=True,
+            )
+        )
+        if not geography_type_options_display:
+            geography_type_options_display = [ALL_GEOGRAPHY_TYPES_LABEL]
+            self.personal_vmt_geo_type_raw_by_label = {
+                ALL_GEOGRAPHY_TYPES_LABEL: ALL_GEOGRAPHY_TYPES_VALUE
+            }
+        geography_options_display, self.personal_vmt_geo_raw_by_label = (
+            geography_name_options_for_type(
+                str(self.personal_vmt_geo_type_raw_by_label.get(geography_type_options_display[0], ALL_GEOGRAPHY_TYPES_VALUE)),
+                personal_vmt,
+                config=self.config,
+            )
+        )
+        if not geography_options_display:
+            geography_options_display = ["All Geographies"]
+            self.personal_vmt_geo_raw_by_label = {"All Geographies": "All"}
         mode_options, self.personal_vmt_mode_raw_by_label = personal_auto_mode_options(
             personal_vmt,
             config=self.config,
@@ -461,20 +519,20 @@ class VMTValidationPage(DashboardPage):
         self.personal_vmt_geography_type_sel = self.selector(
             "personal_auto_vmt_geography_type",
             widget=pn.widgets.Select(
-                name="Geography Type",
-                options=["all_geographies"],
-                value="all_geographies",
+                name=GEOGRAPHY_TYPE_SELECTOR_LABEL,
+                options=geography_type_options_display,
+                value=geography_type_options_display[0],
             ),
-            label="Geography Type",
+            label=GEOGRAPHY_TYPE_SELECTOR_LABEL,
         )
         self.personal_vmt_geography_sel = self.selector(
             "personal_auto_vmt_geography",
             widget=pn.widgets.Select(
-                name="Geography",
-                options=["all_geographies"],
-                value="all_geographies",
+                name=GEOGRAPHY_NAME_SELECTOR_LABEL,
+                options=geography_options_display,
+                value=geography_options_display[0],
             ),
-            label="Geography",
+            label=GEOGRAPHY_NAME_SELECTOR_LABEL,
         )
         self.personal_vmt_time_period_sel = self.selector(
             "personal_auto_vmt_time_period",
@@ -530,6 +588,15 @@ class VMTValidationPage(DashboardPage):
             ),
             label="Commercial Vehicle Metric",
         )
+        self.external_commercial_breakdown_sel = self.selector(
+            "external_commercial_breakdown",
+            widget=pn.widgets.Select(
+                name="Commercial Vehicle Breakdown",
+                options=EXTERNAL_COMMERCIAL_BREAKDOWN_OPTIONS,
+                value=EXTERNAL_COMMERCIAL_BREAKDOWN_OPTIONS[0],
+            ),
+            label="Commercial Vehicle Breakdown",
+        )
         self.external_trip_metric_sel = self.selector(
             "external_trip_metric",
             widget=pn.widgets.Select(
@@ -557,6 +624,7 @@ class VMTValidationPage(DashboardPage):
             selectors=(
                 "commercial_vmt_view",
                 "external_commercial_metric",
+                "external_commercial_breakdown",
                 "external_trip_metric",
             ),
             render=self.render_body,
@@ -580,6 +648,7 @@ class VMTValidationPage(DashboardPage):
             selector_row(self.vmt_view_sel),
             selector_row(
                 self.external_commercial_metric_sel,
+                self.external_commercial_breakdown_sel,
                 self.external_trip_metric_sel,
             ),
             self._body,
@@ -591,30 +660,35 @@ class VMTValidationPage(DashboardPage):
             PERSONAL_AUTO_VMT_SUMMARY_ID,
             self.weighting_key,
         )
-        geography_type_options = _selector_values(
+        geography_type_options_display, self.personal_vmt_geo_type_raw_by_label = geography_type_options(
             personal_vmt,
-            "geography_type",
-            preferred=["all_geographies"],
-        ) or ["all_geographies"]
-        self.personal_vmt_geography_type_sel.options = geography_type_options
-        if self.personal_vmt_geography_type_sel.value not in geography_type_options:
-            self.personal_vmt_geography_type_sel.value = (
-                "all_geographies"
-                if "all_geographies" in geography_type_options
-                else geography_type_options[0]
-            )
-
-        geography_options = geography_id_options(
-            personal_vmt,
-            str(self.personal_vmt_geography_type_sel.value),
+            config=self.config,
+            include_all_types=True,
         )
-        self.personal_vmt_geography_sel.options = geography_options
-        if self.personal_vmt_geography_sel.value not in geography_options:
-            self.personal_vmt_geography_sel.value = (
-                "all_geographies"
-                if "all_geographies" in geography_options
-                else geography_options[0]
+        if not geography_type_options_display:
+            geography_type_options_display = [ALL_GEOGRAPHY_TYPES_LABEL]
+            self.personal_vmt_geo_type_raw_by_label = {
+                ALL_GEOGRAPHY_TYPES_LABEL: ALL_GEOGRAPHY_TYPES_VALUE
+            }
+        self.personal_vmt_geography_type_sel.options = geography_type_options_display
+        if self.personal_vmt_geography_type_sel.value not in geography_type_options_display:
+            self.personal_vmt_geography_type_sel.value = geography_type_options_display[0]
+
+        geography_type = self.selected_personal_vmt_geography_type_raw()
+        geography_options_display, self.personal_vmt_geo_raw_by_label = (
+            geography_name_options_for_type(
+                geography_type,
+                personal_vmt,
+                config=self.config,
             )
+        )
+        self.personal_vmt_geography_sel.name = geography_name_selector_label(
+            geography_type,
+            config=self.config,
+        )
+        self.personal_vmt_geography_sel.options = geography_options_display
+        if self.personal_vmt_geography_sel.value not in geography_options_display:
+            self.personal_vmt_geography_sel.value = geography_options_display[0]
 
         time_period_options = _selector_values(
             personal_vmt,
@@ -670,6 +744,16 @@ class VMTValidationPage(DashboardPage):
                 breakdown_filter_selector.value = "All"
             breakdown_filter_selector.disabled = True
 
+    def selected_personal_vmt_geography_type_raw(self) -> str:
+        selected = str(self.personal_vmt_geography_type_sel.value)
+        raw_value = self.personal_vmt_geo_type_raw_by_label.get(selected, selected)
+        return ALL_GEOGRAPHY_TYPES_VALUE if raw_value is None else str(raw_value)
+
+    def selected_personal_vmt_geography_raw(self) -> str:
+        selected = str(self.personal_vmt_geography_sel.value)
+        raw_value = self.personal_vmt_geo_raw_by_label.get(selected, selected)
+        return "All" if raw_value is None else str(raw_value)
+
     def selected_personal_vmt_mode_raw(self) -> str:
         selected = str(self.personal_vmt_mode_sel.value)
         raw_value = self.personal_vmt_mode_raw_by_label.get(selected, selected)
@@ -691,8 +775,8 @@ class VMTValidationPage(DashboardPage):
             ]
         personal_vmt = [(label, table) for label, table in selection.usable_runs]
         breakdown = str(self.personal_vmt_breakdown_sel.value)
-        geography_type = str(self.personal_vmt_geography_type_sel.value)
-        geography_id = str(self.personal_vmt_geography_sel.value)
+        geography_type = self.selected_personal_vmt_geography_type_raw()
+        geography_id = self.selected_personal_vmt_geography_raw()
         time_period = str(self.personal_vmt_time_period_sel.value)
         mode = self.selected_personal_vmt_mode_raw()
         income_segment = str(self.personal_vmt_income_segment_sel.value)
@@ -735,6 +819,14 @@ class VMTValidationPage(DashboardPage):
                 chart_data,
                 source_col="category",
                 category_id=PERSONAL_AUTO_VMT_MODE_CATEGORY_ID,
+                config=self.config,
+                target_col="category",
+            )
+        elif breakdown == "Home Geography":
+            chart_data = label_category_data(
+                chart_data,
+                source_col="category",
+                category_id="geography",
                 config=self.config,
                 target_col="category",
             )
@@ -887,21 +979,31 @@ class VMTValidationPage(DashboardPage):
                 missing_items=[summary_id],
             )
         metric = self.external_commercial_metric_sel.value
+        breakdown = str(self.external_commercial_breakdown_sel.value)
         chart_data = self.get_filtered_view(
             "external_commercial_vehicle",
-            (self.weighting_key, metric),
-            factory=lambda: wide_tod_chart_data(
+            (self.weighting_key, metric, breakdown),
+            factory=lambda: external_commercial_vehicle_chart_data(
                 data,
+                breakdown=breakdown,
                 tod_col="tod",
                 value_columns=EXTERNAL_COMMERCIAL_COLUMNS,
             ),
         )
-        return wide_tod_bar_chart(
+        xaxis_categoryarray = (
+            EXTERNAL_TOD_ORDER
+            if breakdown == "Time Period"
+            else EXTERNAL_COMMERCIAL_COLUMNS
+        )
+        return bar_chart(
             chart_data,
-            title=f"External Commercial Vehicle {metric} by Time Period and Type",
+            x_col="category",
+            y_col="value",
+            title=f"External Commercial Vehicle {metric} by {breakdown}",
+            xaxis_title=breakdown,
             yaxis_title=metric,
-            barmode="group",
-            category_order=EXTERNAL_COMMERCIAL_COLUMNS,
+            as_percent=self.as_percent,
+            xaxis_categoryarray=xaxis_categoryarray,
         )
 
     def render_external_trip_chart(self) -> pn.viewable.Viewable:

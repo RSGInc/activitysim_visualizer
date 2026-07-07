@@ -17,10 +17,16 @@ from dashboard.helpers.comparison_helpers import (
     weighted_average_lookup,
 )
 from dashboard.helpers.geography_helpers import (
+    ALL_GEOGRAPHY_TYPES_LABEL,
+    ALL_GEOGRAPHY_TYPES_VALUE,
+    ALL_WITHIN_LEVEL_VALUE,
+    GEOGRAPHY_NAME_SELECTOR_LABEL,
+    GEOGRAPHY_TYPE_SELECTOR_LABEL,
     filter_geography,
     filter_geography_level,
-    geography_level_options,
-    geography_options_for_level,
+    geography_name_options_for_type,
+    geography_name_selector_label,
+    geography_type_options,
     normalize_geography_data,
 )
 from dashboard.helpers.time_distance_helpers import distance_sort_expr
@@ -142,6 +148,12 @@ class TourDistancePage(DashboardPage):
         """Build the persistent page layout and selector widgets."""
         self._tour_purpose_to_raw: dict[str, str | None] = {}
         self._nonmandatory_purpose_to_raw: dict[str, str | None] = {}
+        self._geo_level_raw_by_label: dict[str, str | None] = {
+            ALL_GEOGRAPHY_TYPES_LABEL: ALL_GEOGRAPHY_TYPES_VALUE
+        }
+        self._geography_raw_by_label: dict[str, str | None] = {
+            ALL_WITHIN_LEVEL_VALUE: ALL_WITHIN_LEVEL_VALUE
+        }
         self.tour_purpose_sel = self.selector(
             "tour_purpose",
             widget=pn.widgets.Select(
@@ -154,20 +166,20 @@ class TourDistancePage(DashboardPage):
         self.geo_level_sel = self.selector(
             "geography_level",
             widget=pn.widgets.Select(
-                name="Geography Level",
-                options=["Total"],
-                value="Total",
+                name=GEOGRAPHY_TYPE_SELECTOR_LABEL,
+                options=[ALL_GEOGRAPHY_TYPES_LABEL],
+                value=ALL_GEOGRAPHY_TYPES_LABEL,
             ),
-            label="Geography Level",
+            label=GEOGRAPHY_TYPE_SELECTOR_LABEL,
         )
         self.geography_sel = self.selector(
             "geography",
             widget=pn.widgets.Select(
-                name="Geography",
-                options=[self.TOTAL_PURPOSE_LABEL],
-                value=self.TOTAL_PURPOSE_LABEL,
+                name=GEOGRAPHY_NAME_SELECTOR_LABEL,
+                options=[ALL_WITHIN_LEVEL_VALUE],
+                value=ALL_WITHIN_LEVEL_VALUE,
             ),
-            label="Geography",
+            label=GEOGRAPHY_NAME_SELECTOR_LABEL,
         )
         self.nonmandatory_purpose_sel = self.selector(
             "nonmandatory_tour_purpose",
@@ -242,17 +254,11 @@ class TourDistancePage(DashboardPage):
             total_raw="All",
             total_label=self.TOTAL_PURPOSE_LABEL,
         )
-        geography_level_options_list = geography_level_options(
+        geography_type_options_list, self._geo_level_raw_by_label = geography_type_options(
             nonmandatory_average or None,
             mandatory_average or None,
             config=self.config,
-            total_label="Total",
-        )
-        geography_options = geography_options_for_level(
-            str(self.geo_level_sel.value),
-            nonmandatory_average or None,
-            mandatory_average or None,
-            config=self.config,
+            include_all_types=True,
         )
 
         for widget, options in (
@@ -261,21 +267,38 @@ class TourDistancePage(DashboardPage):
                 self.nonmandatory_purpose_sel,
                 nonmandatory_options or [self.TOTAL_PURPOSE_LABEL],
             ),
-            (self.geo_level_sel, geography_level_options_list or ["Total"]),
+            (self.geo_level_sel, geography_type_options_list or [ALL_GEOGRAPHY_TYPES_LABEL]),
         ):
             widget.options = options
             if widget.value not in options:
                 widget.value = options[0]
 
-        geography_options = geography_options_for_level(
-            str(self.geo_level_sel.value),
+        geography_type = self.selected_geography_level_raw()
+        geography_options, self._geography_raw_by_label = geography_name_options_for_type(
+            geography_type,
             nonmandatory_average or None,
             mandatory_average or None,
+            config=self.config,
+        )
+        self.geography_sel.name = geography_name_selector_label(
+            geography_type,
             config=self.config,
         )
         self.geography_sel.options = geography_options
         if self.geography_sel.value not in geography_options:
             self.geography_sel.value = geography_options[0]
+
+    def selected_geography_level_raw(self) -> str:
+        """Return the raw geography type selected in the display selector."""
+        selected = str(self.geo_level_sel.value)
+        raw_value = self._geo_level_raw_by_label.get(selected, selected)
+        return ALL_GEOGRAPHY_TYPES_VALUE if raw_value is None else str(raw_value)
+
+    def selected_geography_raw(self) -> str:
+        """Return the raw geography id selected in the display selector."""
+        selected = str(self.geography_sel.value)
+        raw_value = self._geography_raw_by_label.get(selected, selected)
+        return ALL_WITHIN_LEVEL_VALUE if raw_value is None else str(raw_value)
 
     def render_distance_section(self) -> SectionContent:
         """Render the tour distance distribution chart."""
@@ -330,8 +353,8 @@ class TourDistancePage(DashboardPage):
         nonmandatory_average = normalize_geography_data(
             summaries["average_nonmandatory_tour_distance_by_purpose_and_geography"]
         )
-        geo_level = str(self.geo_level_sel.value)
-        geography = str(self.geography_sel.value)
+        geo_level = self.selected_geography_level_raw()
+        geography = self.selected_geography_raw()
         raw_purpose = str(
             self._nonmandatory_purpose_to_raw.get(
                 str(self.nonmandatory_purpose_sel.value),

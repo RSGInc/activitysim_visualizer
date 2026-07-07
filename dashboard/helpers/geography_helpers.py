@@ -6,7 +6,11 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
-from dashboard.helpers.category_helpers import first_nonempty_frame, nonempty
+from dashboard.helpers.category_helpers import (
+    first_nonempty_frame,
+    nonempty,
+    raw_display_options,
+)
 
 if TYPE_CHECKING:
     from runtime.config import Config
@@ -20,7 +24,11 @@ PREFERRED_TYPED_GEO_ORDER = [
 ]
 AGGREGATE_GEOGRAPHY_LEVEL = "all_geographies"
 ALL_WITHIN_LEVEL_VALUE = "All"
+ALL_GEOGRAPHY_TYPES_VALUE = AGGREGATE_GEOGRAPHY_LEVEL
+ALL_GEOGRAPHY_TYPES_LABEL = "All Geography Types"
 ALL_GEOGRAPHIES_LABEL = "All Geographies"
+GEOGRAPHY_TYPE_SELECTOR_LABEL = "Geography Type"
+GEOGRAPHY_NAME_SELECTOR_LABEL = "Geography Name"
 DEFAULT_GEO_LEVEL_COL = "geography_level"
 DEFAULT_GEO_COL = "geography"
 DEFAULT_GEO_TYPE_COL = "geography_type"
@@ -29,12 +37,83 @@ DEFAULT_GEO_ID_COL = "geography_id"
 
 def is_all_geographies(value: str | None) -> bool:
     """Return whether a selector value targets the cross-level aggregate geography."""
-    return str(value) in {AGGREGATE_GEOGRAPHY_LEVEL, ALL_GEOGRAPHIES_LABEL}
+    return str(value) in {
+        AGGREGATE_GEOGRAPHY_LEVEL,
+        ALL_GEOGRAPHIES_LABEL,
+    }
 
 
 def is_all_within_level(value: str | None) -> bool:
     """Return whether a selector value means all members within one level."""
     return str(value) in {ALL_WITHIN_LEVEL_VALUE, "All", "Total"}
+
+
+def geography_type_label(value: str | None, *, config: Config) -> str:
+    """Return the display label for one raw geography type/level value."""
+    value_str = str(value)
+    if value_str in {ALL_GEOGRAPHY_TYPES_VALUE, "Total"}:
+        return ALL_GEOGRAPHY_TYPES_LABEL
+    configured = config.label_value("geography", value_str)
+    if configured != value_str:
+        return configured
+    uppercase_labels = {"taz": "TAZ", "maz": "MAZ", "mpo": "MPO"}
+    if value_str.lower() in uppercase_labels:
+        return uppercase_labels[value_str.lower()]
+    return value_str.replace("_", " ").title()
+
+
+def normalize_geography_level_value(value: str | None) -> str:
+    """Normalize legacy aggregate geography level tokens to the canonical raw value."""
+    value_str = str(value)
+    if value_str in {ALL_GEOGRAPHIES_LABEL, "All", "Total"}:
+        return AGGREGATE_GEOGRAPHY_LEVEL
+    return value_str
+
+
+def pluralize_geography_label(label: str) -> str:
+    """Return a compact plural display label for a geography type label."""
+    label = str(label)
+    lower = label.lower()
+    explicit = {
+        "county": "Counties",
+        "geography": "Geographies",
+        "all geography": "All Geographies",
+    }
+    if lower in explicit:
+        return explicit[lower]
+    if label.isupper():
+        return f"{label}s"
+    if lower.endswith("y") and (len(lower) < 2 or lower[-2] not in "aeiou"):
+        return f"{label[:-1]}ies"
+    if lower.endswith(("s", "x", "z")) or lower.endswith(("ch", "sh")):
+        return f"{label}es"
+    return f"{label}s"
+
+
+def all_within_geography_type_label(
+    geography_type: str | None,
+    *,
+    config: Config,
+) -> str:
+    """Return the display label for all geography names within a selected type."""
+    if geography_type in {None, ALL_GEOGRAPHY_TYPES_VALUE, "Total"}:
+        return config.label_value("geography", AGGREGATE_GEOGRAPHY_LEVEL)
+    if is_all_geographies(geography_type):
+        return config.label_value("geography", AGGREGATE_GEOGRAPHY_LEVEL)
+    return f"All {pluralize_geography_label(geography_type_label(geography_type, config=config))}"
+
+
+def geography_name_selector_label(
+    geography_type: str | None,
+    *,
+    config: Config,
+) -> str:
+    """Return the selector label for geography names under one geography type."""
+    if geography_type in {None, ALL_GEOGRAPHY_TYPES_VALUE, "Total"}:
+        return GEOGRAPHY_NAME_SELECTOR_LABEL
+    if is_all_geographies(geography_type):
+        return GEOGRAPHY_NAME_SELECTOR_LABEL
+    return f"{geography_type_label(geography_type, config=config)} Name"
 
 
 def visible_geography_levels(
@@ -71,9 +150,16 @@ def detail_geography_levels(
     values: list[str] | set[str] | tuple[str, ...],
     *,
     config: Config,
+    include_disabled_maz: bool = False,
 ) -> list[str]:
     """Return selector geography levels, hiding only MAZ when disabled."""
-    return ordered_visible_geography_levels(values, config=config)
+    if include_disabled_maz:
+        visible = [str(value).strip() for value in values if str(value).strip()]
+        ordered = [value for value in PREFERRED_TYPED_GEO_ORDER if value in visible]
+        ordered.extend(sorted(value for value in visible if value not in ordered))
+    else:
+        ordered = ordered_visible_geography_levels(values, config=config)
+    return config.ordered_values("geography", ordered)
 
 
 def rename_present(df: pl.DataFrame, mapping: dict[str, str]) -> pl.DataFrame:
@@ -152,7 +238,7 @@ def geography_level_option_set(
                 .cast(pl.Utf8)
                 .to_list()
             )
-            available.update(values)
+            available.update(normalize_geography_level_value(value) for value in values)
         elif geography_type_col in df.columns:
             values = (
                 df.select(geography_type_col)
@@ -162,13 +248,19 @@ def geography_level_option_set(
                 .cast(pl.Utf8)
                 .to_list()
             )
-            available.update(values)
+            available.update(normalize_geography_level_value(value) for value in values)
         elif {origin_level_col, destination_level_col}.issubset(df.columns):
             origin_values = set(
-                df[origin_level_col].cast(pl.Utf8).drop_nulls().unique().to_list()
+                normalize_geography_level_value(value)
+                for value in df[origin_level_col].cast(pl.Utf8).drop_nulls().unique().to_list()
             )
             destination_values = set(
-                df[destination_level_col].cast(pl.Utf8).drop_nulls().unique().to_list()
+                normalize_geography_level_value(value)
+                for value in df[destination_level_col]
+                .cast(pl.Utf8)
+                .drop_nulls()
+                .unique()
+                .to_list()
             )
             available.update(origin_values & destination_values)
     return available
@@ -189,10 +281,45 @@ def geography_level_options(
     if not available_sets:
         return [total_label]
     ordered = detail_geography_levels(set().union(*available_sets), config=config)
-    return [
-        config.label_value("geography", value) if is_all_geographies(value) else value
-        for value in (ordered or [total_label])
+    return [geography_type_label(value, config=config) for value in ordered] if ordered else [total_label]
+
+
+def geography_type_options(
+    *summary_lists: list[tuple[str, pl.DataFrame]] | None,
+    config: Config,
+    include_all_types: bool = False,
+    include_disabled_maz: bool = False,
+    all_types_label: str = ALL_GEOGRAPHY_TYPES_LABEL,
+    fallback_raw: str = AGGREGATE_GEOGRAPHY_LEVEL,
+) -> tuple[list[str], dict[str, str | None]]:
+    """Return geography type display options plus display-to-raw lookup."""
+    available_sets = [
+        geography_level_option_set(summary)
+        for summary in summary_lists
+        if summary is not None
     ]
+    available_sets = [available for available in available_sets if available]
+    if not available_sets:
+        raw_values = [fallback_raw]
+    else:
+        raw_values = detail_geography_levels(
+            set().union(*available_sets),
+            config=config,
+            include_disabled_maz=include_disabled_maz,
+        )
+    raw_by_label: dict[str, str | None] = {}
+    if include_all_types:
+        raw_by_label[all_types_label] = ALL_GEOGRAPHY_TYPES_VALUE
+    for raw_value in raw_values:
+        if include_all_types and raw_value == ALL_GEOGRAPHY_TYPES_VALUE:
+            continue
+        raw_by_label[geography_type_label(raw_value, config=config)] = raw_value
+    return list(raw_by_label), raw_by_label
+
+
+def aggregate_geography_level_values() -> set[str]:
+    """Return raw values used by current and legacy summaries for aggregate geography levels."""
+    return {AGGREGATE_GEOGRAPHY_LEVEL, "All", "Total", ALL_GEOGRAPHIES_LABEL}
 
 
 def geography_id_option_set(
@@ -282,6 +409,39 @@ def geography_options_for_level(
     return [all_within_level_label] + ordered if ordered else [all_within_level_label]
 
 
+def geography_name_options_for_type(
+    geography_type: str,
+    *summary_lists: list[tuple[str, pl.DataFrame]] | None,
+    config: Config,
+) -> tuple[list[str], dict[str, str | None]]:
+    """Return geography name display options plus display-to-raw lookup."""
+    if geography_type in {ALL_GEOGRAPHY_TYPES_VALUE, "Total"}:
+        display = config.label_value("geography", AGGREGATE_GEOGRAPHY_LEVEL)
+        return [display], {display: ALL_WITHIN_LEVEL_VALUE}
+    if is_all_geographies(geography_type):
+        display = config.label_value("geography", AGGREGATE_GEOGRAPHY_LEVEL)
+        return [display], {display: AGGREGATE_GEOGRAPHY_LEVEL}
+
+    available_sets = [
+        geography_id_option_set(summary, geography_type)
+        for summary in summary_lists
+        if summary is not None
+    ]
+    available_sets = [available for available in available_sets if available]
+    all_label = all_within_geography_type_label(geography_type, config=config)
+    if not available_sets:
+        return [all_label], {all_label: ALL_WITHIN_LEVEL_VALUE}
+
+    raw_values = config.ordered_values("geography", sorted(set().union(*available_sets)))
+    return raw_display_options(
+        raw_values,
+        category_id="geography",
+        config=config,
+        total_raw=ALL_WITHIN_LEVEL_VALUE,
+        total_label=all_label,
+    )
+
+
 def export_geography_options(
     geography_opts_by_level: dict[str, list[str]],
     *,
@@ -300,6 +460,33 @@ def export_geography_options(
     return [all_within_level_label] + ordered if ordered else [all_within_level_label]
 
 
+def export_geography_name_options(
+    geography_opts_by_level: dict[str, tuple[list[str], dict[str, str | None]]],
+    *,
+    config: Config,
+    all_within_level_label: str = ALL_WITHIN_LEVEL_VALUE,
+) -> tuple[list[str], dict[str, str | None]]:
+    """Flatten per-level geography display options for export mode."""
+    raw_values: set[str] = set()
+    for options, raw_by_label in geography_opts_by_level.values():
+        for option in options:
+            raw_value = raw_by_label.get(str(option), str(option))
+            if raw_value is None:
+                continue
+            raw_value_str = str(raw_value)
+            if raw_value_str == all_within_level_label or is_all_geographies(raw_value_str):
+                continue
+            raw_values.add(raw_value_str)
+    ordered = config.ordered_values("geography", sorted(raw_values))
+    return raw_display_options(
+        ordered,
+        category_id="geography",
+        config=config,
+        total_raw=all_within_level_label,
+        total_label=all_within_level_label,
+    )
+
+
 def filter_geography_level(
     data_list: list[tuple[str, pl.DataFrame]] | None,
     geo_level: str,
@@ -312,8 +499,8 @@ def filter_geography_level(
     """Filter a run-indexed summary list to one geography level."""
     if not data_list:
         return []
-    if is_all_geographies(geo_level):
-        geo_level = AGGREGATE_GEOGRAPHY_LEVEL
+    aggregate_values = aggregate_geography_level_values()
+    match_aggregate = is_all_geographies(geo_level)
     out: list[tuple[str, pl.DataFrame]] = []
     for label, df in nonempty(data_list):
         filtered = df
@@ -321,19 +508,34 @@ def filter_geography_level(
             if geography_level_col in filtered.columns:
                 filtered = filtered.with_columns(
                     pl.col(geography_level_col).cast(pl.Utf8)
-                ).filter(pl.col(geography_level_col) == geo_level)
+                ).filter(
+                    pl.col(geography_level_col).is_in(aggregate_values)
+                    if match_aggregate
+                    else pl.col(geography_level_col) == geo_level
+                )
             elif geography_type_col in filtered.columns:
                 filtered = filtered.with_columns(
                     pl.col(geography_type_col).cast(pl.Utf8)
-                ).filter(pl.col(geography_type_col) == geo_level)
+                ).filter(
+                    pl.col(geography_type_col).is_in(aggregate_values)
+                    if match_aggregate
+                    else pl.col(geography_type_col) == geo_level
+                )
             elif {origin_level_col, destination_level_col}.issubset(filtered.columns):
                 filtered = filtered.with_columns(
                     pl.col(origin_level_col).cast(pl.Utf8),
                     pl.col(destination_level_col).cast(pl.Utf8),
-                ).filter(
-                    (pl.col(origin_level_col) == geo_level)
-                    & (pl.col(destination_level_col) == geo_level)
                 )
+                if match_aggregate:
+                    filtered = filtered.filter(
+                        pl.col(origin_level_col).is_in(aggregate_values)
+                        & pl.col(destination_level_col).is_in(aggregate_values)
+                    )
+                else:
+                    filtered = filtered.filter(
+                        (pl.col(origin_level_col) == geo_level)
+                        & (pl.col(destination_level_col) == geo_level)
+                    )
         out.append((label, filtered))
     return out
 
@@ -350,20 +552,26 @@ def filter_geography(
         return []
     if is_all_within_level(geography):
         return nonempty(data_list)
-    if is_all_geographies(geography):
-        geography = AGGREGATE_GEOGRAPHY_LEVEL
+    aggregate_values = aggregate_geography_level_values()
+    match_aggregate = is_all_geographies(geography)
 
     out: list[tuple[str, pl.DataFrame]] = []
     for label, df in nonempty(data_list):
         filtered = df
         if geography_col in filtered.columns:
             filtered = filtered.with_columns(pl.col(geography_col).cast(pl.Utf8)).filter(
-                pl.col(geography_col) == geography
+                pl.col(geography_col).is_in(aggregate_values)
+                if match_aggregate
+                else pl.col(geography_col) == geography
             )
         elif geography_id_col in filtered.columns:
             filtered = filtered.with_columns(
                 pl.col(geography_id_col).cast(pl.Utf8)
-            ).filter(pl.col(geography_id_col) == geography)
+            ).filter(
+                pl.col(geography_id_col).is_in(aggregate_values)
+                if match_aggregate
+                else pl.col(geography_id_col) == geography
+            )
         out.append((label, filtered))
     return out
 
@@ -381,24 +589,32 @@ def filter_origin_geography(
         return []
     if is_all_within_level(geography):
         return nonempty(data_list)
-    if is_all_geographies(geography):
-        geography = AGGREGATE_GEOGRAPHY_LEVEL
+    aggregate_values = aggregate_geography_level_values()
+    match_aggregate = is_all_geographies(geography)
 
     out: list[tuple[str, pl.DataFrame]] = []
     for label, df in nonempty(data_list):
         filtered = df
         if origin_id_col in filtered.columns:
             filtered = filtered.with_columns(pl.col(origin_id_col).cast(pl.Utf8)).filter(
-                pl.col(origin_id_col) == geography
+                pl.col(origin_id_col).is_in(aggregate_values)
+                if match_aggregate
+                else pl.col(origin_id_col) == geography
             )
         elif geography_col in filtered.columns:
             filtered = filtered.with_columns(pl.col(geography_col).cast(pl.Utf8)).filter(
-                pl.col(geography_col) == geography
+                pl.col(geography_col).is_in(aggregate_values)
+                if match_aggregate
+                else pl.col(geography_col) == geography
             )
         elif geography_id_col in filtered.columns:
             filtered = filtered.with_columns(
                 pl.col(geography_id_col).cast(pl.Utf8)
-            ).filter(pl.col(geography_id_col) == geography)
+            ).filter(
+                pl.col(geography_id_col).is_in(aggregate_values)
+                if match_aggregate
+                else pl.col(geography_id_col) == geography
+            )
         out.append((label, filtered))
     return out
 

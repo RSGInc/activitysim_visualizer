@@ -8,10 +8,13 @@ import polars as pl
 from dashboard.components import data_table, density_chart, selector_row
 from dashboard.helpers.comparison_helpers import format_percent_error_table
 from dashboard.helpers.geography_helpers import (
-    ALL_GEOGRAPHIES_LABEL,
+    ALL_GEOGRAPHY_TYPES_LABEL,
+    GEOGRAPHY_TYPE_SELECTOR_LABEL,
     filter_geography_level,
     geography_column_options,
+    geography_type_options,
     is_all_geographies,
+    normalize_geography_level_value,
     normalize_geography_data,
 )
 from dashboard.page_base import DashboardPage, SectionContent
@@ -84,7 +87,7 @@ class ShadowPricingPage(DashboardPage):
 
     def _maz_tables_disabled(self) -> bool:
         """Return whether MAZ tables should be hidden by configuration."""
-        return str(self.geo_level_sel.value).lower() == "maz" and not self.config.enable_maz_geographies
+        return self.selected_geography_level_raw().lower() == "maz" and not self.config.enable_maz_geographies
 
     def _all_geographies_distribution_card(self, *, subject: str) -> pn.Card:
         """Explain the aggregate-level histogram special case."""
@@ -100,14 +103,17 @@ class ShadowPricingPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
         """Build the page with geography and student selectors."""
         self._current_data: dict[str, object] = {}
+        self._geo_level_raw_by_label: dict[str, str | None] = {
+            ALL_GEOGRAPHY_TYPES_LABEL: "all_geographies"
+        }
         self.geo_level_sel = self.selector(
             "geography_level",
             widget=pn.widgets.Select(
-                name="Geography Level",
-                options=[ALL_GEOGRAPHIES_LABEL],
-                value=ALL_GEOGRAPHIES_LABEL,
+                name=GEOGRAPHY_TYPE_SELECTOR_LABEL,
+                options=[ALL_GEOGRAPHY_TYPES_LABEL],
+                value=ALL_GEOGRAPHY_TYPES_LABEL,
             ),
-            label="Geography Level",
+            label=GEOGRAPHY_TYPE_SELECTOR_LABEL,
         )
         self.student_type_sel = self.selector(
             "student_type",
@@ -148,6 +154,7 @@ class ShadowPricingPage(DashboardPage):
         """Refresh summary state and reconcile selector domains."""
         self._current_data = self._collect_data()
         geo_opts = self._current_data["geo_opts"]
+        self._geo_level_raw_by_label = self._current_data["geo_raw_by_label"]
         self.geo_level_sel.options = geo_opts
         if self.geo_level_sel.value not in geo_opts:
             self.geo_level_sel.value = geo_opts[0]
@@ -157,12 +164,19 @@ class ShadowPricingPage(DashboardPage):
         if self.student_type_sel.value not in student_opts:
             self.student_type_sel.value = student_opts[0]
 
+    def selected_geography_level_raw(self) -> str:
+        """Return the raw geography type selected in the display selector."""
+        selected = str(self.geo_level_sel.value)
+        raw_value = self._geo_level_raw_by_label.get(selected, selected)
+        return "all_geographies" if raw_value is None else normalize_geography_level_value(str(raw_value))
+
     def _collect_data(self) -> dict[str, object]:
         """Collect and normalize every summary used on the page."""
         if not self.state.run_labels:
             return {
                 "mode": "no_runs",
-                "geo_opts": [ALL_GEOGRAPHIES_LABEL],
+                "geo_opts": [ALL_GEOGRAPHY_TYPES_LABEL],
+                "geo_raw_by_label": {ALL_GEOGRAPHY_TYPES_LABEL: "all_geographies"},
                 "student_opts": ["All"],
             }
 
@@ -178,15 +192,16 @@ class ShadowPricingPage(DashboardPage):
         school_hist = normalize_geography_data(
             self.optional_summary("school_shadow_pricing_residual_histogram")
         )
+        geo_opts, geo_raw_by_label = geography_type_options(
+            workplace_hist or school_hist or workplace_summary or school_summary,
+            config=self.config,
+            include_all_types=False,
+            include_disabled_maz=True,
+        )
         return {
             "mode": "ready",
-            "geo_opts": geography_column_options(
-                workplace_hist or school_hist or workplace_summary or school_summary,
-                "geography_level",
-                config=self.config,
-                total_label=ALL_GEOGRAPHIES_LABEL,
-                include_all_geographies=True,
-            ),
+            "geo_opts": geo_opts or [ALL_GEOGRAPHY_TYPES_LABEL],
+            "geo_raw_by_label": geo_raw_by_label or {ALL_GEOGRAPHY_TYPES_LABEL: "all_geographies"},
             "student_opts": geography_column_options(
                 school_hist or school_summary,
                 "student_type",
@@ -212,7 +227,7 @@ class ShadowPricingPage(DashboardPage):
                 )
             ]
 
-        geo_level = str(self.geo_level_sel.value)
+        geo_level = self.selected_geography_level_raw()
         if is_all_geographies(geo_level):
             return [
                 pn.pane.Markdown("### Workplace Shadow Pricing"),
@@ -225,6 +240,12 @@ class ShadowPricingPage(DashboardPage):
             geo_level,
             factory=lambda: filter_geography_level(workplace_hist, geo_level),
         )
+        if not any("bin_start" in df.columns for _, df in workplace_data):
+            return [
+                pn.pane.Markdown("### Workplace Shadow Pricing"),
+                selector_row(self.geo_level_sel),
+                self._all_geographies_distribution_card(subject="Workplace"),
+            ]
         return [
             pn.pane.Markdown("### Workplace Shadow Pricing"),
             selector_row(self.geo_level_sel),
@@ -256,7 +277,7 @@ class ShadowPricingPage(DashboardPage):
                 )
             ]
 
-        geo_level = str(self.geo_level_sel.value)
+        geo_level = self.selected_geography_level_raw()
         workplace_data = self.get_filtered_view(
             "shadow_pricing_workplace",
             geo_level,
@@ -299,7 +320,7 @@ class ShadowPricingPage(DashboardPage):
                 )
             ]
 
-        geo_level = str(self.geo_level_sel.value)
+        geo_level = self.selected_geography_level_raw()
         student_type = str(self.student_type_sel.value)
         if is_all_geographies(geo_level):
             return [
@@ -316,6 +337,12 @@ class ShadowPricingPage(DashboardPage):
                 student_type,
             ),
         )
+        if not any("bin_start" in df.columns for _, df in school_data):
+            return [
+                pn.pane.Markdown("### School Shadow Pricing"),
+                selector_row(self.student_type_sel),
+                self._all_geographies_distribution_card(subject="School"),
+            ]
         return [
             pn.pane.Markdown("### School Shadow Pricing"),
             selector_row(self.student_type_sel),
@@ -347,7 +374,7 @@ class ShadowPricingPage(DashboardPage):
                 )
             ]
 
-        geo_level = str(self.geo_level_sel.value)
+        geo_level = self.selected_geography_level_raw()
         student_type = str(self.student_type_sel.value)
         school_data = self.get_filtered_view(
             "shadow_pricing_school",
