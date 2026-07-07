@@ -106,6 +106,26 @@ def test_trip_mode_export_keeps_explicit_height_for_overall_plot() -> None:
     assert overall_plot["figure"]["layout"]["height"] == 400
 
 
+def test_density_hover_mode_is_serialized_in_export_payload() -> None:
+    tmp_path = _workspace_tmp_dir("payload_density_hover")
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=["tour_time"],
+        extra_lines=[
+            "display:",
+            "  density_hover_mode: all",
+        ],
+    )
+
+    payload = build_export_payload([], config, summary_runs=[_full_summary_run()])
+    plots = _plot_nodes(payload["states"]["Weighted||Percent"]["tour_time"])
+
+    assert any(
+        plot.get("figure", {}).get("layout", {}).get("hovermode") == "x unified"
+        for plot in plots
+    )
+
+
 def test_build_export_payload_defaults_to_live_segmentation_filter() -> None:
     tmp_path = _workspace_tmp_dir("payload_segmentation_fallback")
     config = _write_config(

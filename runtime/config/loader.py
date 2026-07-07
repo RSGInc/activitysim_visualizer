@@ -347,6 +347,9 @@ def _compatibility_normalize_raw_config(
         )
         visualizer_cfg["run_colors"] = display_cfg["run_colors"]
 
+    if "density_hover_mode" in display_cfg:
+        visualizer_cfg["density_hover_mode"] = display_cfg["density_hover_mode"]
+
     if visualizer_cfg:
         normalized["visualizer"] = visualizer_cfg
 
@@ -863,6 +866,13 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
     missing_data_display = str(visualizer_cfg.get("missing_data_display", "card")).strip().lower()
     if missing_data_display not in {"card", "blank"}:
         raise ValueError("visualizer.missing_data_display must be either 'card' or 'blank'.")
+    density_hover_mode = str(
+        visualizer_cfg.get("density_hover_mode", "closest")
+    ).strip().lower()
+    if density_hover_mode not in {"closest", "all"}:
+        raise ValueError(
+            "display.density_hover_mode must be either 'closest' or 'all'."
+        )
     enable_maz_geographies_raw = visualizer_cfg.get("enable_maz_geographies", False)
     if not isinstance(enable_maz_geographies_raw, bool):
         raise ValueError(
@@ -998,6 +1008,7 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         enable_maz_geographies=enable_maz_geographies_raw,
         run_colors=run_colors,
         missing_data_display=missing_data_display,
+        density_hover_mode=density_hover_mode,
         summary_root=str(summary_root),
         weighting_modes=weighting_modes,
         export_html=export_html,

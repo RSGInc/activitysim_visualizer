@@ -689,6 +689,49 @@ def test_enable_maz_geographies_defaults_off_and_only_changes_presentation_diges
     assert config_a.presentation_config_digest != config_b.presentation_config_digest
 
 
+def test_density_hover_mode_defaults_to_closest_and_accepts_all(tmp_path: Path) -> None:
+    default_config = _write_config(tmp_path / "default")
+    all_hover_config = _write_config(
+        tmp_path / "all",
+        extra_lines=[
+            "display:",
+            "  density_hover_mode: all",
+        ],
+    )
+
+    assert default_config.density_hover_mode == "closest"
+    assert all_hover_config.density_hover_mode == "all"
+
+
+def test_density_hover_mode_only_changes_presentation_digest(tmp_path: Path) -> None:
+    config_a = _write_config(tmp_path / "a")
+    config_b = _write_config(
+        tmp_path / "b",
+        extra_lines=[
+            "display:",
+            "  density_hover_mode: all",
+        ],
+    )
+
+    assert config_a.prepare_config_digest == config_b.prepare_config_digest
+    assert config_a.summary_config_digest == config_b.summary_config_digest
+    assert config_a.presentation_config_digest != config_b.presentation_config_digest
+
+
+def test_config_rejects_invalid_density_hover_mode(tmp_path: Path) -> None:
+    with pytest.raises(
+        ValueError,
+        match="display.density_hover_mode must be either 'closest' or 'all'",
+    ):
+        _write_config(
+            tmp_path,
+            extra_lines=[
+                "display:",
+                "  density_hover_mode: everything",
+            ],
+        )
+
+
 def test_dashboard_labels_only_change_presentation_digest(
     tmp_path: Path,
 ) -> None:

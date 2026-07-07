@@ -22,6 +22,7 @@ _DEFAULT_RUN_COLORS = [
 RUN_COLORS = list(_DEFAULT_RUN_COLORS)
 RUN_LABEL_ORDER: list[str] = []
 _DISPLAY_PERCENT_MODE = False
+_DENSITY_HOVER_MODE = "closest"
 
 
 def _percent_mode(as_percent: bool | None) -> bool:
@@ -52,6 +53,18 @@ def set_run_label_order(labels: list[str] | None) -> None:
 def set_percent_mode(enabled: bool) -> None:
     global _DISPLAY_PERCENT_MODE
     _DISPLAY_PERCENT_MODE = bool(enabled)
+
+
+def set_density_hover_mode(mode: str | None) -> None:
+    global _DENSITY_HOVER_MODE
+    normalized = str(mode or "closest").strip().lower()
+    if normalized not in {"closest", "all"}:
+        normalized = "closest"
+    _DENSITY_HOVER_MODE = normalized
+
+
+def density_hover_mode() -> str:
+    return _DENSITY_HOVER_MODE
 
 
 def build_run_legend_entries(run_labels: list[str]) -> list[dict[str, str]]:
@@ -297,6 +310,8 @@ def density_chart(
         f"Percent of {yaxis_title} (%)" if (percent_mode or normalize) else yaxis_title,
         height,
     )
+    if density_hover_mode() == "all":
+        fig.update_layout(hovermode="x unified")
     if xaxis_range is not None:
         fig.update_xaxes(range=[float(xaxis_range[0]), float(xaxis_range[1])])
     if xaxis_categoryarray is not None:

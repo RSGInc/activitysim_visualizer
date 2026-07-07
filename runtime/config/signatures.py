@@ -313,6 +313,7 @@ def presentation_signature_payload(config: Config) -> dict[str, Any]:
         "enable_maz_geographies": config.enable_maz_geographies,
         "run_colors": list(config.run_colors),
         "missing_data_display": config.missing_data_display,
+        "density_hover_mode": config.density_hover_mode,
         "segmentation": {
             "enabled": config.segmentation.enabled,
             "dashboard": {

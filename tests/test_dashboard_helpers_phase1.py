@@ -9,7 +9,13 @@ import polars as pl
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from dashboard.components import bar_chart, column_titles_for_display, data_table
+from dashboard.components import (
+    bar_chart,
+    column_titles_for_display,
+    data_table,
+    density_chart,
+    set_density_hover_mode,
+)
 from dashboard.helpers.category_helpers import (
     column_value_intersection,
     common_column_options,
@@ -426,6 +432,23 @@ def test_bar_chart_omits_pct_hover_lines() -> None:
 
     assert "Pct:" not in hover[0]
     assert "Pct:" not in hover[1]
+
+
+def test_density_chart_uses_configured_all_series_hover_mode() -> None:
+    data = [
+        ("Base", pl.DataFrame({"bin": [1, 2], "count": [10.0, 12.0]})),
+        ("Build", pl.DataFrame({"bin": [1, 2], "count": [8.0, 15.0]})),
+    ]
+
+    set_density_hover_mode("closest")
+    default_chart = density_chart(data, x_col="bin", y_col="count")
+
+    set_density_hover_mode("all")
+    all_hover_chart = density_chart(data, x_col="bin", y_col="count")
+    set_density_hover_mode("closest")
+
+    assert default_chart.object.layout.hovermode != "x unified"
+    assert all_hover_chart.object.layout.hovermode == "x unified"
 
 
 def test_dashboard_page_phase1_convenience_helpers(tmp_path: Path) -> None:

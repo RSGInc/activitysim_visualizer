@@ -12,6 +12,7 @@ import panel as pn
 
 from dashboard.components import (
     build_run_legend_entries,
+    set_density_hover_mode,
     set_percent_mode,
     set_run_colors,
     set_run_label_order,
@@ -179,6 +180,7 @@ def build_export_artifacts(
 ) -> tuple[ExportPayload, dict[str, Any]]:
     """Build export payload plus sidecar diagnostics."""
     set_run_colors(config.run_colors)
+    set_density_hover_mode(config.density_hover_mode)
     validate_page_export_config(config)
     export_weight_values = config.export_html.panel_weighting_values()
     export_value_values = config.export_html.panel_value_values()
