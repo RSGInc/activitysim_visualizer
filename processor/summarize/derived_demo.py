@@ -1,4 +1,4 @@
-"""Derived summaries built from externally supplied validation tables."""
+"""Derived summaries built from demo validation tables."""
 
 from __future__ import annotations
 
@@ -9,14 +9,14 @@ import polars as pl
 
 from processor.summarize.cache_types import SummaryRun, create_summary_run
 from processor.summarize.contracts import empty_summary_frame
-from processor.summarize.summaries import external_validation
+from processor.summarize.summaries import demo_validation
 
 LOGGER = get_logger("processor.summarize")
 
-COUNT_LOCATION_COUNTS_ID = "external_count_location_counts"
-COUNT_LOCATION_VOLUMES_ID = "external_count_location_volumes"
-COUNT_LOCATION_SCATTER_ID = "external_count_location_scatter"
-COUNT_LOCATION_FIT_ID = "external_count_location_fit"
+COUNT_LOCATION_COUNTS_ID = "demo_count_location_counts"
+COUNT_LOCATION_VOLUMES_ID = "demo_count_location_volumes"
+COUNT_LOCATION_SCATTER_ID = "demo_count_location_scatter"
+COUNT_LOCATION_FIT_ID = "demo_count_location_fit"
 
 COUNT_LOCATION_DERIVED_IDS = (
     COUNT_LOCATION_SCATTER_ID,
@@ -31,15 +31,15 @@ COUNT_LOCATION_PERIOD_COLUMNS = {
 }
 
 
-def _empty_count_location_scatter() -> pl.DataFrame:
-    return empty_summary_frame(external_validation.count_location_scatter)
+def _empty_demo_count_location_scatter() -> pl.DataFrame:
+    return empty_summary_frame(demo_validation.demo_count_location_scatter)
 
 
-def _empty_count_location_fit() -> pl.DataFrame:
-    return empty_summary_frame(external_validation.count_location_fit)
+def _empty_demo_count_location_fit() -> pl.DataFrame:
+    return empty_summary_frame(demo_validation.demo_count_location_fit)
 
 
-def count_location_scatter_summary(
+def demo_count_location_scatter_summary(
     counts: pl.DataFrame,
     volumes: pl.DataFrame,
 ) -> pl.DataFrame:
@@ -68,7 +68,7 @@ def count_location_scatter_summary(
             )
         )
     if not frames:
-        return _empty_count_location_scatter()
+        return _empty_demo_count_location_scatter()
     return (
         pl.concat(frames, how="vertical")
         .filter(
@@ -146,10 +146,10 @@ def _fit_group(df: pl.DataFrame, *, facility_type: str, period: str) -> dict[str
     return base
 
 
-def count_location_fit_summary(scatter: pl.DataFrame) -> pl.DataFrame:
+def demo_count_location_fit_summary(scatter: pl.DataFrame) -> pl.DataFrame:
     """Return OLS fit rows by period and facility type, including All."""
     if scatter.is_empty():
-        return _empty_count_location_fit()
+        return _empty_demo_count_location_fit()
 
     rows: list[dict[str, object]] = []
     for period in COUNT_LOCATION_PERIOD_COLUMNS:
@@ -170,7 +170,7 @@ def count_location_fit_summary(scatter: pl.DataFrame) -> pl.DataFrame:
                 )
             )
     if not rows:
-        return _empty_count_location_fit()
+        return _empty_demo_count_location_fit()
     return pl.DataFrame(rows).with_columns(
         pl.col("facility_type").cast(pl.Utf8),
         pl.col("period").cast(pl.Utf8),
@@ -185,8 +185,8 @@ def count_location_fit_summary(scatter: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-def apply_external_derived_summaries(summary_runs: list[SummaryRun]) -> list[SummaryRun]:
-    """Rebuild external derived summaries for every summary run when inputs exist."""
+def apply_demo_derived_summaries(summary_runs: list[SummaryRun]) -> list[SummaryRun]:
+    """Rebuild demo derived summaries for every summary run when inputs exist."""
     if not summary_runs:
         return []
 
@@ -210,13 +210,13 @@ def apply_external_derived_summaries(summary_runs: list[SummaryRun]) -> list[Sum
             counts = mode_tables.get(COUNT_LOCATION_COUNTS_ID)
             volumes = mode_tables.get(COUNT_LOCATION_VOLUMES_ID)
             if counts is not None and volumes is not None:
-                scatter = count_location_scatter_summary(counts, volumes)
-                fit = count_location_fit_summary(scatter)
+                scatter = demo_count_location_scatter_summary(counts, volumes)
+                fit = demo_count_location_fit_summary(scatter)
                 mode_tables[COUNT_LOCATION_SCATTER_ID] = scatter
                 mode_tables[COUNT_LOCATION_FIT_ID] = fit
                 detail = (
-                    "derived from external_count_location_counts and "
-                    "external_count_location_volumes"
+                    "derived from demo_count_location_counts and "
+                    "demo_count_location_volumes"
                 )
                 mode_metadata[COUNT_LOCATION_SCATTER_ID] = {
                     "state": "empty" if scatter.is_empty() else "available",
@@ -237,7 +237,7 @@ def apply_external_derived_summaries(summary_runs: list[SummaryRun]) -> list[Sum
                     ],
                 }
                 LOGGER.info(
-                    "Built external count-location derived summaries for %r (%s): %d scatter rows, %d fit rows",
+                    "Built demo count-location derived summaries for %r (%s): %d scatter rows, %d fit rows",
                     summary_run.label,
                     mode,
                     scatter.height,
@@ -275,7 +275,7 @@ __all__ = [
     "COUNT_LOCATION_DERIVED_IDS",
     "COUNT_LOCATION_FIT_ID",
     "COUNT_LOCATION_SCATTER_ID",
-    "apply_external_derived_summaries",
-    "count_location_fit_summary",
-    "count_location_scatter_summary",
+    "apply_demo_derived_summaries",
+    "demo_count_location_fit_summary",
+    "demo_count_location_scatter_summary",
 ]

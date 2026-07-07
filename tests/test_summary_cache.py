@@ -4500,22 +4500,23 @@ def test_traffic_validation_removes_direction_period_selectors_and_count_card(
     page.refresh(force=True)
 
     assert [selector.selector_id for selector in page.registered_selectors] == [
-        "external_period",
-        "external_facility_type",
-        "external_top_period",
-        "external_top_n",
+        "demo_period",
+        "demo_facility_type",
+        "demo_top_period",
+        "demo_top_n",
     ]
-    assert page.external_period_sel.name == "Period"
-    assert page.external_top_period_sel.name == "Period"
+    assert page.demo_period_sel.name == "Period"
+    assert page.demo_top_period_sel.name == "Period"
     assert not hasattr(page, "direction_sel")
     assert not hasattr(page, "count_period_sel")
     assert list(page.view.objects[1].objects) == [
-        page.external_period_sel,
-        page.external_facility_sel,
+        page.demo_period_sel,
+        page.demo_facility_sel,
     ]
-    assert page._body.objects[0].object == "### Screenline Flow Summaries"
+    assert page.view.objects[-2].object == "### Screenline Flow Summaries"
     plot_titles = [
-        plot.object.layout.title.text for plot in _collect_plotly_panes(page._body)
+        plot.object.layout.title.text
+        for plot in _collect_plotly_panes(page._screenline_body)
     ]
     assert plot_titles == ["Screenline Flow Comparisons"]
 
@@ -4555,7 +4556,7 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
                     "modeled_volume": [14.0],
                 }
             ),
-            "external_link_summary": pl.DataFrame(
+            "demo_link_summary": pl.DataFrame(
                 {
                     "id": [1, 2],
                     "From_Node": [100, 101],
@@ -4567,7 +4568,7 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
                     "day_vol": [100.0, 200.0],
                 }
             ),
-            "external_count_location_counts": pl.DataFrame(
+            "demo_count_location_counts": pl.DataFrame(
                 {
                     "id": [1, 2],
                     "FACTYPE": [3, 4],
@@ -4577,7 +4578,7 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
                     "day_vol": [100.0, 200.0],
                 }
             ),
-            "external_count_location_volumes": pl.DataFrame(
+            "demo_count_location_volumes": pl.DataFrame(
                 {
                     "id": [1, 2],
                     "FACTYPE": [3, 4],
@@ -4596,17 +4597,17 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
 
     page = TrafficValidationPage(state, config)
     page.refresh(force=True)
-    assert list(page.external_facility_sel.options) == [
+    assert list(page.demo_facility_sel.options) == [
         "All",
         "Minor Arterial",
         "Principal Arterial",
     ]
-    page.external_period_sel.value = "AM"
-    page.external_facility_sel.value = "Principal Arterial"
+    page.demo_period_sel.value = "AM"
+    page.demo_facility_sel.value = "Principal Arterial"
     page.refresh(force=True)
 
-    tables = _collect_tabulators(page._body)
-    tabs = _collect_tabs(page._body)
+    tables = _collect_tabulators(page._external_top_body)
+    tabs = _collect_tabs(page._external_top_body)
     assert len(tables) == 1
     assert list(tabs[-1]._names) == ["Base"]
     table = tables[0].value
@@ -4637,39 +4638,34 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
         "columns": [{"field": "RMSE", "sorter": "number"}]
     }
     assert list(page.view.objects[1].objects) == [
-        page.external_period_sel,
-        page.external_facility_sel,
+        page.demo_period_sel,
+        page.demo_facility_sel,
     ]
-    assert page._body.objects[0].object == "### Traffic Volume Summaries"
-    assert page._body.objects[-2].object == "### Screenline Flow Summaries"
-    top_count_section = next(
-        obj
-        for obj in page._body.objects
-        if isinstance(obj, pn.Column)
-        and obj.objects
-        and isinstance(obj.objects[0], pn.pane.Markdown)
-        and obj.objects[0].object.startswith("### Top Count Location")
-    )
+    assert page._external_volume_body.objects[0].object == "### Traffic Volume Summaries"
+    assert page.view.objects[3].object == "### Top Count Locations"
+    top_count_section = page._external_top_body
     assert (
         top_count_section.objects[0].object
-        == "### Top Count Location Observed vs Modeled Volumes - Day"
+        == "#### Observed vs Modeled Volumes - Day"
     )
-    assert top_count_section.objects[1].objects == [
-        page.external_top_period_sel,
-        page.external_top_n_sel,
+    assert page.view.objects[4].objects == [
+        page.demo_top_period_sel,
+        page.demo_top_n_sel,
     ]
     plot_titles = [
-        plot.object.layout.title.text for plot in _collect_plotly_panes(page._body)
+        plot.object.layout.title.text
+        for plot in _collect_plotly_panes(page._external_volume_body)
+        + _collect_plotly_panes(page._screenline_body)
     ]
     bar_plot = next(
         plot
-        for plot in _collect_plotly_panes(page._body)
+        for plot in _collect_plotly_panes(page._external_volume_body)
         if plot.object.layout.title.text == "Link Volume by Facility Type - AM"
     )
     assert list(bar_plot.object.data[0].x) == ["Principal Arterial"]
     assert plot_titles[-1] == "Screenline Flow Comparisons"
     assert "Traffic Count Comparisons" not in plot_titles
-    assert "External Link Volume by Facility Type - Day" not in plot_titles
+    assert "Demo Link Volume by Facility Type - Day" not in plot_titles
     assert "Link Volume by Facility Type - AM" in plot_titles
 
 

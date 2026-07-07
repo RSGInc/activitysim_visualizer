@@ -9,12 +9,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from processor.summarize.cache import load_summary_run_cache, write_summary_run_cache
 from processor.summarize.cache_types import create_summary_run
-from processor.summarize.derived_external import (
+from processor.summarize.derived_demo import (
     COUNT_LOCATION_FIT_ID,
     COUNT_LOCATION_SCATTER_ID,
-    apply_external_derived_summaries,
-    count_location_fit_summary,
-    count_location_scatter_summary,
+    apply_demo_derived_summaries,
+    demo_count_location_fit_summary,
+    demo_count_location_scatter_summary,
 )
 from processor.summarize.external import load_summary_table_map, merge_summary_table_map_run
 from runtime.config import Config
@@ -25,13 +25,13 @@ def _write_config(tmp_path: Path) -> Config:
     config_path.write_text(
         "\n".join(
             [
-                'name: "Derived External Test"',
+                'name: "Derived Demo Test"',
                 "runs: []",
                 "summaries:",
                 "  root: summary_cache",
                 "  weighting_modes: [weighted, unweighted]",
                 "visualizer:",
-                '  dashboard_title: "Derived External Test"',
+                '  dashboard_title: "Derived Demo Test"',
             ]
         ),
         encoding="utf-8",
@@ -65,8 +65,8 @@ def _volumes() -> pl.DataFrame:
     )
 
 
-def test_count_location_scatter_and_fit_summaries() -> None:
-    scatter = count_location_scatter_summary(_counts(), _volumes())
+def test_demo_count_location_scatter_and_fit_summaries() -> None:
+    scatter = demo_count_location_scatter_summary(_counts(), _volumes())
 
     assert scatter.height == 12
     assert set(scatter["period"].to_list()) == {"AM", "MD", "PM", "Day"}
@@ -92,7 +92,7 @@ def test_count_location_scatter_and_fit_summaries() -> None:
         ]
     )
 
-    fit = count_location_fit_summary(scatter)
+    fit = demo_count_location_fit_summary(scatter)
     all_day = fit.filter(
         (pl.col("period") == "Day") & (pl.col("facility_type") == "All")
     ).row(0, named=True)
@@ -108,7 +108,7 @@ def test_count_location_scatter_and_fit_summaries() -> None:
     assert round(facility_day["intercept"], 6) == 5.0
 
 
-def test_count_location_fit_handles_zero_observed_variance() -> None:
+def test_demo_count_location_fit_handles_zero_observed_variance() -> None:
     scatter = pl.DataFrame(
         {
             "id": [1, 2],
@@ -119,13 +119,13 @@ def test_count_location_fit_handles_zero_observed_variance() -> None:
         }
     )
 
-    fit = count_location_fit_summary(scatter)
+    fit = demo_count_location_fit_summary(scatter)
 
     assert fit.filter(pl.col("facility_type") == "3")["slope"].to_list() == [None]
     assert fit.filter(pl.col("facility_type") == "3")["r_squared"].to_list() == [None]
 
 
-def test_apply_external_derived_summaries_replaces_stale_tables_and_skips_missing_sources() -> None:
+def test_apply_demo_derived_summaries_replaces_stale_tables_and_skips_missing_sources() -> None:
     stale = pl.DataFrame(
         {
             "id": [999],
@@ -140,18 +140,18 @@ def test_apply_external_derived_summaries_replaces_stale_tables_and_skips_missin
         run_key="run",
         summaries_by_mode={
             "weighted": {
-                "external_count_location_counts": _counts(),
-                "external_count_location_volumes": _volumes(),
+                "demo_count_location_counts": _counts(),
+                "demo_count_location_volumes": _volumes(),
                 COUNT_LOCATION_SCATTER_ID: stale,
             },
             "unweighted": {
-                "external_count_location_counts": _counts(),
+                "demo_count_location_counts": _counts(),
                 COUNT_LOCATION_SCATTER_ID: stale,
             },
         },
     )
 
-    result = apply_external_derived_summaries([summary_run])[0]
+    result = apply_demo_derived_summaries([summary_run])[0]
 
     weighted = result.summaries_by_mode["weighted"]
     assert weighted[COUNT_LOCATION_SCATTER_ID]["id"].max() == 3
@@ -160,7 +160,7 @@ def test_apply_external_derived_summaries_replaces_stale_tables_and_skips_missin
     assert COUNT_LOCATION_FIT_ID not in result.summaries_by_mode["unweighted"]
 
 
-def test_summary_table_map_run_builds_and_caches_external_count_location_derived_tables(
+def test_summary_table_map_run_builds_and_caches_demo_count_location_derived_tables(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -169,16 +169,16 @@ def test_summary_table_map_run_builds_and_caches_external_count_location_derived
     _counts().write_csv(counts_path)
     _volumes().write_csv(volumes_path)
 
-    external_run = load_summary_table_map(
+    demo_run = load_summary_table_map(
         summary_table_map={
-            "external_count_location_counts": str(counts_path),
-            "external_count_location_volumes": str(volumes_path),
+            "demo_count_location_counts": str(counts_path),
+            "demo_count_location_volumes": str(volumes_path),
         },
         label="Mapped",
         run_key="mapped",
         config=config,
     )
-    merged = merge_summary_table_map_run([], external_run)
+    merged = merge_summary_table_map_run([], demo_run)
 
     assert COUNT_LOCATION_SCATTER_ID in merged[0].summaries_by_mode["weighted"]
     assert COUNT_LOCATION_FIT_ID in merged[0].summaries_by_mode["weighted"]
@@ -189,8 +189,8 @@ def test_summary_table_map_run_builds_and_caches_external_count_location_derived
         config,
         expected_modes=config.weighting_modes,
         expected_summary_ids=[
-            "external_count_location_counts",
-            "external_count_location_volumes",
+            "demo_count_location_counts",
+            "demo_count_location_volumes",
             COUNT_LOCATION_SCATTER_ID,
             COUNT_LOCATION_FIT_ID,
         ],

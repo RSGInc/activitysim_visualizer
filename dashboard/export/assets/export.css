@@ -284,6 +284,19 @@ body {
   background: var(--surface-soft);
 }
 
+.widget-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.widget-checkbox input {
+  width: 16px;
+  height: 16px;
+}
+
 .widget-radio-option {
   padding: 8px 12px;
   border-radius: 999px;

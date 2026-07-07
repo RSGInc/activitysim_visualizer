@@ -1,4 +1,4 @@
-"""Regional validation page for externally supplied flow summaries."""
+"""Regional validation page for demo flow summaries."""
 
 from __future__ import annotations
 
@@ -38,11 +38,11 @@ class FlowOption:
 
 FLOW_OPTIONS = {
     "District flows": FlowOption(
-        summary_id="external_county_flows",
+        summary_id="demo_county_flows",
         modeled_geography_types=("district", "home_district"),
     ),
     "County flows": FlowOption(
-        summary_id="external_county_flows_joja",
+        summary_id="demo_county_flows_joja",
         modeled_geography_types=("county", "home_county"),
     ),
 }
@@ -89,7 +89,7 @@ def flow_matrix_to_long(
     include_totals: bool,
     value_col: str,
 ) -> pl.DataFrame:
-    """Return a long OD table from an externally supplied wide flow matrix."""
+    """Return a long OD table from a demo wide flow matrix."""
     matrix = normalize_flow_matrix(df, include_totals=include_totals)
     destinations = [column for column in matrix.columns if column != "Origin"]
     if not destinations:
@@ -573,8 +573,8 @@ PAGE = DashboardPageDefinition(
     page_cls=RegionalValidationPage,
     default_enabled=False,
     optional_summary_ids=(
-        "external_county_flows",
-        "external_county_flows_joja",
+        "demo_county_flows",
+        "demo_county_flows_joja",
         "commuting_flows",
     ),
 )

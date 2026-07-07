@@ -22,6 +22,7 @@ from _dashboard_expectations import (
 from test_export_html import _full_summary_run, _write_config
 from dashboard.app import build_dashboard
 from dashboard.data_access import DashboardPreparedRunProvider
+from dashboard.export.payload import resolve_export_section_states
 from dashboard.page_base import DashboardPage
 from dashboard.page_base import PAGE_SELECTOR_STYLESHEET
 from dashboard.page_definitions import DashboardPageDefinition
@@ -30,6 +31,7 @@ from dashboard.pages.skim_summaries.tour_skims import TourSkimsPage
 from dashboard.pages.long_term_choices.mandatory_location_choice import (
     MandatoryLocationChoicePage,
 )
+from dashboard.pages.tour_summaries.tour_distance import TourDistancePage
 from dashboard.pages.trip_summaries.trip_mode import TripModePage
 from dashboard.pages.validation.regional import (
     RegionalValidationPage,
@@ -38,17 +40,19 @@ from dashboard.pages.validation.regional import (
     normalize_flow_matrix,
 )
 from dashboard.pages.validation.traffic import (
-    external_count_scatter_data,
-    external_count_scatter_data_from_sources,
-    external_count_fit_line_data,
-    external_link_aggregate_data,
-    external_volume_comparison_table,
+    demo_count_scatter_data,
+    demo_count_scatter_data_from_sources,
+    demo_count_fit_line_data,
+    demo_link_aggregate_data,
+    demo_volume_comparison_table,
 )
 from dashboard.pages.validation.vmt import (
     PERSONAL_AUTO_VMT_SUMMARY_ID,
     VMTValidationPage,
-    external_commercial_filter_options,
-    external_commercial_vehicle_chart_data,
+    demo_commercial_filter_options,
+    demo_commercial_vehicle_chart_data,
+    external_travel_chart_data,
+    external_travel_filter_options,
     personal_auto_vmt_chart_data,
     wide_tod_chart_data,
 )
@@ -160,21 +164,21 @@ def test_page_registry_smoke_checks_ids_titles_and_selector_uniqueness() -> None
 
 
 def test_page_registry_accepts_non_default_registered_summary_id() -> None:
-    class ExternalAutoVmtDemoPage(DashboardPage):
+    class DemoAutoVmtPage(DashboardPage):
         pass
 
     definition = DashboardPageDefinition(
-        page_id="external_auto_vmt_demo",
-        title="External Auto VMT Demo",
-        page_cls=ExternalAutoVmtDemoPage,
-        required_summary_ids=("external_auto_vmt_summary",),
+        page_id="demo_auto_vmt",
+        title="Demo Auto VMT",
+        page_cls=DemoAutoVmtPage,
+        required_summary_ids=("demo_auto_vmt_summary",),
         default_enabled=False,
     )
 
     _validate_page_definition(definition)
     requirements = data_requirements_for_pages([definition])
 
-    assert requirements.required_summary_ids == ("external_auto_vmt_summary",)
+    assert requirements.required_summary_ids == ("demo_auto_vmt_summary",)
 
 
 def test_dashboard_state_reports_missing_non_default_summary_as_diagnostic() -> None:
@@ -191,11 +195,11 @@ def test_dashboard_state_reports_missing_non_default_summary_as_diagnostic() -> 
         weighting_modes=["weighted", "unweighted"],
     )
 
-    selection = state.inspect_summary_table("external_auto_vmt_summary")
+    selection = state.inspect_summary_table("demo_auto_vmt_summary")
 
     assert selection.usable_runs == []
     assert [excluded.status for excluded in selection.excluded_runs] == ["missing"]
-    assert selection.excluded_runs[0].source_id == "external_auto_vmt_summary"
+    assert selection.excluded_runs[0].source_id == "demo_auto_vmt_summary"
 
 
 def test_external_traffic_helpers_filter_period_and_facility_type() -> None:
@@ -240,13 +244,13 @@ def test_external_traffic_helpers_filter_period_and_facility_type() -> None:
         )
     ]
 
-    scatter = external_count_scatter_data_from_sources(
+    scatter = demo_count_scatter_data_from_sources(
         counts,
         volumes,
         volume_col="day_vol",
         facility_type="4",
     )
-    aggregate = external_link_aggregate_data(
+    aggregate = demo_link_aggregate_data(
         links,
         volume_col="day_vol",
         facility_type="All",
@@ -264,7 +268,7 @@ def test_external_traffic_helpers_filter_period_and_facility_type() -> None:
         {"FACTYPE": "3", "volume": 5.0},
         {"FACTYPE": "4", "volume": 15.0},
     ]
-    comparison = external_volume_comparison_table(
+    comparison = demo_volume_comparison_table(
         counts,
         volumes,
         link_list=[
@@ -295,7 +299,7 @@ def test_external_traffic_helpers_filter_period_and_facility_type() -> None:
             "RMSE": 10.0,
         }
     ]
-    comparison_without_metadata = external_volume_comparison_table(
+    comparison_without_metadata = demo_volume_comparison_table(
         counts,
         volumes,
         volume_col="day_vol",
@@ -310,7 +314,7 @@ def test_external_traffic_helpers_filter_period_and_facility_type() -> None:
         "% Diff",
         "RMSE",
     ]
-    comparison_with_empty_metadata = external_volume_comparison_table(
+    comparison_with_empty_metadata = demo_volume_comparison_table(
         counts,
         volumes,
         link_list=[
@@ -338,7 +342,7 @@ def test_external_traffic_helpers_filter_period_and_facility_type() -> None:
         "RMSE",
     ]
 
-    derived_scatter = external_count_scatter_data(
+    derived_scatter = demo_count_scatter_data(
         [
             (
                 "Run",
@@ -367,8 +371,8 @@ def test_external_traffic_helpers_filter_period_and_facility_type() -> None:
     ]
 
 
-def test_external_count_fit_line_helper_builds_plot_data() -> None:
-    fit_lines = external_count_fit_line_data(
+def test_demo_count_fit_line_helper_builds_plot_data() -> None:
+    fit_lines = demo_count_fit_line_data(
         [
             (
                 "Run",
@@ -426,7 +430,7 @@ def test_external_vmt_helper_reshapes_wide_tod_table() -> None:
     ]
 
 
-def test_external_commercial_vehicle_helper_aggregates_selected_breakdown(
+def test_demo_commercial_vehicle_helper_aggregates_selected_breakdown(
     tmp_path: Path,
 ) -> None:
     config = _write_config(
@@ -455,22 +459,22 @@ def test_external_commercial_vehicle_helper_aggregates_selected_breakdown(
         )
     ]
 
-    by_period = external_commercial_vehicle_chart_data(
+    by_period = demo_commercial_vehicle_chart_data(
         data,
         breakdown="Time Period",
     )
-    by_type = external_commercial_vehicle_chart_data(
+    by_type = demo_commercial_vehicle_chart_data(
         data,
         breakdown="Commercial Vehicle Type",
         time_period="AM",
     )
-    by_type_daily = external_commercial_vehicle_chart_data(
+    by_type_daily = demo_commercial_vehicle_chart_data(
         data,
         breakdown="Commercial Vehicle Type",
         time_period="Daily",
     )
     time_period_options, (vehicle_type_options, raw_by_label) = (
-        external_commercial_filter_options(data, config=config)
+        demo_commercial_filter_options(data, config=config)
     )
 
     assert by_period[0][1].to_dicts() == [
@@ -514,6 +518,76 @@ def test_external_commercial_vehicle_helper_aggregates_selected_breakdown(
     ]
     assert raw_by_label["Car"] == "car"
     assert raw_by_label["Multi-Unit Truck"] == "mu"
+
+
+def test_external_travel_helper_aggregates_selected_breakdown(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "display:",
+            "  labels:",
+            "    trip_purpose:",
+            "      mapping:",
+            "        hbw: Work",
+            "        nhbw: Non-Home-Based Work",
+        ],
+    )
+    data = [
+        (
+            "Run",
+            pl.DataFrame(
+                {
+                    "tod": ["AM", "PM", "Daily"],
+                    "hbw": [10.0, 20.0, 100.0],
+                    "nhbw": [30.0, 10.0, 200.0],
+                    "truck": [5.0, 15.0, 300.0],
+                    "Total": [45.0, 45.0, 600.0],
+                }
+            ),
+        )
+    ]
+
+    by_period = external_travel_chart_data(
+        data,
+        breakdown="Time Period",
+    )
+    by_purpose = external_travel_chart_data(
+        data,
+        breakdown="Trip Purpose",
+        time_period="AM",
+    )
+    time_period_options, (purpose_options, raw_by_label) = external_travel_filter_options(
+        data,
+        config=config,
+    )
+
+    assert by_period[0][1].to_dicts() == [
+        {
+            "category": "AM",
+            "value": 45.0,
+            "value_percent": pytest.approx(7.5),
+        },
+        {
+            "category": "PM",
+            "value": 45.0,
+            "value_percent": pytest.approx(7.5),
+        },
+        {
+            "category": "Daily",
+            "value": 600.0,
+            "value_percent": 100.0,
+        },
+    ]
+    assert by_purpose[0][1].to_dicts() == [
+        {"category": "hbw", "value": 10.0},
+        {"category": "nhbw", "value": 30.0},
+        {"category": "truck", "value": 5.0},
+    ]
+    assert time_period_options == ["Daily", "AM", "PM"]
+    assert purpose_options[:3] == ["All", "Work", "Non-Home-Based Work"]
+    assert raw_by_label["Work"] == "hbw"
 
 
 def test_personal_auto_vmt_helper_aggregates_time_period_with_filters() -> None:
@@ -884,14 +958,21 @@ def test_vmt_page_disables_active_personal_auto_vmt_filter_selector(
     page = VMTValidationPage(state, config)
     page.refresh(force=True)
 
+    assert page.personal_vmt_geography_type_sel.disabled is True
     assert page.personal_vmt_time_period_sel.disabled is True
     assert page.personal_vmt_mode_sel.disabled is False
     assert page.personal_vmt_income_segment_sel.disabled is False
     assert page.personal_vmt_household_size_sel.disabled is False
 
+    page.personal_vmt_breakdown_sel.value = "Home Geography"
+    page.refresh(force=True)
+
+    assert page.personal_vmt_geography_type_sel.disabled is False
+
     page.personal_vmt_breakdown_sel.value = "Income Segment"
     page.refresh(force=True)
 
+    assert page.personal_vmt_geography_type_sel.disabled is True
     assert page.personal_vmt_time_period_sel.disabled is False
     assert page.personal_vmt_mode_sel.disabled is False
     assert page.personal_vmt_income_segment_sel.disabled is True
@@ -954,10 +1035,14 @@ def test_vmt_page_geography_selectors_use_display_labels_and_raw_filters(
         "All Geography Types",
         "County",
     ]
+    assert page.personal_vmt_geography_type_sel.disabled is True
 
+    page.personal_vmt_breakdown_sel.value = "Home Geography"
+    page.refresh(force=True)
     page.personal_vmt_geography_type_sel.value = "County"
     page.refresh(force=True)
 
+    assert page.personal_vmt_geography_type_sel.disabled is False
     assert page.personal_vmt_geography_sel.name == "County Name"
     assert list(page.personal_vmt_geography_sel.options) == [
         "All Counties",
@@ -970,7 +1055,131 @@ def test_vmt_page_geography_selectors_use_display_labels_and_raw_filters(
     assert page.selected_personal_vmt_geography_raw() == "Durham"
 
 
-def test_vmt_external_commercial_vehicle_chart_uses_breakdown_and_percent_mode(
+def test_vmt_export_states_collapse_ignored_personal_auto_selectors(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    personal_vmt = pl.DataFrame(
+        {
+            "geography_type": [
+                "all_geographies",
+                "home_county",
+                "home_county",
+                "home_county",
+            ],
+            "geography_id": [
+                "all_geographies",
+                "Wake",
+                "Durham",
+                "Wake",
+            ],
+            "income_segment": ["low", "low", "high", "low"],
+            "household_size": ["1", "1", "2", "1"],
+            "time_period": ["Daily", "AM", "PM", "AM"],
+            "mode": ["SOV", "SOV", "HOV2", "HOV2"],
+            "auto_vmt": [30.0, 10.0, 20.0, 5.0],
+            "trip_count": [3.0, 1.0, 2.0, 1.0],
+            "distance_source": ["skim_auto_distance"] * 4,
+            "time_period_source": ["trip_period"] * 4,
+        }
+    )
+    summary_run = create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode={
+            "weighted": {PERSONAL_AUTO_VMT_SUMMARY_ID: personal_vmt},
+            "unweighted": {PERSONAL_AUTO_VMT_SUMMARY_ID: personal_vmt},
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+    page = VMTValidationPage(state, config)
+    page.refresh(force=True)
+
+    selector_widgets = {
+        selector.selector_id: selector.widget for selector in page.registered_selectors
+    }
+    active_selector_ids = [
+        "personal_auto_vmt_breakdown",
+        "personal_auto_vmt_geography_type",
+        "personal_auto_vmt_geography",
+        "personal_auto_vmt_time_period",
+        "personal_auto_vmt_mode",
+        "personal_auto_vmt_income_segment",
+        "personal_auto_vmt_household_size",
+    ]
+    request_modes = {
+        "personal_auto_vmt_breakdown": "explicit",
+        "personal_auto_vmt_geography_type": "all",
+        "personal_auto_vmt_geography": "all",
+        "personal_auto_vmt_time_period": "default",
+        "personal_auto_vmt_mode": "all",
+        "personal_auto_vmt_income_segment": "default",
+        "personal_auto_vmt_household_size": "default",
+    }
+    requested_values = {
+        "personal_auto_vmt_breakdown": ["Mode", "Home Geography"],
+    }
+    selector_metadata = {
+        selector_id: {
+            "id": selector_id,
+            "label": selector_id,
+            "available": True,
+            "request_mode": request_modes[selector_id],
+            "requested_values": requested_values.get(selector_id, []),
+            "resolved_values": [str(option) for option in selector_widgets[selector_id].options],
+            "default_value": str(selector_widgets[selector_id].value),
+            "options": [str(option) for option in selector_widgets[selector_id].options],
+            "export_enabled": True,
+        }
+        for selector_id in active_selector_ids
+    }
+
+    states, aliases = resolve_export_section_states(
+        page,
+        page_def=VMTValidationPage.definition,
+        part_def=type("Part", (), {"part_id": "personal_auto_vmt_body"})(),
+        active_selector_ids=active_selector_ids,
+        selector_widgets=selector_widgets,
+        selector_metadata_by_id=selector_metadata,
+    )
+
+    assert all(
+        state["personal_auto_vmt_mode"] == "All"
+        for state in states
+        if state["personal_auto_vmt_breakdown"] == "Mode"
+    )
+    mode_states = [
+        state for state in states if state["personal_auto_vmt_breakdown"] == "Mode"
+    ]
+    assert len(
+        {state["personal_auto_vmt_geography_type"] for state in mode_states}
+    ) == 1
+    assert len({state["personal_auto_vmt_geography"] for state in mode_states}) == 1
+    home_state_groups = {
+        tuple(
+            value
+            for selector_id, value in state.items()
+            if selector_id != "personal_auto_vmt_geography"
+        )
+        for state in states
+        if state["personal_auto_vmt_breakdown"] == "Home Geography"
+    }
+    home_states = [
+        state
+        for state in states
+        if state["personal_auto_vmt_breakdown"] == "Home Geography"
+    ]
+    assert len(home_states) == len(home_state_groups)
+    assert len(
+        {state["personal_auto_vmt_geography_type"] for state in home_states}
+    ) > 1
+    assert aliases
+
+
+def test_vmt_demo_commercial_vehicle_chart_uses_breakdown_and_percent_mode(
     tmp_path: Path,
 ) -> None:
     config = _write_config(
@@ -985,7 +1194,7 @@ def test_vmt_external_commercial_vehicle_chart_uses_breakdown_and_percent_mode(
             "        mu: Multi-Unit Truck",
         ],
     )
-    external_commercial = pl.DataFrame(
+    demo_commercial = pl.DataFrame(
         {
             "tod": ["AM", "PM", "Daily"],
             "car": [10.0, 20.0, 100.0],
@@ -998,10 +1207,10 @@ def test_vmt_external_commercial_vehicle_chart_uses_breakdown_and_percent_mode(
         run_key="base",
         summaries_by_mode={
             "weighted": {
-                "external_commercial_vehicle_summary": external_commercial,
+                "demo_commercial_vehicle_summary": demo_commercial,
             },
             "unweighted": {
-                "external_commercial_vehicle_summary": external_commercial,
+                "demo_commercial_vehicle_summary": demo_commercial,
             },
         },
     )
@@ -1013,40 +1222,41 @@ def test_vmt_external_commercial_vehicle_chart_uses_breakdown_and_percent_mode(
 
     page = VMTValidationPage(state, config)
     page.refresh(force=True)
-    page.external_commercial_metric_sel.value = "Trips"
-    page.external_commercial_breakdown_sel.value = "Time Period"
-    page.external_commercial_vehicle_type_sel.value = "Car"
+    page.demo_commercial_metric_sel.value = "Trips"
+    page.demo_commercial_breakdown_sel.value = "Time Period"
+    page.demo_commercial_vehicle_type_sel.value = "Car"
 
-    chart = page.render_external_commercial_chart()
+    chart = page.render_demo_commercial_chart()
     fig = chart.object
 
     assert fig.layout.title.text == "Commercial Vehicle Trips by Time Period"
     assert fig.layout.showlegend is True
     assert fig.layout.yaxis.title.text == "Percent of Trips (%)"
     assert len(fig.data) == 1
-    assert list(fig.data[0].x) == ["EA", "AM", "MD", "PM", "EV", "EV1", "EV2", "Daily"]
-    assert list(fig.data[0].y) == [0.0, 10.0, 0.0, 20.0, 0.0, 0.0, 0.0, 100.0]
-    assert list(page.external_commercial_time_period_sel.options) == [
+    assert list(fig.data[0].x) == ["AM", "PM", "Daily"]
+    assert list(fig.data[0].y) == [10.0, 20.0, 100.0]
+    assert list(fig.layout.xaxis.categoryarray) == ["AM", "PM", "Daily"]
+    assert list(page.demo_commercial_time_period_sel.options) == [
         "Daily",
         "AM",
         "PM",
     ]
-    assert list(page.external_commercial_vehicle_type_sel.options) == [
+    assert list(page.demo_commercial_vehicle_type_sel.options) == [
         "All",
         "Car",
         "Single-Unit Truck",
         "Multi-Unit Truck",
     ]
-    assert page.selected_external_commercial_vehicle_type_raw() == "car"
+    assert page.selected_demo_commercial_vehicle_type_raw() == "car"
 
     page.refresh(force=True)
-    assert page.external_commercial_time_period_sel.disabled is True
-    assert page.external_commercial_time_period_sel.value == "Daily"
-    assert page.external_commercial_vehicle_type_sel.disabled is False
+    assert page.demo_commercial_time_period_sel.disabled is True
+    assert page.demo_commercial_time_period_sel.value == "Daily"
+    assert page.demo_commercial_vehicle_type_sel.disabled is False
 
-    page.external_commercial_breakdown_sel.value = "Commercial Vehicle Type"
-    page.external_commercial_time_period_sel.value = "AM"
-    chart = page.render_external_commercial_chart()
+    page.demo_commercial_breakdown_sel.value = "Commercial Vehicle Type"
+    page.demo_commercial_time_period_sel.value = "AM"
+    chart = page.render_demo_commercial_chart()
 
     assert chart.object.layout.title.text == (
         "Commercial Vehicle Trips by Commercial Vehicle Type"
@@ -1056,6 +1266,121 @@ def test_vmt_external_commercial_vehicle_chart_uses_breakdown_and_percent_mode(
         "Single-Unit Truck",
         "Multi-Unit Truck",
     ]
+
+
+def test_vmt_external_travel_chart_uses_metric_breakdown_and_filters(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "display:",
+            "  labels:",
+            "    trip_purpose:",
+            "      mapping:",
+            "        hbw: Work",
+            "        nhbw: Non-Home-Based Work",
+        ],
+    )
+    external_travel = pl.DataFrame(
+        {
+            "tod": ["AM", "PM", "Daily"],
+            "hbw": [10.0, 20.0, 100.0],
+            "nhbw": [30.0, 10.0, 200.0],
+            "truck": [5.0, 15.0, 300.0],
+            "Total": [45.0, 45.0, 600.0],
+        }
+    )
+    summary_run = create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode={
+            "weighted": {
+                "demo_external_trip_summary": external_travel,
+            },
+            "unweighted": {
+                "demo_external_trip_summary": external_travel,
+            },
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+    state.value_mode = "Percent"
+
+    page = VMTValidationPage(state, config)
+    page.refresh(force=True)
+    page.external_travel_metric_sel.value = "Trips"
+    page.external_travel_breakdown_sel.value = "Time Period"
+    page.external_travel_trip_purpose_sel.value = "Work"
+
+    chart = page.render_external_travel_chart()
+    fig = chart.object
+
+    assert fig.layout.title.text == "External Trips by Time Period"
+    assert fig.layout.yaxis.title.text == "Percent of Trips (%)"
+    assert list(fig.data[0].x) == ["AM", "PM", "Daily"]
+    assert list(fig.data[0].y) == [10.0, 20.0, 100.0]
+    assert list(fig.layout.xaxis.categoryarray) == ["AM", "PM", "Daily"]
+    assert list(page.external_travel_time_period_sel.options) == [
+        "Daily",
+        "AM",
+        "PM",
+    ]
+    assert page.external_travel_time_period_sel.disabled is True
+    assert page.external_travel_time_period_sel.value == "Daily"
+    assert page.external_travel_trip_purpose_sel.disabled is False
+    assert page.selected_external_travel_trip_purpose_raw() == "hbw"
+
+    page.external_travel_breakdown_sel.value = "Trip Purpose"
+    page.external_travel_time_period_sel.value = "AM"
+    chart = page.render_external_travel_chart()
+
+    assert chart.object.layout.title.text == "External Trips by Trip Purpose"
+    assert list(chart.object.layout.xaxis.categoryarray) == [
+        "Work",
+        "Non-Home-Based Work",
+        "truck",
+    ]
+    assert list(chart.object.data[0].x) == [
+        "Work",
+        "Non-Home-Based Work",
+        "truck",
+    ]
+
+
+def _export_selector_widgets(page) -> dict[str, pn.widgets.Widget]:
+    return {
+        selector.selector_id: selector.widget for selector in page.registered_selectors
+    }
+
+
+def _export_selector_metadata(
+    selector_widgets: dict[str, pn.widgets.Widget],
+    selector_ids: list[str],
+    *,
+    request_modes: dict[str, str] | None = None,
+    requested_values: dict[str, list[str]] | None = None,
+) -> dict[str, dict]:
+    request_modes = request_modes or {}
+    requested_values = requested_values or {}
+    return {
+        selector_id: {
+            "id": selector_id,
+            "label": selector_id,
+            "available": True,
+            "request_mode": request_modes.get(selector_id, "all"),
+            "requested_values": requested_values.get(selector_id, []),
+            "resolved_values": [
+                str(option) for option in selector_widgets[selector_id].options
+            ],
+            "default_value": str(selector_widgets[selector_id].value),
+            "options": [str(option) for option in selector_widgets[selector_id].options],
+            "export_enabled": True,
+        }
+        for selector_id in selector_ids
+    }
 
 
 def test_mandatory_location_choice_geography_labels_filter_raw_and_export(
@@ -1112,6 +1437,160 @@ def test_mandatory_location_choice_geography_labels_filter_raw_and_export(
     page.geography_sel.value = "Durham"
 
     assert page._selected_geography() == ("home_county", "Durham")
+
+
+def test_mandatory_location_choice_export_aliases_invalid_geography_pairs(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "display:",
+            "  labels:",
+            "    geography:",
+            "      mapping:",
+            "        all_geographies: All Geography Types",
+            "        home_county: County",
+            "        district: District",
+        ],
+    )
+    internal_external = pl.DataFrame(
+        {
+            "geography_type": [
+                "all_geographies",
+                "home_county",
+                "home_county",
+                "district",
+            ],
+            "geography_id": ["all_geographies", "Wake", "Durham", "North"],
+            "internal_worker_count": [30.0, 10.0, 20.0, 15.0],
+            "external_worker_count": [3.0, 1.0, 2.0, 1.5],
+        }
+    )
+    summary_run = create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode={
+            "weighted": {"internal_external_worker_by_geography": internal_external},
+            "unweighted": {"internal_external_worker_by_geography": internal_external},
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+        export_mode=True,
+    )
+    page = MandatoryLocationChoicePage(state, config)
+    page.refresh(force=True)
+
+    selector_ids = ["geography_level", "geography"]
+    selector_widgets = _export_selector_widgets(page)
+    states, aliases = resolve_export_section_states(
+        page,
+        page_def=MandatoryLocationChoicePage.definition,
+        part_def=type("Part", (), {"part_id": "remote_work"})(),
+        active_selector_ids=selector_ids,
+        selector_widgets=selector_widgets,
+        selector_metadata_by_id=_export_selector_metadata(
+            selector_widgets,
+            selector_ids,
+        ),
+    )
+
+    state_pairs = {
+        (state["geography_level"], state["geography"]) for state in states
+    }
+    assert ("County", "North") not in state_pairs
+    assert ("District", "Durham") not in state_pairs
+    assert ("District", "Wake") not in state_pairs
+    assert ("County", "Durham") in state_pairs
+    assert ("County", "Wake") in state_pairs
+    assert ("District", "North") in state_pairs
+    assert aliases['["County","North"]'] == '["County","All"]'
+    assert aliases['["District","Durham"]'] == '["District","All"]'
+    assert len(states) < (
+        len(page.geo_level_sel.options) * len(page.geography_sel.options)
+    )
+
+
+def test_tour_distance_export_geography_pairs_follow_selected_level(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    average_mandatory = pl.DataFrame(
+        {
+            "mandatory_tour_purpose": ["work"],
+            "geography_level": ["Region"],
+            "average_tour_distance": [8.0],
+        }
+    )
+    average_nonmandatory = pl.DataFrame(
+        {
+            "nonmandatory_tour_purpose": ["shopping", "shopping", "shopping"],
+            "geography_type": ["district", "district", "county"],
+            "geography_id": ["North", "South", "Wake"],
+            "average_tour_distance": [4.0, 8.0, 12.0],
+            "tour_count": [2.0, 3.0, 4.0],
+        }
+    )
+    distance = pl.DataFrame(
+        {
+            "tour_purpose": ["all_tour_purposes"],
+            "distance_bin": [0],
+            "tour_count": [5.0],
+        }
+    )
+    summary_run = create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode={
+            "weighted": {
+                "tour_distance_by_tour_purpose": distance,
+                "average_mandatory_tour_distance_by_purpose_and_geography": average_mandatory,
+                "average_nonmandatory_tour_distance_by_purpose_and_geography": average_nonmandatory,
+            },
+            "unweighted": {
+                "tour_distance_by_tour_purpose": distance,
+                "average_mandatory_tour_distance_by_purpose_and_geography": average_mandatory,
+                "average_nonmandatory_tour_distance_by_purpose_and_geography": average_nonmandatory,
+            },
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+    page = TourDistancePage(state, config)
+    page.refresh(force=True)
+
+    selector_ids = [
+        "geography_level",
+        "geography",
+        "nonmandatory_tour_purpose",
+    ]
+    selector_widgets = _export_selector_widgets(page)
+    states, aliases = resolve_export_section_states(
+        page,
+        page_def=TourDistancePage.definition,
+        part_def=type("Part", (), {"part_id": "tour_distance_averages"})(),
+        active_selector_ids=selector_ids,
+        selector_widgets=selector_widgets,
+        selector_metadata_by_id=_export_selector_metadata(
+            selector_widgets,
+            selector_ids,
+            request_modes={"nonmandatory_tour_purpose": "default"},
+        ),
+    )
+
+    state_pairs = {
+        (state["geography_level"], state["geography"]) for state in states
+    }
+    assert ("District", "North") in state_pairs
+    assert ("District", "South") in state_pairs
+    assert ("County", "Wake") in state_pairs
+    assert ("District", "Wake") not in state_pairs
+    assert ("County", "North") not in state_pairs
+    assert aliases == {}
 
 
 def test_regional_helpers_rename_blank_origin() -> None:
@@ -1254,11 +1733,11 @@ def test_regional_validation_page_compares_county_flows_to_commuting_flows(
         run_key="base",
         summaries_by_mode={
             "weighted": {
-                "external_county_flows_joja": observed,
+                "demo_county_flows_joja": observed,
                 "commuting_flows": modeled,
             },
             "unweighted": {
-                "external_county_flows_joja": observed,
+                "demo_county_flows_joja": observed,
                 "commuting_flows": modeled,
             },
         },
@@ -1396,10 +1875,10 @@ def test_data_requirements_for_pages_tracks_optional_summary_dependencies() -> N
     assert PERSONAL_AUTO_VMT_SUMMARY_ID in requirements.required_summary_ids
     assert "commercial_vmt_totals" not in requirements.required_summary_ids
     assert "commercial_vmt_totals" not in requirements.optional_summary_ids
-    assert "external_auto_vmt_summary" not in requirements.optional_summary_ids
-    assert "external_county_flows" in requirements.optional_summary_ids
+    assert "demo_auto_vmt_summary" not in requirements.optional_summary_ids
+    assert "demo_county_flows" in requirements.optional_summary_ids
     assert "commuting_flows" in requirements.optional_summary_ids
-    assert "external_auto_vmt_summary" not in requirements.summary_ids_for_pruning
+    assert "demo_auto_vmt_summary" not in requirements.summary_ids_for_pruning
 
 
 def test_resolve_page_definitions_rejects_unknown_configured_page_ids(

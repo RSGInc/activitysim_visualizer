@@ -30,6 +30,20 @@ EXTERNAL_COMMERCIAL_BREAKDOWN_OPTIONS = ["Time Period", "Commercial Vehicle Type
 EXTERNAL_COMMERCIAL_DAILY_PERIOD = "Daily"
 EXTERNAL_COMMERCIAL_TIME_ORDER = [*EXTERNAL_TOD_ORDER, EXTERNAL_COMMERCIAL_DAILY_PERIOD]
 COMMERCIAL_VEHICLE_TYPE_CATEGORY_ID = "commercial_vehicle_type"
+EXTERNAL_TRAVEL_COLUMNS = [
+    "hbcoll",
+    "hbo",
+    "hbr",
+    "hbs",
+    "hbsch",
+    "hbw",
+    "nhbnw",
+    "nhbw",
+    "truck",
+]
+EXTERNAL_TRAVEL_TOTAL_COLUMN = "Total"
+EXTERNAL_TRAVEL_BREAKDOWN_OPTIONS = ["Time Period", "Trip Purpose"]
+EXTERNAL_TRAVEL_PURPOSE_CATEGORY_ID = "trip_purpose"
 PERSONAL_AUTO_VMT_SUMMARY_ID = "auto_vmt_by_home_geography_income_hhsize_time_period"
 PERSONAL_AUTO_VMT_REQUIRED_COLUMNS = (
     "geography_type",
@@ -165,6 +179,21 @@ def _selector_values(
         preferred=preferred,
     )
     return ["All", *values] if include_all else values
+
+
+def _chart_category_order(
+    data_list: list[tuple[str, pl.DataFrame]],
+    *,
+    preferred: list[str],
+    category_col: str = "category",
+) -> list[str]:
+    values = [
+        str(value)
+        for _, df in data_list
+        if category_col in df.columns and not df.is_empty()
+        for value in df[category_col].drop_nulls().cast(pl.Utf8).to_list()
+    ]
+    return _ordered_values(list(dict.fromkeys(values)), preferred=preferred)
 
 
 def personal_auto_mode_options(
@@ -329,7 +358,7 @@ def wide_tod_chart_data(
     return out
 
 
-def external_commercial_vehicle_chart_data(
+def demo_commercial_vehicle_chart_data(
     data_list: list[tuple[str, pl.DataFrame]],
     *,
     breakdown: str,
@@ -339,7 +368,7 @@ def external_commercial_vehicle_chart_data(
     value_columns: list[str] | None = None,
     exclude_total_period: bool = True,
 ) -> list[tuple[str, pl.DataFrame]]:
-    """Aggregate external commercial vehicle summaries for one chart breakdown."""
+    """Aggregate demo commercial vehicle summaries for one chart breakdown."""
     value_columns = value_columns or EXTERNAL_COMMERCIAL_COLUMNS
     out: list[tuple[str, pl.DataFrame]] = []
     for label, df in nonempty(data_list):
@@ -429,14 +458,119 @@ def external_commercial_vehicle_chart_data(
     return out
 
 
-def external_commercial_filter_options(
+def external_travel_chart_data(
+    data_list: list[tuple[str, pl.DataFrame]],
+    *,
+    breakdown: str,
+    time_period: str = EXTERNAL_COMMERCIAL_DAILY_PERIOD,
+    trip_purpose: str = "All",
+    tod_col: str = "tod",
+    value_columns: list[str] | None = None,
+    total_column: str = EXTERNAL_TRAVEL_TOTAL_COLUMN,
+    exclude_total_period: bool = True,
+) -> list[tuple[str, pl.DataFrame]]:
+    """Aggregate external travel summaries for one chart breakdown."""
+    value_columns = value_columns or EXTERNAL_TRAVEL_COLUMNS
+    out: list[tuple[str, pl.DataFrame]] = []
+    for label, df in nonempty(data_list):
+        available_columns = [column for column in value_columns if column in df.columns]
+        filter_columns = (
+            available_columns
+            if total_column not in df.columns
+            else [*available_columns, total_column]
+        )
+        if tod_col not in df.columns or not filter_columns:
+            continue
+        filtered = df.with_columns(pl.col(tod_col).cast(pl.Utf8))
+        daily_rows = filtered.filter(
+            pl.col(tod_col).str.to_lowercase()
+            == EXTERNAL_COMMERCIAL_DAILY_PERIOD.lower()
+        )
+        if breakdown != "Time Period":
+            if (
+                time_period == EXTERNAL_COMMERCIAL_DAILY_PERIOD
+                and not daily_rows.is_empty()
+            ):
+                filtered = daily_rows
+            elif exclude_total_period:
+                filtered = filtered.filter(
+                    pl.col(tod_col).str.to_lowercase() != "daily"
+                )
+        long_df = filtered.unpivot(
+            index=tod_col,
+            on=filter_columns,
+            variable_name="trip_purpose",
+            value_name="value",
+        ).rename({tod_col: "time_period"})
+        if breakdown != "Time Period" and time_period not in (
+            "All",
+            EXTERNAL_COMMERCIAL_DAILY_PERIOD,
+        ):
+            long_df = long_df.filter(pl.col("time_period") == time_period)
+        if breakdown != "Trip Purpose":
+            if trip_purpose != "All" or total_column in filter_columns:
+                purpose_column = total_column if trip_purpose == "All" else trip_purpose
+                long_df = long_df.filter(pl.col("trip_purpose") == purpose_column)
+        else:
+            long_df = long_df.filter(pl.col("trip_purpose") != total_column)
+        if breakdown == "Trip Purpose":
+            chart_df = (
+                long_df.group_by("trip_purpose")
+                .agg(pl.col("value").sum().alias("value"))
+                .rename({"trip_purpose": "category"})
+                .with_columns(pl.col("category").cast(pl.Utf8))
+            )
+            order = value_columns
+        else:
+            chart_df = (
+                long_df.group_by("time_period")
+                .agg(pl.col("value").sum().alias("value"))
+                .rename({"time_period": "category"})
+                .with_columns(pl.col("category").cast(pl.Utf8))
+            )
+            if (
+                EXTERNAL_COMMERCIAL_DAILY_PERIOD not in chart_df["category"].to_list()
+                and not chart_df.is_empty()
+            ):
+                chart_df = pl.concat(
+                    [
+                        chart_df,
+                        pl.DataFrame(
+                            {
+                                "category": [EXTERNAL_COMMERCIAL_DAILY_PERIOD],
+                                "value": [chart_df["value"].sum()],
+                            }
+                        ),
+                    ],
+                    how="vertical",
+                )
+            chart_df = _with_value_percent_of_daily(chart_df)
+            order = EXTERNAL_COMMERCIAL_TIME_ORDER
+        chart_df = (
+            chart_df.with_columns(
+                pl.col("category")
+                .replace_strict(
+                    {value: index for index, value in enumerate(order)},
+                    default=len(order),
+                    return_dtype=pl.Int64,
+                )
+                .alias("_sort_order")
+            )
+            .sort("_sort_order", "category")
+            .drop("_sort_order")
+        )
+        out.append((label, chart_df))
+    return out
+
+
+def demo_commercial_filter_options(
     data_list: list[tuple[str, pl.DataFrame]] | None,
     *,
     config,
     tod_col: str = "tod",
     value_columns: list[str] | None = None,
 ) -> tuple[list[str], tuple[list[str], dict[str, str | None]]]:
-    """Return time-period and vehicle-type filter options for external commercial data."""
+    """Return time-period and vehicle-type filter options for demo commercial data."""
     value_columns = value_columns or EXTERNAL_COMMERCIAL_COLUMNS
     time_periods: set[str] = set()
     vehicle_types: set[str] = set()
@@ -467,6 +601,46 @@ def external_commercial_filter_options(
         total_label="All",
     )
     return [EXTERNAL_COMMERCIAL_DAILY_PERIOD, *ordered_time_periods], vehicle_options
+
+
+def external_travel_filter_options(
+    data_list: list[tuple[str, pl.DataFrame]] | None,
+    *,
+    config,
+    tod_col: str = "tod",
+    value_columns: list[str] | None = None,
+) -> tuple[list[str], tuple[list[str], dict[str, str | None]]]:
+    """Return time-period and trip-purpose filter options for external travel data."""
+    value_columns = value_columns or EXTERNAL_TRAVEL_COLUMNS
+    time_periods: set[str] = set()
+    trip_purposes: set[str] = set()
+    for _, df in nonempty(data_list or []):
+        if tod_col in df.columns:
+            time_periods.update(
+                str(value)
+                for value in df[tod_col].drop_nulls().cast(pl.Utf8).to_list()
+                if str(value).lower() != "daily"
+            )
+        trip_purposes.update(column for column in value_columns if column in df.columns)
+    ordered_time_periods = _ordered_values(
+        list(time_periods),
+        preferred=EXTERNAL_TOD_ORDER,
+    )
+    ordered_trip_purposes = config.ordered_values(
+        EXTERNAL_TRAVEL_PURPOSE_CATEGORY_ID,
+        [
+            *[column for column in value_columns if column in trip_purposes],
+            *sorted(column for column in trip_purposes if column not in value_columns),
+        ],
+    )
+    purpose_options = raw_display_options(
+        ordered_trip_purposes,
+        category_id=EXTERNAL_TRAVEL_PURPOSE_CATEGORY_ID,
+        config=config,
+        total_raw="All",
+        total_label="All",
+    )
+    return [EXTERNAL_COMMERCIAL_DAILY_PERIOD, *ordered_time_periods], purpose_options
 
 
 class VMTValidationPage(DashboardPage):
@@ -504,7 +678,8 @@ class VMTValidationPage(DashboardPage):
         if not mode_options:
             mode_options = ["All"]
             self.personal_vmt_mode_raw_by_label = {"All": "All"}
-        self.external_commercial_vehicle_type_raw_by_label = {"All": "All"}
+        self.demo_commercial_vehicle_type_raw_by_label = {"All": "All"}
+        self.external_travel_trip_purpose_raw_by_label = {"All": "All"}
         self.personal_vmt_breakdown_sel = self.selector(
             "personal_auto_vmt_breakdown",
             widget=pn.widgets.Select(
@@ -568,8 +743,8 @@ class VMTValidationPage(DashboardPage):
             ),
             label="Household Size",
         )
-        self.external_commercial_metric_sel = self.selector(
-            "external_commercial_metric",
+        self.demo_commercial_metric_sel = self.selector(
+            "demo_commercial_metric",
             widget=pn.widgets.Select(
                 name="Commercial Vehicle Metric",
                 options=["Trips", "VMT"],
@@ -577,8 +752,8 @@ class VMTValidationPage(DashboardPage):
             ),
             label="Commercial Vehicle Metric",
         )
-        self.external_commercial_breakdown_sel = self.selector(
-            "external_commercial_breakdown",
+        self.demo_commercial_breakdown_sel = self.selector(
+            "demo_commercial_breakdown",
             widget=pn.widgets.Select(
                 name="Commercial Vehicle Breakdown",
                 options=EXTERNAL_COMMERCIAL_BREAKDOWN_OPTIONS,
@@ -586,8 +761,8 @@ class VMTValidationPage(DashboardPage):
             ),
             label="Commercial Vehicle Breakdown",
         )
-        self.external_commercial_vehicle_type_sel = self.selector(
-            "external_commercial_vehicle_type",
+        self.demo_commercial_vehicle_type_sel = self.selector(
+            "demo_commercial_vehicle_type",
             widget=pn.widgets.Select(
                 name="Commercial Vehicle Type",
                 options=["All"],
@@ -595,8 +770,44 @@ class VMTValidationPage(DashboardPage):
             ),
             label="Commercial Vehicle Type",
         )
-        self.external_commercial_time_period_sel = self.selector(
-            "external_commercial_time_period",
+        self.demo_commercial_time_period_sel = self.selector(
+            "demo_commercial_time_period",
+            widget=pn.widgets.Select(
+                name="Time Period",
+                options=[EXTERNAL_COMMERCIAL_DAILY_PERIOD],
+                value=EXTERNAL_COMMERCIAL_DAILY_PERIOD,
+            ),
+            label="Time Period",
+        )
+        self.external_travel_metric_sel = self.selector(
+            "external_travel_metric",
+            widget=pn.widgets.Select(
+                name="External Travel Metric",
+                options=["Trips", "VMT"],
+                value="Trips",
+            ),
+            label="External Travel Metric",
+        )
+        self.external_travel_breakdown_sel = self.selector(
+            "external_travel_breakdown",
+            widget=pn.widgets.Select(
+                name="External Travel Breakdown",
+                options=EXTERNAL_TRAVEL_BREAKDOWN_OPTIONS,
+                value=EXTERNAL_TRAVEL_BREAKDOWN_OPTIONS[0],
+            ),
+            label="External Travel Breakdown",
+        )
+        self.external_travel_trip_purpose_sel = self.selector(
+            "external_travel_trip_purpose",
+            widget=pn.widgets.Select(
+                name="Trip Purpose",
+                options=["All"],
+                value="All",
+            ),
+            label="Trip Purpose",
+        )
+        self.external_travel_time_period_sel = self.selector(
+            "external_travel_time_period",
             widget=pn.widgets.Select(
                 name="Time Period",
                 options=[EXTERNAL_COMMERCIAL_DAILY_PERIOD],
@@ -618,14 +829,24 @@ class VMTValidationPage(DashboardPage):
             render=self.render_personal_auto_vmt_section,
         )
         self._body = self.section(
-            "vmt_body",
+            "commercial_vmt_body",
             selectors=(
-                "external_commercial_metric",
-                "external_commercial_breakdown",
-                "external_commercial_vehicle_type",
-                "external_commercial_time_period",
+                "demo_commercial_metric",
+                "demo_commercial_breakdown",
+                "demo_commercial_vehicle_type",
+                "demo_commercial_time_period",
             ),
-            render=self.render_body,
+            render=self.render_commercial_vmt_section,
+        )
+        self._external_vmt_body = self.section(
+            "external_vmt_body",
+            selectors=(
+                "external_travel_metric",
+                "external_travel_breakdown",
+                "external_travel_trip_purpose",
+                "external_travel_time_period",
+            ),
+            render=self.render_external_vmt_section,
         )
         self._bicycle_body = self.section(
             "bicycle_vmt_body",
@@ -646,12 +867,20 @@ class VMTValidationPage(DashboardPage):
                 self.personal_vmt_household_size_sel,
             ),
             self._personal_vmt_body,
+            pn.pane.Markdown("### External VMT and Travel"),
+            selector_row(
+                self.external_travel_metric_sel,
+                self.external_travel_breakdown_sel,
+                self.external_travel_trip_purpose_sel,
+                self.external_travel_time_period_sel,
+            ),
+            self._external_vmt_body,
             pn.pane.Markdown("### Commercial VMT and Travel"),
             selector_row(
-                self.external_commercial_metric_sel,
-                self.external_commercial_breakdown_sel,
-                self.external_commercial_vehicle_type_sel,
-                self.external_commercial_time_period_sel,
+                self.demo_commercial_metric_sel,
+                self.demo_commercial_breakdown_sel,
+                self.demo_commercial_vehicle_type_sel,
+                self.demo_commercial_time_period_sel,
             ),
             self._body,
             pn.pane.Markdown("### Bicycle VMT"),
@@ -676,6 +905,12 @@ class VMTValidationPage(DashboardPage):
             }
         self.personal_vmt_geography_type_sel.options = geography_type_options_display
         if self.personal_vmt_geography_type_sel.value not in geography_type_options_display:
+            self.personal_vmt_geography_type_sel.value = geography_type_options_display[0]
+
+        breakdown = str(self.personal_vmt_breakdown_sel.value)
+        geography_type_enabled = breakdown == "Home Geography"
+        self.personal_vmt_geography_type_sel.disabled = not geography_type_enabled
+        if not geography_type_enabled:
             self.personal_vmt_geography_type_sel.value = geography_type_options_display[0]
 
         geography_type = self.selected_personal_vmt_geography_type_raw()
@@ -742,50 +977,89 @@ class VMTValidationPage(DashboardPage):
             "Mode": self.personal_vmt_mode_sel,
             "Income Segment": self.personal_vmt_income_segment_sel,
             "Household Size": self.personal_vmt_household_size_sel,
-        }.get(str(self.personal_vmt_breakdown_sel.value))
+        }.get(breakdown)
         if breakdown_filter_selector is not None:
             if "All" in breakdown_filter_selector.options:
                 breakdown_filter_selector.value = "All"
             breakdown_filter_selector.disabled = True
 
-        external_commercial_summary_id = (
-            "external_commercial_vehicle_vmt_summary"
-            if self.external_commercial_metric_sel.value == "VMT"
-            else "external_commercial_vehicle_summary"
+        demo_commercial_summary_id = (
+            "demo_commercial_vehicle_vmt_summary"
+            if self.demo_commercial_metric_sel.value == "VMT"
+            else "demo_commercial_vehicle_summary"
         )
-        external_commercial_data = self.state.get_summary_table_set(
-            external_commercial_summary_id,
+        demo_commercial_data = self.state.get_summary_table_set(
+            demo_commercial_summary_id,
             self.weighting_key,
         )
         (
             time_period_options,
-            (vehicle_type_options, self.external_commercial_vehicle_type_raw_by_label),
-        ) = external_commercial_filter_options(
-            external_commercial_data,
+            (vehicle_type_options, self.demo_commercial_vehicle_type_raw_by_label),
+        ) = demo_commercial_filter_options(
+            demo_commercial_data,
             config=self.config,
         )
         for widget, options in (
-            (self.external_commercial_time_period_sel, time_period_options),
-            (self.external_commercial_vehicle_type_sel, vehicle_type_options),
+            (self.demo_commercial_time_period_sel, time_period_options),
+            (self.demo_commercial_vehicle_type_sel, vehicle_type_options),
         ):
             widget.options = options or ["All"]
             if widget.value not in widget.options:
                 widget.value = widget.options[0]
 
-        self.external_commercial_time_period_sel.disabled = False
-        self.external_commercial_vehicle_type_sel.disabled = False
-        external_breakdown_filter_selector = {
-            "Time Period": self.external_commercial_time_period_sel,
-            "Commercial Vehicle Type": self.external_commercial_vehicle_type_sel,
-        }.get(str(self.external_commercial_breakdown_sel.value))
-        if external_breakdown_filter_selector is not None:
-            if "All" in external_breakdown_filter_selector.options:
-                external_breakdown_filter_selector.value = "All"
-            elif external_breakdown_filter_selector.options:
-                external_breakdown_filter_selector.value = (
-                    external_breakdown_filter_selector.options[0]
+        self.demo_commercial_time_period_sel.disabled = False
+        self.demo_commercial_vehicle_type_sel.disabled = False
+        demo_breakdown_filter_selector = {
+            "Time Period": self.demo_commercial_time_period_sel,
+            "Commercial Vehicle Type": self.demo_commercial_vehicle_type_sel,
+        }.get(str(self.demo_commercial_breakdown_sel.value))
+        if demo_breakdown_filter_selector is not None:
+            if "All" in demo_breakdown_filter_selector.options:
+                demo_breakdown_filter_selector.value = "All"
+            elif demo_breakdown_filter_selector.options:
+                demo_breakdown_filter_selector.value = (
+                    demo_breakdown_filter_selector.options[0]
                 )
-            external_breakdown_filter_selector.disabled = True
+            demo_breakdown_filter_selector.disabled = True
+
+        external_travel_summary_id = (
+            "demo_external_vmt_summary"
+            if self.external_travel_metric_sel.value == "VMT"
+            else "demo_external_trip_summary"
+        )
+        external_travel_data = self.state.get_summary_table_set(
+            external_travel_summary_id,
+            self.weighting_key,
+        )
+        (
+            external_time_period_options,
+            (trip_purpose_options, self.external_travel_trip_purpose_raw_by_label),
+        ) = external_travel_filter_options(
+            external_travel_data,
+            config=self.config,
+        )
+        for widget, options in (
+            (self.external_travel_time_period_sel, external_time_period_options),
+            (self.external_travel_trip_purpose_sel, trip_purpose_options),
+        ):
+            widget.options = options or ["All"]
+            if widget.value not in widget.options:
+                widget.value = widget.options[0]
+
+        self.external_travel_time_period_sel.disabled = False
+        self.external_travel_trip_purpose_sel.disabled = False
+        external_travel_breakdown_filter_selector = {
+            "Time Period": self.external_travel_time_period_sel,
+            "Trip Purpose": self.external_travel_trip_purpose_sel,
+        }.get(str(self.external_travel_breakdown_sel.value))
+        if external_travel_breakdown_filter_selector is not None:
+            if "All" in external_travel_breakdown_filter_selector.options:
+                external_travel_breakdown_filter_selector.value = "All"
+            elif external_travel_breakdown_filter_selector.options:
+                external_travel_breakdown_filter_selector.value = (
+                    external_travel_breakdown_filter_selector.options[0]
+                )
+            external_travel_breakdown_filter_selector.disabled = True
 
     def selected_personal_vmt_geography_type_raw(self) -> str:
         selected = str(self.personal_vmt_geography_type_sel.value)
@@ -820,9 +1094,17 @@ class VMTValidationPage(DashboardPage):
         raw_value = self.personal_vmt_mode_raw_by_label.get(selected, selected)
         return "All" if raw_value is None else str(raw_value)
 
-    def selected_external_commercial_vehicle_type_raw(self) -> str:
-        selected = str(self.external_commercial_vehicle_type_sel.value)
-        raw_value = self.external_commercial_vehicle_type_raw_by_label.get(
+    def selected_demo_commercial_vehicle_type_raw(self) -> str:
+        selected = str(self.demo_commercial_vehicle_type_sel.value)
+        raw_value = self.demo_commercial_vehicle_type_raw_by_label.get(
+            selected,
+            selected,
+        )
+        return "All" if raw_value is None else str(raw_value)
+
+    def selected_external_travel_trip_purpose_raw(self) -> str:
+        selected = str(self.external_travel_trip_purpose_sel.value)
+        raw_value = self.external_travel_trip_purpose_raw_by_label.get(
             selected,
             selected,
         )
@@ -966,15 +1248,27 @@ class VMTValidationPage(DashboardPage):
         return [self.render_bicycle_chart()]
 
     def render_body(self):
+        return self.render_commercial_vmt_section()
+
+    def render_commercial_vmt_section(self):
         if not self.state.run_labels:
             return [self.no_runs_message()]
-        return self.render_external_vmt_section()
+        summary_ids = [
+            "demo_commercial_vehicle_summary",
+            "demo_commercial_vehicle_vmt_summary",
+        ]
+        if not any(
+            self.state.get_summary_table_set(summary_id, self.weighting_key)
+            for summary_id in summary_ids
+        ):
+            return []
+        return [self.render_demo_commercial_chart()]
 
-    def render_external_commercial_chart(self) -> pn.viewable.Viewable:
+    def render_demo_commercial_chart(self) -> pn.viewable.Viewable:
         summary_id = (
-            "external_commercial_vehicle_vmt_summary"
-            if self.external_commercial_metric_sel.value == "VMT"
-            else "external_commercial_vehicle_summary"
+            "demo_commercial_vehicle_vmt_summary"
+            if self.demo_commercial_metric_sel.value == "VMT"
+            else "demo_commercial_vehicle_summary"
         )
         data = self.state.get_summary_table_set(summary_id, self.weighting_key)
         if data is None:
@@ -982,12 +1276,12 @@ class VMTValidationPage(DashboardPage):
                 detail="Commercial vehicle summaries are unavailable.",
                 missing_items=[summary_id],
             )
-        metric = self.external_commercial_metric_sel.value
-        breakdown = str(self.external_commercial_breakdown_sel.value)
-        time_period = str(self.external_commercial_time_period_sel.value)
-        commercial_vehicle_type = self.selected_external_commercial_vehicle_type_raw()
+        metric = self.demo_commercial_metric_sel.value
+        breakdown = str(self.demo_commercial_breakdown_sel.value)
+        time_period = str(self.demo_commercial_time_period_sel.value)
+        commercial_vehicle_type = self.selected_demo_commercial_vehicle_type_raw()
         chart_data = self.get_filtered_view(
-            "external_commercial_vehicle",
+            "demo_commercial_vehicle",
             (
                 self.weighting_key,
                 metric,
@@ -995,7 +1289,7 @@ class VMTValidationPage(DashboardPage):
                 time_period,
                 commercial_vehicle_type,
             ),
-            factory=lambda: external_commercial_vehicle_chart_data(
+            factory=lambda: demo_commercial_vehicle_chart_data(
                 data,
                 breakdown=breakdown,
                 time_period=time_period,
@@ -1013,11 +1307,14 @@ class VMTValidationPage(DashboardPage):
                 target_col="category",
             )
         xaxis_categoryarray = (
-            EXTERNAL_COMMERCIAL_TIME_ORDER
+            _chart_category_order(chart_data, preferred=EXTERNAL_COMMERCIAL_TIME_ORDER)
             if breakdown == "Time Period"
-            else self.config.ordered_labels(
-                COMMERCIAL_VEHICLE_TYPE_CATEGORY_ID,
-                EXTERNAL_COMMERCIAL_COLUMNS,
+            else _chart_category_order(
+                chart_data,
+                preferred=self.config.ordered_labels(
+                    COMMERCIAL_VEHICLE_TYPE_CATEGORY_ID,
+                    EXTERNAL_COMMERCIAL_COLUMNS,
+                ),
             )
         )
         return bar_chart(
@@ -1040,10 +1337,83 @@ class VMTValidationPage(DashboardPage):
             showlegend=True,
         )
 
+    def render_external_travel_chart(self) -> pn.viewable.Viewable:
+        summary_id = (
+            "demo_external_vmt_summary"
+            if self.external_travel_metric_sel.value == "VMT"
+            else "demo_external_trip_summary"
+        )
+        data = self.state.get_summary_table_set(summary_id, self.weighting_key)
+        if data is None:
+            return self.data_not_available_card(
+                detail="External travel summaries are unavailable.",
+                missing_items=[summary_id],
+            )
+        metric = self.external_travel_metric_sel.value
+        breakdown = str(self.external_travel_breakdown_sel.value)
+        time_period = str(self.external_travel_time_period_sel.value)
+        trip_purpose = self.selected_external_travel_trip_purpose_raw()
+        chart_data = self.get_filtered_view(
+            "external_travel",
+            (
+                self.weighting_key,
+                metric,
+                breakdown,
+                time_period,
+                trip_purpose,
+            ),
+            factory=lambda: external_travel_chart_data(
+                data,
+                breakdown=breakdown,
+                time_period=time_period,
+                trip_purpose=trip_purpose,
+                tod_col="tod",
+                value_columns=EXTERNAL_TRAVEL_COLUMNS,
+            ),
+        )
+        if breakdown == "Trip Purpose":
+            chart_data = label_category_data(
+                chart_data,
+                source_col="category",
+                category_id=EXTERNAL_TRAVEL_PURPOSE_CATEGORY_ID,
+                config=self.config,
+                target_col="category",
+            )
+        xaxis_categoryarray = (
+            _chart_category_order(chart_data, preferred=EXTERNAL_COMMERCIAL_TIME_ORDER)
+            if breakdown == "Time Period"
+            else _chart_category_order(
+                chart_data,
+                preferred=self.config.ordered_labels(
+                    EXTERNAL_TRAVEL_PURPOSE_CATEGORY_ID,
+                    EXTERNAL_TRAVEL_COLUMNS,
+                ),
+            )
+        )
+        return bar_chart(
+            chart_data,
+            x_col="category",
+            y_col=(
+                "value_percent"
+                if self.as_percent and breakdown == "Time Period"
+                else "value"
+            ),
+            title=f"External {metric} by {breakdown}",
+            xaxis_title=breakdown,
+            yaxis_title=(
+                f"Percent of {metric} (%)"
+                if self.as_percent and breakdown == "Time Period"
+                else metric
+            ),
+            as_percent=False if self.as_percent and breakdown == "Time Period" else self.as_percent,
+            xaxis_categoryarray=xaxis_categoryarray,
+            showlegend=True,
+        )
+
     def render_external_vmt_section(self) -> list[pn.viewable.Viewable]:
         summary_ids = [
-            "external_commercial_vehicle_summary",
-            "external_commercial_vehicle_vmt_summary",
+            "demo_external_trip_summary",
+            "demo_external_vmt_summary",
         ]
         if not any(
             self.state.get_summary_table_set(summary_id, self.weighting_key)
@@ -1051,7 +1421,7 @@ class VMTValidationPage(DashboardPage):
         ):
             return []
         content: list[pn.viewable.Viewable] = [
-            self.render_external_commercial_chart(),
+            self.render_external_travel_chart(),
         ]
         return content
 
@@ -1067,8 +1437,10 @@ PAGE = DashboardPageDefinition(
         "bicycle_vmt_by_facility_type",
     ),
     optional_summary_ids=(
-        "external_commercial_vehicle_summary",
-        "external_commercial_vehicle_vmt_summary",
+        "demo_commercial_vehicle_summary",
+        "demo_commercial_vehicle_vmt_summary",
+        "demo_external_trip_summary",
+        "demo_external_vmt_summary",
     ),
 )
 

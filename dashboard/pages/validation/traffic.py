@@ -20,7 +20,7 @@ from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 from runtime.config import Config
 
-EXTERNAL_TIME_PERIODS = {
+DEMO_TRAFFIC_TIME_PERIODS = {
     "AM": "am_vol",
     "MD": "md_vol",
     "PM": "pm_vol",
@@ -55,7 +55,7 @@ def validation_chart_data(
     return out
 
 
-def external_facility_options(
+def demo_facility_options(
     *data_lists: list[tuple[str, pl.DataFrame]] | None,
     config: Config,
 ) -> tuple[list[str], dict[str, str | None]]:
@@ -90,7 +90,7 @@ def _filter_facility(df: pl.DataFrame, facility_type: str) -> pl.DataFrame:
     )
 
 
-def external_count_scatter_data(
+def demo_count_scatter_data(
     scatter_list: list[tuple[str, pl.DataFrame]],
     *,
     period: str,
@@ -122,7 +122,7 @@ def external_count_scatter_data(
     return out
 
 
-def external_count_scatter_data_from_sources(
+def demo_count_scatter_data_from_sources(
     count_list: list[tuple[str, pl.DataFrame]],
     volume_list: list[tuple[str, pl.DataFrame]],
     *,
@@ -160,7 +160,7 @@ def external_count_scatter_data_from_sources(
     return out
 
 
-def external_count_fit_line_data(
+def demo_count_fit_line_data(
     fit_list: list[tuple[str, pl.DataFrame]] | None,
     *,
     period: str,
@@ -226,7 +226,7 @@ def external_count_fit_line_data(
     return out
 
 
-def external_link_aggregate_data(
+def demo_link_aggregate_data(
     link_list: list[tuple[str, pl.DataFrame]],
     *,
     volume_col: str,
@@ -256,7 +256,7 @@ def external_link_aggregate_data(
     return out
 
 
-def external_volume_comparison_table(
+def demo_volume_comparison_table(
     count_list: list[tuple[str, pl.DataFrame]],
     volume_list: list[tuple[str, pl.DataFrame]],
     *,
@@ -363,40 +363,40 @@ def external_volume_comparison_table(
 
 class TrafficValidationPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
-        external_link_list = self.state.get_summary_table_set(
-            "external_link_summary", "weighted"
+        demo_link_list = self.state.get_summary_table_set(
+            "demo_link_summary", "weighted"
         )
-        external_count_list = self.state.get_summary_table_set(
-            "external_count_location_counts", "weighted"
+        demo_count_list = self.state.get_summary_table_set(
+            "demo_count_location_counts", "weighted"
         )
-        external_volume_list = self.state.get_summary_table_set(
-            "external_count_location_volumes", "weighted"
+        demo_volume_list = self.state.get_summary_table_set(
+            "demo_count_location_volumes", "weighted"
         )
-        external_scatter_list = self.state.get_summary_table_set(
-            "external_count_location_scatter", "weighted"
+        demo_scatter_list = self.state.get_summary_table_set(
+            "demo_count_location_scatter", "weighted"
         )
-        external_fit_list = self.state.get_summary_table_set(
-            "external_count_location_fit", "weighted"
+        demo_fit_list = self.state.get_summary_table_set(
+            "demo_count_location_fit", "weighted"
         )
-        facility_opts, self.external_facility_raw_by_label = external_facility_options(
-            external_link_list,
-            external_count_list,
-            external_volume_list,
-            external_scatter_list,
-            external_fit_list,
+        facility_opts, self.demo_facility_raw_by_label = demo_facility_options(
+            demo_link_list,
+            demo_count_list,
+            demo_volume_list,
+            demo_scatter_list,
+            demo_fit_list,
             config=self.config,
         )
-        self.external_period_sel = self.selector(
-            "external_period",
+        self.demo_period_sel = self.selector(
+            "demo_period",
             widget=pn.widgets.Select(
                 name="Period",
-                options=list(EXTERNAL_TIME_PERIODS),
+                options=list(DEMO_TRAFFIC_TIME_PERIODS),
                 value="Day",
             ),
             label="Period",
         )
-        self.external_facility_sel = self.selector(
-            "external_facility_type",
+        self.demo_facility_sel = self.selector(
+            "demo_facility_type",
             widget=pn.widgets.Select(
                 name="Facility Type",
                 options=facility_opts,
@@ -404,17 +404,17 @@ class TrafficValidationPage(DashboardPage):
             ),
             label="Facility Type",
         )
-        self.external_top_period_sel = self.selector(
-            "external_top_period",
+        self.demo_top_period_sel = self.selector(
+            "demo_top_period",
             widget=pn.widgets.Select(
                 name="Period",
-                options=list(EXTERNAL_TIME_PERIODS),
+                options=list(DEMO_TRAFFIC_TIME_PERIODS),
                 value="Day",
             ),
             label="Period",
         )
-        self.external_top_n_sel = self.selector(
-            "external_top_n",
+        self.demo_top_n_sel = self.selector(
+            "demo_top_n",
             widget=pn.widgets.Select(
                 name="Top Count Locations",
                 options=[10, 25, 50, 100],
@@ -425,19 +425,19 @@ class TrafficValidationPage(DashboardPage):
         self._external_volume_body = self.section(
             "traffic_volume_body",
             selectors=(
-                "external_period",
-                "external_facility_type",
+                "demo_period",
+                "demo_facility_type",
             ),
-            render=self.render_external_traffic_section,
+            render=self.render_demo_traffic_section,
         )
         self._external_top_body = self.section(
             "traffic_top_count_body",
             selectors=(
-                "external_facility_type",
-                "external_top_period",
-                "external_top_n",
+                "demo_facility_type",
+                "demo_top_period",
+                "demo_top_n",
             ),
-            render=self.render_external_top_count_section,
+            render=self.render_demo_top_count_section,
         )
         self._screenline_body = self.section(
             "screenline_flow_body",
@@ -446,11 +446,12 @@ class TrafficValidationPage(DashboardPage):
         return self.new_section(
             pn.pane.Markdown("## Traffic Validation"),
             selector_row(
-                self.external_period_sel,
-                self.external_facility_sel,
+                self.demo_period_sel,
+                self.demo_facility_sel,
             ),
             self._external_volume_body,
-            selector_row(self.external_top_period_sel, self.external_top_n_sel),
+            pn.pane.Markdown("### Top Count Locations"),
+            selector_row(self.demo_top_period_sel, self.demo_top_n_sel),
             self._external_top_body,
             pn.pane.Markdown("### Screenline Flow Summaries"),
             self._screenline_body,
@@ -458,36 +459,36 @@ class TrafficValidationPage(DashboardPage):
         )
 
     def sync_controls(self) -> None:
-        external_link_list = self.state.get_summary_table_set(
-            "external_link_summary", self.weighting_key
+        demo_link_list = self.state.get_summary_table_set(
+            "demo_link_summary", self.weighting_key
         )
-        external_count_list = self.state.get_summary_table_set(
-            "external_count_location_counts", self.weighting_key
+        demo_count_list = self.state.get_summary_table_set(
+            "demo_count_location_counts", self.weighting_key
         )
-        external_volume_list = self.state.get_summary_table_set(
-            "external_count_location_volumes", self.weighting_key
+        demo_volume_list = self.state.get_summary_table_set(
+            "demo_count_location_volumes", self.weighting_key
         )
-        external_scatter_list = self.state.get_summary_table_set(
-            "external_count_location_scatter", self.weighting_key
+        demo_scatter_list = self.state.get_summary_table_set(
+            "demo_count_location_scatter", self.weighting_key
         )
-        external_fit_list = self.state.get_summary_table_set(
-            "external_count_location_fit", self.weighting_key
+        demo_fit_list = self.state.get_summary_table_set(
+            "demo_count_location_fit", self.weighting_key
         )
-        facility_opts, self.external_facility_raw_by_label = external_facility_options(
-            external_link_list,
-            external_count_list,
-            external_volume_list,
-            external_scatter_list,
-            external_fit_list,
+        facility_opts, self.demo_facility_raw_by_label = demo_facility_options(
+            demo_link_list,
+            demo_count_list,
+            demo_volume_list,
+            demo_scatter_list,
+            demo_fit_list,
             config=self.config,
         )
-        self.external_facility_sel.options = facility_opts
-        if self.external_facility_sel.value not in facility_opts:
-            self.external_facility_sel.value = facility_opts[0]
+        self.demo_facility_sel.options = facility_opts
+        if self.demo_facility_sel.value not in facility_opts:
+            self.demo_facility_sel.value = facility_opts[0]
 
     def selected_facility_type_raw(self) -> str:
-        selected = str(self.external_facility_sel.value)
-        raw_value = self.external_facility_raw_by_label.get(selected, selected)
+        selected = str(self.demo_facility_sel.value)
+        raw_value = self.demo_facility_raw_by_label.get(selected, selected)
         return "All" if raw_value is None else str(raw_value)
 
     def render_validation_chart(
@@ -533,53 +534,53 @@ class TrafficValidationPage(DashboardPage):
             )
         ]
 
-    def render_external_traffic_section(self) -> list[pn.viewable.Viewable]:
+    def render_demo_traffic_section(self) -> list[pn.viewable.Viewable]:
         if not self.state.run_labels:
             return [self.no_runs_message()]
 
         link_list = self.state.get_summary_table_set(
-            "external_link_summary", self.weighting_key
+            "demo_link_summary", self.weighting_key
         )
         count_list = self.state.get_summary_table_set(
-            "external_count_location_counts", self.weighting_key
+            "demo_count_location_counts", self.weighting_key
         )
         volume_list = self.state.get_summary_table_set(
-            "external_count_location_volumes", self.weighting_key
+            "demo_count_location_volumes", self.weighting_key
         )
         scatter_list = self.state.get_summary_table_set(
-            "external_count_location_scatter", self.weighting_key
+            "demo_count_location_scatter", self.weighting_key
         )
         fit_list = self.state.get_summary_table_set(
-            "external_count_location_fit", self.weighting_key
+            "demo_count_location_fit", self.weighting_key
         )
         if not any((link_list, count_list, volume_list, scatter_list, fit_list)):
             return []
-        period = self.external_period_sel.value
-        volume_col = EXTERNAL_TIME_PERIODS[str(period)]
+        period = self.demo_period_sel.value
+        volume_col = DEMO_TRAFFIC_TIME_PERIODS[str(period)]
         facility_type = self.selected_facility_type_raw()
-        facility_label = str(self.external_facility_sel.value)
+        facility_label = str(self.demo_facility_sel.value)
         facility_categoryarray = (
             [facility_label]
             if facility_type != "All"
-            else [option for option in self.external_facility_sel.options if option != "All"]
+            else [option for option in self.demo_facility_sel.options if option != "All"]
         )
         section: list[pn.viewable.Viewable] = [
             pn.pane.Markdown("### Traffic Volume Summaries")
         ]
         if scatter_list is not None:
             scatter_data = self.get_filtered_view(
-                "external_count_scatter",
+                "demo_count_scatter",
                 (period, facility_type),
-                factory=lambda: external_count_scatter_data(
+                factory=lambda: demo_count_scatter_data(
                     scatter_list,
                     period=str(period),
                     facility_type=facility_type,
                 ),
             )
             fit_data = self.get_filtered_view(
-                "external_count_fit",
+                "demo_count_fit",
                 (period, facility_type),
-                factory=lambda: external_count_fit_line_data(
+                factory=lambda: demo_count_fit_line_data(
                     fit_list,
                     period=str(period),
                     facility_type=facility_type,
@@ -598,9 +599,9 @@ class TrafficValidationPage(DashboardPage):
             )
         elif count_list is not None and volume_list is not None:
             scatter_data = self.get_filtered_view(
-                "external_count_scatter_fallback",
+                "demo_count_scatter_fallback",
                 (period, facility_type),
-                factory=lambda: external_count_scatter_data_from_sources(
+                factory=lambda: demo_count_scatter_data_from_sources(
                     count_list,
                     volume_list,
                     volume_col=volume_col,
@@ -620,18 +621,18 @@ class TrafficValidationPage(DashboardPage):
         else:
             section.append(
                 self.data_not_available_card(
-                    detail="External count-location counts and volumes are both required for this scatter plot.",
+                    detail="Demo count-location counts and volumes are both required for this scatter plot.",
                     missing_items=[
-                        "external_count_location_counts",
-                        "external_count_location_volumes",
+                        "demo_count_location_counts",
+                        "demo_count_location_volumes",
                     ],
                 )
             )
         if link_list is not None:
             aggregate_data = self.get_filtered_view(
-                "external_link_aggregate",
+                "demo_link_aggregate",
                 (period, facility_type),
-                factory=lambda: external_link_aggregate_data(
+                factory=lambda: demo_link_aggregate_data(
                     link_list,
                     volume_col=volume_col,
                     facility_type=facility_type,
@@ -652,39 +653,39 @@ class TrafficValidationPage(DashboardPage):
         else:
             section.append(
                 self.data_not_available_card(
-                    detail="External link summaries are unavailable.",
-                    missing_items=["external_link_summary"],
+                    detail="Demo link summaries are unavailable.",
+                    missing_items=["demo_link_summary"],
                 )
             )
         return section
 
-    def render_external_top_count_section(self) -> list[pn.viewable.Viewable]:
+    def render_demo_top_count_section(self) -> list[pn.viewable.Viewable]:
         if not self.state.run_labels:
             return [self.no_runs_message()]
 
         link_list = self.state.get_summary_table_set(
-            "external_link_summary", self.weighting_key
+            "demo_link_summary", self.weighting_key
         )
         count_list = self.state.get_summary_table_set(
-            "external_count_location_counts", self.weighting_key
+            "demo_count_location_counts", self.weighting_key
         )
         volume_list = self.state.get_summary_table_set(
-            "external_count_location_volumes", self.weighting_key
+            "demo_count_location_volumes", self.weighting_key
         )
         if not any((link_list, count_list, volume_list)):
             return []
 
         facility_type = self.selected_facility_type_raw()
-        top_period = self.external_top_period_sel.value
-        top_volume_col = EXTERNAL_TIME_PERIODS[str(top_period)]
-        top_n = int(self.external_top_n_sel.value)
+        top_period = self.demo_top_period_sel.value
+        top_volume_col = DEMO_TRAFFIC_TIME_PERIODS[str(top_period)]
+        top_n = int(self.demo_top_n_sel.value)
 
         if count_list is not None and volume_list is not None:
             volume_comparison = self.get_filtered_view(
-                "external_volume_comparison",
+                "demo_volume_comparison",
                 (top_period, facility_type, top_n),
                 factory=lambda: label_category_data(
-                    external_volume_comparison_table(
+                    demo_volume_comparison_table(
                         count_list,
                         volume_list,
                         link_list=link_list,
@@ -700,7 +701,7 @@ class TrafficValidationPage(DashboardPage):
             )
             return [
                 pn.pane.Markdown(
-                    f"### Top Count Location Observed vs Modeled Volumes - {top_period}"
+                    f"#### Observed vs Modeled Volumes - {top_period}"
                 ),
                 data_table(
                     volume_comparison,
@@ -710,10 +711,10 @@ class TrafficValidationPage(DashboardPage):
         if link_list is not None:
             return [
                 self.data_not_available_card(
-                    detail="External count-location counts and volumes are both required for this comparison table.",
+                    detail="Demo count-location counts and volumes are both required for this comparison table.",
                     missing_items=[
-                        "external_count_location_counts",
-                        "external_count_location_volumes",
+                        "demo_count_location_counts",
+                        "demo_count_location_volumes",
                     ],
                 )
             ]
@@ -730,11 +731,11 @@ PAGE = DashboardPageDefinition(
         "screenline_flow_comparisons",
     ),
     optional_summary_ids=(
-        "external_link_summary",
-        "external_count_location_counts",
-        "external_count_location_volumes",
-        "external_count_location_scatter",
-        "external_count_location_fit",
+        "demo_link_summary",
+        "demo_count_location_counts",
+        "demo_count_location_volumes",
+        "demo_count_location_scatter",
+        "demo_count_location_fit",
     ),
 )
 
