@@ -63,6 +63,10 @@ SELECTOR_REGION_WARNING_BYTES = 1 * 1024 * 1024
 EXPORT_SECTION_VARIANT_WARNING_COUNT = 500
 EXPORT_REGION_PROGRESS_INTERVAL_SECONDS = 30.0
 EXPORT_REGION_PROGRESS_VARIANT_INTERVAL = 25
+VMT_EXPORT_DROPDOWN_NOTE = (
+    "Greyed-out dropdowns are unavailable in this HTML export. "
+    "Use the live dashboard to access all dropdowns."
+)
 
 
 class _RuntimeExportPart:
@@ -649,9 +653,42 @@ def serialize_page_content(
             and part_def.view_for(page) is not None
         },
     )
+    content = _with_export_page_notes(page_def, content)
     if diagnostics_for_state is not None:
         diagnostics_for_state[page_def.page_id] = page_diagnostics
     return {"kind": "page", "content": content}
+
+
+def _with_export_page_notes(
+    page_def: DashboardPageDefinition,
+    content: dict[str, Any],
+) -> dict[str, Any]:
+    if page_def.page_id != "vmt":
+        return content
+    note_node = {
+        "kind": "html",
+        "html": (
+            "<p class='export-dropdown-note'>"
+            f"{VMT_EXPORT_DROPDOWN_NOTE}"
+            "</p>"
+        ),
+    }
+    if content.get("kind") == "container":
+        children = list(content.get("children", []))
+        insert_at = 1 if children else 0
+        return {
+            **content,
+            "children": [*children[:insert_at], note_node, *children[insert_at:]],
+            "child_count": len(children) + 1,
+        }
+    return {
+        "kind": "container",
+        "layout": "column",
+        "child_count": 2,
+        "children": [content, note_node],
+        "styles": {},
+        "css_classes": ["export-page-note-wrapper"],
+    }
 
 
 def build_widget_metadata(

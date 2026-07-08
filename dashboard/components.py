@@ -30,6 +30,20 @@ def _percent_mode(as_percent: bool | None) -> bool:
     return _DISPLAY_PERCENT_MODE if as_percent is None else bool(as_percent)
 
 
+def _finite_numeric_values(values: list[object]) -> list[float]:
+    numeric_values: list[float] = []
+    for value in values:
+        if value is None:
+            continue
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(numeric_value):
+            numeric_values.append(numeric_value)
+    return numeric_values
+
+
 def run_color(idx: int) -> str:
     return RUN_COLORS[idx % len(RUN_COLORS)]
 
@@ -357,10 +371,12 @@ def scatter_chart(
     drop_zero_y: bool = False,
     fit_overlays: list[tuple[str, pl.DataFrame]] | None = None,
     fit_annotation_col: str = "annotation",
+    one_to_one_line: bool = False,
 ) -> pn.pane.Plotly:
     """Create a scatterplot comparing multiple runs."""
     fig = go.Figure()
     label_indices = {label: i for i, (label, _) in enumerate(data_list)}
+    axis_values: list[float] = []
 
     for i, (label, df) in enumerate(data_list):
         if df is None or len(df) == 0:
@@ -373,6 +389,8 @@ def scatter_chart(
 
         x = df[x_col].to_list()
         y = df[y_col].to_list()
+        if one_to_one_line:
+            axis_values.extend(_finite_numeric_values([*x, *y]))
 
         hover = [
             f"{label}<br>{xaxis_title or x_col}: {xi:,.1f}<br>{yaxis_title or y_col}: {yi:,.1f}"
@@ -400,12 +418,16 @@ def scatter_chart(
             continue
         if x_col not in df.columns or y_col not in df.columns:
             continue
+        fit_x = df[x_col].to_list()
+        fit_y = df[y_col].to_list()
+        if one_to_one_line:
+            axis_values.extend(_finite_numeric_values([*fit_x, *fit_y]))
         color = run_color_for_label(label, label_indices.get(label, i))
         fig.add_trace(
             go.Scatter(
                 name=f"{label} fit",
-                x=df[x_col].to_list(),
-                y=df[y_col].to_list(),
+                x=fit_x,
+                y=fit_y,
                 mode="lines",
                 line=dict(color=color, width=2),
                 hovertemplate=f"{label} fit<extra></extra>",
@@ -429,6 +451,22 @@ def scatter_chart(
                     bordercolor=color,
                     borderwidth=1,
                 )
+
+    if one_to_one_line:
+        max_value = max([value for value in axis_values if value >= 0.0], default=1.0)
+        if max_value <= 0.0:
+            max_value = 1.0
+        fig.add_trace(
+            go.Scatter(
+                name="1:1 line",
+                x=[0.0, max_value],
+                y=[0.0, max_value],
+                mode="lines",
+                line=dict(color="#BDBDBD", width=1.5, dash="dash"),
+                hoverinfo="skip",
+                showlegend=False,
+            )
+        )
 
     _layout(
         fig,

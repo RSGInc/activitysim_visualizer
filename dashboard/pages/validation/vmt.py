@@ -1084,6 +1084,21 @@ class VMTValidationPage(DashboardPage):
             }
         return set()
 
+    def export_canonical_selector_value(
+        self,
+        section_id: str,
+        selector_id: str,
+        value: str,
+        selected_values: dict[str, str],
+    ) -> str:
+        if (
+            section_id == "personal_auto_vmt_body"
+            and selector_id == "personal_auto_vmt_geography_type"
+            and selected_values.get("personal_auto_vmt_breakdown") != "Home Geography"
+        ):
+            return ALL_GEOGRAPHY_TYPES_LABEL
+        return value
+
     def selected_personal_vmt_geography_raw(self) -> str:
         selected = str(self.personal_vmt_geography_sel.value)
         raw_value = self.personal_vmt_geo_raw_by_label.get(selected, selected)

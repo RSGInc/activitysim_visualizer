@@ -164,6 +164,13 @@
     const nextState = cloneState(currentState);
     const pageState = Object.assign({}, nextState.pageSelectors[pageId] || {});
     pageState[selectorId] = value;
+    if (
+      pageId === "vmt"
+      && selectorId === "personal_auto_vmt_breakdown"
+      && value !== "Home Geography"
+    ) {
+      pageState.personal_auto_vmt_geography_type = "All Geography Types";
+    }
     nextState.pageSelectors[pageId] = pageState;
     return normalizeState(currentPayload, nextState);
   }

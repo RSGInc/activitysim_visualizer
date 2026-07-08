@@ -18,6 +18,31 @@
     return node.value;
   }
 
+  function isVmtGeographyTypeUnavailable(node, context, leafPageId) {
+    if (
+      leafPageId !== "vmt"
+      || node.selector_id !== "personal_auto_vmt_geography_type"
+    ) {
+      return false;
+    }
+    const pageSelectorState = getPageSelectorState(context.state, leafPageId);
+    return pageSelectorState.personal_auto_vmt_breakdown !== "Home Geography";
+  }
+
+  function isWidgetDisabled(node, context, leafPageId) {
+    return !!node.disabled || isVmtGeographyTypeUnavailable(node, context, leafPageId);
+  }
+
+  function selectorChangeOptions(node, leafPageId) {
+    if (
+      leafPageId === "vmt"
+      && node.selector_id === "personal_auto_vmt_breakdown"
+    ) {
+      return {};
+    }
+    return { preferPartialRegionUpdate: true };
+  }
+
   function renderWidget(node, context, actions, leafPageId) {
     const wrapper = el("div", { className: "widget-shell" }, [
       el("div", {
@@ -29,7 +54,7 @@
 
     if (node.widget_type === "select") {
       const select = document.createElement("select");
-      select.disabled = !!node.disabled;
+      select.disabled = isWidgetDisabled(node, context, leafPageId);
       for (const option of node.options || []) {
         const opt = document.createElement("option");
         opt.value = option;
@@ -41,9 +66,11 @@
       }
       if (node.export_enabled && node.selector_id) {
         select.addEventListener("change", () => {
-          actions.setPageSelector(node.selector_id, select.value, {
-            preferPartialRegionUpdate: true,
-          });
+          actions.setPageSelector(
+            node.selector_id,
+            select.value,
+            selectorChangeOptions(node, leafPageId)
+          );
         });
       }
       wrapper.appendChild(select);

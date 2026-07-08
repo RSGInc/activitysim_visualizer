@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import panel as pn
 import polars as pl
 
@@ -11,10 +13,6 @@ from dashboard.helpers.category_helpers import (
     label_category_frame,
     nonempty,
     raw_display_options,
-)
-from dashboard.helpers.comparison_helpers import (
-    build_ab_comparison_row,
-    build_ab_comparison_table,
 )
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
@@ -226,6 +224,145 @@ def demo_count_fit_line_data(
     return out
 
 
+def _r_squared_from_points(points: pl.DataFrame) -> float | None:
+    if points.height < 2:
+        return None
+    x = [float(value) for value in points["observed_volume"].to_list()]
+    y = [float(value) for value in points["modeled_volume"].to_list()]
+    x_mean = sum(x) / len(x)
+    y_mean = sum(y) / len(y)
+    ss_xx = sum((value - x_mean) ** 2 for value in x)
+    if math.isclose(ss_xx, 0.0):
+        return None
+    ss_xy = sum((xi - x_mean) * (yi - y_mean) for xi, yi in zip(x, y))
+    slope = ss_xy / ss_xx
+    intercept = y_mean - slope * x_mean
+    fitted = [slope * xi + intercept for xi in x]
+    sse = sum((yi - yhat) ** 2 for yi, yhat in zip(y, fitted))
+    ss_yy = sum((yi - y_mean) ** 2 for yi in y)
+    if math.isclose(ss_yy, 0.0):
+        return 1.0 if math.isclose(sse, 0.0) else 0.0
+    return max(0.0, min(1.0, 1.0 - sse / ss_yy))
+
+
+def _fit_r_squared_lookup(
+    fit_list: list[tuple[str, pl.DataFrame]] | None,
+    *,
+    label: str,
+    period: str,
+    facility_type: str,
+) -> dict[str, float]:
+    if not fit_list:
+        return {}
+    fit_by_label = dict(fit_list)
+    fit_df = fit_by_label.get(label)
+    if fit_df is None or fit_df.is_empty():
+        return {}
+    required = {"facility_type", "period", "r_squared"}
+    if not required.issubset(set(fit_df.columns)):
+        return {}
+    selected = fit_df.with_columns(
+        pl.col("facility_type").cast(pl.Utf8),
+        pl.col("period").cast(pl.Utf8),
+    ).filter(
+        (pl.col("period") == period)
+        & (pl.col("facility_type") != "All")
+        & pl.col("r_squared").is_not_null()
+    )
+    if facility_type != "All":
+        selected = selected.filter(pl.col("facility_type") == facility_type)
+    return {
+        str(row["facility_type"]): float(row["r_squared"])
+        for row in selected.select("facility_type", "r_squared").iter_rows(named=True)
+    }
+
+
+def demo_facility_comparison_table(
+    scatter_data: list[tuple[str, pl.DataFrame]],
+    fit_list: list[tuple[str, pl.DataFrame]] | None,
+    *,
+    period: str,
+    facility_type: str,
+    config: Config,
+) -> list[tuple[str, pl.DataFrame]]:
+    """Aggregate count-location observed/modeled comparisons by facility type."""
+    out: list[tuple[str, pl.DataFrame]] = []
+    for label, df in nonempty(scatter_data):
+        required = {"facility_type", "observed_volume", "modeled_volume"}
+        if df is None or df.is_empty() or not required.issubset(set(df.columns)):
+            continue
+        points = (
+            df.select(
+                pl.col("facility_type").cast(pl.Utf8),
+                pl.col("observed_volume").cast(pl.Float64),
+                pl.col("modeled_volume").cast(pl.Float64),
+            )
+            .drop_nulls(["facility_type", "observed_volume", "modeled_volume"])
+            .filter(pl.col("facility_type") != "All")
+        )
+        if facility_type != "All":
+            points = points.filter(pl.col("facility_type") == facility_type)
+        if points.is_empty():
+            continue
+
+        r_squared_lookup = _fit_r_squared_lookup(
+            fit_list,
+            label=label,
+            period=period,
+            facility_type=facility_type,
+        )
+        facility_types = config.ordered_values(
+            FACILITY_TYPE_CATEGORY_ID,
+            [str(value) for value in points["facility_type"].unique().to_list()],
+        )
+        rows: list[dict[str, object]] = []
+        for raw_facility_type in facility_types:
+            facility_points = points.filter(
+                pl.col("facility_type") == raw_facility_type
+            )
+            if facility_points.is_empty():
+                continue
+            observed = [
+                float(value)
+                for value in facility_points["observed_volume"].to_list()
+            ]
+            modeled = [
+                float(value) for value in facility_points["modeled_volume"].to_list()
+            ]
+            total_observed = sum(observed)
+            total_modeled = sum(modeled)
+            differences = [model - observe for observe, model in zip(observed, modeled)]
+            rmse = math.sqrt(
+                sum(difference**2 for difference in differences) / len(differences)
+            )
+            percent_value = (
+                None
+                if total_observed == 0.0
+                else ((total_modeled - total_observed) / total_observed) * 100.0
+            )
+            percent_difference = (
+                "" if percent_value is None else f"{percent_value:.2f}%"
+            )
+            rows.append(
+                {
+                    "Facility Type": config.label_value(
+                        FACILITY_TYPE_CATEGORY_ID,
+                        raw_facility_type,
+                    ),
+                    "Total Observed Count": total_observed,
+                    "Total Modeled Count": total_modeled,
+                    "% Difference": percent_difference,
+                    "RMSE": rmse,
+                    "R^2": r_squared_lookup.get(raw_facility_type)
+                    if raw_facility_type in r_squared_lookup
+                    else _r_squared_from_points(facility_points),
+                }
+            )
+        if rows:
+            out.append((label, pl.DataFrame(rows)))
+    return out
+
+
 def demo_link_aggregate_data(
     link_list: list[tuple[str, pl.DataFrame]],
     *,
@@ -269,6 +406,8 @@ def demo_volume_comparison_table(
     link_by_label = dict(link_list or [])
     quantity_a_column = "Observed Link Volume"
     quantity_b_column = "Modeled Link Volume"
+    difference_column = "Difference"
+    percent_difference_column = "% Difference"
     out: list[tuple[str, pl.DataFrame]] = []
     for label, count_df in nonempty(count_list):
         volume_df = volume_by_label.get(label)
@@ -334,28 +473,35 @@ def demo_volume_comparison_table(
                     metadata_columns.append(column)
         rows = []
         for row in joined.iter_rows(named=True):
-            keys = {
+            observed = float(row["_quantity_a"])
+            modeled = float(row["_quantity_b"])
+            difference = modeled - observed
+            percent_difference = (
+                ""
+                if observed == 0.0
+                else f"{(difference / observed) * 100.0:.2f}%"
+            )
+            table_row = {
                 "link_id": row["id"],
                 "facility_type": row["facility_type"],
+                quantity_a_column: observed,
+                quantity_b_column: modeled,
+                difference_column: difference,
+                percent_difference_column: percent_difference,
             }
             for metadata_column in metadata_columns:
-                keys[metadata_column] = row.get(metadata_column)
-            rows.append(
-                build_ab_comparison_row(
-                    keys=keys,
-                    quantity_a=row["_quantity_a"],
-                    quantity_b=row["_quantity_b"],
-                    quantity_a_column=quantity_a_column,
-                    quantity_b_column=quantity_b_column,
-                )
-            )
-        key_columns = ["link_id", "facility_type", *metadata_columns]
-        table = build_ab_comparison_table(
-            rows,
-            key_columns=key_columns,
-            quantity_a_column=quantity_a_column,
-            quantity_b_column=quantity_b_column,
-        )
+                table_row[metadata_column] = row.get(metadata_column)
+            rows.append(table_row)
+        columns = [
+            "link_id",
+            "facility_type",
+            *metadata_columns,
+            quantity_a_column,
+            quantity_b_column,
+            difference_column,
+            percent_difference_column,
+        ]
+        table = pl.DataFrame(rows).select(columns) if rows else pl.DataFrame()
         if not table.is_empty():
             out.append((label, table))
     return out
@@ -416,11 +562,11 @@ class TrafficValidationPage(DashboardPage):
         self.demo_top_n_sel = self.selector(
             "demo_top_n",
             widget=pn.widgets.Select(
-                name="Top Count Locations",
+                name="Top N by Modeled Volume",
                 options=[10, 25, 50, 100],
                 value=25,
             ),
-            label="Top Count Locations",
+            label="Top N by Modeled Volume",
         )
         self._external_volume_body = self.section(
             "traffic_volume_body",
@@ -450,7 +596,7 @@ class TrafficValidationPage(DashboardPage):
                 self.demo_facility_sel,
             ),
             self._external_volume_body,
-            pn.pane.Markdown("### Top Count Locations"),
+            pn.pane.Markdown("### Top Count Locations by Modeled Volume"),
             selector_row(self.demo_top_period_sel, self.demo_top_n_sel),
             self._external_top_body,
             pn.pane.Markdown("### Screenline Flow Summaries"),
@@ -567,6 +713,7 @@ class TrafficValidationPage(DashboardPage):
         section: list[pn.viewable.Viewable] = [
             pn.pane.Markdown("### Traffic Volume Summaries")
         ]
+        scatter_data_for_table: list[tuple[str, pl.DataFrame]] = []
         if scatter_list is not None:
             scatter_data = self.get_filtered_view(
                 "demo_count_scatter",
@@ -595,8 +742,10 @@ class TrafficValidationPage(DashboardPage):
                     xaxis_title="Observed Count",
                     yaxis_title="Modeled Volume",
                     fit_overlays=fit_data,
+                    one_to_one_line=True,
                 )
             )
+            scatter_data_for_table = scatter_data
         elif count_list is not None and volume_list is not None:
             scatter_data = self.get_filtered_view(
                 "demo_count_scatter_fallback",
@@ -616,8 +765,10 @@ class TrafficValidationPage(DashboardPage):
                     title=f"Count Location Observed vs Modeled - {period}",
                     xaxis_title="Observed Count",
                     yaxis_title="Modeled Volume",
+                    one_to_one_line=True,
                 )
             )
+            scatter_data_for_table = scatter_data
         else:
             section.append(
                 self.data_not_available_card(
@@ -628,6 +779,27 @@ class TrafficValidationPage(DashboardPage):
                     ],
                 )
             )
+        if scatter_data_for_table:
+            facility_comparison = self.get_filtered_view(
+                "demo_count_facility_comparison",
+                (period, facility_type),
+                factory=lambda: demo_facility_comparison_table(
+                    scatter_data_for_table,
+                    fit_list,
+                    period=str(period),
+                    facility_type=facility_type,
+                    config=self.config,
+                ),
+            )
+            if facility_comparison:
+                section.append(
+                    data_table(
+                        facility_comparison,
+                        title="Count Location Summary by Facility Type",
+                        numeric_precision_by_column={"RMSE": 3, "R^2": 3},
+                        column_sorters={"RMSE": "number", "R^2": "number"},
+                    )
+                )
         if link_list is not None:
             aggregate_data = self.get_filtered_view(
                 "demo_link_aggregate",
@@ -701,11 +873,12 @@ class TrafficValidationPage(DashboardPage):
             )
             return [
                 pn.pane.Markdown(
-                    f"#### Observed vs Modeled Volumes - {top_period}"
+                    "#### Observed vs Modeled Volumes - "
+                    f"{top_period} (Top {top_n} by Modeled Volume)"
                 ),
                 data_table(
                     volume_comparison,
-                    column_sorters={"RMSE": "number"},
+                    column_sorters={"Difference": "number"},
                 ),
             ]
         if link_list is not None:
