@@ -370,7 +370,7 @@ def write_prepared_run_cache(
             "skimjoin_failure_detail"
         ),
         "skimjoin_hypothetical_sidecars_enabled": bool(
-            config.skimjoin.generate_hypothetical_sidecars
+            config.skimjoin.create_hypothetical_skim_tables
         ),
         "skimjoin_trip_hypothetical_rows": int(rd.trip_hypothetical_skims.height),
         "skimjoin_tour_hypothetical_rows": int(rd.tour_hypothetical_skims.height),

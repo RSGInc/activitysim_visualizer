@@ -384,8 +384,8 @@ def test_summary_only_run_bypasses_skimjoin_when_pipeline_enables_it(
             "    - skimjoin",
             "    - summarize",
             "skimjoin:",
+            "  create_hypothetical_skim_tables: true",
             "  defaults:",
-            "    generate_hypothetical_sidecars: true",
         ],
     )
 

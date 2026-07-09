@@ -40,7 +40,7 @@ def apply_skimjoin(rd: RunData, config: Config) -> RunData:
         result = _run_integrated_skimjoin(
             rd=rd,
             normalized=normalized,
-            generate_hypothetical_sidecars=config.skimjoin.generate_hypothetical_sidecars,
+            create_hypothetical_skim_tables=config.skimjoin.create_hypothetical_skim_tables,
             annotate_trips_fn=annotate_trips,
             annotate_tours_fn=annotate_tours,
         )
@@ -137,7 +137,7 @@ def _package_applied_skimjoin(rd: RunData, config: Config, result: object) -> Ru
         warning_count=int(result.missing_lookup_report.height),
         fallback_count=int(result.fallback_lookup_report.height),
         fallback_outputs=fallback_outputs,
-        hypothetical_sidecars_enabled=config.skimjoin.generate_hypothetical_sidecars,
+        hypothetical_sidecars_enabled=config.skimjoin.create_hypothetical_skim_tables,
         trip_hypothetical_rows=int(result.trip_hypothetical_skims.height),
         tour_hypothetical_rows=int(result.tour_hypothetical_skims.height),
     )

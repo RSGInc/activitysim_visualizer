@@ -153,7 +153,9 @@ def prepare_signature_payload(config: Config) -> dict[str, Any]:
         "skimjoin": {
             "enabled": config.skimjoin_step_enabled(),
             "config_digest": config.skimjoin.config_digest,
-            "generate_hypothetical_sidecars": config.skimjoin.generate_hypothetical_sidecars,
+            "create_hypothetical_skim_tables": (
+                config.skimjoin.create_hypothetical_skim_tables
+            ),
         },
         "prepare": {
             "auto_sufficiency": {
@@ -299,7 +301,9 @@ def summary_signature_payload(config: Config) -> dict[str, Any]:
         "skimjoin": {
             "enabled": config.skimjoin_step_enabled(),
             "config_digest": config.skimjoin.config_digest,
-            "generate_hypothetical_sidecars": config.skimjoin.generate_hypothetical_sidecars,
+            "create_hypothetical_skim_tables": (
+                config.skimjoin.create_hypothetical_skim_tables
+            ),
         },
         "prepare": {
             "vot_bins": prepare_signature_payload(config)["prepare"]["vot_bins"],

@@ -60,7 +60,7 @@ def _run_integrated_skimjoin(
     *,
     rd: RunData,
     normalized: object,
-    generate_hypothetical_sidecars: bool = False,
+    create_hypothetical_skim_tables: bool = False,
     annotate_trips_fn: Callable[..., tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]] = annotate_trips,
     annotate_tours_fn: Callable[..., tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]] = annotate_tours,
 ) -> _RuntimeSkimjoinResult:
@@ -84,7 +84,7 @@ def _run_integrated_skimjoin(
     enriched_tours, tour_lookup_summary, tour_missing_lookup_report, tour_fallback_lookup_report = tour_outputs
     trip_hypothetical_skims = pl.DataFrame()
     tour_hypothetical_skims = pl.DataFrame()
-    if generate_hypothetical_sidecars:
+    if create_hypothetical_skim_tables:
         trip_hypothetical_skims, tour_hypothetical_skims = build_hypothetical_sidecars(
             trips=rd.trips,
             tours=rd.tours,

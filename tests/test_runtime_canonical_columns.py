@@ -1019,6 +1019,43 @@ def test_config_rejects_missing_prepare_time_period_network_los(
         Config.from_yaml(config_path)
 
 
+def test_config_loads_create_hypothetical_skim_tables(tmp_path: Path) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "skimjoin:",
+            "  create_hypothetical_skim_tables: true",
+        ],
+    )
+
+    assert config.skimjoin.create_hypothetical_skim_tables is True
+
+
+def test_config_rejects_renamed_hypothetical_sidecar_key(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'name: "Canonical Test Config"',
+                "runs: []",
+                "summaries:",
+                "  root: summary_cache",
+                "visualizer:",
+                '  dashboard_title: "Canonical Test Dashboard"',
+                "skimjoin:",
+                "  generate_hypothetical_sidecars: true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="create_hypothetical_skim_tables",
+    ):
+        Config.from_yaml(config_path)
+
+
 def test_config_presentation_signature_changes_when_log_level_changes(
     tmp_path: Path,
 ) -> None:
