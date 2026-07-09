@@ -160,7 +160,7 @@ def test_serialize_viewable_dedents_indented_markdown_blocks() -> None:
             **Auto sufficiency definitions**
 
             - **Zero Auto**: household has no vehicles.
-            - **Auto Deficient**: household has fewer vehicles than licensed drivers.
+            - **Fewer Vehicles Than Drivers**: household has fewer vehicles than licensed drivers.
             """
         ),
         disable_widgets=True,

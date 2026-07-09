@@ -26,19 +26,37 @@ AUTO_SUFFICIENCY_LEVELS = [
 ]
 
 
+def _auto_sufficiency_basis_terms(config) -> tuple[str, str]:
+    """Return explanatory and short display nouns for the configured basis."""
+    return {
+        "licensed_drivers": ("licensed drivers", "Drivers"),
+        "workers": ("workers", "Workers"),
+        "adults": ("adults", "Adults"),
+    }[config.prepare_auto_sufficiency.basis]
+
+
+def auto_sufficiency_display_label(auto_sufficiency: str, config) -> str:
+    """Return the dashboard-facing label for an auto-sufficiency slice."""
+    _, label_noun = _auto_sufficiency_basis_terms(config)
+    return {
+        "All": "All",
+        "Zero Auto": "Zero Auto",
+        "Auto Deficient": f"Fewer Vehicles Than {label_noun}",
+        "Auto Sufficient": f"At Least As Many Vehicles as {label_noun}",
+    }[auto_sufficiency]
+
+
 def auto_sufficiency_definitions_markdown(config) -> str:
     """Describe the configured household basis behind the auto sufficiency split."""
-    basis_noun = {
-        "licensed_drivers": "licensed drivers",
-        "workers": "workers",
-        "adults": "adults",
-    }[config.prepare_auto_sufficiency.basis]
+    basis_noun, _ = _auto_sufficiency_basis_terms(config)
+    deficient_label = auto_sufficiency_display_label("Auto Deficient", config)
+    sufficient_label = auto_sufficiency_display_label("Auto Sufficient", config)
     return f"""
     **Auto sufficiency definitions**
 
     - **Zero Auto**: household has no vehicles.
-    - **Auto Deficient**: household has fewer vehicles than {basis_noun}.
-    - **Auto Sufficient**: household has at least as many vehicles as {basis_noun}.
+    - **{deficient_label}**: household has fewer vehicles than {basis_noun}.
+    - **{sufficient_label}**: household has at least as many vehicles as {basis_noun}.
     """
 
 
@@ -370,7 +388,10 @@ class TourModePage(DashboardPage):
             labeled,
             "tour_mode_label",
             "tour_count",
-            f"Tour Mode - {auto_sufficiency}",
+            (
+                "Tour Mode - "
+                f"{auto_sufficiency_display_label(auto_sufficiency, self.config)}"
+            ),
             "Tour Mode",
             yaxis_title="Tours",
             pct_col="pct",

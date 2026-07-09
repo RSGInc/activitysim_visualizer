@@ -3316,8 +3316,8 @@ def test_tour_summaries_tour_mode_page_renders_main_chart_without_vehicle_summar
     assert chart_titles == [
         "Tour Mode - All",
         "Tour Mode - Zero Auto",
-        "Tour Mode - Auto Deficient",
-        "Tour Mode - Auto Sufficient",
+        "Tour Mode - Fewer Vehicles Than Drivers",
+        "Tour Mode - At Least As Many Vehicles as Drivers",
     ]
     vehicle_cards = [
         obj
@@ -3405,6 +3405,8 @@ def test_tour_mode_auto_sufficiency_definitions_follow_configured_basis(
 
     markdown = _auto_sufficiency_definitions_markdown(config)
 
+    assert "**Fewer Vehicles Than Workers**" in markdown
+    assert "**At Least As Many Vehicles as Workers**" in markdown
     assert "household has fewer vehicles than workers." in markdown
     assert "household has at least as many vehicles as workers." in markdown
 
