@@ -74,6 +74,15 @@ from processor.models import RunData
 from processor.summarize.cache import SUMMARY_SPEC_BY_ID, create_summary_run
 
 
+def _collect_tabulators(viewable) -> list[pn.widgets.Tabulator]:
+    tables: list[pn.widgets.Tabulator] = []
+    if isinstance(viewable, pn.widgets.Tabulator):
+        return [viewable]
+    for child in getattr(viewable, "objects", []):
+        tables.extend(_collect_tabulators(child))
+    return tables
+
+
 def _raw_trip_run() -> RunData:
     return RunData(
         label="Base",
@@ -963,6 +972,21 @@ def test_non_motorized_vmt_section_mirrors_personal_auto_controls(
             "time_period_source": ["trip_period"] * 4,
         }
     )
+    external_vmt = pl.DataFrame(
+        {
+            "tod": ["Daily"],
+            "hbo": [20.0],
+            "Total": [20.0],
+        }
+    )
+    commercial_vmt = pl.DataFrame(
+        {
+            "tod": ["Daily"],
+            "car": [7.0],
+            "mu": [3.0],
+            "su": [0.0],
+        }
+    )
     summary_run = create_summary_run(
         label="Base",
         run_key="base",
@@ -970,10 +994,14 @@ def test_non_motorized_vmt_section_mirrors_personal_auto_controls(
             "weighted": {
                 PERSONAL_AUTO_VMT_SUMMARY_ID: personal_vmt,
                 NON_MOTORIZED_VMT_SUMMARY_ID: non_motorized_vmt,
+                "demo_external_vmt_summary": external_vmt,
+                "demo_commercial_vehicle_vmt_summary": commercial_vmt,
             },
             "unweighted": {
                 PERSONAL_AUTO_VMT_SUMMARY_ID: personal_vmt,
                 NON_MOTORIZED_VMT_SUMMARY_ID: non_motorized_vmt,
+                "demo_external_vmt_summary": external_vmt,
+                "demo_commercial_vehicle_vmt_summary": commercial_vmt,
             },
         },
     )
@@ -997,6 +1025,30 @@ def test_non_motorized_vmt_section_mirrors_personal_auto_controls(
         "### Non-Motorized VMT",
     ]
     assert markdown_titles[3] == "### External VMT and Travel"
+    overview_tables = _collect_tabulators(page._vmt_overview_body)
+    assert len(overview_tables) == 1
+    assert overview_tables[0].value.to_dict("records") == [
+        {
+            "Category": "Personal Auto",
+            "VMT": "10",
+            "% Share of Total": "20.83",
+        },
+        {
+            "Category": "Non-Motorized",
+            "VMT": "8",
+            "% Share of Total": "16.67",
+        },
+        {
+            "Category": "External",
+            "VMT": "20",
+            "% Share of Total": "41.67",
+        },
+        {
+            "Category": "Commercial",
+            "VMT": "10",
+            "% Share of Total": "20.83",
+        },
+    ]
     assert list(page.non_motorized_vmt_mode_sel.options) == [
         "All",
         "Walk",

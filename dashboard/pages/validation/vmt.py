@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, selector_row
+from dashboard.components import bar_chart, data_table, selector_row
 from dashboard.helpers.category_helpers import (
     column_value_union,
     label_category_data,
@@ -48,6 +48,8 @@ PERSONAL_AUTO_VMT_SUMMARY_ID = "auto_vmt_by_home_geography_income_hhsize_time_pe
 NON_MOTORIZED_VMT_SUMMARY_ID = (
     "non_motorized_vmt_by_home_geography_income_hhsize_time_period"
 )
+EXTERNAL_VMT_SUMMARY_ID = "demo_external_vmt_summary"
+COMMERCIAL_VMT_SUMMARY_ID = "demo_commercial_vehicle_vmt_summary"
 PERSONAL_AUTO_VMT_REQUIRED_COLUMNS = (
     "geography_type",
     "geography_id",
@@ -91,6 +93,137 @@ PERSONAL_AUTO_VMT_BREAKDOWN_AXIS_TITLES = {
 PERSONAL_AUTO_VMT_TIME_ORDER = ["EA", "AM", "MD", "PM", "EV", "EV1", "EV2", "Daily"]
 PERSONAL_AUTO_VMT_MODE_ORDER = ["SOV", "HOV2", "HOV3"]
 PERSONAL_AUTO_VMT_TOP_GEOGRAPHIES = 25
+VMT_OVERVIEW_ROWS = ("Personal Auto", "Non-Motorized", "External", "Commercial")
+
+
+def _sum_float_column(df: pl.DataFrame, column: str) -> float:
+    if df.is_empty() or column not in df.columns:
+        return 0.0
+    value = df.select(pl.col(column).cast(pl.Float64).sum()).item()
+    return float(value or 0.0)
+
+
+def _total_segmented_vmt(df: pl.DataFrame, value_col: str) -> float:
+    if df.is_empty() or value_col not in df.columns:
+        return 0.0
+
+    filtered = df
+    if {"geography_type", "geography_id"}.issubset(filtered.columns):
+        all_geography_rows = filtered.filter(
+            (pl.col("geography_type").cast(pl.Utf8) == ALL_GEOGRAPHY_TYPES_VALUE)
+            & (pl.col("geography_id").cast(pl.Utf8) == ALL_GEOGRAPHY_TYPES_VALUE)
+        )
+        if not all_geography_rows.is_empty():
+            filtered = all_geography_rows
+
+    if "time_period" in filtered.columns:
+        daily_rows = filtered.filter(pl.col("time_period").cast(pl.Utf8) == "Daily")
+        if not daily_rows.is_empty():
+            filtered = daily_rows
+
+    return _sum_float_column(filtered, value_col)
+
+
+def _total_wide_tod_vmt(
+    df: pl.DataFrame,
+    *,
+    value_columns: list[str],
+    total_column: str | None = None,
+    tod_col: str = "tod",
+) -> float:
+    if df.is_empty():
+        return 0.0
+
+    filtered = df
+    if tod_col in filtered.columns:
+        daily_rows = filtered.filter(
+            pl.col(tod_col).cast(pl.Utf8).str.to_lowercase() == "daily"
+        )
+        if not daily_rows.is_empty():
+            filtered = daily_rows
+
+    if total_column and total_column in filtered.columns:
+        return _sum_float_column(filtered, total_column)
+
+    available_columns = [column for column in value_columns if column in filtered.columns]
+    if not available_columns:
+        return 0.0
+    value = filtered.select(
+        pl.sum_horizontal([pl.col(column).cast(pl.Float64) for column in available_columns])
+        .sum()
+        .alias("vmt")
+    ).item()
+    return float(value or 0.0)
+
+
+def vmt_overview_table_data(
+    *,
+    personal_auto_vmt: list[tuple[str, pl.DataFrame]] | None,
+    non_motorized_vmt: list[tuple[str, pl.DataFrame]] | None,
+    external_vmt: list[tuple[str, pl.DataFrame]] | None,
+    commercial_vmt: list[tuple[str, pl.DataFrame]] | None,
+) -> list[tuple[str, pl.DataFrame]]:
+    """Build one VMT/share overview table per run label."""
+    personal_auto_vmt = personal_auto_vmt or []
+    non_motorized_vmt = non_motorized_vmt or []
+    external_vmt = external_vmt or []
+    commercial_vmt = commercial_vmt or []
+    labels = list(
+        dict.fromkeys(
+            label
+            for data_list in (
+                personal_auto_vmt,
+                non_motorized_vmt,
+                external_vmt,
+                commercial_vmt,
+            )
+            for label, _ in data_list
+        )
+    )
+    personal_by_label = dict(personal_auto_vmt)
+    non_motorized_by_label = dict(non_motorized_vmt)
+    external_by_label = dict(external_vmt)
+    commercial_by_label = dict(commercial_vmt)
+
+    out: list[tuple[str, pl.DataFrame]] = []
+    for label in labels:
+        totals = {
+            "Personal Auto": _total_segmented_vmt(
+                personal_by_label.get(label, pl.DataFrame()),
+                "auto_vmt",
+            ),
+            "Non-Motorized": _total_segmented_vmt(
+                non_motorized_by_label.get(label, pl.DataFrame()),
+                "non_motorized_vmt",
+            ),
+            "External": _total_wide_tod_vmt(
+                external_by_label.get(label, pl.DataFrame()),
+                value_columns=EXTERNAL_TRAVEL_COLUMNS,
+                total_column=EXTERNAL_TRAVEL_TOTAL_COLUMN,
+            ),
+            "Commercial": _total_wide_tod_vmt(
+                commercial_by_label.get(label, pl.DataFrame()),
+                value_columns=EXTERNAL_COMMERCIAL_COLUMNS,
+            ),
+        }
+        grand_total = sum(totals.values())
+        share_values = [
+            (totals[row] / grand_total * 100.0) if grand_total > 0 else 0.0
+            for row in VMT_OVERVIEW_ROWS
+        ]
+        out.append(
+            (
+                label,
+                pl.DataFrame(
+                    {
+                        "Category": list(VMT_OVERVIEW_ROWS),
+                        "VMT": [totals[row] for row in VMT_OVERVIEW_ROWS],
+                        "% Share of Total": share_values,
+                    }
+                ),
+            )
+        )
+    return out
 
 
 def _prefer_daily_rows_for_all_time_periods(
@@ -1047,8 +1180,13 @@ class VMTValidationPage(DashboardPage):
             "bicycle_vmt_body",
             render=self.render_bicycle_section,
         )
+        self._vmt_overview_body = self.section(
+            "vmt_overview_body",
+            render=self.render_vmt_overview_section,
+        )
         return self.new_section(
             pn.pane.Markdown("## VMT Validation"),
+            self._vmt_overview_body,
             pn.pane.Markdown("### Personal Auto VMT"),
             selector_row(
                 self.personal_vmt_breakdown_sel,
@@ -1502,6 +1640,42 @@ class VMTValidationPage(DashboardPage):
             selected,
         )
         return "All" if raw_value is None else str(raw_value)
+
+    def render_vmt_overview_section(self) -> list[pn.viewable.Viewable]:
+        overview_data = vmt_overview_table_data(
+            personal_auto_vmt=self.state.get_summary_table_set(
+                PERSONAL_AUTO_VMT_SUMMARY_ID,
+                self.weighting_key,
+            ),
+            non_motorized_vmt=self.state.get_summary_table_set(
+                NON_MOTORIZED_VMT_SUMMARY_ID,
+                self.weighting_key,
+            ),
+            external_vmt=self.state.get_summary_table_set(
+                EXTERNAL_VMT_SUMMARY_ID,
+                self.weighting_key,
+            ),
+            commercial_vmt=self.state.get_summary_table_set(
+                COMMERCIAL_VMT_SUMMARY_ID,
+                self.weighting_key,
+            ),
+        )
+        if not overview_data:
+            return []
+        return [
+            data_table(
+                overview_data,
+                height=180,
+                numeric_precision_by_column={
+                    "VMT": 2,
+                    "% Share of Total": 4,
+                },
+                column_sorters={
+                    "VMT": "number",
+                    "% Share of Total": "number",
+                },
+            )
+        ]
 
     def render_personal_auto_vmt_section(self) -> list[pn.viewable.Viewable]:
         if not self.state.run_labels:
