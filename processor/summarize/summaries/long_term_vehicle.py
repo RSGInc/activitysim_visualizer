@@ -28,17 +28,34 @@ def av_ownership(rd: RunData, config: Config) -> pl.DataFrame:
 
 @summary_contract(
     schema={
+        "household_size": pl.Utf8,
         "household_vehicle_count": pl.Int64,
         "household_count": pl.Float64,
     },
-    required_columns={"hh": ("HHVEH", "finalweight")},
+    required_columns={"hh": ("HHSIZE", "HHVEH", "finalweight")},
 )
 def auto_ownership(rd: RunData, config: Config) -> pl.DataFrame:
     return (
-        rd.hh.group_by("HHVEH")
+        rd.hh.with_columns(
+            pl.when(pl.col("HHSIZE").cast(pl.Int64, strict=False) >= 5)
+            .then(pl.lit("5+"))
+            .otherwise(pl.col("HHSIZE").cast(pl.Int64, strict=False).cast(pl.Utf8))
+            .alias("household_size")
+        )
+        .group_by(["household_size", "HHVEH"])
         .agg(household_count=pl.col("finalweight").sum())
         .rename({"HHVEH": "household_vehicle_count"})
-        .sort("household_vehicle_count")
+        .with_columns(
+            pl.col("household_size").cast(pl.Utf8),
+            pl.col("household_vehicle_count").cast(pl.Int64),
+            pl.col("household_count").cast(pl.Float64),
+            pl.when(pl.col("household_size") == "5+")
+            .then(999)
+            .otherwise(pl.col("household_size").cast(pl.Int64, strict=False))
+            .alias("_sort_household_size"),
+        )
+        .sort(["_sort_household_size", "household_vehicle_count"])
+        .select("household_size", "household_vehicle_count", "household_count")
     )
 
 

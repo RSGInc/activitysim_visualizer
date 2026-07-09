@@ -18,8 +18,10 @@ from dashboard.helpers.geography_helpers import (
     geography_name_options_for_type,
     geography_name_selector_label,
     geography_type_options,
+    geography_name_label,
     is_all_geographies,
     normalize_geography_data,
+    with_display_geography_columns,
 )
 from dashboard.page_base import DashboardPage, SectionContent
 from dashboard.page_definitions import DashboardPageDefinition
@@ -330,7 +332,13 @@ class MandatoryLocationChoicePage(DashboardPage):
                 ),
             )
             worker_views.append(
-                data_table(internal_external_table, "Internal vs. External Workers")
+                data_table(
+                    [
+                        (label, self.render_internal_external_worker_table(df))
+                        for label, df in internal_external_table
+                    ],
+                    "Internal vs. External Workers",
+                )
             )
         else:
             worker_views.append(
@@ -342,6 +350,21 @@ class MandatoryLocationChoicePage(DashboardPage):
 
         worker_views.append(self.render_external_workplace_chart(geo_level, geography))
         return worker_views
+
+    def render_internal_external_worker_table(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Return a display-ready internal/external worker geography table."""
+        display_df = with_display_geography_columns(df, config=self.config)
+        columns = [
+            column
+            for column in (
+                "Geography Type",
+                "Geography Name",
+                "internal_worker_count",
+                "external_worker_count",
+            )
+            if column in display_df.columns
+        ]
+        return display_df.select(columns) if columns else display_df
 
     def render_external_workplace_chart(
         self,
@@ -361,22 +384,21 @@ class MandatoryLocationChoicePage(DashboardPage):
             geo_level,
             factory=lambda: filter_geography_level(external_workplace, geo_level),
         )
-        workplace_location_values = sorted(
-            {
-                str(value)
-                for _, df in external_workplace_level_data
-                for value in (
-                    df["workplace_location"].cast(pl.Utf8).to_list()
-                    if "workplace_location" in df.columns
-                    else []
-                )
-            }
-        )
         filtered_external_workplace = self.get_filtered_view(
             "mandatory_external_workplace",
             (geo_level, geography),
             factory=lambda: filter_geography(external_workplace_level_data, geography),
         )
+        if not any(not df.is_empty() for _, df in filtered_external_workplace):
+            return self.data_not_available_card(
+                detail=(
+                    "No external workplace location data is available for the selected "
+                    "geography. This summary can render MPO, County, or other configured "
+                    "workplace geographies only when the prepared person data includes the "
+                    "corresponding work geography columns."
+                ),
+                missing_items=["external_worker_workplace_locations"],
+            )
         chart_data = filtered_external_workplace
         if self.as_percent:
             chart_data = self.get_filtered_view(
@@ -387,10 +409,37 @@ class MandatoryLocationChoicePage(DashboardPage):
                     geo_level,
                 ),
             )
+        chart_data = [
+            (
+                label,
+                df.with_columns(
+                    pl.col("workplace_location")
+                    .cast(pl.Utf8)
+                    .map_elements(
+                        lambda value: geography_name_label(value, config=self.config),
+                        return_dtype=pl.Utf8,
+                    )
+                    .alias("workplace_location_label")
+                ),
+            )
+            for label, df in chart_data
+            if df is not None and "workplace_location" in df.columns
+        ]
+        workplace_location_values = sorted(
+            {
+                str(value)
+                for _, df in chart_data
+                for value in (
+                    df["workplace_location_label"].cast(pl.Utf8).to_list()
+                    if "workplace_location_label" in df.columns
+                    else []
+                )
+            }
+        )
 
         return bar_chart(
             chart_data,
-            x_col="workplace_location",
+            x_col="workplace_location_label",
             y_col=(
                 "external_worker_percent"
                 if self.as_percent and is_all_geographies(geo_level)

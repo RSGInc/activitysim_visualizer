@@ -138,7 +138,8 @@ def _full_summary_run():
         "auto_vmt_totals": pl.DataFrame({"auto_vmt": [180.0]}),
         "auto_ownership_distribution": pl.DataFrame(
             {
-                "household_vehicle_count": [0, 1],
+                "household_size": ["1", "5+"],
+                "household_vehicle_count": [0, 4],
                 "household_count": [12.0, 18.0],
             }
         ),
@@ -1217,6 +1218,7 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     assert payload["client_runtime"] == EXPORT_CLIENT_RUNTIME
     enabled_selectors = payload["page_export_support"]["enabled_page_selectors"]
     assert {"page_id": "daily_activity_pattern", "selector_id": "person_type"} in enabled_selectors
+    assert {"page_id": "vehicle_ownership_type", "selector_id": "household_size"} in enabled_selectors
     assert {"page_id": "joint_travel", "selector_id": "household_size"} in enabled_selectors
     assert {"page_id": "joint_travel", "selector_id": "hide_no_joint_tours"} in enabled_selectors
     assert {"page_id": "tour_stop_frequency", "selector_id": "tour_purpose"} in enabled_selectors
@@ -1246,6 +1248,19 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
         "worker",
     ]
     assert page_defs["daily_activity_pattern"]["selectors"][0]["export_enabled"] is True
+    vehicle_household_size = _selector_by_id(
+        page_defs["vehicle_ownership_type"], "household_size"
+    )
+    assert vehicle_household_size["request_mode"] == "all"
+    assert vehicle_household_size["resolved_values"] == [
+        "All",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5+",
+    ]
+    assert vehicle_household_size["export_enabled"] is True
     joint_travel_hide_no_joint_tours = _selector_by_id(
         page_defs["joint_travel"], "hide_no_joint_tours"
     )
@@ -1307,6 +1322,21 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     assert sorted(_region_nodes(daily_activity_pattern)["activity_pattern_body"]["variants"]) == [
         '["All Person Types"]',
         '["worker"]',
+    ]
+    vehicle_ownership_type = weighted_percent["vehicle_ownership_type"]
+    assert vehicle_ownership_type["kind"] == "page"
+    assert _region_nodes(vehicle_ownership_type)["vehicle_ownership_summary"][
+        "selector_ids"
+    ] == ["household_size"]
+    assert sorted(
+        _region_nodes(vehicle_ownership_type)["vehicle_ownership_summary"]["variants"]
+    ) == [
+        '["1"]',
+        '["2"]',
+        '["3"]',
+        '["4"]',
+        '["5+"]',
+        '["All"]',
     ]
     joint_travel = weighted_percent["joint_travel"]
     assert joint_travel["kind"] == "page"

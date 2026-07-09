@@ -3987,6 +3987,79 @@ def test_shadow_pricing_school_all_student_type_uses_upstream_rollup_histogram(
     assert list(school_plot.object.data[0].y) == [5.0, 5.0]
 
 
+def test_shadow_pricing_tables_display_friendly_geography_columns(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "workplace_shadow_pricing_residuals": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district"],
+                    "geography_id": ["all_geographies", "north_zone"],
+                    "target_count": [10.0, 4.0],
+                    "modeled_count": [9.0, 5.0],
+                    "residual_count": [-1.0, 1.0],
+                    "absolute_residual_count": [1.0, 1.0],
+                    "percent_error": [-10.0, 25.0],
+                }
+            ),
+            "workplace_shadow_pricing_residual_histogram": pl.DataFrame(
+                {
+                    "geography_type": ["district"],
+                    "bin_start": [-2.0],
+                    "bin_end": [0.0],
+                    "geography_count": [1.0],
+                }
+            ),
+            "school_shadow_pricing_residuals": pl.DataFrame(
+                {
+                    "geography_type": ["district"],
+                    "geography_id": ["school_zone"],
+                    "student_type": ["School"],
+                    "target_count": [8.0],
+                    "modeled_count": [7.0],
+                    "residual_count": [-1.0],
+                    "absolute_residual_count": [1.0],
+                    "percent_error": [-12.5],
+                }
+            ),
+            "school_shadow_pricing_residual_histogram": pl.DataFrame(
+                {
+                    "geography_type": ["district"],
+                    "student_type": ["School"],
+                    "bin_start": [-2.0],
+                    "bin_end": [0.0],
+                    "geography_count": [1.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+    page = ShadowPricingPage(state, config)
+    page.refresh(force=True)
+
+    workplace = page.render_workplace_table(
+        summary_run.summaries_by_mode["weighted"][
+            "workplace_shadow_pricing_residuals"
+        ]
+    )
+    school = page.render_school_table(
+        summary_run.summaries_by_mode["weighted"]["school_shadow_pricing_residuals"]
+    )
+
+    assert workplace.columns[:2] == ["Geography Type", "Geography Name"]
+    assert workplace["Geography Type"].to_list() == ["All Geographies", "District"]
+    assert workplace["Geography Name"].to_list() == ["All Geographies", "North Zone"]
+    assert school.columns[:2] == ["Geography Type", "Geography Name"]
+    assert school["Geography Type"].to_list() == ["District"]
+    assert school["Geography Name"].to_list() == ["School Zone"]
+
+
 def test_shadow_pricing_all_geographies_shows_point_mass_cards_instead_of_plots(
     tmp_path: Path,
 ) -> None:
@@ -4219,6 +4292,7 @@ def test_mandatory_location_choice_external_workplace_aggregate_percent_uses_all
         for plot in plots
         if plot.object.layout.title.text == "External Worker Workplace Location"
     )
+    assert list(external_plot.object.data[0].x) == ["All Geographies"]
     assert list(external_plot.object.data[0].y) == [25.0]
 
 
@@ -4339,6 +4413,13 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
         "School Location Distance Distribution",
         "University Location Distance Distribution",
     ]
+    worker_table = _collect_tabulators(page._worker_section)[0].value
+    assert worker_table.columns.tolist()[:2] == [
+        "Geography Type",
+        "Geography Name",
+    ]
+    assert worker_table["Geography Type"].tolist() == ["All Geographies"]
+    assert worker_table["Geography Name"].tolist() == ["All Geographies"]
     assert list(distance_plots[0].object.data[0].x) == ["1", "40+"]
     assert list(distance_plots[0].object.data[0].y) == [60.0, 40.0]
     comparison_table = _collect_tabulators(page._mandatory_distance_table_section)[0].value
@@ -5282,8 +5363,9 @@ def test_vehicle_ownership_type_live_page_uses_shared_summary_helpers(
         weighted={
             "auto_ownership_distribution": pl.DataFrame(
                 {
-                    "household_vehicle_count": [0, 4, 5],
-                    "household_count": [12.0, 8.0, 10.0],
+                    "household_size": ["1", "1", "5+", "5+"],
+                    "household_vehicle_count": [0, 5, 4, 5],
+                    "household_count": [12.0, 6.0, 8.0, 10.0],
                 }
             ),
             "autonomous_vehicle_ownership_totals": pl.DataFrame(
@@ -5356,15 +5438,29 @@ def test_vehicle_ownership_type_live_page_uses_shared_summary_helpers(
         summary_runs=[long_term_summary_run],
         weighting_modes=config.weighting_modes,
     )
+    state.value_mode = "Count"
 
     page = VehicleOwnershipTypePage(state, config)
     page.refresh(force=True)
 
     assert page.view.objects
+    assert list(page.hhsize_sel.options) == ["All", "1", "2", "3", "4", "5+"]
     auto_plot = next(
         plot
         for plot in _collect_plotly_panes(page._ownership_section)
-        if str(plot.object.layout.title.text) == "Auto Ownership by Household Size"
+        if str(plot.object.layout.title.text)
+        == "Auto Ownership by Household Size - All"
     )
     assert list(auto_plot.object.data[0].x) == ["0", "4+"]
-    assert list(auto_plot.object.data[0].y) == [40.0, 60.0]
+    assert list(auto_plot.object.data[0].y) == [12.0, 24.0]
+
+    page.hhsize_sel.value = "5+"
+    page.refresh(force=True)
+    filtered_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._ownership_section)
+        if str(plot.object.layout.title.text)
+        == "Auto Ownership by Household Size - 5+"
+    )
+    assert list(filtered_plot.object.data[0].x) == ["4+"]
+    assert list(filtered_plot.object.data[0].y) == [18.0]

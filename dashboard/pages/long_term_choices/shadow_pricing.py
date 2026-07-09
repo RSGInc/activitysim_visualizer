@@ -16,6 +16,7 @@ from dashboard.helpers.geography_helpers import (
     is_all_geographies,
     normalize_geography_level_value,
     normalize_geography_data,
+    with_display_geography_columns,
 )
 from dashboard.page_base import DashboardPage, SectionContent
 from dashboard.page_definitions import DashboardPageDefinition
@@ -321,18 +322,22 @@ class ShadowPricingPage(DashboardPage):
 
     def render_workplace_table(self, df: pl.DataFrame) -> pl.DataFrame:
         """Select and format workplace residual columns for display."""
-        geography_col = "geography_id" if "geography_id" in df.columns else "geography"
+        display_df = with_display_geography_columns(df, config=self.config)
+        columns = [
+            column
+            for column in (
+                "Geography Type",
+                "Geography Name",
+                "target_count",
+                "modeled_count",
+                "residual_count",
+                "absolute_residual_count",
+                "percent_error",
+            )
+            if column in display_df.columns
+        ]
         return format_percent_error_table(
-            df.select(
-                [
-                    geography_col,
-                    "target_count",
-                    "modeled_count",
-                    "residual_count",
-                    "absolute_residual_count",
-                    "percent_error",
-                ]
-            ).rename({geography_col: "geography_id"})
+            display_df.select(columns) if columns else display_df
         )
 
     def render_school_plot_section(self) -> SectionContent:
@@ -422,19 +427,23 @@ class ShadowPricingPage(DashboardPage):
 
     def render_school_table(self, df: pl.DataFrame) -> pl.DataFrame:
         """Select and format school residual columns for display."""
-        geography_col = "geography_id" if "geography_id" in df.columns else "geography"
+        display_df = with_display_geography_columns(df, config=self.config)
+        columns = [
+            column
+            for column in (
+                "Geography Type",
+                "Geography Name",
+                "student_type",
+                "target_count",
+                "modeled_count",
+                "residual_count",
+                "absolute_residual_count",
+                "percent_error",
+            )
+            if column in display_df.columns
+        ]
         return format_percent_error_table(
-            df.select(
-                [
-                    geography_col,
-                    "student_type",
-                    "target_count",
-                    "modeled_count",
-                    "residual_count",
-                    "absolute_residual_count",
-                    "percent_error",
-                ]
-            ).rename({geography_col: "geography_id"})
+            display_df.select(columns) if columns else display_df
         )
 
 

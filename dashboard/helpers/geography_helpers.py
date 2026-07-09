@@ -62,6 +62,72 @@ def geography_type_label(value: str | None, *, config: Config) -> str:
     return value_str.replace("_", " ").title()
 
 
+def geography_name_label(value: str | None, *, config: Config) -> str:
+    """Return a display label for one geography id/name value."""
+    value_str = str(value)
+    if is_all_geographies(value_str) or value_str in aggregate_geography_level_values():
+        configured = config.label_value("geography", AGGREGATE_GEOGRAPHY_LEVEL)
+        return configured if configured != AGGREGATE_GEOGRAPHY_LEVEL else ALL_GEOGRAPHIES_LABEL
+    configured = config.label_value("geography", value_str)
+    if configured != value_str:
+        return configured
+    return value_str.replace("_", " ").title()
+
+
+def with_display_geography_columns(
+    df: pl.DataFrame,
+    *,
+    config: Config,
+    geography_level_col: str = DEFAULT_GEO_LEVEL_COL,
+    geography_col: str = DEFAULT_GEO_COL,
+    geography_type_col: str = DEFAULT_GEO_TYPE_COL,
+    geography_id_col: str = DEFAULT_GEO_ID_COL,
+    type_display_col: str = GEOGRAPHY_TYPE_SELECTOR_LABEL,
+    name_display_col: str = GEOGRAPHY_NAME_SELECTOR_LABEL,
+) -> pl.DataFrame:
+    """Add friendly geography type/name columns for dashboard tables."""
+    level_col = (
+        geography_level_col
+        if geography_level_col in df.columns
+        else geography_type_col
+        if geography_type_col in df.columns
+        else None
+    )
+    name_col = (
+        geography_col
+        if geography_col in df.columns
+        else geography_id_col
+        if geography_id_col in df.columns
+        else None
+    )
+    exprs: list[pl.Expr] = []
+    if level_col is not None:
+        exprs.append(
+            pl.col(level_col)
+            .cast(pl.Utf8)
+            .map_elements(
+                lambda value: (
+                    geography_name_label(value, config=config)
+                    if is_all_geographies(str(value))
+                    else geography_type_label(value, config=config)
+                ),
+                return_dtype=pl.Utf8,
+            )
+            .alias(type_display_col)
+        )
+    if name_col is not None:
+        exprs.append(
+            pl.col(name_col)
+            .cast(pl.Utf8)
+            .map_elements(
+                lambda value: geography_name_label(value, config=config),
+                return_dtype=pl.Utf8,
+            )
+            .alias(name_display_col)
+        )
+    return df.with_columns(exprs) if exprs else df
+
+
 def normalize_geography_level_value(value: str | None) -> str:
     """Normalize legacy aggregate geography level tokens to the canonical raw value."""
     value_str = str(value)

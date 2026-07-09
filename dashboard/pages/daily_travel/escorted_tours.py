@@ -740,23 +740,34 @@ class EscortedToursPage(DashboardPage):
                 ),
                 pn.pane.Markdown("### Chauffer Tour and Trip Distance Distributions"),
                 pn.pane.Markdown(DISTANCE_DESCRIPTION),
-                self.render_distance_chart(
-                    summaries["adult_escorted_tour_distance_distribution_by_direction"],
-                    raw_direction,
-                    direction_label,
-                    cache_key="adult_escorted_tour_distance_distribution_by_direction",
-                    y_col="tour_count",
-                    title_prefix="Chauffer Tour Distance Distribution",
-                    yaxis_title="Chauffer Tours",
-                ),
-                self.render_distance_chart(
-                    summaries["adult_escorted_trip_distance_distribution_by_direction"],
-                    raw_direction,
-                    direction_label,
-                    cache_key="adult_escorted_trip_distance_distribution_by_direction",
-                    y_col="trip_count",
-                    title_prefix="Chauffer Trip Distance Distribution",
-                    yaxis_title="Chauffer Trips",
+                pn.Row(
+                    self.render_distance_chart(
+                        summaries[
+                            "adult_escorted_tour_distance_distribution_by_direction"
+                        ],
+                        raw_direction,
+                        direction_label,
+                        cache_key=(
+                            "adult_escorted_tour_distance_distribution_by_direction"
+                        ),
+                        y_col="tour_count",
+                        title_prefix="Chauffer Tour Distance Distribution",
+                        yaxis_title="Chauffer Tours",
+                    ),
+                    self.render_distance_chart(
+                        summaries[
+                            "adult_escorted_trip_distance_distribution_by_direction"
+                        ],
+                        raw_direction,
+                        direction_label,
+                        cache_key=(
+                            "adult_escorted_trip_distance_distribution_by_direction"
+                        ),
+                        y_col="trip_count",
+                        title_prefix="Chauffer Trip Distance Distribution",
+                        yaxis_title="Chauffer Trips",
+                    ),
+                    sizing_mode="stretch_width",
                 ),
             )
         ]
