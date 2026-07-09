@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
+import numpy as np
 import polars as pl
 import pytest
 
@@ -1007,6 +1008,151 @@ def test_processor_prepare_data_uses_zone_id_as_maz_fallback_for_trip_skim_dista
     assert prepared.trips["OTAZ"].to_list() == [1]
     assert prepared.trips["DTAZ"].to_list() == [2]
     assert prepared.trips["od_dist"].to_list() == [12.5]
+
+
+def test_processor_prepare_data_adds_non_motorized_distance_from_csv(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "maz_maz_walk.csv"
+    pl.DataFrame(
+        {
+            "OMAZ": [100, 200],
+            "DMAZ": [200, 100],
+            "DISTWALK": [0.5, 0.75],
+        }
+    ).write_csv(csv_path)
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "zones:",
+            "  use_maz: true",
+            "  maz_col: [MAZ, zone_id]",
+            "  taz_col: [TAZ]",
+            "prepare:",
+            "  non_motorized_distance_skim:",
+            "    file: maz_maz_walk.csv",
+            "    matrix: null",
+        ],
+    )
+    raw = _raw_run()
+    raw = ProcessorRunData(
+        label=raw.label,
+        run_dir=raw.run_dir,
+        skim_file=raw.skim_file,
+        hh=raw.hh,
+        per=raw.per,
+        tours=raw.tours,
+        trips=pl.DataFrame(
+            {
+                "trip_id": [1, 2, 3],
+                "tour_id": [1001, 1001, 1001],
+                "person_id": [101, 101, 101],
+                "household_id": [1, 1, 1],
+                "trip_mode": ["WALK", "BIKE", "WALK"],
+                "origin": [100, 200, 999],
+                "destination": [200, 100, 100],
+            }
+        ),
+        joint_participants=raw.joint_participants,
+        land_use=pl.DataFrame(
+            {
+                "zone_id": [100, 200, 999],
+                "TAZ": [1, 2, 3],
+                "EMPLOY_TOT": [7, 8, 9],
+            }
+        ),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    prepared = processor_prepare_data(raw, config)
+
+    assert prepared.trips["prepared_non_motorized_distance"].to_list() == [
+        0.5,
+        0.75,
+        None,
+    ]
+    diagnostics = prepared.prepare_diagnostics[
+        "trips.prepared_non_motorized_distance"
+    ]
+    assert diagnostics["source_type"] == "csv"
+    assert diagnostics["value_column"] == "DISTWALK"
+    assert diagnostics["unresolved"] == 1
+    assert diagnostics["eligible_non_motorized_unresolved"] == 1
+
+
+def test_processor_prepare_data_adds_non_motorized_distance_from_omx(
+    tmp_path: Path,
+) -> None:
+    import openmatrix as omx
+
+    omx_path = tmp_path / "walk.omx"
+    handle = omx.open_file(str(omx_path), "w")
+    handle["WLK_DIST"] = np.array([[0.0, 1.25], [1.5, 0.0]])
+    handle.close()
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "zones:",
+            "  use_maz: true",
+            "  maz_col: [MAZ, zone_id]",
+            "  taz_col: [TAZ]",
+            "prepare:",
+            "  non_motorized_distance_skim:",
+            "    file: walk.omx",
+            "    matrix: WLK_DIST",
+        ],
+    )
+    raw = _raw_run()
+    raw = ProcessorRunData(
+        label=raw.label,
+        run_dir=raw.run_dir,
+        skim_file=raw.skim_file,
+        hh=raw.hh,
+        per=raw.per,
+        tours=raw.tours,
+        trips=pl.DataFrame(
+            {
+                "trip_id": [1, 2],
+                "tour_id": [1001, 1001],
+                "person_id": [101, 101],
+                "household_id": [1, 1],
+                "trip_mode": ["WALK", "BIKE"],
+                "origin": [100, 200],
+                "destination": [200, 100],
+            }
+        ),
+        joint_participants=raw.joint_participants,
+        land_use=pl.DataFrame(
+            {
+                "zone_id": [100, 200],
+                "TAZ": [1, 2],
+                "EMPLOY_TOT": [7, 8],
+            }
+        ),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    prepared = processor_prepare_data(raw, config)
+
+    assert prepared.trips["prepared_non_motorized_distance"].to_list() == [
+        1.25,
+        1.5,
+    ]
+    diagnostics = prepared.prepare_diagnostics[
+        "trips.prepared_non_motorized_distance"
+    ]
+    assert diagnostics["source_type"] == "omx"
+    assert diagnostics["matrix"] == "WLK_DIST"
+
+
+def test_processor_prepare_data_leaves_non_motorized_distance_absent_without_config(
+    tmp_path: Path,
+) -> None:
+    prepared = processor_prepare_data(_raw_run(), _write_config(tmp_path))
+
+    assert "prepared_non_motorized_distance" not in prepared.trips.columns
 
 
 def test_processor_prepare_data_surfaces_null_distance_fields_without_usable_zone_mapping(

@@ -18,7 +18,12 @@ from .constants import (
     OPTIONAL_PREPARED_TABLE_IDS,
     PREPARED_TABLE_MAP_KEYS,
 )
-from .models import Config, PrepareTimePeriodsSettings, PrepareVotBinsSettings
+from .models import (
+    Config,
+    PrepareNonMotorizedDistanceSkimSettings,
+    PrepareTimePeriodsSettings,
+    PrepareVotBinsSettings,
+)
 from .normalize_skimjoin import normalize_run_skimjoin_overrides, resolve_run_skimjoin_settings
 
 
@@ -119,6 +124,63 @@ def normalize_prepare_time_periods(
             "tour_start_period_number_column", "start"
         ),
         tour_end_period_number_column=_column("tour_end_period_number_column", "end"),
+    )
+
+
+def normalize_prepare_non_motorized_distance_skim(
+    raw_value,
+    *,
+    field_name: str,
+    config_dir: Path,
+) -> PrepareNonMotorizedDistanceSkimSettings:
+    if raw_value in (None, {}):
+        return PrepareNonMotorizedDistanceSkimSettings()
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{field_name} must be a mapping when provided.")
+
+    file_raw = raw_value.get("file")
+    if not isinstance(file_raw, str) or not file_raw.strip():
+        raise ValueError(f"{field_name}.file must be a non-empty path string.")
+    path = Path(file_raw.strip()).expanduser()
+    if not path.is_absolute():
+        path = (config_dir / path).resolve()
+    else:
+        path = path.resolve()
+    if not path.exists():
+        raise ValueError(f"{field_name}.file does not exist: {path}")
+    if not path.is_file():
+        raise ValueError(f"{field_name}.file must point to a file: {path}")
+
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        source_type = "csv"
+    elif suffix in {".omx", ".h5", ".hdf5"}:
+        source_type = "omx"
+    else:
+        raise ValueError(
+            f"{field_name}.file must end with '.csv', '.omx', '.h5', or '.hdf5'."
+        )
+
+    matrix_raw = raw_value.get("matrix")
+    matrix = None if matrix_raw is None else str(matrix_raw).strip()
+    if matrix == "":
+        matrix = None
+
+    if source_type == "omx" and matrix is None:
+        raise ValueError(f"{field_name}.matrix is required for OMX/HDF5 files.")
+
+    value_column = "DISTWALK"
+    if source_type == "csv" and matrix is not None:
+        prefix = f"{path.stem}__"
+        value_column = matrix[len(prefix) :] if matrix.startswith(prefix) else matrix
+
+    return PrepareNonMotorizedDistanceSkimSettings(
+        enabled=True,
+        file=str(path),
+        file_digest=hashlib.sha256(path.read_bytes()).hexdigest(),
+        matrix=matrix,
+        source_type=source_type,
+        value_column=value_column,
     )
 
 

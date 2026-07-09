@@ -191,6 +191,18 @@ class PrepareTimePeriodsSettings:
 
 
 @dataclass(frozen=True)
+class PrepareNonMotorizedDistanceSkimSettings:
+    """Optional non-motorized distance lookup applied during prepare."""
+
+    enabled: bool = False
+    file: str | None = None
+    file_digest: str | None = None
+    matrix: str | None = None
+    source_type: Literal["csv", "omx"] | None = None
+    value_column: str = "DISTWALK"
+
+
+@dataclass(frozen=True)
 class CategorySpec:
     """Canonical display labels and ordering rules for one categorical domain."""
 
@@ -344,6 +356,7 @@ class Config:
     prepare_vot_bins: PrepareVotBinsSettings
     prepare_auto_sufficiency: PrepareAutoSufficiencySettings
     prepare_time_periods: PrepareTimePeriodsSettings
+    prepare_non_motorized_distance_skim: PrepareNonMotorizedDistanceSkimSettings
     prepare_output_file_format: str
     prepare_relationship_checks: str
     files: dict[str, str]

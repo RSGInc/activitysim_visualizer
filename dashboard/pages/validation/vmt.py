@@ -45,6 +45,9 @@ EXTERNAL_TRAVEL_TOTAL_COLUMN = "Total"
 EXTERNAL_TRAVEL_BREAKDOWN_OPTIONS = ["Time Period", "Trip Purpose"]
 EXTERNAL_TRAVEL_PURPOSE_CATEGORY_ID = "trip_purpose"
 PERSONAL_AUTO_VMT_SUMMARY_ID = "auto_vmt_by_home_geography_income_hhsize_time_period"
+NON_MOTORIZED_VMT_SUMMARY_ID = (
+    "non_motorized_vmt_by_home_geography_income_hhsize_time_period"
+)
 PERSONAL_AUTO_VMT_REQUIRED_COLUMNS = (
     "geography_type",
     "geography_id",
@@ -56,8 +59,21 @@ PERSONAL_AUTO_VMT_REQUIRED_COLUMNS = (
     "distance_source",
     "time_period_source",
 )
+NON_MOTORIZED_VMT_REQUIRED_COLUMNS = (
+    "geography_type",
+    "geography_id",
+    "income_segment",
+    "household_size",
+    "time_period",
+    "mode",
+    "non_motorized_vmt",
+    "trip_count",
+    "distance_source",
+    "time_period_source",
+)
 PERSONAL_AUTO_VMT_ALL_MODES = "All Auto"
 PERSONAL_AUTO_VMT_MODE_CATEGORY_ID = "mode"
+NON_MOTORIZED_VMT_MODE_ORDER = ["WALK", "BIKE", "EBIKE"]
 PERSONAL_AUTO_VMT_BREAKDOWN_COLUMNS = {
     "Time Period": "time_period",
     "Mode": "mode",
@@ -210,6 +226,66 @@ def personal_auto_mode_options(
         total_raw="All",
         total_label="All",
     )
+
+
+def non_motorized_mode_options(
+    data_list: list[tuple[str, pl.DataFrame]] | None,
+    *,
+    config,
+) -> tuple[list[str], dict[str, str | None]]:
+    values = [str(value) for value in column_value_union(data_list or [], "mode")]
+    preferred = [value for value in NON_MOTORIZED_VMT_MODE_ORDER if value in values]
+    remaining = config.ordered_values(
+        PERSONAL_AUTO_VMT_MODE_CATEGORY_ID,
+        [value for value in values if value not in preferred],
+    )
+    return raw_display_options(
+        [*preferred, *remaining],
+        category_id=PERSONAL_AUTO_VMT_MODE_CATEGORY_ID,
+        config=config,
+        total_raw="All",
+        total_label="All",
+    )
+
+
+def non_motorized_vmt_chart_data(
+    data_list: list[tuple[str, pl.DataFrame]],
+    *,
+    breakdown: str,
+    geography_type: str,
+    geography_id: str,
+    time_period: str,
+    income_segment: str,
+    household_size: str,
+    mode: str = "All",
+    mode_order: list[str] | None = None,
+    top_geographies: int = PERSONAL_AUTO_VMT_TOP_GEOGRAPHIES,
+) -> list[tuple[str, pl.DataFrame]]:
+    """Filter and aggregate non-motorized VMT rows for the selected breakdown."""
+    normalized: list[tuple[str, pl.DataFrame]] = []
+    for label, df in nonempty(data_list):
+        if "non_motorized_vmt" not in df.columns:
+            continue
+        normalized.append((label, df.rename({"non_motorized_vmt": "auto_vmt"})))
+    chart_data = personal_auto_vmt_chart_data(
+        normalized,
+        breakdown=breakdown,
+        geography_type=geography_type,
+        geography_id=geography_id,
+        time_period=time_period,
+        mode=mode,
+        income_segment=income_segment,
+        household_size=household_size,
+        mode_order=mode_order or NON_MOTORIZED_VMT_MODE_ORDER,
+        top_geographies=top_geographies,
+    )
+    out: list[tuple[str, pl.DataFrame]] = []
+    for label, df in chart_data:
+        rename_map = {"auto_vmt": "non_motorized_vmt"}
+        if "auto_vmt_percent" in df.columns:
+            rename_map["auto_vmt_percent"] = "non_motorized_vmt_percent"
+        out.append((label, df.rename(rename_map)))
+    return out
 
 
 def personal_auto_vmt_chart_data(
@@ -649,6 +725,10 @@ class VMTValidationPage(DashboardPage):
             PERSONAL_AUTO_VMT_SUMMARY_ID,
             "weighted",
         )
+        non_motorized_vmt = self.state.get_summary_table_set(
+            NON_MOTORIZED_VMT_SUMMARY_ID,
+            "weighted",
+        )
         geography_type_options_display, self.personal_vmt_geo_type_raw_by_label = (
             geography_type_options(
                 personal_vmt,
@@ -678,6 +758,45 @@ class VMTValidationPage(DashboardPage):
         if not mode_options:
             mode_options = ["All"]
             self.personal_vmt_mode_raw_by_label = {"All": "All"}
+        (
+            non_motorized_geography_type_options_display,
+            self.non_motorized_vmt_geo_type_raw_by_label,
+        ) = geography_type_options(
+            non_motorized_vmt,
+            config=self.config,
+            include_all_types=True,
+        )
+        if not non_motorized_geography_type_options_display:
+            non_motorized_geography_type_options_display = [ALL_GEOGRAPHY_TYPES_LABEL]
+            self.non_motorized_vmt_geo_type_raw_by_label = {
+                ALL_GEOGRAPHY_TYPES_LABEL: ALL_GEOGRAPHY_TYPES_VALUE
+            }
+        (
+            non_motorized_geography_options_display,
+            self.non_motorized_vmt_geo_raw_by_label,
+        ) = geography_name_options_for_type(
+            str(
+                self.non_motorized_vmt_geo_type_raw_by_label.get(
+                    non_motorized_geography_type_options_display[0],
+                    ALL_GEOGRAPHY_TYPES_VALUE,
+                )
+            ),
+            non_motorized_vmt,
+            config=self.config,
+        )
+        if not non_motorized_geography_options_display:
+            non_motorized_geography_options_display = ["All Geographies"]
+            self.non_motorized_vmt_geo_raw_by_label = {"All Geographies": "All"}
+        (
+            non_motorized_mode_options_display,
+            self.non_motorized_vmt_mode_raw_by_label,
+        ) = non_motorized_mode_options(
+            non_motorized_vmt,
+            config=self.config,
+        )
+        if not non_motorized_mode_options_display:
+            non_motorized_mode_options_display = ["All"]
+            self.non_motorized_vmt_mode_raw_by_label = {"All": "All"}
         self.demo_commercial_vehicle_type_raw_by_label = {"All": "All"}
         self.external_travel_trip_purpose_raw_by_label = {"All": "All"}
         self.personal_vmt_breakdown_sel = self.selector(
@@ -736,6 +855,69 @@ class VMTValidationPage(DashboardPage):
         )
         self.personal_vmt_household_size_sel = self.selector(
             "personal_auto_vmt_household_size",
+            widget=pn.widgets.Select(
+                name="Household Size",
+                options=["All"],
+                value="All",
+            ),
+            label="Household Size",
+        )
+        self.non_motorized_vmt_breakdown_sel = self.selector(
+            "non_motorized_vmt_breakdown",
+            widget=pn.widgets.Select(
+                name="Breakdown",
+                options=list(PERSONAL_AUTO_VMT_BREAKDOWN_COLUMNS),
+                value="Time Period",
+            ),
+            label="Breakdown",
+        )
+        self.non_motorized_vmt_geography_type_sel = self.selector(
+            "non_motorized_vmt_geography_type",
+            widget=pn.widgets.Select(
+                name=GEOGRAPHY_TYPE_SELECTOR_LABEL,
+                options=non_motorized_geography_type_options_display,
+                value=non_motorized_geography_type_options_display[0],
+            ),
+            label=GEOGRAPHY_TYPE_SELECTOR_LABEL,
+        )
+        self.non_motorized_vmt_geography_sel = self.selector(
+            "non_motorized_vmt_geography",
+            widget=pn.widgets.Select(
+                name=GEOGRAPHY_NAME_SELECTOR_LABEL,
+                options=non_motorized_geography_options_display,
+                value=non_motorized_geography_options_display[0],
+            ),
+            label=GEOGRAPHY_NAME_SELECTOR_LABEL,
+        )
+        self.non_motorized_vmt_time_period_sel = self.selector(
+            "non_motorized_vmt_time_period",
+            widget=pn.widgets.Select(
+                name="Time Period",
+                options=["All"],
+                value="All",
+            ),
+            label="Time Period",
+        )
+        self.non_motorized_vmt_mode_sel = self.selector(
+            "non_motorized_vmt_mode",
+            widget=pn.widgets.Select(
+                name="Mode",
+                options=non_motorized_mode_options_display,
+                value=non_motorized_mode_options_display[0],
+            ),
+            label="Mode",
+        )
+        self.non_motorized_vmt_income_segment_sel = self.selector(
+            "non_motorized_vmt_income_segment",
+            widget=pn.widgets.Select(
+                name="Income Segment",
+                options=["All"],
+                value="All",
+            ),
+            label="Income Segment",
+        )
+        self.non_motorized_vmt_household_size_sel = self.selector(
+            "non_motorized_vmt_household_size",
             widget=pn.widgets.Select(
                 name="Household Size",
                 options=["All"],
@@ -828,6 +1010,19 @@ class VMTValidationPage(DashboardPage):
             ),
             render=self.render_personal_auto_vmt_section,
         )
+        self._non_motorized_vmt_body = self.section(
+            "non_motorized_vmt_body",
+            selectors=(
+                "non_motorized_vmt_breakdown",
+                "non_motorized_vmt_geography_type",
+                "non_motorized_vmt_geography",
+                "non_motorized_vmt_time_period",
+                "non_motorized_vmt_mode",
+                "non_motorized_vmt_income_segment",
+                "non_motorized_vmt_household_size",
+            ),
+            render=self.render_non_motorized_vmt_section,
+        )
         self._body = self.section(
             "commercial_vmt_body",
             selectors=(
@@ -867,6 +1062,19 @@ class VMTValidationPage(DashboardPage):
                 self.personal_vmt_household_size_sel,
             ),
             self._personal_vmt_body,
+            pn.pane.Markdown("### Non-Motorized VMT"),
+            selector_row(
+                self.non_motorized_vmt_breakdown_sel,
+                self.non_motorized_vmt_geography_type_sel,
+                self.non_motorized_vmt_geography_sel,
+            ),
+            selector_row(
+                self.non_motorized_vmt_time_period_sel,
+                self.non_motorized_vmt_mode_sel,
+                self.non_motorized_vmt_income_segment_sel,
+                self.non_motorized_vmt_household_size_sel,
+            ),
+            self._non_motorized_vmt_body,
             pn.pane.Markdown("### External VMT and Travel"),
             selector_row(
                 self.external_travel_metric_sel,
@@ -983,6 +1191,149 @@ class VMTValidationPage(DashboardPage):
                 breakdown_filter_selector.value = "All"
             breakdown_filter_selector.disabled = True
 
+        non_motorized_vmt = self.state.get_summary_table_set(
+            NON_MOTORIZED_VMT_SUMMARY_ID,
+            self.weighting_key,
+        )
+        (
+            non_motorized_geography_type_options_display,
+            self.non_motorized_vmt_geo_type_raw_by_label,
+        ) = geography_type_options(
+            non_motorized_vmt,
+            config=self.config,
+            include_all_types=True,
+        )
+        if not non_motorized_geography_type_options_display:
+            non_motorized_geography_type_options_display = [
+                ALL_GEOGRAPHY_TYPES_LABEL
+            ]
+            self.non_motorized_vmt_geo_type_raw_by_label = {
+                ALL_GEOGRAPHY_TYPES_LABEL: ALL_GEOGRAPHY_TYPES_VALUE
+            }
+        self.non_motorized_vmt_geography_type_sel.options = (
+            non_motorized_geography_type_options_display
+        )
+        if (
+            self.non_motorized_vmt_geography_type_sel.value
+            not in non_motorized_geography_type_options_display
+        ):
+            self.non_motorized_vmt_geography_type_sel.value = (
+                non_motorized_geography_type_options_display[0]
+            )
+
+        non_motorized_breakdown = str(self.non_motorized_vmt_breakdown_sel.value)
+        non_motorized_geography_type_enabled = (
+            non_motorized_breakdown == "Home Geography"
+        )
+        self.non_motorized_vmt_geography_type_sel.disabled = (
+            not non_motorized_geography_type_enabled
+        )
+        if not non_motorized_geography_type_enabled:
+            self.non_motorized_vmt_geography_type_sel.value = (
+                non_motorized_geography_type_options_display[0]
+            )
+
+        non_motorized_geography_type = (
+            self.selected_non_motorized_vmt_geography_type_raw()
+        )
+        (
+            non_motorized_geography_options_display,
+            self.non_motorized_vmt_geo_raw_by_label,
+        ) = geography_name_options_for_type(
+            non_motorized_geography_type,
+            non_motorized_vmt,
+            config=self.config,
+        )
+        self.non_motorized_vmt_geography_sel.name = geography_name_selector_label(
+            non_motorized_geography_type,
+            config=self.config,
+        )
+        self.non_motorized_vmt_geography_sel.options = (
+            non_motorized_geography_options_display
+        )
+        if (
+            self.non_motorized_vmt_geography_sel.value
+            not in non_motorized_geography_options_display
+        ):
+            self.non_motorized_vmt_geography_sel.value = (
+                non_motorized_geography_options_display[0]
+            )
+
+        non_motorized_time_period_options = _selector_values(
+            non_motorized_vmt,
+            "time_period",
+            include_all=True,
+            preferred=PERSONAL_AUTO_VMT_TIME_ORDER,
+        ) or ["All"]
+        self.non_motorized_vmt_time_period_sel.options = (
+            non_motorized_time_period_options
+        )
+        if (
+            self.non_motorized_vmt_time_period_sel.value
+            not in non_motorized_time_period_options
+        ):
+            self.non_motorized_vmt_time_period_sel.value = "All"
+
+        (
+            non_motorized_mode_options_display,
+            self.non_motorized_vmt_mode_raw_by_label,
+        ) = non_motorized_mode_options(
+            non_motorized_vmt,
+            config=self.config,
+        )
+        if not non_motorized_mode_options_display:
+            non_motorized_mode_options_display = ["All"]
+            self.non_motorized_vmt_mode_raw_by_label = {"All": "All"}
+        self.non_motorized_vmt_mode_sel.options = non_motorized_mode_options_display
+        if (
+            self.non_motorized_vmt_mode_sel.value
+            not in non_motorized_mode_options_display
+        ):
+            self.non_motorized_vmt_mode_sel.value = "All"
+
+        non_motorized_income_options = _selector_values(
+            non_motorized_vmt,
+            "income_segment",
+            include_all=True,
+        ) or ["All"]
+        self.non_motorized_vmt_income_segment_sel.options = (
+            non_motorized_income_options
+        )
+        if (
+            self.non_motorized_vmt_income_segment_sel.value
+            not in non_motorized_income_options
+        ):
+            self.non_motorized_vmt_income_segment_sel.value = "All"
+
+        non_motorized_household_size_options = _selector_values(
+            non_motorized_vmt,
+            "household_size",
+            include_all=True,
+        ) or ["All"]
+        self.non_motorized_vmt_household_size_sel.options = (
+            non_motorized_household_size_options
+        )
+        if (
+            self.non_motorized_vmt_household_size_sel.value
+            not in non_motorized_household_size_options
+        ):
+            self.non_motorized_vmt_household_size_sel.value = "All"
+
+        self.non_motorized_vmt_time_period_sel.disabled = False
+        self.non_motorized_vmt_mode_sel.disabled = False
+        self.non_motorized_vmt_income_segment_sel.disabled = False
+        self.non_motorized_vmt_household_size_sel.disabled = False
+        non_motorized_breakdown_filter_selector = {
+            "Time Period": self.non_motorized_vmt_time_period_sel,
+            "Mode": self.non_motorized_vmt_mode_sel,
+            "Income Segment": self.non_motorized_vmt_income_segment_sel,
+            "Household Size": self.non_motorized_vmt_household_size_sel,
+        }.get(non_motorized_breakdown)
+        if non_motorized_breakdown_filter_selector is not None:
+            if "All" in non_motorized_breakdown_filter_selector.options:
+                non_motorized_breakdown_filter_selector.value = "All"
+            non_motorized_breakdown_filter_selector.disabled = True
+
         demo_commercial_summary_id = (
             "demo_commercial_vehicle_vmt_summary"
             if self.demo_commercial_metric_sel.value == "VMT"
@@ -1066,21 +1417,33 @@ class VMTValidationPage(DashboardPage):
         raw_value = self.personal_vmt_geo_type_raw_by_label.get(selected, selected)
         return ALL_GEOGRAPHY_TYPES_VALUE if raw_value is None else str(raw_value)
 
+    def selected_non_motorized_vmt_geography_type_raw(self) -> str:
+        selected = str(self.non_motorized_vmt_geography_type_sel.value)
+        raw_value = self.non_motorized_vmt_geo_type_raw_by_label.get(
+            selected,
+            selected,
+        )
+        return ALL_GEOGRAPHY_TYPES_VALUE if raw_value is None else str(raw_value)
+
     def export_ignored_selectors(
         self,
         section_id: str,
         selected_values: dict[str, str],
     ) -> set[str]:
-        if section_id != "personal_auto_vmt_body":
+        section_prefix = {
+            "personal_auto_vmt_body": "personal_auto_vmt",
+            "non_motorized_vmt_body": "non_motorized_vmt",
+        }.get(section_id)
+        if section_prefix is None:
             return set()
 
-        breakdown = selected_values.get("personal_auto_vmt_breakdown")
+        breakdown = selected_values.get(f"{section_prefix}_breakdown")
         if breakdown == "Home Geography":
-            return {"personal_auto_vmt_geography"}
+            return {f"{section_prefix}_geography"}
         if breakdown:
             return {
-                "personal_auto_vmt_geography_type",
-                "personal_auto_vmt_geography",
+                f"{section_prefix}_geography_type",
+                f"{section_prefix}_geography",
             }
         return set()
 
@@ -1091,10 +1454,15 @@ class VMTValidationPage(DashboardPage):
         value: str,
         selected_values: dict[str, str],
     ) -> str:
+        section_prefix = {
+            "personal_auto_vmt_body": "personal_auto_vmt",
+            "non_motorized_vmt_body": "non_motorized_vmt",
+        }.get(section_id)
         if (
-            section_id == "personal_auto_vmt_body"
-            and selector_id == "personal_auto_vmt_geography_type"
-            and selected_values.get("personal_auto_vmt_breakdown") != "Home Geography"
+            section_prefix is not None
+            and selector_id == f"{section_prefix}_geography_type"
+            and selected_values.get(f"{section_prefix}_breakdown")
+            != "Home Geography"
         ):
             return ALL_GEOGRAPHY_TYPES_LABEL
         return value
@@ -1104,9 +1472,19 @@ class VMTValidationPage(DashboardPage):
         raw_value = self.personal_vmt_geo_raw_by_label.get(selected, selected)
         return "All" if raw_value is None else str(raw_value)
 
+    def selected_non_motorized_vmt_geography_raw(self) -> str:
+        selected = str(self.non_motorized_vmt_geography_sel.value)
+        raw_value = self.non_motorized_vmt_geo_raw_by_label.get(selected, selected)
+        return "All" if raw_value is None else str(raw_value)
+
     def selected_personal_vmt_mode_raw(self) -> str:
         selected = str(self.personal_vmt_mode_sel.value)
         raw_value = self.personal_vmt_mode_raw_by_label.get(selected, selected)
+        return "All" if raw_value is None else str(raw_value)
+
+    def selected_non_motorized_vmt_mode_raw(self) -> str:
+        selected = str(self.non_motorized_vmt_mode_sel.value)
+        raw_value = self.non_motorized_vmt_mode_raw_by_label.get(selected, selected)
         return "All" if raw_value is None else str(raw_value)
 
     def selected_demo_commercial_vehicle_type_raw(self) -> str:
@@ -1230,6 +1608,123 @@ class VMTValidationPage(DashboardPage):
                 "Percent of Vehicle Miles Traveled (%)"
                 if use_time_period_percent
                 else "Vehicle Miles Traveled"
+            ),
+            as_percent=False if use_time_period_percent else self.as_percent,
+            xaxis_categoryarray=xaxis_categoryarray,
+        )
+        return [chart]
+
+    def render_non_motorized_vmt_section(self) -> list[pn.viewable.Viewable]:
+        if not self.state.run_labels:
+            return []
+        selection = self.inspect_summary(
+            NON_MOTORIZED_VMT_SUMMARY_ID,
+            required_columns=NON_MOTORIZED_VMT_REQUIRED_COLUMNS,
+        )
+        if not selection.has_usable_runs:
+            return [
+                self.data_not_available_card(
+                    detail="Non-motorized VMT by home geography, income segment, household size, and time period is unavailable.",
+                    missing_items=[NON_MOTORIZED_VMT_SUMMARY_ID],
+                )
+            ]
+        non_motorized_vmt = [(label, table) for label, table in selection.usable_runs]
+        breakdown = str(self.non_motorized_vmt_breakdown_sel.value)
+        geography_type = self.selected_non_motorized_vmt_geography_type_raw()
+        geography_id = self.selected_non_motorized_vmt_geography_raw()
+        time_period = str(self.non_motorized_vmt_time_period_sel.value)
+        mode = self.selected_non_motorized_vmt_mode_raw()
+        income_segment = str(self.non_motorized_vmt_income_segment_sel.value)
+        household_size = str(self.non_motorized_vmt_household_size_sel.value)
+        mode_values = [
+            value
+            for _, df in non_motorized_vmt
+            if "mode" in df.columns
+            for value in df["mode"].drop_nulls().cast(pl.Utf8).to_list()
+        ]
+        mode_order = self.config.ordered_values(
+            PERSONAL_AUTO_VMT_MODE_CATEGORY_ID,
+            list(dict.fromkeys(mode_values)),
+        )
+        chart_data = self.get_filtered_view(
+            "non_motorized_vmt",
+            (
+                breakdown,
+                geography_type,
+                geography_id,
+                time_period,
+                mode,
+                income_segment,
+                household_size,
+            ),
+            factory=lambda: non_motorized_vmt_chart_data(
+                non_motorized_vmt,
+                breakdown=breakdown,
+                geography_type=geography_type,
+                geography_id=geography_id,
+                time_period=time_period,
+                mode=mode,
+                income_segment=income_segment,
+                household_size=household_size,
+                mode_order=mode_order or NON_MOTORIZED_VMT_MODE_ORDER,
+            ),
+        )
+        if breakdown == "Mode":
+            chart_data = label_category_data(
+                chart_data,
+                source_col="category",
+                category_id=PERSONAL_AUTO_VMT_MODE_CATEGORY_ID,
+                config=self.config,
+                target_col="category",
+            )
+        elif breakdown == "Home Geography":
+            chart_data = label_category_data(
+                chart_data,
+                source_col="category",
+                category_id="geography",
+                config=self.config,
+                target_col="category",
+            )
+        category_values = [
+            value
+            for _, df in chart_data
+            for value in (
+                df["category"].to_list()
+                if "category" in df.columns and not df.is_empty()
+                else []
+            )
+        ]
+        if breakdown == "Time Period":
+            xaxis_categoryarray = _ordered_values(
+                list(dict.fromkeys(str(value) for value in category_values)),
+                preferred=PERSONAL_AUTO_VMT_TIME_ORDER,
+            )
+        elif breakdown == "Mode":
+            xaxis_categoryarray = [
+                self.config.label_value(PERSONAL_AUTO_VMT_MODE_CATEGORY_ID, value)
+                for value in mode_order
+                if self.config.label_value(PERSONAL_AUTO_VMT_MODE_CATEGORY_ID, value)
+                in {str(category) for category in category_values}
+            ]
+        else:
+            xaxis_categoryarray = list(
+                dict.fromkeys(str(value) for value in category_values)
+            )
+        use_time_period_percent = self.as_percent and breakdown == "Time Period"
+        chart = bar_chart(
+            chart_data,
+            x_col="category",
+            y_col=(
+                "non_motorized_vmt_percent"
+                if use_time_period_percent
+                else "non_motorized_vmt"
+            ),
+            title=f"Non-Motorized VMT by {breakdown}",
+            xaxis_title=PERSONAL_AUTO_VMT_BREAKDOWN_AXIS_TITLES[breakdown],
+            yaxis_title=(
+                "Percent of Non-Motorized Miles Traveled (%)"
+                if use_time_period_percent
+                else "Non-Motorized Miles Traveled"
             ),
             as_percent=False if use_time_period_percent else self.as_percent,
             xaxis_categoryarray=xaxis_categoryarray,
@@ -1449,6 +1944,7 @@ PAGE = DashboardPageDefinition(
     page_cls=VMTValidationPage,
     required_summary_ids=(
         PERSONAL_AUTO_VMT_SUMMARY_ID,
+        NON_MOTORIZED_VMT_SUMMARY_ID,
         "bicycle_vmt_by_facility_type",
     ),
     optional_summary_ids=(

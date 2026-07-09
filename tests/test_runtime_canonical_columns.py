@@ -994,6 +994,106 @@ def test_config_prepare_signature_changes_when_time_period_config_changes(
     assert config_a.prepare_config_digest != config_b.prepare_config_digest
 
 
+def test_config_loads_non_motorized_distance_skim_csv_defaults(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "maz_maz_walk.csv"
+    pl.DataFrame({"OMAZ": [1], "DMAZ": [2], "DISTWALK": [0.5]}).write_csv(csv_path)
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  non_motorized_distance_skim:",
+            "    file: maz_maz_walk.csv",
+            "    matrix: null",
+        ],
+    )
+
+    settings = config.prepare_non_motorized_distance_skim
+    assert settings.enabled is True
+    assert settings.file == str(csv_path.resolve())
+    assert settings.source_type == "csv"
+    assert settings.matrix is None
+    assert settings.value_column == "DISTWALK"
+    assert settings.file_digest is not None
+
+
+def test_config_loads_non_motorized_distance_skim_csv_inventory_matrix_name(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "maz_maz_walk.csv"
+    pl.DataFrame({"OMAZ": [1], "DMAZ": [2], "DISTWALK": [0.5]}).write_csv(csv_path)
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  non_motorized_distance_skim:",
+            "    file: maz_maz_walk.csv",
+            "    matrix: maz_maz_walk__DISTWALK",
+        ],
+    )
+
+    assert config.prepare_non_motorized_distance_skim.matrix == (
+        "maz_maz_walk__DISTWALK"
+    )
+    assert config.prepare_non_motorized_distance_skim.value_column == "DISTWALK"
+
+
+def test_config_non_motorized_distance_skim_omx_requires_matrix(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "walk.omx").write_bytes(b"placeholder")
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'name: "Invalid Non-Motorized Config"',
+                "prepare:",
+                "  non_motorized_distance_skim:",
+                "    file: walk.omx",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="prepare.non_motorized_distance_skim.matrix is required",
+    ):
+        Config.from_yaml(config_path)
+
+
+def test_config_prepare_signature_changes_when_non_motorized_skim_changes(
+    tmp_path: Path,
+) -> None:
+    csv_a = tmp_path / "a" / "maz_maz_walk.csv"
+    csv_b = tmp_path / "b" / "maz_maz_walk.csv"
+    csv_a.parent.mkdir(parents=True)
+    csv_b.parent.mkdir(parents=True)
+    pl.DataFrame({"OMAZ": [1], "DMAZ": [2], "DISTWALK": [0.5]}).write_csv(csv_a)
+    pl.DataFrame({"OMAZ": [1], "DMAZ": [2], "DISTWALK": [0.75]}).write_csv(csv_b)
+    config_a = _write_config(
+        tmp_path / "a",
+        extra_lines=[
+            "prepare:",
+            "  non_motorized_distance_skim:",
+            "    file: maz_maz_walk.csv",
+            "    matrix: null",
+        ],
+    )
+    config_b = _write_config(
+        tmp_path / "b",
+        extra_lines=[
+            "prepare:",
+            "  non_motorized_distance_skim:",
+            "    file: maz_maz_walk.csv",
+            "    matrix: null",
+        ],
+    )
+
+    assert config_a.prepare_config_digest != config_b.prepare_config_digest
+
+
 def test_config_rejects_missing_prepare_time_period_network_los(
     tmp_path: Path,
 ) -> None:

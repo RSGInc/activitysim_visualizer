@@ -13,6 +13,9 @@ from processor.prepare.enrichment.finalize import _cast_prepared_tables
 from processor.prepare.enrichment.households_persons import (
     _enrich_households_and_persons,
 )
+from processor.prepare.enrichment.non_motorized_distance import (
+    _derive_non_motorized_distance,
+)
 from processor.prepare.enrichment.student_enrollment import (
     _derive_student_enrollment,
 )
@@ -57,6 +60,7 @@ def _run_prepare_person_and_tour_stages(
 
 def _run_prepare_output_stages(state: _PrepareState, config: Config) -> _PrepareState:
     """Normalize output-only columns and cast final prepared table schemas."""
+    state = _derive_non_motorized_distance(state, config)
     state = _derive_time_periods(state, config)
     state = _normalize_vot_bins(state, config)
     _log_prepare_diagnostics(state)

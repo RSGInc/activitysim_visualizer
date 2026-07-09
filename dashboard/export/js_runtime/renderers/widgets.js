@@ -19,14 +19,17 @@
   }
 
   function isVmtGeographyTypeUnavailable(node, context, leafPageId) {
-    if (
-      leafPageId !== "vmt"
-      || node.selector_id !== "personal_auto_vmt_geography_type"
-    ) {
+    if (leafPageId !== "vmt") {
       return false;
     }
+    const selectorPrefixes = {
+      personal_auto_vmt_geography_type: "personal_auto_vmt",
+      non_motorized_vmt_geography_type: "non_motorized_vmt",
+    };
+    const prefix = selectorPrefixes[node.selector_id];
+    if (!prefix) return false;
     const pageSelectorState = getPageSelectorState(context.state, leafPageId);
-    return pageSelectorState.personal_auto_vmt_breakdown !== "Home Geography";
+    return pageSelectorState[`${prefix}_breakdown`] !== "Home Geography";
   }
 
   function isWidgetDisabled(node, context, leafPageId) {
@@ -36,7 +39,10 @@
   function selectorChangeOptions(node, leafPageId) {
     if (
       leafPageId === "vmt"
-      && node.selector_id === "personal_auto_vmt_breakdown"
+      && (
+        node.selector_id === "personal_auto_vmt_breakdown"
+        || node.selector_id === "non_motorized_vmt_breakdown"
+      )
     ) {
       return {};
     }

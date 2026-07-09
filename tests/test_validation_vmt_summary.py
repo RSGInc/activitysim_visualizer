@@ -288,3 +288,114 @@ def test_auto_vmt_segment_summary_uses_daily_and_dimension_fallbacks() -> None:
             "time_period_source": "daily",
         }
     ]
+
+
+def test_non_motorized_vmt_summary_prefers_skimjoin_distances() -> None:
+    rd = _run_data(
+        trips=pl.DataFrame(
+            {
+                "household_id": [1, 1, 1, 1],
+                "trip_mode": ["WALK", "BIKE", "EBIKE", "SOV"],
+                "skim_walk_distance": [1.0, None, None, None],
+                "skim_bike_distance": [None, 2.0, None, None],
+                "prepared_non_motorized_distance": [9.0, 9.0, 3.0, 99.0],
+                "trip_period": ["AM", "AM", "PM", "AM"],
+                "finalweight": [2.0, 3.0, 4.0, 1.0],
+            }
+        ),
+        hh=pl.DataFrame(
+            {
+                "household_id": [1],
+                "income_segment": [2],
+                "HHSIZE": [1],
+            }
+        ),
+    )
+
+    result = validation.non_motorized_vmt_by_home_geography_income_hhsize_time_period(
+        rd,
+        None,
+    )
+    all_geo = _all_geographies_rows(result)
+
+    assert all_geo.select(
+        "mode",
+        "time_period",
+        "non_motorized_vmt",
+        "trip_count",
+        "distance_source",
+    ).to_dicts() == [
+        {
+            "mode": "BIKE",
+            "time_period": "AM",
+            "non_motorized_vmt": 6.0,
+            "trip_count": 3.0,
+            "distance_source": "skim_bike_distance",
+        },
+        {
+            "mode": "BIKE",
+            "time_period": "Daily",
+            "non_motorized_vmt": 6.0,
+            "trip_count": 3.0,
+            "distance_source": "skim_bike_distance",
+        },
+        {
+            "mode": "EBIKE",
+            "time_period": "Daily",
+            "non_motorized_vmt": 12.0,
+            "trip_count": 4.0,
+            "distance_source": "prepared_non_motorized_distance",
+        },
+        {
+            "mode": "EBIKE",
+            "time_period": "PM",
+            "non_motorized_vmt": 12.0,
+            "trip_count": 4.0,
+            "distance_source": "prepared_non_motorized_distance",
+        },
+        {
+            "mode": "WALK",
+            "time_period": "AM",
+            "non_motorized_vmt": 2.0,
+            "trip_count": 2.0,
+            "distance_source": "skim_walk_distance",
+        },
+        {
+            "mode": "WALK",
+            "time_period": "Daily",
+            "non_motorized_vmt": 2.0,
+            "trip_count": 2.0,
+            "distance_source": "skim_walk_distance",
+        },
+    ]
+
+
+def test_non_motorized_vmt_summary_returns_empty_without_distance() -> None:
+    rd = _run_data(
+        trips=pl.DataFrame(
+            {
+                "trip_mode": ["WALK", "BIKE", "SOV"],
+                "trip_period": ["AM", "AM", "AM"],
+                "finalweight": [1.0, 1.0, 1.0],
+            }
+        )
+    )
+
+    result = validation.non_motorized_vmt_by_home_geography_income_hhsize_time_period(
+        rd,
+        None,
+    )
+
+    assert result.is_empty()
+    assert result.columns == [
+        "geography_type",
+        "geography_id",
+        "income_segment",
+        "household_size",
+        "time_period",
+        "mode",
+        "non_motorized_vmt",
+        "trip_count",
+        "distance_source",
+        "time_period_source",
+    ]

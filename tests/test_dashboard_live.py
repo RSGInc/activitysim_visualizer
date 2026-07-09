@@ -48,12 +48,14 @@ from dashboard.pages.validation.traffic import (
     demo_volume_comparison_table,
 )
 from dashboard.pages.validation.vmt import (
+    NON_MOTORIZED_VMT_SUMMARY_ID,
     PERSONAL_AUTO_VMT_SUMMARY_ID,
     VMTValidationPage,
     demo_commercial_filter_options,
     demo_commercial_vehicle_chart_data,
     external_travel_chart_data,
     external_travel_filter_options,
+    non_motorized_vmt_chart_data,
     personal_auto_vmt_chart_data,
     wide_tod_chart_data,
 )
@@ -438,6 +440,7 @@ def test_external_traffic_helpers_filter_period_and_facility_type(
     assert facility_comparison[0][1].to_dicts() == [
         {
             "Facility Type": "4",
+            "n": 2,
             "Total Observed Count": 400.0,
             "Total Modeled Count": 440.0,
             "% Difference": "10.00%",
@@ -891,6 +894,7 @@ def test_vmt_page_labels_personal_auto_modes_from_display_config(
         summary_runs=[summary_run],
         weighting_modes=config.weighting_modes,
     )
+    state.value_mode = "Count"
 
     page = VMTValidationPage(state, config)
     page.refresh(force=True)
@@ -906,6 +910,118 @@ def test_vmt_page_labels_personal_auto_modes_from_display_config(
     page.refresh(force=True)
 
     assert page.selected_personal_vmt_mode_raw() == "TAXI"
+
+
+def test_non_motorized_vmt_section_mirrors_personal_auto_controls(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "display:",
+            "  labels:",
+            "    mode:",
+            "      mapping:",
+            "        WALK: Walk",
+            "        BIKE: Bike",
+            "    geography:",
+            "      mapping:",
+            "        all_geographies: All Geographies",
+            "        home_county: County",
+        ],
+    )
+    personal_vmt = pl.DataFrame(
+        {
+            "geography_type": ["all_geographies"],
+            "geography_id": ["all_geographies"],
+            "income_segment": ["all_income_segments"],
+            "household_size": ["all_household_sizes"],
+            "time_period": ["Daily"],
+            "mode": ["SOV"],
+            "auto_vmt": [10.0],
+            "trip_count": [1.0],
+            "distance_source": ["skim_auto_distance"],
+            "time_period_source": ["trip_period"],
+        }
+    )
+    non_motorized_vmt = pl.DataFrame(
+        {
+            "geography_type": [
+                "all_geographies",
+                "all_geographies",
+                "home_county",
+                "home_county",
+            ],
+            "geography_id": ["all_geographies", "all_geographies", "Wake", "Wake"],
+            "income_segment": ["low", "high", "low", "high"],
+            "household_size": ["1", "2", "1", "2"],
+            "time_period": ["Daily", "Daily", "AM", "PM"],
+            "mode": ["WALK", "BIKE", "WALK", "BIKE"],
+            "non_motorized_vmt": [5.0, 3.0, 2.0, 3.0],
+            "trip_count": [3.0, 2.0, 1.0, 2.0],
+            "distance_source": ["prepared_non_motorized_distance"] * 4,
+            "time_period_source": ["trip_period"] * 4,
+        }
+    )
+    summary_run = create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode={
+            "weighted": {
+                PERSONAL_AUTO_VMT_SUMMARY_ID: personal_vmt,
+                NON_MOTORIZED_VMT_SUMMARY_ID: non_motorized_vmt,
+            },
+            "unweighted": {
+                PERSONAL_AUTO_VMT_SUMMARY_ID: personal_vmt,
+                NON_MOTORIZED_VMT_SUMMARY_ID: non_motorized_vmt,
+            },
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+    state.value_mode = "Count"
+
+    page = VMTValidationPage(state, config)
+    page.refresh(force=True)
+
+    markdown_titles = [
+        obj.object
+        for obj in page.view.objects
+        if isinstance(obj, pn.pane.Markdown)
+    ]
+    assert markdown_titles[:3] == [
+        "## VMT Validation",
+        "### Personal Auto VMT",
+        "### Non-Motorized VMT",
+    ]
+    assert markdown_titles[3] == "### External VMT and Travel"
+    assert list(page.non_motorized_vmt_mode_sel.options) == [
+        "All",
+        "Walk",
+        "Bike",
+    ]
+    assert page.non_motorized_vmt_geography_type_sel.disabled is True
+
+    page.non_motorized_vmt_breakdown_sel.value = "Home Geography"
+    page.refresh(force=True)
+    page.non_motorized_vmt_geography_type_sel.value = "County"
+    page.refresh(force=True)
+
+    assert page.non_motorized_vmt_geography_type_sel.disabled is False
+    assert page.non_motorized_vmt_geography_sel.name == "County Name"
+    assert page.selected_non_motorized_vmt_geography_type_raw() == "home_county"
+
+    page.non_motorized_vmt_breakdown_sel.value = "Mode"
+    page.refresh(force=True)
+    assert page.non_motorized_vmt_mode_sel.disabled is True
+    assert page.non_motorized_vmt_mode_sel.value == "All"
+
+    chart = page.render_non_motorized_vmt_section()[0]
+    assert chart.object.layout.title.text == "Non-Motorized VMT by Mode"
+    assert chart.object.layout.yaxis.title.text == "Non-Motorized Miles Traveled"
+    assert list(chart.object.layout.xaxis.categoryarray) == ["Walk", "Bike"]
 
 
 def test_personal_auto_vmt_helper_ignores_active_breakdown_selector() -> None:
@@ -997,7 +1113,9 @@ def test_vmt_page_registers_personal_auto_vmt_and_renders_missing_card(
     page.refresh(force=True)
 
     assert PERSONAL_AUTO_VMT_SUMMARY_ID in page.required_summary_ids
+    assert NON_MOTORIZED_VMT_SUMMARY_ID in page.required_summary_ids
     assert page._personal_vmt_body.objects
+    assert page._non_motorized_vmt_body.objects
 
 
 def test_vmt_page_disables_active_personal_auto_vmt_filter_selector(
@@ -1952,6 +2070,7 @@ def test_data_requirements_for_pages_tracks_optional_summary_dependencies() -> N
     requirements = data_requirements_for_pages([vmt, regional])
 
     assert PERSONAL_AUTO_VMT_SUMMARY_ID in requirements.required_summary_ids
+    assert NON_MOTORIZED_VMT_SUMMARY_ID in requirements.required_summary_ids
     assert "commercial_vmt_totals" not in requirements.required_summary_ids
     assert "commercial_vmt_totals" not in requirements.optional_summary_ids
     assert "demo_auto_vmt_summary" not in requirements.optional_summary_ids

@@ -4509,7 +4509,7 @@ def test_traffic_validation_removes_direction_period_selectors_and_count_card(
     assert page.demo_top_period_sel.name == "Period"
     assert not hasattr(page, "direction_sel")
     assert not hasattr(page, "count_period_sel")
-    assert list(page.view.objects[1].objects) == [
+    assert list(page.view.objects[2].objects) == [
         page.demo_period_sel,
         page.demo_facility_sel,
     ]
@@ -4638,16 +4638,17 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
     assert tables[0]._configuration == {
         "columns": [{"field": "Difference", "sorter": "number"}]
     }
-    assert list(page.view.objects[1].objects) == [
+    assert list(page.view.objects[2].objects) == [
         page.demo_period_sel,
         page.demo_facility_sel,
     ]
     assert page._external_volume_body.objects[0].object == "### Traffic Volume Summaries"
-    facility_tables = _collect_tabulators(page._external_volume_body)
+    facility_tables = _collect_tabulators(page._facility_summary_body)
     assert len(facility_tables) == 1
     facility_table = facility_tables[0].value
     assert facility_table.columns.tolist() == [
         "Facility Type",
+        "n",
         "Total Observed Count",
         "Total Modeled Count",
         "% Difference",
@@ -4656,6 +4657,7 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
     ]
     assert facility_table.to_dict("records")[0] == {
         "Facility Type": "Principal Arterial",
+        "n": "1",
         "Total Observed Count": "10",
         "Total Modeled Count": "11",
         "% Difference": "10.00%",
@@ -4664,17 +4666,18 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
     }
     assert facility_tables[0]._configuration == {
         "columns": [
+            {"field": "n", "sorter": "number"},
             {"field": "RMSE", "sorter": "number"},
             {"field": "R^2", "sorter": "number"},
         ]
     }
-    assert page.view.objects[3].object == "### Top Count Locations by Modeled Volume"
+    assert page.view.objects[4].object == "### Top Count Locations by Modeled Volume"
     top_count_section = page._external_top_body
     assert (
         top_count_section.objects[0].object
         == "#### Observed vs Modeled Volumes - Day (Top 25 by Modeled Volume)"
     )
-    assert page.view.objects[4].objects == [
+    assert page.view.objects[5].objects == [
         page.demo_top_period_sel,
         page.demo_top_n_sel,
     ]

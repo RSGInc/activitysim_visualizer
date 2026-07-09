@@ -291,12 +291,15 @@ def demo_facility_comparison_table(
         required = {"facility_type", "observed_volume", "modeled_volume"}
         if df is None or df.is_empty() or not required.issubset(set(df.columns)):
             continue
+        select_exprs = [
+            pl.col("facility_type").cast(pl.Utf8),
+            pl.col("observed_volume").cast(pl.Float64),
+            pl.col("modeled_volume").cast(pl.Float64),
+        ]
+        if "id" in df.columns:
+            select_exprs.insert(0, pl.col("id").cast(pl.Utf8).alias("id"))
         points = (
-            df.select(
-                pl.col("facility_type").cast(pl.Utf8),
-                pl.col("observed_volume").cast(pl.Float64),
-                pl.col("modeled_volume").cast(pl.Float64),
-            )
+            df.select(*select_exprs)
             .drop_nulls(["facility_type", "observed_volume", "modeled_volume"])
             .filter(pl.col("facility_type") != "All")
         )
@@ -331,6 +334,11 @@ def demo_facility_comparison_table(
             ]
             total_observed = sum(observed)
             total_modeled = sum(modeled)
+            n_locations = (
+                facility_points["id"].n_unique()
+                if "id" in facility_points.columns
+                else facility_points.height
+            )
             differences = [model - observe for observe, model in zip(observed, modeled)]
             rmse = math.sqrt(
                 sum(difference**2 for difference in differences) / len(differences)
@@ -349,6 +357,7 @@ def demo_facility_comparison_table(
                         FACILITY_TYPE_CATEGORY_ID,
                         raw_facility_type,
                     ),
+                    "n": int(n_locations),
                     "Total Observed Count": total_observed,
                     "Total Modeled Count": total_modeled,
                     "% Difference": percent_difference,
@@ -576,6 +585,14 @@ class TrafficValidationPage(DashboardPage):
             ),
             render=self.render_demo_traffic_section,
         )
+        self._facility_summary_body = self.section(
+            "traffic_facility_summary_body",
+            selectors=(
+                "demo_period",
+                "demo_facility_type",
+            ),
+            render=self.render_demo_facility_summary_section,
+        )
         self._external_top_body = self.section(
             "traffic_top_count_body",
             selectors=(
@@ -591,6 +608,7 @@ class TrafficValidationPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Traffic Validation"),
+            self._facility_summary_body,
             selector_row(
                 self.demo_period_sel,
                 self.demo_facility_sel,
@@ -680,6 +698,76 @@ class TrafficValidationPage(DashboardPage):
             )
         ]
 
+    def render_demo_facility_summary_section(self) -> list[pn.viewable.Viewable]:
+        if not self.state.run_labels:
+            return []
+
+        count_list = self.state.get_summary_table_set(
+            "demo_count_location_counts", self.weighting_key
+        )
+        volume_list = self.state.get_summary_table_set(
+            "demo_count_location_volumes", self.weighting_key
+        )
+        scatter_list = self.state.get_summary_table_set(
+            "demo_count_location_scatter", self.weighting_key
+        )
+        fit_list = self.state.get_summary_table_set(
+            "demo_count_location_fit", self.weighting_key
+        )
+        if not any((count_list, volume_list, scatter_list, fit_list)):
+            return []
+
+        period = self.demo_period_sel.value
+        volume_col = DEMO_TRAFFIC_TIME_PERIODS[str(period)]
+        facility_type = self.selected_facility_type_raw()
+        if scatter_list is not None:
+            scatter_data = self.get_filtered_view(
+                "demo_count_scatter_facility_summary",
+                (period, facility_type),
+                factory=lambda: demo_count_scatter_data(
+                    scatter_list,
+                    period=str(period),
+                    facility_type=facility_type,
+                ),
+            )
+        elif count_list is not None and volume_list is not None:
+            scatter_data = self.get_filtered_view(
+                "demo_count_scatter_fallback_facility_summary",
+                (period, facility_type),
+                factory=lambda: demo_count_scatter_data_from_sources(
+                    count_list,
+                    volume_list,
+                    volume_col=volume_col,
+                    facility_type=facility_type,
+                ),
+            )
+        else:
+            return []
+
+        if not scatter_data:
+            return []
+        facility_comparison = self.get_filtered_view(
+            "demo_count_facility_comparison",
+            (period, facility_type),
+            factory=lambda: demo_facility_comparison_table(
+                scatter_data,
+                fit_list,
+                period=str(period),
+                facility_type=facility_type,
+                config=self.config,
+            ),
+        )
+        if not facility_comparison:
+            return []
+        return [
+            data_table(
+                facility_comparison,
+                title="Count Location Summary by Facility Type",
+                numeric_precision_by_column={"RMSE": 3, "R^2": 3},
+                column_sorters={"n": "number", "RMSE": "number", "R^2": "number"},
+            )
+        ]
+
     def render_demo_traffic_section(self) -> list[pn.viewable.Viewable]:
         if not self.state.run_labels:
             return [self.no_runs_message()]
@@ -713,7 +801,6 @@ class TrafficValidationPage(DashboardPage):
         section: list[pn.viewable.Viewable] = [
             pn.pane.Markdown("### Traffic Volume Summaries")
         ]
-        scatter_data_for_table: list[tuple[str, pl.DataFrame]] = []
         if scatter_list is not None:
             scatter_data = self.get_filtered_view(
                 "demo_count_scatter",
@@ -745,7 +832,6 @@ class TrafficValidationPage(DashboardPage):
                     one_to_one_line=True,
                 )
             )
-            scatter_data_for_table = scatter_data
         elif count_list is not None and volume_list is not None:
             scatter_data = self.get_filtered_view(
                 "demo_count_scatter_fallback",
@@ -768,7 +854,6 @@ class TrafficValidationPage(DashboardPage):
                     one_to_one_line=True,
                 )
             )
-            scatter_data_for_table = scatter_data
         else:
             section.append(
                 self.data_not_available_card(
@@ -779,27 +864,6 @@ class TrafficValidationPage(DashboardPage):
                     ],
                 )
             )
-        if scatter_data_for_table:
-            facility_comparison = self.get_filtered_view(
-                "demo_count_facility_comparison",
-                (period, facility_type),
-                factory=lambda: demo_facility_comparison_table(
-                    scatter_data_for_table,
-                    fit_list,
-                    period=str(period),
-                    facility_type=facility_type,
-                    config=self.config,
-                ),
-            )
-            if facility_comparison:
-                section.append(
-                    data_table(
-                        facility_comparison,
-                        title="Count Location Summary by Facility Type",
-                        numeric_precision_by_column={"RMSE": 3, "R^2": 3},
-                        column_sorters={"RMSE": "number", "R^2": "number"},
-                    )
-                )
         if link_list is not None:
             aggregate_data = self.get_filtered_view(
                 "demo_link_aggregate",

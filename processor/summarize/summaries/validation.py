@@ -16,6 +16,7 @@ ALL_INCOME_SEGMENTS = "all_income_segments"
 ALL_HOUSEHOLD_SIZES = "all_household_sizes"
 ALL_AUTO_MODES = "All Auto"
 DAILY_TIME_PERIOD = "Daily"
+NON_MOTORIZED_MODES = {"WALK", "BIKE", "EBIKE"}
 
 
 # TODO: Update with actual fields from Visum outputs/traffic count inputs
@@ -551,7 +552,11 @@ def _aggregate_vmt_for_geography(
     return _with_derived_daily_vmt_rows(aggregated)
 
 
-def _with_derived_daily_vmt_rows(df: pl.DataFrame) -> pl.DataFrame:
+def _with_derived_daily_vmt_rows(
+    df: pl.DataFrame,
+    *,
+    value_col: str = "auto_vmt",
+) -> pl.DataFrame:
     """Add a Daily total for segment groups that have time-period rows."""
     if df.is_empty() or "time_period" not in df.columns:
         return df
@@ -581,7 +586,7 @@ def _with_derived_daily_vmt_rows(df: pl.DataFrame) -> pl.DataFrame:
         df.join(groups_with_period_rows, on=group_cols, how="inner")
         .group_by(group_cols)
         .agg(
-            pl.col("auto_vmt").sum().alias("auto_vmt"),
+            pl.col(value_col).sum().alias(value_col),
             pl.col("trip_count").sum().alias("trip_count"),
         )
         .with_columns(pl.lit(DAILY_TIME_PERIOD).alias("time_period"))
@@ -735,6 +740,318 @@ def auto_vmt_by_home_geography_income_hhsize_time_period(
             pl.col("time_period").cast(pl.Utf8),
             pl.col("mode").cast(pl.Utf8),
             pl.col("auto_vmt").cast(pl.Float64),
+            pl.col("trip_count").cast(pl.Float64),
+            pl.col("distance_source").cast(pl.Utf8),
+            pl.col("time_period_source").cast(pl.Utf8),
+        )
+        .sort(
+            [
+                "geography_type",
+                "geography_id",
+                "income_segment",
+                "household_size",
+                "mode",
+                "time_period",
+            ]
+        )
+    )
+
+
+def _non_motorized_mode_filter() -> pl.Expr:
+    return (
+        pl.col("trip_mode")
+        .cast(pl.Utf8)
+        .str.to_uppercase()
+        .is_in(sorted(NON_MOTORIZED_MODES))
+    )
+
+
+def _distance_source_expr(
+    *,
+    mode_expr: pl.Expr,
+    walk_columns: list[str],
+    bike_columns: list[str],
+    prepared_column: str | None,
+) -> pl.Expr:
+    expr = pl.lit(None, dtype=pl.Utf8)
+    bike_modes = mode_expr.is_in(["BIKE", "EBIKE"])
+    if prepared_column is not None:
+        expr = (
+            pl.when(
+                mode_expr.is_in(sorted(NON_MOTORIZED_MODES))
+                & pl.col(prepared_column).is_not_null()
+            )
+            .then(pl.lit(prepared_column))
+            .otherwise(expr)
+        )
+    for column in reversed([column for column in bike_columns if column]):
+        expr = (
+            pl.when(bike_modes & pl.col(column).is_not_null())
+            .then(pl.lit(column))
+            .otherwise(expr)
+        )
+    for column in reversed([column for column in walk_columns if column]):
+        expr = (
+            pl.when((mode_expr == "WALK") & pl.col(column).is_not_null())
+            .then(pl.lit(column))
+            .otherwise(expr)
+        )
+    return expr
+
+
+def _non_motorized_distance_base(rd: RunData) -> tuple[pl.DataFrame, str] | None:
+    trips = rd.trips
+    if "finalweight" not in trips.columns or "trip_mode" not in trips.columns:
+        return None
+
+    walk_precedence = [
+        column
+        for column in ("skim_walk_maz_distance", "skim_walk_distance")
+        if column in trips.columns
+    ]
+    bike_precedence = [
+        column
+        for column in ("skim_bike_maz_distance", "skim_bike_distance")
+        if column in trips.columns
+    ]
+    prepared_column = (
+        "prepared_non_motorized_distance"
+        if "prepared_non_motorized_distance" in trips.columns
+        else None
+    )
+    available_columns = [*walk_precedence, *bike_precedence]
+    if prepared_column is not None:
+        available_columns.append(prepared_column)
+    if not available_columns:
+        LOGGER.warning(
+            "[non_motorized_vmt_by_segment] Run %r has no usable non-motorized distance source.",
+            rd.label,
+        )
+        return None
+
+    prepared_exprs = (
+        [pl.col(prepared_column).cast(pl.Float64)]
+        if prepared_column is not None
+        else []
+    )
+    walk_distance_exprs = [
+        pl.col(column).cast(pl.Float64) for column in walk_precedence
+    ] + prepared_exprs
+    bike_distance_exprs = [
+        pl.col(column).cast(pl.Float64) for column in bike_precedence
+    ] + prepared_exprs
+    base = (
+        trips.filter(_non_motorized_mode_filter())
+        .with_columns(
+            pl.col("trip_mode").cast(pl.Utf8).str.to_uppercase().alias("_nm_mode")
+        )
+        .with_columns(
+            pl.when(pl.col("_nm_mode") == "WALK")
+            .then(
+                pl.coalesce(walk_distance_exprs)
+                if walk_distance_exprs
+                else pl.lit(None, dtype=pl.Float64)
+            )
+            .when(pl.col("_nm_mode").is_in(["BIKE", "EBIKE"]))
+            .then(
+                pl.coalesce(bike_distance_exprs)
+                if bike_distance_exprs
+                else pl.lit(None, dtype=pl.Float64)
+            )
+            .otherwise(None)
+            .alias("_vmt_distance"),
+            _distance_source_expr(
+                mode_expr=pl.col("_nm_mode"),
+                walk_columns=walk_precedence,
+                bike_columns=bike_precedence,
+                prepared_column=prepared_column,
+            ).alias("distance_source"),
+        )
+        .filter(pl.col("_vmt_distance").is_not_null())
+    )
+    if base.is_empty():
+        return None
+    return base, "mixed_non_motorized_distance"
+
+
+def _aggregate_non_motorized_vmt_for_geography(
+    df: pl.DataFrame,
+    *,
+    geography_type: str,
+    geography_col: str | None,
+    time_period_source: str,
+) -> pl.DataFrame:
+    working = df
+    if geography_col is None:
+        working = working.with_columns(
+            pl.lit(ALL_GEOGRAPHIES).alias("_geography_id")
+        )
+    else:
+        working = working.filter(pl.col(geography_col).is_not_null()).with_columns(
+            pl.col(geography_col).cast(pl.Utf8).alias("_geography_id")
+        )
+
+    if working.is_empty():
+        return empty_summary_frame(
+            non_motorized_vmt_by_home_geography_income_hhsize_time_period
+        )
+
+    aggregated = (
+        working.group_by(
+            ["_geography_id", "income_segment", "household_size", "time_period", "mode"]
+        )
+        .agg(
+            pl.col("non_motorized_vmt").sum().alias("non_motorized_vmt"),
+            pl.col("finalweight").sum().alias("trip_count"),
+            pl.col("distance_source").drop_nulls().first().alias("distance_source"),
+        )
+        .with_columns(
+            pl.lit(geography_type).alias("geography_type"),
+            pl.col("_geography_id").alias("geography_id"),
+            pl.lit(time_period_source).alias("time_period_source"),
+        )
+        .select(
+            "geography_type",
+            "geography_id",
+            "income_segment",
+            "household_size",
+            "time_period",
+            "mode",
+            "non_motorized_vmt",
+            "trip_count",
+            "distance_source",
+            "time_period_source",
+        )
+    )
+    return _with_derived_daily_vmt_rows(
+        aggregated,
+        value_col="non_motorized_vmt",
+    )
+
+
+@summary_contract(
+    schema={
+        "geography_type": pl.Utf8,
+        "geography_id": pl.Utf8,
+        "income_segment": pl.Utf8,
+        "household_size": pl.Utf8,
+        "time_period": pl.Utf8,
+        "mode": pl.Utf8,
+        "non_motorized_vmt": pl.Float64,
+        "trip_count": pl.Float64,
+        "distance_source": pl.Utf8,
+        "time_period_source": pl.Utf8,
+    },
+    required_columns={"trips": ("finalweight", "trip_mode")},
+)
+def non_motorized_vmt_by_home_geography_income_hhsize_time_period(
+    rd: RunData,
+    config: Config,
+) -> pl.DataFrame:
+    distance_selection = _non_motorized_distance_base(rd)
+    if distance_selection is None:
+        return empty_summary_frame(
+            non_motorized_vmt_by_home_geography_income_hhsize_time_period
+        )
+
+    base, _ = distance_selection
+    base, time_period_source = _with_time_period(base, rd, config)
+
+    if "household_id" in base.columns and not rd.hh.is_empty():
+        household_columns = _household_join_columns(rd.hh)
+        if "household_id" in household_columns:
+            household_preferred_columns = [
+                column
+                for column in household_columns
+                if column not in {"household_id", "income_segment"}
+            ]
+            base = base.drop(household_preferred_columns, strict=False)
+            base = base.join(
+                rd.hh.select(household_columns).rename(
+                    {"income_segment": "income_segment_hh"}
+                    if "income_segment" in household_columns
+                    else {}
+                ),
+                on="household_id",
+                how="left",
+            )
+
+    income_exprs: list[pl.Expr] = []
+    if "income_segment" in base.columns and "income_segment_hh" in base.columns:
+        income_exprs.append(
+            pl.coalesce(
+                [pl.col("income_segment"), pl.col("income_segment_hh")]
+            ).alias("_income_segment")
+        )
+    elif "income_segment" in base.columns:
+        income_exprs.append(pl.col("income_segment").alias("_income_segment"))
+    elif "income_segment_hh" in base.columns:
+        income_exprs.append(pl.col("income_segment_hh").alias("_income_segment"))
+    else:
+        income_exprs.append(pl.lit(ALL_INCOME_SEGMENTS).alias("_income_segment"))
+
+    household_size_expr = (
+        pl.col("HHSIZE")
+        if "HHSIZE" in base.columns
+        else pl.col("hhsize")
+        if "hhsize" in base.columns
+        else pl.lit(ALL_HOUSEHOLD_SIZES)
+    )
+
+    base = (
+        base.with_columns(*income_exprs)
+        .with_columns(
+            pl.col("_income_segment")
+            .cast(pl.Utf8)
+            .fill_null(ALL_INCOME_SEGMENTS)
+            .alias("income_segment"),
+            household_size_expr.cast(pl.Utf8)
+            .fill_null(ALL_HOUSEHOLD_SIZES)
+            .alias("household_size"),
+            pl.col("_nm_mode").cast(pl.Utf8).alias("mode"),
+            (pl.col("_vmt_distance") * pl.col("finalweight").cast(pl.Float64)).alias(
+                "non_motorized_vmt"
+            ),
+        )
+        .filter(pl.col("non_motorized_vmt").is_not_null())
+    )
+
+    geography_dimensions: list[tuple[str, str | None]] = [
+        (ALL_GEOGRAPHIES, None),
+        *_configured_geography_dimensions(
+            base,
+            config=config,
+            base_type="home_taz",
+            base_col="home_taz",
+            role_prefix="home",
+        ),
+    ]
+
+    outputs = [
+        _aggregate_non_motorized_vmt_for_geography(
+            base,
+            geography_type=geography_type,
+            geography_col=geography_col,
+            time_period_source=time_period_source,
+        )
+        for geography_type, geography_col in geography_dimensions
+    ]
+    outputs = [output for output in outputs if not output.is_empty()]
+    if not outputs:
+        return empty_summary_frame(
+            non_motorized_vmt_by_home_geography_income_hhsize_time_period
+        )
+
+    return (
+        pl.concat(outputs, how="vertical")
+        .with_columns(
+            pl.col("geography_type").cast(pl.Utf8),
+            pl.col("geography_id").cast(pl.Utf8),
+            pl.col("income_segment").cast(pl.Utf8),
+            pl.col("household_size").cast(pl.Utf8),
+            pl.col("time_period").cast(pl.Utf8),
+            pl.col("mode").cast(pl.Utf8),
+            pl.col("non_motorized_vmt").cast(pl.Float64),
             pl.col("trip_count").cast(pl.Float64),
             pl.col("distance_source").cast(pl.Utf8),
             pl.col("time_period_source").cast(pl.Utf8),

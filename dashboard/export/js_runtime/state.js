@@ -171,6 +171,13 @@
     ) {
       pageState.personal_auto_vmt_geography_type = "All Geography Types";
     }
+    if (
+      pageId === "vmt"
+      && selectorId === "non_motorized_vmt_breakdown"
+      && value !== "Home Geography"
+    ) {
+      pageState.non_motorized_vmt_geography_type = "All Geography Types";
+    }
     nextState.pageSelectors[pageId] = pageState;
     return normalizeState(currentPayload, nextState);
   }

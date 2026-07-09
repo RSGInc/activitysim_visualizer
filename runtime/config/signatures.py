@@ -176,6 +176,18 @@ def prepare_signature_payload(config: Config) -> dict[str, Any]:
                     config.prepare_time_periods.tour_end_period_number_column
                 ),
             },
+            "non_motorized_distance_skim": {
+                "enabled": config.prepare_non_motorized_distance_skim.enabled,
+                "file": config.prepare_non_motorized_distance_skim.file,
+                "file_digest": config.prepare_non_motorized_distance_skim.file_digest,
+                "matrix": config.prepare_non_motorized_distance_skim.matrix,
+                "source_type": (
+                    config.prepare_non_motorized_distance_skim.source_type
+                ),
+                "value_column": (
+                    config.prepare_non_motorized_distance_skim.value_column
+                ),
+            },
             "vot_bins": {
                 "enabled": config.prepare_vot_bins.enabled,
                 "source_column": config.prepare_vot_bins.source_column,

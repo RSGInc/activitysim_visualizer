@@ -47,6 +47,7 @@ from .normalize_geography import normalize_geography_aggregations
 from .normalize_prepare import (
     normalize_fallback_file_mapping,
     normalize_file_mapping,
+    normalize_prepare_non_motorized_distance_skim,
     normalize_prepare_relationship_checks,
     normalize_prepare_time_periods,
     normalize_prepare_vot_bins,
@@ -611,6 +612,11 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         field_name="prepare.time_periods",
         config_dir=config_path.parent,
     )
+    prepare_non_motorized_distance_skim = normalize_prepare_non_motorized_distance_skim(
+        prepare_cfg.get("non_motorized_distance_skim"),
+        field_name="prepare.non_motorized_distance_skim",
+        config_dir=config_path.parent,
+    )
     auto_sufficiency_basis_raw = prepare_cfg.get("auto_sufficiency_basis")
     if auto_sufficiency_basis_raw is None:
         prepare_auto_sufficiency = PrepareAutoSufficiencySettings()
@@ -1029,6 +1035,7 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         prepare_vot_bins=prepare_vot_bins,
         prepare_auto_sufficiency=prepare_auto_sufficiency,
         prepare_time_periods=prepare_time_periods,
+        prepare_non_motorized_distance_skim=prepare_non_motorized_distance_skim,
         prepare_output_file_format=prepare_output_file_format,
         prepare_relationship_checks=prepare_relationship_checks,
         files=files,

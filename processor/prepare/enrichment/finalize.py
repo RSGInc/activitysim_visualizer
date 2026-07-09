@@ -146,6 +146,7 @@ def _cast_trips(trips: pl.DataFrame) -> pl.DataFrame:
                 "income_segment": pl.Int64,
                 "vot_bin": pl.Utf8,
                 "od_dist": pl.Float64,
+                "prepared_non_motorized_distance": pl.Float64,
                 "out_dir_dist": pl.Float64,
                 "stops": pl.Int32,
                 "inbound": pl.Int32,

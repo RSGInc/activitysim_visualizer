@@ -447,6 +447,11 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         validation.auto_vmt_by_home_geography_income_hhsize_time_period,
     ),
     SummarySpec(
+        "non_motorized_vmt_by_home_geography_income_hhsize_time_period",
+        "non_motorized_vmt_by_home_geography_income_hhsize_time_period",
+        validation.non_motorized_vmt_by_home_geography_income_hhsize_time_period,
+    ),
+    SummarySpec(
         "commercial_vmt_totals",
         "commercial_vmt_totals",
         validation.commercial_vehicle_vmt,
