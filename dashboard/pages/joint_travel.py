@@ -171,10 +171,33 @@ def person_participation_data(
     return out
 
 
+def joint_tour_frequency_data(
+    data_list: list[tuple[str, pl.DataFrame]],
+    *,
+    hide_no_joint_tours: bool,
+) -> list[tuple[str, pl.DataFrame]]:
+    """Return joint-tour frequency rows, optionally excluding the no-tour bucket."""
+    out = []
+    for label, df in nonempty(data_list):
+        filtered = df.with_columns(pl.col("jtf_label").cast(pl.Utf8))
+        if hide_no_joint_tours:
+            filtered = filtered.filter(
+                pl.col("jtf_label").str.strip_chars().str.to_lowercase()
+                != "no joint tours"
+            )
+        out.append((label, filtered))
+    return out
+
+
 class JointTravelPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
         party_opts = self._party_size_options()
         hh_opts = self._household_size_options()
+        self.hide_no_joint_tours = self.selector(
+            "hide_no_joint_tours",
+            widget=pn.widgets.Checkbox(name='Hide "No Joint Tours"', value=False),
+            label='Hide "No Joint Tours"',
+        )
         self.party_size_sel = self.selector(
             "party_size",
             widget=pn.widgets.Select(
@@ -195,6 +218,7 @@ class JointTravelPage(DashboardPage):
         )
         self._frequency_section = self.section(
             "joint_travel_frequency",
+            selectors=("hide_no_joint_tours",),
             render=self.render_frequency,
         )
         self._joint_tour_detail_section = self.section(
@@ -265,6 +289,7 @@ class JointTravelPage(DashboardPage):
             return [self.summary_only_unavailable_card()]
         return [
             pn.pane.Markdown("### Joint Tour Frequency"),
+            selector_row(self.hide_no_joint_tours, height=48),
             self.render_joint_tour_frequency_chart(summaries["jtf_distribution"]),
         ]
 
@@ -391,8 +416,16 @@ class JointTravelPage(DashboardPage):
 
     def render_joint_tour_frequency_chart(self, summary_data):
         """Render joint tour frequency by joint tour pattern."""
+        frequency_data = self.get_filtered_view(
+            "joint_tour_frequency",
+            bool(self.hide_no_joint_tours.value),
+            factory=lambda: joint_tour_frequency_data(
+                summary_data,
+                hide_no_joint_tours=bool(self.hide_no_joint_tours.value),
+            ),
+        )
         return bar_chart(
-            nonempty(summary_data),
+            frequency_data,
             x_col="jtf_label",
             y_col="household_count",
             title="Joint Tour Frequency by Joint Tour Pattern",

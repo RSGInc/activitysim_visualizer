@@ -135,6 +135,34 @@ def ordered_category_values(
     return config.ordered_values(category_id, values)
 
 
+def category_label_matches(
+    config: Config,
+    category_id: str,
+    raw_value: object,
+    label: str,
+) -> bool:
+    """Return whether one raw category value resolves to the target display label."""
+    return (
+        config.label_value(category_id, raw_value).strip().casefold()
+        == str(label).strip().casefold()
+    )
+
+
+def exclude_category_values_by_label(
+    raw_values: Iterable[str],
+    *,
+    category_id: str,
+    config: Config,
+    label: str,
+) -> list[str]:
+    """Return raw category values whose display label does not match ``label``."""
+    return [
+        str(raw_value)
+        for raw_value in raw_values
+        if not category_label_matches(config, category_id, raw_value, label)
+    ]
+
+
 def selector_options_from_values(
     raw_values: Iterable[str],
     *,

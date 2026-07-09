@@ -1148,6 +1148,10 @@ def _flatten_page_descriptors(pages: list[dict]) -> dict[str, dict]:
     return by_id
 
 
+def _selector_by_id(page: dict, selector_id: str) -> dict:
+    return next(selector for selector in page["selectors"] if selector["id"] == selector_id)
+
+
 def _walk_nodes(node: dict) -> list[dict]:
     if node.get("kind") == "page":
         return _walk_nodes(node["content"])
@@ -1214,8 +1218,11 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     enabled_selectors = payload["page_export_support"]["enabled_page_selectors"]
     assert {"page_id": "daily_activity_pattern", "selector_id": "person_type"} in enabled_selectors
     assert {"page_id": "joint_travel", "selector_id": "household_size"} in enabled_selectors
+    assert {"page_id": "joint_travel", "selector_id": "hide_no_joint_tours"} in enabled_selectors
     assert {"page_id": "tour_stop_frequency", "selector_id": "tour_purpose"} in enabled_selectors
     assert {"page_id": "trip_mode", "selector_id": "tour_purpose"} in enabled_selectors
+    assert {"page_id": "tour_mode", "selector_id": "hide_drive_alone"} in enabled_selectors
+    assert {"page_id": "trip_mode", "selector_id": "hide_drive_alone"} in enabled_selectors
     assert sorted(payload["states"]) == [
         "Unweighted||Count",
         "Unweighted||Percent",
@@ -1239,6 +1246,12 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
         "worker",
     ]
     assert page_defs["daily_activity_pattern"]["selectors"][0]["export_enabled"] is True
+    joint_travel_hide_no_joint_tours = _selector_by_id(
+        page_defs["joint_travel"], "hide_no_joint_tours"
+    )
+    assert joint_travel_hide_no_joint_tours["request_mode"] == "all"
+    assert joint_travel_hide_no_joint_tours["resolved_values"] == ["False", "True"]
+    assert joint_travel_hide_no_joint_tours["export_enabled"] is True
     assert page_defs["tour_time"]["selectors"][0]["id"] == "tour_purpose"
     assert page_defs["tour_time"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["tour_time"]["selectors"][0]["resolved_values"] == [
@@ -1246,13 +1259,17 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
         "work",
     ]
     assert page_defs["tour_time"]["selectors"][0]["export_enabled"] is True
-    assert page_defs["tour_mode"]["selectors"][0]["id"] == "tour_purpose"
-    assert page_defs["tour_mode"]["selectors"][0]["request_mode"] == "all"
-    assert page_defs["tour_mode"]["selectors"][0]["resolved_values"] == [
+    tour_mode_purpose = _selector_by_id(page_defs["tour_mode"], "tour_purpose")
+    tour_mode_hide_drive_alone = _selector_by_id(page_defs["tour_mode"], "hide_drive_alone")
+    assert tour_mode_purpose["request_mode"] == "all"
+    assert tour_mode_purpose["resolved_values"] == [
         "All Tour Purposes",
         "work",
     ]
-    assert page_defs["tour_mode"]["selectors"][0]["export_enabled"] is True
+    assert tour_mode_purpose["export_enabled"] is True
+    assert tour_mode_hide_drive_alone["request_mode"] == "all"
+    assert tour_mode_hide_drive_alone["resolved_values"] == ["False", "True"]
+    assert tour_mode_hide_drive_alone["export_enabled"] is True
     assert page_defs["tour_stop_frequency"]["selectors"][0]["id"] == "tour_purpose"
     assert page_defs["tour_stop_frequency"]["selectors"][0]["request_mode"] == "all"
     assert page_defs["tour_stop_frequency"]["selectors"][0]["resolved_values"] == [
@@ -1269,14 +1286,18 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
         "social",
     ]
     assert page_defs["trip_stop_time"]["selectors"][0]["export_enabled"] is True
-    assert page_defs["trip_mode"]["selectors"][0]["id"] == "tour_purpose"
-    assert page_defs["trip_mode"]["selectors"][0]["request_mode"] == "all"
-    assert page_defs["trip_mode"]["selectors"][0]["resolved_values"] == [
+    trip_mode_purpose = _selector_by_id(page_defs["trip_mode"], "tour_purpose")
+    trip_mode_hide_drive_alone = _selector_by_id(page_defs["trip_mode"], "hide_drive_alone")
+    assert trip_mode_purpose["request_mode"] == "all"
+    assert trip_mode_purpose["resolved_values"] == [
         "All Tour Purposes",
         "eatout",
         "social",
     ]
-    assert page_defs["trip_mode"]["selectors"][0]["export_enabled"] is True
+    assert trip_mode_purpose["export_enabled"] is True
+    assert trip_mode_hide_drive_alone["request_mode"] == "all"
+    assert trip_mode_hide_drive_alone["resolved_values"] == ["False", "True"]
+    assert trip_mode_hide_drive_alone["export_enabled"] is True
     weighted_percent = payload["states"]["Weighted||Percent"]
     overview = weighted_percent["overview"]
     assert overview["kind"] == "page"
@@ -1286,6 +1307,15 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     assert sorted(_region_nodes(daily_activity_pattern)["activity_pattern_body"]["variants"]) == [
         '["All Person Types"]',
         '["worker"]',
+    ]
+    joint_travel = weighted_percent["joint_travel"]
+    assert joint_travel["kind"] == "page"
+    assert _region_nodes(joint_travel)["joint_travel_frequency"]["selector_ids"] == [
+        "hide_no_joint_tours",
+    ]
+    assert sorted(_region_nodes(joint_travel)["joint_travel_frequency"]["variants"]) == [
+        '["False"]',
+        '["True"]',
     ]
     tour_time = weighted_percent["tour_time"]
     assert tour_time["kind"] == "page"
@@ -1298,10 +1328,13 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     assert tour_mode["kind"] == "page"
     assert _region_nodes(tour_mode)["tour_mode_modes"]["selector_ids"] == [
         "tour_purpose",
+        "hide_drive_alone",
     ]
     assert sorted(_region_nodes(tour_mode)["tour_mode_modes"]["variants"]) == [
-        '["All Tour Purposes"]',
-        '["work"]',
+        '["All Tour Purposes","False"]',
+        '["All Tour Purposes","True"]',
+        '["work","False"]',
+        '["work","True"]',
     ]
     tour_stop_frequency = weighted_percent["tour_stop_frequency"]
     assert tour_stop_frequency["kind"] == "page"
@@ -1325,11 +1358,17 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     ]
     trip_mode = weighted_percent["trip_mode"]
     assert trip_mode["kind"] == "page"
-    assert _region_nodes(trip_mode)["trip_summary_mode_body"]["selector_ids"] == ["tour_purpose"]
+    assert _region_nodes(trip_mode)["trip_summary_mode_body"]["selector_ids"] == [
+        "tour_purpose",
+        "hide_drive_alone",
+    ]
     assert sorted(_region_nodes(trip_mode)["trip_summary_mode_body"]["variants"]) == [
-        '["All Tour Purposes"]',
-        '["eatout"]',
-        '["social"]',
+        '["All Tour Purposes","False"]',
+        '["All Tour Purposes","True"]',
+        '["eatout","False"]',
+        '["eatout","True"]',
+        '["social","False"]',
+        '["social","True"]',
     ]
     widget_nodes = [
         node for node in _walk_nodes(daily_activity_pattern) if node.get("kind") == "widget"
@@ -1603,17 +1642,23 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
     assert tour_mode_weighted_percent["kind"] == "page"
     assert _region_nodes(tour_mode_weighted_percent)["tour_mode_modes"]["selector_ids"] == [
         "tour_purpose",
+        "hide_drive_alone",
     ]
     assert sorted(_region_nodes(tour_mode_weighted_percent)["tour_mode_modes"]["variants"]) == [
-        '["All Tour Purposes"]',
-        '["work"]',
+        '["All Tour Purposes","False"]',
+        '["All Tour Purposes","True"]',
+        '["work","False"]',
+        '["work","True"]',
     ]
     trip_mode_weighted_percent = payload["states"]["Weighted||Percent"]["trip_mode"]
     assert trip_mode_weighted_percent["kind"] == "page"
     assert sorted(_region_nodes(trip_mode_weighted_percent)["trip_summary_mode_body"]["variants"]) == [
-        '["All Tour Purposes"]',
-        '["eatout"]',
-        '["social"]',
+        '["All Tour Purposes","False"]',
+        '["All Tour Purposes","True"]',
+        '["eatout","False"]',
+        '["eatout","True"]',
+        '["social","False"]',
+        '["social","True"]',
     ]
 
 
@@ -1644,14 +1689,17 @@ def test_build_export_html_document_keeps_grouped_tour_mode_chart_when_mode_grou
     assert tour_mode["kind"] == "page"
     assert _region_nodes(tour_mode)["tour_mode_modes"]["selector_ids"] == [
         "tour_purpose",
+        "hide_drive_alone",
     ]
     assert sorted(_region_nodes(tour_mode)["tour_mode_modes"]["variants"]) == [
-        '["All Tour Purposes"]',
-        '["work"]',
+        '["All Tour Purposes","False"]',
+        '["All Tour Purposes","True"]',
+        '["work","False"]',
+        '["work","True"]',
     ]
     region_nodes = _region_nodes(tour_mode)
     variant_nodes = _walk_nodes(
-        region_nodes["tour_mode_modes"]["variants"]['["All Tour Purposes"]']
+        region_nodes["tour_mode_modes"]["variants"]['["All Tour Purposes","False"]']
     )
     assert any(
         node.get("kind") == "plotly"
@@ -1956,6 +2004,84 @@ def test_build_export_html_document_serializes_joint_tours_hh_size_variants(
     )
 
 
+def test_build_export_html_document_serializes_joint_frequency_hide_no_joint_tours_variant(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=["joint_travel"],
+        export_html_lines=[
+            "pages:",
+            "  joint_travel:",
+            "    hide_no_joint_tours: all",
+        ],
+    )
+    summary_run = _full_summary_run()
+    summary_run = create_summary_run(
+        label=summary_run.label,
+        run_key=summary_run.run_key,
+        summaries_by_mode={
+            mode: {
+                **summary_run.summaries_by_mode[mode],
+                "joint_tours_by_household_size": pl.DataFrame(
+                    {
+                        "household_size": [2, 3],
+                        "household_count": [6.0, 4.0],
+                        "joint_tour_hh_count": [3.0, 2.0],
+                    }
+                ),
+                "joint_tour_composition_by_party_size": pl.DataFrame(
+                    {
+                        "tour_composition": ["adults", "mixed"],
+                        "party_size": [2, 3],
+                        "joint_tour_count": [3.0, 2.0],
+                    }
+                ),
+                "person_jtp_by_household_size": pl.DataFrame(
+                    {
+                        "household_size": [2, 3],
+                        "joint_tour_person_count": [2.0, 3.0],
+                        "total_person_count": [4.0, 3.0],
+                    }
+                ),
+            }
+            for mode in summary_run.summaries_by_mode
+        },
+        summary_metadata_by_mode=summary_run.summary_metadata_by_mode,
+    )
+
+    html = build_export_html_document([], config, summary_runs=[summary_run])
+    payload = _extract_payload(html)
+    joint_travel = payload["states"]["Weighted||Percent"]["joint_travel"]
+    frequency_region = _region_nodes(joint_travel)["joint_travel_frequency"]
+
+    assert frequency_region["selector_ids"] == ["hide_no_joint_tours"]
+    assert sorted(frequency_region["variants"]) == ['["False"]', '["True"]']
+
+    checked_nodes = _walk_nodes(frequency_region["variants"]['["True"]'])
+    checked_plot = next(
+        node
+        for node in checked_nodes
+        if node.get("kind") == "plotly"
+        and node.get("figure", {}).get("layout", {}).get("title", {}).get("text")
+        == "Joint Tour Frequency by Joint Tour Pattern"
+    )
+    checked_x_values = [
+        value
+        for trace in checked_plot.get("figure", {}).get("data", [])
+        for value in trace.get("x", [])
+    ]
+    checked_y_values = [
+        value
+        for trace in checked_plot.get("figure", {}).get("data", [])
+        for value in trace.get("y", [])
+    ]
+
+    assert "No Joint Tours" not in checked_x_values
+    assert checked_x_values == ["1 Shopping", "1 Maintenance"]
+    assert checked_y_values == pytest.approx([62.5, 37.5])
+
+
 def test_build_export_html_document_serializes_trip_mode_tour_purpose_variants(
     tmp_path: Path,
 ) -> None:
@@ -1976,9 +2102,12 @@ def test_build_export_html_document_serializes_trip_mode_tour_purpose_variants(
 
     assert trip_mode["kind"] == "page"
     assert sorted(_region_nodes(trip_mode)["trip_summary_mode_body"]["variants"]) == [
-        '["All Tour Purposes"]',
-        '["eatout"]',
-        '["social"]',
+        '["All Tour Purposes","False"]',
+        '["All Tour Purposes","True"]',
+        '["eatout","False"]',
+        '["eatout","True"]',
+        '["social","False"]',
+        '["social","True"]',
     ]
     page_nodes = _walk_nodes(trip_mode)
     widget_nodes = [node for node in page_nodes if node.get("kind") == "widget"]
@@ -1988,9 +2117,15 @@ def test_build_export_html_document_serializes_trip_mode_tour_purpose_variants(
         and not node.get("disabled")
         for node in widget_nodes
     )
+    assert any(
+        node.get("selector_id") == "hide_drive_alone"
+        and node.get("export_enabled")
+        and not node.get("disabled")
+        for node in widget_nodes
+    )
     assert not any(node.get("selector_id") == "tour_mode" for node in widget_nodes)
     variant_nodes = _walk_nodes(
-        _region_nodes(trip_mode)["trip_summary_mode_body"]["variants"]['["eatout"]']
+        _region_nodes(trip_mode)["trip_summary_mode_body"]["variants"]['["eatout","False"]']
     )
     assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 3
 

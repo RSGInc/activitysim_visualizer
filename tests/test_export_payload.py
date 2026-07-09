@@ -375,6 +375,14 @@ def test_build_export_payload_serializes_representative_page_region_structure(
             "    trip_mode:",
             "      tour_purpose: all",
         ],
+        extra_lines=[
+            "categories:",
+            "  mode:",
+            "    mapping:",
+            "      DRIVEALONE: Drive Alone",
+            "      WALK: Walk",
+            "      SHARED: Shared Ride",
+        ],
     )
 
     payload = build_export_payload([], config, summary_runs=[_full_summary_run()])
@@ -389,11 +397,22 @@ def test_build_export_payload_serializes_representative_page_region_structure(
             "available": True,
             "request_mode": "all",
             "requested_values": [],
-            "resolved_values": ["All", "eatout", "social"],
-            "default_value": "All",
-            "options": ["All", "eatout", "social"],
+            "resolved_values": ["All Tour Purposes", "eatout", "social"],
+            "default_value": "All Tour Purposes",
+            "options": ["All Tour Purposes", "eatout", "social"],
             "export_enabled": True,
-        }
+        },
+        {
+            "id": "hide_drive_alone",
+            "label": "Hide Drive Alone",
+            "available": True,
+            "request_mode": "all",
+            "requested_values": [],
+            "resolved_values": ["False", "True"],
+            "default_value": "False",
+            "options": ["False", "True"],
+            "export_enabled": True,
+        },
     ]
 
     trip_mode = payload["states"]["Weighted||Percent"]["trip_mode"]
@@ -401,12 +420,15 @@ def test_build_export_payload_serializes_representative_page_region_structure(
     regions = _region_nodes(trip_mode)
     assert sorted(regions) == ["trip_summary_mode_body"]
     trip_mode_region = regions["trip_summary_mode_body"]
-    assert trip_mode_region["selector_ids"] == ["tour_purpose"]
-    assert trip_mode_region["default_key"] == '["All"]'
+    assert trip_mode_region["selector_ids"] == ["tour_purpose", "hide_drive_alone"]
+    assert trip_mode_region["default_key"] == '["All Tour Purposes","False"]'
     assert sorted(trip_mode_region["variants"]) == [
-        '["All"]',
-        '["eatout"]',
-        '["social"]',
+        '["All Tour Purposes","False"]',
+        '["All Tour Purposes","True"]',
+        '["eatout","False"]',
+        '["eatout","True"]',
+        '["social","False"]',
+        '["social","True"]',
     ]
     page_nodes = _walk_nodes(trip_mode)
     assert any(
@@ -416,13 +438,28 @@ def test_build_export_payload_serializes_representative_page_region_structure(
         and node.get("export_enabled")
         for node in page_nodes
     )
+    assert any(
+        node.get("kind") == "widget"
+        and node.get("selector_id") == "hide_drive_alone"
+        and node.get("name") == "Hide Drive Alone"
+        and node.get("export_enabled")
+        for node in page_nodes
+    )
     assert not any(
         node.get("kind") == "html" and "Tour Purpose:" in node.get("html", "")
         for node in page_nodes
     )
     assert not any(node.get("selector_id") == "tour_mode" for node in page_nodes)
-    variant_nodes = _walk_nodes(trip_mode_region["variants"]['["eatout"]'])
+    variant_nodes = _walk_nodes(trip_mode_region["variants"]['["eatout","False"]'])
     assert any(node.get("kind") == "plotly" for node in variant_nodes)
+    checked_variant_nodes = _walk_nodes(trip_mode_region["variants"]['["eatout","True"]'])
+    checked_plot = next(node for node in checked_variant_nodes if node.get("kind") == "plotly")
+    checked_x_values = [
+        value
+        for trace in checked_plot.get("figure", {}).get("data", [])
+        for value in trace.get("x", [])
+    ]
+    assert "Drive Alone" not in checked_x_values
 
 
 def test_build_export_payload_keeps_static_pages_when_no_page_selectors_are_enabled() -> None:

@@ -1390,10 +1390,18 @@ def test_trip_mode_page_uses_configured_mode_labels_on_plot_axes(tmp_path: Path)
         weighted={
             "trip_mode_by_tour_purpose_and_tour_mode": pl.DataFrame(
                 {
-                    "tour_purpose": ["all_tour_purposes", "all_tour_purposes"],
-                    "tour_mode": ["all_tour_modes", "all_tour_modes"],
-                    "trip_mode": ["WALK", "SHARED2"],
-                    "trip_count": [2.0, 5.0],
+                    "tour_purpose": [
+                        "all_tour_purposes",
+                        "all_tour_purposes",
+                        "all_tour_purposes",
+                    ],
+                    "tour_mode": [
+                        "all_tour_modes",
+                        "all_tour_modes",
+                        "all_tour_modes",
+                    ],
+                    "trip_mode": ["DRIVEALONE", "WALK", "SHARED2"],
+                    "trip_count": [3.0, 2.0, 5.0],
                 }
             ),
         },
@@ -1409,11 +1417,23 @@ def test_trip_mode_page_uses_configured_mode_labels_on_plot_axes(tmp_path: Path)
     overall_chart = page.render_body()[0]
     trace = overall_chart.object.data[0]
 
-    assert list(trace.x) == ["Walk", "Shared Ride 2"]
+    assert page.hide_drive_alone.value is False
+    assert list(trace.x) == ["Walk", "Shared Ride 2", "Drive Alone"]
     assert list(overall_chart.object.layout.xaxis.categoryarray) == [
         "Walk",
         "Shared Ride 2",
+        "Drive Alone",
     ]
+    page.hide_drive_alone.value = True
+    checked_chart = page.render_body()[0]
+    checked_trace = checked_chart.object.data[0]
+
+    assert list(checked_trace.x) == ["Walk", "Shared Ride 2"]
+    assert list(checked_chart.object.layout.xaxis.categoryarray) == [
+        "Walk",
+        "Shared Ride 2",
+    ]
+    assert list(checked_trace.y) == pytest.approx([100.0 * 2.0 / 7.0, 100.0 * 5.0 / 7.0])
 
 
 def test_daily_activity_pattern_page_uses_configured_mandatory_tour_labels_on_plot_axes(
@@ -2088,6 +2108,79 @@ def test_joint_travel_participation_page_uses_counts_and_runtime_percent_mode(
     )
     assert list(people_plot.object.layout.xaxis.categoryarray) == ["2", "3"]
     assert list(people_plot.object.data[0].y) == [2.0, 3.0]
+
+
+def test_joint_travel_frequency_can_hide_no_joint_tours_and_renormalize(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "jtf_distribution": pl.DataFrame(
+                {
+                    "jtf_code": [0, 1],
+                    "jtf_label": ["No Joint Tours", "One Joint Tour"],
+                    "household_count": [5.0, 3.0],
+                }
+            ),
+            "joint_tours_by_household_size": pl.DataFrame(
+                {
+                    "household_size": [2],
+                    "household_count": [6.0],
+                    "joint_tour_hh_count": [3.0],
+                }
+            ),
+            "joint_tour_party_size_distribution": pl.DataFrame(
+                {
+                    "party_size": [2],
+                    "joint_tour_count": [3.0],
+                }
+            ),
+            "joint_tour_composition_by_party_size": pl.DataFrame(
+                {
+                    "tour_composition": ["adults"],
+                    "party_size": [2],
+                    "joint_tour_count": [3.0],
+                }
+            ),
+            "person_jtp_by_household_size": pl.DataFrame(
+                {
+                    "household_size": [2],
+                    "joint_tour_person_count": [2.0],
+                    "total_person_count": [4.0],
+                }
+            ),
+            "household_jtp_by_household_size_and_jtf": pl.DataFrame(
+                {
+                    "jtf": ["0", "1"],
+                    "household_size": ["2", "2"],
+                    "household_percent": [50.0, 50.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = JointTravelPage(state, config)
+    page.refresh(force=True)
+
+    assert page._frequency_section.objects[0].object == "### Joint Tour Frequency"
+    assert page._frequency_section.objects[1].objects == [page.hide_no_joint_tours]
+    frequency_plot = _collect_plotly_panes(page._frequency_section)[0]
+    trace = frequency_plot.object.data[0]
+    assert list(trace.x) == ["No Joint Tours", "One Joint Tour"]
+    assert list(trace.y) == pytest.approx([62.5, 37.5])
+
+    page.hide_no_joint_tours.value = True
+    checked_plot = page.render_frequency()[-1]
+    checked_trace = checked_plot.object.data[0]
+
+    assert list(checked_trace.x) == ["One Joint Tour"]
+    assert list(checked_trace.y) == pytest.approx([100.0])
 
 
 def test_joint_travel_composition_plot_keeps_category_axis_when_party_size_filters_out_bars(
@@ -3131,7 +3224,7 @@ def test_tour_summaries_tour_mode_page_renders_main_chart_without_vehicle_summar
     page.refresh(force=True)
 
     assert list(page.purpose_sel.options) == ["All Tour Purposes", "work"]
-    assert len(page._mode_section.objects) == 6
+    assert len(page._mode_section.objects) == 5
     chart_titles = [
         obj.object.layout.title.text
         for obj in page._mode_section.objects
@@ -3196,14 +3289,24 @@ def test_tour_summaries_tour_mode_page_uses_configured_mode_labels_on_plot_axes(
     page = TourSummariesTourModePage(state, config)
     page.refresh(force=True)
 
-    mode_chart = page.render_modes()[-1]
+    mode_chart = _collect_plotly_panes(page._mode_section)[0]
     trace = mode_chart.object.data[0]
 
+    assert page.hide_drive_alone.value is False
     assert list(trace.x) == ["Drive Alone", "Walk"]
     assert list(mode_chart.object.layout.xaxis.categoryarray) == [
         "Drive Alone",
         "Walk",
     ]
+    page.hide_drive_alone.value = True
+    checked_chart = next(
+        obj for obj in page.render_modes_section() if isinstance(obj, pn.pane.Plotly)
+    )
+    checked_trace = checked_chart.object.data[0]
+
+    assert list(checked_trace.x) == ["Walk"]
+    assert list(checked_chart.object.layout.xaxis.categoryarray) == ["Walk"]
+    assert list(checked_trace.y) == pytest.approx([100.0])
 
 
 def test_tour_mode_auto_sufficiency_definitions_follow_configured_basis(

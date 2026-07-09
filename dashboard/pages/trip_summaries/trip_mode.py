@@ -7,8 +7,10 @@ import polars as pl
 
 from dashboard.components import bar_chart, selector_row
 from dashboard.helpers.category_helpers import (
+    category_label_matches,
     column_options,
     complete_category_counts,
+    exclude_category_values_by_label,
     label_category_data,
     nonempty,
     ordered_category_values,
@@ -22,6 +24,7 @@ def filtered_trip_mode_data(
     tour_purpose: str,
     *,
     tour_mode: str | None = None,
+    hidden_mode_values: set[str] | None = None,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Filter trip mode summaries to one selected tour purpose and optional tour mode."""
     out: list[tuple[str, pl.DataFrame]] = []
@@ -36,6 +39,8 @@ def filtered_trip_mode_data(
             if tour_mode is None
             else filtered.filter(pl.col("tour_mode") == tour_mode)
         )
+        if hidden_mode_values:
+            filtered = filtered.filter(~pl.col("trip_mode").is_in(sorted(hidden_mode_values)))
         out.append((label, filtered))
     return out
 
@@ -71,14 +76,19 @@ class TripModePage(DashboardPage):
             ),
             label="Tour Purpose",
         )
+        self.hide_drive_alone = self.selector(
+            "hide_drive_alone",
+            widget=pn.widgets.Checkbox(name="Hide Drive Alone", value=False),
+            label="Hide Drive Alone",
+        )
         self._body = self.section(
             "trip_summary_mode_body",
-            selectors=("tour_purpose",),
+            selectors=("tour_purpose", "hide_drive_alone"),
             render=self.render_body,
         )
         return self.new_section(
             pn.pane.Markdown("## Trip Mode"),
-            selector_row(self.tour_purpose_sel),
+            selector_row(self.tour_purpose_sel, self.hide_drive_alone),
             self._body,
             sizing_mode="stretch_width",
         )
@@ -114,13 +124,26 @@ class TripModePage(DashboardPage):
     def _mode_axes(
         self,
         trip_mode_list: list[tuple[str, pl.DataFrame]],
-    ) -> tuple[list[str], list[str], list[str]]:
+    ) -> tuple[list[str], list[str], list[str], set[str]]:
         trip_mode_values = ordered_category_values(
             trip_mode_list,
             "trip_mode",
             category_id="mode",
             config=self.config,
         )
+        hidden_trip_mode_values: set[str] = set()
+        if self.hide_drive_alone.value:
+            hidden_trip_mode_values = {
+                value
+                for value in trip_mode_values
+                if category_label_matches(self.config, "mode", value, "Drive Alone")
+            }
+            trip_mode_values = exclude_category_values_by_label(
+                trip_mode_values,
+                category_id="mode",
+                config=self.config,
+                label="Drive Alone",
+            )
         tour_modes = [
             value
             for value in ordered_category_values(
@@ -132,7 +155,7 @@ class TripModePage(DashboardPage):
             if value != "all_tour_modes"
         ]
         trip_mode_labels = self.config.ordered_labels("mode", trip_mode_values)
-        return trip_mode_values, trip_mode_labels, tour_modes
+        return trip_mode_values, trip_mode_labels, tour_modes, hidden_trip_mode_values
 
     def render_mode_chart(
         self,
@@ -141,12 +164,14 @@ class TripModePage(DashboardPage):
         raw_purpose: str,
         trip_mode_values: list[str],
         trip_mode_label_values: list[str],
+        hidden_trip_mode_values: set[str],
         tour_mode: str | None = None,
     ) -> pn.viewable.Viewable:
         cache_key = (
             "trip_mode_overall" if tour_mode is None else "trip_mode_grid",
             raw_purpose,
             tour_mode,
+            tuple(trip_mode_values),
         )
         mode_data = self.get_filtered_view(
             *cache_key,
@@ -156,6 +181,7 @@ class TripModePage(DashboardPage):
                         trip_mode_list,
                         raw_purpose,
                         tour_mode=tour_mode,
+                        hidden_mode_values=hidden_trip_mode_values,
                     ),
                     category_col="trip_mode",
                     category_values=trip_mode_values,
@@ -193,12 +219,18 @@ class TripModePage(DashboardPage):
             return [self.summary_only_unavailable_card()]
         trip_mode_list = summaries["trip_mode_by_tour_purpose_and_tour_mode"]
         display_purpose, raw_purpose = self._selected_purpose()
-        trip_mode_values, trip_mode_label_values, tour_modes = self._mode_axes(trip_mode_list)
+        (
+            trip_mode_values,
+            trip_mode_label_values,
+            tour_modes,
+            hidden_trip_mode_values,
+        ) = self._mode_axes(trip_mode_list)
         overall_chart = self.render_mode_chart(
             trip_mode_list,
             raw_purpose=raw_purpose,
             trip_mode_values=trip_mode_values,
             trip_mode_label_values=trip_mode_label_values,
+            hidden_trip_mode_values=hidden_trip_mode_values,
         )
         grid_cards = [
             self.render_mode_chart(
@@ -206,6 +238,7 @@ class TripModePage(DashboardPage):
                 raw_purpose=raw_purpose,
                 trip_mode_values=trip_mode_values,
                 trip_mode_label_values=trip_mode_label_values,
+                hidden_trip_mode_values=hidden_trip_mode_values,
                 tour_mode=tour_mode,
             )
             for tour_mode in tour_modes

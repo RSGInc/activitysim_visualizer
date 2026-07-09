@@ -9,6 +9,8 @@ from dashboard.components import bar_chart, selector_row
 from dashboard.helpers.category_helpers import (
     column_options,
     common_column_options,
+    category_label_matches,
+    exclude_category_values_by_label,
     label_category_data,
     nonempty,
     ordered_category_values,
@@ -112,6 +114,7 @@ def tour_mode_chart_data(
     data_list: list[tuple[str, pl.DataFrame]],
     purpose: str,
     auto_sufficiency: str,
+    hidden_mode_values: set[str] | None = None,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Build one tour mode distribution for a selected purpose and sufficiency slice."""
     value_col = {
@@ -125,6 +128,10 @@ def tour_mode_chart_data(
         filtered = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8)).filter(
             pl.col("tour_purpose") == purpose
         )
+        if hidden_mode_values:
+            filtered = filtered.with_columns(pl.col("tour_mode").cast(pl.Utf8)).filter(
+                ~pl.col("tour_mode").is_in(sorted(hidden_mode_values))
+            )
         out.append(
             (
                 label,
@@ -154,6 +161,11 @@ class TourModePage(DashboardPage):
             ),
             label="Tour Purpose",
         )
+        self.hide_drive_alone = self.selector(
+            "hide_drive_alone",
+            widget=pn.widgets.Checkbox(name="Hide Drive Alone", value=False),
+            label="Hide Drive Alone",
+        )
         self.occupancy_sel = self.selector(
             "vehicle_occupancy",
             widget=pn.widgets.Select(
@@ -165,7 +177,7 @@ class TourModePage(DashboardPage):
         )
         self._mode_section = self.section(
             "tour_mode_modes",
-            selectors=("tour_purpose",),
+            selectors=("tour_purpose", "hide_drive_alone"),
             render=self.render_modes_section,
         )
         self._vehicle_section = self.section(
@@ -176,6 +188,7 @@ class TourModePage(DashboardPage):
         return self.new_section(
             pn.pane.Markdown("## Tour Mode"),
             pn.pane.Markdown(auto_sufficiency_definitions_markdown(self.config)),
+            selector_row(self.purpose_sel, self.hide_drive_alone),
             self._mode_section,
             self._vehicle_section,
         )
@@ -282,7 +295,6 @@ class TourModePage(DashboardPage):
         if mode_summary is None:
             return [
                 pn.pane.Markdown("### Tour Mode"),
-                selector_row(self.purpose_sel),
                 self.data_not_available_card(
                     detail="The tour mode summary is unavailable.",
                     missing_items=["tour_mode_by_tour_purpose_and_auto_sufficiency"],
@@ -299,9 +311,21 @@ class TourModePage(DashboardPage):
             )
             if value != "all_tour_modes"
         ]
+        hidden_mode_values: set[str] = set()
+        if self.hide_drive_alone.value:
+            hidden_mode_values = {
+                value
+                for value in mode_values
+                if category_label_matches(self.config, "mode", value, "Drive Alone")
+            }
+            mode_values = exclude_category_values_by_label(
+                mode_values,
+                category_id="mode",
+                config=self.config,
+                label="Drive Alone",
+            )
         return [
             pn.pane.Markdown("### Tour Mode"),
-            selector_row(self.purpose_sel),
             *[
                 self.render_tour_mode_chart(
                     mode_summary,
@@ -309,6 +333,7 @@ class TourModePage(DashboardPage):
                     selected_purpose,
                     auto_sufficiency,
                     mode_values,
+                    hidden_mode_values,
                 )
                 for auto_sufficiency in AUTO_SUFFICIENCY_LEVELS
             ],
@@ -321,15 +346,17 @@ class TourModePage(DashboardPage):
         display_purpose: str,
         auto_sufficiency: str,
         mode_values: list[str],
+        hidden_mode_values: set[str],
     ) -> pn.viewable.Viewable:
         """Render one auto-sufficiency slice of the selected tour purpose."""
         mode_data = self.get_filtered_view(
             "tour_mode",
-            (raw_purpose, auto_sufficiency),
+            (raw_purpose, auto_sufficiency, tuple(mode_values)),
             factory=lambda: tour_mode_chart_data(
                 summary_data,
                 raw_purpose,
                 auto_sufficiency,
+                hidden_mode_values,
             ),
         )
         labeled = label_category_data(
