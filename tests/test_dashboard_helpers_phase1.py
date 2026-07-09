@@ -14,6 +14,7 @@ from dashboard.components import (
     column_titles_for_display,
     data_table,
     density_chart,
+    scatter_chart,
     set_bar_hover_mode,
     set_density_hover_mode,
 )
@@ -465,6 +466,34 @@ def test_density_chart_uses_configured_all_series_hover_mode() -> None:
 
     assert default_chart.object.layout.hovermode != "x unified"
     assert all_hover_chart.object.layout.hovermode == "x unified"
+
+
+def test_scatter_chart_can_add_one_to_one_reference_line() -> None:
+    chart = scatter_chart(
+        [
+            (
+                "Base",
+                pl.DataFrame(
+                    {
+                        "observed": [10.0, 20.0],
+                        "modeled": [12.0, 25.0],
+                    }
+                ),
+            )
+        ],
+        x_col="observed",
+        y_col="modeled",
+        one_to_one_line=True,
+    )
+
+    reference_line = chart.object.data[-1]
+
+    assert reference_line.name == "1:1 line"
+    assert list(reference_line.x) == [0.0, 25.0]
+    assert list(reference_line.y) == [0.0, 25.0]
+    assert reference_line.line.color == "#BDBDBD"
+    assert reference_line.line.dash == "dash"
+    assert reference_line.showlegend is False
 
 
 def test_dashboard_page_phase1_convenience_helpers(tmp_path: Path) -> None:

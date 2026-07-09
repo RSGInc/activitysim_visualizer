@@ -179,6 +179,18 @@ class PrepareAutoSufficiencySettings:
 
 
 @dataclass(frozen=True)
+class PrepareTimePeriodsSettings:
+    """Optional prepared trip/tour period-label derivation."""
+
+    enabled: bool = False
+    network_los_file: str | None = None
+    network_los_digest: str | None = None
+    trip_period_number_column: str = "depart"
+    tour_start_period_number_column: str = "start"
+    tour_end_period_number_column: str = "end"
+
+
+@dataclass(frozen=True)
 class CategorySpec:
     """Canonical display labels and ordering rules for one categorical domain."""
 
@@ -331,6 +343,7 @@ class Config:
     skimjoin: SkimjoinSettings
     prepare_vot_bins: PrepareVotBinsSettings
     prepare_auto_sufficiency: PrepareAutoSufficiencySettings
+    prepare_time_periods: PrepareTimePeriodsSettings
     prepare_output_file_format: str
     prepare_relationship_checks: str
     files: dict[str, str]

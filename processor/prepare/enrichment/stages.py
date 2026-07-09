@@ -19,6 +19,7 @@ from processor.prepare.enrichment.student_enrollment import (
 from processor.prepare.enrichment.tours import _enrich_tours
 from processor.prepare.enrichment.trips import _enrich_trips
 from processor.prepare.enrichment.types import _PrepareState
+from processor.prepare.enrichment.time_periods import _derive_time_periods
 from processor.prepare.enrichment.vot_bins import _normalize_vot_bins
 from processor.prepare.enrichment.weights import _apply_weights
 from processor.prepare.enrichment.zones import (
@@ -56,6 +57,7 @@ def _run_prepare_person_and_tour_stages(
 
 def _run_prepare_output_stages(state: _PrepareState, config: Config) -> _PrepareState:
     """Normalize output-only columns and cast final prepared table schemas."""
+    state = _derive_time_periods(state, config)
     state = _normalize_vot_bins(state, config)
     _log_prepare_diagnostics(state)
     return _cast_prepared_tables(state)

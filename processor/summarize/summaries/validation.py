@@ -1,12 +1,9 @@
 """Validation summaries."""
 
-from pathlib import Path
-
 from activitysim_viz_logging import get_logger
 import polars as pl
 from runtime.config import Config
 from processor.models import RunData
-from processor.skimjoin.config.network_los import load_network_los_period_mapping
 from processor.summarize.contracts import empty_summary_frame, summary_contract
 from processor.summarize.summaries.summary_helpers import (
     _configured_geography_dimensions,
@@ -421,40 +418,6 @@ def _auto_mode_filter(config: Config | None) -> pl.Expr:
     )
 
 
-def _resolved_network_los_file(rd: RunData, config: Config | None) -> str | None:
-    value = rd.skimjoin_manifest.get("skimjoin_resolved_network_los_file")
-    if value:
-        return str(value)
-    if config is not None and config.skimjoin.resolved_network_los_file:
-        return config.skimjoin.resolved_network_los_file
-    return None
-
-
-def _network_los_period_mapping(
-    rd: RunData,
-    config: Config | None,
-) -> dict[str, str] | None:
-    path = _resolved_network_los_file(rd, config)
-    if not path:
-        return None
-    if not Path(path).exists():
-        LOGGER.warning(
-            "[vmt_by_segment] Run %r network_los_file is unavailable; using Daily time period: %s",
-            rd.label,
-            path,
-        )
-        return None
-    try:
-        return load_network_los_period_mapping(path)
-    except Exception as exc:
-        LOGGER.warning(
-            "[vmt_by_segment] Run %r network_los_file could not be read; using Daily time period: %s",
-            rd.label,
-            exc,
-        )
-        return None
-
-
 def _distance_base(
     rd: RunData,
     config: Config | None,
@@ -514,27 +477,6 @@ def _with_time_period(
                 .alias("time_period")
             ),
             "trip_period",
-        )
-
-    period_mapping = _network_los_period_mapping(rd, config)
-    if period_mapping and "depart_hour" in df.columns:
-        LOGGER.info(
-            "[vmt_by_segment] Run %r using time_period_source=network_los",
-            rd.label,
-        )
-        return (
-            df.with_columns(
-                pl.col("depart_hour")
-                .cast(pl.Int64, strict=False)
-                .cast(pl.Utf8)
-                .map_elements(
-                    lambda value: period_mapping.get(value),
-                    return_dtype=pl.Utf8,
-                )
-                .fill_null(DAILY_TIME_PERIOD)
-                .alias("time_period")
-            ),
-            "network_los",
         )
 
     LOGGER.info(

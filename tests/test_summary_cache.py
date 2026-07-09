@@ -4602,6 +4602,7 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
         "Minor Arterial",
         "Principal Arterial",
     ]
+    assert page.demo_top_n_sel.name == "Top N by Modeled Volume"
     page.demo_period_sel.value = "AM"
     page.demo_facility_sel.value = "Principal Arterial"
     page.refresh(force=True)
@@ -4618,8 +4619,8 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
         "To_Node",
         "Observed Link Volume",
         "Modeled Link Volume",
-        "% Diff",
-        "RMSE",
+        "Difference",
+        "% Difference",
     ]
     assert tables[0].titles["link_id"] == "Link ID"
     assert table.to_dict("records") == [
@@ -4630,23 +4631,48 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
             "To_Node": "200",
             "Observed Link Volume": "100",
             "Modeled Link Volume": "110",
-            "% Diff": "-9.09%",
-            "RMSE": "10",
+            "Difference": "10",
+            "% Difference": "10.00%",
         }
     ]
     assert tables[0]._configuration == {
-        "columns": [{"field": "RMSE", "sorter": "number"}]
+        "columns": [{"field": "Difference", "sorter": "number"}]
     }
     assert list(page.view.objects[1].objects) == [
         page.demo_period_sel,
         page.demo_facility_sel,
     ]
     assert page._external_volume_body.objects[0].object == "### Traffic Volume Summaries"
-    assert page.view.objects[3].object == "### Top Count Locations"
+    facility_tables = _collect_tabulators(page._external_volume_body)
+    assert len(facility_tables) == 1
+    facility_table = facility_tables[0].value
+    assert facility_table.columns.tolist() == [
+        "Facility Type",
+        "Total Observed Count",
+        "Total Modeled Count",
+        "% Difference",
+        "RMSE",
+        "R^2",
+    ]
+    assert facility_table.to_dict("records")[0] == {
+        "Facility Type": "Principal Arterial",
+        "Total Observed Count": "10",
+        "Total Modeled Count": "11",
+        "% Difference": "10.00%",
+        "RMSE": "1",
+        "R^2": None,
+    }
+    assert facility_tables[0]._configuration == {
+        "columns": [
+            {"field": "RMSE", "sorter": "number"},
+            {"field": "R^2", "sorter": "number"},
+        ]
+    }
+    assert page.view.objects[3].object == "### Top Count Locations by Modeled Volume"
     top_count_section = page._external_top_body
     assert (
         top_count_section.objects[0].object
-        == "#### Observed vs Modeled Volumes - Day"
+        == "#### Observed vs Modeled Volumes - Day (Top 25 by Modeled Volume)"
     )
     assert page.view.objects[4].objects == [
         page.demo_top_period_sel,
@@ -4662,6 +4688,20 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
         for plot in _collect_plotly_panes(page._external_volume_body)
         if plot.object.layout.title.text == "Link Volume by Facility Type - AM"
     )
+    count_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._external_volume_body)
+        if plot.object.layout.title.text
+        == "Count Location Observed vs Modeled - AM"
+    )
+    reference_line = count_plot.object.data[-1]
+
+    assert reference_line.name == "1:1 line"
+    assert list(reference_line.x) == [0.0, 11.0]
+    assert list(reference_line.y) == [0.0, 11.0]
+    assert reference_line.line.color == "#BDBDBD"
+    assert reference_line.line.dash == "dash"
+    assert reference_line.showlegend is False
     assert list(bar_plot.object.data[0].x) == ["Principal Arterial"]
     assert plot_titles[-1] == "Screenline Flow Comparisons"
     assert "Traffic Count Comparisons" not in plot_titles

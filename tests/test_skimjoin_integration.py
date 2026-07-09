@@ -2760,7 +2760,7 @@ def test_annotate_trips_nullifies_configured_keyed_csv_sentinel_values(tmp_path:
     assert missing["reason"].to_list() == ["sentinel_value"]
 
 
-def test_annotate_trips_adds_trip_period_from_period_dimension(
+def test_annotate_trips_uses_prepared_trip_period_dimension(
     tmp_path: Path,
 ) -> None:
     skim_path = tmp_path / "skims.omx"
@@ -2787,12 +2787,9 @@ def test_annotate_trips_adds_trip_period_from_period_dimension(
                 "dimensions:",
                 "  PERIOD:",
                 "    source_columns:",
-                "      trip_source_column: depart_hour",
-                "      outbound_tour_source_column: start_hour",
-                "      inbound_tour_source_column: first_inbound_trip_depart",
-                "    values:",
-                "      1: EA",
-                "      7: AM",
+                "      trip_source_column: trip_period",
+                "      outbound_tour_source_column: start_period",
+                "      inbound_tour_source_column: first_inbound_trip_period",
                 "modes:",
                 "  SOV:",
                 "    time: SOV_TIME__{PERIOD}",
@@ -2809,7 +2806,7 @@ def test_annotate_trips_adds_trip_period_from_period_dimension(
             "trip_mode": ["SOV", "SOV"],
             "OTAZ": [101, 101],
             "DTAZ": [102, 102],
-            "depart_hour": [1, 7],
+            "trip_period": ["EA", "AM"],
         }
     )
     inventory = inventory_skim_files(normalized.skim_files)
@@ -2945,6 +2942,7 @@ def test_apply_skimjoin_disabled_resets_manifest_and_reports(tmp_path: Path) -> 
         "skimjoin_enabled": False,
         "skimjoin_status": "disabled",
         "skimjoin_config_digest": None,
+        "skimjoin_resolved_network_los_file": None,
         "skimjoin_applied_outputs": [],
         "skimjoin_skipped_rules": [],
         "skimjoin_warning_count": 0,
@@ -3302,12 +3300,9 @@ def test_tour_annotation_uses_directional_period_source_columns(
                 "dimensions:",
                 "  PERIOD:",
                 "    source_columns:",
-                "      trip_source_column: depart",
-                "      outbound_tour_source_column: start",
-                "      inbound_tour_source_column: first_inbound_trip_depart",
-                "    values:",
-                "      8: AM",
-                "      17: PM",
+                "      trip_source_column: trip_period",
+                "      outbound_tour_source_column: start_period",
+                "      inbound_tour_source_column: first_inbound_trip_period",
                 "defaults:",
                 "  origin: OTAZ",
                 "  destination: DTAZ",
@@ -3328,8 +3323,8 @@ def test_tour_annotation_uses_directional_period_source_columns(
             "tour_mode": ["SOV"],
             "origin": [1],
             "destination": [2],
-            "start": [8],
-            "first_inbound_trip_depart": [17],
+            "start_period": ["AM"],
+            "first_inbound_trip_period": ["PM"],
             "OTAZ": [1],
             "DTAZ": [2],
         }

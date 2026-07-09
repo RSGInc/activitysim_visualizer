@@ -167,6 +167,13 @@ def test_runtime_asset_restores_export_selector_widgets_from_runtime_state() -> 
     assert "const effectiveValue = resolveWidgetValue(node, context, leafPageId);" in runtime_js
     assert 'node.widget_type === "checkbox"' in runtime_js
     assert 'checkbox.checked ? "True" : "False"' in runtime_js
+    assert 'pageId === "vmt"' in runtime_js
+    assert 'selectorId === "personal_auto_vmt_breakdown"' in runtime_js
+    assert (
+        'pageState.personal_auto_vmt_geography_type = "All Geography Types"'
+        in runtime_js
+    )
+    assert "isVmtGeographyTypeUnavailable" in runtime_js
 
 
 def test_runtime_asset_contains_sortable_export_table_helpers() -> None:

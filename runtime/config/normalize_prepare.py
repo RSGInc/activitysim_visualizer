@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,7 @@ from .constants import (
     OPTIONAL_PREPARED_TABLE_IDS,
     PREPARED_TABLE_MAP_KEYS,
 )
-from .models import Config, PrepareVotBinsSettings
+from .models import Config, PrepareTimePeriodsSettings, PrepareVotBinsSettings
 from .normalize_skimjoin import normalize_run_skimjoin_overrides, resolve_run_skimjoin_settings
 
 
@@ -72,6 +73,52 @@ def normalize_prepare_vot_bins(
         output_column=output_column,
         fallback_value=fallback_value,
         mappings=mappings,
+    )
+
+
+def normalize_prepare_time_periods(
+    raw_value,
+    *,
+    field_name: str,
+    config_dir: Path,
+) -> PrepareTimePeriodsSettings:
+    if raw_value in (None, {}):
+        return PrepareTimePeriodsSettings()
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{field_name} must be a mapping when provided.")
+
+    network_los_raw = raw_value.get("network_los_file")
+    if not isinstance(network_los_raw, str) or not network_los_raw.strip():
+        raise ValueError(f"{field_name}.network_los_file must be a non-empty path string.")
+    network_los_path = Path(network_los_raw.strip()).expanduser()
+    if not network_los_path.is_absolute():
+        network_los_path = (config_dir / network_los_path).resolve()
+    else:
+        network_los_path = network_los_path.resolve()
+    if not network_los_path.exists():
+        raise ValueError(
+            f"{field_name}.network_los_file does not exist: {network_los_path}"
+        )
+    if not network_los_path.is_file():
+        raise ValueError(
+            f"{field_name}.network_los_file must point to a file: {network_los_path}"
+        )
+
+    def _column(name: str, default: str) -> str:
+        raw_column = raw_value.get(name, default)
+        if not isinstance(raw_column, str) or not raw_column.strip():
+            raise ValueError(f"{field_name}.{name} must be a non-empty string.")
+        return raw_column.strip()
+
+    return PrepareTimePeriodsSettings(
+        enabled=True,
+        network_los_file=str(network_los_path),
+        network_los_digest=hashlib.sha256(network_los_path.read_bytes()).hexdigest(),
+        trip_period_number_column=_column("trip_period_number_column", "depart"),
+        tour_start_period_number_column=_column(
+            "tour_start_period_number_column", "start"
+        ),
+        tour_end_period_number_column=_column("tour_end_period_number_column", "end"),
     )
 
 

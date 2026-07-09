@@ -234,25 +234,7 @@ def test_auto_vmt_segment_summary_includes_taxi_and_tnc_auto_modes() -> None:
     ]
 
 
-def test_auto_vmt_segment_summary_derives_time_period_from_network_los(
-    tmp_path: Path,
-) -> None:
-    network_los = tmp_path / "network_los.yaml"
-    network_los.write_text(
-        "\n".join(
-            [
-                "skim_time_periods:",
-                "  periods:",
-                "    - 0",
-                "    - 6",
-                "    - 12",
-                "  labels:",
-                "    - EA",
-                "    - AM",
-            ]
-        ),
-        encoding="utf-8",
-    )
+def test_auto_vmt_segment_summary_ignores_skimjoin_period_mapping() -> None:
     rd = _run_data(
         trips=pl.DataFrame(
             {
@@ -266,7 +248,7 @@ def test_auto_vmt_segment_summary_derives_time_period_from_network_los(
         ),
         hh=pl.DataFrame({"household_id": [1], "income_segment": [1], "HHSIZE": [1]}),
         skimjoin_manifest={
-            "skimjoin_resolved_network_los_file": str(network_los),
+            "skimjoin_resolved_network_los_file": "ignored_network_los.yaml",
         },
     )
 
@@ -275,9 +257,7 @@ def test_auto_vmt_segment_summary_derives_time_period_from_network_los(
     )
 
     assert result.select("time_period", "auto_vmt", "time_period_source").to_dicts() == [
-        {"time_period": "AM", "auto_vmt": 20.0, "time_period_source": "network_los"},
-        {"time_period": "Daily", "auto_vmt": 35.0, "time_period_source": "network_los"},
-        {"time_period": "EA", "auto_vmt": 10.0, "time_period_source": "network_los"},
+        {"time_period": "Daily", "auto_vmt": 35.0, "time_period_source": "daily"},
     ]
 
 

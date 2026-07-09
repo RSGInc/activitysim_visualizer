@@ -11,12 +11,17 @@ from _dashboard_expectations import EXPECTED_DEFAULT_PAGES
 from dashboard import DashboardState
 from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.export.context import ExportBuildContext
-from dashboard.export.payload import build_export_payload
+from dashboard.export.payload import (
+    VMT_EXPORT_DROPDOWN_NOTE,
+    _with_export_page_notes,
+    build_export_payload,
+)
 from dashboard.export.types import (
     EXPORT_CLIENT_RUNTIME,
     EXPORT_PAGE_SELECTOR_RUNTIME,
     EXPORT_SCHEMA_VERSION,
 )
+from dashboard.page_definitions import DashboardPageDefinition
 from test_export_html import (
     _full_summary_run,
     _segmented_summary_runs,
@@ -40,6 +45,35 @@ def _first_plot_trace_names(page_payload: dict) -> list[str]:
 
 def _plot_nodes(page_payload: dict) -> list[dict]:
     return [node for node in _walk_nodes(page_payload) if node.get("kind") == "plotly"]
+
+
+def test_vmt_export_content_includes_dropdown_availability_note() -> None:
+    title_node = {"kind": "html", "html": "<h2>VMT Validation</h2>"}
+    section_node = {"kind": "html", "html": "<h3>Personal Auto VMT</h3>"}
+    content = {
+        "kind": "container",
+        "layout": "column",
+        "child_count": 2,
+        "children": [title_node, section_node],
+        "styles": {},
+        "css_classes": [],
+    }
+
+    vmt_content = _with_export_page_notes(
+        DashboardPageDefinition(page_id="vmt", title="VMT Validation"),
+        content,
+    )
+    overview_content = _with_export_page_notes(
+        DashboardPageDefinition(page_id="overview", title="Overview"),
+        content,
+    )
+
+    assert overview_content is content
+    assert vmt_content["kind"] == "container"
+    assert vmt_content["child_count"] == 3
+    assert vmt_content["children"][0] is title_node
+    assert VMT_EXPORT_DROPDOWN_NOTE in vmt_content["children"][1]["html"]
+    assert vmt_content["children"][2] is section_node
 
 
 def test_build_export_payload_has_stable_top_level_contract() -> None:

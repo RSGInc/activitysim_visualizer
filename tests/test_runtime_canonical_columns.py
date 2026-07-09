@@ -51,6 +51,21 @@ def _write_config(
     return Config.from_yaml(config_path)
 
 
+def _write_network_los(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(
+            [
+                "skim_time_periods:",
+                "  periods: [0, 6, 12, 24, 32, 42, 48]",
+                "  labels: [EA, AM, MD, PM, EV, EA]",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 def _raw_run_with_alternate_columns() -> RunData:
     return RunData(
         label="Base",
@@ -918,6 +933,90 @@ def test_config_prepare_signature_changes_when_auto_sufficiency_basis_changes(
     assert config_a.prepare_config_digest != config_b.prepare_config_digest
     assert config_a.summary_config_digest == config_b.summary_config_digest
     assert config_a.presentation_config_digest == config_b.presentation_config_digest
+
+
+def test_config_loads_prepare_time_periods_and_includes_file_digest(
+    tmp_path: Path,
+) -> None:
+    network_los = _write_network_los(tmp_path / "network_los.yaml")
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  time_periods:",
+            "    network_los_file: network_los.yaml",
+            "    trip_period_number_column: depart",
+            "    tour_start_period_number_column: start",
+            "    tour_end_period_number_column: end",
+        ],
+    )
+
+    assert config.prepare_time_periods.enabled is True
+    assert config.prepare_time_periods.network_los_file == str(network_los.resolve())
+    assert config.prepare_time_periods.network_los_digest is not None
+    assert config.prepare_time_periods.trip_period_number_column == "depart"
+
+
+def test_config_prepare_signature_changes_when_time_period_config_changes(
+    tmp_path: Path,
+) -> None:
+    network_los_a = _write_network_los(tmp_path / "a" / "network_los.yaml")
+    network_los_b = _write_network_los(tmp_path / "b" / "network_los.yaml")
+    network_los_b.write_text(
+        "\n".join(
+            [
+                "skim_time_periods:",
+                "  periods: [0, 12, 24, 48]",
+                "  labels: [EA, MD, EV]",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config_a = _write_config(
+        tmp_path / "a",
+        extra_lines=[
+            "prepare:",
+            "  time_periods:",
+            f"    network_los_file: {network_los_a.name}",
+            "    trip_period_number_column: depart",
+        ],
+    )
+    config_b = _write_config(
+        tmp_path / "b",
+        extra_lines=[
+            "prepare:",
+            "  time_periods:",
+            f"    network_los_file: {network_los_b.name}",
+            "    trip_period_number_column: depart",
+        ],
+    )
+
+    assert config_a.prepare_config_digest != config_b.prepare_config_digest
+
+
+def test_config_rejects_missing_prepare_time_period_network_los(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'name: "Canonical Test Config"',
+                "runs: []",
+                "summaries:",
+                "  root: summary_cache",
+                "visualizer:",
+                '  dashboard_title: "Canonical Test Dashboard"',
+                "prepare:",
+                "  time_periods:",
+                "    network_los_file: missing_network_los.yaml",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="prepare.time_periods.network_los_file"):
+        Config.from_yaml(config_path)
 
 
 def test_config_presentation_signature_changes_when_log_level_changes(
@@ -1941,6 +2040,109 @@ def test_prepare_data_uses_default_fallbacks_for_purpose_timing_and_employment(
     assert prepared.trips["trip_purpose"].to_list() == ["shop", "home"]
     assert prepared.trips["depart_hour"].to_list() == [8, 9]
     assert prepared.land_use["EMPLOYMENT"].to_list() == [7, 8, 9]
+
+
+def test_prepare_data_derives_trip_and_tour_period_labels(
+    tmp_path: Path,
+) -> None:
+    _write_network_los(tmp_path / "network_los.yaml")
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  time_periods:",
+            "    network_los_file: network_los.yaml",
+            "    trip_period_number_column: depart",
+            "    tour_start_period_number_column: start",
+            "    tour_end_period_number_column: end",
+        ],
+    )
+    raw = RunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1], "home_zone_id": [10]}),
+        per=pl.DataFrame({"person_id": [101], "household_id": [1], "ptype": [1]}),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [1001],
+                "person_id": [101],
+                "household_id": [1],
+                "tour_mode": ["DRIVE"],
+                "start": [7],
+                "end": [33],
+                "origin": [10],
+                "destination": [20],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "trip_id": list(range(1, 9)),
+                "tour_id": [1001] * 8,
+                "person_id": [101] * 8,
+                "household_id": [1] * 8,
+                "trip_mode": ["DRIVEALONE"] * 8,
+                "depart": [1, 7, 13, 25, 33, 44, 49, None],
+                "outbound": [True, True, True, False, False, False, False, False],
+                "trip_num": list(range(1, 9)),
+                "origin": [10] * 8,
+                "destination": [20] * 8,
+            },
+            schema_overrides={"depart": pl.Int64},
+        ),
+        joint_participants=pl.DataFrame(
+            {"tour_id": [], "person_id": []},
+            schema={"tour_id": pl.Int64, "person_id": pl.Int64},
+        ),
+        land_use=pl.DataFrame({"zone_id": [10, 20], "TAZ": [10, 20]}),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    prepared = prepare_data(raw, config)
+
+    assert prepared.trips["trip_period"].to_list() == [
+        "EA",
+        "AM",
+        "MD",
+        "PM",
+        "EV",
+        "EA",
+        None,
+        None,
+    ]
+    assert prepared.tours["start_period"].to_list() == ["AM"]
+    assert prepared.tours["end_period"].to_list() == ["EV"]
+    assert prepared.tours["first_inbound_trip_period"].to_list() == ["PM"]
+    assert prepared.prepare_diagnostics["time_periods.trips.trip_period"][
+        "unresolved"
+    ] == 2
+
+
+def test_prepare_data_preserves_raw_trip_period_when_source_missing(
+    tmp_path: Path,
+) -> None:
+    _write_network_los(tmp_path / "network_los.yaml")
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  time_periods:",
+            "    network_los_file: network_los.yaml",
+            "    trip_period_number_column: missing_depart",
+        ],
+    )
+    raw = _raw_run_with_default_fallback_columns()
+    raw.trips = raw.trips.drop("depart").with_columns(
+        pl.Series("trip_period", ["AM", "PM"])
+    )
+
+    prepared = prepare_data(raw, config)
+
+    assert prepared.trips["trip_period"].to_list() == ["AM", "PM"]
+    assert prepared.prepare_diagnostics["time_periods.trips.trip_period"][
+        "status"
+    ] == "source_column_missing"
 
 
 def test_prepare_data_resolves_shared_alias_lists_independently_per_run(

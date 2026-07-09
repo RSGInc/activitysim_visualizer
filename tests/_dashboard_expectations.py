@@ -19,7 +19,7 @@ EXPECTED_DEFAULT_LEAF_PAGES = [
     ("individual_choices", "Individual Choices"),
     ("vehicle_ownership_type", "Vehicle Ownership and Type"),
     ("mandatory_location_choice", "Mandatory Location Choice"),
-    ("shadow_pricing", "Shadow Pricing"),
+    ("shadow_pricing", "Employment\\Enrollment Match By Geography"),
     ("tour_skims", "Tour Skims"),
     ("trip_skims", "Trip Skims"),
     ("tour_purpose", "Tour Purpose"),

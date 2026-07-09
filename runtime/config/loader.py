@@ -48,6 +48,7 @@ from .normalize_prepare import (
     normalize_fallback_file_mapping,
     normalize_file_mapping,
     normalize_prepare_relationship_checks,
+    normalize_prepare_time_periods,
     normalize_prepare_vot_bins,
     normalize_prepared_output_file_format,
     normalize_runs,
@@ -605,6 +606,11 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         prepare_cfg.get("vot_bins"),
         field_name="prepare.vot_bins",
     )
+    prepare_time_periods = normalize_prepare_time_periods(
+        prepare_cfg.get("time_periods"),
+        field_name="prepare.time_periods",
+        config_dir=config_path.parent,
+    )
     auto_sufficiency_basis_raw = prepare_cfg.get("auto_sufficiency_basis")
     if auto_sufficiency_basis_raw is None:
         prepare_auto_sufficiency = PrepareAutoSufficiencySettings()
@@ -1022,6 +1028,7 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         skimjoin=skimjoin,
         prepare_vot_bins=prepare_vot_bins,
         prepare_auto_sufficiency=prepare_auto_sufficiency,
+        prepare_time_periods=prepare_time_periods,
         prepare_output_file_format=prepare_output_file_format,
         prepare_relationship_checks=prepare_relationship_checks,
         files=files,

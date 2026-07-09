@@ -160,6 +160,20 @@ def prepare_signature_payload(config: Config) -> dict[str, Any]:
                 "basis": config.prepare_auto_sufficiency.basis,
             },
             "output": {"file_format": config.prepare_output_file_format},
+            "time_periods": {
+                "enabled": config.prepare_time_periods.enabled,
+                "network_los_file": config.prepare_time_periods.network_los_file,
+                "network_los_digest": config.prepare_time_periods.network_los_digest,
+                "trip_period_number_column": (
+                    config.prepare_time_periods.trip_period_number_column
+                ),
+                "tour_start_period_number_column": (
+                    config.prepare_time_periods.tour_start_period_number_column
+                ),
+                "tour_end_period_number_column": (
+                    config.prepare_time_periods.tour_end_period_number_column
+                ),
+            },
             "vot_bins": {
                 "enabled": config.prepare_vot_bins.enabled,
                 "source_column": config.prepare_vot_bins.source_column,

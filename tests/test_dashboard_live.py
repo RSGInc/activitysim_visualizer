@@ -42,6 +42,7 @@ from dashboard.pages.validation.regional import (
 from dashboard.pages.validation.traffic import (
     demo_count_scatter_data,
     demo_count_scatter_data_from_sources,
+    demo_facility_comparison_table,
     demo_count_fit_line_data,
     demo_link_aggregate_data,
     demo_volume_comparison_table,
@@ -202,7 +203,10 @@ def test_dashboard_state_reports_missing_non_default_summary_as_diagnostic() -> 
     assert selection.excluded_runs[0].source_id == "demo_auto_vmt_summary"
 
 
-def test_external_traffic_helpers_filter_period_and_facility_type() -> None:
+def test_external_traffic_helpers_filter_period_and_facility_type(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
     counts = [
         (
             "Run",
@@ -295,8 +299,8 @@ def test_external_traffic_helpers_filter_period_and_facility_type() -> None:
             "To_Node": 201,
             "Observed Link Volume": 200.0,
             "Modeled Link Volume": 210.0,
-            "% Diff": "-4.76%",
-            "RMSE": 10.0,
+            "Difference": 10.0,
+            "% Difference": "5.00%",
         }
     ]
     comparison_without_metadata = demo_volume_comparison_table(
@@ -311,8 +315,8 @@ def test_external_traffic_helpers_filter_period_and_facility_type() -> None:
         "facility_type",
         "Observed Link Volume",
         "Modeled Link Volume",
-        "% Diff",
-        "RMSE",
+        "Difference",
+        "% Difference",
     ]
     comparison_with_empty_metadata = demo_volume_comparison_table(
         counts,
@@ -338,9 +342,39 @@ def test_external_traffic_helpers_filter_period_and_facility_type() -> None:
         "facility_type",
         "Observed Link Volume",
         "Modeled Link Volume",
-        "% Diff",
-        "RMSE",
+        "Difference",
+        "% Difference",
     ]
+    comparison_top_modeled = demo_volume_comparison_table(
+        [
+            (
+                "Run",
+                pl.DataFrame(
+                    {
+                        "id": [1, 2],
+                        "FACTYPE": [4, 4],
+                        "day_vol": [999.0, 100.0],
+                    }
+                ),
+            )
+        ],
+        [
+            (
+                "Run",
+                pl.DataFrame(
+                    {
+                        "id": [1, 2],
+                        "FACTYPE": [4, 4],
+                        "day_vol": [50.0, 200.0],
+                    }
+                ),
+            )
+        ],
+        volume_col="day_vol",
+        facility_type="All",
+        top_n=1,
+    )
+    assert comparison_top_modeled[0][1]["link_id"].to_list() == [2]
 
     derived_scatter = demo_count_scatter_data(
         [
@@ -367,6 +401,48 @@ def test_external_traffic_helpers_filter_period_and_facility_type() -> None:
             "period": "Day",
             "observed_volume": 300.0,
             "modeled_volume": 310.0,
+        }
+    ]
+    facility_comparison = demo_facility_comparison_table(
+        [
+            (
+                "Run",
+                pl.DataFrame(
+                    {
+                        "id": [1, 2, 3],
+                        "facility_type": ["4", "4", "3"],
+                        "period": ["Day", "Day", "Day"],
+                        "observed_volume": [100.0, 300.0, 50.0],
+                        "modeled_volume": [110.0, 330.0, 75.0],
+                    }
+                ),
+            )
+        ],
+        [
+            (
+                "Run",
+                pl.DataFrame(
+                    {
+                        "facility_type": ["4"],
+                        "period": ["Day"],
+                        "r_squared": [0.875],
+                    }
+                ),
+            )
+        ],
+        period="Day",
+        facility_type="4",
+        config=config,
+    )
+
+    assert facility_comparison[0][1].to_dicts() == [
+        {
+            "Facility Type": "4",
+            "Total Observed Count": 400.0,
+            "Total Modeled Count": 440.0,
+            "% Difference": "10.00%",
+            "RMSE": 22.360679774997898,
+            "R^2": 0.875,
         }
     ]
 
@@ -1157,6 +1233,9 @@ def test_vmt_export_states_collapse_ignored_personal_auto_selectors(
     assert len(
         {state["personal_auto_vmt_geography_type"] for state in mode_states}
     ) == 1
+    assert {
+        state["personal_auto_vmt_geography_type"] for state in mode_states
+    } == {"All Geography Types"}
     assert len({state["personal_auto_vmt_geography"] for state in mode_states}) == 1
     home_state_groups = {
         tuple(

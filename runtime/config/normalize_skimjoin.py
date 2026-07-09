@@ -43,25 +43,7 @@ def validate_required_period_mappings(
     *,
     context_label: str,
 ) -> None:
-    period_requires_mapping = any(
-        "PERIOD" in getattr(rule, "dimensions_used", [])
-        for rule in [
-            *getattr(normalized_config, "trip_lookups", []),
-            *getattr(normalized_config, "tour_lookups", []),
-        ]
-    )
-    if not period_requires_mapping:
-        return
-
-    for rule in [*normalized_config.trip_lookups, *normalized_config.tour_lookups]:
-        if "PERIOD" not in rule.dimensions_used:
-            continue
-        period_dimension = rule.dimensions.get("PERIOD")
-        if period_dimension is None or period_dimension.values:
-            continue
-        raise ValueError(
-            f"{context_label} requires period mapping for skimjoin dimension 'PERIOD', but no usable network_los_file or explicit dimensions.PERIOD.values were provided."
-        )
+    return
 
 
 def load_resolved_skimjoin_settings(
