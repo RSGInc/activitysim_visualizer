@@ -16,6 +16,7 @@ from dashboard.components import (
 from dashboard.helpers.comparison_helpers import (
     build_base_run_percent_difference_table,
 )
+from dashboard.helpers.category_helpers import cap_numeric_category_data
 from dashboard.page_base import DashboardPage, SectionContent
 from dashboard.page_definitions import DashboardPageDefinition
 
@@ -85,11 +86,13 @@ def person_type_chart_data(
 def hh_size_chart_data(
     hhsize_list: list[tuple[str, pl.DataFrame]],
 ) -> list[tuple[str, pl.DataFrame]]:
-    """Cast household size labels for chart display."""
-    return [
-        (label, df.with_columns(pl.col("household_size").cast(pl.Utf8)))
-        for label, df in hhsize_list
-    ]
+    """Cap household size labels at 5+ for chart display."""
+    return cap_numeric_category_data(
+        hhsize_list,
+        category_col="household_size",
+        cap_value=5,
+        value_cols=("household_count",),
+    )
 
 
 class OverviewPage(DashboardPage):

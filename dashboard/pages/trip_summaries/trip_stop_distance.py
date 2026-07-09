@@ -6,7 +6,11 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import density_chart, selector_row
-from dashboard.helpers.category_helpers import column_options, nonempty
+from dashboard.helpers.category_helpers import (
+    cap_numeric_category_frame,
+    column_options,
+    nonempty,
+)
 from dashboard.helpers.time_distance_helpers import distance_sort_expr
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
@@ -17,24 +21,33 @@ def distance_chart_data(
     tour_purpose: str,
     x_col: str,
     y_col: str,
+    *,
+    cap_at: int | None = None,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Filter one distribution summary to a tour purpose and order the distance bins."""
     out = []
     for label, df in nonempty(data_list):
-        out.append(
-            (
-                label,
-                df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
-                .filter(pl.col("tour_purpose") == tour_purpose)
-                .select(
-                    pl.col(x_col).alias("distance_bin"),
-                    pl.col(y_col).alias("freq"),
-                )
-                .with_columns(distance_sort_expr("distance_bin").alias("_sort_distance"))
-                .sort("_sort_distance")
-                .drop("_sort_distance"),
+        chart_df = (
+            df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
+            .filter(pl.col("tour_purpose") == tour_purpose)
+            .select(
+                pl.col(x_col).alias("distance_bin"),
+                pl.col(y_col).alias("freq"),
             )
         )
+        if cap_at is not None:
+            chart_df = cap_numeric_category_frame(
+                chart_df,
+                category_col="distance_bin",
+                cap_value=cap_at,
+                value_cols=("freq",),
+            )
+        chart_df = (
+            chart_df.with_columns(distance_sort_expr("distance_bin").alias("_sort_distance"))
+            .sort("_sort_distance")
+            .drop("_sort_distance")
+        )
+        out.append((label, chart_df))
     return out
 
 
@@ -119,11 +132,18 @@ class TripStopDistancePage(DashboardPage):
         title: str,
         xaxis_title: str,
         yaxis_title: str,
+        cap_at: int | None = None,
     ) -> pn.viewable.Viewable:
         chart_data = self.get_filtered_view(
             cache_key,
-            raw_purpose,
-            factory=lambda: distance_chart_data(summary_data, raw_purpose, x_col, y_col),
+            (raw_purpose, cap_at),
+            factory=lambda: distance_chart_data(
+                summary_data,
+                raw_purpose,
+                x_col,
+                y_col,
+                cap_at=cap_at,
+            ),
         )
         return density_chart(
             chart_data,
@@ -166,6 +186,7 @@ class TripStopDistancePage(DashboardPage):
                 title="Stop Out-of-Direction Distance Distribution",
                 xaxis_title="Out-of-Direction Distance (miles)",
                 yaxis_title="Stops",
+                cap_at=40,
             ),
         ]
 

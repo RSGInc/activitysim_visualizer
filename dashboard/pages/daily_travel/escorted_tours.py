@@ -7,9 +7,12 @@ import polars as pl
 
 from dashboard.components import bar_chart, density_chart, selector_row
 from dashboard.helpers.category_helpers import (
+    capped_numeric_category_expr,
+    capped_numeric_category_values,
     complete_category_counts,
     label_category_data,
     nonempty,
+    numeric_like_sort_expr,
     ordered_category_values,
 )
 from dashboard.helpers.time_distance_helpers import distance_sort_expr
@@ -111,11 +114,11 @@ def adult_escort_event_stop_chart_data(
         filtered = (
             df.with_columns(pl.col("segment").cast(pl.Utf8))
             .filter(pl.col("segment") == segment)
+            .with_columns(capped_numeric_category_expr("stop_count", 3))
             .group_by("stop_count")
             .agg(tour_count=pl.col("tour_count").sum())
-            .with_columns(pl.col("stop_count").cast(pl.Utf8))
             .select("stop_count", "tour_count")
-            .sort(pl.col("stop_count").cast(pl.Int64, strict=False))
+            .sort(numeric_like_sort_expr("stop_count"))
         )
         out.append((label, filtered))
     return out
@@ -197,9 +200,15 @@ def household_school_escort_chart_data(
 ) -> list[tuple[str, pl.DataFrame]]:
     """Compute household counts and rates for the selected escort direction."""
     denominator_by_label = {
-        label: df.select(
-            pl.col("student_count").cast(pl.Int64),
-            pl.col("household_count").cast(pl.Float64).alias("total_household_count"),
+        label: (
+            df.with_columns(capped_numeric_category_expr("student_count", 6))
+            .group_by("student_count")
+            .agg(
+                pl.col("household_count")
+                .cast(pl.Float64)
+                .sum()
+                .alias("total_household_count")
+            )
         )
         for label, df in nonempty(denominator_data_list)
     }
@@ -211,9 +220,13 @@ def household_school_escort_chart_data(
         filtered = (
             df.with_columns(pl.col(DIRECTION_COL).cast(pl.Utf8))
             .filter(pl.col(DIRECTION_COL) == direction)
-            .select(
-                pl.col("student_count").cast(pl.Int64),
-                pl.col("household_count").cast(pl.Float64),
+            .with_columns(capped_numeric_category_expr("student_count", 6))
+            .group_by("student_count")
+            .agg(
+                pl.col("household_count")
+                .cast(pl.Float64)
+                .sum()
+                .alias("household_count")
             )
         )
         out.append(
@@ -249,11 +262,29 @@ def schoolkids_per_escorted_tour_chart_data(
                 label,
                 df.with_columns(pl.col(DIRECTION_COL).cast(pl.Utf8))
                 .filter(pl.col(DIRECTION_COL) == direction)
-                .select(
-                    pl.col("student_count").cast(pl.Int64),
+                .with_columns(
+                    capped_numeric_category_expr("student_count", 6),
                     pl.col("avg_schoolkids_per_tour").cast(pl.Float64),
                     pl.col("tour_count").cast(pl.Float64),
-                ),
+                )
+                .with_columns(
+                    (
+                        pl.col("avg_schoolkids_per_tour") * pl.col("tour_count")
+                    ).alias("_weighted_schoolkids")
+                )
+                .group_by("student_count")
+                .agg(
+                    pl.col("_weighted_schoolkids").sum(),
+                    pl.col("tour_count").sum(),
+                )
+                .with_columns(
+                    pl.when(pl.col("tour_count") > 0)
+                    .then(pl.col("_weighted_schoolkids") / pl.col("tour_count"))
+                    .otherwise(0.0)
+                    .alias("avg_schoolkids_per_tour")
+                )
+                .select("student_count", "avg_schoolkids_per_tour", "tour_count")
+                .sort(numeric_like_sort_expr("student_count")),
             )
         )
     return out
@@ -263,36 +294,22 @@ def student_count_category_values(
     data_list: list[tuple[str, pl.DataFrame]],
 ) -> list[str]:
     """Return observed student-count bins in numeric order."""
-    values: set[int] = set()
-    for _, df in nonempty(data_list):
-        if "student_count" not in df.columns:
-            continue
-        values.update(
-            value
-            for value in df.select(pl.col("student_count").cast(pl.Int64))
-            .to_series()
-            .to_list()
-            if value is not None
-        )
-    return [str(value) for value in sorted(values)]
+    return capped_numeric_category_values(
+        data_list,
+        "student_count",
+        cap_value=6,
+    )
 
 
 def stop_count_category_values(
     data_list: list[tuple[str, pl.DataFrame]],
 ) -> list[str]:
     """Return observed stop-count bins in numeric order."""
-    values: set[int] = set()
-    for _, df in nonempty(data_list):
-        if "stop_count" not in df.columns:
-            continue
-        values.update(
-            value
-            for value in df.select(pl.col("stop_count").cast(pl.Int64))
-            .to_series()
-            .to_list()
-            if value is not None
-        )
-    return [str(value) for value in sorted(values)]
+    return capped_numeric_category_values(
+        data_list,
+        "stop_count",
+        cap_value=3,
+    )
 
 
 class EscortedToursPage(DashboardPage):

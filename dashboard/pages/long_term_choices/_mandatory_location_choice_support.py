@@ -10,6 +10,7 @@ from __future__ import annotations
 import polars as pl
 
 from dashboard.helpers.category_helpers import (
+    cap_numeric_category_frame,
     label_category_data,
     nonempty,
     ordered_category_values,
@@ -161,9 +162,13 @@ def distance_distribution_chart_data(
         out.append(
             (
                 label,
-                df.group_by("distance_bin")
-                .agg(person_count=pl.col("person_count").sum())
-                .sort("distance_bin"),
+                cap_numeric_category_frame(
+                    df.group_by("distance_bin")
+                    .agg(person_count=pl.col("person_count").sum()),
+                    category_col="distance_bin",
+                    cap_value=40,
+                    value_cols=("person_count",),
+                ),
             )
         )
     return out

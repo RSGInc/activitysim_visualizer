@@ -348,6 +348,113 @@ def numeric_like_sort_expr(column: str) -> pl.Expr:
     return pl.when(base_value.is_null()).then(pl.lit(float("inf"))).otherwise(base_value)
 
 
+def capped_numeric_category_expr(
+    column: str,
+    cap_value: int,
+    *,
+    target_col: str | None = None,
+) -> pl.Expr:
+    """Return a string category expression with values at or above ``cap_value`` capped."""
+    numeric_value = pl.col(column).cast(pl.Int64, strict=False)
+    return (
+        pl.when(numeric_value >= cap_value)
+        .then(pl.lit(f"{cap_value}+"))
+        .otherwise(pl.col(column).cast(pl.Int64, strict=False).cast(pl.Utf8))
+        .alias(target_col or column)
+    )
+
+
+def cap_numeric_category_frame(
+    df: pl.DataFrame,
+    *,
+    category_col: str,
+    cap_value: int,
+    value_cols: tuple[str, ...],
+    target_col: str | None = None,
+) -> pl.DataFrame:
+    """Aggregate numeric categories at or above ``cap_value`` into one ``N+`` bucket."""
+    output_col = target_col or category_col
+    if category_col not in df.columns:
+        return df
+    available_value_cols = [column for column in value_cols if column in df.columns]
+    if not available_value_cols:
+        return df.with_columns(
+            capped_numeric_category_expr(
+                category_col,
+                cap_value,
+                target_col=output_col,
+            )
+        )
+    return (
+        df.with_columns(
+            capped_numeric_category_expr(
+                category_col,
+                cap_value,
+                target_col=output_col,
+            )
+        )
+        .group_by(output_col)
+        .agg([pl.col(column).sum().alias(column) for column in available_value_cols])
+        .sort(numeric_like_sort_expr(output_col))
+    )
+
+
+def cap_numeric_category_data(
+    data_list: list[tuple[str, pl.DataFrame]],
+    *,
+    category_col: str,
+    cap_value: int,
+    value_cols: tuple[str, ...],
+    target_col: str | None = None,
+) -> list[tuple[str, pl.DataFrame]]:
+    """Apply numeric category capping across a run-indexed data list."""
+    return [
+        (
+            label,
+            cap_numeric_category_frame(
+                df,
+                category_col=category_col,
+                cap_value=cap_value,
+                value_cols=value_cols,
+                target_col=target_col,
+            ),
+        )
+        for label, df in nonempty(data_list)
+    ]
+
+
+def capped_numeric_category_values(
+    data_list: list[tuple[str, pl.DataFrame]],
+    column: str,
+    *,
+    cap_value: int,
+    minimum: int | None = None,
+) -> list[str]:
+    """Return observed numeric category labels after applying an ``N+`` cap."""
+    values: set[int] = set()
+    saw_capped = False
+    for _, df in nonempty(data_list):
+        if column not in df.columns:
+            continue
+        for value in (
+            df.select(pl.col(column).cast(pl.Int64, strict=False))
+            .to_series()
+            .to_list()
+        ):
+            if value is None:
+                continue
+            if minimum is not None and value < minimum:
+                continue
+            if value >= cap_value:
+                saw_capped = True
+            else:
+                values.add(int(value))
+    labels = [str(value) for value in sorted(values)]
+    if saw_capped:
+        labels.append(f"{cap_value}+")
+    return labels
+
+
 def complete_category_counts(
     data_list: list[tuple[str, pl.DataFrame]],
     *,

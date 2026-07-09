@@ -6,7 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart, kpi_box
-from dashboard.helpers.category_helpers import nonempty
+from dashboard.helpers.category_helpers import cap_numeric_category_data, nonempty
 from dashboard.helpers.geography_helpers import rename_present
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
@@ -150,7 +150,12 @@ class VehicleOwnershipTypePage(DashboardPage):
                 missing_items=["auto_ownership_distribution"],
             )
         return bar_chart(
-            _cast_category(summary_data, "household_vehicle_count"),
+            cap_numeric_category_data(
+                summary_data,
+                category_col="household_vehicle_count",
+                cap_value=4,
+                value_cols=("household_count",),
+            ),
             x_col="household_vehicle_count",
             y_col="household_count",
             title="Auto Ownership by Household Size",

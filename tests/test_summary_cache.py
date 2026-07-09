@@ -48,6 +48,7 @@ from dashboard.pages.tour_summaries.tour_distance import TourDistancePage
 from dashboard.pages.tour_summaries.tour_purpose import TourPurposePage
 from dashboard.pages.tour_summaries.tour_stop_frequency import (
     TourStopFrequencyPage,
+    stop_frequency_chart_data,
 )
 from dashboard.pages.tour_summaries.tour_time import TourTimePage
 from dashboard.pages.trip_summaries.trip_mode import TripModePage
@@ -1254,7 +1255,7 @@ def test_tour_stop_frequency_live_page_uses_shared_summary_helpers(
     assert list(page.purpose_sel.options) == ["All Tour Purposes", "eatout", "social"]
     page.purpose_sel.value = "social"
     page.refresh(force=True)
-    assert page._body.objects
+    assert page.view.objects
 
 
 def test_trip_mode_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
@@ -1821,13 +1822,14 @@ def test_trip_stop_distance_live_page_uses_shared_summary_helpers(
                     "tour_purpose": [
                         "all_tour_purposes",
                         "all_tour_purposes",
+                        "all_tour_purposes",
                         "eatout",
                         "eatout",
                         "social",
                         "social",
                     ],
-                    "distance_bin": [0, 1, 0, 1, 0, 1],
-                    "stop_count": [13.0, 11.0, 8.0, 4.0, 5.0, 7.0],
+                    "distance_bin": [0, 1, 40, 0, 1, 0, 1],
+                    "stop_count": [13.0, 6.0, 5.0, 8.0, 4.0, 5.0, 7.0],
                 }
             ),
         },
@@ -1842,12 +1844,51 @@ def test_trip_stop_distance_live_page_uses_shared_summary_helpers(
 
     assert list(page.tour_purpose_sel.options) == ["All Tour Purposes", "eatout", "social"]
     assert page.tour_purpose_sel.value == "All Tour Purposes"
-    assert len(page._body.objects) == 2
+    assert page.view.objects
+    stop_ood_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._body)
+        if str(plot.object.layout.title.text)
+        == "Stop Out-of-Direction Distance Distribution - All Tour Purposes"
+    )
+    assert list(stop_ood_plot.object.data[0].x) == ["0", "1", "40+"]
+    assert list(stop_ood_plot.object.data[0].y) == pytest.approx(
+        [54.166666666666664, 25.0, 20.833333333333336]
+    )
 
     page.tour_purpose_sel.value = "social"
     page.refresh(force=True)
 
-    assert len(page._body.objects) == 2
+    assert page.view.objects
+
+
+def test_tour_stop_frequency_chart_data_caps_directional_stop_counts() -> None:
+    data = [
+        (
+            "Base",
+            pl.DataFrame(
+                {
+                    "tour_purpose": ["all_tour_purposes"] * 6,
+                    "total_stop_count": [0, 6, 7, 1, 0, 6],
+                    "outbound_stop_count": [0, 3, 4, 1, 0, 3],
+                    "inbound_stop_count": [0, 2, 3, 4, 1, 3],
+                    "tour_count": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+                }
+            ),
+        )
+    ]
+
+    both = stop_frequency_chart_data(data, None, "Both")[0][1]
+    outbound = stop_frequency_chart_data(data, None, "Outbound")[0][1]
+
+    assert both.to_dict(as_series=False) == {
+        "stop_frequency": ["0", "1", "6+"],
+        "tour_count": [6.0, 4.0, 11.0],
+    }
+    assert outbound.to_dict(as_series=False) == {
+        "stop_frequency": ["0", "1", "3+"],
+        "tour_count": [6.0, 4.0, 11.0],
+    }
 
 
 def test_daily_activity_pattern_live_page_uses_shared_summary_helpers(
@@ -1931,7 +1972,7 @@ def test_daily_activity_pattern_live_page_uses_shared_summary_helpers(
     assert list(page.person_type_sel.options) == ["All Person Types", "worker"]
     page.person_type_sel.value = "worker"
     page.refresh(force=True)
-    assert page._body.objects
+    assert page.view.objects
 
 
 def test_daily_activity_pattern_page_renders_available_charts_when_one_summary_is_missing(
@@ -2092,10 +2133,10 @@ def test_joint_travel_participation_page_uses_counts_and_runtime_percent_mode(
         if str(plot.object.layout.title.text)
         == "Households Taking Part in a Joint Tour - All"
     )
-    assert list(people_plot.object.layout.xaxis.categoryarray) == ["2", "3"]
+    assert list(people_plot.object.layout.xaxis.categoryarray) == ["2", "3", "4", "5+"]
     assert list(household_plot.object.layout.xaxis.categoryarray) == ["0", "1"]
     assert list(household_plot.object.data[0].x) == ["0", "1"]
-    assert list(people_plot.object.data[0].y) == [50.0, 100.0]
+    assert list(people_plot.object.data[0].y) == [50.0, 100.0, 0.0, 0.0]
 
     state.value_mode = "Count"
     page.refresh(force=True)
@@ -2106,8 +2147,8 @@ def test_joint_travel_participation_page_uses_counts_and_runtime_percent_mode(
         if str(plot.object.layout.title.text)
         == "People Taking Part in a Joint Tour by Household Size"
     )
-    assert list(people_plot.object.layout.xaxis.categoryarray) == ["2", "3"]
-    assert list(people_plot.object.data[0].y) == [2.0, 3.0]
+    assert list(people_plot.object.layout.xaxis.categoryarray) == ["2", "3", "4", "5+"]
+    assert list(people_plot.object.data[0].y) == [2.0, 3.0, 0.0, 0.0]
 
 
 def test_joint_travel_frequency_can_hide_no_joint_tours_and_renormalize(
@@ -2240,6 +2281,13 @@ def test_joint_travel_composition_plot_keeps_category_axis_when_party_size_filte
 
     page = JointTravelPage(state, config)
     page.refresh(force=True)
+    assert list(page.party_size_sel.options) == [
+        "All Party Sizes",
+        "2",
+        "3",
+        "4",
+        "5+",
+    ]
     page.party_size_sel.value = "2"
     page.refresh(force=True)
 
@@ -2630,12 +2678,13 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
                 {
                     "segment": [
                         "outbound_before_dropoff",
+                        "outbound_before_dropoff",
                         "outbound_after_dropoff",
                         "inbound_before_pickup",
                         "inbound_after_pickup",
                     ],
-                    "stop_count": [1, 0, 0, 1],
-                    "tour_count": [2.0, 3.0, 4.0, 1.0],
+                    "stop_count": [1, 4, 0, 0, 1],
+                    "tour_count": [2.0, 5.0, 3.0, 4.0, 1.0],
                 }
             ),
             "adult_escorted_tours_by_person_type_and_direction": pl.DataFrame(
@@ -2664,14 +2713,15 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
             ),
             "student_households_by_student_count": pl.DataFrame(
                 {
-                    "student_count": [1, 2],
-                    "household_count": [10.0, 5.0],
+                    "student_count": [1, 2, 6, 7],
+                    "household_count": [10.0, 5.0, 3.0, 2.0],
                 }
             ),
             "households_with_school_escorting_by_student_count_and_direction": pl.DataFrame(
                 {
-                    "student_count": [1, 2, 1, 2, 1, 2],
+                    "student_count": [1, 2, 7, 1, 2, 1, 2],
                     "direction": [
+                        "outbound",
                         "outbound",
                         "outbound",
                         "inbound",
@@ -2679,13 +2729,14 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
                         "both",
                         "both",
                     ],
-                    "household_count": [4.0, 1.0, 3.0, 0.0, 2.0, 1.0],
+                    "household_count": [4.0, 1.0, 2.0, 3.0, 0.0, 2.0, 1.0],
                 }
             ),
             "schoolkids_per_escorted_tour_by_student_count_and_direction": pl.DataFrame(
                 {
-                    "student_count": [1, 2, 1, 2, 1, 2],
+                    "student_count": [1, 2, 7, 1, 2, 1, 2],
                     "direction": [
+                        "outbound",
                         "outbound",
                         "outbound",
                         "inbound",
@@ -2693,8 +2744,8 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
                         "both",
                         "both",
                     ],
-                    "avg_schoolkids_per_tour": [1.5, 2.0, 1.0, 2.5, 1.0, 2.0],
-                    "tour_count": [4.0, 2.0, 3.0, 1.0, 2.0, 1.0],
+                    "avg_schoolkids_per_tour": [1.5, 2.0, 4.0, 1.0, 2.5, 1.0, 2.0],
+                    "tour_count": [4.0, 2.0, 3.0, 3.0, 1.0, 2.0, 1.0],
                 }
             ),
             "adult_escorted_tour_distance_distribution_by_direction": pl.DataFrame(
@@ -2722,7 +2773,7 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
     page.refresh(force=True)
 
     assert list(page.direction_sel.options) == ["Both Directions", "Outbound"]
-    assert len(page._body.objects) == 2
+    assert page.view.objects
     render_calls = {"static": 0, "directional": 0}
     static_section = page._registered_sections["escorted_tours_static_body"]
     directional_section = page._registered_sections["escorted_tours_directional_body"]
@@ -2741,11 +2792,11 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
     directional_section.render = counted_directional_render
     page.direction_sel.value = "Both Directions"
     page.refresh(force=False)
-    assert page._body.objects
+    assert page.view.objects
     assert render_calls == {"static": 0, "directional": 1}
     student_titles = [
         str(plot.object.layout.title.text)
-        for plot in _collect_plotly_panes(page._body)
+        for plot in _collect_plotly_panes(page.view)
         if "Student School Escort Status" in str(plot.object.layout.title.text)
     ]
     assert sorted(student_titles) == [
@@ -2755,7 +2806,7 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
     ]
     household_titles = [
         str(plot.object.layout.title.text)
-        for plot in _collect_plotly_panes(page._body)
+        for plot in _collect_plotly_panes(page.view)
         if "Households With School Escorting" in str(plot.object.layout.title.text)
     ]
     assert sorted(household_titles) == [
@@ -2765,17 +2816,17 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
     ]
     schoolkids_titles = [
         str(plot.object.layout.title.text)
-        for plot in _collect_plotly_panes(page._body)
-        if "Schoolkids Per Escorted Tour" in str(plot.object.layout.title.text)
+        for plot in _collect_plotly_panes(page.view)
+        if "Schoolkids Per Adult Chauffer Tour" in str(plot.object.layout.title.text)
     ]
     assert sorted(schoolkids_titles) == [
-        "Schoolkids Per Escorted Tour - Both Directions",
-        "Schoolkids Per Escorted Tour - Inbound",
-        "Schoolkids Per Escorted Tour - Outbound",
+        "Schoolkids Per Adult Chauffer Tour - Both Directions",
+        "Schoolkids Per Adult Chauffer Tour - Inbound",
+        "Schoolkids Per Adult Chauffer Tour - Outbound",
     ]
     stop_titles = [
         str(plot.object.layout.title.text)
-        for plot in _collect_plotly_panes(page._body)
+        for plot in _collect_plotly_panes(page.view)
         if "Adult Escort Stops" in str(plot.object.layout.title.text)
     ]
     assert sorted(stop_titles) == [
@@ -2784,6 +2835,31 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
         "Adult Escort Stops Before Dropoff - Outbound",
         "Adult Escort Stops Before Pickup - Inbound",
     ]
+    household_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page.view)
+        if str(plot.object.layout.title.text)
+        == "Households With School Escorting - Outbound"
+    )
+    assert list(household_plot.object.layout.xaxis.categoryarray) == ["1", "2", "6+"]
+    schoolkids_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page.view)
+        if str(plot.object.layout.title.text)
+        == "Schoolkids Per Adult Chauffer Tour - Outbound"
+    )
+    assert list(schoolkids_plot.object.layout.xaxis.categoryarray) == ["1", "2", "6+"]
+    assert list(schoolkids_plot.object.data[0].y) == [1.5, 2.0, 4.0]
+    stop_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page.view)
+        if str(plot.object.layout.title.text)
+        == "Adult Escort Stops Before Dropoff - Outbound"
+    )
+    assert list(stop_plot.object.layout.xaxis.categoryarray) == ["0", "1", "3+"]
+    assert list(stop_plot.object.data[0].y) == pytest.approx(
+        [0.0, 28.57142857142857, 71.42857142857143]
+    )
 
 
 def test_escorted_tours_page_renders_core_charts_when_optional_summaries_missing(
@@ -2839,14 +2915,14 @@ def test_escorted_tours_page_renders_core_charts_when_optional_summaries_missing
     page = EscortedToursPage(state, config)
     page.refresh(force=True)
 
-    assert page._body.objects
+    assert page.view.objects
     titles = [
         str(plot.object.layout.title.text)
-        for plot in _collect_plotly_panes(page._body)
+        for plot in _collect_plotly_panes(page.view)
     ]
-    assert "Chauffer Escorting Tours by Person Type - Both Directions" in titles
-    assert "Chauffer Escorting Tour Distance Distribution - Both Directions" in titles
-    assert "Chauffer Escorting Trip Distance Distribution - Both Directions" in titles
+    assert "Chauffer Tours by Person Type - Both Directions" in titles
+    assert "Chauffer Tour Distance Distribution - Both Directions" in titles
+    assert "Chauffer Trip Distance Distribution - Both Directions" in titles
     assert "Adult Escort Stops Before Dropoff - Outbound" in titles
     assert "Adult Escort Trip Stop Frequency - Both Directions" not in titles
     assert all("Schoolkids Per Escorted Tour" not in title for title in titles)
@@ -2921,7 +2997,7 @@ def test_escorted_tours_page_uses_configured_escort_labels_for_student_status(
     )
     page = EscortedToursPage(state, config)
     page.refresh(force=True)
-    plots = _collect_plotly_panes(page._body)
+    plots = _collect_plotly_panes(page.view)
 
     student_plot = next(
         plot
@@ -3033,8 +3109,8 @@ def test_overview_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
             ),
             "household_size_distribution": pl.DataFrame(
                 {
-                    "household_size": [1, 2],
-                    "household_count": [15.0, 25.0],
+                    "household_size": [1, 5, 6],
+                    "household_count": [15.0, 10.0, 15.0],
                 }
             ),
             "auto_vmt_totals": pl.DataFrame({"auto_vmt": [180.0]}),
@@ -3048,7 +3124,14 @@ def test_overview_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
     page = OverviewPage(state, config)
     page.refresh(force=True)
 
-    assert len(page._body.objects) == 8
+    assert page.view.objects
+    household_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._demographics_section)
+        if str(plot.object.layout.title.text) == "Household Size Distribution"
+    )
+    assert list(household_plot.object.data[0].x) == ["1", "5+"]
+    assert list(household_plot.object.data[0].y) == [37.5, 62.5]
 
 
 def test_overview_page_skips_bad_run_for_one_visualization_but_keeps_rendering(
@@ -3118,7 +3201,7 @@ def test_overview_page_skips_bad_run_for_one_visualization_but_keeps_rendering(
     page = OverviewPage(state, config)
     page.refresh(force=True)
 
-    assert any(isinstance(obj, pn.Row) for obj in page._body.objects)
+    assert _collect_plotly_panes(page.view)
     person_type_diag = next(
         diagnostic
         for diagnostic in page.visualization_diagnostics
@@ -4164,10 +4247,18 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
             ),
             "work_location_distance_distribution_by_geography": pl.DataFrame(
                 {
-                    "distance_bin": [1, 2],
-                    "geography_type": ["all_geographies", "all_geographies"],
-                    "geography_id": ["all_geographies", "all_geographies"],
-                    "person_count": [6.0, 4.0],
+                    "distance_bin": [1, 40, 41],
+                    "geography_type": [
+                        "all_geographies",
+                        "all_geographies",
+                        "all_geographies",
+                    ],
+                    "geography_id": [
+                        "all_geographies",
+                        "all_geographies",
+                        "all_geographies",
+                    ],
+                    "person_count": [6.0, 1.0, 3.0],
                 }
             ),
             "school_location_distance_distribution_by_geography": pl.DataFrame(
@@ -4248,6 +4339,8 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
         "School Location Distance Distribution",
         "University Location Distance Distribution",
     ]
+    assert list(distance_plots[0].object.data[0].x) == ["1", "40+"]
+    assert list(distance_plots[0].object.data[0].y) == [60.0, 40.0]
     comparison_table = _collect_tabulators(page._mandatory_distance_table_section)[0].value
     comparison_tabs = _collect_tabs(page._mandatory_distance_table_section)[0]
     assert list(comparison_tabs._names) == ["Base"]
@@ -4390,7 +4483,7 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
         for plot in distance_plots
         if plot.object.layout.title.text == "Workplace Location Distance Distribution"
     )
-    assert list(work_distance_plot.object.data[0].x) == [1, 2]
+    assert list(work_distance_plot.object.data[0].x) == ["1", "2"]
     assert list(work_distance_plot.object.data[0].y) == pytest.approx(
         [66.66666666666666, 33.33333333333333]
     )
@@ -5189,8 +5282,8 @@ def test_vehicle_ownership_type_live_page_uses_shared_summary_helpers(
         weighted={
             "auto_ownership_distribution": pl.DataFrame(
                 {
-                    "household_vehicle_count": [0, 1],
-                    "household_count": [12.0, 18.0],
+                    "household_vehicle_count": [0, 4, 5],
+                    "household_count": [12.0, 8.0, 10.0],
                 }
             ),
             "autonomous_vehicle_ownership_totals": pl.DataFrame(
@@ -5267,4 +5360,11 @@ def test_vehicle_ownership_type_live_page_uses_shared_summary_helpers(
     page = VehicleOwnershipTypePage(state, config)
     page.refresh(force=True)
 
-    assert page._body.objects
+    assert page.view.objects
+    auto_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._ownership_section)
+        if str(plot.object.layout.title.text) == "Auto Ownership by Household Size"
+    )
+    assert list(auto_plot.object.data[0].x) == ["0", "4+"]
+    assert list(auto_plot.object.data[0].y) == [40.0, 60.0]
