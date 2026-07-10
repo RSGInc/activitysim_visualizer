@@ -182,6 +182,7 @@ class TourTimePage(DashboardPage):
                 "Clock Time (start at 03:00)",
                 normalize=False,
                 yaxis_title="Tours",
+                hover_xaxis_title="Clock Time",
                 as_percent=self.as_percent,
             ),
             density_chart(
@@ -192,6 +193,7 @@ class TourTimePage(DashboardPage):
                 "Clock Time (start at 03:00)",
                 normalize=False,
                 yaxis_title="Tours",
+                hover_xaxis_title="Clock Time",
                 as_percent=self.as_percent,
             ),
             density_chart(

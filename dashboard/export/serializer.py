@@ -272,6 +272,18 @@ def serialize_viewable(
             "selector_id": selector_id,
             "export_enabled": bool(selector_meta and selector_meta["export_enabled"]),
         }
+    if isinstance(obj, pn.widgets.Button):
+        return {
+            "kind": "widget",
+            "widget_type": "button",
+            "name": obj.name or "",
+            "value": obj.name or "",
+            "options": [],
+            "step": None,
+            "disabled": True if disable_widgets else bool(obj.disabled),
+            "selector_id": None,
+            "export_enabled": False,
+        }
     if isinstance(obj, pn.pane.Markdown):
         source = (
             obj.object if isinstance(obj.object, str) else obj.object._repr_markdown_()

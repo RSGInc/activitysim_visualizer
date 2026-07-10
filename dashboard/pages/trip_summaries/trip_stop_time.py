@@ -168,6 +168,7 @@ class TripStopTimePage(DashboardPage):
             xaxis_title="Clock Time (start at 03:00)",
             normalize=False,
             yaxis_title=yaxis_title,
+            hover_xaxis_title="Clock Time",
             as_percent=self.as_percent,
         )
 

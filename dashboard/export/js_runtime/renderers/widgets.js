@@ -122,6 +122,29 @@
       return wrapper;
     }
 
+    if (node.widget_type === "float_input") {
+      const input = document.createElement("input");
+      input.type = "number";
+      input.value = effectiveValue ?? "";
+      if (node.step !== undefined && node.step !== null) {
+        input.step = String(node.step);
+      }
+      input.disabled = isWidgetDisabled(node, context, leafPageId);
+      wrapper.appendChild(input);
+      return wrapper;
+    }
+
+    if (node.widget_type === "button") {
+      wrapper.appendChild(
+        makeButton({
+          label: node.name || node.value || "",
+          disabled: true,
+          className: "widget-button",
+        })
+      );
+      return wrapper;
+    }
+
     fail(
       "Unknown widget type encountered in export payload:",
       node.widget_type,

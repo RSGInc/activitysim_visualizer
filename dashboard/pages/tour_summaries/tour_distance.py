@@ -29,6 +29,12 @@ from dashboard.helpers.geography_helpers import (
     geography_type_options,
     normalize_geography_data,
 )
+from dashboard.helpers.distance_range import (
+    DistanceRangeControls,
+    distance_axis_bounds,
+    distance_axis_ticks,
+    with_distance_axis,
+)
 from dashboard.helpers.time_distance_helpers import distance_sort_expr
 from dashboard.page_base import DashboardPage, SectionContent
 from dashboard.page_definitions import DashboardPageDefinition
@@ -180,9 +186,14 @@ class TourDistancePage(DashboardPage):
             ),
             label=GEOGRAPHY_NAME_SELECTOR_LABEL,
         )
+        self.tour_distance_range = DistanceRangeControls.create(
+            self,
+            "tour_distance",
+            reset_label="Reset distance range",
+        )
         self._distance_section = self.section(
             "tour_distance_distribution",
-            selectors=("tour_purpose",),
+            selectors=("tour_purpose", *self.tour_distance_range.selector_ids),
             render=self.render_distance_section,
         )
         self._average_section = self.section(
@@ -292,27 +303,51 @@ class TourDistancePage(DashboardPage):
                 str(raw_purpose),
             ),
         )
+        bounds = distance_axis_bounds(distance_data)
+        self.tour_distance_range.sync(
+            (raw_purpose, self.weighting_key),
+            bounds,
+        )
+        x_range = self.tour_distance_range.current_range()
+        if bounds is not None and x_range is None:
+            return [
+                pn.pane.Markdown("### Tour Distance Distribution"),
+                selector_row(self.tour_purpose_sel),
+                self.tour_distance_range.row(),
+                self.data_not_available_card(
+                    detail="Tour distance controls require finite values with min less than max.",
+                    title="Tour Distance Data Not Available",
+                ),
+            ]
         return [
             pn.pane.Markdown("### Tour Distance Distribution"),
             selector_row(self.tour_purpose_sel),
-            self.render_distance_chart(distance_data, selected_purpose),
+            self.tour_distance_range.row(),
+            self.render_distance_chart(distance_data, selected_purpose, x_range=x_range),
         ]
 
     def render_distance_chart(
         self,
         distance_data: list[tuple[str, pl.DataFrame]],
         display_purpose: str,
+        *,
+        x_range: tuple[float, float] | None,
     ) -> pn.viewable.Viewable:
         """Render the distance distribution chart for one selected purpose."""
+        axis_data = with_distance_axis(distance_data)
+        tickvals, ticktext = distance_axis_ticks(distance_data)
         return density_chart(
-            distance_data,
-            "distance_bin",
+            axis_data,
+            "_distance_axis",
             "tour_count",
             f"Tour Distance Distribution - {display_purpose}",
             "Distance (miles)",
             normalize=False,
             yaxis_title="Tours",
             as_percent=self.as_percent,
+            xaxis_range=x_range,
+            xaxis_tickvals=tickvals,
+            xaxis_ticktext=ticktext,
         )
 
     def render_average_section(self) -> SectionContent:

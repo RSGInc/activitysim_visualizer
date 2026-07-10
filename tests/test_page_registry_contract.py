@@ -95,7 +95,9 @@ def test_representative_export_pages_keep_expected_runtime_sections(
             ("escorted_tours_static_body", ()),
             ("escorted_tours_directional_body", ("direction",)),
         ],
-        "trip_mode": [("trip_summary_mode_body", ("tour_purpose",))],
+        "trip_mode": [
+            ("trip_summary_mode_body", ("tour_purpose", "hide_drive_alone"))
+        ],
         "mandatory_location_choice": [
             ("remote_work", ("geography_level", "geography")),
             ("distance_distribution", ("geography_level", "geography")),

@@ -6,6 +6,12 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart, data_table, density_chart, selector_row
+from dashboard.helpers.distance_range import (
+    DistanceRangeControls,
+    distance_axis_bounds,
+    fixed_distance_axis_ticks,
+    with_distance_axis,
+)
 from dashboard.helpers.geography_helpers import (
     ALL_GEOGRAPHY_TYPES_LABEL,
     ALL_GEOGRAPHY_TYPES_VALUE,
@@ -72,6 +78,11 @@ class MandatoryLocationChoicePage(DashboardPage):
             ),
             label=GEOGRAPHY_NAME_SELECTOR_LABEL,
         )
+        self.mandatory_distance_range = DistanceRangeControls.create(
+            self,
+            "mandatory_distance",
+            reset_label="Reset distance range",
+        )
         self._remote_work_section = self.section(
             "remote_work",
             selectors=("geography_level", "geography"),
@@ -79,7 +90,11 @@ class MandatoryLocationChoicePage(DashboardPage):
         )
         self._distance_section = self.section(
             "distance_distribution",
-            selectors=("geography_level", "geography"),
+            selectors=(
+                "geography_level",
+                "geography",
+                *self.mandatory_distance_range.selector_ids,
+            ),
             render=self.render_distance_distribution_section,
         )
         self._worker_section = self.section(
@@ -463,39 +478,111 @@ class MandatoryLocationChoicePage(DashboardPage):
             return []
 
         geo_level, geography = self._selected_geography()
+        chart_specs = [
+            {
+                "summary_data": self._current_data["work_distance"],
+                "cache_key": "mandatory_work_distance_distribution",
+                "title": "Workplace Location Distance Distribution",
+                "yaxis_title": "Workplace Locations",
+                "summary_id": "work_location_distance_distribution_by_geography",
+            },
+            {
+                "summary_data": self._current_data["school_distance"],
+                "cache_key": "mandatory_school_distance_distribution",
+                "title": "School Location Distance Distribution",
+                "yaxis_title": "School Locations",
+                "summary_id": "school_location_distance_distribution_by_geography",
+            },
+            {
+                "summary_data": self._current_data["university_distance"],
+                "cache_key": "mandatory_university_distance_distribution",
+                "title": "University Location Distance Distribution",
+                "yaxis_title": "University Locations",
+                "summary_id": "university_location_distance_distribution_by_geography",
+            },
+        ]
+        prepared_charts = [
+            (
+                spec,
+                self.distance_distribution_chart_data(
+                    geo_level,
+                    geography,
+                    summary_data=spec["summary_data"],
+                    cache_key=spec["cache_key"],
+                ),
+            )
+            for spec in chart_specs
+        ]
+        observed_bounds = distance_axis_bounds(
+            [
+                item
+                for _, distance_data in prepared_charts
+                if distance_data is not None
+                for item in distance_data
+            ]
+        )
+        bounds = (0.0, 40.0) if observed_bounds is not None else None
+        self.mandatory_distance_range.sync(
+            (geo_level, geography, self.weighting_key),
+            bounds,
+        )
+        x_range = self.mandatory_distance_range.current_range()
+        if bounds is not None and x_range is None:
+            return [
+                pn.pane.Markdown("### Mandatory Location Distance"),
+                self.mandatory_distance_range.row(),
+                self.data_not_available_card(
+                    detail="Mandatory location distance controls require finite values with min less than max.",
+                    title="Mandatory Location Distance Data Not Available",
+                ),
+            ]
         return [
             pn.pane.Markdown("### Mandatory Location Distance"),
+            self.mandatory_distance_range.row(),
             pn.Row(
-                self.render_distance_distribution_chart(
-                    geo_level,
-                    geography,
-                    summary_data=self._current_data["work_distance"],
-                    cache_key="mandatory_work_distance_distribution",
-                    title="Workplace Location Distance Distribution",
-                    yaxis_title="Workplace Locations",
-                    summary_id="work_location_distance_distribution_by_geography",
-                ),
-                self.render_distance_distribution_chart(
-                    geo_level,
-                    geography,
-                    summary_data=self._current_data["school_distance"],
-                    cache_key="mandatory_school_distance_distribution",
-                    title="School Location Distance Distribution",
-                    yaxis_title="School Locations",
-                    summary_id="school_location_distance_distribution_by_geography",
-                ),
-                self.render_distance_distribution_chart(
-                    geo_level,
-                    geography,
-                    summary_data=self._current_data["university_distance"],
-                    cache_key="mandatory_university_distance_distribution",
-                    title="University Location Distance Distribution",
-                    yaxis_title="University Locations",
-                    summary_id="university_location_distance_distribution_by_geography",
-                ),
+                *[
+                    self.render_distance_distribution_chart(
+                        geo_level,
+                        geography,
+                        summary_data=spec["summary_data"],
+                        cache_key=spec["cache_key"],
+                        title=spec["title"],
+                        yaxis_title=spec["yaxis_title"],
+                        summary_id=spec["summary_id"],
+                        distance_data=distance_data,
+                        x_range=x_range,
+                    )
+                    for spec, distance_data in prepared_charts
+                ],
                 sizing_mode="stretch_width",
             ),
         ]
+
+    def distance_distribution_chart_data(
+        self,
+        geo_level: str,
+        geography: str,
+        *,
+        summary_data: list[tuple[str, pl.DataFrame]] | None,
+        cache_key: str,
+    ) -> list[tuple[str, pl.DataFrame]] | None:
+        """Return chart-ready mandatory distance data for one summary."""
+        if summary_data is None:
+            return None
+        filtered_summary = self.get_filtered_view(
+            cache_key,
+            (geo_level, geography),
+            factory=lambda: filter_selected_geography(
+                summary_data,
+                geo_level,
+                geography,
+            ),
+        )
+        return self.get_filtered_view(
+            f"{cache_key}_chart",
+            (geo_level, geography),
+            factory=lambda: distance_distribution_chart_data(filtered_summary),
+        )
 
     def render_distance_distribution_chart(
         self,
@@ -507,28 +594,15 @@ class MandatoryLocationChoicePage(DashboardPage):
         title: str,
         yaxis_title: str,
         summary_id: str,
+        distance_data: list[tuple[str, pl.DataFrame]] | None = None,
+        x_range: tuple[float, float] | None = None,
     ) -> pn.viewable.Viewable:
         """Render one distance-distribution chart or a targeted unavailable card."""
-        if summary_data is None:
+        if summary_data is None or distance_data is None:
             return self.data_not_available_card(
                 detail="The selected distance distribution summary is unavailable.",
                 missing_items=[summary_id],
             )
-
-        filtered_summary = self.get_filtered_view(
-            cache_key,
-            (geo_level, geography),
-            factory=lambda: filter_selected_geography(
-                summary_data,
-                geo_level,
-                geography,
-            ),
-        )
-        distance_data = self.get_filtered_view(
-            f"{cache_key}_chart",
-            (geo_level, geography),
-            factory=lambda: distance_distribution_chart_data(filtered_summary),
-        )
         if not any(not df.is_empty() for _, df in distance_data):
             return self.data_not_available_card(
                 detail=(
@@ -538,15 +612,20 @@ class MandatoryLocationChoicePage(DashboardPage):
                 missing_items=[summary_id],
             )
 
+        axis_data = with_distance_axis(distance_data)
+        tickvals, ticktext = fixed_distance_axis_ticks()
         return density_chart(
-            distance_data,
-            x_col="distance_bin",
+            axis_data,
+            x_col="_distance_axis",
             y_col="person_count",
             title=title,
             xaxis_title="Distance (miles)",
             yaxis_title=yaxis_title,
             normalize=False,
             as_percent=self.as_percent,
+            xaxis_range=x_range,
+            xaxis_tickvals=tickvals,
+            xaxis_ticktext=ticktext,
         )
 
     def render_remote_work_section(self) -> SectionContent:

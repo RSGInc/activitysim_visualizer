@@ -11,6 +11,12 @@ from dashboard.helpers.category_helpers import (
     column_options,
     nonempty,
 )
+from dashboard.helpers.distance_range import (
+    DistanceRangeControls,
+    distance_axis_bounds,
+    distance_axis_ticks,
+    with_distance_axis,
+)
 from dashboard.helpers.time_distance_helpers import distance_sort_expr
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
@@ -54,6 +60,15 @@ def distance_chart_data(
 class TripStopDistancePage(DashboardPage):
     TOTAL_PURPOSE_LABEL = "All Tour Purposes"
 
+    def _tour_slice_title_label(self, display_purpose: str) -> str:
+        """Return a display label such as All Tours or Work Tours."""
+        if display_purpose == self.TOTAL_PURPOSE_LABEL:
+            return "All Tours"
+        purpose_label = str(display_purpose)
+        if not purpose_label.casefold().endswith(" tours"):
+            purpose_label = f"{purpose_label} Tours"
+        return purpose_label
+
     def build_page(self) -> pn.viewable.Viewable:
         purpose_opts, self._tour_purpose_to_raw = column_options(
             self.state.get_summary_table_set("trip_distance_by_purpose", "weighted") or [],
@@ -80,9 +95,14 @@ class TripStopDistancePage(DashboardPage):
             ),
             label="Tour Purpose",
         )
+        self.trip_stop_distance_range = DistanceRangeControls.create(
+            self,
+            "trip_stop_distance",
+            reset_label="Reset distance range",
+        )
         self._body = self.section(
             "trip_stop_distance_body",
-            selectors=("tour_purpose",),
+            selectors=("tour_purpose", *self.trip_stop_distance_range.selector_ids),
             render=self.render_body,
         )
         return self.new_section(
@@ -133,6 +153,7 @@ class TripStopDistancePage(DashboardPage):
         xaxis_title: str,
         yaxis_title: str,
         cap_at: int | None = None,
+        x_range: tuple[float, float] | None = None,
     ) -> pn.viewable.Viewable:
         chart_data = self.get_filtered_view(
             cache_key,
@@ -145,15 +166,20 @@ class TripStopDistancePage(DashboardPage):
                 cap_at=cap_at,
             ),
         )
+        axis_data = with_distance_axis(chart_data)
+        tickvals, ticktext = distance_axis_ticks(chart_data)
         return density_chart(
-            chart_data,
-            x_col="distance_bin",
+            axis_data,
+            x_col="_distance_axis",
             y_col="freq",
-            title=f"{title} - {display_purpose}",
+            title=f"{title} for {self._tour_slice_title_label(display_purpose)}",
             xaxis_title=xaxis_title,
             yaxis_title=yaxis_title,
             normalize=False,
             as_percent=self.as_percent,
+            xaxis_range=x_range,
+            xaxis_tickvals=tickvals,
+            xaxis_ticktext=ticktext,
         )
 
     def render_body(self):
@@ -164,7 +190,44 @@ class TripStopDistancePage(DashboardPage):
             return [self.summary_only_unavailable_card()]
 
         display_purpose, raw_purpose = self._selected_purpose()
+        trip_distance_data = self.get_filtered_view(
+            "trip_distance",
+            (raw_purpose, None),
+            factory=lambda: distance_chart_data(
+                summaries["trip_distance_by_purpose"],
+                raw_purpose,
+                "distance_bin",
+                "trip_count",
+                cap_at=None,
+            ),
+        )
+        stop_distance_data = self.get_filtered_view(
+            "stop_out_of_direction_distance",
+            (raw_purpose, 40),
+            factory=lambda: distance_chart_data(
+                summaries["stop_out_of_direction_distance_by_tour_purpose"],
+                raw_purpose,
+                "distance_bin",
+                "stop_count",
+                cap_at=40,
+            ),
+        )
+        bounds = distance_axis_bounds([*trip_distance_data, *stop_distance_data])
+        self.trip_stop_distance_range.sync(
+            (raw_purpose, self.weighting_key),
+            bounds,
+        )
+        x_range = self.trip_stop_distance_range.current_range()
+        if bounds is not None and x_range is None:
+            return [
+                self.trip_stop_distance_range.row(),
+                self.data_not_available_card(
+                    detail="Trip and stop distance controls require finite values with min less than max.",
+                    title="Trip and Stop Distance Data Not Available",
+                ),
+            ]
         return [
+            self.trip_stop_distance_range.row(),
             self.render_distance_chart(
                 summary_data=summaries["trip_distance_by_purpose"],
                 cache_key="trip_distance",
@@ -175,6 +238,7 @@ class TripStopDistancePage(DashboardPage):
                 title="Trip Distance Distribution",
                 xaxis_title="Distance (miles)",
                 yaxis_title="Trips",
+                x_range=x_range,
             ),
             self.render_distance_chart(
                 summary_data=summaries["stop_out_of_direction_distance_by_tour_purpose"],
@@ -187,6 +251,7 @@ class TripStopDistancePage(DashboardPage):
                 xaxis_title="Out-of-Direction Distance (miles)",
                 yaxis_title="Stops",
                 cap_at=40,
+                x_range=x_range,
             ),
         ]
 

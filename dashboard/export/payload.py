@@ -142,10 +142,19 @@ def _selector_supports_option_enumeration(widget: pn.widgets.Widget) -> bool:
 def _page_export_parts(page: Any, page_def: DashboardPageDefinition) -> tuple[Any, ...]:
     runtime_sections = tuple(getattr(page, "registered_sections", ()))
     if runtime_sections:
+        exportable_selector_ids = {
+            _selector_id(selector_def)
+            for selector_def in _page_selector_defs(page, page_def)
+            if _selector_exportable(selector_def)
+        }
         return tuple(
             _RuntimeExportPart(
                 part_id=section.section_id,
-                selector_ids=section.selector_ids,
+                selector_ids=tuple(
+                    selector_id
+                    for selector_id in section.selector_ids
+                    if selector_id in exportable_selector_ids
+                ),
                 export_data_mode=section.export_data_mode,
                 view=section.container,
             )

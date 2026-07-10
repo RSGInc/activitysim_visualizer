@@ -15,6 +15,12 @@ from dashboard.helpers.category_helpers import (
     numeric_like_sort_expr,
     ordered_category_values,
 )
+from dashboard.helpers.distance_range import (
+    DistanceRangeControls,
+    distance_axis_bounds,
+    fixed_distance_axis_ticks,
+    with_distance_axis,
+)
 from dashboard.helpers.time_distance_helpers import distance_sort_expr
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
@@ -327,13 +333,18 @@ class EscortedToursPage(DashboardPage):
             ),
             label="Direction",
         )
+        self.escort_distance_range = DistanceRangeControls.create(
+            self,
+            "escort_distance",
+            reset_label="Reset distance range",
+        )
         self._static_body = self.section(
             "escorted_tours_static_body",
             render=self.render_static_body_section,
         )
         self._directional_body = self.section(
             "escorted_tours_directional_body",
-            selectors=("direction",),
+            selectors=("direction", *self.escort_distance_range.selector_ids),
             render=self.render_directional_body_section,
         )
         return self.new_section(
@@ -724,6 +735,49 @@ class EscortedToursPage(DashboardPage):
 
         direction_label = str(self.direction_sel.value)
         raw_direction = adult_raw_direction(direction_label)
+        tour_distance_data = self.escort_distance_data(
+            summaries["adult_escorted_tour_distance_distribution_by_direction"],
+            raw_direction,
+            cache_key="adult_escorted_tour_distance_distribution_by_direction",
+            y_col="tour_count",
+        )
+        trip_distance_data = self.escort_distance_data(
+            summaries["adult_escorted_trip_distance_distribution_by_direction"],
+            raw_direction,
+            cache_key="adult_escorted_trip_distance_distribution_by_direction",
+            y_col="trip_count",
+        )
+        observed_bounds = distance_axis_bounds([*tour_distance_data, *trip_distance_data])
+        bounds = (0.0, 40.0) if observed_bounds is not None else None
+        self.escort_distance_range.sync(
+            (raw_direction, self.weighting_key),
+            bounds,
+        )
+        x_range = self.escort_distance_range.current_range()
+        distance_controls = self.escort_distance_range.row()
+        if bounds is not None and x_range is None:
+            distance_charts = self.data_not_available_card(
+                detail="Chauffer distance controls require finite values with min less than max.",
+                title="Chauffer Distance Data Not Available",
+            )
+        else:
+            distance_charts = pn.Row(
+                self.render_distance_chart(
+                    tour_distance_data,
+                    direction_label,
+                    title_prefix="Chauffer Tour Distance Distribution",
+                    yaxis_title="Chauffer Tours",
+                    x_range=x_range,
+                ),
+                self.render_distance_chart(
+                    trip_distance_data,
+                    direction_label,
+                    title_prefix="Chauffer Trip Distance Distribution",
+                    yaxis_title="Chauffer Trips",
+                    x_range=x_range,
+                ),
+                sizing_mode="stretch_width",
+            )
         return [
             pn.Column(
                 pn.pane.Markdown("## Adult Chauffer Tours and Trips"),
@@ -740,35 +794,8 @@ class EscortedToursPage(DashboardPage):
                 ),
                 pn.pane.Markdown("### Chauffer Tour and Trip Distance Distributions"),
                 pn.pane.Markdown(DISTANCE_DESCRIPTION),
-                pn.Row(
-                    self.render_distance_chart(
-                        summaries[
-                            "adult_escorted_tour_distance_distribution_by_direction"
-                        ],
-                        raw_direction,
-                        direction_label,
-                        cache_key=(
-                            "adult_escorted_tour_distance_distribution_by_direction"
-                        ),
-                        y_col="tour_count",
-                        title_prefix="Chauffer Tour Distance Distribution",
-                        yaxis_title="Chauffer Tours",
-                    ),
-                    self.render_distance_chart(
-                        summaries[
-                            "adult_escorted_trip_distance_distribution_by_direction"
-                        ],
-                        raw_direction,
-                        direction_label,
-                        cache_key=(
-                            "adult_escorted_trip_distance_distribution_by_direction"
-                        ),
-                        y_col="trip_count",
-                        title_prefix="Chauffer Trip Distance Distribution",
-                        yaxis_title="Chauffer Trips",
-                    ),
-                    sizing_mode="stretch_width",
-                ),
+                distance_controls,
+                distance_charts,
             )
         ]
 
@@ -815,19 +842,16 @@ class EscortedToursPage(DashboardPage):
             ),
         )
 
-    def render_distance_chart(
+    def escort_distance_data(
         self,
         summary_data,
         raw_direction: str,
-        direction_label: str,
         *,
         cache_key: str,
         y_col: str,
-        title_prefix: str,
-        yaxis_title: str,
-    ) -> pn.viewable.Viewable:
-        """Render one escort distance distribution."""
-        chart_data = self.get_filtered_view(
+    ) -> list[tuple[str, pl.DataFrame]]:
+        """Return one chart-ready escort distance distribution."""
+        return self.get_filtered_view(
             cache_key,
             raw_direction,
             factory=lambda: escort_distance_chart_data(
@@ -836,18 +860,31 @@ class EscortedToursPage(DashboardPage):
                 y_col=y_col,
             ),
         )
+
+    def render_distance_chart(
+        self,
+        chart_data: list[tuple[str, pl.DataFrame]],
+        direction_label: str,
+        *,
+        title_prefix: str,
+        yaxis_title: str,
+        x_range: tuple[float, float] | None,
+    ) -> pn.viewable.Viewable:
+        """Render one escort distance distribution."""
+        axis_data = with_distance_axis(chart_data)
+        tickvals, ticktext = fixed_distance_axis_ticks()
         return density_chart(
-            chart_data,
-            x_col="distance_bin",
+            axis_data,
+            x_col="_distance_axis",
             y_col="freq",
             title=f"{title_prefix} - {direction_label}",
             xaxis_title="Distance (miles)",
             yaxis_title=yaxis_title,
             normalize=False,
             as_percent=self.as_percent,
-            xaxis_categoryarray=DISTANCE_BINS,
-            xaxis_tickvals=DISTANCE_BINS,
-            xaxis_ticktext=DISTANCE_BINS,
+            xaxis_range=x_range,
+            xaxis_tickvals=tickvals,
+            xaxis_ticktext=ticktext,
         )
 
 

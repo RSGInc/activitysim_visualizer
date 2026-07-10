@@ -20,7 +20,7 @@ NodeKind = Literal[
     "region",
 ]
 ContainerLayout = Literal["row", "column"]
-WidgetType = Literal["radio_button_group", "select", "float_input", "checkbox"]
+WidgetType = Literal["radio_button_group", "select", "float_input", "checkbox", "button"]
 RegionContentMode = Literal["snapshot"]
 
 

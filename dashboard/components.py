@@ -404,6 +404,7 @@ def density_chart(
     xaxis_categoryarray: list[object] | None = None,
     xaxis_tickvals: list[object] | None = None,
     xaxis_ticktext: list[str] | None = None,
+    hover_xaxis_title: str | None = None,
 ) -> pn.pane.Plotly:
     """
     Create an overlaid density/histogram line chart.
@@ -426,7 +427,7 @@ def density_chart(
         hover = [
             _point_hover_text(
                 label,
-                xaxis_title=xaxis_title,
+                xaxis_title=hover_xaxis_title or xaxis_title,
                 x_col=x_col,
                 x_value=xi,
                 yaxis_title=yaxis_title,

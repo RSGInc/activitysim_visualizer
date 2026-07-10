@@ -1650,6 +1650,9 @@ def test_trip_stop_time_live_page_uses_shared_summary_helpers(
     assert list(trip_chart.object.data[0].x)[:2] == ["03:00", "03:30"]
     assert list(trip_chart.object.layout.xaxis.tickvals) == ["03:00"]
     assert list(trip_chart.object.layout.xaxis.ticktext) == ["3:00"]
+    trip_hover = str(trip_chart.object.data[0].customdata[0])
+    assert "Clock Time: 03:00" in trip_hover
+    assert "start at 03:00" not in trip_hover
 
 
 def test_dashboard_pages_apply_configured_dashboard_labels_to_category_plots(
@@ -1883,21 +1886,60 @@ def test_trip_stop_distance_live_page_uses_shared_summary_helpers(
     assert list(page.tour_purpose_sel.options) == ["All Tour Purposes", "eatout", "social"]
     assert page.tour_purpose_sel.value == "All Tour Purposes"
     assert page.view.objects
+    all_titles = [plot.object.layout.title.text for plot in _collect_plotly_panes(page._body)]
+    assert "Trip Distance Distribution for All Tours" in all_titles
+    assert "Stop Out-of-Direction Distance Distribution for All Tours" in all_titles
     stop_ood_plot = next(
         plot
         for plot in _collect_plotly_panes(page._body)
         if str(plot.object.layout.title.text)
-        == "Stop Out-of-Direction Distance Distribution - All Tour Purposes"
+        == "Stop Out-of-Direction Distance Distribution for All Tours"
     )
-    assert list(stop_ood_plot.object.data[0].x) == ["0", "1", "40+"]
+    assert page.trip_stop_distance_range.current_range() == (0.0, 40.0)
+    assert list(stop_ood_plot.object.data[0].x) == [0.0, 1.0, 40.0]
+    assert list(stop_ood_plot.object.layout.xaxis.ticktext) == ["0", "1", "40+"]
+    assert list(stop_ood_plot.object.layout.xaxis.range) == [0.0, 40.0]
     assert list(stop_ood_plot.object.data[0].y) == pytest.approx(
         [54.166666666666664, 25.0, 20.833333333333336]
     )
+    page.trip_stop_distance_range.min_widget.value = 0.25
+    page.trip_stop_distance_range.max_widget.value = 2.0
+    page.refresh(force=True)
+    ranged_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._body)
+        if str(plot.object.layout.title.text)
+        == "Stop Out-of-Direction Distance Distribution for All Tours"
+    )
+    assert list(ranged_plot.object.layout.xaxis.range) == [0.25, 2.0]
+    page.trip_stop_distance_range.reset()
+    page.refresh(force=True)
+    reset_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._body)
+        if str(plot.object.layout.title.text)
+        == "Stop Out-of-Direction Distance Distribution for All Tours"
+    )
+    assert list(reset_plot.object.layout.xaxis.range) == [0.0, 40.0]
+    page.trip_stop_distance_range.min_widget.value = 2.0
+    page.trip_stop_distance_range.max_widget.value = 0.25
+    page.refresh(force=True)
+    assert any(
+        card.title == "Trip and Stop Distance Data Not Available"
+        for card in _collect_cards(page._body)
+    )
+    page.trip_stop_distance_range.reset()
+    page.refresh(force=True)
 
     page.tour_purpose_sel.value = "social"
     page.refresh(force=True)
 
     assert page.view.objects
+    social_titles = [
+        plot.object.layout.title.text for plot in _collect_plotly_panes(page._body)
+    ]
+    assert "Trip Distance Distribution for social Tours" in social_titles
+    assert "Stop Out-of-Direction Distance Distribution for social Tours" in social_titles
 
 
 def test_tour_stop_frequency_chart_data_caps_directional_stop_counts() -> None:
@@ -2904,6 +2946,44 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
     assert list(stop_plot.object.layout.xaxis.categoryarray) == ["0", "1", "3+"]
     assert list(stop_plot.object.data[0].y) == pytest.approx(
         [0.0, 28.57142857142857, 71.42857142857143]
+    )
+    distance_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page.view)
+        if str(plot.object.layout.title.text)
+        == "Chauffer Tour Distance Distribution - Both Directions"
+    )
+    assert page.escort_distance_range.current_range() == (0.0, 40.0)
+    assert list(distance_plot.object.layout.xaxis.range) == [0.0, 40.0]
+    assert list(distance_plot.object.layout.xaxis.ticktext) == [
+        *[str(value) for value in range(0, 40, 2)],
+        "40+",
+    ]
+    page.escort_distance_range.min_widget.value = 10.0
+    page.escort_distance_range.max_widget.value = 20.0
+    page.refresh(force=True)
+    ranged_distance_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page.view)
+        if str(plot.object.layout.title.text)
+        == "Chauffer Tour Distance Distribution - Both Directions"
+    )
+    assert list(ranged_distance_plot.object.layout.xaxis.range) == [10.0, 20.0]
+    page.escort_distance_range.reset()
+    page.refresh(force=True)
+    reset_distance_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page.view)
+        if str(plot.object.layout.title.text)
+        == "Chauffer Tour Distance Distribution - Both Directions"
+    )
+    assert list(reset_distance_plot.object.layout.xaxis.range) == [0.0, 40.0]
+    page.escort_distance_range.min_widget.value = 20.0
+    page.escort_distance_range.max_widget.value = 10.0
+    page.refresh(force=True)
+    assert any(
+        card.title == "Chauffer Distance Data Not Available"
+        for card in _collect_cards(page.view)
     )
 
 
@@ -4501,8 +4581,51 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
     ]
     assert worker_table["Geography Type"].tolist() == ["All Geographies"]
     assert worker_table["Geography Name"].tolist() == ["All Geographies"]
-    assert list(distance_plots[0].object.data[0].x) == ["1", "40+"]
+    assert page.mandatory_distance_range.min_widget.disabled is False
+    assert page.mandatory_distance_range.max_widget.disabled is False
+    assert page.mandatory_distance_range.current_range() == (0.0, 40.0)
+    assert list(distance_plots[0].object.data[0].x) == [1.0, 40.0]
+    assert list(distance_plots[0].object.layout.xaxis.ticktext) == [
+        "0",
+        "2",
+        "4",
+        "6",
+        "8",
+        "10",
+        "12",
+        "14",
+        "16",
+        "18",
+        "20",
+        "22",
+        "24",
+        "26",
+        "28",
+        "30",
+        "32",
+        "34",
+        "36",
+        "38",
+        "40+",
+    ]
+    assert list(distance_plots[0].object.layout.xaxis.range) == [0.0, 40.0]
     assert list(distance_plots[0].object.data[0].y) == [60.0, 40.0]
+    page.mandatory_distance_range.min_widget.value = 2.0
+    page.mandatory_distance_range.max_widget.value = 10.0
+    page.refresh(force=True)
+    ranged_plot = _collect_plotly_panes(page._distance_section)[0]
+    assert list(ranged_plot.object.layout.xaxis.range) == [2.0, 10.0]
+    page.mandatory_distance_range.reset()
+    page.refresh(force=True)
+    reset_plot = _collect_plotly_panes(page._distance_section)[0]
+    assert list(reset_plot.object.layout.xaxis.range) == [0.0, 40.0]
+    page.mandatory_distance_range.min_widget.value = 10.0
+    page.mandatory_distance_range.max_widget.value = 2.0
+    page.refresh(force=True)
+    assert any(
+        card.title == "Mandatory Location Distance Data Not Available"
+        for card in _collect_cards(page._distance_section)
+    )
     comparison_table = _collect_tabulators(page._mandatory_distance_table_section)[0].value
     comparison_tabs = _collect_tabs(page._mandatory_distance_table_section)[0]
     assert list(comparison_tabs._names) == ["Base"]
@@ -5172,8 +5295,30 @@ def test_tour_distance_chart_casts_distance_bins_consistently_across_runs(
 
     plot = next(obj for obj in page._distance_section.objects if isinstance(obj, pn.pane.Plotly))
     traces = {trace.name: list(trace.x) for trace in plot.object.data}
-    assert traces["A"] == ["0", "1"]
-    assert traces["B"] == ["0"]
+    assert traces["A"] == [0.0, 1.0]
+    assert traces["B"] == [0.0]
+    assert list(plot.object.layout.xaxis.ticktext) == ["0", "1"]
+    assert list(plot.object.layout.xaxis.range) == [0.0, 1.0]
+    page.tour_distance_range.min_widget.value = 0.25
+    page.tour_distance_range.max_widget.value = 0.75
+    page.refresh(force=True)
+    ranged_plot = next(
+        obj for obj in page._distance_section.objects if isinstance(obj, pn.pane.Plotly)
+    )
+    assert list(ranged_plot.object.layout.xaxis.range) == [0.25, 0.75]
+    page.tour_distance_range.reset()
+    page.refresh(force=True)
+    reset_plot = next(
+        obj for obj in page._distance_section.objects if isinstance(obj, pn.pane.Plotly)
+    )
+    assert list(reset_plot.object.layout.xaxis.range) == [0.0, 1.0]
+    page.tour_distance_range.min_widget.value = 1.0
+    page.tour_distance_range.max_widget.value = 0.0
+    page.refresh(force=True)
+    assert any(
+        card.title == "Tour Distance Data Not Available"
+        for card in _collect_cards(page._distance_section)
+    )
 
 
 def test_tour_distance_nonmandatory_average_table_compares_to_base_run(
@@ -5439,6 +5584,9 @@ def test_tour_time_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None
     assert list(departure_chart.object.data[0].x)[:2] == ["03:00", "03:30"]
     assert list(departure_chart.object.layout.xaxis.tickvals) == ["03:00"]
     assert list(departure_chart.object.layout.xaxis.ticktext) == ["3:00"]
+    departure_hover = str(departure_chart.object.data[0].customdata[0])
+    assert "Clock Time: 03:00" in departure_hover
+    assert "start at 03:00" not in departure_hover
 
 
 def test_vehicle_ownership_type_live_page_uses_shared_summary_helpers(

@@ -2011,19 +2011,35 @@ def test_build_export_html_document_serializes_trip_stop_distance_two_chart_vari
     trip_stop_distance = payload["states"]["Weighted||Percent"]["trip_stop_distance"]
 
     assert trip_stop_distance["kind"] == "page"
+    region = _region_nodes(trip_stop_distance)["trip_stop_distance_body"]
+    assert region["selector_ids"] == ["tour_purpose"]
     assert sorted(
-        _region_nodes(trip_stop_distance)["trip_stop_distance_body"]["variants"]
+        region["variants"]
     ) == [
         '["All Tour Purposes"]',
         '["eatout"]',
         '["social"]',
     ]
     variant_nodes = _walk_nodes(
-        _region_nodes(trip_stop_distance)["trip_stop_distance_body"]["variants"][
-            '["All Tour Purposes"]'
-        ]
+        region["variants"]['["All Tour Purposes"]']
     )
     assert sum(1 for node in variant_nodes if node.get("kind") == "plotly") == 2
+    range_widgets = [
+        node
+        for node in _walk_nodes(trip_stop_distance)
+        if node.get("kind") == "widget"
+        and node.get("name") in {"Distance Min", "Distance Max", "Reset distance range"}
+    ]
+    assert {node["widget_type"] for node in range_widgets} == {
+        "button",
+        "float_input",
+    }
+    assert sum(node["widget_type"] == "button" for node in range_widgets) >= 1
+    assert sum(node["widget_type"] == "float_input" for node in range_widgets) >= 2
+    assert all(node.get("disabled") for node in range_widgets)
+    assert all(not node.get("export_enabled") for node in range_widgets)
+    all_variant_plots = [node for node in variant_nodes if node.get("kind") == "plotly"]
+    assert all_variant_plots[0]["figure"]["layout"]["xaxis"]["range"] == [0.0, 1.0]
 
 
 def test_build_export_html_document_serializes_joint_tours_hh_size_variants(
