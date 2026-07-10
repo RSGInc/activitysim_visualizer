@@ -1590,12 +1590,13 @@ def test_trip_stop_time_live_page_uses_shared_summary_helpers(
                         "eatout",
                         "social",
                         "social",
+                        "social",
                         "all_tour_purposes",
                         "all_tour_purposes",
                     ],
-                    "time_bin": [1, 2, 1, 2, 1, 2],
-                    "departure_trip_count": [2.0, 3.0, 4.0, 5.0, 6.0, 8.0],
-                    "departure_stop_count": [3.0, 4.0, 5.0, 6.0, 8.0, 10.0],
+                    "time_bin": [1, 2, 1, 2, 48, 1, 2],
+                    "departure_trip_count": [2.0, 3.0, 4.0, 5.0, 0.0, 6.0, 8.0],
+                    "departure_stop_count": [3.0, 4.0, 5.0, 6.0, 0.0, 8.0, 10.0],
                 }
             ),
         },
@@ -1612,6 +1613,10 @@ def test_trip_stop_time_live_page_uses_shared_summary_helpers(
     page.tour_purpose_sel.value = "social"
     page.refresh(force=True)
     assert page._body.objects
+    trip_chart = _collect_plotly_panes(page._body)[0]
+    assert list(trip_chart.object.data[0].x)[:2] == ["03:00", "03:30"]
+    assert list(trip_chart.object.layout.xaxis.tickvals) == ["03:00"]
+    assert list(trip_chart.object.layout.xaxis.ticktext) == ["3:00"]
 
 
 def test_dashboard_pages_apply_configured_dashboard_labels_to_category_plots(
@@ -5333,11 +5338,12 @@ def test_tour_time_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None
                         "all_tour_purposes",
                         "work",
                         "work",
+                        "work",
                     ],
-                    "time_bin": [1, 2, 1, 2],
-                    "departure_tour_count": [5.0, 6.0, 3.0, 4.0],
-                    "arrival_tour_count": [4.0, 5.0, 2.0, 3.0],
-                    "duration_tour_count": [2.0, 3.0, 1.0, 2.0],
+                    "time_bin": [1, 2, 1, 2, 48],
+                    "departure_tour_count": [5.0, 6.0, 3.0, 4.0, 0.0],
+                    "arrival_tour_count": [4.0, 5.0, 2.0, 3.0, 0.0],
+                    "duration_tour_count": [2.0, 3.0, 1.0, 2.0, 0.0],
                 }
             ),
         },
@@ -5354,6 +5360,10 @@ def test_tour_time_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None
     page.purpose_sel.value = "work"
     page.refresh(force=True)
     assert page._body.objects
+    departure_chart = _collect_plotly_panes(page._body)[0]
+    assert list(departure_chart.object.data[0].x)[:2] == ["03:00", "03:30"]
+    assert list(departure_chart.object.layout.xaxis.tickvals) == ["03:00"]
+    assert list(departure_chart.object.layout.xaxis.ticktext) == ["3:00"]
 
 
 def test_vehicle_ownership_type_live_page_uses_shared_summary_helpers(

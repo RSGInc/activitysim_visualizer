@@ -44,6 +44,58 @@ def _finite_numeric_values(values: list[object]) -> list[float]:
     return numeric_values
 
 
+def _percent_yaxis_title(yaxis_title: str) -> str:
+    return f"Percent of {yaxis_title} (%)"
+
+
+def _integer_count_yaxis(yaxis_title: str) -> bool:
+    title = str(yaxis_title or "").strip().lower()
+    return title in {"trips", "tours", "stops"}
+
+
+def _format_hover_y_value(
+    value: float,
+    *,
+    yaxis_title: str,
+    percent_mode: bool,
+) -> str:
+    if percent_mode:
+        return f"{value:,.2f}%"
+    if _integer_count_yaxis(yaxis_title):
+        return f"{value:,.0f}"
+    return f"{value:,.1f}"
+
+
+def _hover_yaxis_title(yaxis_title: str, *, percent_mode: bool) -> str:
+    return _percent_yaxis_title(yaxis_title) if percent_mode else yaxis_title
+
+
+def _point_hover_text(
+    label: str,
+    *,
+    xaxis_title: str,
+    x_col: str,
+    x_value: object,
+    yaxis_title: str,
+    y_col: str,
+    y_value: float,
+    percent_mode: bool,
+) -> str:
+    display_yaxis_title = _hover_yaxis_title(
+        yaxis_title or y_col,
+        percent_mode=percent_mode,
+    )
+    display_y = _format_hover_y_value(
+        float(y_value),
+        yaxis_title=yaxis_title,
+        percent_mode=percent_mode,
+    )
+    return (
+        f"{label}<br>{xaxis_title or x_col}: {x_value}"
+        f"<br>{display_yaxis_title}: {display_y}"
+    )
+
+
 def run_color(idx: int) -> str:
     return RUN_COLORS[idx % len(RUN_COLORS)]
 
@@ -214,9 +266,17 @@ def bar_chart(
         if percent_mode and y.sum() > 0:
             y = y / y.sum() * 100.0
         y_list = y.tolist()
-        yy_title = f"Percent of {yaxis_title} (%)" if percent_mode else yaxis_title
         hover = [
-            f"{label}<br>{xaxis_title or x_col}: {xi}<br>{yy_title}: {yi:,.1f}"
+            _point_hover_text(
+                label,
+                xaxis_title=xaxis_title,
+                x_col=x_col,
+                x_value=xi,
+                yaxis_title=yaxis_title,
+                y_col=y_col,
+                y_value=yi,
+                percent_mode=percent_mode,
+            )
             for xi, yi in zip(x, y_list)
         ]
         fig.add_trace(
@@ -233,7 +293,7 @@ def bar_chart(
         fig,
         title,
         xaxis_title,
-        f"Percent of {yaxis_title} (%)" if percent_mode else yaxis_title,
+        _hover_yaxis_title(yaxis_title, percent_mode=percent_mode),
         height,
         barmode=barmode,
     )
@@ -284,10 +344,35 @@ def line_chart(
         fig,
         title,
         xaxis_title,
-        f"Percent of {yaxis_title} (%)" if percent_mode else yaxis_title,
+        _hover_yaxis_title(yaxis_title, percent_mode=percent_mode),
         height,
     )
     return pn.pane.Plotly(fig, sizing_mode="stretch_width")
+
+
+def _clock_hour_tick_labels(values: list[object]) -> tuple[list[str], list[str]] | None:
+    """Return top-of-hour tick values/text when x values look like clock labels."""
+    unique_values = list(dict.fromkeys(str(value) for value in values))
+    if not unique_values:
+        return None
+
+    parsed: list[tuple[str, int, int]] = []
+    for value in unique_values:
+        parts = value.split(":")
+        if len(parts) != 2:
+            return None
+        hour, minute = parts
+        if not (hour.isdigit() and minute.isdigit()):
+            return None
+        hour_int = int(hour)
+        minute_int = int(minute)
+        if hour_int > 23 or minute_int not in {0, 30}:
+            return None
+        parsed.append((value, hour_int, minute_int))
+
+    tickvals = [value for value, _, minute in parsed if minute == 0]
+    ticktext = [f"{hour}:00" for _, hour, minute in parsed if minute == 0]
+    return (tickvals, ticktext) if tickvals else None
 
 
 def density_chart(
@@ -311,19 +396,36 @@ def density_chart(
     """
     fig = go.Figure()
     percent_mode = _percent_mode(as_percent)
+    observed_x_values: list[object] = []
     for i, (label, df) in enumerate(data_list):
         if df is None or len(df) == 0:
             continue
         color = run_color_for_label(label, i)
         x = df[x_col].to_list()
+        observed_x_values.extend(x)
         y = np.array(df[y_col].to_list(), dtype=float)
-        if (percent_mode or normalize) and y.sum() > 0:
+        density_percent_mode = percent_mode or normalize
+        if density_percent_mode and y.sum() > 0:
             y = y / y.sum() * 100
+        y_list = y.tolist()
+        hover = [
+            _point_hover_text(
+                label,
+                xaxis_title=xaxis_title,
+                x_col=x_col,
+                x_value=xi,
+                yaxis_title=yaxis_title,
+                y_col=y_col,
+                y_value=yi,
+                percent_mode=density_percent_mode,
+            )
+            for xi, yi in zip(x, y_list)
+        ]
         fig.add_trace(
             go.Scatter(
                 name=label,
                 x=x,
-                y=y.tolist(),
+                y=y_list,
                 mode="lines",
                 line=dict(color=color, width=2),
                 fill="tozeroy",
@@ -332,13 +434,15 @@ def density_chart(
                     if "rgb" in color
                     else None
                 ),
+                hovertemplate="%{customdata}<extra></extra>",
+                customdata=hover,
             )
         )
     _layout(
         fig,
         title,
         xaxis_title,
-        f"Percent of {yaxis_title} (%)" if (percent_mode or normalize) else yaxis_title,
+        _hover_yaxis_title(yaxis_title, percent_mode=percent_mode or normalize),
         height,
     )
     if density_hover_mode() == "all":
@@ -356,6 +460,13 @@ def density_chart(
         if xaxis_ticktext is not None:
             tick_kwargs["ticktext"] = xaxis_ticktext
         fig.update_xaxes(**tick_kwargs)
+    elif clock_ticks := _clock_hour_tick_labels(observed_x_values):
+        tickvals, ticktext = clock_ticks
+        fig.update_xaxes(
+            tickmode="array",
+            tickvals=tickvals,
+            ticktext=ticktext,
+        )
     return pn.pane.Plotly(fig, sizing_mode="stretch_width")
 
 

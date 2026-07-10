@@ -435,7 +435,62 @@ def test_bar_chart_omits_pct_hover_lines() -> None:
 
     assert "Pct:" not in hover[0]
     assert "Pct:" not in hover[1]
+    assert hover[0] == "Base<br>mode: Walk<br>Count: 5.0"
     assert chart.object.layout.hovermode != "x unified"
+
+
+def test_bar_and_density_chart_hover_formatting_matches_units() -> None:
+    bar = bar_chart(
+        [
+            (
+                "Base",
+                pl.DataFrame({"mode": ["Walk", "Bike"], "trip_count": [25.0, 75.0]}),
+            )
+        ],
+        x_col="mode",
+        y_col="trip_count",
+        xaxis_title="Mode",
+        yaxis_title="Trips",
+        as_percent=True,
+    )
+    density_percent = density_chart(
+        [
+            (
+                "Base",
+                pl.DataFrame(
+                    {"clock_time": ["03:00", "03:30"], "trip_count": [25.0, 75.0]}
+                ),
+            )
+        ],
+        x_col="clock_time",
+        y_col="trip_count",
+        xaxis_title="Clock Time",
+        yaxis_title="Trips",
+        as_percent=True,
+    )
+    density_count = density_chart(
+        [
+            (
+                "Base",
+                pl.DataFrame({"clock_time": ["03:00"], "trip_count": [1234.0]}),
+            )
+        ],
+        x_col="clock_time",
+        y_col="trip_count",
+        xaxis_title="Clock Time",
+        yaxis_title="Trips",
+        as_percent=False,
+    )
+
+    assert list(bar.object.data[0].customdata)[0] == (
+        "Base<br>Mode: Walk<br>Percent of Trips (%): 25.00%"
+    )
+    assert list(density_percent.object.data[0].customdata)[0] == (
+        "Base<br>Clock Time: 03:00<br>Percent of Trips (%): 25.00%"
+    )
+    assert list(density_count.object.data[0].customdata)[0] == (
+        "Base<br>Clock Time: 03:00<br>Trips: 1,234"
+    )
 
 
 def test_bar_chart_uses_configured_all_series_hover_mode() -> None:
