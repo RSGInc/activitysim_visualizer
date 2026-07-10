@@ -146,6 +146,8 @@ def component_display_name(
         "skim_walk_time_inbound": "Total Walk Access/Egress Time (min)",
         "skim_transit_tiv_outbound": "Transit In-Vehicle Time (min)",
         "skim_transit_tiv_inbound": "Transit In-Vehicle Time (min)",
+        "skim_bike_distance": "TAZ Skim Bike Distance (mi)",
+        "skim_bike_maz_distance": "MAZ Network Bike Distance (mi)",
     }
     if value in special_labels:
         return special_labels[value]
@@ -480,8 +482,7 @@ def family_stats_table(
             ).alias("__skim_scenario"),
         ).filter(
             (pl.col("__skim_scenario") == skim_scenario)
-            &
-            pl.col(mode_column).is_in(list(family_modes))
+            & pl.col(mode_column).is_in(list(family_modes))
             & (pl.col(mode_column) != ALL_MODES)
         )
         if configured_outputs:
@@ -645,12 +646,15 @@ def prepared_component_values(
             df = getattr(run, sidecar_name)
             if df is None or df.is_empty():
                 continue
-            required_columns = {"hypothetical_mode", "component", "value", "finalweight"}
+            required_columns = {
+                "hypothetical_mode",
+                "component",
+                "value",
+                "finalweight",
+            }
             if not required_columns.issubset(df.columns):
                 continue
-            filtered = df.filter(
-                pl.col("component").cast(pl.Utf8) == component
-            )
+            filtered = df.filter(pl.col("component").cast(pl.Utf8) == component)
             if mode_value != ALL_MODES:
                 filtered = filtered.filter(
                     pl.col("hypothetical_mode").cast(pl.Utf8) == mode_value

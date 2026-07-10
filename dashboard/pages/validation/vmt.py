@@ -1254,11 +1254,7 @@ class VMTValidationPage(DashboardPage):
             self.personal_vmt_geography_type_sel.value = geography_type_options_display[0]
 
         breakdown = str(self.personal_vmt_breakdown_sel.value)
-        geography_type_enabled = breakdown == "Home Geography"
-        self.personal_vmt_geography_type_sel.disabled = not geography_type_enabled
-        if not geography_type_enabled:
-            self.personal_vmt_geography_type_sel.value = geography_type_options_display[0]
-
+        self.personal_vmt_geography_type_sel.disabled = False
         geography_type = self.selected_personal_vmt_geography_type_raw()
         geography_options_display, self.personal_vmt_geo_raw_by_label = (
             geography_name_options_for_type(
@@ -1274,6 +1270,7 @@ class VMTValidationPage(DashboardPage):
         self.personal_vmt_geography_sel.options = geography_options_display
         if self.personal_vmt_geography_sel.value not in geography_options_display:
             self.personal_vmt_geography_sel.value = geography_options_display[0]
+        self.personal_vmt_geography_sel.disabled = False
 
         time_period_options = _selector_values(
             personal_vmt,
@@ -1360,17 +1357,7 @@ class VMTValidationPage(DashboardPage):
             )
 
         non_motorized_breakdown = str(self.non_motorized_vmt_breakdown_sel.value)
-        non_motorized_geography_type_enabled = (
-            non_motorized_breakdown == "Home Geography"
-        )
-        self.non_motorized_vmt_geography_type_sel.disabled = (
-            not non_motorized_geography_type_enabled
-        )
-        if not non_motorized_geography_type_enabled:
-            self.non_motorized_vmt_geography_type_sel.value = (
-                non_motorized_geography_type_options_display[0]
-            )
-
+        self.non_motorized_vmt_geography_type_sel.disabled = False
         non_motorized_geography_type = (
             self.selected_non_motorized_vmt_geography_type_raw()
         )
@@ -1396,6 +1383,7 @@ class VMTValidationPage(DashboardPage):
             self.non_motorized_vmt_geography_sel.value = (
                 non_motorized_geography_options_display[0]
             )
+        self.non_motorized_vmt_geography_sel.disabled = False
 
         non_motorized_time_period_options = _selector_values(
             non_motorized_vmt,

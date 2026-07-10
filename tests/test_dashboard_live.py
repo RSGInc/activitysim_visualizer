@@ -1054,7 +1054,8 @@ def test_non_motorized_vmt_section_mirrors_personal_auto_controls(
         "Walk",
         "Bike",
     ]
-    assert page.non_motorized_vmt_geography_type_sel.disabled is True
+    assert page.non_motorized_vmt_geography_type_sel.disabled is False
+    assert page.non_motorized_vmt_geography_sel.disabled is False
 
     page.non_motorized_vmt_breakdown_sel.value = "Home Geography"
     page.refresh(force=True)
@@ -1067,6 +1068,8 @@ def test_non_motorized_vmt_section_mirrors_personal_auto_controls(
 
     page.non_motorized_vmt_breakdown_sel.value = "Mode"
     page.refresh(force=True)
+    assert page.non_motorized_vmt_geography_type_sel.disabled is False
+    assert page.non_motorized_vmt_geography_sel.disabled is False
     assert page.non_motorized_vmt_mode_sel.disabled is True
     assert page.non_motorized_vmt_mode_sel.value == "All"
 
@@ -1204,7 +1207,8 @@ def test_vmt_page_disables_active_personal_auto_vmt_filter_selector(
     page = VMTValidationPage(state, config)
     page.refresh(force=True)
 
-    assert page.personal_vmt_geography_type_sel.disabled is True
+    assert page.personal_vmt_geography_type_sel.disabled is False
+    assert page.personal_vmt_geography_sel.disabled is False
     assert page.personal_vmt_time_period_sel.disabled is True
     assert page.personal_vmt_mode_sel.disabled is False
     assert page.personal_vmt_income_segment_sel.disabled is False
@@ -1214,11 +1218,13 @@ def test_vmt_page_disables_active_personal_auto_vmt_filter_selector(
     page.refresh(force=True)
 
     assert page.personal_vmt_geography_type_sel.disabled is False
+    assert page.personal_vmt_geography_sel.disabled is False
 
     page.personal_vmt_breakdown_sel.value = "Income Segment"
     page.refresh(force=True)
 
-    assert page.personal_vmt_geography_type_sel.disabled is True
+    assert page.personal_vmt_geography_type_sel.disabled is False
+    assert page.personal_vmt_geography_sel.disabled is False
     assert page.personal_vmt_time_period_sel.disabled is False
     assert page.personal_vmt_mode_sel.disabled is False
     assert page.personal_vmt_income_segment_sel.disabled is True
@@ -1228,6 +1234,8 @@ def test_vmt_page_disables_active_personal_auto_vmt_filter_selector(
     page.personal_vmt_breakdown_sel.value = "Mode"
     page.refresh(force=True)
 
+    assert page.personal_vmt_geography_type_sel.disabled is False
+    assert page.personal_vmt_geography_sel.disabled is False
     assert page.personal_vmt_time_period_sel.disabled is False
     assert page.personal_vmt_mode_sel.disabled is True
     assert page.personal_vmt_mode_sel.value == "All"
@@ -1281,14 +1289,15 @@ def test_vmt_page_geography_selectors_use_display_labels_and_raw_filters(
         "All Geography Types",
         "County",
     ]
-    assert page.personal_vmt_geography_type_sel.disabled is True
+    assert page.personal_vmt_breakdown_sel.value == "Time Period"
+    assert page.personal_vmt_geography_type_sel.disabled is False
+    assert page.personal_vmt_geography_sel.disabled is False
 
-    page.personal_vmt_breakdown_sel.value = "Home Geography"
-    page.refresh(force=True)
     page.personal_vmt_geography_type_sel.value = "County"
     page.refresh(force=True)
 
     assert page.personal_vmt_geography_type_sel.disabled is False
+    assert page.personal_vmt_geography_sel.disabled is False
     assert page.personal_vmt_geography_sel.name == "County Name"
     assert list(page.personal_vmt_geography_sel.options) == [
         "All Counties",
@@ -1347,6 +1356,9 @@ def test_vmt_export_states_collapse_ignored_personal_auto_selectors(
     selector_widgets = {
         selector.selector_id: selector.widget for selector in page.registered_selectors
     }
+    assert selector_widgets["personal_auto_vmt_geography_type"].disabled is False
+    assert selector_widgets["personal_auto_vmt_geography"].disabled is False
+
     active_selector_ids = [
         "personal_auto_vmt_breakdown",
         "personal_auto_vmt_geography_type",

@@ -887,6 +887,7 @@ class TrafficValidationPage(DashboardPage):
                     xaxis_title="Facility Type",
                     yaxis_title="Volume",
                     xaxis_categoryarray=facility_categoryarray,
+                    showlegend=True,
                 )
             )
         else:

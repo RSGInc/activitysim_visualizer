@@ -5249,6 +5249,8 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
     assert reference_line.line.dash == "dash"
     assert reference_line.showlegend is False
     assert list(bar_plot.object.data[0].x) == ["Principal Arterial"]
+    assert bar_plot.object.layout.showlegend is True
+    assert bar_plot.object.data[0].name == "Base"
     assert plot_titles[-1] == "Screenline Flow Comparisons"
     assert "Traffic Count Comparisons" not in plot_titles
     assert "Demo Link Volume by Facility Type - Day" not in plot_titles

@@ -13,8 +13,8 @@ pipeline:
     # - segment
     - summarize # will automatically overwrite summaries with a stale cache
     - dashboard
-  dashboard_mode: live # live | export | host 
-  overwrite: true # overwrite ALL prepared tables / summaries
+  dashboard_mode: export # live | export | host 
+  overwrite: false # overwrite ALL prepared tables / summaries
 
 # ---------------------------------------------------------------------------
 # ActivitySim output file names
@@ -52,8 +52,8 @@ files:
 # If none of the above are set and sample_rate is not in columns, all weights = 1.
 # ---------------------------------------------------------------------------
 runs:
-  # - dir:              C:\Users\wesley.darling\Downloads\dataset_2026-05-21\unfiltered
-  #   label:            Unfiltered
+  - dir:              C:\Users\wesley.darling\Downloads\dataset_2026-05-21\unfiltered
+    label:            Unfiltered
   #   skimjoin:
   #     config_path: will_skimjoin_config.yaml
   #     skim_files:
@@ -62,8 +62,8 @@ runs:
   #       - C:\Users\wesley.darling\project_data\odot_skims\maz_maz_walk.csv
   #     network_los_file: C:\Users\wesley.darling\project_data\odot_skims\network_los.yaml
 
-  # - dir:              C:\Users\wesley.darling\Downloads\dataset_2026-05-21\filtered
-  #   label:            Filtered
+  - dir:              C:\Users\wesley.darling\Downloads\dataset_2026-05-21\filtered
+    label:            Filtered
   #   skimjoin:
   #     config_path: will_skimjoin_config.yaml
   #     skim_files:
@@ -211,7 +211,7 @@ prepare:
 
 skimjoin:
   # Create optional long-form trip/tour tables with skim values for alternate modes.
-  create_hypothetical_skim_tables: false
+  create_hypothetical_skim_tables: true
   defaults:
     config_path: will_skimjoin_config.yaml
     skim_files:

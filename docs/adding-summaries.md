@@ -115,9 +115,9 @@ The cache module derives these related structures from `SUMMARY_SPECS`:
 Registered summaries are valid IDs for dashboard pages, cache filenames,
 contracts, and `runs[*].summary_table_map`. Default-built summaries are the
 registered subset generated automatically for normal raw/prepared runs. Use
-`build_by_default=False` for external/demo-only summaries that should be loaded
-through `summary_table_map` without producing `__empty__` cache CSVs for normal
-runs.
+`build_by_default=False` for external or validation-scaffold summaries that
+should be loaded through `summary_table_map` without producing `__empty__`
+cache CSVs for normal runs.
 
 If the summary is not in `SUMMARY_SPECS`, it does not exist to the rest of the
 application.
