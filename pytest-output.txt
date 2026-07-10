@@ -1,0 +1,534 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.2, pytest-9.0.3, pluggy-1.6.0
+rootdir: C:\Users\wesley.darling\projects\activitysim_visualizer
+configfile: pyproject.toml
+testpaths: tests
+plugins: anyio-4.12.1, shiny-1.6.0
+collected 153 items
+
+tests\test_dashboard_live.py F..F.................                       [ 13%]
+tests\test_export_html.py ..........F.F...............                   [ 32%]
+tests\test_export_html_smoke.py F...                                     [ 34%]
+tests\test_export_payload.py F...                                        [ 37%]
+tests\test_export_serializer.py ......                                   [ 41%]
+tests\test_export_size_budget.py .                                       [ 41%]
+tests\test_export_warnings.py F..                                        [ 43%]
+tests\test_logging.py .FF                                                [ 45%]
+tests\test_page_ordering.py F.F                                          [ 47%]
+tests\test_page_registry_contract.py ...                                 [ 49%]
+tests\test_prepare_cache.py .........                                    [ 55%]
+tests\test_processor_prepare.py ....                                     [ 58%]
+tests\test_run_cli.py .............                                      [ 66%]
+tests\test_runtime_canonical_columns.py .......F..                       [ 73%]
+tests\test_runtime_workflows.py ....F..........                          [ 83%]
+tests\test_summary_cache.py ............F.............                   [100%]
+
+================================== FAILURES ===================================
+___________ test_page_registry_exposes_expected_default_definitions ___________
+
+    def test_page_registry_exposes_expected_default_definitions() -> None:
+        definitions = default_page_definitions()
+    
+>       assert [definition.page_id for definition in definitions] == EXPECTED_DEFAULT_LEAF_PAGE_IDS
+E       AssertionError: assert ['overview', ...t_tours', ...] == ['overview', ...t_tours', ...]
+E         
+E         At index 6 diff: 'joint_travel' != 'destination'
+E         Left contains one more item: 'trip_mode'
+E         Use -v to get more diff
+
+tests\test_dashboard_live.py:67: AssertionError
+__ test_resolve_page_definitions_defaults_to_default_pages_when_unconfigured __
+
+tmp_path = WindowsPath('tmp_export_test_artifacts/test_resolve_page_definitions_defaults_to_default_pages_when_unconfigured_e2defea54c6a479aa9037c3b22b2b912')
+
+    def test_resolve_page_definitions_defaults_to_default_pages_when_unconfigured(
+        tmp_path: Path,
+    ) -> None:
+        config = _write_config(tmp_path, dashboard_pages=None)
+    
+        resolved_pages = resolve_page_definitions(config)
+    
+>       assert [page.title for page in resolved_pages] == EXPECTED_DEFAULT_LEAF_PAGE_TITLES
+E       AssertionError: assert ['Overview', ...t Tours', ...] == ['Overview', ...t Tours', ...]
+E         
+E         At index 6 diff: 'Joint Travel' != 'Destination'
+E         Left contains one more item: 'Trip Mode'
+E         Use -v to get more diff
+
+tests\test_dashboard_live.py:142: AssertionError
+____ test_build_export_html_document_serializes_dashboard_states_and_pages ____
+
+tmp_path = WindowsPath('tmp_export_test_artifacts/test_build_export_html_document_serializes_dashboard_states_and_pages_9f7bac1c367a4a73930fdf728896e6df')
+
+    def test_build_export_html_document_serializes_dashboard_states_and_pages(
+        tmp_path: Path,
+    ) -> None:
+        config = _write_config(
+            tmp_path,
+            export_html_lines=[
+                "dashboard:",
+                "  weighting: all",
+                "  values: all",
+            ],
+        )
+        html = build_export_html_document(
+            [],
+            config,
+            summary_runs=[_full_summary_run()],
+        )
+        payload = _extract_payload(html)
+    
+        assert payload["schema_version"] == EXPORT_SCHEMA_VERSION
+        assert payload["runs_loaded"] == [{"label": "Base", "color": "#1f77b4"}]
+        assert payload["chrome"] == {
+            "layout": "left_rail",
+            "rail_sections": ["runs_loaded", "display_options"],
+            "controls_enabled": {"weighting": True, "values": True},
+        }
+        assert payload["dashboard_controls"]["weighting"] == ["Weighted", "Unweighted"]
+        assert payload["dashboard_controls"]["values"] == ["Percent", "Count"]
+        assert payload["default_state"] == {"weighting": "Weighted", "values": "Percent"}
+>       assert [
+            (page["id"], page["title"]) for page in payload["pages"]
+        ] == EXPECTED_DEFAULT_PAGES
+E       AssertionError: assert [('overview',...nation'), ...] == [('overview',...'Stops'), ...]
+E         
+E         At index 4 diff: ('joint_travel', 'Joint Travel') != ('destination', 'Destination')
+E         Left contains one more item: ('trip_mode', 'Trip Mode')
+E         Use -v to get more diff
+
+tests\test_export_html.py:803: AssertionError
+------------------------------ Captured log call ------------------------------
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tours_by_household_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tour_composition_by_party_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'person_jtp_by_household_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tours_by_household_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tour_composition_by_party_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'person_jtp_by_household_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tours_by_household_size' for weighting mode 'unweighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tour_composition_by_party_size' for weighting mode 'unweighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'person_jtp_by_household_size' for weighting mode 'unweighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tours_by_household_size' for weighting mode 'unweighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tour_composition_by_party_size' for weighting mode 'unweighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'person_jtp_by_household_size' for weighting mode 'unweighted', but it is unavailable.
+_ test_build_export_html_document_defaults_to_registry_order_when_export_pages_are_unset _
+
+tmp_path = WindowsPath('tmp_export_test_artifacts/test_build_export_html_document_defaults_to_registry_order_when_export_pages_are_unset_db099eef38b74d6591f34d6f6a90a31f')
+
+    def test_build_export_html_document_defaults_to_registry_order_when_export_pages_are_unset(
+        tmp_path: Path,
+    ) -> None:
+        config = _write_config(
+            tmp_path,
+            dashboard_pages=["trip_mode", "overview", "destination"],
+            export_html_lines=[
+                "dashboard:",
+                "  weighting: all",
+                "  values: all",
+            ],
+        )
+    
+        html = build_export_html_document([], config, summary_runs=[_full_summary_run()])
+        payload = _extract_payload(html)
+    
+>       assert [
+            (page["id"], page["title"]) for page in payload["pages"]
+        ] == EXPECTED_DEFAULT_PAGES
+E       AssertionError: assert [('overview',...nation'), ...] == [('overview',...'Stops'), ...]
+E         
+E         At index 4 diff: ('joint_travel', 'Joint Travel') != ('destination', 'Destination')
+E         Left contains one more item: ('trip_mode', 'Trip Mode')
+E         Use -v to get more diff
+
+tests\test_export_html.py:988: AssertionError
+------------------------------ Captured log call ------------------------------
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tours_by_household_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tour_composition_by_party_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'person_jtp_by_household_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tours_by_household_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tour_composition_by_party_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'person_jtp_by_household_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tours_by_household_size' for weighting mode 'unweighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tour_composition_by_party_size' for weighting mode 'unweighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'person_jtp_by_household_size' for weighting mode 'unweighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tours_by_household_size' for weighting mode 'unweighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tour_composition_by_party_size' for weighting mode 'unweighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'person_jtp_by_household_size' for weighting mode 'unweighted', but it is unavailable.
+__________ test_export_html_smoke_writes_single_self_contained_file ___________
+
+    def test_export_html_smoke_writes_single_self_contained_file() -> None:
+        tmp_path = _workspace_tmp_dir("html_smoke_file")
+        config = _write_config(
+            tmp_path,
+            export_html_lines=[
+                "dashboard:",
+                "  weighting: all",
+                "  values: all",
+            ],
+        )
+        out_path = tmp_path / "smoke" / "dashboard.html"
+    
+        write_export_html_document(
+            out_path,
+            [],
+            config,
+            summary_runs=[_full_summary_run()],
+        )
+    
+        assert out_path.exists()
+>       assert sorted(path.name for path in out_path.parent.iterdir()) == ["dashboard.html"]
+E       AssertionError: assert ['dashboard.d...shboard.html'] == ['dashboard.html']
+E         
+E         At index 0 diff: 'dashboard.diagnostics.json' != 'dashboard.html'
+E         Left contains one more item: 'dashboard.html'
+E         Use -v to get more diff
+
+tests\test_export_html_smoke.py:46: AssertionError
+------------------------------ Captured log call ------------------------------
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tours_by_household_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tour_composition_by_party_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'person_jtp_by_household_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tours_by_household_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tour_composition_by_party_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'person_jtp_by_household_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tours_by_household_size' for weighting mode 'unweighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tour_composition_by_party_size' for weighting mode 'unweighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'person_jtp_by_household_size' for weighting mode 'unweighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tours_by_household_size' for weighting mode 'unweighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tour_composition_by_party_size' for weighting mode 'unweighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'person_jtp_by_household_size' for weighting mode 'unweighted', but it is unavailable.
+___________ test_build_export_payload_has_stable_top_level_contract ___________
+
+    def test_build_export_payload_has_stable_top_level_contract() -> None:
+        tmp_path = _workspace_tmp_dir("payload_contract")
+        config = _write_config(
+            tmp_path,
+            export_html_lines=[
+                "dashboard:",
+                "  weighting: all",
+                "  values: all",
+            ],
+        )
+    
+        payload = build_export_payload([], config, summary_runs=[_full_summary_run()])
+    
+        assert list(payload) == [
+            "schema_version",
+            "title",
+            "runs_loaded",
+            "chrome",
+            "dashboard_controls",
+            "default_state",
+            "pages",
+            "states",
+            "page_export_support",
+            "client_runtime",
+        ]
+        assert payload["schema_version"] == EXPORT_SCHEMA_VERSION
+        assert payload["client_runtime"] == EXPORT_CLIENT_RUNTIME
+        assert (
+            payload["page_export_support"]["client_side_runtime"]
+            == EXPORT_PAGE_SELECTOR_RUNTIME
+        )
+>       assert [(page["id"], page["title"]) for page in payload["pages"]] == EXPECTED_DEFAULT_PAGES
+E       AssertionError: assert [('overview',...nation'), ...] == [('overview',...'Stops'), ...]
+E         
+E         At index 4 diff: ('joint_travel', 'Joint Travel') != ('destination', 'Destination')
+E         Left contains one more item: ('trip_mode', 'Trip Mode')
+E         Use -v to get more diff
+
+tests\test_export_payload.py:57: AssertionError
+------------------------------ Captured log call ------------------------------
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tours_by_household_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tour_composition_by_party_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'person_jtp_by_household_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tours_by_household_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tour_composition_by_party_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'person_jtp_by_household_size' for weighting mode 'weighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tours_by_household_size' for weighting mode 'unweighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tour_composition_by_party_size' for weighting mode 'unweighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'person_jtp_by_household_size' for weighting mode 'unweighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tours_by_household_size' for weighting mode 'unweighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'joint_tour_composition_by_party_size' for weighting mode 'unweighted', but it is unavailable.
+WARNING  activitysim_viz.dashboard.page:page_base.py:109 Warning: dashboard page 'Joint Travel' requires summary 'person_jtp_by_household_size' for weighting mode 'unweighted', but it is unavailable.
+______ test_export_logs_selector_unavailable_warning_once_and_falls_back ______
+
+caplog = <_pytest.logging.LogCaptureFixture object at 0x00000198F51F6CF0>
+
+    def test_export_logs_selector_unavailable_warning_once_and_falls_back(caplog: pytest.LogCaptureFixture) -> None:
+        tmp_path = _workspace_tmp_dir("warning_unavailable")
+        config = _write_config(
+            tmp_path,
+            export_html_lines=[
+                "dashboard:",
+                "  weighting: all",
+                "  values: all",
+                "pages:",
+                "  long_term:",
+                "    geography: all",
+            ],
+        )
+    
+        with caplog.at_level(logging.WARNING, logger="dashboard.export"):
+            html = build_export_html_document([], config, summary_runs=[_full_summary_run()])
+    
+        payload = _extract_payload(html)
+        warning_messages = [record.getMessage() for record in caplog.records]
+    
+>       assert payload["pages"] == [{"id": "long_term", "title": "Long-Term", "selectors": []}]
+E       AssertionError: assert [{'children':...rs': [], ...}] == [{'id': 'long... 'Long-Term'}]
+E         
+E         At index 0 diff: {'id': 'long_term', 'title': 'Long-Term', 'selectors': [], 'children': [], 'default_child_id': None} != {'id': 'long_term', 'title': 'Long-Term', 'selectors': []}
+E         Use -v to get more diff
+
+tests\test_export_warnings.py:43: AssertionError
+------------------------------ Captured log call ------------------------------
+WARNING  activitysim_viz.dashboard.export:payload.py:352 Warning: visualizer.export_html.pages.long_term.geography is configured, but the selector is unavailable for this export. Ignoring the configuration and exporting the page with its fallback layout.
+_________________ test_warning_paths_are_written_to_log_file __________________
+
+tmp_path = WindowsPath('tmp_export_test_artifacts/test_warning_paths_are_written_to_log_file_90fa529eb82340c3a28d7e1a03b081e5')
+
+    def test_warning_paths_are_written_to_log_file(
+        tmp_path: Path,
+    ) -> None:
+        config = _write_config(tmp_path, dashboard_pages=["overview"])
+        log_path = configure_logging(config)
+        missing_summary_run = create_summary_run(
+            label="Base",
+            run_key="base",
+            summaries_by_mode={
+                "weighted": {"person_type_distribution": pl.DataFrame()},
+                "unweighted": {"person_type_distribution": pl.DataFrame()},
+            },
+            source_run_dir="C:/runs/base",
+        )
+    
+        build_dashboard([], config, summary_runs=[missing_summary_run])
+        _flush_logger_handlers()
+    
+        expected = "requires summary 'population_totals'"
+>       assert expected in log_path.read_text(encoding="utf-8")
+E       assert "requires summary 'population_totals'" in ''
+E        +  where '' = read_text(encoding='utf-8')
+E        +    where read_text = WindowsPath('C:/Users/wesley.darling/projects/activitysim_visualizer/tmp_export_test_artifacts/test_warning_paths_are_written_to_log_file_90fa529eb82340c3a28d7e1a03b081e5/logs/activitysim_visualizer.log').read_text
+
+tests\test_logging.py:61: AssertionError
+________ test_prepared_data_placeholder_warning_is_written_to_log_file ________
+
+tmp_path = WindowsPath('tmp_export_test_artifacts/test_prepared_data_placeholder_warning_is_written_to_log_file_c8a37ebbb5bc4fcfab9d8fac8364e54b')
+
+    def test_prepared_data_placeholder_warning_is_written_to_log_file(
+        tmp_path: Path,
+    ) -> None:
+        config = _write_config(tmp_path, dashboard_pages=["raw_trip_demo"])
+        log_path = configure_logging(config)
+    
+        build_dashboard([], config, summary_runs=[_full_summary_run()])
+        _flush_logger_handlers()
+    
+>       assert "requires prepared run data" in log_path.read_text(encoding="utf-8")
+E       AssertionError: assert 'requires prepared run data' in ''
+E        +  where '' = read_text(encoding='utf-8')
+E        +    where read_text = WindowsPath('C:/Users/wesley.darling/projects/activitysim_visualizer/tmp_export_test_artifacts/test_prepared_data_placeholder_warning_is_written_to_log_file_c8a37ebbb5bc4fcfab9d8fac8364e54b/logs/activitysim_visualizer.log').read_text
+
+tests\test_logging.py:74: AssertionError
+__________ test_live_and_export_page_resolution_share_default_order ___________
+
+tmp_path = WindowsPath('tmp_export_test_artifacts/test_live_and_export_page_resolution_share_default_order_3d0dfc6457324686a0a7ed46422bcc5d')
+
+    def test_live_and_export_page_resolution_share_default_order(tmp_path: Path) -> None:
+        config = _write_config(tmp_path, dashboard_pages=None)
+    
+        live_pages = resolve_live_page_definitions(config)
+        export_pages = resolve_export_page_definitions(config)
+    
+>       assert [page.page_id for page in live_pages] == EXPECTED_DEFAULT_LEAF_PAGE_IDS
+E       AssertionError: assert ['overview', ...t_tours', ...] == ['overview', ...t_tours', ...]
+E         
+E         At index 6 diff: 'joint_travel' != 'destination'
+E         Left contains one more item: 'trip_mode'
+E         Use -v to get more diff
+
+tests\test_page_ordering.py:23: AssertionError
+_ test_export_page_order_falls_back_to_registry_order_when_export_pages_unset _
+
+tmp_path = WindowsPath('tmp_export_test_artifacts/test_export_page_order_falls_back_to_registry_order_when_export_pages_unset_01ec6838325a493f974149f52dc82b43')
+
+    def test_export_page_order_falls_back_to_registry_order_when_export_pages_unset(
+        tmp_path: Path,
+    ) -> None:
+        config = _write_config(
+            tmp_path,
+            dashboard_pages=["trip_mode", "overview", "destination"],
+            export_html_lines=[
+                "dashboard:",
+                "  weighting: all",
+            ],
+        )
+    
+        export_pages = resolve_export_page_definitions(config)
+    
+>       assert [page.page_id for page in export_pages] == EXPECTED_DEFAULT_LEAF_PAGE_IDS
+E       AssertionError: assert ['overview', ...t_tours', ...] == ['overview', ...t_tours', ...]
+E         
+E         At index 6 diff: 'joint_travel' != 'destination'
+E         Left contains one more item: 'trip_mode'
+E         Use -v to get more diff
+
+tests\test_page_ordering.py:60: AssertionError
+___ test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes ___
+
+tmp_path = WindowsPath('tmp_export_test_artifacts/test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes_df6317a8c6cb4a57bc333ece659246ad')
+
+    def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
+        tmp_path: Path,
+    ) -> None:
+        config = _write_config(
+            tmp_path,
+            column_lines=[
+                "household_id: hh_id",
+                "person_id: pid",
+                "tour_id: tid",
+                "trip_id: trip_id_src",
+                "tour_purpose: tour_label",
+                "trip_purpose: stop_label",
+                "tour_mode: tour_mode_src",
+                "trip_mode: trip_mode_src",
+                "tour_category: tour_cat_src",
+                "tour_start: start_period",
+                "tour_end: end_period",
+                "tour_duration: duration_periods",
+                "trip_depart: depart_period",
+                "total_employment: jobs",
+            ],
+        )
+        prepared = prepare_data(_raw_run_with_alternate_columns(), config)
+    
+        trip_mode_profile = trip.trip_mode(prepared, config)
+        assert trip_mode_profile.columns == list(
+            SUMMARY_OUTPUT_COLUMNS["trip_mode_by_tour_purpose_and_tour_mode"]
+        )
+        assert "eatout" in trip_mode_profile["tour_purpose"].to_list()
+    
+        stop_purpose = trip.stop_purpose_by_tour_purpose(prepared, config)
+        assert stop_purpose.columns == list(
+            SUMMARY_OUTPUT_COLUMNS["stop_destination_purpose_by_tour_purpose"]
+        )
+        assert stop_purpose["tour_purpose"].to_list() == ["eatout"]
+        assert stop_purpose["stop_destination_purpose"].to_list() == ["shop"]
+    
+        stop_freq = tour.stop_freq(prepared, config)
+        assert stop_freq.columns == list(
+            SUMMARY_OUTPUT_COLUMNS["tour_stop_frequency_by_tour_purpose"]
+        )
+    
+        stop_location = trip.stop_ood_distance(prepared, config)
+>       assert stop_location.columns == list(
+            SUMMARY_OUTPUT_COLUMNS["stop_out_of_direction_distance_by_tour_purpose"]
+        )
+E       AssertionError: assert ['tour_purpos... 'stop_count'] == ['distance_bi... 'stop_count']
+E         
+E         At index 0 diff: 'tour_purpose' != 'distance_bin'
+E         Use -v to get more diff
+
+tests\test_runtime_canonical_columns.py:447: AssertionError
+___ test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_failed ___
+
+tmp_path = WindowsPath('tmp_export_test_artifacts/test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_failed_70dd2873a0f74a649d7a743807faca27')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000198F7238230>
+caplog = <_pytest.logging.LogCaptureFixture object at 0x00000198F51B1BD0>
+
+    def test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_failed(
+        tmp_path: Path,
+        monkeypatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        run_dir = tmp_path / "run_a"
+        config = _write_config(
+            tmp_path,
+            runs=[{"dir": str(run_dir), "label": "Run A"}],
+        )
+        prepared_root = runtime_workflows.prepared_cache_root(config, create=True)
+    
+        monkeypatch.setattr(
+            runtime_workflows,
+            "read_run",
+            lambda run_dir, config, label=None, **kwargs: attach_table_availability(
+                RunData(
+                    label=label or Path(run_dir).name,
+                    run_dir=str(run_dir),
+                    skim_file=None,
+                    hh=pl.DataFrame({"household_id": [1]}),
+                    per=pl.DataFrame({"person_id": [1]}),
+                    tours=pl.DataFrame(),
+                    trips=pl.DataFrame(),
+                    joint_participants=pl.DataFrame(),
+                    land_use=pl.DataFrame(),
+                    skim_matrix=None,
+                    skim_zone_map=None,
+                ),
+                table_states={
+                    "households": "available",
+                    "persons": "available",
+                    "tours": "failed",
+                    "trips": "unavailable",
+                    "joint_tour_participants": "unavailable",
+                    "land_use": "unavailable",
+                },
+                table_reasons={
+                    "tours": "tour enrichment failed",
+                    "trips": "missing",
+                },
+            ),
+        )
+        monkeypatch.setattr(runtime_workflows, "prepare_data", lambda rd, config: rd)
+    
+        result = runtime_workflows.run_prepare_workflow(
+            config=config,
+            prepared_root=prepared_root,
+            run_entries=config.runs,
+            prefer_cache=True,
+            write_cache=False,
+        )
+    
+        assert [label for label, _ in result.prepared_runs] == ["Run A"]
+        assert list(result.prepared_runs_by_key) == ["run-a"]
+>       assert "recorded failed tables" in caplog.text
+E       AssertionError: assert 'recorded failed tables' in ''
+E        +  where '' = <_pytest.logging.LogCaptureFixture object at 0x00000198F51B1BD0>.text
+
+tests\test_runtime_workflows.py:373: AssertionError
+---------------------------- Captured stderr call -----------------------------
+Prepared run 'Run A' skipped unavailable tables: joint_tour_participants (table unavailable); land_use (table unavailable); trips (missing)
+Prepared run 'Run A' recorded failed tables: tours (tour enrichment failed)
+__________ test_registered_summary_builders_expose_contract_metadata __________
+
+    def test_registered_summary_builders_expose_contract_metadata() -> None:
+        missing = [
+            spec.summary_id
+            for spec in SUMMARY_SPECS
+            if not hasattr(spec.builder, "_summary_contract")
+        ]
+>       assert missing == []
+E       AssertionError: assert ['traffic_cou...acility_type'] == []
+E         
+E         Left contains 6 more items, first extra item: 'traffic_count_comparisons'
+E         Use -v to get more diff
+
+tests\test_summary_cache.py:621: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_dashboard_live.py::test_page_registry_exposes_expected_default_definitions
+FAILED tests/test_dashboard_live.py::test_resolve_page_definitions_defaults_to_default_pages_when_unconfigured
+FAILED tests/test_export_html.py::test_build_export_html_document_serializes_dashboard_states_and_pages
+FAILED tests/test_export_html.py::test_build_export_html_document_defaults_to_registry_order_when_export_pages_are_unset
+FAILED tests/test_export_html_smoke.py::test_export_html_smoke_writes_single_self_contained_file
+FAILED tests/test_export_payload.py::test_build_export_payload_has_stable_top_level_contract
+FAILED tests/test_export_warnings.py::test_export_logs_selector_unavailable_warning_once_and_falls_back
+FAILED tests/test_logging.py::test_warning_paths_are_written_to_log_file - as...
+FAILED tests/test_logging.py::test_prepared_data_placeholder_warning_is_written_to_log_file
+FAILED tests/test_page_ordering.py::test_live_and_export_page_resolution_share_default_order
+FAILED tests/test_page_ordering.py::test_export_page_order_falls_back_to_registry_order_when_export_pages_unset
+FAILED tests/test_runtime_canonical_columns.py::test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes
+FAILED tests/test_runtime_workflows.py::test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_failed
+FAILED tests/test_summary_cache.py::test_registered_summary_builders_expose_contract_metadata
+======================= 14 failed, 139 passed in 43.54s =======================

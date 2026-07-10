@@ -253,18 +253,38 @@ def _matching_run_entry(
     return None
 
 
+def _skimjoin_settings_for_series(
+    config: Config,
+    series: DashboardSummarySeries,
+):
+    run_entry = _matching_run_entry(config, series)
+    return (
+        resolve_run_skimjoin_settings(config, run_entry)
+        if run_entry is not None
+        else config.skimjoin
+    )
+
+
+def _ignored_modes_for_series(
+    config: Config,
+    series: DashboardSummarySeries,
+) -> set[str]:
+    skimjoin_settings = _skimjoin_settings_for_series(config, series)
+    normalized = getattr(skimjoin_settings, "normalized_config", None)
+    return {
+        str(mode)
+        for mode in getattr(normalized, "ignore_modes", ()) or ()
+        if str(mode) != ALL_MODES
+    }
+
+
 def _configured_outputs_by_mode(
     config: Config,
     series: DashboardSummarySeries,
     *,
     target_table: str,
 ) -> dict[str, set[str]]:
-    run_entry = _matching_run_entry(config, series)
-    skimjoin_settings = (
-        resolve_run_skimjoin_settings(config, run_entry)
-        if run_entry is not None
-        else config.skimjoin
-    )
+    skimjoin_settings = _skimjoin_settings_for_series(config, series)
     normalized = getattr(skimjoin_settings, "normalized_config", None)
     if normalized is None:
         return {}
@@ -290,10 +310,21 @@ def _skim_family_definitions(
             series,
             target_table=target_table,
         )
+        ignored_modes = _ignored_modes_for_series(config, series)
+        if ignored_modes:
+            configured_outputs = {
+                mode: outputs
+                for mode, outputs in configured_outputs.items()
+                if mode not in ignored_modes
+            }
         available_modes = _available_modes_from_data(
             [(label, series, df)],
             mode_column=mode_column,
         )
+        if ignored_modes:
+            available_modes = [
+                mode for mode in available_modes if mode not in ignored_modes
+            ]
         family_definitions: dict[str, dict[str, tuple[str, ...]]] = {}
         if configured_outputs and available_modes:
             all_modes = [

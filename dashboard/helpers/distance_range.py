@@ -104,19 +104,34 @@ def fixed_distance_axis_ticks(
     return tickvals, ticktext
 
 
+def capped_distance_max_options(max_value: int = 40) -> list[str]:
+    """Return max-range dropdown options ending with a capped ``40+`` label."""
+    return [str(value) for value in range(1, max_value)] + [f"{max_value}+"]
+
+
 def resolve_distance_range(
     min_value: object,
     max_value: object,
 ) -> tuple[float, float] | None:
     """Return a valid finite distance range, or None."""
-    try:
-        lower = float(min_value)
-        upper = float(max_value)
-    except (TypeError, ValueError):
+    lower = distance_bin_value(min_value)
+    upper = distance_bin_value(max_value)
+    if lower is None or upper is None:
         return None
     if not isfinite(lower) or not isfinite(upper) or lower >= upper:
         return None
     return (lower, upper)
+
+
+def _range_widget_value(value: float, widget: pn.widgets.Widget) -> object:
+    """Return a range-bound value compatible with the target widget."""
+    if isinstance(widget, pn.widgets.Select):
+        if abs(value - 40.0) < 1e-9:
+            return "40+"
+        if abs(value - round(value)) < 1e-9:
+            return str(int(round(value)))
+        return str(value)
+    return float(value)
 
 
 def _ranges_equal(
@@ -135,7 +150,7 @@ class DistanceRangeControls:
     page: Any
     prefix: str
     min_widget: pn.widgets.FloatInput
-    max_widget: pn.widgets.FloatInput
+    max_widget: pn.widgets.Widget
     reset_button: pn.widgets.Button
     selector_ids: tuple[str, ...]
 
@@ -149,10 +164,19 @@ class DistanceRangeControls:
         max_label: str = "Distance Max",
         reset_label: str = "Reset distance range",
         step: float = 1.0,
+        max_options: list[object] | None = None,
     ) -> "DistanceRangeControls":
         """Create registered live controls, or disabled export-only clones."""
         min_widget = pn.widgets.FloatInput(name=min_label, step=step, value=0.0)
-        max_widget = pn.widgets.FloatInput(name=max_label, step=step, value=1.0)
+        max_widget: pn.widgets.Widget
+        if max_options:
+            max_widget = pn.widgets.Select(
+                name=max_label,
+                options=list(max_options),
+                value=list(max_options)[-1],
+            )
+        else:
+            max_widget = pn.widgets.FloatInput(name=max_label, step=step, value=1.0)
         selector_ids: tuple[str, ...] = ()
         if page.state.export_mode:
             min_widget.disabled = True
@@ -211,7 +235,7 @@ class DistanceRangeControls:
 
         if self.page.state.export_mode:
             self.min_widget.value = float(bounds[0])
-            self.max_widget.value = float(bounds[1])
+            self.max_widget.value = _range_widget_value(float(bounds[1]), self.max_widget)
             self.min_widget.disabled = True
             self.max_widget.disabled = True
             self.reset_button.disabled = True
@@ -230,7 +254,7 @@ class DistanceRangeControls:
         )
         if should_reset:
             self.min_widget.value = float(bounds[0])
-            self.max_widget.value = float(bounds[1])
+            self.max_widget.value = _range_widget_value(float(bounds[1]), self.max_widget)
         self.page._page_state[state_key] = context_key
         self.page._page_state[auto_key] = tuple(bounds)
 
@@ -240,4 +264,4 @@ class DistanceRangeControls:
         if not auto_range:
             return
         self.min_widget.value = float(auto_range[0])
-        self.max_widget.value = float(auto_range[1])
+        self.max_widget.value = _range_widget_value(float(auto_range[1]), self.max_widget)

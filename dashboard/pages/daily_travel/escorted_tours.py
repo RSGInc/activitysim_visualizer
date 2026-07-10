@@ -17,6 +17,7 @@ from dashboard.helpers.category_helpers import (
 )
 from dashboard.helpers.distance_range import (
     DistanceRangeControls,
+    capped_distance_max_options,
     distance_axis_bounds,
     fixed_distance_axis_ticks,
     with_distance_axis,
@@ -336,6 +337,7 @@ class EscortedToursPage(DashboardPage):
         self.escort_distance_range = DistanceRangeControls.create(
             self,
             "escort_distance",
+            max_options=capped_distance_max_options(),
             reset_label="Reset distance range",
         )
         self._static_body = self.section(

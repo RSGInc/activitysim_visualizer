@@ -1,0 +1,7 @@
+name: "Test"
+dashboard_title: "Test"
+runs: []
+outputs:
+  summary_root: summary_cache
+  weighting_modes:
+    - weighted

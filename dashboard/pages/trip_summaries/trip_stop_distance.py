@@ -13,8 +13,9 @@ from dashboard.helpers.category_helpers import (
 )
 from dashboard.helpers.distance_range import (
     DistanceRangeControls,
+    capped_distance_max_options,
     distance_axis_bounds,
-    distance_axis_ticks,
+    fixed_distance_axis_ticks,
     with_distance_axis,
 )
 from dashboard.helpers.time_distance_helpers import distance_sort_expr
@@ -98,6 +99,7 @@ class TripStopDistancePage(DashboardPage):
         self.trip_stop_distance_range = DistanceRangeControls.create(
             self,
             "trip_stop_distance",
+            max_options=capped_distance_max_options(),
             reset_label="Reset distance range",
         )
         self._body = self.section(
@@ -167,7 +169,7 @@ class TripStopDistancePage(DashboardPage):
             ),
         )
         axis_data = with_distance_axis(chart_data)
-        tickvals, ticktext = distance_axis_ticks(chart_data)
+        tickvals, ticktext = fixed_distance_axis_ticks()
         return density_chart(
             axis_data,
             x_col="_distance_axis",
@@ -212,7 +214,8 @@ class TripStopDistancePage(DashboardPage):
                 cap_at=40,
             ),
         )
-        bounds = distance_axis_bounds([*trip_distance_data, *stop_distance_data])
+        observed_bounds = distance_axis_bounds([*trip_distance_data, *stop_distance_data])
+        bounds = (0.0, 40.0) if observed_bounds is not None else None
         self.trip_stop_distance_range.sync(
             (raw_purpose, self.weighting_key),
             bounds,

@@ -1,0 +1,7 @@
+name: "Warning Test"
+dashboard_title: "Warning Test"
+runs: []
+outputs:
+  summary_root: summary_cache
+  weighting_modes:
+    - weighted

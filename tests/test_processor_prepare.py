@@ -2891,7 +2891,7 @@ def test_mandatory_distance_summaries_include_configured_geography_levels(
                 "is_worker": [True, True, False],
                 "is_student": [False, True, True],
                 "person_type": ["1", "7", "3"],
-                "distance_to_work": [10.0, 20.0, None],
+                "distance_to_work": [0.5, 20.0, None],
                 "distance_to_school": [None, 5.0, 15.0],
                 "finalweight": [1.0, 2.0, 3.0],
             }
@@ -2912,8 +2912,16 @@ def test_mandatory_distance_summaries_include_configured_geography_levels(
     assert (
         work_distance.filter(
             (pl.col("geography_type") == "county")
+            & (pl.col("geography_id") == "West")
+            & (pl.col("distance_bin") == 0)
+        )["person_count"].to_list()
+        == [1.0]
+    )
+    assert (
+        work_distance.filter(
+            (pl.col("geography_type") == "county")
             & (pl.col("geography_id") == "East")
-            & (pl.col("distance_bin") == 21)
+            & (pl.col("distance_bin") == 20)
         )["person_count"].to_list()
         == [2.0]
     )
@@ -2921,7 +2929,7 @@ def test_mandatory_distance_summaries_include_configured_geography_levels(
         school_distance.filter(
             (pl.col("geography_type") == "county")
             & (pl.col("geography_id") == "East")
-            & (pl.col("distance_bin") == 6)
+            & (pl.col("distance_bin") == 5)
         )["person_count"].to_list()
         == [2.0]
     )
@@ -2929,7 +2937,7 @@ def test_mandatory_distance_summaries_include_configured_geography_levels(
         university_distance.filter(
             (pl.col("geography_type") == "county")
             & (pl.col("geography_id") == "East")
-            & (pl.col("distance_bin") == 16)
+            & (pl.col("distance_bin") == 15)
         )["person_count"].to_list()
         == [3.0]
     )
@@ -2971,7 +2979,7 @@ def test_mandatory_distance_summaries_include_configured_geography_levels(
             {
                 "mandatory_tour_purpose": "work",
                 "geography_id": "all_geographies",
-                "average_tour_distance": 16.666666666666668,
+                "average_tour_distance": 13.5,
                 "person_count": 3.0,
             },
         ]

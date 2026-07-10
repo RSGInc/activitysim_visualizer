@@ -8,6 +8,7 @@ import polars as pl
 from dashboard.components import bar_chart, data_table, density_chart, selector_row
 from dashboard.helpers.distance_range import (
     DistanceRangeControls,
+    capped_distance_max_options,
     distance_axis_bounds,
     fixed_distance_axis_ticks,
     with_distance_axis,
@@ -81,6 +82,7 @@ class MandatoryLocationChoicePage(DashboardPage):
         self.mandatory_distance_range = DistanceRangeControls.create(
             self,
             "mandatory_distance",
+            max_options=capped_distance_max_options(),
             reset_label="Reset distance range",
         )
         self._remote_work_section = self.section(

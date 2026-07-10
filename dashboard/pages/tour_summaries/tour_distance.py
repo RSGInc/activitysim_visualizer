@@ -31,8 +31,9 @@ from dashboard.helpers.geography_helpers import (
 )
 from dashboard.helpers.distance_range import (
     DistanceRangeControls,
+    capped_distance_max_options,
     distance_axis_bounds,
-    distance_axis_ticks,
+    fixed_distance_axis_ticks,
     with_distance_axis,
 )
 from dashboard.helpers.time_distance_helpers import distance_sort_expr
@@ -189,6 +190,7 @@ class TourDistancePage(DashboardPage):
         self.tour_distance_range = DistanceRangeControls.create(
             self,
             "tour_distance",
+            max_options=capped_distance_max_options(),
             reset_label="Reset distance range",
         )
         self._distance_section = self.section(
@@ -303,7 +305,8 @@ class TourDistancePage(DashboardPage):
                 str(raw_purpose),
             ),
         )
-        bounds = distance_axis_bounds(distance_data)
+        observed_bounds = distance_axis_bounds(distance_data)
+        bounds = (0.0, 40.0) if observed_bounds is not None else None
         self.tour_distance_range.sync(
             (raw_purpose, self.weighting_key),
             bounds,
@@ -335,7 +338,7 @@ class TourDistancePage(DashboardPage):
     ) -> pn.viewable.Viewable:
         """Render the distance distribution chart for one selected purpose."""
         axis_data = with_distance_axis(distance_data)
-        tickvals, ticktext = distance_axis_ticks(distance_data)
+        tickvals, ticktext = fixed_distance_axis_ticks()
         return density_chart(
             axis_data,
             "_distance_axis",

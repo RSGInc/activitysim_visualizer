@@ -1,0 +1,9 @@
+name: "Alias Smoke"
+runs: []
+summaries:
+  root: summary_cache
+visualizer:
+  dashboard_title: "Alias Smoke"
+columns:
+  tour_purpose: [primary_purpose, tour_type, purpose]
+  trip_depart: [depart, depart_hour]

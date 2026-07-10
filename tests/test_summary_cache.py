@@ -311,10 +311,15 @@ def _skim_summary_tables() -> tuple[dict[str, pl.DataFrame], dict[str, pl.DataFr
     return weighted, unweighted
 
 
-def _attach_test_skimjoin_config(config: Config) -> None:
+def _attach_test_skimjoin_config(
+    config: Config,
+    *,
+    ignore_modes: list[str] | None = None,
+) -> None:
     config.skimjoin = SkimjoinSettings(
         enabled=True,
         normalized_config=SimpleNamespace(
+            ignore_modes=ignore_modes or [],
             trip_lookups=[
                 SimpleNamespace(mode="SOV", output="skim_auto_time"),
                 SimpleNamespace(mode="SOV", output="skim_auto_distance"),
@@ -1897,13 +1902,16 @@ def test_trip_stop_distance_live_page_uses_shared_summary_helpers(
     )
     assert page.trip_stop_distance_range.current_range() == (0.0, 40.0)
     assert list(stop_ood_plot.object.data[0].x) == [0.0, 1.0, 40.0]
-    assert list(stop_ood_plot.object.layout.xaxis.ticktext) == ["0", "1", "40+"]
+    assert list(stop_ood_plot.object.layout.xaxis.ticktext) == [
+        *[str(value) for value in range(0, 40, 2)],
+        "40+",
+    ]
     assert list(stop_ood_plot.object.layout.xaxis.range) == [0.0, 40.0]
     assert list(stop_ood_plot.object.data[0].y) == pytest.approx(
         [54.166666666666664, 25.0, 20.833333333333336]
     )
     page.trip_stop_distance_range.min_widget.value = 0.25
-    page.trip_stop_distance_range.max_widget.value = 2.0
+    page.trip_stop_distance_range.max_widget.value = "2"
     page.refresh(force=True)
     ranged_plot = next(
         plot
@@ -1922,7 +1930,7 @@ def test_trip_stop_distance_live_page_uses_shared_summary_helpers(
     )
     assert list(reset_plot.object.layout.xaxis.range) == [0.0, 40.0]
     page.trip_stop_distance_range.min_widget.value = 2.0
-    page.trip_stop_distance_range.max_widget.value = 0.25
+    page.trip_stop_distance_range.max_widget.value = "1"
     page.refresh(force=True)
     assert any(
         card.title == "Trip and Stop Distance Data Not Available"
@@ -2457,6 +2465,59 @@ def test_trip_walk_skims_use_explicit_walk_distance_and_time_labels(
     ]
 
 
+def test_trip_skim_family_respects_skimjoin_ignored_modes(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    ignored_modes = ["EBIKE", "ESCOOTER", "BIKE_TRANSIT"]
+    _attach_test_skimjoin_config(config, ignore_modes=ignored_modes)
+    weighted, unweighted = _skim_summary_tables()
+    ignored_mode_rows = pl.DataFrame(
+        {
+            "component": ["skim_walk_time", "skim_walk_time", "skim_walk_time"],
+            "trip_mode": ignored_modes,
+            "n_total": [4.0, 3.0, 2.0],
+            "n_valid": [4.0, 3.0, 2.0],
+            "mean": [6.0, 7.0, 8.0],
+            "std": [1.0, 1.0, 1.0],
+            "min": [5.0, 6.0, 7.0],
+            "max": [7.0, 8.0, 9.0],
+            "median": [6.0, 7.0, 8.0],
+            "mode": [6.0, 7.0, 8.0],
+            "zero_share": [0.0, 0.0, 0.0],
+            "missing_share": [0.0, 0.0, 0.0],
+        }
+    )
+    weighted["skimjoin_trip_component_stats"] = pl.concat(
+        [weighted["skimjoin_trip_component_stats"], ignored_mode_rows],
+        how="vertical",
+    )
+    unweighted["skimjoin_trip_component_stats"] = pl.concat(
+        [unweighted["skimjoin_trip_component_stats"], ignored_mode_rows],
+        how="vertical",
+    )
+    state = DashboardState(
+        summary_runs=[
+            _summary_run_with_tables(
+                label="Base",
+                weighted=weighted,
+                unweighted=unweighted,
+            )
+        ],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = TripSkimsPage(state, config)
+    page.refresh(force=True)
+    page.trip_family_sel.value = "Bike Skims"
+    page.refresh(force=True)
+
+    table = _collect_tabulators(page._summary_section)[0]
+    assert set(table.value["trip_mode"].tolist()) == {"BIKE"}
+    for ignored_mode in ignored_modes:
+        assert ignored_mode not in table.value["trip_mode"].tolist()
+
+
 def test_tour_skims_page_uses_family_and_direction_selectors_for_summary_table(
     tmp_path: Path,
 ) -> None:
@@ -2960,7 +3021,7 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
         "40+",
     ]
     page.escort_distance_range.min_widget.value = 10.0
-    page.escort_distance_range.max_widget.value = 20.0
+    page.escort_distance_range.max_widget.value = "20"
     page.refresh(force=True)
     ranged_distance_plot = next(
         plot
@@ -2979,7 +3040,7 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
     )
     assert list(reset_distance_plot.object.layout.xaxis.range) == [0.0, 40.0]
     page.escort_distance_range.min_widget.value = 20.0
-    page.escort_distance_range.max_widget.value = 10.0
+    page.escort_distance_range.max_widget.value = "10"
     page.refresh(force=True)
     assert any(
         card.title == "Chauffer Distance Data Not Available"
@@ -4611,7 +4672,7 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
     assert list(distance_plots[0].object.layout.xaxis.range) == [0.0, 40.0]
     assert list(distance_plots[0].object.data[0].y) == [60.0, 40.0]
     page.mandatory_distance_range.min_widget.value = 2.0
-    page.mandatory_distance_range.max_widget.value = 10.0
+    page.mandatory_distance_range.max_widget.value = "10"
     page.refresh(force=True)
     ranged_plot = _collect_plotly_panes(page._distance_section)[0]
     assert list(ranged_plot.object.layout.xaxis.range) == [2.0, 10.0]
@@ -4620,7 +4681,7 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
     reset_plot = _collect_plotly_panes(page._distance_section)[0]
     assert list(reset_plot.object.layout.xaxis.range) == [0.0, 40.0]
     page.mandatory_distance_range.min_widget.value = 10.0
-    page.mandatory_distance_range.max_widget.value = 2.0
+    page.mandatory_distance_range.max_widget.value = "2"
     page.refresh(force=True)
     assert any(
         card.title == "Mandatory Location Distance Data Not Available"
@@ -5297,23 +5358,26 @@ def test_tour_distance_chart_casts_distance_bins_consistently_across_runs(
     traces = {trace.name: list(trace.x) for trace in plot.object.data}
     assert traces["A"] == [0.0, 1.0]
     assert traces["B"] == [0.0]
-    assert list(plot.object.layout.xaxis.ticktext) == ["0", "1"]
-    assert list(plot.object.layout.xaxis.range) == [0.0, 1.0]
+    assert list(plot.object.layout.xaxis.ticktext) == [
+        *[str(value) for value in range(0, 40, 2)],
+        "40+",
+    ]
+    assert list(plot.object.layout.xaxis.range) == [0.0, 40.0]
     page.tour_distance_range.min_widget.value = 0.25
-    page.tour_distance_range.max_widget.value = 0.75
+    page.tour_distance_range.max_widget.value = "1"
     page.refresh(force=True)
     ranged_plot = next(
         obj for obj in page._distance_section.objects if isinstance(obj, pn.pane.Plotly)
     )
-    assert list(ranged_plot.object.layout.xaxis.range) == [0.25, 0.75]
+    assert list(ranged_plot.object.layout.xaxis.range) == [0.25, 1.0]
     page.tour_distance_range.reset()
     page.refresh(force=True)
     reset_plot = next(
         obj for obj in page._distance_section.objects if isinstance(obj, pn.pane.Plotly)
     )
-    assert list(reset_plot.object.layout.xaxis.range) == [0.0, 1.0]
+    assert list(reset_plot.object.layout.xaxis.range) == [0.0, 40.0]
     page.tour_distance_range.min_widget.value = 1.0
-    page.tour_distance_range.max_widget.value = 0.0
+    page.tour_distance_range.max_widget.value = "1"
     page.refresh(force=True)
     assert any(
         card.title == "Tour Distance Data Not Available"

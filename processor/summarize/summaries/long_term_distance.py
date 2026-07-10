@@ -27,7 +27,7 @@ def tlfd(rd: RunData, config: Config) -> dict[str, pl.DataFrame]:
         return df.with_columns(
             pl.col(dist_col).fill_null(0.0).clip(0, 9999)
         ).with_columns(
-            (pl.col(dist_col).cast(pl.Int32) + 1).clip(1, 51).alias("distance_bin")
+            pl.col(dist_col).cast(pl.Int32).clip(0, 51).alias("distance_bin")
         )
 
     def _make_tlfd(persons: pl.DataFrame, dist_col: str) -> pl.DataFrame:
@@ -49,7 +49,7 @@ def tlfd(rd: RunData, config: Config) -> dict[str, pl.DataFrame]:
             dist_col,
         )
         distance_bins = pl.DataFrame(
-            {"distance_bin": list(range(1, 52))}, schema={"distance_bin": pl.Int32}
+            {"distance_bin": list(range(0, 52))}, schema={"distance_bin": pl.Int32}
         )
 
         outputs: list[pl.DataFrame] = []
