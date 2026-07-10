@@ -80,6 +80,29 @@ def trip_mode_percent_data(
 class TripModePage(DashboardPage):
     TOTAL_PURPOSE_LABEL = "All Tour Purposes"
 
+    def _tour_purpose_title_label(self, display_purpose: str) -> str:
+        """Return a title-ready tour-purpose label."""
+        if display_purpose == self.TOTAL_PURPOSE_LABEL:
+            return "All Tours"
+        purpose_label = str(display_purpose)
+        if not purpose_label.casefold().endswith(" tours"):
+            purpose_label = f"{purpose_label} Tours"
+        return purpose_label
+
+    def _overall_chart_title(self, display_purpose: str) -> str:
+        """Return the overall trip-mode chart title."""
+        return f"Trip Mode Distribution for {self._tour_purpose_title_label(display_purpose)}"
+
+    def _tour_mode_chart_title(self, tour_mode: str, display_purpose: str) -> str:
+        """Return the tour-mode-specific trip-mode chart title."""
+        mode_label = self.config.label_value("mode", tour_mode)
+        if display_purpose == self.TOTAL_PURPOSE_LABEL:
+            return f"Trip Mode Distribution for All {mode_label} Tours"
+        return (
+            "Trip Mode Distribution for "
+            f"{mode_label} {self._tour_purpose_title_label(display_purpose)}"
+        )
+
     def build_page(self) -> pn.viewable.Viewable:
         purpose_opts, self._tour_purpose_to_raw = column_options(
             self.state.get_summary_table_set(
@@ -207,6 +230,7 @@ class TripModePage(DashboardPage):
         trip_mode_values: list[str],
         trip_mode_label_values: list[str],
         hidden_trip_mode_values: set[str],
+        display_purpose: str,
         tour_mode: str | None = None,
     ) -> pn.viewable.Viewable:
         cache_key = (
@@ -234,9 +258,9 @@ class TripModePage(DashboardPage):
             ),
         )
         chart_title = (
-            f"Trip Mode Distribution - {self.config.label_value('mode', tour_mode)}"
+            self._tour_mode_chart_title(tour_mode, display_purpose)
             if tour_mode is not None
-            else f"Trip Mode Distribution - {self.tour_purpose_sel.value}"
+            else self._overall_chart_title(display_purpose)
         )
         return bar_chart(
             mode_data,
@@ -274,6 +298,7 @@ class TripModePage(DashboardPage):
             trip_mode_values=trip_mode_values,
             trip_mode_label_values=trip_mode_label_values,
             hidden_trip_mode_values=hidden_trip_mode_values,
+            display_purpose=display_purpose,
         )
         grid_cards = [
             self.render_mode_chart(
@@ -283,6 +308,7 @@ class TripModePage(DashboardPage):
                 trip_mode_values=trip_mode_values,
                 trip_mode_label_values=trip_mode_label_values,
                 hidden_trip_mode_values=hidden_trip_mode_values,
+                display_purpose=display_purpose,
                 tour_mode=tour_mode,
             )
             for tour_mode in tour_modes

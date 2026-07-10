@@ -100,6 +100,25 @@ def trip_purpose_chart_data(
 class TripStopPurposePage(DashboardPage):
     TOTAL_PURPOSE_LABEL = "All Tour Purposes"
 
+    def _trip_purpose_title(self, display_purpose: str) -> str:
+        """Return the chart title for the selected tour-purpose slice."""
+        purpose_label = self._tour_slice_title_label(display_purpose)
+        return f"Trip Purpose for {purpose_label}"
+
+    def _stop_purpose_title(self, display_purpose: str) -> str:
+        """Return the stop-destination chart title for the selected tour-purpose slice."""
+        purpose_label = self._tour_slice_title_label(display_purpose)
+        return f"Stop Destination Purpose for {purpose_label}"
+
+    def _tour_slice_title_label(self, display_purpose: str) -> str:
+        """Return a display label such as All Tours or Work Tours."""
+        if display_purpose in {self.TOTAL_PURPOSE_LABEL, "All Trip Purposes"}:
+            return "All Tours"
+        purpose_label = str(display_purpose)
+        if not purpose_label.casefold().endswith(" tours"):
+            purpose_label = f"{purpose_label} Tours"
+        return purpose_label
+
     def build_page(self) -> pn.viewable.Viewable:
         purpose_opts, self._tour_purpose_to_raw = column_options(
             self.state.get_summary_table_set(
@@ -200,7 +219,7 @@ class TripStopPurposePage(DashboardPage):
             chart_data,
             x_col="trip_purpose",
             y_col="trip_count",
-            title=f"Trip Purpose - {display_purpose}",
+            title=self._trip_purpose_title(display_purpose),
             xaxis_title="Trip Purpose",
             yaxis_title="Trips",
             pct_col="pct",
@@ -242,7 +261,7 @@ class TripStopPurposePage(DashboardPage):
             chart_data,
             x_col="stop_destination_purpose",
             y_col="stop_count",
-            title=f"Stop Destination Purpose by Tour Purpose - {display_purpose}",
+            title=self._stop_purpose_title(display_purpose),
             xaxis_title="Stop Destination Purpose",
             yaxis_title="Stops",
             pct_col="pct",

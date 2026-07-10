@@ -133,7 +133,7 @@ def test_trip_mode_export_keeps_explicit_height_for_overall_plot() -> None:
         plot
         for plot in plots
         if plot.get("figure", {}).get("layout", {}).get("title", {}).get("text")
-        == "Trip Mode Distribution - All Tour Purposes"
+        == "Trip Mode Distribution for All Tours"
     )
 
     assert overall_plot["height"] == 400

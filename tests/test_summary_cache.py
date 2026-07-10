@@ -1328,9 +1328,19 @@ def test_trip_mode_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None
     page.refresh(force=True)
 
     assert list(page.tour_purpose_sel.options) == ["All Tour Purposes", "eatout", "social"]
+    plots = _collect_plotly_panes(page._body)
+    all_titles = {str(plot.object.layout.title.text) for plot in plots}
+    assert "Trip Mode Distribution for All Tours" in all_titles
+    assert "Trip Mode Distribution for All DRIVE Tours" in all_titles
+    assert "Trip Mode Distribution for All WALK Tours" in all_titles
     page.tour_purpose_sel.value = "social"
     page.refresh(force=True)
     assert page._body.objects
+    plots = _collect_plotly_panes(page._body)
+    social_titles = {str(plot.object.layout.title.text) for plot in plots}
+    assert "Trip Mode Distribution for social Tours" in social_titles
+    assert "Trip Mode Distribution for DRIVE social Tours" in social_titles
+    assert "Trip Mode Distribution for WALK social Tours" in social_titles
 
 
 def test_trip_mode_selector_uses_union_across_runs_and_zero_fills_missing_modes(
@@ -2652,13 +2662,14 @@ def test_trip_stop_purpose_page_uses_trip_and_stop_purpose_dashboard_labels(
 
     plots = _collect_plotly_panes(page._body)
     trip_chart = next(
-        plot for plot in plots if plot.object.layout.title.text == "Trip Purpose"
+        plot
+        for plot in plots
+        if plot.object.layout.title.text == "Trip Purpose for All Tours"
     )
     stop_chart = next(
         plot
         for plot in plots
-        if plot.object.layout.title.text
-        == "Stop Destination Purpose by Tour Purpose - All Tour Purposes"
+        if plot.object.layout.title.text == "Stop Destination Purpose for All Tours"
     )
     assert list(trip_chart.object.layout.xaxis.categoryarray) == [
         "Work Trips",
@@ -2669,18 +2680,28 @@ def test_trip_stop_purpose_page_uses_trip_and_stop_purpose_dashboard_labels(
     page.refresh(force=True)
     plots = _collect_plotly_panes(page._body)
     filtered_trip_chart = next(
-        plot for plot in plots if plot.object.layout.title.text == "Trip Purpose"
+        plot
+        for plot in plots
+        if plot.object.layout.title.text == "Trip Purpose for Work Tours"
+    )
+    filtered_stop_chart = next(
+        plot
+        for plot in plots
+        if plot.object.layout.title.text == "Stop Destination Purpose for Work Tours"
     )
     assert list(filtered_trip_chart.object.data[0].x) == [
         "Work Trips",
         "Shopping Trips",
     ]
     assert list(filtered_trip_chart.object.data[0].y) == [62.5, 37.5]
-    assert list(stop_chart.object.layout.xaxis.categoryarray) == [
+    assert list(filtered_stop_chart.object.layout.xaxis.categoryarray) == [
         "Work Stops",
         "Shopping Stops",
     ]
-    assert list(stop_chart.object.data[0].x) == ["Work Stops", "Shopping Stops"]
+    assert list(filtered_stop_chart.object.data[0].x) == [
+        "Work Stops",
+        "Shopping Stops",
+    ]
 
 
 def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
