@@ -16,7 +16,6 @@ from dashboard.helpers.category_helpers import (
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
-DIRECTION_OPTIONS = ["Both", "Outbound", "Inbound"]
 STOP_FREQUENCY_VALUES = {
     "Both": ["0", "1", "2", "3", "4", "5", "6+"],
     "Outbound": ["0", "1", "2", "3+"],
@@ -214,14 +213,32 @@ class TourStopFrequencyPage(DashboardPage):
         stop_list = summaries["tour_stop_frequency_by_tour_purpose"]
         atwork_list = nonempty(summaries["atwork_subtour_frequency_distribution"])
         display_purpose, raw_purpose = self._selected_purpose()
+        both_chart = self.render_direction_chart(
+            stop_list,
+            raw_purpose=raw_purpose,
+            display_purpose=display_purpose,
+            direction="Both",
+        )
+        outbound_chart = self.render_direction_chart(
+            stop_list,
+            raw_purpose=raw_purpose,
+            display_purpose=display_purpose,
+            direction="Outbound",
+        )
+        inbound_chart = self.render_direction_chart(
+            stop_list,
+            raw_purpose=raw_purpose,
+            display_purpose=display_purpose,
+            direction="Inbound",
+        )
+        directional_row = pn.Row(
+            outbound_chart,
+            inbound_chart,
+            sizing_mode="stretch_width",
+        )
         charts = [
-            self.render_direction_chart(
-                stop_list,
-                raw_purpose=raw_purpose,
-                display_purpose=display_purpose,
-                direction=direction,
-            )
-            for direction in DIRECTION_OPTIONS
+            both_chart,
+            directional_row,
         ]
         return [
             pn.pane.Markdown("### Tour Stop Frequency"),

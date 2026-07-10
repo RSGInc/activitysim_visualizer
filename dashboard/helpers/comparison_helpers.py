@@ -75,16 +75,24 @@ def ab_percent_difference_string(
     return f"{pct_diff:.{precision}f}%"
 
 
-def ab_rmse_value(
+def ab_difference_value(
     quantity_a: float | int | None,
     quantity_b: float | int | None,
 ) -> float | None:
-    """Return row-level RMSE for a single A/B comparison."""
+    """Return absolute difference for a single A/B comparison."""
     a_value = _finite_float(quantity_a)
     b_value = _finite_float(quantity_b)
     if a_value is None or b_value is None:
         return None
     return math.sqrt((a_value - b_value) ** 2)
+
+
+def ab_rmse_value(
+    quantity_a: float | int | None,
+    quantity_b: float | int | None,
+) -> float | None:
+    """Backward-compatible alias for the row-level absolute difference."""
+    return ab_difference_value(quantity_a, quantity_b)
 
 
 def build_ab_comparison_row(
@@ -103,12 +111,12 @@ def build_ab_comparison_row(
         **dict(keys),
         quantity_a_column: a_value,
         quantity_b_column: b_value,
-        "% Diff": ab_percent_difference_string(
+        "Difference": ab_difference_value(a_value, b_value),
+        "% Difference": ab_percent_difference_string(
             a_value,
             b_value,
             precision=precision,
         ),
-        "RMSE": ab_rmse_value(a_value, b_value),
     }
 
 
@@ -119,21 +127,21 @@ def build_ab_comparison_table(
     quantity_a_column: str,
     quantity_b_column: str,
 ) -> pl.DataFrame:
-    """Return rows with stable key/A/B/%/RMSE column ordering."""
+    """Return rows with stable key/A/B/difference/% difference column ordering."""
     columns = [
         *key_columns,
         quantity_a_column,
         quantity_b_column,
-        "% Diff",
-        "RMSE",
+        "Difference",
+        "% Difference",
     ]
     if not rows:
         schema = {
             **{column: pl.Utf8 for column in key_columns},
             quantity_a_column: pl.Float64,
             quantity_b_column: pl.Float64,
-            "% Diff": pl.Utf8,
-            "RMSE": pl.Float64,
+            "Difference": pl.Float64,
+            "% Difference": pl.Utf8,
         }
         return pl.DataFrame(schema=schema).select(columns)
     return pl.DataFrame(rows).select(columns)

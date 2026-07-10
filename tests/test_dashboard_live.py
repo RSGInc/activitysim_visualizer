@@ -1815,7 +1815,6 @@ def test_tour_distance_export_geography_pairs_follow_selected_level(
     selector_ids = [
         "geography_level",
         "geography",
-        "nonmandatory_tour_purpose",
     ]
     selector_widgets = _export_selector_widgets(page)
     states, aliases = resolve_export_section_states(
@@ -1827,7 +1826,6 @@ def test_tour_distance_export_geography_pairs_follow_selected_level(
         selector_metadata_by_id=_export_selector_metadata(
             selector_widgets,
             selector_ids,
-            request_modes={"nonmandatory_tour_purpose": "default"},
         ),
     )
 

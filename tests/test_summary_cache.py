@@ -1256,6 +1256,22 @@ def test_tour_stop_frequency_live_page_uses_shared_summary_helpers(
     page.purpose_sel.value = "social"
     page.refresh(force=True)
     assert page.view.objects
+    directional_rows = [
+        obj
+        for obj in page.render_body()
+        if isinstance(obj, pn.Row)
+        and sum(isinstance(child, pn.pane.Plotly) for child in obj.objects) == 2
+    ]
+    assert len(directional_rows) == 1
+    directional_titles = {
+        str(plot.object.layout.title.text)
+        for plot in directional_rows[0].objects
+        if isinstance(plot, pn.pane.Plotly)
+    }
+    assert {
+        "Tour Stop Frequency - Purpose: social, Direction: Outbound",
+        "Tour Stop Frequency - Purpose: social, Direction: Inbound",
+    } == directional_titles
 
 
 def test_trip_mode_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
@@ -2564,11 +2580,7 @@ def test_tour_purpose_labels_render_consistently_across_pages(tmp_path: Path) ->
 
     tour_distance_page = TourDistancePage(state, config)
     tour_distance_page.refresh(force=True)
-    assert list(tour_distance_page.nonmand_purpose_sel.options) == [
-        "All Tour Purposes",
-        "Eat Out",
-        "Social Time",
-    ]
+    assert not hasattr(tour_distance_page, "nonmandatory_purpose_sel")
     tabulators = _collect_tabulators(tour_distance_page._average_section)
     nonmandatory_table = tabulators[0].value
     assert nonmandatory_table["nonmandatory_tour_purpose"].tolist() == [
@@ -4453,8 +4465,8 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
         "Mandatory Tour Purpose",
         "Average Mandatory Tour Distance",
         "Base Run Average Mandatory Tour Distance",
-        "% Diff",
-        "RMSE",
+        "Difference",
+        "% Difference",
     ]
     assert comparison_table["Mandatory Tour Purpose"].tolist() == [
         "work",
@@ -4471,8 +4483,8 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
         "4",
         "10",
     ]
-    assert comparison_table["% Diff"].tolist() == ["0.00%", "0.00%", "0.00%"]
-    assert comparison_table["RMSE"].tolist() == ["0", "0", "0"]
+    assert comparison_table["Difference"].tolist() == ["0", "0", "0"]
+    assert comparison_table["% Difference"].tolist() == ["0.00%", "0.00%", "0.00%"]
 
 
 def test_mandatory_location_choice_supports_configured_geography_levels_for_distance_sections(
@@ -4594,7 +4606,8 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
     )
 
     worker_table = _collect_tabulators(page._worker_section)[0].value
-    assert worker_table["geography"].tolist() == ["North"]
+    assert worker_table["Geography Type"].tolist() == ["School District"]
+    assert worker_table["Geography Name"].tolist() == ["North"]
 
     worker_plots = _collect_plotly_panes(page._worker_section)
     external_workplace_plot = next(
@@ -4628,8 +4641,8 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
         "Mandatory Tour Purpose",
         "Average Mandatory Tour Distance",
         "Base Run Average Mandatory Tour Distance",
-        "% Diff",
-        "RMSE",
+        "Difference",
+        "% Difference",
     ]
     assert comparison_table["Average Mandatory Tour Distance"].tolist() == [
         "8",
@@ -4641,8 +4654,8 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
         "4",
         "10",
     ]
-    assert comparison_table["% Diff"].tolist() == ["0.00%", "0.00%", "0.00%"]
-    assert comparison_table["RMSE"].tolist() == ["0", "0", "0"]
+    assert comparison_table["Difference"].tolist() == ["0", "0", "0"]
+    assert comparison_table["% Difference"].tolist() == ["0.00%", "0.00%", "0.00%"]
 
     page.geography_sel.value = "South"
     page.refresh(force=True)
@@ -5188,7 +5201,7 @@ def test_tour_distance_nonmandatory_average_table_compares_to_base_run(
 
     page.geo_level_sel.value = "District"
     page.refresh(force=True)
-    assert list(page.geography_sel.options) == ["All", "North"]
+    assert list(page.geography_sel.options) == ["All Districts", "North"]
     page.geography_sel.value = "North"
     page.refresh(force=True)
 
@@ -5202,8 +5215,8 @@ def test_tour_distance_nonmandatory_average_table_compares_to_base_run(
         "Non-Mandatory Tour Purpose",
         "Average Non-Mandatory Tour Distance",
         "Base Run Average Non-Mandatory Tour Distance",
-        "% Diff",
-        "RMSE",
+        "Difference",
+        "% Difference",
     ]
     assert base_table.columns.tolist() == expected_columns
     assert build_table.columns.tolist() == expected_columns
@@ -5220,15 +5233,15 @@ def test_tour_distance_nonmandatory_average_table_compares_to_base_run(
         "4",
         "8",
     ]
-    assert base_table["% Diff"].tolist() == ["0.00%", "0.00%"]
-    assert base_table["RMSE"].tolist() == ["0", "0"]
+    assert base_table["Difference"].tolist() == ["0", "0"]
+    assert base_table["% Difference"].tolist() == ["0.00%", "0.00%"]
     assert build_table["Average Non-Mandatory Tour Distance"].tolist() == ["5", "6"]
     assert build_table["Base Run Average Non-Mandatory Tour Distance"].tolist() == [
         "4",
         "8",
     ]
-    assert build_table["% Diff"].tolist() == ["25.00%", "-25.00%"]
-    assert build_table["RMSE"].tolist() == ["1", "2"]
+    assert build_table["Difference"].tolist() == ["1", "2"]
+    assert build_table["% Difference"].tolist() == ["25.00%", "-25.00%"]
 
 
 def test_tour_distance_nonmandatory_average_table_filters_to_selected_geography(
@@ -5300,7 +5313,7 @@ def test_tour_distance_nonmandatory_average_table_filters_to_selected_geography(
     page.refresh(force=True)
     page.geo_level_sel.value = "District"
     page.refresh(force=True)
-    assert list(page.geography_sel.options) == ["All", "North", "South"]
+    assert list(page.geography_sel.options) == ["All Districts", "North", "South"]
 
     page.geography_sel.value = "South"
     page.refresh(force=True)
@@ -5314,12 +5327,12 @@ def test_tour_distance_nonmandatory_average_table_filters_to_selected_geography(
     assert build_table["Non-Mandatory Tour Purpose"].tolist() == ["shopping"]
     assert base_table["Average Non-Mandatory Tour Distance"].tolist() == ["8"]
     assert base_table["Base Run Average Non-Mandatory Tour Distance"].tolist() == ["8"]
-    assert base_table["% Diff"].tolist() == ["0.00%"]
-    assert base_table["RMSE"].tolist() == ["0"]
+    assert base_table["Difference"].tolist() == ["0"]
+    assert base_table["% Difference"].tolist() == ["0.00%"]
     assert build_table["Average Non-Mandatory Tour Distance"].tolist() == ["12"]
     assert build_table["Base Run Average Non-Mandatory Tour Distance"].tolist() == ["8"]
-    assert build_table["% Diff"].tolist() == ["50.00%"]
-    assert build_table["RMSE"].tolist() == ["4"]
+    assert build_table["Difference"].tolist() == ["4"]
+    assert build_table["% Difference"].tolist() == ["50.00%"]
 
 
 def test_bar_chart_pins_category_order_from_input_sequence() -> None:

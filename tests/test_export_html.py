@@ -405,6 +405,12 @@ def _full_summary_run():
                 "tour_count": [18.0, 5.0, 10.0, 5.0, 8.0],
             }
         ),
+        "atwork_subtour_frequency_distribution": pl.DataFrame(
+            {
+                "atwork_subtour_frequency_category": ["0", "1+"],
+                "atwork_subtour_count": [6.0, 4.0],
+            }
+        ),
         "stop_destination_purpose_by_tour_purpose": pl.DataFrame(
             {
                 "tour_purpose": [
@@ -1890,10 +1896,26 @@ def test_build_export_html_document_serializes_stop_frequency_four_chart_variant
         if node.get("kind") == "plotly"
     }
     assert {
-        "Tour Stop Frequency - eatout, Both",
-        "Tour Stop Frequency - eatout, Outbound",
-        "Tour Stop Frequency - eatout, Inbound",
+        "Tour Stop Frequency - Purpose: eatout, Direction: Both",
+        "Tour Stop Frequency - Purpose: eatout, Direction: Outbound",
+        "Tour Stop Frequency - Purpose: eatout, Direction: Inbound",
     }.issubset(plotly_titles)
+    direction_rows = [
+        node
+        for node in variant_nodes
+        if node.get("kind") == "container"
+        and node.get("layout") == "row"
+        and {
+            child.get("figure", {}).get("layout", {}).get("title", {}).get("text")
+            for child in node.get("children", [])
+            if child.get("kind") == "plotly"
+        }
+        == {
+            "Tour Stop Frequency - Purpose: eatout, Direction: Outbound",
+            "Tour Stop Frequency - Purpose: eatout, Direction: Inbound",
+        }
+    ]
+    assert len(direction_rows) == 1
 
 
 def test_build_export_html_document_serializes_stop_timing_two_chart_variant(

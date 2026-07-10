@@ -147,7 +147,6 @@ class TourDistancePage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
         """Build the persistent page layout and selector widgets."""
         self._tour_purpose_to_raw: dict[str, str | None] = {}
-        self._nonmandatory_purpose_to_raw: dict[str, str | None] = {}
         self._geo_level_raw_by_label: dict[str, str | None] = {
             ALL_GEOGRAPHY_TYPES_LABEL: ALL_GEOGRAPHY_TYPES_VALUE
         }
@@ -181,15 +180,6 @@ class TourDistancePage(DashboardPage):
             ),
             label=GEOGRAPHY_NAME_SELECTOR_LABEL,
         )
-        self.nonmandatory_purpose_sel = self.selector(
-            "nonmandatory_tour_purpose",
-            widget=pn.widgets.Select(
-                name="Non-Mandatory Tour Purpose",
-                options=["All"],
-                value="All",
-            ),
-            label="Non-Mandatory Tour Purpose",
-        )
         self._distance_section = self.section(
             "tour_distance_distribution",
             selectors=("tour_purpose",),
@@ -197,7 +187,7 @@ class TourDistancePage(DashboardPage):
         )
         self._average_section = self.section(
             "tour_distance_averages",
-            selectors=("geography_level", "geography", "nonmandatory_tour_purpose"),
+            selectors=("geography_level", "geography"),
             render=self.render_average_section,
         )
         return self.new_section(
@@ -239,21 +229,6 @@ class TourDistancePage(DashboardPage):
             total_raw="all_tour_purposes",
             total_label=self.TOTAL_PURPOSE_LABEL,
         )
-        nonmandatory_options, self._nonmandatory_purpose_to_raw = column_options(
-            nonmandatory_average,
-            "nonmandatory_tour_purpose",
-            category_id="tour_purpose",
-            config=self.config,
-            state=self.state,
-            cache_key=(
-                "tour_distance",
-                "average_nonmandatory_tour_distance_by_purpose_and_geography",
-                "nonmandatory_tour_purpose",
-                self.weighting_key,
-            ),
-            total_raw="All",
-            total_label=self.TOTAL_PURPOSE_LABEL,
-        )
         geography_type_options_list, self._geo_level_raw_by_label = geography_type_options(
             nonmandatory_average or None,
             mandatory_average or None,
@@ -263,10 +238,6 @@ class TourDistancePage(DashboardPage):
 
         for widget, options in (
             (self.tour_purpose_sel, tour_purpose_options or [self.TOTAL_PURPOSE_LABEL]),
-            (
-                self.nonmandatory_purpose_sel,
-                nonmandatory_options or [self.TOTAL_PURPOSE_LABEL],
-            ),
             (self.geo_level_sel, geography_type_options_list or [ALL_GEOGRAPHY_TYPES_LABEL]),
         ):
             widget.options = options
@@ -355,30 +326,21 @@ class TourDistancePage(DashboardPage):
         )
         geo_level = self.selected_geography_level_raw()
         geography = self.selected_geography_raw()
-        raw_purpose = str(
-            self._nonmandatory_purpose_to_raw.get(
-                str(self.nonmandatory_purpose_sel.value),
-                self.nonmandatory_purpose_sel.value,
-            )
-        )
         comparison_tables = self.get_filtered_view(
             "average_nonmandatory_tour_distance",
-            (geo_level, geography, raw_purpose),
+            (geo_level, geography),
             factory=lambda: average_distance_comparison_table(
                 nonmandatory_average,
                 geo_level,
                 geography,
-                raw_purpose,
+                "All",
                 config=self.config,
             ),
         )
         return [
             pn.pane.Markdown("### Average Non-Mandatory Tour Distance vs Base Run"),
             selector_row(self.geo_level_sel, self.geography_sel),
-            pn.Column(
-                selector_row(self.nonmandatory_purpose_sel),
-                self.render_average_distance_table(comparison_tables),
-            ),
+            self.render_average_distance_table(comparison_tables),
         ]
 
     def render_average_distance_table(

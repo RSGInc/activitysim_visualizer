@@ -310,7 +310,7 @@ def test_comparison_helpers_format_and_build_comparison_tables() -> None:
     assert renamed_table.columns == ["Metric", "Reference (Base Run)", "Build"]
 
 
-def test_ab_comparison_helper_formats_percent_and_rmse() -> None:
+def test_ab_comparison_helper_formats_difference_columns() -> None:
     table = build_ab_comparison_table(
         [
             build_ab_comparison_row(
@@ -345,22 +345,22 @@ def test_ab_comparison_helper_formats_percent_and_rmse() -> None:
             "Metric": "Tours",
             "Build Value": 110.0,
             "Base Value": 100.0,
-            "% Diff": "10.00%",
-            "RMSE": 10.0,
+            "Difference": 10.0,
+            "% Difference": "10.00%",
         },
         {
             "Metric": "Trips",
             "Build Value": 45.0,
             "Base Value": 0.0,
-            "% Diff": "",
-            "RMSE": 45.0,
+            "Difference": 45.0,
+            "% Difference": "",
         },
         {
             "Metric": "Distance",
             "Build Value": None,
             "Base Value": 10.0,
-            "% Diff": "",
-            "RMSE": None,
+            "Difference": None,
+            "% Difference": "",
         },
     ]
 
