@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import panel as pn
+import polars as pl
 
 from dashboard.components import data_table, selector_row
 from dashboard.helpers.geography_helpers import (
@@ -12,6 +13,7 @@ from dashboard.helpers.geography_helpers import (
     filter_geography_level,
     geography_type_options,
     normalize_geography_data,
+    with_display_geography_columns,
 )
 from dashboard.page_base import DashboardPage, SectionContent
 from dashboard.page_definitions import DashboardPageDefinition
@@ -72,6 +74,53 @@ class InternalExternalToursPage(DashboardPage):
         raw_value = self._geo_level_raw_by_label.get(selected, selected)
         return ALL_GEOGRAPHY_TYPES_VALUE if raw_value is None else str(raw_value)
 
+    def _display_geography_table(
+        self,
+        data_list: list[tuple[str, pl.DataFrame]],
+        *,
+        geography_col: str = "geography",
+    ) -> list[tuple[str, pl.DataFrame]]:
+        """Return table data with friendly geography display columns first."""
+        display_data: list[tuple[str, pl.DataFrame]] = []
+        raw_geography_columns = {
+            "geography_level",
+            "geography_type",
+            "geography",
+            "geography_id",
+            "home_geography",
+        }
+        for label, df in data_list:
+            display_df = with_display_geography_columns(
+                df,
+                config=self.config,
+                geography_col=geography_col,
+            )
+            ordered_columns = [
+                column
+                for column in (
+                    "Geography Type",
+                    "Geography Name",
+                    *[
+                        column
+                        for column in display_df.columns
+                        if column
+                        not in {
+                            "Geography Type",
+                            "Geography Name",
+                            *raw_geography_columns,
+                        }
+                    ],
+                )
+                if column in display_df.columns
+            ]
+            display_data.append(
+                (
+                    label,
+                    display_df.select(ordered_columns) if ordered_columns else display_df,
+                )
+            )
+        return display_data
+
     def render_body_section(self) -> SectionContent:
         """Render the two tour tables side by side for the selected level."""
         if not self.state.run_labels:
@@ -120,7 +169,7 @@ class InternalExternalToursPage(DashboardPage):
             factory=lambda: filter_geography_level(summary_data, geo_level),
         )
         return data_table(
-            table_data,
+            self._display_geography_table(table_data, geography_col="home_geography"),
             "Internal vs. External Non-Mandatory Tour Frequency",
         )
 
@@ -141,7 +190,20 @@ class InternalExternalToursPage(DashboardPage):
             geo_level,
             factory=lambda: filter_geography_level(summary_data, geo_level),
         )
-        return data_table(table_data, "External Non-Mandatory Tour Location")
+        if not any(not df.is_empty() for _, df in table_data):
+            return self.data_not_available_card(
+                detail=(
+                    "No external non-mandatory tour location data is available for the "
+                    "selected geography. This summary can render MPO, County, or other "
+                    "configured tour-location geographies only when the prepared tour "
+                    "data includes the corresponding location geography columns."
+                ),
+                missing_items=["external_nonmandatory_tour_locations"],
+            )
+        return data_table(
+            self._display_geography_table(table_data),
+            "External Non-Mandatory Tour Location",
+        )
 
 
 PAGE = DashboardPageDefinition(

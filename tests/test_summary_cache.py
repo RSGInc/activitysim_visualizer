@@ -3625,6 +3625,27 @@ def test_internal_external_tours_geo_selector_uses_union_levels_across_tables(
     page.refresh(force=True)
 
     assert list(page.geo_level_sel.options) == ["All Geography Types", "District", "MAZ"]
+    tables = _collect_tabulators(page._body)
+    assert len(tables) == 2
+    frequency_table = tables[0].value
+    location_table = tables[1].value
+    assert frequency_table.columns[:2].tolist() == ["Geography Type", "Geography Name"]
+    assert location_table.columns[:2].tolist() == ["Geography Type", "Geography Name"]
+    assert frequency_table["Geography Type"].tolist() == ["All Geographies"]
+    assert frequency_table["Geography Name"].tolist() == ["All Geographies"]
+    assert location_table["Geography Type"].tolist() == ["All Geographies"]
+    assert location_table["Geography Name"].tolist() == ["All Geographies"]
+
+    page.geo_level_sel.value = "District"
+    page.refresh(force=True)
+    tables = _collect_tabulators(page._body)
+    assert len(tables) == 1
+    frequency_table = tables[0].value
+    assert frequency_table.columns[:2].tolist() == ["Geography Type", "Geography Name"]
+    assert frequency_table["Geography Type"].tolist() == ["District"]
+    assert frequency_table["Geography Name"].tolist() == ["A"]
+    cards = _collect_cards(page._body)
+    assert any(card.title == "Data Not Available" for card in cards)
 
 
 def test_internal_external_tours_geo_selector_hides_only_maz_when_disabled(
@@ -4222,6 +4243,9 @@ def test_park_and_ride_location_page_uses_residual_plot_and_table(
     tables = _collect_tabulators(page._table_section)
     assert tables != []
     table_df = pl.from_pandas(tables[0].value)
+    assert table_df.columns[:2] == ["Geography Type", "Geography Name"]
+    assert table_df["Geography Type"].to_list() == ["District", "District"]
+    assert table_df["Geography Name"].to_list() == ["North", "South"]
     assert table_df["percent_error"].to_list()[0].endswith("%")
 
 

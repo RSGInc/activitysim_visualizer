@@ -25,6 +25,7 @@ from processor.prepare.reader import (
     resolve_skim_path as processor_resolve_skim_path,
 )
 from processor.summarize.cache_types import strip_weights
+from processor.summarize.contracts import missing_summary_inputs
 from processor.summarize.summaries import tour, trip
 from processor.summarize.summaries.long_term import (
     external_workplace_loc,
@@ -2481,6 +2482,7 @@ def test_park_and_ride_location_residuals_roll_up_used_lots_only(
         land_use=pl.DataFrame(
             {
                 "MAZ": [1, 2, 3, 4, 5],
+                "TAZ": [100, 100, 200, 200, 200],
                 "PNR_CAP": [10.0, 20.0, 30.0, 40.0, 50.0],
                 "land_use_geo__district": ["North", "North", "South", "South", "South"],
             }
@@ -2551,6 +2553,16 @@ def test_park_and_ride_location_residuals_roll_up_used_lots_only(
         ]
     )
     assert (
+        summary.filter(pl.col("geography_type") == "taz")
+        .sort("geography_id")
+        .select(["geography_id", "pnr_tour_count", "pnr_lot_capacity"])
+        .to_dicts()
+        == [
+            {"geography_id": "100", "pnr_tour_count": 5.0, "pnr_lot_capacity": 30.0},
+            {"geography_id": "200", "pnr_tour_count": 45.0, "pnr_lot_capacity": 70.0},
+        ]
+    )
+    assert (
         summary.filter(pl.col("geography_type") == "all_geographies")
         .select(["geography_id", "pnr_tour_count", "pnr_lot_capacity"])
         .to_dicts()
@@ -2559,6 +2571,70 @@ def test_park_and_ride_location_residuals_roll_up_used_lots_only(
                 "geography_id": "all_geographies",
                 "pnr_tour_count": 50.0,
                 "pnr_lot_capacity": 100.0,
+            }
+        ]
+    )
+
+
+def test_park_and_ride_location_residuals_support_taz_only_inputs(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "columns:",
+            "  pnr_lot_capacity: [PNR_CAP]",
+            "modes:",
+            "  pnr_tour_modes: [PNR_TRANSIT]",
+        ],
+    )
+    prepared = ProcessorRunData(
+        label="Prepared",
+        run_dir="C:/runs/prepared",
+        skim_file=None,
+        hh=pl.DataFrame(),
+        per=pl.DataFrame(),
+        tours=pl.DataFrame(
+            {
+                "tour_mode": ["PNR_TRANSIT", "PNR_TRANSIT", "WALK"],
+                "pnr_taz": [10, 20, 20],
+                "finalweight": [2.0, 3.0, 99.0],
+            }
+        ),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(
+            {
+                "TAZ": [10, 20, 30],
+                "PNR_CAP": [12.0, 30.0, 40.0],
+            }
+        ),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    assert missing_summary_inputs(park_and_ride_location_residuals, prepared) == {}
+    summary = park_and_ride_location_residuals(prepared, config)
+
+    assert (
+        summary.filter(pl.col("geography_type") == "taz")
+        .sort("geography_id")
+        .select(["geography_id", "pnr_tour_count", "pnr_lot_capacity"])
+        .to_dicts()
+        == [
+            {"geography_id": "10", "pnr_tour_count": 2.0, "pnr_lot_capacity": 12.0},
+            {"geography_id": "20", "pnr_tour_count": 3.0, "pnr_lot_capacity": 30.0},
+        ]
+    )
+    assert (
+        summary.filter(pl.col("geography_type") == "all_geographies")
+        .select(["geography_id", "pnr_tour_count", "pnr_lot_capacity"])
+        .to_dicts()
+        == [
+            {
+                "geography_id": "all_geographies",
+                "pnr_tour_count": 5.0,
+                "pnr_lot_capacity": 42.0,
             }
         ]
     )

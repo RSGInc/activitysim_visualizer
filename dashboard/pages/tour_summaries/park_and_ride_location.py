@@ -15,6 +15,7 @@ from dashboard.helpers.geography_helpers import (
     is_all_geographies,
     normalize_geography_level_value,
     normalize_geography_data,
+    with_display_geography_columns,
 )
 from dashboard.page_base import DashboardPage, SectionContent
 from dashboard.page_definitions import DashboardPageDefinition
@@ -191,28 +192,22 @@ class ParkAndRideLocationPage(DashboardPage):
 
     def render_residual_table(self, df: pl.DataFrame) -> pl.DataFrame:
         """Select and format the table columns shared by every run."""
-        return format_percent_error_table(
-            df.select(
-                [
-                    "geography",
-                    "pnr_tour_count",
-                    "pnr_lot_capacity",
-                    "residual_count",
-                    "absolute_residual_count",
-                    "percent_error",
-                ]
-            ).rename({"geography": "geography_id"})
-            if "geography" in df.columns and "geography_id" not in df.columns
-            else df.select(
-                [
-                    "geography_id",
-                    "pnr_tour_count",
-                    "pnr_lot_capacity",
-                    "residual_count",
-                    "absolute_residual_count",
-                    "percent_error",
-                ]
+        display_df = with_display_geography_columns(df, config=self.config)
+        columns = [
+            column
+            for column in (
+                "Geography Type",
+                "Geography Name",
+                "pnr_tour_count",
+                "pnr_lot_capacity",
+                "residual_count",
+                "absolute_residual_count",
+                "percent_error",
             )
+            if column in display_df.columns
+        ]
+        return format_percent_error_table(
+            display_df.select(columns)
         )
 
 
