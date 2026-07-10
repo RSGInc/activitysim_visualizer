@@ -213,6 +213,7 @@ def bar_chart(
     yaxis_title: str = "Count",
     barmode: str = "group",
     pct_col: str | None = None,
+    percent_y_col: str | None = None,
     height: int = 400,
     as_percent: bool | None = None,
     xaxis_categoryarray: list[object] | None = None,
@@ -230,6 +231,7 @@ def bar_chart(
         yaxis_title: y-axis label
         barmode: 'group' or 'stack'
         pct_col: optional column for percentage values (shown in hover)
+        percent_y_col: optional precomputed percent column to use in percent mode
         height: chart height in pixels
     """
     def _align_categories(
@@ -247,6 +249,13 @@ def bar_chart(
         fill_exprs = []
         if y_col in aligned.columns:
             fill_exprs.append(pl.col(y_col).fill_null(0.0).cast(pl.Float64).alias(y_col))
+        if percent_y_col is not None and percent_y_col in aligned.columns:
+            fill_exprs.append(
+                pl.col(percent_y_col)
+                .fill_null(0.0)
+                .cast(pl.Float64)
+                .alias(percent_y_col)
+            )
         return aligned.with_columns(fill_exprs) if fill_exprs else aligned
 
     fig = go.Figure()
@@ -262,8 +271,14 @@ def bar_chart(
         for value in x:
             if value not in category_order:
                 category_order.append(value)
-        y = np.array(df[y_col].to_list(), dtype=float)
-        if percent_mode and y.sum() > 0:
+        use_precomputed_percent = (
+            percent_mode
+            and percent_y_col is not None
+            and percent_y_col in df.columns
+        )
+        y_source_col = percent_y_col if use_precomputed_percent else y_col
+        y = np.array(df[y_source_col].to_list(), dtype=float)
+        if percent_mode and not use_precomputed_percent and y.sum() > 0:
             y = y / y.sum() * 100.0
         y_list = y.tolist()
         hover = [

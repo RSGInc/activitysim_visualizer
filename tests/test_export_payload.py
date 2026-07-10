@@ -404,7 +404,7 @@ def test_build_export_payload_serializes_representative_page_region_structure(
         },
         {
             "id": "hide_drive_alone",
-            "label": "Hide Drive Alone",
+            "label": "Hide Auto Modes",
             "available": True,
             "request_mode": "all",
             "requested_values": [],
@@ -441,7 +441,7 @@ def test_build_export_payload_serializes_representative_page_region_structure(
     assert any(
         node.get("kind") == "widget"
         and node.get("selector_id") == "hide_drive_alone"
-        and node.get("name") == "Hide Drive Alone"
+        and node.get("name") == "Hide Auto Modes"
         and node.get("export_enabled")
         for node in page_nodes
     )

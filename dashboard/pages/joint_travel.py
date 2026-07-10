@@ -7,6 +7,7 @@ import polars as pl
 
 from dashboard.components import bar_chart, control_row, control_row_spacer, selector_row
 from dashboard.helpers.category_helpers import (
+    add_percent_of_total,
     cap_numeric_category_data,
     capped_numeric_category_expr,
     complete_category_counts,
@@ -190,6 +191,11 @@ def joint_tour_frequency_data(
     out = []
     for label, df in nonempty(data_list):
         filtered = df.with_columns(pl.col("jtf_label").cast(pl.Utf8))
+        filtered = add_percent_of_total(
+            [(label, filtered)],
+            value_col="household_count",
+            percent_col="household_count_percent",
+        )[0][1]
         if hide_no_joint_tours:
             filtered = filtered.filter(
                 pl.col("jtf_label").str.strip_chars().str.to_lowercase()
@@ -450,6 +456,7 @@ class JointTravelPage(DashboardPage):
             xaxis_title="Joint Tour Pattern",
             yaxis_title="Households",
             height=450,
+            percent_y_col="household_count_percent",
             as_percent=self.as_percent,
         )
 

@@ -2109,7 +2109,7 @@ def test_build_export_html_document_serializes_joint_frequency_hide_no_joint_tou
 
     assert "No Joint Tours" not in checked_x_values
     assert checked_x_values == ["1 Shopping", "1 Maintenance"]
-    assert checked_y_values == pytest.approx([62.5, 37.5])
+    assert checked_y_values == pytest.approx([25.0, 15.0])
 
 
 def test_build_export_html_document_serializes_trip_mode_tour_purpose_variants(

@@ -494,3 +494,25 @@ def complete_category_counts(
                 fill_exprs.append(pl.lit(fill_value).alias(column))
         out.append((label, completed.with_columns(fill_exprs)))
     return out
+
+
+def add_percent_of_total(
+    data_list: list[tuple[str, pl.DataFrame]],
+    *,
+    value_col: str,
+    percent_col: str,
+) -> list[tuple[str, pl.DataFrame]]:
+    """Add a percent column using each run table's full value-column total."""
+    out: list[tuple[str, pl.DataFrame]] = []
+    for label, df in data_list:
+        if df is None or value_col not in df.columns:
+            out.append((label, df))
+            continue
+        denominator = float(df[value_col].sum() or 0.0)
+        percent_expr = (
+            (pl.col(value_col).cast(pl.Float64) / denominator * 100.0)
+            if denominator > 0
+            else pl.lit(0.0)
+        )
+        out.append((label, df.with_columns(percent_expr.alias(percent_col))))
+    return out

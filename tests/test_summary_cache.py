@@ -1382,6 +1382,7 @@ def test_trip_mode_page_uses_configured_mode_labels_on_plot_axes(tmp_path: Path)
             "    mapping:",
             "      WALK: Walk",
             "      SHARED2: Shared Ride 2",
+            "      SHARED3: Shared Ride 3+",
             "      DRIVEALONE: Drive Alone",
             "      DRIVE: Drive",
         ],
@@ -1395,14 +1396,16 @@ def test_trip_mode_page_uses_configured_mode_labels_on_plot_axes(tmp_path: Path)
                         "all_tour_purposes",
                         "all_tour_purposes",
                         "all_tour_purposes",
+                        "all_tour_purposes",
                     ],
                     "tour_mode": [
                         "all_tour_modes",
                         "all_tour_modes",
                         "all_tour_modes",
+                        "all_tour_modes",
                     ],
-                    "trip_mode": ["DRIVEALONE", "WALK", "SHARED2"],
-                    "trip_count": [3.0, 2.0, 5.0],
+                    "trip_mode": ["DRIVEALONE", "WALK", "SHARED2", "SHARED3"],
+                    "trip_count": [3.0, 2.0, 5.0, 10.0],
                 }
             ),
         },
@@ -1419,22 +1422,26 @@ def test_trip_mode_page_uses_configured_mode_labels_on_plot_axes(tmp_path: Path)
     trace = overall_chart.object.data[0]
 
     assert page.hide_drive_alone.value is False
-    assert list(trace.x) == ["Walk", "Shared Ride 2", "Drive Alone"]
+    assert page.hide_drive_alone.name == "Hide Auto Modes"
+    assert list(trace.x) == [
+        "Walk",
+        "Shared Ride 2",
+        "Shared Ride 3+",
+        "Drive Alone",
+    ]
     assert list(overall_chart.object.layout.xaxis.categoryarray) == [
         "Walk",
         "Shared Ride 2",
+        "Shared Ride 3+",
         "Drive Alone",
     ]
     page.hide_drive_alone.value = True
     checked_chart = page.render_body()[0]
     checked_trace = checked_chart.object.data[0]
 
-    assert list(checked_trace.x) == ["Walk", "Shared Ride 2"]
-    assert list(checked_chart.object.layout.xaxis.categoryarray) == [
-        "Walk",
-        "Shared Ride 2",
-    ]
-    assert list(checked_trace.y) == pytest.approx([100.0 * 2.0 / 7.0, 100.0 * 5.0 / 7.0])
+    assert list(checked_trace.x) == ["Walk"]
+    assert list(checked_chart.object.layout.xaxis.categoryarray) == ["Walk"]
+    assert list(checked_trace.y) == pytest.approx([10.0])
 
 
 def test_daily_activity_pattern_page_uses_configured_mandatory_tour_labels_on_plot_axes(
@@ -2156,7 +2163,7 @@ def test_joint_travel_participation_page_uses_counts_and_runtime_percent_mode(
     assert list(people_plot.object.data[0].y) == [2.0, 3.0, 0.0, 0.0]
 
 
-def test_joint_travel_frequency_can_hide_no_joint_tours_and_renormalize(
+def test_joint_travel_frequency_can_hide_no_joint_tours_without_renormalizing(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -2226,7 +2233,7 @@ def test_joint_travel_frequency_can_hide_no_joint_tours_and_renormalize(
     checked_trace = checked_plot.object.data[0]
 
     assert list(checked_trace.x) == ["One Joint Tour"]
-    assert list(checked_trace.y) == pytest.approx([100.0])
+    assert list(checked_trace.y) == pytest.approx([37.5])
 
 
 def test_joint_travel_composition_plot_keeps_category_axis_when_party_size_filters_out_bars(
@@ -3342,6 +3349,8 @@ def test_tour_summaries_tour_mode_page_uses_configured_mode_labels_on_plot_axes(
             "  mode:",
             "    mapping:",
             "      DRIVE: Drive Alone",
+            "      HOV2: Shared Ride 2",
+            "      HOV3: Shared Ride 3+",
             "      WALK: Walk",
         ],
     )
@@ -3350,12 +3359,17 @@ def test_tour_summaries_tour_mode_page_uses_configured_mode_labels_on_plot_axes(
         weighted={
             "tour_mode_by_tour_purpose_and_auto_sufficiency": pl.DataFrame(
                 {
-                    "tour_purpose": ["all_tour_purposes", "all_tour_purposes"],
-                    "tour_mode": ["DRIVE", "WALK"],
-                    "tour_count_all_households": [10.0, 5.0],
-                    "tour_count_zero_auto": [2.0, 4.0],
-                    "tour_count_auto_deficient": [3.0, 1.0],
-                    "tour_count_auto_sufficient": [5.0, 0.0],
+                    "tour_purpose": [
+                        "all_tour_purposes",
+                        "all_tour_purposes",
+                        "all_tour_purposes",
+                        "all_tour_purposes",
+                    ],
+                    "tour_mode": ["DRIVE", "WALK", "HOV2", "HOV3"],
+                    "tour_count_all_households": [10.0, 5.0, 3.0, 2.0],
+                    "tour_count_zero_auto": [2.0, 4.0, 1.0, 1.0],
+                    "tour_count_auto_deficient": [3.0, 1.0, 1.0, 1.0],
+                    "tour_count_auto_sufficient": [5.0, 0.0, 1.0, 0.0],
                 }
             ),
             "allocated_vehicle_age_by_occupancy": empty_summary_frame(
@@ -3381,9 +3395,12 @@ def test_tour_summaries_tour_mode_page_uses_configured_mode_labels_on_plot_axes(
     trace = mode_chart.object.data[0]
 
     assert page.hide_drive_alone.value is False
-    assert list(trace.x) == ["Drive Alone", "Walk"]
+    assert page.hide_drive_alone.name == "Hide Auto Modes"
+    assert list(trace.x) == ["Drive Alone", "Shared Ride 2", "Shared Ride 3+", "Walk"]
     assert list(mode_chart.object.layout.xaxis.categoryarray) == [
         "Drive Alone",
+        "Shared Ride 2",
+        "Shared Ride 3+",
         "Walk",
     ]
     page.hide_drive_alone.value = True
@@ -3394,7 +3411,7 @@ def test_tour_summaries_tour_mode_page_uses_configured_mode_labels_on_plot_axes(
 
     assert list(checked_trace.x) == ["Walk"]
     assert list(checked_chart.object.layout.xaxis.categoryarray) == ["Walk"]
-    assert list(checked_trace.y) == pytest.approx([100.0])
+    assert list(checked_trace.y) == pytest.approx([25.0])
 
 
 def test_tour_mode_auto_sufficiency_definitions_follow_configured_basis(

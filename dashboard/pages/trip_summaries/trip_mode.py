@@ -7,16 +7,18 @@ import polars as pl
 
 from dashboard.components import bar_chart, selector_row
 from dashboard.helpers.category_helpers import (
+    add_percent_of_total,
     category_label_matches,
     column_options,
     complete_category_counts,
-    exclude_category_values_by_label,
     label_category_data,
     nonempty,
     ordered_category_values,
 )
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
+
+AUTO_MODE_LABELS = ("Drive Alone", "Shared Ride 2", "Shared Ride 3+")
 
 
 def filtered_trip_mode_data(
@@ -43,6 +45,36 @@ def filtered_trip_mode_data(
             filtered = filtered.filter(~pl.col("trip_mode").is_in(sorted(hidden_mode_values)))
         out.append((label, filtered))
     return out
+
+
+def trip_mode_percent_data(
+    data_list: list[tuple[str, pl.DataFrame]],
+    *,
+    all_trip_mode_values: list[str],
+    hidden_trip_mode_values: set[str],
+) -> list[tuple[str, pl.DataFrame]]:
+    """Complete trip-mode rows, compute full-denominator percents, then hide rows."""
+    completed = complete_category_counts(
+        data_list,
+        category_col="trip_mode",
+        category_values=all_trip_mode_values,
+        value_cols=("trip_count", "pct"),
+    )
+    with_percent = add_percent_of_total(
+        completed,
+        value_col="trip_count",
+        percent_col="trip_count_percent",
+    )
+    if not hidden_trip_mode_values:
+        return with_percent
+    hidden_values = sorted(hidden_trip_mode_values)
+    return [
+        (
+            label,
+            df.filter(~pl.col("trip_mode").is_in(hidden_values)),
+        )
+        for label, df in with_percent
+    ]
 
 
 class TripModePage(DashboardPage):
@@ -78,8 +110,8 @@ class TripModePage(DashboardPage):
         )
         self.hide_drive_alone = self.selector(
             "hide_drive_alone",
-            widget=pn.widgets.Checkbox(name="Hide Drive Alone", value=False),
-            label="Hide Drive Alone",
+            widget=pn.widgets.Checkbox(name="Hide Auto Modes", value=False),
+            label="Hide Auto Modes",
         )
         self._body = self.section(
             "trip_summary_mode_body",
@@ -124,26 +156,29 @@ class TripModePage(DashboardPage):
     def _mode_axes(
         self,
         trip_mode_list: list[tuple[str, pl.DataFrame]],
-    ) -> tuple[list[str], list[str], list[str], set[str]]:
-        trip_mode_values = ordered_category_values(
+    ) -> tuple[list[str], list[str], list[str], list[str], set[str]]:
+        all_trip_mode_values = ordered_category_values(
             trip_mode_list,
             "trip_mode",
             category_id="mode",
             config=self.config,
         )
+        trip_mode_values = all_trip_mode_values.copy()
         hidden_trip_mode_values: set[str] = set()
         if self.hide_drive_alone.value:
             hidden_trip_mode_values = {
                 value
-                for value in trip_mode_values
-                if category_label_matches(self.config, "mode", value, "Drive Alone")
+                for value in all_trip_mode_values
+                if any(
+                    category_label_matches(self.config, "mode", value, label)
+                    for label in AUTO_MODE_LABELS
+                )
             }
-            trip_mode_values = exclude_category_values_by_label(
-                trip_mode_values,
-                category_id="mode",
-                config=self.config,
-                label="Drive Alone",
-            )
+            trip_mode_values = [
+                value
+                for value in trip_mode_values
+                if value not in hidden_trip_mode_values
+            ]
         tour_modes = [
             value
             for value in ordered_category_values(
@@ -155,13 +190,20 @@ class TripModePage(DashboardPage):
             if value != "all_tour_modes"
         ]
         trip_mode_labels = self.config.ordered_labels("mode", trip_mode_values)
-        return trip_mode_values, trip_mode_labels, tour_modes, hidden_trip_mode_values
+        return (
+            all_trip_mode_values,
+            trip_mode_values,
+            trip_mode_labels,
+            tour_modes,
+            hidden_trip_mode_values,
+        )
 
     def render_mode_chart(
         self,
         trip_mode_list: list[tuple[str, pl.DataFrame]],
         *,
         raw_purpose: str,
+        all_trip_mode_values: list[str],
         trip_mode_values: list[str],
         trip_mode_label_values: list[str],
         hidden_trip_mode_values: set[str],
@@ -176,16 +218,14 @@ class TripModePage(DashboardPage):
         mode_data = self.get_filtered_view(
             *cache_key,
             factory=lambda: label_category_data(
-                complete_category_counts(
+                trip_mode_percent_data(
                     filtered_trip_mode_data(
                         trip_mode_list,
                         raw_purpose,
                         tour_mode=tour_mode,
-                        hidden_mode_values=hidden_trip_mode_values,
                     ),
-                    category_col="trip_mode",
-                    category_values=trip_mode_values,
-                    value_cols=("trip_count", "pct"),
+                    all_trip_mode_values=all_trip_mode_values,
+                    hidden_trip_mode_values=hidden_trip_mode_values,
                 ),
                 category_id="mode",
                 config=self.config,
@@ -206,6 +246,7 @@ class TripModePage(DashboardPage):
             xaxis_title="Trip Mode",
             yaxis_title="Trips",
             pct_col="pct",
+            percent_y_col="trip_count_percent",
             as_percent=self.as_percent,
             height=320 if tour_mode is not None else 400,
             xaxis_categoryarray=trip_mode_label_values,
@@ -220,6 +261,7 @@ class TripModePage(DashboardPage):
         trip_mode_list = summaries["trip_mode_by_tour_purpose_and_tour_mode"]
         display_purpose, raw_purpose = self._selected_purpose()
         (
+            all_trip_mode_values,
             trip_mode_values,
             trip_mode_label_values,
             tour_modes,
@@ -228,6 +270,7 @@ class TripModePage(DashboardPage):
         overall_chart = self.render_mode_chart(
             trip_mode_list,
             raw_purpose=raw_purpose,
+            all_trip_mode_values=all_trip_mode_values,
             trip_mode_values=trip_mode_values,
             trip_mode_label_values=trip_mode_label_values,
             hidden_trip_mode_values=hidden_trip_mode_values,
@@ -236,6 +279,7 @@ class TripModePage(DashboardPage):
             self.render_mode_chart(
                 trip_mode_list,
                 raw_purpose=raw_purpose,
+                all_trip_mode_values=all_trip_mode_values,
                 trip_mode_values=trip_mode_values,
                 trip_mode_label_values=trip_mode_label_values,
                 hidden_trip_mode_values=hidden_trip_mode_values,

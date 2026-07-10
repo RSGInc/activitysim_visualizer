@@ -7,10 +7,10 @@ import polars as pl
 
 from dashboard.components import bar_chart, selector_row
 from dashboard.helpers.category_helpers import (
+    add_percent_of_total,
     column_options,
     common_column_options,
     category_label_matches,
-    exclude_category_values_by_label,
     label_category_data,
     nonempty,
     ordered_category_values,
@@ -24,6 +24,7 @@ AUTO_SUFFICIENCY_LEVELS = [
     "Auto Deficient",
     "Auto Sufficient",
 ]
+AUTO_MODE_LABELS = ("Drive Alone", "Shared Ride 2", "Shared Ride 3+")
 
 
 def _auto_sufficiency_basis_terms(config) -> tuple[str, str]:
@@ -146,18 +147,20 @@ def tour_mode_chart_data(
         filtered = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8)).filter(
             pl.col("tour_purpose") == purpose
         )
+        chart_df = filtered.select(
+            pl.col("tour_mode"),
+            pl.col(value_col).alias("tour_count"),
+        ).sort("tour_mode")
+        chart_df = add_percent_of_total(
+            [(label, chart_df)],
+            value_col="tour_count",
+            percent_col="tour_count_percent",
+        )[0][1]
         if hidden_mode_values:
-            filtered = filtered.with_columns(pl.col("tour_mode").cast(pl.Utf8)).filter(
+            chart_df = chart_df.with_columns(pl.col("tour_mode").cast(pl.Utf8)).filter(
                 ~pl.col("tour_mode").is_in(sorted(hidden_mode_values))
             )
-        out.append(
-            (
-                label,
-                filtered.select(pl.col("tour_mode"), pl.col(value_col).alias("tour_count")).sort(
-                    "tour_mode"
-                ),
-            )
-        )
+        out.append((label, chart_df))
     return out
 
 
@@ -181,8 +184,8 @@ class TourModePage(DashboardPage):
         )
         self.hide_drive_alone = self.selector(
             "hide_drive_alone",
-            widget=pn.widgets.Checkbox(name="Hide Drive Alone", value=False),
-            label="Hide Drive Alone",
+            widget=pn.widgets.Checkbox(name="Hide Auto Modes", value=False),
+            label="Hide Auto Modes",
         )
         self.occupancy_sel = self.selector(
             "vehicle_occupancy",
@@ -334,14 +337,14 @@ class TourModePage(DashboardPage):
             hidden_mode_values = {
                 value
                 for value in mode_values
-                if category_label_matches(self.config, "mode", value, "Drive Alone")
+                if any(
+                    category_label_matches(self.config, "mode", value, label)
+                    for label in AUTO_MODE_LABELS
+                )
             }
-            mode_values = exclude_category_values_by_label(
-                mode_values,
-                category_id="mode",
-                config=self.config,
-                label="Drive Alone",
-            )
+            mode_values = [
+                value for value in mode_values if value not in hidden_mode_values
+            ]
         return [
             pn.pane.Markdown("### Tour Mode"),
             *[
@@ -395,6 +398,7 @@ class TourModePage(DashboardPage):
             "Tour Mode",
             yaxis_title="Tours",
             pct_col="pct",
+            percent_y_col="tour_count_percent",
             as_percent=self.as_percent,
             xaxis_categoryarray=self.config.ordered_labels("mode", mode_values),
         )
