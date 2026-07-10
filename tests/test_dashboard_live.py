@@ -176,21 +176,21 @@ def test_page_registry_smoke_checks_ids_titles_and_selector_uniqueness() -> None
 
 
 def test_page_registry_accepts_non_default_registered_summary_id() -> None:
-    class DemoAutoVmtPage(DashboardPage):
+    class ValidationAutoVmtPage(DashboardPage):
         pass
 
     definition = DashboardPageDefinition(
-        page_id="demo_auto_vmt",
-        title="Demo Auto VMT",
-        page_cls=DemoAutoVmtPage,
-        required_summary_ids=("demo_auto_vmt_summary",),
+        page_id="auto_vmt_validation",
+        title="Auto VMT Validation",
+        page_cls=ValidationAutoVmtPage,
+        required_summary_ids=("auto_vmt_validation_summary",),
         default_enabled=False,
     )
 
     _validate_page_definition(definition)
     requirements = data_requirements_for_pages([definition])
 
-    assert requirements.required_summary_ids == ("demo_auto_vmt_summary",)
+    assert requirements.required_summary_ids == ("auto_vmt_validation_summary",)
 
 
 def test_dashboard_state_reports_missing_non_default_summary_as_diagnostic() -> None:
@@ -207,11 +207,11 @@ def test_dashboard_state_reports_missing_non_default_summary_as_diagnostic() -> 
         weighting_modes=["weighted", "unweighted"],
     )
 
-    selection = state.inspect_summary_table("demo_auto_vmt_summary")
+    selection = state.inspect_summary_table("auto_vmt_validation_summary")
 
     assert selection.usable_runs == []
     assert [excluded.status for excluded in selection.excluded_runs] == ["missing"]
-    assert selection.excluded_runs[0].source_id == "demo_auto_vmt_summary"
+    assert selection.excluded_runs[0].source_id == "auto_vmt_validation_summary"
 
 
 def test_external_traffic_helpers_filter_period_and_facility_type(
@@ -994,14 +994,14 @@ def test_non_motorized_vmt_section_mirrors_personal_auto_controls(
             "weighted": {
                 PERSONAL_AUTO_VMT_SUMMARY_ID: personal_vmt,
                 NON_MOTORIZED_VMT_SUMMARY_ID: non_motorized_vmt,
-                "demo_external_vmt_summary": external_vmt,
-                "demo_commercial_vehicle_vmt_summary": commercial_vmt,
+                "external_vmt_validation_summary": external_vmt,
+                "commercial_vehicle_vmt_validation_summary": commercial_vmt,
             },
             "unweighted": {
                 PERSONAL_AUTO_VMT_SUMMARY_ID: personal_vmt,
                 NON_MOTORIZED_VMT_SUMMARY_ID: non_motorized_vmt,
-                "demo_external_vmt_summary": external_vmt,
-                "demo_commercial_vehicle_vmt_summary": commercial_vmt,
+                "external_vmt_validation_summary": external_vmt,
+                "commercial_vehicle_vmt_validation_summary": commercial_vmt,
             },
         },
     )
@@ -1456,10 +1456,10 @@ def test_vmt_demo_commercial_vehicle_chart_uses_breakdown_and_percent_mode(
         run_key="base",
         summaries_by_mode={
             "weighted": {
-                "demo_commercial_vehicle_summary": demo_commercial,
+                "commercial_vehicle_validation_summary": demo_commercial,
             },
             "unweighted": {
-                "demo_commercial_vehicle_summary": demo_commercial,
+                "commercial_vehicle_validation_summary": demo_commercial,
             },
         },
     )
@@ -1545,10 +1545,10 @@ def test_vmt_external_travel_chart_uses_metric_breakdown_and_filters(
         run_key="base",
         summaries_by_mode={
             "weighted": {
-                "demo_external_trip_summary": external_travel,
+                "external_trip_validation_summary": external_travel,
             },
             "unweighted": {
-                "demo_external_trip_summary": external_travel,
+                "external_trip_validation_summary": external_travel,
             },
         },
     )
@@ -1980,11 +1980,11 @@ def test_regional_validation_page_compares_county_flows_to_commuting_flows(
         run_key="base",
         summaries_by_mode={
             "weighted": {
-                "demo_county_flows_joja": observed,
+                "county_flows_joja_validation_summary": observed,
                 "commuting_flows": modeled,
             },
             "unweighted": {
-                "demo_county_flows_joja": observed,
+                "county_flows_joja_validation_summary": observed,
                 "commuting_flows": modeled,
             },
         },
@@ -2123,10 +2123,10 @@ def test_data_requirements_for_pages_tracks_optional_summary_dependencies() -> N
     assert NON_MOTORIZED_VMT_SUMMARY_ID in requirements.required_summary_ids
     assert "commercial_vmt_totals" not in requirements.required_summary_ids
     assert "commercial_vmt_totals" not in requirements.optional_summary_ids
-    assert "demo_auto_vmt_summary" not in requirements.optional_summary_ids
-    assert "demo_county_flows" in requirements.optional_summary_ids
+    assert "auto_vmt_validation_summary" not in requirements.optional_summary_ids
+    assert "county_flows_validation_summary" in requirements.optional_summary_ids
     assert "commuting_flows" in requirements.optional_summary_ids
-    assert "demo_auto_vmt_summary" not in requirements.summary_ids_for_pruning
+    assert "auto_vmt_validation_summary" not in requirements.summary_ids_for_pruning
 
 
 def test_resolve_page_definitions_rejects_unknown_configured_page_ids(

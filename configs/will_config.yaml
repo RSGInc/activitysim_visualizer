@@ -117,17 +117,17 @@ runs:
 
   - label: Demo Validation Data
     summary_table_map:
-      demo_link_summary: ../outside_summary_tables/allLinkSummary.csv
-      demo_count_location_counts: ../outside_summary_tables/countLocCounts.csv
-      demo_count_location_volumes: ../outside_summary_tables/countLocVolumes.csv
-      demo_county_flows: ../outside_summary_tables/countyFlows.csv
-      demo_county_flows_joja: ../outside_summary_tables/countyFlows_JoJa.csv
-      demo_commercial_vehicle_summary: ../outside_summary_tables/cvm_summary.csv
-      demo_commercial_vehicle_vmt_summary: ../outside_summary_tables/cvm_vmt_summary.csv
-      demo_external_trip_summary: ../outside_summary_tables/ext_summary.csv
-      demo_external_vmt_summary: ../outside_summary_tables/ext_vmt_summary.csv
-      demo_auto_vmt_summary: ../outside_summary_tables/vmtSummary.csv
-      demo_work_from_home_summary: ../outside_summary_tables/wfh_summary.csv
+      link_validation_summary: ../outside_summary_tables/allLinkSummary.csv
+      count_location_counts_validation_summary: ../outside_summary_tables/countLocCounts.csv
+      count_location_volumes_validation_summary: ../outside_summary_tables/countLocVolumes.csv
+      county_flows_validation_summary: ../outside_summary_tables/countyFlows.csv
+      county_flows_joja_validation_summary: ../outside_summary_tables/countyFlows_JoJa.csv
+      commercial_vehicle_validation_summary: ../outside_summary_tables/cvm_summary.csv
+      commercial_vehicle_vmt_validation_summary: ../outside_summary_tables/cvm_vmt_summary.csv
+      external_trip_validation_summary: ../outside_summary_tables/ext_summary.csv
+      external_vmt_validation_summary: ../outside_summary_tables/ext_vmt_summary.csv
+      auto_vmt_validation_summary: ../outside_summary_tables/vmtSummary.csv
+      work_from_home_validation_summary: ../outside_summary_tables/wfh_summary.csv
 
 # ---------------------------------------------------------------------------
 # Zone system

@@ -38,11 +38,11 @@ class FlowOption:
 
 FLOW_OPTIONS = {
     "District flows": FlowOption(
-        summary_id="demo_county_flows",
+        summary_id="county_flows_validation_summary",
         modeled_geography_types=("district", "home_district"),
     ),
     "County flows": FlowOption(
-        summary_id="demo_county_flows_joja",
+        summary_id="county_flows_joja_validation_summary",
         modeled_geography_types=("county", "home_county"),
     ),
 }
@@ -573,8 +573,8 @@ PAGE = DashboardPageDefinition(
     page_cls=RegionalValidationPage,
     default_enabled=False,
     optional_summary_ids=(
-        "demo_county_flows",
-        "demo_county_flows_joja",
+        "county_flows_validation_summary",
+        "county_flows_joja_validation_summary",
         "commuting_flows",
     ),
 )

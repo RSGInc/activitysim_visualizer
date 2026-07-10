@@ -519,19 +519,19 @@ def demo_volume_comparison_table(
 class TrafficValidationPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
         demo_link_list = self.state.get_summary_table_set(
-            "demo_link_summary", "weighted"
+            "link_validation_summary", "weighted"
         )
         demo_count_list = self.state.get_summary_table_set(
-            "demo_count_location_counts", "weighted"
+            "count_location_counts_validation_summary", "weighted"
         )
         demo_volume_list = self.state.get_summary_table_set(
-            "demo_count_location_volumes", "weighted"
+            "count_location_volumes_validation_summary", "weighted"
         )
         demo_scatter_list = self.state.get_summary_table_set(
-            "demo_count_location_scatter", "weighted"
+            "count_location_scatter_validation_summary", "weighted"
         )
         demo_fit_list = self.state.get_summary_table_set(
-            "demo_count_location_fit", "weighted"
+            "count_location_fit_validation_summary", "weighted"
         )
         facility_opts, self.demo_facility_raw_by_label = demo_facility_options(
             demo_link_list,
@@ -624,19 +624,19 @@ class TrafficValidationPage(DashboardPage):
 
     def sync_controls(self) -> None:
         demo_link_list = self.state.get_summary_table_set(
-            "demo_link_summary", self.weighting_key
+            "link_validation_summary", self.weighting_key
         )
         demo_count_list = self.state.get_summary_table_set(
-            "demo_count_location_counts", self.weighting_key
+            "count_location_counts_validation_summary", self.weighting_key
         )
         demo_volume_list = self.state.get_summary_table_set(
-            "demo_count_location_volumes", self.weighting_key
+            "count_location_volumes_validation_summary", self.weighting_key
         )
         demo_scatter_list = self.state.get_summary_table_set(
-            "demo_count_location_scatter", self.weighting_key
+            "count_location_scatter_validation_summary", self.weighting_key
         )
         demo_fit_list = self.state.get_summary_table_set(
-            "demo_count_location_fit", self.weighting_key
+            "count_location_fit_validation_summary", self.weighting_key
         )
         facility_opts, self.demo_facility_raw_by_label = demo_facility_options(
             demo_link_list,
@@ -703,16 +703,16 @@ class TrafficValidationPage(DashboardPage):
             return []
 
         count_list = self.state.get_summary_table_set(
-            "demo_count_location_counts", self.weighting_key
+            "count_location_counts_validation_summary", self.weighting_key
         )
         volume_list = self.state.get_summary_table_set(
-            "demo_count_location_volumes", self.weighting_key
+            "count_location_volumes_validation_summary", self.weighting_key
         )
         scatter_list = self.state.get_summary_table_set(
-            "demo_count_location_scatter", self.weighting_key
+            "count_location_scatter_validation_summary", self.weighting_key
         )
         fit_list = self.state.get_summary_table_set(
-            "demo_count_location_fit", self.weighting_key
+            "count_location_fit_validation_summary", self.weighting_key
         )
         if not any((count_list, volume_list, scatter_list, fit_list)):
             return []
@@ -773,19 +773,19 @@ class TrafficValidationPage(DashboardPage):
             return [self.no_runs_message()]
 
         link_list = self.state.get_summary_table_set(
-            "demo_link_summary", self.weighting_key
+            "link_validation_summary", self.weighting_key
         )
         count_list = self.state.get_summary_table_set(
-            "demo_count_location_counts", self.weighting_key
+            "count_location_counts_validation_summary", self.weighting_key
         )
         volume_list = self.state.get_summary_table_set(
-            "demo_count_location_volumes", self.weighting_key
+            "count_location_volumes_validation_summary", self.weighting_key
         )
         scatter_list = self.state.get_summary_table_set(
-            "demo_count_location_scatter", self.weighting_key
+            "count_location_scatter_validation_summary", self.weighting_key
         )
         fit_list = self.state.get_summary_table_set(
-            "demo_count_location_fit", self.weighting_key
+            "count_location_fit_validation_summary", self.weighting_key
         )
         if not any((link_list, count_list, volume_list, scatter_list, fit_list)):
             return []
@@ -857,10 +857,13 @@ class TrafficValidationPage(DashboardPage):
         else:
             section.append(
                 self.data_not_available_card(
-                    detail="Demo count-location counts and volumes are both required for this scatter plot.",
+                    detail=(
+                        "Count-location validation counts and volumes are both "
+                        "required for this scatter plot."
+                    ),
                     missing_items=[
-                        "demo_count_location_counts",
-                        "demo_count_location_volumes",
+                        "count_location_counts_validation_summary",
+                        "count_location_volumes_validation_summary",
                     ],
                 )
             )
@@ -889,8 +892,8 @@ class TrafficValidationPage(DashboardPage):
         else:
             section.append(
                 self.data_not_available_card(
-                    detail="Demo link summaries are unavailable.",
-                    missing_items=["demo_link_summary"],
+                    detail="Link validation summaries are unavailable.",
+                    missing_items=["link_validation_summary"],
                 )
             )
         return section
@@ -900,13 +903,13 @@ class TrafficValidationPage(DashboardPage):
             return [self.no_runs_message()]
 
         link_list = self.state.get_summary_table_set(
-            "demo_link_summary", self.weighting_key
+            "link_validation_summary", self.weighting_key
         )
         count_list = self.state.get_summary_table_set(
-            "demo_count_location_counts", self.weighting_key
+            "count_location_counts_validation_summary", self.weighting_key
         )
         volume_list = self.state.get_summary_table_set(
-            "demo_count_location_volumes", self.weighting_key
+            "count_location_volumes_validation_summary", self.weighting_key
         )
         if not any((link_list, count_list, volume_list)):
             return []
@@ -948,10 +951,13 @@ class TrafficValidationPage(DashboardPage):
         if link_list is not None:
             return [
                 self.data_not_available_card(
-                    detail="Demo count-location counts and volumes are both required for this comparison table.",
+                    detail=(
+                        "Count-location validation counts and volumes are both "
+                        "required for this comparison table."
+                    ),
                     missing_items=[
-                        "demo_count_location_counts",
-                        "demo_count_location_volumes",
+                        "count_location_counts_validation_summary",
+                        "count_location_volumes_validation_summary",
                     ],
                 )
             ]
@@ -968,11 +974,11 @@ PAGE = DashboardPageDefinition(
         "screenline_flow_comparisons",
     ),
     optional_summary_ids=(
-        "demo_link_summary",
-        "demo_count_location_counts",
-        "demo_count_location_volumes",
-        "demo_count_location_scatter",
-        "demo_count_location_fit",
+        "link_validation_summary",
+        "count_location_counts_validation_summary",
+        "count_location_volumes_validation_summary",
+        "count_location_scatter_validation_summary",
+        "count_location_fit_validation_summary",
     ),
 )
 

@@ -48,8 +48,8 @@ PERSONAL_AUTO_VMT_SUMMARY_ID = "auto_vmt_by_home_geography_income_hhsize_time_pe
 NON_MOTORIZED_VMT_SUMMARY_ID = (
     "non_motorized_vmt_by_home_geography_income_hhsize_time_period"
 )
-EXTERNAL_VMT_SUMMARY_ID = "demo_external_vmt_summary"
-COMMERCIAL_VMT_SUMMARY_ID = "demo_commercial_vehicle_vmt_summary"
+EXTERNAL_VMT_SUMMARY_ID = "external_vmt_validation_summary"
+COMMERCIAL_VMT_SUMMARY_ID = "commercial_vehicle_vmt_validation_summary"
 PERSONAL_AUTO_VMT_REQUIRED_COLUMNS = (
     "geography_type",
     "geography_id",
@@ -1473,9 +1473,9 @@ class VMTValidationPage(DashboardPage):
             non_motorized_breakdown_filter_selector.disabled = True
 
         demo_commercial_summary_id = (
-            "demo_commercial_vehicle_vmt_summary"
+            "commercial_vehicle_vmt_validation_summary"
             if self.demo_commercial_metric_sel.value == "VMT"
-            else "demo_commercial_vehicle_summary"
+            else "commercial_vehicle_validation_summary"
         )
         demo_commercial_data = self.state.get_summary_table_set(
             demo_commercial_summary_id,
@@ -1512,9 +1512,9 @@ class VMTValidationPage(DashboardPage):
             demo_breakdown_filter_selector.disabled = True
 
         external_travel_summary_id = (
-            "demo_external_vmt_summary"
+            "external_vmt_validation_summary"
             if self.external_travel_metric_sel.value == "VMT"
-            else "demo_external_trip_summary"
+            else "external_trip_validation_summary"
         )
         external_travel_data = self.state.get_summary_table_set(
             external_travel_summary_id,
@@ -1938,8 +1938,8 @@ class VMTValidationPage(DashboardPage):
         if not self.state.run_labels:
             return [self.no_runs_message()]
         summary_ids = [
-            "demo_commercial_vehicle_summary",
-            "demo_commercial_vehicle_vmt_summary",
+            "commercial_vehicle_validation_summary",
+            "commercial_vehicle_vmt_validation_summary",
         ]
         if not any(
             self.state.get_summary_table_set(summary_id, self.weighting_key)
@@ -1950,9 +1950,9 @@ class VMTValidationPage(DashboardPage):
 
     def render_demo_commercial_chart(self) -> pn.viewable.Viewable:
         summary_id = (
-            "demo_commercial_vehicle_vmt_summary"
+            "commercial_vehicle_vmt_validation_summary"
             if self.demo_commercial_metric_sel.value == "VMT"
-            else "demo_commercial_vehicle_summary"
+            else "commercial_vehicle_validation_summary"
         )
         data = self.state.get_summary_table_set(summary_id, self.weighting_key)
         if data is None:
@@ -2023,9 +2023,9 @@ class VMTValidationPage(DashboardPage):
 
     def render_external_travel_chart(self) -> pn.viewable.Viewable:
         summary_id = (
-            "demo_external_vmt_summary"
+            "external_vmt_validation_summary"
             if self.external_travel_metric_sel.value == "VMT"
-            else "demo_external_trip_summary"
+            else "external_trip_validation_summary"
         )
         data = self.state.get_summary_table_set(summary_id, self.weighting_key)
         if data is None:
@@ -2096,8 +2096,8 @@ class VMTValidationPage(DashboardPage):
 
     def render_external_vmt_section(self) -> list[pn.viewable.Viewable]:
         summary_ids = [
-            "demo_external_trip_summary",
-            "demo_external_vmt_summary",
+            "external_trip_validation_summary",
+            "external_vmt_validation_summary",
         ]
         if not any(
             self.state.get_summary_table_set(summary_id, self.weighting_key)
@@ -2122,10 +2122,10 @@ PAGE = DashboardPageDefinition(
         "bicycle_vmt_by_facility_type",
     ),
     optional_summary_ids=(
-        "demo_commercial_vehicle_summary",
-        "demo_commercial_vehicle_vmt_summary",
-        "demo_external_trip_summary",
-        "demo_external_vmt_summary",
+        "commercial_vehicle_validation_summary",
+        "commercial_vehicle_vmt_validation_summary",
+        "external_trip_validation_summary",
+        "external_vmt_validation_summary",
     ),
 )
 

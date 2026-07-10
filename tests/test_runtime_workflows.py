@@ -21,7 +21,11 @@ from processor.prepare.cache import (
 )
 from runtime.config import Config
 from runtime.config.models import SkimjoinSettings
-from processor.summarize.contracts import summary_contract
+from processor.summarize.contracts import (
+    empty_summary_frame,
+    get_summary_contract,
+    summary_contract,
+)
 from processor.summarize import cache as summary_cache
 from processor.summarize.cache import (
     build_run_fingerprint,
@@ -211,7 +215,7 @@ def _write_summary_table(path: Path, value: float) -> str:
     return str(path.resolve())
 
 
-def _write_demo_auto_vmt_summary(path: Path, value: float) -> str:
+def _write_auto_vmt_validation_summary(path: Path, value: float) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     pl.DataFrame(
         {
@@ -266,20 +270,73 @@ def test_load_runtime_config_rejects_unknown_summary_table_map_id(
         runtime_workflows.load_runtime_config(tmp_path / "config.yaml")
 
 
+def test_load_runtime_config_rejects_old_demo_validation_summary_ids(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "outside" / "vmtSummary.csv"
+    _write_auto_vmt_validation_summary(summary_path, 1.0)
+    _write_config(
+        tmp_path,
+        runs=[
+            {
+                "label": "External",
+                "summary_table_map": {"demo_auto_vmt_summary": summary_path},
+            }
+        ],
+    )
+
+    with pytest.raises(ValueError, match="unsupported summary ids"):
+        runtime_workflows.load_runtime_config(tmp_path / "config.yaml")
+
+
 def test_non_default_summary_specs_remain_registered_but_not_default_built(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path, runs=[{"label": "External"}])
 
-    spec = summary_cache.SUMMARY_SPEC_BY_ID["demo_auto_vmt_summary"]
+    spec = summary_cache.SUMMARY_SPEC_BY_ID["auto_vmt_validation_summary"]
 
     assert spec.build_by_default is False
     assert (
-        summary_cache.SUMMARY_FILENAME_BY_ID["demo_auto_vmt_summary"]
-        == "vmtSummary.csv"
+        summary_cache.SUMMARY_FILENAME_BY_ID["auto_vmt_validation_summary"]
+        == "auto_vmt_validation_summary.csv"
     )
-    assert "demo_auto_vmt_summary" not in summary_cache.DEFAULT_SUMMARY_IDS
-    assert "demo_auto_vmt_summary" not in summary_cache.requested_summary_ids(config)
+    assert "auto_vmt_validation_summary" not in summary_cache.DEFAULT_SUMMARY_IDS
+    assert "auto_vmt_validation_summary" not in summary_cache.requested_summary_ids(
+        config
+    )
+
+
+def test_validation_scaffold_summaries_are_registered_with_empty_contracts(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path, runs=[{"label": "External"}])
+    expected_ids = {
+        "link_validation_summary",
+        "count_location_counts_validation_summary",
+        "count_location_volumes_validation_summary",
+        "count_location_scatter_validation_summary",
+        "count_location_fit_validation_summary",
+        "county_flows_validation_summary",
+        "county_flows_joja_validation_summary",
+        "commercial_vehicle_validation_summary",
+        "commercial_vehicle_vmt_validation_summary",
+        "external_trip_validation_summary",
+        "external_vmt_validation_summary",
+        "auto_vmt_validation_summary",
+        "work_from_home_validation_summary",
+    }
+
+    for summary_id in expected_ids:
+        spec = summary_cache.SUMMARY_SPEC_BY_ID[summary_id]
+        contract = get_summary_contract(spec.builder)
+
+        assert spec.build_by_default is False
+        assert contract is not None
+        assert empty_summary_frame(spec.builder).schema == dict(contract.schema)
+        assert summary_cache.SUMMARY_FILENAME_BY_ID[summary_id] == f"{summary_id}.csv"
+        assert summary_id not in summary_cache.DEFAULT_SUMMARY_IDS
+        assert summary_id not in summary_cache.requested_summary_ids(config)
 
 
 def test_run_summary_workflow_loads_summary_only_run_without_prepared_inputs(
@@ -322,14 +379,14 @@ def test_summary_only_run_loads_non_default_summary_table_map_id(
     tmp_path: Path,
 ) -> None:
     summary_path = tmp_path / "outside" / "vmtSummary.csv"
-    _write_demo_auto_vmt_summary(summary_path, 42.0)
+    _write_auto_vmt_validation_summary(summary_path, 42.0)
     config = _write_config(
         tmp_path,
         runs=[
             {
                 "label": "External",
                 "summary_table_map": {
-                    "demo_auto_vmt_summary": summary_path,
+                    "auto_vmt_validation_summary": summary_path,
                 },
             }
         ],
@@ -345,7 +402,7 @@ def test_summary_only_run_loads_non_default_summary_table_map_id(
     )
 
     weighted = result.summary_runs[0].summaries_by_mode["weighted"]
-    assert weighted["demo_auto_vmt_summary"].to_dicts() == [
+    assert weighted["auto_vmt_validation_summary"].to_dicts() == [
         {
             "TOD": "Daily",
             "SOV": 42.0,
@@ -547,9 +604,9 @@ def test_run_summary_workflow_does_not_build_non_default_registered_summaries(
     )
 
     assert build_calls
-    assert all("demo_auto_vmt_summary" not in call for call in build_calls if call)
+    assert all("auto_vmt_validation_summary" not in call for call in build_calls if call)
     assert (
-        "demo_auto_vmt_summary"
+        "auto_vmt_validation_summary"
         not in result.summary_runs[0].summaries_by_mode["weighted"]
     )
     assert not (
@@ -557,7 +614,7 @@ def test_run_summary_workflow_does_not_build_non_default_registered_summaries(
         / "run-a"
         / "summary_tables"
         / "weighted"
-        / "vmtSummary.csv"
+        / "auto_vmt_validation_summary.csv"
     ).exists()
 
 
@@ -567,7 +624,7 @@ def test_mixed_run_preserves_generated_defaults_and_overlays_non_default_summary
 ) -> None:
     run_dir = tmp_path / "run_a"
     summary_path = tmp_path / "outside" / "vmtSummary.csv"
-    _write_demo_auto_vmt_summary(summary_path, 88.0)
+    _write_auto_vmt_validation_summary(summary_path, 88.0)
     config = _write_config(
         tmp_path,
         runs=[
@@ -575,7 +632,7 @@ def test_mixed_run_preserves_generated_defaults_and_overlays_non_default_summary
                 "dir": str(run_dir),
                 "label": "Run A",
                 "summary_table_map": {
-                    "demo_auto_vmt_summary": summary_path,
+                    "auto_vmt_validation_summary": summary_path,
                 },
             }
         ],
@@ -618,7 +675,7 @@ def test_mixed_run_preserves_generated_defaults_and_overlays_non_default_summary
 
     weighted = result.summary_runs[0].summaries_by_mode["weighted"]
     assert weighted["totals"].to_dicts() == [{"population": 1.0}]
-    assert weighted["demo_auto_vmt_summary"].to_dicts() == [
+    assert weighted["auto_vmt_validation_summary"].to_dicts() == [
         {
             "TOD": "Daily",
             "SOV": 88.0,
@@ -700,14 +757,14 @@ def test_dashboard_only_loads_non_default_summary_table_map_id(
     tmp_path: Path,
 ) -> None:
     summary_path = tmp_path / "outside" / "vmtSummary.csv"
-    _write_demo_auto_vmt_summary(summary_path, 31.0)
+    _write_auto_vmt_validation_summary(summary_path, 31.0)
     config = _write_config(
         tmp_path,
         runs=[
             {
                 "label": "External",
                 "summary_table_map": {
-                    "demo_auto_vmt_summary": summary_path,
+                    "auto_vmt_validation_summary": summary_path,
                 },
             }
         ],
@@ -718,11 +775,11 @@ def test_dashboard_only_loads_non_default_summary_table_map_id(
         cache_root=Path(config.summary_root),
         explicit_cache_dirs=None,
         run_entries=config.runs,
-        required_summary_ids=("demo_auto_vmt_summary",),
+        required_summary_ids=("auto_vmt_validation_summary",),
     )
 
     assert [run.label for run in loaded] == ["External"]
-    loaded_table = loaded[0].summaries_by_mode["weighted"]["demo_auto_vmt_summary"]
+    loaded_table = loaded[0].summaries_by_mode["weighted"]["auto_vmt_validation_summary"]
     assert loaded_table.to_dicts() == [
         {
             "TOD": "Daily",
@@ -739,14 +796,14 @@ def test_dashboard_only_respects_empty_required_summary_ids_for_optional_only_pa
     tmp_path: Path,
 ) -> None:
     summary_path = tmp_path / "outside" / "vmtSummary.csv"
-    _write_demo_auto_vmt_summary(summary_path, 17.0)
+    _write_auto_vmt_validation_summary(summary_path, 17.0)
     config = _write_config(
         tmp_path,
         runs=[
             {
                 "label": "External",
                 "summary_table_map": {
-                    "demo_auto_vmt_summary": summary_path,
+                    "auto_vmt_validation_summary": summary_path,
                 },
             }
         ],
@@ -760,7 +817,7 @@ def test_dashboard_only_respects_empty_required_summary_ids_for_optional_only_pa
         required_summary_ids=(),
     )
 
-    assert loaded[0].summaries_by_mode["weighted"]["demo_auto_vmt_summary"][
+    assert loaded[0].summaries_by_mode["weighted"]["auto_vmt_validation_summary"][
         "SOV"
     ][0] == 17.0
 
@@ -777,7 +834,7 @@ def test_summary_table_map_contract_rejects_missing_external_columns(
             {
                 "label": "External",
                 "summary_table_map": {
-                    "demo_auto_vmt_summary": summary_path,
+                    "auto_vmt_validation_summary": summary_path,
                 },
             }
         ],
@@ -785,7 +842,7 @@ def test_summary_table_map_contract_rejects_missing_external_columns(
 
     with pytest.raises(
         ValueError,
-        match=r"summary_table_map\['demo_auto_vmt_summary'\] is missing required columns",
+        match=r"summary_table_map\['auto_vmt_validation_summary'\] is missing required columns",
     ):
         runtime_workflows.run_summary_workflow(
             config=config,
@@ -804,7 +861,7 @@ def test_prune_summary_runs_keeps_optional_summary_ids_when_requested() -> None:
         summaries_by_mode={
             "weighted": {
                 "totals": pl.DataFrame({"population": [1.0]}),
-                "demo_auto_vmt_summary": pl.DataFrame(
+                "auto_vmt_validation_summary": pl.DataFrame(
                     {
                         "TOD": ["Daily"],
                         "SOV": [2.0],
@@ -817,7 +874,7 @@ def test_prune_summary_runs_keeps_optional_summary_ids_when_requested() -> None:
             },
             "unweighted": {
                 "totals": pl.DataFrame({"population": [1.0]}),
-                "demo_auto_vmt_summary": pl.DataFrame(
+                "auto_vmt_validation_summary": pl.DataFrame(
                     {
                         "TOD": ["Daily"],
                         "SOV": [2.0],
@@ -833,12 +890,12 @@ def test_prune_summary_runs_keeps_optional_summary_ids_when_requested() -> None:
 
     pruned = runtime_workflows.prune_summary_runs(
         [summary_run],
-        ("totals", "demo_auto_vmt_summary"),
+        ("totals", "auto_vmt_validation_summary"),
     )
 
     assert set(pruned[0].summaries_by_mode["weighted"]) == {
         "totals",
-        "demo_auto_vmt_summary",
+        "auto_vmt_validation_summary",
     }
 
 

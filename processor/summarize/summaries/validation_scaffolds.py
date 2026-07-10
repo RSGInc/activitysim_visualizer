@@ -1,4 +1,4 @@
-"""No-op builders for demo validation summary tables."""
+"""No-op builders for validation summary tables with external-data schemas."""
 
 from __future__ import annotations
 
@@ -21,8 +21,8 @@ from runtime.config import Config
         "day_vol": pl.Float64,
     }
 )
-def demo_link_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(demo_link_summary)
+def link_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
+    return empty_summary_frame(link_validation_summary)
 
 
 @summary_contract(
@@ -35,8 +35,8 @@ def demo_link_summary(rd: RunData, config: Config) -> pl.DataFrame:
         "day_vol": pl.Float64,
     }
 )
-def demo_count_location_counts(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(demo_count_location_counts)
+def count_location_counts_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
+    return empty_summary_frame(count_location_counts_validation_summary)
 
 
 @summary_contract(
@@ -49,8 +49,8 @@ def demo_count_location_counts(rd: RunData, config: Config) -> pl.DataFrame:
         "day_vol": pl.Float64,
     }
 )
-def demo_count_location_volumes(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(demo_count_location_volumes)
+def count_location_volumes_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
+    return empty_summary_frame(count_location_volumes_validation_summary)
 
 
 @summary_contract(
@@ -62,8 +62,8 @@ def demo_count_location_volumes(rd: RunData, config: Config) -> pl.DataFrame:
         "modeled_volume": pl.Float64,
     }
 )
-def demo_count_location_scatter(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(demo_count_location_scatter)
+def count_location_scatter_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
+    return empty_summary_frame(count_location_scatter_validation_summary)
 
 
 @summary_contract(
@@ -80,8 +80,8 @@ def demo_count_location_scatter(rd: RunData, config: Config) -> pl.DataFrame:
         "r_squared_label": pl.Utf8,
     }
 )
-def demo_count_location_fit(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(demo_count_location_fit)
+def count_location_fit_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
+    return empty_summary_frame(count_location_fit_validation_summary)
 
 
 @summary_contract(
@@ -94,8 +94,8 @@ def demo_count_location_fit(rd: RunData, config: Config) -> pl.DataFrame:
         "Total": pl.Float64,
     }
 )
-def demo_county_flows(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(demo_county_flows)
+def county_flows_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
+    return empty_summary_frame(county_flows_validation_summary)
 
 
 @summary_contract(
@@ -107,8 +107,8 @@ def demo_county_flows(rd: RunData, config: Config) -> pl.DataFrame:
         "Total": pl.Float64,
     }
 )
-def demo_county_flows_joja(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(demo_county_flows_joja)
+def county_flows_joja_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
+    return empty_summary_frame(county_flows_joja_validation_summary)
 
 
 @summary_contract(
@@ -120,8 +120,8 @@ def demo_county_flows_joja(rd: RunData, config: Config) -> pl.DataFrame:
         "Total": pl.Float64,
     }
 )
-def demo_commercial_vehicle_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(demo_commercial_vehicle_summary)
+def commercial_vehicle_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
+    return empty_summary_frame(commercial_vehicle_validation_summary)
 
 
 @summary_contract(
@@ -133,8 +133,8 @@ def demo_commercial_vehicle_summary(rd: RunData, config: Config) -> pl.DataFrame
         "Total": pl.Float64,
     }
 )
-def demo_commercial_vehicle_vmt_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(demo_commercial_vehicle_vmt_summary)
+def commercial_vehicle_vmt_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
+    return empty_summary_frame(commercial_vehicle_vmt_validation_summary)
 
 
 _EXTERNAL_PURPOSE_SCHEMA = {
@@ -153,13 +153,13 @@ _EXTERNAL_PURPOSE_SCHEMA = {
 
 
 @summary_contract(schema=_EXTERNAL_PURPOSE_SCHEMA)
-def demo_external_trip_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(demo_external_trip_summary)
+def external_trip_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
+    return empty_summary_frame(external_trip_validation_summary)
 
 
 @summary_contract(schema=_EXTERNAL_PURPOSE_SCHEMA)
-def demo_external_vmt_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(demo_external_vmt_summary)
+def external_vmt_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
+    return empty_summary_frame(external_vmt_validation_summary)
 
 
 @summary_contract(
@@ -172,8 +172,8 @@ def demo_external_vmt_summary(rd: RunData, config: Config) -> pl.DataFrame:
         "Total": pl.Float64,
     }
 )
-def demo_auto_vmt_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(demo_auto_vmt_summary)
+def auto_vmt_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
+    return empty_summary_frame(auto_vmt_validation_summary)
 
 
 @summary_contract(
@@ -183,5 +183,5 @@ def demo_auto_vmt_summary(rd: RunData, config: Config) -> pl.DataFrame:
         "WFH": pl.Float64,
     }
 )
-def demo_work_from_home_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(demo_work_from_home_summary)
+def work_from_home_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
+    return empty_summary_frame(work_from_home_validation_summary)

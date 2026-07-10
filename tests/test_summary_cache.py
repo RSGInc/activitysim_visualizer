@@ -5099,7 +5099,7 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
                     "modeled_volume": [14.0],
                 }
             ),
-            "demo_link_summary": pl.DataFrame(
+            "link_validation_summary": pl.DataFrame(
                 {
                     "id": [1, 2],
                     "From_Node": [100, 101],
@@ -5111,7 +5111,7 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
                     "day_vol": [100.0, 200.0],
                 }
             ),
-            "demo_count_location_counts": pl.DataFrame(
+            "count_location_counts_validation_summary": pl.DataFrame(
                 {
                     "id": [1, 2],
                     "FACTYPE": [3, 4],
@@ -5121,7 +5121,7 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
                     "day_vol": [100.0, 200.0],
                 }
             ),
-            "demo_count_location_volumes": pl.DataFrame(
+            "count_location_volumes_validation_summary": pl.DataFrame(
                 {
                     "id": [1, 2],
                     "FACTYPE": [3, 4],

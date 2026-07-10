@@ -9,7 +9,7 @@ import polars as pl
 from processor.cache_identity import file_identity
 from processor.summarize.cache_types import SummaryRun, create_summary_run
 from processor.summarize.contracts import get_summary_contract
-from processor.summarize.derived_demo import apply_demo_derived_summaries
+from processor.summarize.validation_derived import apply_validation_derived_summaries
 from processor.summarize.summary_specs import SUMMARY_SPEC_BY_ID
 from runtime.config import Config
 
@@ -124,9 +124,9 @@ def merge_summary_table_map_run(
 ) -> list[SummaryRun]:
     """Overlay user-supplied run-level summaries onto generated/cache summaries."""
     if external_run is None:
-        return apply_demo_derived_summaries(base_runs)
+        return apply_validation_derived_summaries(base_runs)
     if not base_runs:
-        return apply_demo_derived_summaries([external_run])
+        return apply_validation_derived_summaries([external_run])
 
     merged: list[SummaryRun] = []
     overlaid = False
@@ -168,7 +168,7 @@ def merge_summary_table_map_run(
         overlaid = True
     if not overlaid:
         merged.append(external_run)
-    return apply_demo_derived_summaries(merged)
+    return apply_validation_derived_summaries(merged)
 
 
 __all__ = [
