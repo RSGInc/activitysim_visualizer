@@ -15,7 +15,7 @@ from dashboard.export.runtime_assets import build_export_html_shell
 from dashboard.export.serializer import json_default, sanitize_export_payload
 from runtime.config import Config
 from processor.models import RunData
-from processor.summarize.cache import SummaryRun
+from processor.summarize.cache_types import SummaryRun
 
 LOGGER = get_logger("dashboard.export")
 

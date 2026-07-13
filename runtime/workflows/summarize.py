@@ -13,6 +13,8 @@ from processor.models import RunData
 from processor.segmentation import build_analysis_units_for_run
 
 from processor.summarize import cache as summary_cache
+from processor.summarize import builder as summary_builder
+from processor.summarize import cache_types as summary_types
 from processor.summarize.external import (
     load_summary_table_map,
     merge_summary_table_map_run,
@@ -64,7 +66,7 @@ def _load_summary_run_from_cache(
             cache_dir,
             config,
             expected_modes=config.weighting_modes,
-            expected_summary_ids=summary_cache.requested_summary_ids(config),
+            expected_summary_ids=list(summary_builder.DEFAULT_SUMMARY_IDS),
             expected_summary_config_digest=config.summary_config_digest,
             expected_run_fingerprint=run_fingerprint,
             expected_prepared_manifest_identity=prepared_manifest_identity,
@@ -98,7 +100,7 @@ def _load_summary_run_from_cache(
             reusable_summary_ids=tuple(reusable_summary_ids),
             stale_summary_ids=tuple(stale_summary_ids),
         )
-    except summary_cache.SummaryCacheError as exc:
+    except summary_types.SummaryCacheError as exc:
         LOGGER.info("Cache miss for %r: %s", label, exc)
         return None
 
@@ -110,10 +112,10 @@ def _build_summary_tables_for_run(
     summary_ids: list[str] | None = None,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, dict[str, object]]]]:
     """Build summary tables and metadata for one prepared run."""
-    requested_summary_ids = summary_cache.requested_summary_ids(config)
+    requested_summary_ids = list(summary_builder.DEFAULT_SUMMARY_IDS)
     if summary_ids is None or list(summary_ids) == requested_summary_ids:
-        return summary_cache.build_mode_summaries_with_metadata(prepared_run, config)
-    return summary_cache.build_mode_summaries_with_metadata(
+        return summary_builder.build_mode_summaries_with_metadata(prepared_run, config)
+    return summary_builder.build_mode_summaries_with_metadata(
         prepared_run,
         config,
         summary_ids=summary_ids,
@@ -130,7 +132,7 @@ def _build_summary_run_from_analysis_unit(
         prepared_run=unit.prepared_run,
         config=config,
     )
-    return summary_cache.create_summary_run(
+    return summary_types.create_summary_run(
         label=unit.run_name,
         run_key=unit.run_key,
         summaries_by_mode=summaries_by_mode,
@@ -182,7 +184,7 @@ def _merge_summary_runs(
                 **rebuilt.summary_metadata_by_mode.get(mode, {}),
             }
         merged.append(
-            summary_cache.create_summary_run(
+            summary_types.create_summary_run(
                 label=rebuilt.label,
                 run_key=rebuilt.run_key,
                 summaries_by_mode=summaries_by_mode,
@@ -299,7 +301,7 @@ def run_summary_workflow(
                     continue
 
         cached_summary_runs = list(cached_run.runs) if cached_run else []
-        summary_ids_to_build = summary_cache.requested_summary_ids(config)
+        summary_ids_to_build = list(summary_builder.DEFAULT_SUMMARY_IDS)
         if cached_run is not None:
             summary_ids_to_build = list(cached_run.stale_summary_ids)
         summary_ids_to_build = [
@@ -386,7 +388,7 @@ def run_summary_workflow(
                     summary_ids=summary_ids_to_build,
                 )
                 run_summary_runs.append(
-                    summary_cache.create_summary_run(
+                    summary_types.create_summary_run(
                         label=unit.run_name,
                         run_key=unit.run_key,
                         summaries_by_mode=summaries_by_mode,

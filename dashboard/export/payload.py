@@ -49,7 +49,7 @@ from dashboard.page_registry import (
     resolve_export_navigation_entries,
 )
 from processor.models import RunData
-from processor.summarize.cache import SummaryRun
+from processor.summarize.cache_types import SummaryRun
 from runtime.config import Config, ExportSelectorRequest
 
 LOGGER = get_logger("dashboard.export")

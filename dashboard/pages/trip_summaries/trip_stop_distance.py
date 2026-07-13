@@ -6,10 +6,10 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import density_chart, selector_row
+from dashboard.data_access import RunTableView
 from dashboard.helpers.category_helpers import (
     cap_numeric_category_frame,
     column_options,
-    nonempty,
 )
 from dashboard.helpers.distance_range import (
     DistanceRangeControls,
@@ -31,10 +31,9 @@ def distance_chart_data(
     cap_at: int | None = None,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Filter one distribution summary to a tour purpose and order the distance bins."""
-    out = []
-    for label, df in nonempty(data_list):
-        chart_df = (
-            df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
+    def shape(frame: pl.DataFrame) -> pl.DataFrame:
+        chart = (
+            frame.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
             .filter(pl.col("tour_purpose") == tour_purpose)
             .select(
                 pl.col(x_col).alias("distance_bin"),
@@ -42,19 +41,18 @@ def distance_chart_data(
             )
         )
         if cap_at is not None:
-            chart_df = cap_numeric_category_frame(
-                chart_df,
+            chart = cap_numeric_category_frame(
+                chart,
                 category_col="distance_bin",
                 cap_value=cap_at,
                 value_cols=("freq",),
             )
-        chart_df = (
-            chart_df.with_columns(distance_sort_expr("distance_bin").alias("_sort_distance"))
+        return (
+            chart.with_columns(distance_sort_expr("distance_bin").alias("_sort_distance"))
             .sort("_sort_distance")
             .drop("_sort_distance")
         )
-        out.append((label, chart_df))
-    return out
+    return RunTableView.from_runs(data_list).map(shape).collect()
 
 
 @dashboard_page(

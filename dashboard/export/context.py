@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from dashboard import DashboardState
 from dashboard.data_access import DashboardPreparedRunProvider
 from runtime.config import Config
-from processor.summarize.cache import SummaryRun
+from processor.summarize.cache_types import SummaryRun
 
 
 @dataclass(slots=True)

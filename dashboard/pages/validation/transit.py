@@ -6,6 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart, selector_row
+from dashboard.data_access import RunTableView
 from dashboard.helpers.category_helpers import common_column_options, column_options, nonempty
 from dashboard import DashboardPage, dashboard_page
 
@@ -16,9 +17,8 @@ def filter_transit_data(
     access_mode: str | None = None,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Filter transit summaries and aggregate by operator for the chart-specific metric."""
-    out = []
-    for label, df in nonempty(data_list):
-        filtered = df
+    def prepare(frame: pl.DataFrame) -> pl.DataFrame:
+        filtered = frame
         if "technology" in filtered.columns and technology != "All":
             filtered = filtered.with_columns(pl.col("technology").cast(pl.Utf8)).filter(
                 pl.col("technology") == technology
@@ -41,8 +41,9 @@ def filter_transit_data(
                 .with_columns(pl.col("operator").cast(pl.Utf8))
                 .sort("operator")
             )
-        out.append((label, filtered))
-    return out
+        return filtered
+
+    return RunTableView.from_runs(data_list).map(prepare).collect()
 
 
 @dashboard_page(

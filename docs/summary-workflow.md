@@ -112,7 +112,7 @@ High-level path:
 1. `run.py` resolves the summarize step.
 2. `runtime.workflows.run_summary_workflow()` tries summary-cache reuse first.
 3. On a summary-cache miss, summarize reuses in-memory prepared runs, then loads custom `prepared_table_map` inputs when configured, then tries prepared cache, then rebuilds prepare from raw inputs only if needed.
-4. `processor.summarize.cache.build_mode_summaries_with_metadata()` builds weighted and optionally unweighted tables.
+4. `processor.summarize.builder.build_mode_summaries_with_metadata()` builds weighted and optionally unweighted tables.
 5. If a run defines `summary_table_map`, those dashboard-ready summary files are loaded and overlaid on the generated summaries for the listed summary IDs.
 6. `processor.summarize.cache.write_summary_run_cache()` writes one cache directory per run unless `--skip-summary-cache-write` is set.
 7. If segmentation is enabled, summary generation also builds segment-specific

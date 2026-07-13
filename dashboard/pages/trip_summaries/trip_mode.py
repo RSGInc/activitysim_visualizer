@@ -6,13 +6,13 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart, selector_row
+from dashboard.data_access import RunTableView
 from dashboard.helpers.category_helpers import (
     add_percent_of_total,
     category_label_matches,
     column_options,
     complete_category_counts,
     label_category_data,
-    nonempty,
     ordered_category_values,
 )
 from dashboard import DashboardPage, dashboard_page
@@ -28,22 +28,23 @@ def filtered_trip_mode_data(
     hidden_mode_values: set[str] | None = None,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Filter trip mode summaries to one selected tour purpose and optional tour mode."""
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in nonempty(data_list):
-        filtered = df.with_columns(
+    view = (
+        RunTableView.from_runs(data_list)
+        .with_columns(
             pl.col("tour_purpose").cast(pl.Utf8),
             pl.col("tour_mode").cast(pl.Utf8),
             pl.col("trip_mode").cast(pl.Utf8),
-        ).filter(pl.col("tour_purpose") == tour_purpose)
-        filtered = (
-            filtered.filter(pl.col("tour_mode") == "all_tour_modes")
-            if tour_mode is None
-            else filtered.filter(pl.col("tour_mode") == tour_mode)
         )
-        if hidden_mode_values:
-            filtered = filtered.filter(~pl.col("trip_mode").is_in(sorted(hidden_mode_values)))
-        out.append((label, filtered))
-    return out
+        .where(tour_purpose=tour_purpose)
+    )
+    view = view.where(tour_mode=tour_mode or "all_tour_modes")
+    if hidden_mode_values:
+        view = view.map(
+            lambda frame: frame.filter(
+                ~pl.col("trip_mode").is_in(sorted(hidden_mode_values))
+            )
+        )
+    return view.collect()
 
 
 def trip_mode_percent_data(
@@ -67,13 +68,11 @@ def trip_mode_percent_data(
     if not hidden_trip_mode_values:
         return with_percent
     hidden_values = sorted(hidden_trip_mode_values)
-    return [
-        (
-            label,
-            df.filter(~pl.col("trip_mode").is_in(hidden_values)),
-        )
-        for label, df in with_percent
-    ]
+    return (
+        RunTableView.from_runs(with_percent)
+        .map(lambda frame: frame.filter(~pl.col("trip_mode").is_in(hidden_values)))
+        .collect()
+    )
 
 
 @dashboard_page(

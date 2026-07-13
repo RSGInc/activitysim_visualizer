@@ -20,7 +20,8 @@ workflow code sees it. Removed and unknown keys fail with a focused error.
 | CLI and workflow orchestration | Parse step selections, choose cache-first vs rebuild flow, and hand off to prepare/summarize/dashboard workflows | `run.py`, `runtime/workflows/` |
 | Shared runtime contracts | Normalize YAML config and expose shared cross-cutting contracts used by both processor and dashboard | public surface `runtime.config`, implementation in `runtime/config/` |
 | Processor prepare step | Read raw ActivitySim outputs, materialize canonical prepared columns, and manage prepared-table cache I/O | `processor/models.py`, `processor/prepare/*` |
-| Summary generation and cache I/O | Register summary builders, compute weighted/unweighted tables, write/load cache manifests and CSVs | `processor/summarize/cache.py`, `processor/summarize/schema.py`, `processor/summarize/summaries/*.py` |
+| Summary generation | Register builders and compute weighted/unweighted tables | `processor/summarize/builder.py`, `processor/summarize/summary_specs.py`, `processor/summarize/summaries/*.py` |
+| Summary cache I/O | Inspect, write, and load cache manifests and CSVs | `processor/summarize/cache.py`, `processor/summarize/cache_storage.py` |
 | Dashboard registry and state | Discover pages, validate page contracts, hold live state and cached filtered views | `dashboard/page_registry.py`, `dashboard/page_definitions.py`, `dashboard/state.py`, `dashboard/page_base.py` |
 | Rendering | Build the live Panel app or serialize a client-side HTML document | `dashboard/app.py`, `dashboard/components.py`, `dashboard/export/` |
 
@@ -40,7 +41,7 @@ run.py
        B. run_summary_workflow()
           -> processor.summarize.cache.load_summary_run_cache()
           -> run_prepare_workflow() on summary-cache miss
-          -> processor.summarize.cache.build_mode_summaries()
+          -> processor.summarize.builder.build_mode_summaries_with_metadata()
           -> processor.summarize.cache.write_summary_run_cache()
        C. load_summary_runs_from_cache() for dashboard-only cache runs
           -> processor.summarize.cache.load_summary_run_cache()
@@ -140,8 +141,9 @@ authoring model:
 
 For page-local table shaping, `dashboard.data_access.RunTableView` applies one
 fluent query to every run while preserving run labels. Pages should prefer its
-`where`, `with_columns`, `group`, `select`, `sort`, `join`, and `map` operations
-over open-coded loops through run/dataframe pairs.
+`where`, `with_columns`, `group`, `select`, `sort`, `join`, `requiring`,
+`drop_empty`, and `map` operations over open-coded loops through
+run/dataframe pairs.
 
 The skim pages intentionally keep their own family-specific shared module at
 `dashboard/pages/skim_summaries/_shared.py`. That file is the reference pattern
@@ -168,6 +170,7 @@ activitysim_visualizer/
 |   |   |   |-- __init__.py
 |   |   |   |-- canonicalize.py
 |   |   |   |-- columns.py
+|   |   |   |-- domains.py
 |   |   |   |-- finalize.py
 |   |   |   |-- households_persons.py
 |   |   |   |-- pipeline.py
@@ -178,6 +181,13 @@ activitysim_visualizer/
 |   |   |   `-- zones.py
 |   |   |-- reader.py
 |   |   `-- writer.py
+|   `-- summarize/
+|       |-- builder.py
+|       |-- cache.py
+|       |-- cache_storage.py
+|       |-- cache_types.py
+|       |-- summary_specs.py
+|       `-- summaries/
 |   `-- summarize/
 |       |-- __init__.py
 |       |-- cache.py

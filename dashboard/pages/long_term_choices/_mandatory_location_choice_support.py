@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import polars as pl
 
+from dashboard.data_access import RunTableView
 from dashboard.helpers.category_helpers import (
     cap_numeric_category_frame,
     label_category_data,
@@ -38,42 +39,37 @@ def adapt_external_workplace(
     data_list: list[tuple[str, pl.DataFrame]] | None,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Normalize workplace summaries onto the page's chart-ready schema."""
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in normalize_geography_data(data_list):
-        normalized = df
+    def normalize(frame: pl.DataFrame) -> pl.DataFrame:
+        normalized = frame
         if DEFAULT_GEO_COL in normalized.columns and "workplace_location" not in normalized.columns:
             normalized = normalized.with_columns(
                 pl.col(DEFAULT_GEO_COL).alias("workplace_location")
             )
-        normalized = rename_present(
+        return rename_present(
             normalized,
             {"external_worker_count": "person_count"},
         )
-        out.append((label, normalized))
-    return out
+
+    return RunTableView.from_runs(normalize_geography_data(data_list)).map(normalize).collect()
 
 
 def adapt_commuting_flows(
     data_list: list[tuple[str, pl.DataFrame]] | None,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Normalize commuting-flow geography column names used by this page."""
-    if not data_list:
-        return []
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in nonempty(data_list):
-        out.append(
-            (
-                label,
-                rename_present(
-                    df,
-                    {
-                        "origin_geography_type": "origin_geography_level",
-                        "destination_geography_type": "destination_geography_level",
-                    },
-                ),
+    return (
+        RunTableView.from_runs(data_list)
+        .map(
+            lambda frame: rename_present(
+                frame,
+                {
+                    "origin_geography_type": "origin_geography_level",
+                    "destination_geography_type": "destination_geography_level",
+                },
             )
         )
-    return out
+        .collect()
+    )
 
 
 def external_workplace_percent_data(
@@ -118,10 +114,9 @@ def work_from_home_chart_data(
         geography_level = AGGREGATE_GEOGRAPHY_LEVEL
     if is_all_geographies(geography):
         geography = AGGREGATE_GEOGRAPHY_LEVEL
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in nonempty(wfh_list):
-        chart_df = (
-            df.with_columns(
+    def prepare(frame: pl.DataFrame) -> pl.DataFrame:
+        return (
+            frame.with_columns(
                 pl.col(DEFAULT_GEO_LEVEL_COL).cast(pl.Utf8),
                 pl.col(DEFAULT_GEO_COL).cast(pl.Utf8),
             )
@@ -147,31 +142,27 @@ def work_from_home_chart_data(
             )
             .sort("geography_label")
         )
-        out.append((label, chart_df))
-    return out
+    return RunTableView.from_runs(wfh_list).map(prepare).collect()
 
 
 def distance_distribution_chart_data(
     data_list: list[tuple[str, pl.DataFrame]],
 ) -> list[tuple[str, pl.DataFrame]]:
     """Aggregate geography-sliced distance summaries into distance-bin distributions."""
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in nonempty(data_list):
-        if "person_count" not in df.columns or "distance_bin" not in df.columns:
-            continue
-        out.append(
-            (
-                label,
-                cap_numeric_category_frame(
-                    df.group_by("distance_bin")
-                    .agg(person_count=pl.col("person_count").sum()),
-                    category_col="distance_bin",
-                    cap_value=40,
-                    value_cols=("person_count",),
-                ),
+    return (
+        RunTableView.from_runs(data_list)
+        .requiring("person_count", "distance_bin")
+        .map(
+            lambda frame: cap_numeric_category_frame(
+                frame.group_by("distance_bin")
+                .agg(person_count=pl.col("person_count").sum()),
+                category_col="distance_bin",
+                cap_value=40,
+                value_cols=("person_count",),
             )
         )
-    return out
+        .collect()
+    )
 
 
 def telecommute_chart_data(
@@ -188,23 +179,26 @@ def telecommute_chart_data(
         {"telecommute_frequency": telecommute_values},
         schema={"telecommute_frequency": pl.Utf8},
     )
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in nonempty(data_list):
-        if "telecommute_frequency" not in df.columns or "person_count" not in df.columns:
-            continue
+    def complete(frame: pl.DataFrame) -> pl.DataFrame:
         aggregated = (
-            df.with_columns(pl.col("telecommute_frequency").cast(pl.Utf8))
+            frame.with_columns(pl.col("telecommute_frequency").cast(pl.Utf8))
             .group_by("telecommute_frequency")
             .agg(person_count=pl.col("person_count").sum())
         )
-        completed = (
+        return (
             scaffold.join(aggregated, on="telecommute_frequency", how="left")
             .with_columns(pl.col("person_count").fill_null(0.0).cast(pl.Float64))
         )
-        out.append((label, completed))
+
+    completed = (
+        RunTableView.from_runs(data_list)
+        .requiring("telecommute_frequency", "person_count")
+        .map(complete)
+        .collect()
+    )
 
     return label_category_data(
-        out,
+        completed,
         source_col="telecommute_frequency",
         category_id="telecommute_frequency",
         config=config,

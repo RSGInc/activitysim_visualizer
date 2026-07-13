@@ -8,7 +8,7 @@ from typing import Any, Callable, Iterable, Literal
 import polars as pl
 
 from processor.models import RunData
-from processor.summarize.cache import SummaryRun, strip_weights
+from processor.summarize.cache_types import SummaryRun, strip_weights
 
 PreparedRunAvailability = Literal["loaded", "unavailable", "not_requested"]
 VisualizationAvailability = Literal[
@@ -42,6 +42,23 @@ class RunTableView:
 
     def collect(self) -> RunTableData:
         return list(self.runs)
+
+    def requiring(self, *columns: str) -> "RunTableView":
+        """Keep runs whose table contains every requested column."""
+        required = set(columns)
+        return RunTableView(
+            tuple(
+                (label, frame)
+                for label, frame in self.runs
+                if required.issubset(frame.columns)
+            )
+        )
+
+    def drop_empty(self) -> "RunTableView":
+        """Remove runs made empty by an earlier query operation."""
+        return RunTableView(
+            tuple((label, frame) for label, frame in self.runs if not frame.is_empty())
+        )
 
     def map(self, transform: Callable[[pl.DataFrame], pl.DataFrame]) -> "RunTableView":
         return RunTableView(
@@ -83,12 +100,21 @@ class RunTableView:
         *,
         on: str | list[str],
         how: str = "left",
+        coalesce: bool | None = None,
     ) -> "RunTableView":
         """Join tables with the corresponding run from another view."""
         other_by_label = dict(other.runs)
         return RunTableView(
             tuple(
-                (label, frame.join(other_by_label[label], on=on, how=how))
+                (
+                    label,
+                    frame.join(
+                        other_by_label[label],
+                        on=on,
+                        how=how,
+                        coalesce=coalesce,
+                    ),
+                )
                 for label, frame in self.runs
                 if label in other_by_label
             )

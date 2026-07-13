@@ -6,6 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import data_table, density_chart, selector_row
+from dashboard.data_access import RunTableView
 from dashboard.helpers.comparison_helpers import format_percent_error_table
 from dashboard.helpers.geography_helpers import (
     ALL_GEOGRAPHY_TYPES_LABEL,
@@ -27,13 +28,8 @@ def filter_student_type(
     student_type: str,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Filter school-shadow-pricing summaries to one exact student type."""
-    if not data_list:
-        return []
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in data_list:
-        if df is None or len(df) == 0:
-            continue
-        filtered = df
+    def prepare(frame: pl.DataFrame) -> pl.DataFrame:
+        filtered = frame
         if "student_type" in filtered.columns:
             filtered = filtered.with_columns(pl.col("student_type").cast(pl.Utf8))
             if student_type == "All":
@@ -95,8 +91,9 @@ def filter_student_type(
                     )
             else:
                 filtered = filtered.filter(pl.col("student_type") == student_type)
-        out.append((label, filtered))
-    return out
+        return filtered
+
+    return RunTableView.from_runs(data_list).map(prepare).collect()
 
 
 @dashboard_page(

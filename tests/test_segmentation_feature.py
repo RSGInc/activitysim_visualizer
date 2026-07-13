@@ -12,10 +12,10 @@ from dashboard.state import DashboardState
 from processor.models import RunData
 from processor.segmentation import build_analysis_units_for_run
 from processor.summarize.cache import (
-    create_summary_run,
     load_summary_run_bundle,
     write_summary_run_bundle,
 )
+from processor.summarize.cache_types import create_summary_run
 from runtime.config import Config
 
 

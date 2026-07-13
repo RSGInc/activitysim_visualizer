@@ -71,7 +71,8 @@ from dashboard.page_registry import (
 )
 from dashboard.state import DashboardState
 from processor.models import RunData
-from processor.summarize.cache import SUMMARY_SPEC_BY_ID, create_summary_run
+from processor.summarize.cache_types import create_summary_run
+from processor.summarize.summary_specs import SUMMARY_SPEC_BY_ID
 
 
 def _collect_tabulators(viewable) -> list[pn.widgets.Tabulator]:

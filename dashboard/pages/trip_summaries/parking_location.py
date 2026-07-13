@@ -5,8 +5,9 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import data_table, scatter_chart
 from dashboard import DashboardPage, dashboard_page
+from dashboard.components import data_table, scatter_chart
+from dashboard.data_access import RunTableView
 from processor.models import RunData
 
 PARKING_CAPACITY_COLUMNS = (
@@ -27,39 +28,44 @@ def parking_scatter_data(
     parking_summary: list[tuple[str, pl.DataFrame]],
     prepared_runs: list[tuple[str, RunData]],
 ) -> list[tuple[str, pl.DataFrame]]:
-    prepared_by_label = {label: run for label, run in prepared_runs}
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, summary_df in parking_summary:
-        run = prepared_by_label.get(label)
-        if run is None:
-            continue
+    capacity_tables: list[tuple[str, pl.DataFrame]] = []
+    for label, run in prepared_runs:
         capacity_col = _parking_capacity_col(run.land_use)
         if capacity_col is None:
             continue
-        land_use = (
-            run.land_use.select(
-                pl.col("MAZ").cast(pl.Utf8).alias("geography_id"),
-                pl.col(capacity_col).cast(pl.Float64).alias("parking_capacity"),
+        capacity_tables.append(
+            (
+                label,
+                run.land_use.select(
+                    pl.col("MAZ").cast(pl.Utf8).alias("geography_id"),
+                    pl.col(capacity_col).cast(pl.Float64).alias("parking_capacity"),
+                )
+                .group_by("geography_id")
+                .agg(parking_capacity=pl.col("parking_capacity").sum()),
             )
-            .group_by("geography_id")
-            .agg(parking_capacity=pl.col("parking_capacity").sum())
         )
-        parking_counts = summary_df.filter(
-            pl.col("geography_type").cast(pl.Utf8) == "maz"
-        ).select(
-            pl.col("geography_id").cast(pl.Utf8),
-            pl.col("trip_count").cast(pl.Float64),
-        )
-        joined = (
-            land_use.join(parking_counts, on="geography_id", how="full", coalesce=True)
-            .with_columns(
-                pl.col("parking_capacity").fill_null(0.0),
-                pl.col("trip_count").fill_null(0.0),
+
+    parking_counts = (
+        RunTableView.from_runs(parking_summary)
+        .map(
+            lambda frame: frame.filter(
+                pl.col("geography_type").cast(pl.Utf8) == "maz"
+            ).select(
+                pl.col("geography_id").cast(pl.Utf8),
+                pl.col("trip_count").cast(pl.Float64),
             )
-            .sort("geography_id")
         )
-        out.append((label, joined))
-    return out
+    )
+    return (
+        RunTableView.from_runs(capacity_tables)
+        .join(parking_counts, on="geography_id", how="full", coalesce=True)
+        .with_columns(
+            pl.col("parking_capacity").fill_null(0.0),
+            pl.col("trip_count").fill_null(0.0),
+        )
+        .sort("geography_id")
+        .collect()
+    )
 
 
 @dashboard_page(

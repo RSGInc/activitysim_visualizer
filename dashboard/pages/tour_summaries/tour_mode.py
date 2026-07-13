@@ -6,6 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart, selector_row
+from dashboard.data_access import RunTableView
 from dashboard.helpers.category_helpers import (
     add_percent_of_total,
     column_options,
@@ -60,11 +61,6 @@ def auto_sufficiency_definitions_markdown(config) -> str:
     """
 
 
-def _auto_sufficiency_definitions_markdown(config) -> str:
-    """Backward-compatible alias used by existing serializer and summary tests."""
-    return auto_sufficiency_definitions_markdown(config)
-
-
 def vehicle_attribute_data(
     data_list: list[tuple[str, pl.DataFrame]],
     occupancy: str,
@@ -87,8 +83,7 @@ def vehicle_attribute_data(
             )
         return df.sort(category_col) if category_col in df.columns else df
 
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in nonempty(data_list):
+    def shape(df: pl.DataFrame) -> pl.DataFrame:
         filtered = df
         if "occupancy" in filtered.columns:
             filtered = filtered.with_columns(pl.col("occupancy").cast(pl.Utf8))
@@ -99,33 +94,8 @@ def vehicle_attribute_data(
                 )
             else:
                 filtered = filtered.filter(pl.col("occupancy") == occupancy)
-        out.append((label, sort_filtered(filtered)))
-    return out
-
-
-def _filter_col(
-    data_list: list[tuple[str, pl.DataFrame]],
-    column: str,
-    value: str,
-) -> list[tuple[str, pl.DataFrame]]:
-    """Backward-compatible wrapper for older tests around vehicle filters."""
-    first_category_col = None
-    for _, df in nonempty(data_list):
-        candidates = [
-            candidate
-            for candidate in df.columns
-            if candidate not in {column, "vehicle_count"}
-        ]
-        if candidates:
-            first_category_col = candidates[0]
-            break
-    if first_category_col is None:
-        return nonempty(data_list)
-    return vehicle_attribute_data(
-        data_list,
-        value,
-        category_col=first_category_col,
-    )
+        return sort_filtered(filtered)
+    return RunTableView.from_runs(data_list).map(shape).collect()
 
 
 def tour_mode_chart_data(
@@ -141,8 +111,7 @@ def tour_mode_chart_data(
         "Auto Deficient": "tour_count_auto_deficient",
         "Auto Sufficient": "tour_count_auto_sufficient",
     }[auto_sufficiency]
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in nonempty(data_list):
+    def shape(df: pl.DataFrame) -> pl.DataFrame:
         filtered = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8)).filter(
             pl.col("tour_purpose") == purpose
         )
@@ -151,7 +120,7 @@ def tour_mode_chart_data(
             pl.col(value_col).alias("tour_count"),
         ).sort("tour_mode")
         chart_df = add_percent_of_total(
-            [(label, chart_df)],
+            [("run", chart_df)],
             value_col="tour_count",
             percent_col="tour_count_percent",
         )[0][1]
@@ -159,8 +128,8 @@ def tour_mode_chart_data(
             chart_df = chart_df.with_columns(pl.col("tour_mode").cast(pl.Utf8)).filter(
                 ~pl.col("tour_mode").is_in(sorted(hidden_mode_values))
             )
-        out.append((label, chart_df))
-    return out
+        return chart_df
+    return RunTableView.from_runs(data_list).map(shape).collect()
 
 
 @dashboard_page(

@@ -59,7 +59,9 @@ from dashboard.helpers.time_distance_helpers import (
     timebin_label,
 )
 from dashboard.page_base import DashboardPage
+from dashboard.pages.trip_summaries.parking_location import parking_scatter_data
 from dashboard.state import DashboardState
+from processor.models import RunData
 from test_export_html import _full_summary_run, _write_config
 
 
@@ -90,6 +92,64 @@ def test_run_table_view_filters_transforms_and_joins_by_run_label() -> None:
     empty_build = counts.where(direction="inbound")
     assert [label for label, _ in empty_build.collect()] == ["Base", "Build"]
     assert empty_build.collect()[1][1].is_empty()
+
+    complete = RunTableView.from_runs(
+        [
+            ("Base", pl.DataFrame({"id": [1], "value": [2]})),
+            ("Build", pl.DataFrame({"id": [2]})),
+        ]
+    ).requiring("id", "value")
+    assert [label for label, _ in complete.collect()] == ["Base"]
+    assert [label for label, _ in empty_build.drop_empty().collect()] == ["Base"]
+
+    outer = RunTableView.from_runs(
+        [("Base", pl.DataFrame({"id": [1], "left": [10]}))]
+    ).join(
+        RunTableView.from_runs(
+            [("Base", pl.DataFrame({"id": [2], "right": [20]}))]
+        ),
+        on="id",
+        how="full",
+        coalesce=True,
+    )
+    assert outer.collect()[0][1].sort("id")["id"].to_list() == [1, 2]
+
+
+def test_parking_query_joins_summary_and_prepared_tables_by_run() -> None:
+    empty = pl.DataFrame()
+    prepared = RunData(
+        label="Base",
+        run_dir="base",
+        skim_file=None,
+        hh=empty,
+        per=empty,
+        tours=empty,
+        trips=empty,
+        joint_participants=empty,
+        land_use=pl.DataFrame({"MAZ": [1, 2], "PRKSPACES": [10, 20]}),
+        skim_matrix=None,
+    )
+    summaries = [
+        (
+            "Base",
+            pl.DataFrame(
+                {
+                    "geography_type": ["maz", "maz"],
+                    "geography_id": ["1", "3"],
+                    "trip_count": [4, 6],
+                }
+            ),
+        )
+    ]
+
+    result = parking_scatter_data(summaries, [("Base", prepared)])
+
+    assert [label for label, _ in result] == ["Base"]
+    assert result[0][1].to_dict(as_series=False) == {
+        "geography_id": ["1", "2", "3"],
+        "parking_capacity": [10.0, 20.0, 0.0],
+        "trip_count": [4.0, 0.0, 6.0],
+    }
 
 
 def test_category_helpers_support_intersection_normalization_and_numeric_sort(

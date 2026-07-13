@@ -6,6 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart, selector_row
+from dashboard.data_access import RunTableView
 from dashboard.helpers.category_helpers import (
     complete_category_counts,
     label_category_data,
@@ -37,22 +38,20 @@ def normalize_bicycle_comfort_levels(
     data_list: list[tuple[str, pl.DataFrame]],
 ) -> list[tuple[str, pl.DataFrame]]:
     """Map legacy bicycle comfort codes to the dashboard's readable category labels."""
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in normalize_category_strings(data_list, "bicycle_comfort_level"):
-        out.append(
-            (
-                label,
-                df.with_columns(
+    return (
+        RunTableView.from_runs(
+            normalize_category_strings(data_list, "bicycle_comfort_level")
+        )
+        .with_columns(
                     pl.col("bicycle_comfort_level")
                     .replace_strict(
                         _BICYCLE_COMFORT_DISPLAY,
                         default=pl.col("bicycle_comfort_level"),
                     )
                     .alias("bicycle_comfort_level")
-                ),
-            )
         )
-    return out
+        .collect()
+    )
 
 
 @dashboard_page(

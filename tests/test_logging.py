@@ -15,7 +15,7 @@ from runtime.logging import configure_logging, get_logger, shutdown_logging
 from dashboard.app import build_dashboard
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
-from processor.summarize.cache import create_summary_run
+from processor.summarize.cache_types import create_summary_run
 from test_export_html import _full_summary_run, _write_config
 
 

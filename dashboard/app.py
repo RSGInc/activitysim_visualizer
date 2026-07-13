@@ -20,7 +20,7 @@ from dashboard.page_registry import (
 )
 from dashboard.page_base import GroupedDashboardPage
 from processor.models import RunData
-from processor.summarize.cache import SummaryRun
+from processor.summarize.cache_types import SummaryRun
 from runtime.config import Config
 
 pn.extension("plotly", "tabulator", sizing_mode="stretch_width")

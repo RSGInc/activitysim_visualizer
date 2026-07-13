@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import polars as pl
 
-from processor.models import RunData
-from processor.prepare.availability import attach_table_availability
 from processor.prepare.enrichment.columns import _cast_if_present
 from processor.prepare.enrichment.types import _PrepareState
 
@@ -220,29 +218,3 @@ def _cast_prepared_tables(state: _PrepareState) -> _PrepareState:
     state.vehicles = _cast_vehicles(state.vehicles)
     state.land_use = _cast_land_use(state.land_use)
     return state
-
-
-def _finalize_prepared_run(state: _PrepareState) -> RunData:
-    return attach_table_availability(
-        RunData(
-            label=state.label,
-            run_dir=state.run_dir,
-            skim_file=state.skim_file,
-            hh=state.hh,
-            per=state.per,
-            day=state.day,
-            tours=state.tours,
-            trips=state.trips,
-            vehicles=state.vehicles,
-            joint_participants=state.joint_participants,
-            land_use=state.land_use,
-            skim_matrix=state.skim,
-            skim_zone_map=state.skim_map,
-            hh_weight_col=state.hh_weight_col,
-            person_weight_col=state.person_weight_col,
-            trip_weight_col=state.trip_weight_col,
-            prepare_diagnostics=dict(state.prepare_diagnostics),
-        ),
-        table_states=state.table_states,
-        table_reasons=state.table_reasons,
-    )

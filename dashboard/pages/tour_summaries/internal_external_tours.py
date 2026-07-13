@@ -6,6 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import data_table, selector_row
+from dashboard.data_access import RunTableView
 from dashboard.helpers.geography_helpers import (
     ALL_GEOGRAPHY_TYPES_LABEL,
     ALL_GEOGRAPHY_TYPES_VALUE,
@@ -91,7 +92,6 @@ class InternalExternalToursPage(DashboardPage):
         geography_col: str = "geography",
     ) -> list[tuple[str, pl.DataFrame]]:
         """Return table data with friendly geography display columns first."""
-        display_data: list[tuple[str, pl.DataFrame]] = []
         raw_geography_columns = {
             "geography_level",
             "geography_type",
@@ -99,7 +99,7 @@ class InternalExternalToursPage(DashboardPage):
             "geography_id",
             "home_geography",
         }
-        for label, df in data_list:
+        def prepare(df: pl.DataFrame) -> pl.DataFrame:
             display_df = with_display_geography_columns(
                 df,
                 config=self.config,
@@ -123,13 +123,11 @@ class InternalExternalToursPage(DashboardPage):
                 )
                 if column in display_df.columns
             ]
-            display_data.append(
-                (
-                    label,
-                    display_df.select(ordered_columns) if ordered_columns else display_df,
-                )
+            return (
+                display_df.select(ordered_columns) if ordered_columns else display_df
             )
-        return display_data
+
+        return RunTableView.from_runs(data_list).map(prepare).collect()
 
     def render_body_section(self) -> SectionContent:
         """Render the two tour tables side by side for the selected level."""

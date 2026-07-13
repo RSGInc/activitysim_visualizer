@@ -1,4 +1,4 @@
-"""Named stage groups for prepare enrichment orchestration."""
+"""Domain-oriented prepare operations over one explicit mutable run state."""
 
 from __future__ import annotations
 
@@ -19,10 +19,10 @@ from processor.prepare.enrichment.non_motorized_distance import (
 from processor.prepare.enrichment.student_enrollment import (
     _derive_student_enrollment,
 )
+from processor.prepare.enrichment.time_periods import _derive_time_periods
 from processor.prepare.enrichment.tours import _enrich_tours
 from processor.prepare.enrichment.trips import _enrich_trips
 from processor.prepare.enrichment.types import _PrepareState
-from processor.prepare.enrichment.time_periods import _derive_time_periods
 from processor.prepare.enrichment.vot_bins import _normalize_vot_bins
 from processor.prepare.enrichment.weights import _apply_weights
 from processor.prepare.enrichment.zones import (
@@ -32,36 +32,40 @@ from processor.prepare.enrichment.zones import (
 )
 
 
-def _run_prepare_core_stages(state: _PrepareState, config: Config) -> _PrepareState:
-    """Run identifier cleanup and shared weighting steps."""
+def normalize_source_domain(state: _PrepareState, config: Config) -> _PrepareState:
+    """Canonicalize source columns and establish weights and escort semantics."""
     state = _canonicalize_identifiers_and_core_columns(state, config)
     state = _normalize_escort_fields(state, config)
     return _apply_weights(state, config)
 
 
-def _run_prepare_person_and_tour_stages(
-    state: _PrepareState, config: Config
+def enrich_people_and_places_domain(
+    state: _PrepareState,
+    config: Config,
 ) -> _PrepareState:
-    """Run household, person, and tour enrichment stages sharing zone context."""
-    zone_context = _build_zone_context(state, config)
-    state = _enrich_households_and_persons(state, config, zone_context)
+    """Enrich household/person tables and their shared geography context."""
+    zones = _build_zone_context(state, config)
+    state = _enrich_households_and_persons(state, config, zones)
     state = _derive_student_enrollment(state, config)
     state = _prepare_day(state)
     state.land_use = _add_land_use_aggregated_geographies(
         state.land_use,
         config=config,
-        zone_context=zone_context,
+        zone_context=zones,
     )
-    state = _enrich_tours(state, config, zone_context)
-    state = _enrich_trips(state, config, zone_context)
+    state = _enrich_tours(state, config, zones)
+    return _enrich_trips(state, config, zones)
+
+
+def enrich_mobility_domain(state: _PrepareState, config: Config) -> _PrepareState:
+    """Add vehicle, distance, time-period, and value-of-time outputs."""
     state = _prepare_vehicles(state)
-    return state
-
-
-def _run_prepare_output_stages(state: _PrepareState, config: Config) -> _PrepareState:
-    """Normalize output-only columns and cast final prepared table schemas."""
     state = _derive_non_motorized_distance(state, config)
     state = _derive_time_periods(state, config)
-    state = _normalize_vot_bins(state, config)
+    return _normalize_vot_bins(state, config)
+
+
+def finalize_output_domain(state: _PrepareState) -> _PrepareState:
+    """Validate diagnostics and cast the canonical prepared schemas."""
     _log_prepare_diagnostics(state)
     return _cast_prepared_tables(state)

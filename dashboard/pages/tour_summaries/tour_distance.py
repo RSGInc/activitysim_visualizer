@@ -6,6 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import data_table, density_chart, selector_row
+from dashboard.data_access import RunTableView
 from dashboard.helpers.category_helpers import (
     column_options,
     nonempty,
@@ -46,26 +47,21 @@ def tour_distance_chart_data(
     purpose: str,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Prepare the distance distribution for one tour purpose."""
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in nonempty(data_list):
-        filtered = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8)).filter(
-            pl.col("tour_purpose") == purpose
-        )
-        out.append(
-            (
-                label,
-                filtered.select(
+    return (
+        RunTableView.from_runs(data_list)
+        .with_columns(pl.col("tour_purpose").cast(pl.Utf8))
+        .where(tour_purpose=purpose)
+        .select(
                     pl.col("distance_bin").cast(pl.Utf8),
                     pl.col("tour_count"),
-                )
-                .with_columns(
-                    distance_sort_expr("distance_bin").alias("_sort_distance")
-                )
-                .sort("_sort_distance")
-                .drop("_sort_distance"),
-            )
         )
-    return out
+        .with_columns(
+                    distance_sort_expr("distance_bin").alias("_sort_distance")
+        )
+        .sort("_sort_distance")
+        .map(lambda frame: frame.drop("_sort_distance"))
+        .collect()
+    )
 
 
 def average_distance_comparison_table(

@@ -14,6 +14,8 @@ from processor.models import (
 from processor.prepare.cache import build_prepared_manifest_identity, prepared_root
 from processor.prepare.reader import resolve_skim_path
 from processor.summarize import cache as summary_cache
+from processor.summarize import builder as summary_builder
+from processor.summarize import cache_types as summary_types
 from runtime.config import Config
 from runtime.workflows import shared
 from runtime.workflows.artifacts import SummaryRunsArtifact
@@ -24,7 +26,7 @@ LOGGER = get_logger("main")
 def load_runtime_config(config_path: str | Path) -> Config:
     """Load config and normalize the shared runtime settings."""
     config = Config.from_yaml(config_path)
-    config.weighting_modes = summary_cache.normalize_weighting_modes(
+    config.weighting_modes = summary_types.normalize_weighting_modes(
         config.weighting_modes
     )
     from processor.summarize.external import validate_summary_table_map_ids
@@ -107,7 +109,7 @@ def load_summary_runs_from_cache(
     )
 
     required_summary_ids = (
-        list(summary_cache.requested_summary_ids(config))
+        list(summary_builder.DEFAULT_SUMMARY_IDS)
         if required_summary_ids is None
         else list(required_summary_ids)
     )
@@ -171,7 +173,7 @@ def load_summary_runs_from_cache(
                     expected_label=expectations.get("expected_label"),
                     expected_run_key=expectations.get("expected_run_key"),
                 )
-        except summary_cache.SummaryCacheError as exc:
+        except summary_types.SummaryCacheError as exc:
             if external_summary_run is not None:
                 LOGGER.warning(
                     "Dashboard-only run could not load cached summaries from %s; continuing with user-supplied summary tables only. Details: %s",
@@ -208,7 +210,7 @@ def prune_summary_runs(
     return shared.prune_summary_runs(
         summary_runs,
         required_summary_ids,
-        create_summary_run_fn=summary_cache.create_summary_run,
+        create_summary_run_fn=summary_types.create_summary_run,
     )
 
 

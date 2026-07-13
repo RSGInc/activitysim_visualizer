@@ -187,9 +187,12 @@ chart_data = (
 ```
 
 When two summary tables must be combined, query each and call `.join(...)`;
-tables are matched by run label automatically. Use `.map(...)` only for a
-transformation that cannot be expressed by the standard query methods. This
-removes most page-local loops over `(run_label, dataframe)` pairs.
+tables are matched by run label automatically. Use `.requiring(...)` when an
+optional summary schema may omit columns, and `.drop_empty()` when a filter
+should remove runs with no matching rows. Full joins can pass `coalesce=True`
+to keep one join-key column. Use `.map(...)` only for a transformation that
+cannot be expressed by the standard query methods. This removes most page-local
+loops over `(run_label, dataframe)` pairs.
 
 For a page with many domain-specific queries, keep the page module focused on
 selectors, sections, and chart intent, and put those queries in a sibling

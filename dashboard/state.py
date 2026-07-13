@@ -15,7 +15,7 @@ from dashboard.data_access import (
 )
 from processor.models import RunData
 from processor.prepare.availability import table_availability, table_diagnostics
-from processor.summarize.cache import SummaryRun, normalize_weighting_modes
+from processor.summarize.cache_types import SummaryRun, normalize_weighting_modes
 
 
 class DashboardState(param.Parameterized):

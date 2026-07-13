@@ -19,7 +19,7 @@ from dashboard.export.html import (
 )
 from dashboard.export.types import EXPORT_CLIENT_RUNTIME, EXPORT_SCHEMA_VERSION
 from processor.models import RunData
-from processor.summarize.cache import create_summary_run
+from processor.summarize.cache_types import create_summary_run
 from runtime.config import Config
 
 

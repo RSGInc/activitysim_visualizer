@@ -6,6 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart, kpi_box, selector_row
+from dashboard.data_access import RunTableView
 from dashboard.helpers.category_helpers import cap_numeric_category_data, nonempty
 from dashboard.helpers.geography_helpers import rename_present
 from dashboard import DashboardPage, dashboard_page
@@ -19,10 +20,11 @@ def _cast_category(
     category_col: str,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Cast one chart category column to strings for stable display ordering."""
-    return [
-        (label, df.with_columns(pl.col(category_col).cast(pl.Utf8)))
-        for label, df in nonempty(data_list)
-    ]
+    return (
+        RunTableView.from_runs(data_list)
+        .with_columns(pl.col(category_col).cast(pl.Utf8))
+        .collect()
+    )
 
 
 def _normalize_vehicle_summary_columns(
@@ -32,13 +34,11 @@ def _normalize_vehicle_summary_columns(
     legacy_col: str,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Accept legacy summary column names while exposing one canonical chart column."""
-    return [
-        (
-            label,
-            rename_present(df, {legacy_col: canonical_col}),
-        )
-        for label, df in nonempty(data_list)
-    ]
+    return (
+        RunTableView.from_runs(data_list)
+        .map(lambda frame: rename_present(frame, {legacy_col: canonical_col}))
+        .collect()
+    )
 
 
 def _av_kpi_values(
@@ -74,21 +74,19 @@ def _auto_ownership_chart_data(
     household_size: str,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Filter to one household-size bucket and aggregate vehicle-count bins."""
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in nonempty(data_list):
-        filtered = df
+    def prepare(frame: pl.DataFrame) -> pl.DataFrame:
+        filtered = frame
         if "household_size" in filtered.columns:
             filtered = filtered.with_columns(pl.col("household_size").cast(pl.Utf8))
             if household_size != ALL_HOUSEHOLD_SIZES:
                 filtered = filtered.filter(pl.col("household_size") == household_size)
-        out.append(
-            (
-                label,
-                filtered.group_by("household_vehicle_count")
-                .agg(household_count=pl.col("household_count").sum())
-                .sort(pl.col("household_vehicle_count").cast(pl.Int64, strict=False)),
-            )
+        return (
+            filtered.group_by("household_vehicle_count")
+            .agg(household_count=pl.col("household_count").sum())
+            .sort(pl.col("household_vehicle_count").cast(pl.Int64, strict=False))
         )
+
+    out = RunTableView.from_runs(data_list).map(prepare).collect()
     return cap_numeric_category_data(
         out,
         category_col="household_vehicle_count",

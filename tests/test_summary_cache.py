@@ -35,8 +35,8 @@ from dashboard.pages.tour_summaries.tour_mode import (
     TourModePage as TourSummariesTourModePage,
 )
 from dashboard.pages.tour_summaries.tour_mode import (
-    _auto_sufficiency_definitions_markdown,
-    _filter_col,
+    auto_sufficiency_definitions_markdown,
+    vehicle_attribute_data,
 )
 from dashboard.pages.tour_summaries.internal_external_tours import (
     InternalExternalToursPage,
@@ -63,17 +63,16 @@ from dashboard.page_registry import page_definitions_for_group
 from processor.models import RunData
 from processor.prepare.cache import build_prepared_manifest_identity
 from processor.prepare.enrichment.pipeline import prepare_data
-from processor.summarize import cache as summary_cache_module
+from processor.summarize import builder as summary_builder_module
 from processor.summarize.contracts import empty_summary_frame, summary_contract
 from processor.summarize.cache import (
-    SummaryCacheError,
     build_run_fingerprint,
-    build_summaries_with_metadata,
     build_run_keys,
-    create_summary_run,
     load_summary_run_cache,
     write_summary_run_cache,
 )
+from processor.summarize.cache_types import SummaryCacheError, create_summary_run
+from processor.summarize.builder import build_summaries_with_metadata
 from processor.summarize.schema import SUMMARY_OUTPUT_COLUMNS
 from processor.summarize.summary_specs import SUMMARY_SPECS, SummarySpec
 from processor.summarize.summary_specs import SUMMARY_SPEC_BY_ID
@@ -1025,10 +1024,10 @@ def test_build_summaries_with_metadata_marks_missing_inputs_unavailable(
 
     spec = SummarySpec("probe_unavailable", "probe_unavailable", unavailable_summary)
     monkeypatch.setattr(
-        summary_cache_module, "DEFAULT_SUMMARY_IDS", ["probe_unavailable"]
+        summary_builder_module, "DEFAULT_SUMMARY_IDS", ["probe_unavailable"]
     )
     monkeypatch.setitem(
-        summary_cache_module.SUMMARY_SPEC_BY_ID, "probe_unavailable", spec
+        summary_builder_module.SUMMARY_SPEC_BY_ID, "probe_unavailable", spec
     )
 
     tables, metadata = build_summaries_with_metadata(_destination_raw_run(), config)
@@ -3602,7 +3601,7 @@ def test_tour_mode_auto_sufficiency_definitions_follow_configured_basis(
         ],
     )
 
-    markdown = _auto_sufficiency_definitions_markdown(config)
+    markdown = auto_sufficiency_definitions_markdown(config)
 
     assert "**Fewer Vehicles Than Workers**" in markdown
     assert "**At Least As Many Vehicles as Workers**" in markdown
@@ -3682,7 +3681,7 @@ def test_mandatory_location_choice_can_show_maz_when_enabled(
 
 
 def test_tour_mode_vehicle_filters_sort_categories_stably() -> None:
-    filtered = _filter_col(
+    filtered = vehicle_attribute_data(
         [
             (
                 "Base",
@@ -3695,8 +3694,8 @@ def test_tour_mode_vehicle_filters_sort_categories_stably() -> None:
                 ),
             )
         ],
-        "occupancy",
         "All",
+        category_col="fuel_type",
     )
 
     assert filtered[0][1]["fuel_type"].to_list() == [

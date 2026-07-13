@@ -6,6 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart, control_row, control_row_spacer
+from dashboard.data_access import RunTableView
 from dashboard.helpers.category_helpers import (
     column_options,
     label_category_data,
@@ -25,28 +26,23 @@ def order_chart_data(
     if not ordered_values:
         return data_list
     order_index = {str(value): idx for idx, value in enumerate(ordered_values)}
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in data_list:
-        if df is None or column not in df.columns:
-            out.append((label, df))
-            continue
-        out.append(
-            (
-                label,
-                df.with_columns(
-                    pl.col(column)
-                    .cast(pl.Utf8)
-                    .map_elements(
-                        lambda value: order_index.get(str(value), len(order_index)),
-                        return_dtype=pl.Int64,
-                    )
-                    .alias("_category_order")
+    def order(frame: pl.DataFrame) -> pl.DataFrame:
+        if column not in frame.columns:
+            return frame
+        return (
+            frame.with_columns(
+                pl.col(column)
+                .cast(pl.Utf8)
+                .map_elements(
+                    lambda value: order_index.get(str(value), len(order_index)),
+                    return_dtype=pl.Int64,
                 )
-                .sort("_category_order")
-                .drop("_category_order"),
+                .alias("_category_order")
             )
+            .sort("_category_order")
+            .drop("_category_order")
         )
-    return out
+    return RunTableView.from_runs(data_list).map(order).collect()
 
 
 def stop_purpose_chart_data(
@@ -54,9 +50,8 @@ def stop_purpose_chart_data(
     tour_purpose: str | None,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Build stop-purpose distributions for the selected tour purpose."""
-    out = []
-    for label, df in nonempty(data_list):
-        filtered = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
+    def shape(frame: pl.DataFrame) -> pl.DataFrame:
+        filtered = frame.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
         if tour_purpose is None:
             filtered = (
                 filtered.group_by("stop_destination_purpose")
@@ -66,8 +61,8 @@ def stop_purpose_chart_data(
             )
         else:
             filtered = filtered.filter(pl.col("tour_purpose") == tour_purpose)
-        out.append((label, filtered))
-    return out
+        return filtered
+    return RunTableView.from_runs(data_list).map(shape).collect()
 
 
 def trip_purpose_chart_data(
@@ -75,9 +70,8 @@ def trip_purpose_chart_data(
     tour_purpose: str | None,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Build trip-purpose distributions for the selected tour purpose."""
-    out = []
-    for label, df in nonempty(data_list):
-        filtered = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
+    def shape(frame: pl.DataFrame) -> pl.DataFrame:
+        filtered = frame.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
         if tour_purpose is None:
             if "all_tour_purposes" in filtered["tour_purpose"].cast(pl.Utf8).unique().to_list():
                 filtered = filtered.filter(pl.col("tour_purpose") == "all_tour_purposes")
@@ -88,12 +82,11 @@ def trip_purpose_chart_data(
                     .with_columns(pl.col("trip_purpose").cast(pl.Utf8))
                     .sort("trip_purpose")
                 )
-                out.append((label, filtered))
-                continue
+                return filtered
         else:
             filtered = filtered.filter(pl.col("tour_purpose") == tour_purpose)
-        out.append((label, filtered))
-    return out
+        return filtered
+    return RunTableView.from_runs(data_list).map(shape).collect()
 
 
 @dashboard_page(

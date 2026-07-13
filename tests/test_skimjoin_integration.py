@@ -22,7 +22,8 @@ from processor.skimjoin.config.validation import ConfigValidationError, load_con
 from processor.skimjoin.inventory import inventory_skim_files
 from processor.skimjoin.pipeline import apply_skimjoin
 from processor.skimjoin.skimstore.omx import OmxSkimStore
-from processor.summarize import cache as summary_cache
+from processor.summarize import cache_types as summary_cache_types
+from processor.summarize import builder as summary_builder
 from processor.summarize.contracts import empty_summary_frame
 from processor.summarize.summaries import skimjoin as skimjoin_summaries
 from runtime.config import Config, config_for_run
@@ -294,9 +295,7 @@ def test_config_loads_separate_skimjoin_config_and_digest(tmp_path: Path) -> Non
     assert config.skimjoin_step_enabled() is True
     assert config.skimjoin.config_path == str((tmp_path / "skimjoin.yaml").resolve())
     assert config.skimjoin.config_digest
-    assert "skimjoin_trip_component_stats" in summary_cache.requested_summary_ids(
-        config
-    )
+    assert "skimjoin_trip_component_stats" in summary_builder.DEFAULT_SUMMARY_IDS
 
 
 def test_config_loads_integrated_skimjoin_without_activitysim_table_paths(
@@ -1493,7 +1492,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
     )
     assert manifest["skimjoin_enabled"] is True
 
-    summaries = summary_cache.build_summaries(
+    summaries = summary_builder.build_summaries(
         prepared,
         config,
         summary_ids=[
@@ -3198,7 +3197,7 @@ def test_skimjoin_failure_keeps_non_skim_summaries_available_and_skim_summaries_
     )
 
     prepared = result.runs[0][1]
-    summaries = summary_cache.build_summaries(
+    summaries = summary_builder.build_summaries(
         prepared,
         config,
         summary_ids=["population_totals", "skimjoin_trip_component_stats"],
@@ -3211,7 +3210,7 @@ def test_skimjoin_failure_keeps_non_skim_summaries_available_and_skim_summaries_
 
 def test_tour_skim_component_summaries_follow_unweighted_mode(tmp_path: Path) -> None:
     config = _write_main_config(tmp_path, skimjoin_enabled=False)
-    prepared = summary_cache.strip_weights(_skim_summary_run_data())
+    prepared = summary_cache_types.strip_weights(_skim_summary_run_data())
 
     stats = skimjoin_summaries.tour_skim_component_stats(prepared, config)
 

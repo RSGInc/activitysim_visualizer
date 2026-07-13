@@ -27,11 +27,12 @@ from processor.summarize.contracts import (
     summary_contract,
 )
 from processor.summarize import cache as summary_cache
+from processor.summarize import builder as summary_builder
 from processor.summarize.cache import (
     build_run_fingerprint,
-    create_summary_run,
     write_summary_run_cache,
 )
+from processor.summarize.cache_types import create_summary_run
 from processor.summarize.summary_specs import SummarySpec
 from runtime.workflows import prepare as prepare_workflow
 
@@ -314,17 +315,15 @@ def test_non_default_summary_specs_remain_registered_but_not_default_built(
 ) -> None:
     config = _write_config(tmp_path, runs=[{"label": "External"}])
 
-    spec = summary_cache.SUMMARY_SPEC_BY_ID["auto_vmt_validation_summary"]
+    spec = summary_builder.SUMMARY_SPEC_BY_ID["auto_vmt_validation_summary"]
 
     assert spec.build_by_default is False
     assert (
-        summary_cache.SUMMARY_FILENAME_BY_ID["auto_vmt_validation_summary"]
+        summary_builder.SUMMARY_FILENAME_BY_ID["auto_vmt_validation_summary"]
         == "auto_vmt_validation_summary.csv"
     )
-    assert "auto_vmt_validation_summary" not in summary_cache.DEFAULT_SUMMARY_IDS
-    assert "auto_vmt_validation_summary" not in summary_cache.requested_summary_ids(
-        config
-    )
+    assert "auto_vmt_validation_summary" not in summary_builder.DEFAULT_SUMMARY_IDS
+    assert "auto_vmt_validation_summary" not in summary_builder.DEFAULT_SUMMARY_IDS
 
 
 def test_validation_scaffold_summaries_are_registered_with_empty_contracts(
@@ -348,15 +347,15 @@ def test_validation_scaffold_summaries_are_registered_with_empty_contracts(
     }
 
     for summary_id in expected_ids:
-        spec = summary_cache.SUMMARY_SPEC_BY_ID[summary_id]
+        spec = summary_builder.SUMMARY_SPEC_BY_ID[summary_id]
         contract = get_summary_contract(spec.builder)
 
         assert spec.build_by_default is False
         assert contract is not None
         assert empty_summary_frame(spec.builder).schema == dict(contract.schema)
-        assert summary_cache.SUMMARY_FILENAME_BY_ID[summary_id] == f"{summary_id}.csv"
-        assert summary_id not in summary_cache.DEFAULT_SUMMARY_IDS
-        assert summary_id not in summary_cache.requested_summary_ids(config)
+        assert summary_builder.SUMMARY_FILENAME_BY_ID[summary_id] == f"{summary_id}.csv"
+        assert summary_id not in summary_builder.DEFAULT_SUMMARY_IDS
+        assert summary_id not in summary_builder.DEFAULT_SUMMARY_IDS
 
 
 def test_run_summary_workflow_loads_summary_only_run_without_prepared_inputs(
@@ -518,10 +517,8 @@ def test_run_summary_workflow_overlays_summary_table_map_on_generated_summaries(
             }
         ],
     )
-    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals", "population_totals"])
-    monkeypatch.setattr(
-        summary_cache,
-        "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals", "population_totals"])
+    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
         lambda rd, config, summary_ids=None: (
             {
                 "weighted": {
@@ -613,10 +610,8 @@ def test_run_summary_workflow_reuses_all_existing_prepared_runs_when_cache_disab
             },
         )
 
-    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(
-        summary_cache,
-        "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
         fake_build_mode_summaries_with_metadata,
     )
     _patch_prepare_pipeline(
@@ -697,10 +692,8 @@ def test_prepare_then_summary_does_not_rerun_skimjoin_for_existing_prepared_runs
             },
         )
 
-    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(
-        summary_cache,
-        "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
         fake_build_mode_summaries_with_metadata,
     )
     _patch_prepare_pipeline(
@@ -780,9 +773,7 @@ def test_run_summary_workflow_does_not_build_non_default_registered_summaries(
             },
         )
 
-    monkeypatch.setattr(
-        summary_cache,
-        "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
         fake_build_mode_summaries_with_metadata,
     )
     monkeypatch.setattr(
@@ -838,10 +829,8 @@ def test_mixed_run_preserves_generated_defaults_and_overlays_non_default_summary
             }
         ],
     )
-    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(
-        summary_cache,
-        "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
         lambda rd, config, summary_ids=None: (
             {
                 mode: {
@@ -1361,9 +1350,7 @@ def test_run_summary_workflow_without_segment_step_builds_only_full_summary_runs
         ),
         prepare_data=lambda rd, config: rd,
     )
-    monkeypatch.setattr(
-        summary_cache,
-        "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
         lambda rd, config: _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
     )
 
@@ -1419,9 +1406,7 @@ def test_run_summary_workflow_with_segment_step_builds_full_and_segmented_summar
         ),
         prepare_data=lambda rd, config: rd,
     )
-    monkeypatch.setattr(
-        summary_cache,
-        "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
         lambda rd, config: _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
     )
 
@@ -1817,7 +1802,7 @@ def test_run_summary_workflow_uses_cache_hit_without_raw_read_or_summary_rebuild
         ),
     )
 
-    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
@@ -1827,9 +1812,7 @@ def test_run_summary_workflow_uses_cache_hit_without_raw_read_or_summary_rebuild
             AssertionError("prepare_data should not be called on a cache hit")
         ),
     )
-    monkeypatch.setattr(
-        summary_cache,
-        "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError(
                 "build_mode_summaries_with_metadata should not be called on a cache hit"
@@ -1881,7 +1864,7 @@ def test_run_summary_workflow_cache_hit_keeps_existing_prepared_run_by_key(
         ),
     )
 
-    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
@@ -1891,9 +1874,7 @@ def test_run_summary_workflow_cache_hit_keeps_existing_prepared_run_by_key(
             AssertionError("prepare_data should not be called on a summary-cache hit")
         ),
     )
-    monkeypatch.setattr(
-        summary_cache,
-        "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError(
                 "build_mode_summaries_with_metadata should not be called on a summary-cache hit"
@@ -1935,7 +1916,7 @@ def test_run_summary_workflow_rebuilds_and_writes_cache_on_cache_miss(
     prepare_calls: list[str] = []
     summary_build_calls: list[str] = []
 
-    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda run_dir, config, label=None, **kwargs: (
@@ -1947,9 +1928,7 @@ def test_run_summary_workflow_rebuilds_and_writes_cache_on_cache_miss(
             rd,
         )[1],
     )
-    monkeypatch.setattr(
-        summary_cache,
-        "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
         lambda rd, config: (
             summary_build_calls.append(rd.label),
             _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
@@ -2007,7 +1986,7 @@ def test_run_summary_workflow_uses_prepared_cache_before_raw_rebuild(
         run_fingerprint=processor_prepare_fingerprint,
     )
 
-    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda run_dir, config, label=None, **kwargs: (
@@ -2019,9 +1998,7 @@ def test_run_summary_workflow_uses_prepared_cache_before_raw_rebuild(
             rd,
         )[1],
     )
-    monkeypatch.setattr(
-        summary_cache,
-        "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
         lambda rd, config: (
             summary_build_calls.append(rd.label),
             _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
@@ -2055,7 +2032,7 @@ def test_run_summary_workflow_reuses_in_memory_prepared_runs_without_reload(
     prepared_run = _fake_run_data("Run A", str(run_dir))
     summary_build_calls: list[str] = []
 
-    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
@@ -2065,9 +2042,7 @@ def test_run_summary_workflow_reuses_in_memory_prepared_runs_without_reload(
             AssertionError("prepare_data should not be called when prepared runs already exist in memory")
         ),
     )
-    monkeypatch.setattr(
-        summary_cache,
-        "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
         lambda rd, config: (
             summary_build_calls.append(rd.label),
             _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
@@ -2163,17 +2138,17 @@ def test_run_summary_workflow_backfills_only_missing_summary_tables(
         source_run_dir=str(run_dir),
     )
     monkeypatch.setitem(
-        summary_cache.SUMMARY_SPEC_BY_ID,
+        summary_builder.SUMMARY_SPEC_BY_ID,
         "good",
         SummarySpec("good", "good", good_summary),
     )
     monkeypatch.setitem(
-        summary_cache.SUMMARY_SPEC_BY_ID,
+        summary_builder.SUMMARY_SPEC_BY_ID,
         "new",
         SummarySpec("new", "new", new_summary),
     )
-    monkeypatch.setitem(summary_cache.SUMMARY_FILENAME_BY_ID, "good", "good.csv")
-    monkeypatch.setitem(summary_cache.SUMMARY_FILENAME_BY_ID, "new", "new.csv")
+    monkeypatch.setitem(summary_builder.SUMMARY_FILENAME_BY_ID, "good", "good.csv")
+    monkeypatch.setitem(summary_builder.SUMMARY_FILENAME_BY_ID, "new", "new.csv")
     summary_cache.write_summary_run_bundle(
         [cached_only_good],
         config,
@@ -2188,7 +2163,7 @@ def test_run_summary_workflow_backfills_only_missing_summary_tables(
     )
 
     build_calls: list[list[str] | None] = []
-    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["good", "new"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["good", "new"])
 
     def fake_build_mode_summaries_with_metadata(rd, config, summary_ids=None):
         build_calls.append(list(summary_ids) if summary_ids is not None else None)
@@ -2207,9 +2182,7 @@ def test_run_summary_workflow_backfills_only_missing_summary_tables(
             metadata[mode] = mode_metadata
         return tables, metadata
 
-    monkeypatch.setattr(
-        summary_cache,
-        "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
         fake_build_mode_summaries_with_metadata,
     )
     _patch_prepare_pipeline(
@@ -2499,11 +2472,11 @@ def test_run_summary_workflow_continues_when_one_summary_fails(
     def bad_summary(rd: RunData, config: Config) -> pl.DataFrame:
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["good", "bad"])
-    monkeypatch.setitem(summary_cache.SUMMARY_SPEC_BY_ID, "good", SummarySpec("good", "good", good_summary))
-    monkeypatch.setitem(summary_cache.SUMMARY_SPEC_BY_ID, "bad", SummarySpec("bad", "bad", bad_summary))
-    monkeypatch.setitem(summary_cache.SUMMARY_FILENAME_BY_ID, "good", "good.csv")
-    monkeypatch.setitem(summary_cache.SUMMARY_FILENAME_BY_ID, "bad", "bad.csv")
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["good", "bad"])
+    monkeypatch.setitem(summary_builder.SUMMARY_SPEC_BY_ID, "good", SummarySpec("good", "good", good_summary))
+    monkeypatch.setitem(summary_builder.SUMMARY_SPEC_BY_ID, "bad", SummarySpec("bad", "bad", bad_summary))
+    monkeypatch.setitem(summary_builder.SUMMARY_FILENAME_BY_ID, "good", "good.csv")
+    monkeypatch.setitem(summary_builder.SUMMARY_FILENAME_BY_ID, "bad", "bad.csv")
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda run_dir, config, label=None, **kwargs: _fake_run_data(

@@ -19,7 +19,7 @@ from dashboard.page_definitions import (
     PreparedDataMode,
 )
 from processor.models import PREPARED_TABLE_NAMES, PreparedTableName, RunData
-from processor.summarize.cache import SUMMARY_SPEC_BY_ID
+from processor.summarize.builder import SUMMARY_SPEC_BY_ID
 from runtime.config import Config
 from runtime.config.models import DashboardPageConfigEntry
 

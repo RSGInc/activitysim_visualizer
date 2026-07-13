@@ -13,7 +13,7 @@ import numpy as np
 
 from dashboard.export.serializer import sanitize_export_payload, serialize_viewable, variant_key
 from dashboard.pages.tour_summaries.tour_mode import (
-    _auto_sufficiency_definitions_markdown,
+    auto_sufficiency_definitions_markdown,
 )
 from runtime.config import Config
 
@@ -179,11 +179,10 @@ def test_serialize_viewable_preserves_configured_auto_sufficiency_basis_text(
         "\n".join(
             [
                 'name: "Export Serializer Test"',
+                "root: summary_cache",
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
-                "visualizer:",
-                '  dashboard_title: "Export Serializer Test"',
+                "dashboard:",
+                '  title: "Export Serializer Test"',
                 "prepare:",
                 "  auto_sufficiency_basis: adults",
             ]
@@ -193,7 +192,7 @@ def test_serialize_viewable_preserves_configured_auto_sufficiency_basis_text(
     config = Config.from_yaml(config_path)
 
     markdown_payload = serialize_viewable(
-        pn.pane.Markdown(_auto_sufficiency_definitions_markdown(config)),
+        pn.pane.Markdown(auto_sufficiency_definitions_markdown(config)),
         disable_widgets=True,
     )
 

@@ -17,7 +17,7 @@ A summary builder is a pure data step:
 - input: prepared `RunData` plus normalized `Config`
 - output: one Polars `DataFrame`
 
-The builder should not know whether the dashboard is in live mode or export mode. It should also not special-case weighted vs unweighted logic; the cache layer handles that by swapping `finalweight`.
+The builder should not know whether the dashboard is in live mode or export mode. It should also not special-case weighted vs unweighted logic; `processor.summarize.builder` handles that by swapping `finalweight` before invoking the registered builder.
 
 Each registered builder should also own its summary contract through `processor/summarize/contracts.py`. That contract is the single source of truth for:
 
