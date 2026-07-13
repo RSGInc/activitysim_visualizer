@@ -23,8 +23,7 @@ from dashboard.helpers.distance_range import (
     with_distance_axis,
 )
 from dashboard.helpers.time_distance_helpers import distance_sort_expr
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
 
 DIRECTION_COL = "direction"
 DISTANCE_BINS = [str(i) for i in range(40)] + ["40+"]
@@ -318,6 +317,13 @@ def stop_count_category_values(
     )
 
 
+@dashboard_page(
+    page_id="escorted_tours",
+    title="Escorted Tours",
+    group_id="daily_travel",
+    order=29,
+    required_summary_ids=(*PAGE_SUMMARY_IDS,),
+)
 class EscortedToursPage(DashboardPage):
     """Render school escorting and adult chauffeur escorting summaries."""
 
@@ -887,13 +893,3 @@ class EscortedToursPage(DashboardPage):
             xaxis_tickvals=tickvals,
             xaxis_ticktext=ticktext,
         )
-
-
-PAGE = DashboardPageDefinition(
-    page_id="escorted_tours",
-    title="Escorted Tours",
-    group_id="daily_travel",
-    order=29,
-    page_cls=EscortedToursPage,
-    required_summary_ids=(*PAGE_SUMMARY_IDS,),
-)

@@ -37,20 +37,19 @@ def _write_cli_config(
 ) -> Config:
     lines = [
         'name: "CLI Test Config"',
-        "processor:",
-        "  root: summary_cache",
-        "  summaries:",
-        "    weighting_modes:",
-        "      - weighted",
-        "      - unweighted",
-        "visualizer:",
-        '  dashboard_title: "CLI Test Dashboard"',
+        "root: summary_cache",
+        "summarize:",
+        "  weighting_modes:",
+        "    - weighted",
+        "    - unweighted",
+        "dashboard:",
+        '  title: "CLI Test Dashboard"',
     ]
     if dashboard_pages is not None:
-        lines.append("  dashboard_pages:")
-        lines.extend(f"    - {page_id}" for page_id in dashboard_pages)
+        lines.extend(["  live:", "    pages:"])
+        lines.extend(f"      - {page_id}" for page_id in dashboard_pages)
     if export_html_lines:
-        lines.append("  export_html:")
+        lines.append("  export:")
         lines.extend(f"    {line}" for line in export_html_lines)
     lines.extend(
         [
@@ -679,8 +678,7 @@ def test_main_dashboard_only_respects_pipeline_without_segment_when_loading_summ
             "pipeline:",
             "  steps:",
             "    - dashboard",
-            "segmentation:",
-            "  enabled: true",
+            "segment:",
             "  dashboard:",
             "    segmentation_type: county",
             "    visibility: segments_only",
@@ -1788,10 +1786,11 @@ def test_main_dashboard_only_exits_with_friendly_message_for_stale_summary_cache
         "summarize:",
         "  weighting_modes:",
         "    - weighted",
-        "dashboard:",
-        "  title: \"CLI Test Dashboard\"",
-        "  pages:",
-        "    - overview",
+            "dashboard:",
+            "  title: \"CLI Test Dashboard\"",
+            "  live:",
+            "    pages:",
+            "      - overview",
         "runs:",
         f"  - dir: \"{str(run_dir).replace('\\', '/')}\"",
         "    label: \"Run A\"",

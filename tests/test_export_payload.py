@@ -170,8 +170,7 @@ def test_build_export_payload_defaults_to_live_segmentation_filter() -> None:
             "    daily_activity_pattern: {}",
         ],
         extra_lines=[
-            "segmentation:",
-            "  enabled: true",
+            "segment:",
             "  dashboard:",
             "    segmentation_type: signup_platform",
             "    visibility: segments_only",
@@ -224,8 +223,7 @@ def test_build_export_payload_honors_export_segmentation_overrides() -> None:
             "    daily_activity_pattern: {}",
         ],
         extra_lines=[
-            "segmentation:",
-            "  enabled: true",
+            "segment:",
             "  dashboard:",
             "    segmentation_type: signup_platform",
             "    visibility: segments_only",
@@ -278,8 +276,7 @@ def test_build_export_payload_supports_export_full_only_segmentation() -> None:
             "    daily_activity_pattern: {}",
         ],
         extra_lines=[
-            "segmentation:",
-            "  enabled: true",
+            "segment:",
             "  dashboard:",
             "    segmentation_type: signup_platform",
             "    visibility: full_and_segments",
@@ -317,8 +314,7 @@ def test_export_build_context_does_not_change_live_segmentation_defaults() -> No
             "  segmentation_visibility: full_only",
         ],
         extra_lines=[
-            "segmentation:",
-            "  enabled: true",
+            "segment:",
             "  dashboard:",
             "    segmentation_type: signup_platform",
             "    visibility: segments_only",

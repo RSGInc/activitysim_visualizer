@@ -326,7 +326,7 @@ def page_definition_for_page(page: Any) -> DashboardPageDefinition:
     if isinstance(page_def, DashboardPageDefinition):
         return page_def
     raise ValueError(
-        f"Dashboard page {type(page).__name__} is missing its registered PAGE definition."
+        f"Dashboard page {type(page).__name__} is missing its @dashboard_page definition."
     )
 
 

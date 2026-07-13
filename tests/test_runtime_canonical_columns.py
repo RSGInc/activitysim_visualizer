@@ -27,7 +27,7 @@ def _write_config(
     tmp_path: Path,
     *,
     column_lines: list[str] | None = None,
-    visualizer_lines: list[str] | None = None,
+    display_lines: list[str] | None = None,
     extra_lines: list[str] | None = None,
 ) -> Config:
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -35,13 +35,13 @@ def _write_config(
     lines = [
         'name: "Canonical Test Config"',
         "runs: []",
-        "summaries:",
-        "  root: summary_cache",
-        "visualizer:",
-        '  dashboard_title: "Canonical Test Dashboard"',
+        "root: summary_cache",
+        "dashboard:",
+        '  title: "Canonical Test Dashboard"',
     ]
-    if visualizer_lines:
-        lines.extend(f"  {line}" for line in visualizer_lines)
+    if display_lines:
+        lines.append("display:")
+        lines.extend(f"  {line}" for line in display_lines)
     if column_lines:
         lines.append("columns:")
         lines.extend(f"  {line}" for line in column_lines)
@@ -348,11 +348,11 @@ def test_config_rejects_empty_pnr_tour_mode_list(tmp_path: Path) -> None:
         )
 
 
-def test_config_still_supports_legacy_modes_pnr_tour_modes(tmp_path: Path) -> None:
+def test_config_parses_pnr_tour_modes_from_summarize(tmp_path: Path) -> None:
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "modes:",
+            "summarize:",
             "  pnr_tour_modes: [PNR_LOCAL, PNR_PREMIUM]",
         ],
     )
@@ -372,9 +372,10 @@ def test_tour_purpose_grouping_flags_parse_explicit_booleans(tmp_path: Path) -> 
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "group_joint_tour_purposes: true",
-            "group_atwork_tour_purposes: false",
-            "group_school_tour_purposes: true",
+            "summarize:",
+            "  group_joint_tour_purposes: true",
+            "  group_atwork_tour_purposes: false",
+            "  group_school_tour_purposes: true",
         ],
     )
 
@@ -387,9 +388,10 @@ def test_tour_purpose_grouping_flags_allow_explicit_false_overrides(tmp_path: Pa
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "group_joint_tour_purposes: false",
-            "group_atwork_tour_purposes: false",
-            "group_school_tour_purposes: false",
+            "summarize:",
+            "  group_joint_tour_purposes: false",
+            "  group_atwork_tour_purposes: false",
+            "  group_school_tour_purposes: false",
         ],
     )
 
@@ -419,7 +421,10 @@ def test_tour_purpose_grouping_flags_reject_invalid_values(tmp_path: Path) -> No
         ValueError,
         match="group_joint_tour_purposes must be true or false",
     ):
-        _write_config(tmp_path, extra_lines=["group_joint_tour_purposes: maybe"])
+        _write_config(
+            tmp_path,
+            extra_lines=["summarize:", "  group_joint_tour_purposes: maybe"],
+        )
 
     with pytest.raises(
         ValueError,
@@ -449,27 +454,34 @@ def test_config_summary_signature_changes_when_alias_lists_change(
     assert config_a.summary_config_digest != config_b.summary_config_digest
 
 
-def test_config_summary_signature_changes_when_transit_subsidy_labels_change(
+def test_config_summary_signature_tracks_materialized_transit_subsidy_labels(
     tmp_path: Path,
 ) -> None:
     config_a = _write_config(
         tmp_path / "a",
         extra_lines=[
-            "transit_subsidies:",
-            "  0: No Subsidy",
-            "  1: Employer Paid",
+            "display:",
+            "  labels:",
+            "    transit_subsidy:",
+            "      mapping:",
+            "        0: No Subsidy",
+            "        1: Employer Paid",
         ],
     )
     config_b = _write_config(
         tmp_path / "b",
         extra_lines=[
-            "transit_subsidies:",
-            "  0: No Subsidy",
-            "  1: Universal Pass",
+            "display:",
+            "  labels:",
+            "    transit_subsidy:",
+            "      mapping:",
+            "        0: No Subsidy",
+            "        1: Universal Pass",
         ],
     )
 
     assert config_a.summary_config_digest != config_b.summary_config_digest
+    assert config_a.presentation_config_digest != config_b.presentation_config_digest
 
 
 def test_config_categories_preserve_mapping_order_and_fallback_order(
@@ -478,16 +490,17 @@ def test_config_categories_preserve_mapping_order_and_fallback_order(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "categories:",
-            "  mode:",
-            "    mapping:",
-            "      WALK: Walk",
-            "      DRIVEALONE: Drive Alone",
-            "    order: descending",
+            "display:",
+            "  labels:",
+            "    mode:",
+            "      mapping:",
+            "        WALK: Walk",
+            "        DRIVEALONE: Drive Alone",
+            "      order: descending",
         ],
     )
 
-    spec = config.category_spec("mode")
+    spec = config.dashboard_label_spec("mode")
     assert spec is not None
     assert list(spec.mapping_items) == [
         ("WALK", "Walk"),
@@ -502,13 +515,14 @@ def test_category_specs_apply_ascending_descending_and_data_fallbacks(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "categories:",
-            "  alpha:",
-            "    order: ascending",
-            "  omega:",
-            "    order: descending",
-            "  seen:",
-            "    order: data",
+            "display:",
+            "  labels:",
+            "    alpha:",
+            "      order: ascending",
+            "    omega:",
+            "      order: descending",
+            "    seen:",
+            "      order: data",
         ],
     )
 
@@ -522,52 +536,6 @@ def test_category_specs_apply_ascending_descending_and_data_fallbacks(
     ]
 
 
-def test_categories_override_legacy_label_and_order_settings(
-    tmp_path: Path,
-) -> None:
-    config = _write_config(
-        tmp_path,
-        extra_lines=[
-            "person_types:",
-            "  1: Worker Legacy",
-            "transit_subsidies:",
-            "  1: Subsidy Legacy",
-            "geography:",
-            "  enabled: true",
-            "  landuse_col: COUNTY",
-            "  mapping:",
-            "    1: Legacy County",
-            "modes:",
-            "  order:",
-            "    - LEGACY_MODE",
-            "categories:",
-            "  person_type:",
-            "    mapping:",
-            "      1: Worker New",
-            "  transit_subsidy:",
-            "    mapping:",
-            "      1: Subsidy New",
-            "  geography:",
-            "    mapping:",
-            "      1: New County",
-            "  mode:",
-            "    mapping:",
-            "      NEW_MODE: New Mode",
-        ],
-    )
-
-    assert config.person_type_label("1") == "Worker New"
-    assert config.transit_subsidy_label("1") == "Subsidy New"
-    assert config.apply_geo_mapping(pl.Series(["1", "9"])).to_list() == [
-        "New County",
-        "9",
-    ]
-    assert config.ordered_modes(["LEGACY_MODE", "NEW_MODE", "OTHER"]) == [
-        "NEW_MODE",
-        "LEGACY_MODE",
-        "OTHER",
-    ]
-
 
 def test_geography_aggregations_support_inline_and_file_mappings(
     tmp_path: Path,
@@ -580,19 +548,20 @@ def test_geography_aggregations_support_inline_and_file_mappings(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        Urban: [10]",
-            "        Rural: [20]",
-            "    district:",
-            "      source_zone_system: maz",
-            f"      file: {geography_csv.name}",
-            "      zone_id_col: MAZ",
-            "      geography_col: district",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          Urban: [10]",
+            "          Rural: [20]",
+            "      district:",
+            "        source_zone_system: maz",
+            f"        file: {geography_csv.name}",
+            "        zone_id_col: MAZ",
+            "        geography_col: district",
         ],
     )
 
@@ -613,25 +582,27 @@ def test_geography_aggregation_digest_changes_when_lookup_changes(
     config_a = _write_config(
         tmp_path / "a",
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        Urban: [10]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          Urban: [10]",
         ],
     )
     config_b = _write_config(
         tmp_path / "b",
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        Rural: [10]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          Rural: [10]",
         ],
     )
 
@@ -645,25 +616,27 @@ def test_disabled_geography_aggregations_are_ignored_and_do_not_change_digests(
     config_a = _write_config(
         tmp_path / "a",
         extra_lines=[
-            "geography:",
-            "  enabled: false",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        Urban: [10]",
+            "summarize:",
+            "  geography:",
+            "    enabled: false",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          Urban: [10]",
         ],
     )
     config_b = _write_config(
         tmp_path / "b",
         extra_lines=[
-            "geography:",
-            "  enabled: false",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        Rural: [10]",
+            "summarize:",
+            "  geography:",
+            "    enabled: false",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          Rural: [10]",
         ],
     )
 
@@ -686,10 +659,9 @@ def test_enable_maz_geographies_defaults_off_and_only_changes_presentation_diges
             [
                 'name: "Canonical Test Config"',
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
-                "visualizer:",
-                '  dashboard_title: "Canonical Test Dashboard"',
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Canonical Test Dashboard"',
                 "  enable_maz_geographies: true",
             ]
         ),
@@ -796,21 +768,23 @@ def test_dashboard_labels_only_change_presentation_digest(
     config_a = _write_config(
         tmp_path / "a",
         extra_lines=[
-            "dashboard_labels:",
-            "  mode:",
-            "    mapping:",
-            "      WALK: Walk",
-            "      DRIVEALONE: Drive Alone",
+            "display:",
+            "  labels:",
+            "    mode:",
+            "      mapping:",
+            "        WALK: Walk",
+            "        DRIVEALONE: Drive Alone",
         ],
     )
     config_b = _write_config(
         tmp_path / "b",
         extra_lines=[
-            "dashboard_labels:",
-            "  mode:",
-            "    mapping:",
-            "      WALK: Walk Trips",
-            "      DRIVEALONE: Solo Drive",
+            "display:",
+            "  labels:",
+            "    mode:",
+            "      mapping:",
+            "        WALK: Walk Trips",
+            "        DRIVEALONE: Solo Drive",
         ],
     )
 
@@ -848,58 +822,7 @@ def test_summary_categories_change_summary_digest_without_changing_presentation_
     assert config_a.presentation_config_digest == config_b.presentation_config_digest
 
 
-def test_summarize_category_normalization_overrides_legacy_summary_categories(
-    tmp_path: Path,
-) -> None:
-    config = _write_config(
-        tmp_path,
-        extra_lines=[
-            "summary_categories:",
-            "  geography:",
-            "    mapping:",
-            "      1: Legacy",
-            "summarize:",
-            "  category_normalization:",
-            "    geography:",
-            "      mapping:",
-            "        1: Canonical",
-        ],
-    )
 
-    assert config.normalize_summary_value("geography", 1) == "Canonical"
-
-
-def test_legacy_summary_categories_remain_supported(
-    tmp_path: Path,
-) -> None:
-    config = _write_config(
-        tmp_path,
-        extra_lines=[
-            "summary_categories:",
-            "  geography:",
-            "    mapping:",
-            "      1: Legacy",
-        ],
-    )
-
-    assert config.normalize_summary_value("geography", 1) == "Legacy"
-
-
-def test_summarize_summary_categories_alias_remains_supported(
-    tmp_path: Path,
-) -> None:
-    config = _write_config(
-        tmp_path,
-        extra_lines=[
-            "summarize:",
-            "  summary_categories:",
-            "    geography:",
-            "      mapping:",
-            "        1: Section Alias",
-        ],
-    )
-
-    assert config.normalize_summary_value("geography", 1) == "Section Alias"
 
 
 def test_typed_geography_summaries_include_configured_aggregation_levels(
@@ -908,14 +831,15 @@ def test_typed_geography_summaries_include_configured_aggregation_levels(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        Urban: [10]",
-            "        Rural: [20, 30]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          Urban: [10]",
+            "          Rural: [20, 30]",
         ],
     )
 
@@ -968,7 +892,7 @@ def test_config_summary_signature_changes_when_tour_purpose_grouping_changes(
     config_a = _write_config(tmp_path / "a")
     config_b = _write_config(
         tmp_path / "b",
-        extra_lines=["group_joint_tour_purposes: false"],
+        extra_lines=["summarize:", "  group_joint_tour_purposes: false"],
     )
 
     assert config_a.summary_config_digest != config_b.summary_config_digest
@@ -1159,10 +1083,9 @@ def test_config_rejects_missing_prepare_time_period_network_los(
             [
                 'name: "Canonical Test Config"',
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
-                "visualizer:",
-                '  dashboard_title: "Canonical Test Dashboard"',
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Canonical Test Dashboard"',
                 "prepare:",
                 "  time_periods:",
                 "    network_los_file: missing_network_los.yaml",
@@ -1194,10 +1117,9 @@ def test_config_rejects_renamed_hypothetical_sidecar_key(tmp_path: Path) -> None
             [
                 'name: "Canonical Test Config"',
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
-                "visualizer:",
-                '  dashboard_title: "Canonical Test Dashboard"',
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Canonical Test Dashboard"',
                 "skimjoin:",
                 "  generate_hypothetical_sidecars: true",
             ]
@@ -1218,7 +1140,7 @@ def test_config_presentation_signature_changes_when_log_level_changes(
     config_a = _write_config(tmp_path / "a")
     config_b = _write_config(
         tmp_path / "b",
-        visualizer_lines=[
+        extra_lines=[
             "log_level: warning",
         ],
     )
@@ -1234,9 +1156,10 @@ def test_config_presentation_signature_changes_when_export_output_path_changes(
     config_a = _write_config(tmp_path / "a")
     config_b = _write_config(
         tmp_path / "b",
-        visualizer_lines=[
-            "export_html:",
-            "  output_path: exports/dashboard.html",
+        extra_lines=[
+            "dashboard:",
+            "  export:",
+            "    output_path: exports/dashboard.html",
         ],
     )
 
@@ -1273,10 +1196,9 @@ def test_config_rejects_invalid_auto_sufficiency_basis(tmp_path: Path) -> None:
             [
                 'name: "Canonical Test Config"',
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
-                "visualizer:",
-                '  dashboard_title: "Canonical Test Dashboard"',
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Canonical Test Dashboard"',
                 "prepare:",
                 "  auto_sufficiency_basis: bicycles",
             ]
@@ -1288,7 +1210,7 @@ def test_config_rejects_invalid_auto_sufficiency_basis(tmp_path: Path) -> None:
         Config.from_yaml(config_path)
 
 
-def test_config_rejects_invalid_visualizer_log_level(tmp_path: Path) -> None:
+def test_config_rejects_invalid_log_level(tmp_path: Path) -> None:
     tmp_path.mkdir(parents=True, exist_ok=True)
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
@@ -1296,17 +1218,16 @@ def test_config_rejects_invalid_visualizer_log_level(tmp_path: Path) -> None:
             [
                 'name: "Canonical Test Config"',
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
-                "visualizer:",
-                '  dashboard_title: "Canonical Test Dashboard"',
-                "  log_level: verbose",
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Canonical Test Dashboard"',
+                "log_level: verbose",
             ]
         ),
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="visualizer.log_level"):
+    with pytest.raises(ValueError, match="log_level"):
         Config.from_yaml(config_path)
 
 
@@ -1316,13 +1237,17 @@ def test_transit_subsidy_summary_uses_raw_categories_and_label_overrides(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "person_types:",
-            "  1: Full-time worker",
-            "  3: University student",
-            "transit_subsidies:",
-            "  0: No Subsidy",
-            "  1: Employer Paid",
-            "  2: Student Discount",
+            "display:",
+            "  labels:",
+            "    person_type:",
+            "      mapping:",
+            "        1: Full-time worker",
+            "        3: University student",
+            "    transit_subsidy:",
+            "      mapping:",
+            "        0: No Subsidy",
+            "        1: Employer Paid",
+            "        2: Student Discount",
         ],
     )
     run = RunData(
@@ -1487,9 +1412,10 @@ def test_tour_purpose_grouping_preserves_current_behavior_when_disabled(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "group_joint_tour_purposes: false",
-            "group_atwork_tour_purposes: false",
-            "group_school_tour_purposes: false",
+            "summarize:",
+            "  group_joint_tour_purposes: false",
+            "  group_atwork_tour_purposes: false",
+            "  group_school_tour_purposes: false",
         ],
     )
     prepared = _prepared_run_with_groupable_tour_purposes()
@@ -1617,9 +1543,10 @@ def test_atwork_grouping_does_not_relabel_parent_mandatory_work_tours(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "group_joint_tour_purposes: true",
-            "group_atwork_tour_purposes: true",
-            "group_school_tour_purposes: false",
+            "summarize:",
+            "  group_joint_tour_purposes: true",
+            "  group_atwork_tour_purposes: true",
+            "  group_school_tour_purposes: false",
         ],
     )
     tours = pl.DataFrame(

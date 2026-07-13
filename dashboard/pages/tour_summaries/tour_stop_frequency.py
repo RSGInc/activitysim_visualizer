@@ -13,8 +13,7 @@ from dashboard.helpers.category_helpers import (
     nonempty,
     numeric_like_sort_expr,
 )
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
 
 STOP_FREQUENCY_VALUES = {
     "Both": ["0", "1", "2", "3", "4", "5", "6+"],
@@ -68,6 +67,16 @@ def stop_frequency_chart_data(
     return out
 
 
+@dashboard_page(
+    page_id="tour_stop_frequency",
+    title="Tour Stop Frequency",
+    group_id="tour_summaries",
+    order=45,
+    required_summary_ids=(
+        "tour_stop_frequency_by_tour_purpose",
+        "atwork_subtour_frequency_distribution",
+    ),
+)
 class TourStopFrequencyPage(DashboardPage):
     TOTAL_PURPOSE_LABEL = "All Tour Purposes"
 
@@ -247,16 +256,3 @@ class TourStopFrequencyPage(DashboardPage):
             pn.pane.Markdown("### At-Work Sub-Tour Frequency"),
             self.render_atwork_chart(atwork_list),
         ]
-
-
-PAGE = DashboardPageDefinition(
-    page_id="tour_stop_frequency",
-    title="Tour Stop Frequency",
-    group_id="tour_summaries",
-    order=45,
-    page_cls=TourStopFrequencyPage,
-    required_summary_ids=(
-        "tour_stop_frequency_by_tour_purpose",
-        "atwork_subtour_frequency_distribution",
-    ),
-)

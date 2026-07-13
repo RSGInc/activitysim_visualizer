@@ -27,11 +27,11 @@ def _write_config(tmp_path: Path) -> Config:
             [
                 'name: "Derived Validation Test"',
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
+                "root: summary_cache",
+                "summarize:",
                 "  weighting_modes: [weighted, unweighted]",
-                "visualizer:",
-                '  dashboard_title: "Derived Validation Test"',
+                "dashboard:",
+                '  title: "Derived Validation Test"',
             ]
         ),
         encoding="utf-8",

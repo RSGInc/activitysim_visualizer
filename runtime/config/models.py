@@ -419,8 +419,6 @@ class Config:
     col_inb_chauffeur_tour_id: list[str]
     summary_categories: dict[str, CategorySpec]
     dashboard_labels: dict[str, CategorySpec]
-    person_type_labels: Optional[dict[str, str]]
-    transit_subsidy_labels: Optional[dict[str, str]]
     group_joint_tour_purposes: bool
     group_atwork_tour_purposes: bool
     group_school_tour_purposes: bool
@@ -435,7 +433,6 @@ class Config:
     segmentation: SegmentationSettings
     skim_file: Optional[str]
     skim_matrix: str
-    mode_order: Optional[list[str]]
     mode_groups: Optional[dict[str, list[str]]]
     pnr_tour_modes: list[str]
     runs: list[dict]
@@ -468,20 +465,11 @@ class Config:
         """Return whether the active pipeline includes integrated skimjoin."""
         return self.pipeline.has_step("skimjoin")
 
-    @property
-    def categories(self) -> dict[str, CategorySpec]:
-        """Compatibility alias for pre-split display-oriented category lookups."""
-        return self.dashboard_labels
-
     def summary_category_spec(self, category_id: str) -> CategorySpec | None:
         return self.summary_categories.get(str(category_id))
 
     def dashboard_label_spec(self, category_id: str) -> CategorySpec | None:
         return self.dashboard_labels.get(str(category_id))
-
-    def category_spec(self, category_id: str) -> CategorySpec | None:
-        """Compatibility shim for existing display-oriented call sites."""
-        return self.dashboard_label_spec(category_id)
 
     def normalize_escort_value(self, raw_value) -> str:
         from .normalize_categories import escort_normalization_key

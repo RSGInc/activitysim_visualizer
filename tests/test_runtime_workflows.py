@@ -42,29 +42,29 @@ def _write_config(
     runs: list[dict],
     dashboard_pages: list[str] | None = None,
     export_html_lines: list[str] | None = None,
-    visualizer_lines: list[str] | None = None,
+    display_lines: list[str] | None = None,
     extra_lines: list[str] | None = None,
 ) -> Config:
     tmp_path.mkdir(parents=True, exist_ok=True)
     config_path = tmp_path / "config.yaml"
     lines = [
         'name: "Workflow Test Config"',
-        "processor:",
-        "  root: summary_cache",
-        "  summaries:",
-        "    weighting_modes:",
-        "      - weighted",
-        "      - unweighted",
-        "visualizer:",
-        '  dashboard_title: "Workflow Test Dashboard"',
+        "root: summary_cache",
+        "summarize:",
+        "  weighting_modes:",
+        "    - weighted",
+        "    - unweighted",
+        "dashboard:",
+        '  title: "Workflow Test Dashboard"',
     ]
-    if visualizer_lines:
-        lines.extend(f"  {line}" for line in visualizer_lines)
+    if display_lines:
+        lines.append("display:")
+        lines.extend(f"  {line}" for line in display_lines)
     if dashboard_pages is not None:
-        lines.append("  dashboard_pages:")
-        lines.extend(f"    - {page_id}" for page_id in dashboard_pages)
+        lines.extend(["  live:", "    pages:"])
+        lines.extend(f"      - {page_id}" for page_id in dashboard_pages)
     if export_html_lines:
-        lines.append("  export_html:")
+        lines.append("  export:")
         lines.extend(f"    {line}" for line in export_html_lines)
     lines.append("runs:")
     for run_entry in runs:
@@ -1314,8 +1314,7 @@ def test_run_summary_workflow_without_segment_step_builds_only_full_summary_runs
         tmp_path,
         runs=[{"dir": str(run_dir), "label": "Run A"}],
         extra_lines=[
-            "segmentation:",
-            "  enabled: true",
+            "segment:",
             "  dashboard:",
             "    segmentation_type: market",
             "  definitions:",
@@ -1371,8 +1370,9 @@ def test_run_summary_workflow_with_segment_step_builds_full_and_segmented_summar
         tmp_path,
         runs=[{"dir": str(run_dir), "label": "Run A"}],
         extra_lines=[
-            "segmentation:",
-            "  enabled: true",
+            "pipeline:",
+            "  steps: [segment, summarize, dashboard]",
+            "segment:",
             "  dashboard:",
             "    segmentation_type: market",
             "  definitions:",
@@ -2263,7 +2263,7 @@ def test_run_cli_uses_configured_terminal_log_level(tmp_path: Path) -> None:
     config = _write_config(
         tmp_path,
         runs=[],
-        visualizer_lines=[
+        extra_lines=[
             "log_level: error",
         ],
     )

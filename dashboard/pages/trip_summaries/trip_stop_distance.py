@@ -19,8 +19,7 @@ from dashboard.helpers.distance_range import (
     with_distance_axis,
 )
 from dashboard.helpers.time_distance_helpers import distance_sort_expr
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
 
 
 def distance_chart_data(
@@ -58,6 +57,16 @@ def distance_chart_data(
     return out
 
 
+@dashboard_page(
+    page_id="trip_stop_distance",
+    title="Trip and Stop Distance",
+    group_id="trip_summaries",
+    order=50,
+    required_summary_ids=(
+        "trip_distance_by_purpose",
+        "stop_out_of_direction_distance_by_tour_purpose",
+    ),
+)
 class TripStopDistancePage(DashboardPage):
     TOTAL_PURPOSE_LABEL = "All Tour Purposes"
 
@@ -257,16 +266,3 @@ class TripStopDistancePage(DashboardPage):
                 x_range=x_range,
             ),
         ]
-
-
-PAGE = DashboardPageDefinition(
-    page_id="trip_stop_distance",
-    title="Trip and Stop Distance",
-    group_id="trip_summaries",
-    order=50,
-    page_cls=TripStopDistancePage,
-    required_summary_ids=(
-        "trip_distance_by_purpose",
-        "stop_out_of_direction_distance_by_tour_purpose",
-    ),
-)

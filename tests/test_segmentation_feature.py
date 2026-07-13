@@ -26,10 +26,11 @@ def _write_config(tmp_path: Path, extra_lines: list[str]) -> Config:
         "\n".join(
             [
                 'name: "Segmentation Test"',
-                "processor:",
-                "  root: summary_cache",
-                "visualizer:",
-                '  dashboard_title: "Segmentation Dashboard"',
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Segmentation Dashboard"',
+                "pipeline:",
+                "  steps: [segment, summarize, dashboard]",
                 "runs: []",
                 *extra_lines,
             ]
@@ -120,8 +121,7 @@ def test_config_parses_multiple_segmentation_definitions(tmp_path: Path) -> None
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "segmentation:",
-            "  enabled: true",
+            "segment:",
             "  dashboard:",
             "    segmentation_type: county",
             "    visibility: segments_only",
@@ -164,8 +164,7 @@ def test_config_accepts_canonical_and_legacy_segmentation_source_tables(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "segmentation:",
-            "  enabled: true",
+            "segment:",
             "  definitions:",
             "    households:",
             "      source:",
@@ -255,9 +254,8 @@ def test_config_requires_dashboard_segmentation_type_to_exist(tmp_path: Path) ->
         _write_config(
             tmp_path,
             extra_lines=[
-                "segmentation:",
-                "  enabled: true",
-                "  dashboard:",
+                "segment:",
+                    "  dashboard:",
                 "    segmentation_type: county",
                 "  definitions:",
                 "    vot:",
@@ -277,8 +275,7 @@ def test_summary_digest_changes_for_definition_but_not_dashboard_selection(
     tmp_path: Path,
 ) -> None:
     base_lines = [
-        "segmentation:",
-        "  enabled: true",
+        "segment:",
         "  dashboard:",
         "    segmentation_type: county",
         "    visibility: full_and_segments",
@@ -306,10 +303,10 @@ def test_summary_digest_changes_for_definition_but_not_dashboard_selection(
     config_b = _write_config(
         tmp_path / "b",
         extra_lines=[
-            *base_lines[:4],
+            *base_lines[:2],
             "    segmentation_type: vot",
             "    visibility: segments_only",
-            *base_lines[5:],
+            *base_lines[4:],
         ],
     )
     config_c = _write_config(
@@ -336,8 +333,7 @@ def test_build_analysis_units_supports_multiple_segmentation_types(tmp_path: Pat
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "segmentation:",
-            "  enabled: true",
+            "segment:",
             "  dashboard:",
             "    segmentation_type: county",
             "  definitions:",
@@ -400,8 +396,7 @@ def test_build_analysis_units_supports_land_use_anchor_in_multi_type_config(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "segmentation:",
-            "  enabled: true",
+            "segment:",
             "  dashboard:",
             "    segmentation_type: county",
             "  definitions:",
@@ -435,8 +430,7 @@ def test_build_analysis_units_supports_vehicle_anchor(tmp_path: Path) -> None:
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "segmentation:",
-            "  enabled: true",
+            "segment:",
             "  definitions:",
             "    fuel:",
             "      source:",
@@ -473,8 +467,7 @@ def test_build_analysis_units_supports_day_anchor(tmp_path: Path) -> None:
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "segmentation:",
-            "  enabled: true",
+            "segment:",
             "  definitions:",
             "    day_segment:",
             "      source:",
@@ -513,8 +506,7 @@ def test_build_analysis_units_supports_joint_participants_anchor(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "segmentation:",
-            "  enabled: true",
+            "segment:",
             "  definitions:",
             "    joint_role:",
             "      source:",
@@ -553,8 +545,7 @@ def test_csv_lookup_segmentation_supports_vehicle_anchor(tmp_path: Path) -> None
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "segmentation:",
-            "  enabled: true",
+            "segment:",
             "  definitions:",
             "    vehicle_segment:",
             "      source:",
@@ -612,9 +603,8 @@ def test_new_segmentation_anchors_require_relationship_keys(tmp_path: Path) -> N
         config = _write_config(
             tmp_path / config_table,
             extra_lines=[
-                "segmentation:",
-                "  enabled: true",
-                "  definitions:",
+                "segment:",
+                    "  definitions:",
                 "    broken:",
                 "      source:",
                 "        type: prepared_column",
@@ -646,9 +636,8 @@ def test_csv_lookup_segmentation_rejects_one_to_many_membership(tmp_path: Path) 
         _write_config(
             tmp_path,
             extra_lines=[
-                "segmentation:",
-                "  enabled: true",
-                "  dashboard:",
+                "segment:",
+                    "  dashboard:",
                 "    segmentation_type: county",
                 "  definitions:",
                 "    county:",
@@ -774,8 +763,7 @@ def test_summary_cache_round_trip_persists_multiple_segmentation_types(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "segmentation:",
-            "  enabled: true",
+            "segment:",
             "  dashboard:",
             "    segmentation_type: county",
             "  definitions:",

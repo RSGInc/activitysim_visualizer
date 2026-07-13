@@ -18,8 +18,8 @@ from dashboard.helpers.geography_helpers import (
     normalize_geography_data,
     with_display_geography_columns,
 )
-from dashboard.page_base import DashboardPage, SectionContent
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
+from dashboard.page_base import SectionContent
 
 
 def filter_student_type(
@@ -99,6 +99,18 @@ def filter_student_type(
     return out
 
 
+@dashboard_page(
+    page_id="shadow_pricing",
+    title="Employment\\Enrollment Match By Geography",
+    group_id="long_term_choices",
+    order=28,
+    required_summary_ids=(
+        "workplace_shadow_pricing_residuals",
+        "workplace_shadow_pricing_residual_histogram",
+        "school_shadow_pricing_residuals",
+        "school_shadow_pricing_residual_histogram",
+    ),
+)
 class ShadowPricingPage(DashboardPage):
     """Render workplace and school shadow-pricing residual diagnostics."""
 
@@ -126,23 +138,15 @@ class ShadowPricingPage(DashboardPage):
         self._geo_level_raw_by_label: dict[str, str | None] = {
             ALL_GEOGRAPHY_TYPES_LABEL: "all_geographies"
         }
-        self.geo_level_sel = self.selector(
+        self.geo_level_sel = self.select(
             "geography_level",
-            widget=pn.widgets.Select(
-                name=GEOGRAPHY_TYPE_SELECTOR_LABEL,
-                options=[ALL_GEOGRAPHY_TYPES_LABEL],
-                value=ALL_GEOGRAPHY_TYPES_LABEL,
-            ),
-            label=GEOGRAPHY_TYPE_SELECTOR_LABEL,
+            GEOGRAPHY_TYPE_SELECTOR_LABEL,
+            options=[ALL_GEOGRAPHY_TYPES_LABEL],
         )
-        self.student_type_sel = self.selector(
+        self.student_type_sel = self.select(
             "student_type",
-            widget=pn.widgets.Select(
-                name="Student Type",
-                options=["All"],
-                value="All",
-            ),
-            label="Student Type",
+            "Student Type",
+            options=["All"],
         )
         self._workplace_plot_section = self.section(
             "workplace_plot",
@@ -445,18 +449,3 @@ class ShadowPricingPage(DashboardPage):
         return format_percent_error_table(
             display_df.select(columns) if columns else display_df
         )
-
-
-PAGE = DashboardPageDefinition(
-    page_id="shadow_pricing",
-    title="Employment\\Enrollment Match By Geography",
-    group_id="long_term_choices",
-    order=28,
-    page_cls=ShadowPricingPage,
-    required_summary_ids=(
-        "workplace_shadow_pricing_residuals",
-        "workplace_shadow_pricing_residual_histogram",
-        "school_shadow_pricing_residuals",
-        "school_shadow_pricing_residual_histogram",
-    ),
-)

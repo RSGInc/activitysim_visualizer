@@ -10,9 +10,8 @@ The codebase is organized around those jobs rather than around one monolithic ap
 
 The config surface is now intentionally split into top-level domains such as
 `pipeline`, `dashboard`, `display`, `summarize`, `segment`, and `skimjoin`.
-`runtime.config.load_config()` still accepts legacy keys for compatibility, but
-normalizes them into one canonical `Config` contract before any workflow code
-sees them.
+`runtime.config.load_config()` validates that canonical schema before any
+workflow code sees it. Removed and unknown keys fail with a focused error.
 
 ## Main Subsystems
 
@@ -99,9 +98,10 @@ Adding a summary is not complete until it is registered there.
 
 ### `DashboardPageDefinition` and `DashboardPage`
 
-Dashboard pages are registered through module-level `PAGE = DashboardPageDefinition(...)` objects in `dashboard/pages/`. `PAGE` is now intentionally narrow: it holds identity, navigation grouping, ordering, and the page's summary/prepared-data contract through `required_summary_ids`, `optional_summary_ids`, `prepared_data_mode`, and, when needed, `required_prepared_tables`.
-The definition attaches itself to `page_cls`, so the module-level declaration is
-the only metadata assignment a page author makes.
+Dashboard pages are registered with `@dashboard_page(...)` on the page class in
+`dashboard/pages/`. The decorator holds identity, navigation grouping, ordering,
+and the summary/prepared-data contract through `required_summary_ids`,
+`optional_summary_ids`, `prepared_data_mode`, and `required_prepared_tables`.
 
 The public page authoring API lives on `dashboard.page_base.DashboardPage`.
 
@@ -109,7 +109,7 @@ Page authors are expected to:
 
 - implement `build_page()` to create widgets and stable layout once
 - optionally implement `sync_controls()` to reconcile selector options and values
-- register page-local controls with `self.selector(...)`
+- use `self.select(...)` for dropdowns and `self.selector(...)` for custom widgets
 - register refreshable/exportable regions with `self.section(...)`
 - return section content from section render functions
 

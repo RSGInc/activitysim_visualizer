@@ -17,10 +17,20 @@ from dashboard.helpers.geography_helpers import (
     normalize_geography_data,
     with_display_geography_columns,
 )
-from dashboard.page_base import DashboardPage, SectionContent
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
+from dashboard.page_base import SectionContent
 
 
+@dashboard_page(
+    page_id="park_and_ride_location",
+    title="Park-and-Ride Location",
+    group_id="tour_summaries",
+    order=47,
+    required_summary_ids=(
+        "park_and_ride_location_residuals",
+        "park_and_ride_location_residual_histogram",
+    ),
+)
 class ParkAndRideLocationPage(DashboardPage):
     """Show residual histograms and tables for park-and-ride locations."""
 
@@ -209,16 +219,3 @@ class ParkAndRideLocationPage(DashboardPage):
         return format_percent_error_table(
             display_df.select(columns)
         )
-
-
-PAGE = DashboardPageDefinition(
-    page_id="park_and_ride_location",
-    title="Park-and-Ride Location",
-    group_id="tour_summaries",
-    order=47,
-    page_cls=ParkAndRideLocationPage,
-    required_summary_ids=(
-        "park_and_ride_location_residuals",
-        "park_and_ride_location_residual_histogram",
-    ),
-)

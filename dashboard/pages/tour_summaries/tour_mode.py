@@ -15,8 +15,7 @@ from dashboard.helpers.category_helpers import (
     nonempty,
     ordered_category_values,
 )
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
 
 AUTO_SUFFICIENCY_LEVELS = [
     "All",
@@ -164,6 +163,18 @@ def tour_mode_chart_data(
     return out
 
 
+@dashboard_page(
+    page_id="tour_mode",
+    title="Tour Mode",
+    group_id="tour_summaries",
+    order=42,
+    required_summary_ids=(
+        "tour_mode_by_tour_purpose_and_auto_sufficiency",
+        "allocated_vehicle_age_by_occupancy",
+        "allocated_vehicle_fuel_type_by_occupancy",
+        "allocated_vehicle_body_type_by_occupancy",
+    ),
+)
 class TourModePage(DashboardPage):
     """Render tour mode splits and allocated vehicle characteristics."""
     TOTAL_PURPOSE_LABEL = "All Tour Purposes"
@@ -530,18 +541,3 @@ class TourModePage(DashboardPage):
                 key=lambda value: 999 if value == "20+" else int(value) if value.isdigit() else 1000,
             )
         return sorted(values)
-
-
-PAGE = DashboardPageDefinition(
-    page_id="tour_mode",
-    title="Tour Mode",
-    group_id="tour_summaries",
-    order=42,
-    page_cls=TourModePage,
-    required_summary_ids=(
-        "tour_mode_by_tour_purpose_and_auto_sufficiency",
-        "allocated_vehicle_age_by_occupancy",
-        "allocated_vehicle_fuel_type_by_occupancy",
-        "allocated_vehicle_body_type_by_occupancy",
-    ),
-)

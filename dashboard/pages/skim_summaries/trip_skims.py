@@ -5,8 +5,7 @@ from __future__ import annotations
 import panel as pn
 
 from dashboard.components import control_row, data_table, density_chart
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
 from dashboard.pages.skim_summaries._shared import (
     ALL_RECORDS_SCENARIO,
     CHOSEN_MODE_SCENARIO,
@@ -32,6 +31,16 @@ TOP_SELECTOR_ROW_STYLESHEET = """
 """
 
 
+@dashboard_page(
+    page_id="trip_skims",
+    title="Trip Skims",
+    order=51,
+    group_id="skim_summaries",
+    default_enabled=True,
+    prepared_data_mode="optional",
+    required_prepared_tables=("trips",),
+    required_summary_ids=(TRIP_STATS_SUMMARY_ID,),
+)
 class TripSkimsPage(DashboardPage):
     """Summary and live-distribution page for trip skim families."""
 
@@ -433,17 +442,3 @@ class TripSkimsPage(DashboardPage):
                 "column-gap": gap,
             },
         )
-
-
-PAGE = DashboardPageDefinition(
-    page_id="trip_skims",
-    title="Trip Skims",
-    page_cls=TripSkimsPage,
-    order=51,
-    group_id="skim_summaries",
-    child_order=20,
-    default_enabled=True,
-    prepared_data_mode="optional",
-    required_prepared_tables=("trips",),
-    required_summary_ids=(TRIP_STATS_SUMMARY_ID,),
-)

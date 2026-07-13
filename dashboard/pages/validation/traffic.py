@@ -14,8 +14,7 @@ from dashboard.helpers.category_helpers import (
     nonempty,
     raw_display_options,
 )
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
 from runtime.config import Config
 
 DEMO_TRAFFIC_TIME_PERIODS = {
@@ -516,6 +515,22 @@ def demo_volume_comparison_table(
     return out
 
 
+@dashboard_page(
+    page_id="traffic",
+    title="Traffic Validation",
+    group_id="validation",
+    order=52,
+    required_summary_ids=(
+        "screenline_flow_comparisons",
+    ),
+    optional_summary_ids=(
+        "link_validation_summary",
+        "count_location_counts_validation_summary",
+        "count_location_volumes_validation_summary",
+        "count_location_scatter_validation_summary",
+        "count_location_fit_validation_summary",
+    ),
+)
 class TrafficValidationPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
         demo_link_list = self.state.get_summary_table_set(
@@ -963,22 +978,3 @@ class TrafficValidationPage(DashboardPage):
                 )
             ]
         return []
-
-
-PAGE = DashboardPageDefinition(
-    page_id="traffic",
-    title="Traffic Validation",
-    group_id="validation",
-    order=52,
-    page_cls=TrafficValidationPage,
-    required_summary_ids=(
-        "screenline_flow_comparisons",
-    ),
-    optional_summary_ids=(
-        "link_validation_summary",
-        "count_location_counts_validation_summary",
-        "count_location_volumes_validation_summary",
-        "count_location_scatter_validation_summary",
-        "count_location_fit_validation_summary",
-    ),
-)

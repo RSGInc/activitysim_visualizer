@@ -8,8 +8,7 @@ import polars as pl
 from dashboard.components import bar_chart, kpi_box, selector_row
 from dashboard.helpers.category_helpers import cap_numeric_category_data, nonempty
 from dashboard.helpers.geography_helpers import rename_present
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
 
 ALL_HOUSEHOLD_SIZES = "All"
 HOUSEHOLD_SIZE_OPTIONS = [ALL_HOUSEHOLD_SIZES, "1", "2", "3", "4", "5+"]
@@ -98,19 +97,28 @@ def _auto_ownership_chart_data(
     )
 
 
+@dashboard_page(
+    page_id="vehicle_ownership_type",
+    title="Vehicle Ownership and Type",
+    group_id="long_term_choices",
+    order=26,
+    required_summary_ids=(
+        "auto_ownership_distribution",
+        "autonomous_vehicle_ownership_totals",
+        "vehicle_age_distribution",
+        "vehicle_fuel_type_distribution",
+        "vehicle_body_type_distribution",
+    ),
+)
 class VehicleOwnershipTypePage(DashboardPage):
     """Vehicle ownership summary page."""
 
     def build_page(self) -> pn.viewable.Viewable:
         hhsize_opts = self._household_size_options()
-        self.hhsize_sel = self.selector(
+        self.hhsize_sel = self.select(
             "household_size",
-            widget=pn.widgets.Select(
-                name="Household Size",
-                options=hhsize_opts,
-                value=hhsize_opts[0],
-            ),
-            label="Household Size",
+            "Household Size",
+            options=hhsize_opts,
         )
         self._ownership_section = self.section(
             "vehicle_ownership_summary",
@@ -292,19 +300,3 @@ class VehicleOwnershipTypePage(DashboardPage):
             pct_col="pct",
             as_percent=self.as_percent,
         )
-
-
-PAGE = DashboardPageDefinition(
-    page_id="vehicle_ownership_type",
-    title="Vehicle Ownership and Type",
-    group_id="long_term_choices",
-    order=26,
-    page_cls=VehicleOwnershipTypePage,
-    required_summary_ids=(
-        "auto_ownership_distribution",
-        "autonomous_vehicle_ownership_totals",
-        "vehicle_age_distribution",
-        "vehicle_fuel_type_distribution",
-        "vehicle_body_type_distribution",
-    ),
-)

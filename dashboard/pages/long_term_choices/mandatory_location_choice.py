@@ -30,8 +30,8 @@ from dashboard.helpers.geography_helpers import (
     normalize_geography_data,
     with_display_geography_columns,
 )
-from dashboard.page_base import DashboardPage, SectionContent
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
+from dashboard.page_base import SectionContent
 from dashboard.pages.long_term_choices._mandatory_location_choice_support import (
     adapt_external_workplace,
     distance_distribution_chart_data,
@@ -43,6 +43,22 @@ from dashboard.pages.long_term_choices._mandatory_location_choice_support import
     work_from_home_chart_data,
 )
 
+@dashboard_page(
+    page_id="mandatory_location_choice",
+    title="Mandatory Location Choice",
+    group_id="long_term_choices",
+    order=27,
+    required_summary_ids=(
+        "internal_external_worker_by_geography",
+        "external_worker_workplace_locations",
+        "work_location_distance_distribution_by_geography",
+        "school_location_distance_distribution_by_geography",
+        "university_location_distance_distribution_by_geography",
+        "work_from_home_rate_by_geography",
+        "telecommute_frequency_distribution",
+        "average_mandatory_tour_distance_by_purpose_and_geography",
+    ),
+)
 class MandatoryLocationChoicePage(DashboardPage):
     """Geography-driven page for mandatory worker, commute, and distance summaries."""
 
@@ -783,22 +799,3 @@ class MandatoryLocationChoicePage(DashboardPage):
                 "Average Mandatory Tour Distance vs Base Run",
             )
         ]
-
-
-PAGE = DashboardPageDefinition(
-    page_id="mandatory_location_choice",
-    title="Mandatory Location Choice",
-    group_id="long_term_choices",
-    order=27,
-    page_cls=MandatoryLocationChoicePage,
-    required_summary_ids=(
-        "internal_external_worker_by_geography",
-        "external_worker_workplace_locations",
-        "work_location_distance_distribution_by_geography",
-        "school_location_distance_distribution_by_geography",
-        "university_location_distance_distribution_by_geography",
-        "work_from_home_rate_by_geography",
-        "telecommute_frequency_distribution",
-        "average_mandatory_tour_distance_by_purpose_and_geography",
-    ),
-)

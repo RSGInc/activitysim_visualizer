@@ -15,8 +15,7 @@ from dashboard.helpers.category_helpers import (
     numeric_like_sort_expr,
     nonempty,
 )
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
 
 
 PARTY_SIZE_ALL_LABEL = "All Party Sizes"
@@ -205,6 +204,19 @@ def joint_tour_frequency_data(
     return out
 
 
+@dashboard_page(
+    page_id="joint_travel",
+    title="Joint Travel",
+    order=40,
+    required_summary_ids=(
+        "jtf_distribution",
+        "joint_tours_by_household_size",
+        "joint_tour_party_size_distribution",
+        "joint_tour_composition_by_party_size",
+        "person_jtp_by_household_size",
+        "household_jtp_by_household_size_and_jtf",
+    ),
+)
 class JointTravelPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
         party_opts = self._party_size_options()
@@ -552,19 +564,3 @@ class JointTravelPage(DashboardPage):
             as_percent=False,
             xaxis_categoryarray=jtf_values,
         )
-
-
-PAGE = DashboardPageDefinition(
-    page_id="joint_travel",
-    title="Joint Travel",
-    order=40,
-    page_cls=JointTravelPage,
-    required_summary_ids=(
-        "jtf_distribution",
-        "joint_tours_by_household_size",
-        "joint_tour_party_size_distribution",
-        "joint_tour_composition_by_party_size",
-        "person_jtp_by_household_size",
-        "household_jtp_by_household_size_and_jtf",
-    ),
-)

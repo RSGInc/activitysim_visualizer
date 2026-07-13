@@ -125,7 +125,7 @@ def _collect_tabs(viewable) -> list[pn.Tabs]:
 def _write_config(
     tmp_path: Path,
     *,
-    visualizer_lines: list[str] | None = None,
+    dashboard_lines: list[str] | None = None,
     extra_lines: list[str] | None = None,
 ) -> Config:
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -135,13 +135,13 @@ def _write_config(
             [
                 'name: "Test Config"',
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
+                "root: summary_cache",
+                "summarize:",
                 "  weighting_modes:",
                 "    - weighted",
                 "    - unweighted",
-                "visualizer:",
-                '  dashboard_title: "Test Dashboard"',
+                "dashboard:",
+                '  title: "Test Dashboard"',
             ]
         ),
         encoding="utf-8",
@@ -153,11 +153,11 @@ def _write_config(
             + "\n".join(extra_lines),
             encoding="utf-8",
         )
-    if visualizer_lines:
+    if dashboard_lines:
         config_path.write_text(
             config_path.read_text(encoding="utf-8")
             + "\n"
-            + "\n".join(f"  {line}" for line in visualizer_lines),
+            + "\n".join(f"  {line}" for line in dashboard_lines),
             encoding="utf-8",
         )
     return Config.from_yaml(config_path)
@@ -796,21 +796,18 @@ def test_summary_cache_ignores_presentation_only_config_changes(
             [
                 'name: "Test Config"',
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
-                "  weighting_modes:",
-                "    - weighted",
-                "    - unweighted",
-                "visualizer:",
-                '  dashboard_title: "Dashboard A"',
-                "  dashboard_pages:",
-                "    - overview",
-                "    - destination",
-                "  export_html:",
+                    "root: summary_cache",
+                    "summarize:",
+                    "  weighting_modes: [weighted, unweighted]",
+                    "dashboard:",
+                    '  title: "Dashboard A"',
+                    "  live:",
+                    "    pages: [overview, trip_mode]",
+                    "  export:",
                 "    dashboard:",
                 "      weighting: all",
                 "    pages:",
-                "      destination: {}",
+                    "      trip_mode: {}",
                 "      overview: {}",
             ]
         ),
@@ -823,22 +820,19 @@ def test_summary_cache_ignores_presentation_only_config_changes(
             [
                 'name: "Test Config"',
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
-                "  weighting_modes:",
-                "    - weighted",
-                "    - unweighted",
-                "visualizer:",
-                '  dashboard_title: "Dashboard B"',
-                "  dashboard_pages:",
-                "    - destination",
-                "    - overview",
-                "  export_html:",
+                    "root: summary_cache",
+                    "summarize:",
+                    "  weighting_modes: [weighted, unweighted]",
+                    "dashboard:",
+                    '  title: "Dashboard B"',
+                    "  live:",
+                    "    pages: [trip_mode, overview]",
+                    "  export:",
                 "    dashboard:",
                 "      values: all",
                 "    pages:",
                 "      overview: {}",
-                "      destination:",
+                    "      trip_mode:",
                 "        purpose: all",
             ]
         ),
@@ -894,12 +888,11 @@ def test_summary_cache_invalidates_when_summary_affecting_config_changes(
             [
                 'name: "Test Config"',
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
-                "  weighting_modes:",
-                "    - weighted",
-                "visualizer:",
-                '  dashboard_title: "Test Dashboard"',
+                    "root: summary_cache",
+                    "summarize:",
+                    "  weighting_modes: [weighted]",
+                    "dashboard:",
+                    '  title: "Test Dashboard"',
             ]
         ),
         encoding="utf-8",
@@ -1408,14 +1401,15 @@ def test_trip_mode_page_uses_configured_mode_labels_on_plot_axes(tmp_path: Path)
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "categories:",
-            "  mode:",
-            "    mapping:",
-            "      WALK: Walk",
-            "      SHARED2: Shared Ride 2",
-            "      SHARED3: Shared Ride 3+",
-            "      DRIVEALONE: Drive Alone",
-            "      DRIVE: Drive",
+            "display:",
+            "  labels:",
+            "    mode:",
+            "      mapping:",
+            "        WALK: Walk",
+            "        SHARED2: Shared Ride 2",
+            "        SHARED3: Shared Ride 3+",
+            "        DRIVEALONE: Drive Alone",
+            "        DRIVE: Drive",
         ],
     )
     summary_run = _summary_run_with_tables(
@@ -1481,12 +1475,13 @@ def test_daily_activity_pattern_page_uses_configured_mandatory_tour_labels_on_pl
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "categories:",
-            "  mandatory_tour_frequency:",
-            "    mapping:",
-            "      1: Work",
-            "      2: 2 Work",
-            "      5: Work + School",
+            "display:",
+            "  labels:",
+            "    mandatory_tour_frequency:",
+            "      mapping:",
+            "        1: Work",
+            "        2: 2 Work",
+            "        5: Work + School",
         ],
     )
     summary_run = _summary_run_with_tables(
@@ -1551,12 +1546,13 @@ def test_tour_purpose_selectors_use_category_labels_from_config(tmp_path: Path) 
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "categories:",
-            "  tour_purpose:",
-            "    mapping:",
-            "      all_tour_purposes: All Tour Purposes",
-            "      eatout: Eat Out",
-            "      social: Social Time",
+            "display:",
+            "  labels:",
+            "    tour_purpose:",
+            "      mapping:",
+            "        all_tour_purposes: All Tour Purposes",
+            "        eatout: Eat Out",
+            "        social: Social Time",
         ],
     )
     summary_run = _summary_run_with_tables(
@@ -1666,31 +1662,32 @@ def test_dashboard_pages_apply_configured_dashboard_labels_to_category_plots(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "dashboard_labels:",
-            "  license_holding_status:",
-            "    mapping:",
-            "      has_license: Has License",
-            "      no_license: No License",
-            "  transit_pass_ownership_status:",
-            "    mapping:",
-            "      has_transit_pass: Has Transit Pass",
-            "      no_transit_pass: No Transit Pass",
-            "  telecommute_frequency:",
-            "    mapping:",
-            "      No_Telecommute: No Telecommute",
-            "      1_day_week: 1 Day per Week",
-            "  tour_composition:",
-            "    mapping:",
-            "      adults: Adults Only",
-            "      mixed: Mixed Group",
-            "  tour_category:",
-            "    mapping:",
-            "      mandatory: Mandatory",
-            "      non_mandatory: Non-Mandatory",
-            "  atwork_subtour_frequency_category:",
-            "    mapping:",
-            "      no_subtours: None",
-            "      eat: 1 Eating Out",
+            "display:",
+            "  labels:",
+            "    license_holding_status:",
+            "      mapping:",
+            "        has_license: Has License",
+            "        no_license: No License",
+            "    transit_pass_ownership_status:",
+            "      mapping:",
+            "        has_transit_pass: Has Transit Pass",
+            "        no_transit_pass: No Transit Pass",
+            "    telecommute_frequency:",
+            "      mapping:",
+            "        No_Telecommute: No Telecommute",
+            "        1_day_week: 1 Day per Week",
+            "    tour_composition:",
+            "      mapping:",
+            "        adults: Adults Only",
+            "        mixed: Mixed Group",
+            "    tour_category:",
+            "      mapping:",
+            "        mandatory: Mandatory",
+            "        non_mandatory: Non-Mandatory",
+            "    atwork_subtour_frequency_category:",
+            "      mapping:",
+            "        no_subtours: None",
+            "        eat: 1 Eating Out",
         ],
     )
     summary_run = _summary_run_with_tables(
@@ -2392,8 +2389,8 @@ def test_joint_travel_composition_plot_keeps_category_axis_when_party_size_filte
     assert composition_plot.object.data[0].y[1] == 0.0
 
 
-def test_skims_group_lists_tour_skims_before_trip_skims() -> None:
-    definitions = page_definitions_for_group("skims")
+def test_skim_summaries_group_lists_tour_skims_before_trip_skims() -> None:
+    definitions = page_definitions_for_group("skim_summaries")
 
     assert [definition.page_id for definition in definitions] == [
         "tour_skims",
@@ -2458,10 +2455,10 @@ def test_trip_walk_skims_use_explicit_walk_distance_and_time_labels(
 
     table = _collect_tabulators(page._summary_section)[0]
     assert table.value["skim_name"].tolist() == [
-        "MAZ Actual Walk Time",
-        "MAZ Network Walk Distance",
-        "TAZ Skim Walk Distance",
-        "Total Walk Access/Egress Time",
+        "MAZ Actual Walk Time (min)",
+        "MAZ Network Walk Distance (mi)",
+        "TAZ Skim Walk Distance (mi)",
+        "Total Walk Access/Egress Time (min)",
     ]
 
 
@@ -2546,7 +2543,7 @@ def test_tour_skims_page_uses_family_and_direction_selectors_for_summary_table(
     table = tables[0]
     assert list(table.value.columns[:2]) == ["skim_name", "tour_mode"]
     assert set(table.value["tour_mode"].tolist()) == {"SOV", "HOV2"}
-    assert set(table.value["skim_name"].tolist()) == {"Cost", "Time"}
+    assert set(table.value["skim_name"].tolist()) == {"Cost ($)", "Time (min)"}
     assert "Outbound" == page.tour_direction_sel.value
 
     page.tour_family_sel.value = "Transit Skims"
@@ -2554,21 +2551,22 @@ def test_tour_skims_page_uses_family_and_direction_selectors_for_summary_table(
     page.refresh(force=True)
     inbound_table = _collect_tabulators(page._summary_section)[0]
     assert set(inbound_table.value["tour_mode"].tolist()) == {"KNR_TRANSIT"}
-    assert "Transit In-Vehicle Time" in inbound_table.value["skim_name"].tolist()
+    assert "Transit In-Vehicle Time (min)" in inbound_table.value["skim_name"].tolist()
 
 
 def test_tour_purpose_labels_render_consistently_across_pages(tmp_path: Path) -> None:
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "categories:",
-            "  tour_purpose:",
-            "    mapping:",
-            "      all_tour_purposes: All Tour Purposes",
-            "      work: Work Trips",
-            "      shop: Shopping",
-            "      eatout: Eat Out",
-            "      social: Social Time",
+            "display:",
+            "  labels:",
+            "    tour_purpose:",
+            "      mapping:",
+            "        all_tour_purposes: All Tour Purposes",
+            "        work: Work Trips",
+            "        shop: Shopping",
+            "        eatout: Eat Out",
+            "        social: Social Time",
         ],
     )
     summary_run = _summary_run_with_tables(
@@ -2694,9 +2692,11 @@ def test_tour_purpose_labels_render_consistently_across_pages(tmp_path: Path) ->
     tour_distance_page = TourDistancePage(state, config)
     tour_distance_page.refresh(force=True)
     assert not hasattr(tour_distance_page, "nonmandatory_purpose_sel")
+    tour_distance_page.geo_level_sel.value = "Region"
+    tour_distance_page.refresh(force=True)
     tabulators = _collect_tabulators(tour_distance_page._average_section)
     nonmandatory_table = tabulators[0].value
-    assert nonmandatory_table["nonmandatory_tour_purpose"].tolist() == [
+    assert nonmandatory_table["Non-Mandatory Tour Purpose"].tolist() == [
         "Eat Out",
         "Social Time",
     ]
@@ -2708,19 +2708,20 @@ def test_trip_stop_purpose_page_uses_trip_and_stop_purpose_dashboard_labels(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "dashboard_labels:",
-            "  tour_purpose:",
-            "    mapping:",
-            "      work: Work Tours",
-            "      shop: Shopping Tours",
-            "  trip_purpose:",
-            "    mapping:",
-            "      work: Work Trips",
-            "      shop: Shopping Trips",
-            "  stop_purpose:",
-            "    mapping:",
-            "      work: Work Stops",
-            "      shop: Shopping Stops",
+            "display:",
+            "  labels:",
+            "    tour_purpose:",
+            "      mapping:",
+            "        work: Work Tours",
+            "        shop: Shopping Tours",
+            "    trip_purpose:",
+            "      mapping:",
+            "        work: Work Trips",
+            "        shop: Shopping Trips",
+            "    stop_purpose:",
+            "      mapping:",
+            "        work: Work Stops",
+            "        shop: Shopping Stops",
         ],
     )
     summary_run = _summary_run_with_tables(
@@ -3120,12 +3121,13 @@ def test_escorted_tours_page_uses_configured_escort_labels_for_student_status(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "categories:",
-            "  escort:",
-            "    mapping:",
-            "      not_escorted: Unescorted",
-            "      pure_escort: Driven Solo",
-            "      ride_share: Shared Ride",
+            "display:",
+            "  labels:",
+            "    escort:",
+            "      mapping:",
+            "        not_escorted: Unescorted",
+            "        pure_escort: Driven Solo",
+            "        ride_share: Shared Ride",
         ],
     )
     escorted_summary_run = _summary_run_with_tables(
@@ -3519,13 +3521,14 @@ def test_tour_summaries_tour_mode_page_uses_configured_mode_labels_on_plot_axes(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "categories:",
-            "  mode:",
-            "    mapping:",
-            "      DRIVE: Drive Alone",
-            "      HOV2: Shared Ride 2",
-            "      HOV3: Shared Ride 3+",
-            "      WALK: Walk",
+            "display:",
+            "  labels:",
+            "    mode:",
+            "      mapping:",
+            "        DRIVE: Drive Alone",
+            "        HOV2: Shared Ride 2",
+            "        HOV3: Shared Ride 3+",
+            "        WALK: Walk",
         ],
     )
     summary_run = _summary_run_with_tables(
@@ -3646,7 +3649,7 @@ def test_mandatory_location_choice_can_show_maz_when_enabled(
 ) -> None:
     config = _write_config(
         tmp_path,
-        visualizer_lines=["enable_maz_geographies: true"],
+        dashboard_lines=["enable_maz_geographies: true"],
     )
     summary_run = _summary_run_with_tables(
         label="Base",
@@ -3757,7 +3760,7 @@ def test_tour_mode_occupancy_selector_uses_common_values_across_vehicle_summarie
 def test_internal_external_tours_geo_selector_uses_union_levels_across_tables(
     tmp_path: Path,
 ) -> None:
-    config = _write_config(tmp_path, visualizer_lines=["enable_maz_geographies: true"])
+    config = _write_config(tmp_path, dashboard_lines=["enable_maz_geographies: true"])
     summary_run = _summary_run_with_tables(
         label="Base",
         weighted={
@@ -3908,7 +3911,7 @@ def test_shadow_pricing_geo_selector_keeps_maz_available_when_disabled(
 def test_shadow_pricing_geo_selector_shows_detailed_levels_when_enabled(
     tmp_path: Path,
 ) -> None:
-    config = _write_config(tmp_path, visualizer_lines=["enable_maz_geographies: true"])
+    config = _write_config(tmp_path, dashboard_lines=["enable_maz_geographies: true"])
     summary_run = _summary_run_with_tables(
         label="Base",
         weighted={
@@ -4102,14 +4105,14 @@ def test_shadow_pricing_page_uses_residual_histograms_and_filters_school_student
 
     workplace_plot = next(
         plot
-        for plot in _collect_plotly_panes(page._workplace_section)
+        for plot in _collect_plotly_panes(page._workplace_plot_section)
         if plot.object.layout.title.text == "Workplace Residual Distribution"
     )
     initial_x = [list(trace.x) for trace in workplace_plot.object.data]
 
     workplace_plot = next(
         plot
-        for plot in _collect_plotly_panes(page._workplace_section)
+        for plot in _collect_plotly_panes(page._workplace_plot_section)
         if plot.object.layout.title.text == "Workplace Residual Distribution"
     )
     district_x = [list(trace.x) for trace in workplace_plot.object.data]
@@ -4120,7 +4123,7 @@ def test_shadow_pricing_page_uses_residual_histograms_and_filters_school_student
 
     workplace_plot = next(
         plot
-        for plot in _collect_plotly_panes(page._workplace_section)
+        for plot in _collect_plotly_panes(page._workplace_plot_section)
         if plot.object.layout.title.text == "Workplace Residual Distribution"
     )
     assert workplace_plot.object.layout.xaxis.title.text == "Residual (Modeled - Target)"
@@ -4130,7 +4133,7 @@ def test_shadow_pricing_page_uses_residual_histograms_and_filters_school_student
     page.student_type_sel.value = "University"
     page.refresh(force=True)
 
-    school_tables = _collect_tabulators(page._school_section)
+    school_tables = _collect_tabulators(page._school_table_section)
     school_df = pl.from_pandas(school_tables[0].value)
     assert set(school_df["student_type"].to_list()) == {"University"}
     assert school_df["percent_error"].to_list()[0].endswith("%")
@@ -4199,7 +4202,7 @@ def test_shadow_pricing_school_all_student_type_uses_upstream_rollup_histogram(
 
     school_plot = next(
         plot
-        for plot in _collect_plotly_panes(page._school_section)
+        for plot in _collect_plotly_panes(page._school_plot_section)
         if plot.object.layout.title.text == "School Residual Distribution"
     )
     assert list(school_plot.object.data[0].x) == [-2.0, 0.0]
@@ -4336,8 +4339,8 @@ def test_shadow_pricing_all_geographies_shows_point_mass_cards_instead_of_plots(
     page = ShadowPricingPage(state, config)
     page.refresh(force=True)
 
-    workplace_cards = _collect_cards(page._workplace_section)
-    school_cards = _collect_cards(page._school_section)
+    workplace_cards = _collect_cards(page._workplace_plot_section)
+    school_cards = _collect_cards(page._school_plot_section)
     assert any(
         getattr(card, "title", "") == "Workplace Residual Distribution Unavailable"
         and "point mass" in str(card.objects[0].object)
@@ -4350,10 +4353,10 @@ def test_shadow_pricing_all_geographies_shows_point_mass_cards_instead_of_plots(
         for card in school_cards
         if getattr(card, "objects", None)
     )
-    assert _collect_plotly_panes(page._workplace_section) == []
-    assert _collect_plotly_panes(page._school_section) == []
-    assert _collect_tabulators(page._workplace_section) != []
-    assert _collect_tabulators(page._school_section) != []
+    assert _collect_plotly_panes(page._workplace_plot_section) == []
+    assert _collect_plotly_panes(page._school_plot_section) == []
+    assert _collect_tabulators(page._workplace_table_section) != []
+    assert _collect_tabulators(page._school_table_section) != []
 
 
 def test_park_and_ride_location_page_uses_residual_plot_and_table(
@@ -4829,7 +4832,7 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
         for plot in distance_plots
         if plot.object.layout.title.text == "Workplace Location Distance Distribution"
     )
-    assert list(work_distance_plot.object.data[0].x) == ["1", "2"]
+    assert list(work_distance_plot.object.data[0].x) == [1.0, 2.0]
     assert list(work_distance_plot.object.data[0].y) == pytest.approx(
         [66.66666666666666, 33.33333333333333]
     )

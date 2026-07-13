@@ -123,7 +123,7 @@ def test_page_registry_exposes_expected_default_definitions() -> None:
     assert page_definition_by_id("raw_trip_demo").required_prepared_tables == ("trips",)
 
 
-def test_discovered_page_modules_export_page_definitions_without_legacy_build_api() -> None:
+def test_discovered_page_modules_declare_decorated_page_classes() -> None:
     discovered_modules = []
     for module_info in pkgutil.iter_modules(dashboard_pages_package.__path__):
         if module_info.name.startswith("_"):
@@ -140,10 +140,18 @@ def test_discovered_page_modules_export_page_definitions_without_legacy_build_ap
     assert discovered_modules
     assert any(hasattr(module, "GROUP") for module in discovered_modules)
     assert all(
-        isinstance(getattr(module, "PAGE", None), DashboardPageDefinition)
-        or hasattr(module, "GROUP")
+        hasattr(module, "GROUP")
+        or any(
+            isinstance(value, type)
+            and issubclass(value, DashboardPage)
+            and value is not DashboardPage
+            and value.__module__ == module.__name__
+            and isinstance(value.definition, DashboardPageDefinition)
+            for value in vars(module).values()
+        )
         for module in discovered_modules
     )
+    assert all(not hasattr(module, "PAGE") for module in discovered_modules)
     assert all(not hasattr(module, "build") for module in discovered_modules)
 
 

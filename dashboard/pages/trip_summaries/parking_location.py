@@ -6,8 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import data_table, scatter_chart
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
 from processor.models import RunData
 
 PARKING_CAPACITY_COLUMNS = (
@@ -63,6 +62,16 @@ def parking_scatter_data(
     return out
 
 
+@dashboard_page(
+    page_id="parking_location",
+    title="Parking Location",
+    group_id="trip_summaries",
+    order=51,
+    default_enabled=False,
+    prepared_data_mode="required",
+    required_summary_ids=("parking_locations",),
+    required_prepared_tables=("land_use",),
+)
 class ParkingLocationPage(DashboardPage):
     """Join parking summaries with prepared land-use capacity data."""
 
@@ -155,16 +164,3 @@ class ParkingLocationPage(DashboardPage):
     ) -> pn.viewable.Viewable:
         """Render the joined capacity/trips table below the chart."""
         return data_table(scatter_data, "Parking Capacity vs Trips Parked")
-
-
-PAGE = DashboardPageDefinition(
-    page_id="parking_location",
-    title="Parking Location",
-    group_id="trip_summaries",
-    order=51,
-    default_enabled=False,
-    page_cls=ParkingLocationPage,
-    prepared_data_mode="required",
-    required_summary_ids=("parking_locations",),
-    required_prepared_tables=("land_use",),
-)

@@ -15,13 +15,13 @@ from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import (
     DashboardDataRequirements,
     DashboardGroupDefinition,
-    DashboardPageConfigEntry,
     DashboardPageDefinition,
     PreparedDataMode,
 )
 from processor.models import PREPARED_TABLE_NAMES, PreparedTableName, RunData
 from processor.summarize.cache import SUMMARY_SPEC_BY_ID
 from runtime.config import Config
+from runtime.config.models import DashboardPageConfigEntry
 
 LOGGER = get_logger("dashboard.page_registry")
 VALID_PREPARED_DATA_MODES: tuple[PreparedDataMode, ...] = (
@@ -175,14 +175,27 @@ def all_page_definitions() -> tuple[DashboardPageDefinition, ...]:
 
 
 def _page_definition_from_module(module: object) -> DashboardPageDefinition:
-    page_definition = getattr(module, "PAGE", None)
-    if page_definition is None:
+    page_classes = [
+        value
+        for value in vars(module).values()
+        if isinstance(value, type)
+        and issubclass(value, DashboardPage)
+        and value is not DashboardPage
+        and value.__module__ == module.__name__
+    ]
+    if not page_classes:
         raise ValueError(
-            f"{module.__name__} must declare a module-level PAGE definition."
+            f"{module.__name__} must declare one @dashboard_page class."
         )
+    if len(page_classes) > 1:
+        raise ValueError(
+            f"{module.__name__} declares multiple DashboardPage classes; "
+            "each page module must contain exactly one."
+        )
+    page_definition = page_classes[0].definition
     if not isinstance(page_definition, DashboardPageDefinition):
         raise TypeError(
-            f"{module.__name__}.PAGE must be a DashboardPageDefinition instance."
+            f"{module.__name__}.{page_classes[0].__name__} must use @dashboard_page."
         )
     page_cls = page_definition.page_cls
     if page_cls is None:

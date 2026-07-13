@@ -50,29 +50,6 @@ def _geography_payload(config: Config) -> dict[str, Any]:
     return geography_payload
 
 
-def _effective_legacy_values(
-    config: Config,
-) -> tuple[dict[str, str] | None, dict[str, str] | None, list[str] | None]:
-    effective_person_type_labels = (
-        None
-        if config.dashboard_label_spec("person_type") is not None
-        else config.person_type_labels
-    )
-    effective_transit_subsidy_labels = (
-        None
-        if config.dashboard_label_spec("transit_subsidy") is not None
-        else config.transit_subsidy_labels
-    )
-    effective_mode_order = (
-        None if config.dashboard_label_spec("mode") is not None else config.mode_order
-    )
-    return (
-        effective_person_type_labels,
-        effective_transit_subsidy_labels,
-        effective_mode_order,
-    )
-
-
 def _student_types_payload(config: Config) -> list[dict[str, Any]]:
     return [
         {
@@ -94,11 +71,6 @@ def _student_types_payload(config: Config) -> list[dict[str, Any]]:
 
 
 def prepare_signature_payload(config: Config) -> dict[str, Any]:
-    (
-        effective_person_type_labels,
-        effective_transit_subsidy_labels,
-        effective_mode_order,
-    ) = _effective_legacy_values(config)
     return {
         "files": {key: config.files[key] for key in sorted(config.files)},
         "columns": {
@@ -207,11 +179,6 @@ def prepare_signature_payload(config: Config) -> dict[str, Any]:
 
 
 def summary_signature_payload(config: Config) -> dict[str, Any]:
-    (
-        effective_person_type_labels,
-        effective_transit_subsidy_labels,
-        effective_mode_order,
-    ) = _effective_legacy_values(config)
     segmentation_payload: dict[str, Any] = {"enabled": config.segmentation.enabled}
     if config.segmentation.enabled:
         segmentation_payload["definitions"] = [
@@ -257,34 +224,17 @@ def summary_signature_payload(config: Config) -> dict[str, Any]:
         "files": {key: config.files[key] for key in sorted(config.files)},
         "columns": prepare_signature_payload(config)["columns"],
         "summary_categories": category_specs_payload(config.summary_categories),
-        "dashboard_label_overrides": {
-            "person_type": (
-                dict(config.dashboard_label_spec("person_type").mapping_items)
-                if config.dashboard_label_spec("person_type") is not None
+        # These labels are still materialized by demographic/person summaries.
+        # Keep them in the summary identity until phase 4 moves labeling fully
+        # into the dashboard presentation boundary.
+        "display_label_dependencies": {
+            category_id: (
+                dict(config.dashboard_label_spec(category_id).mapping_items)
+                if config.dashboard_label_spec(category_id) is not None
                 else None
-            ),
-            "transit_subsidy": (
-                dict(config.dashboard_label_spec("transit_subsidy").mapping_items)
-                if config.dashboard_label_spec("transit_subsidy") is not None
-                else None
-            ),
+            )
+            for category_id in ("person_type", "transit_subsidy")
         },
-        "person_type_labels": (
-            {
-                key: effective_person_type_labels[key]
-                for key in sorted(effective_person_type_labels)
-            }
-            if effective_person_type_labels
-            else None
-        ),
-        "transit_subsidy_labels": (
-            {
-                key: effective_transit_subsidy_labels[key]
-                for key in sorted(effective_transit_subsidy_labels)
-            }
-            if effective_transit_subsidy_labels
-            else None
-        ),
         "tour_purpose_grouping": {
             "group_joint_tour_purposes": config.group_joint_tour_purposes,
             "group_atwork_tour_purposes": config.group_atwork_tour_purposes,
@@ -299,7 +249,6 @@ def summary_signature_payload(config: Config) -> dict[str, Any]:
         "geography": _geography_payload(config),
         "skim": {"matrix": config.skim_matrix},
         "modes": {
-            "order": list(effective_mode_order) if effective_mode_order else None,
             "groups": (
                 [
                     (group_name, list(mode_names))

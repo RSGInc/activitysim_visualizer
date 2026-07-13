@@ -26,10 +26,9 @@ def test_runtime_config_public_import_surface_and_package_resolution(tmp_path: P
             [
                 'name: "Package Surface Test"',
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
-                "visualizer:",
-                '  dashboard_title: "Package Surface Test"',
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Package Surface Test"',
             ]
         ),
         encoding="utf-8",

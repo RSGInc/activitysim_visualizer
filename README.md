@@ -45,9 +45,8 @@ By default, `python run.py` follows `pipeline.steps` from the loaded config when
 
 Dashboard pages now use one shared authoring model:
 
-- page modules export `PAGE = DashboardPageDefinition(...)`
-- page classes subclass `DashboardPage`
-- page-local controls are registered with `selector(...)`
+- page classes use `@dashboard_page(...)` and subclass `DashboardPage`
+- dropdowns use `select(...)`; custom widgets use `selector(...)`
 - refreshable regions are registered with `section(...)`
 - live refresh and export metadata both derive from those registrations
 
@@ -67,7 +66,7 @@ The repo ships with `config.yaml` as a template. In practice, most people should
 
 1. Copy `config.yaml` to `local_config.yaml` or another machine-specific file.
 2. Update the `runs` section to point at real ActivitySim output folders.
-3. Update `skimjoin.distance_skim`, `zones`, and `files` if your model layout differs from the defaults.
+3. Update `prepare.distance_skim`, `zones`, and `files` if your model layout differs from the defaults.
 4. Run with `--config your_file.yaml`.
 
 The canonical config layout is organized around a few top-level sections:
@@ -89,10 +88,9 @@ display: ...
 skimjoin: ...
 ```
 
-Older keys such as `processor.*`, `summaries.*`, `visualizer.*`, top-level
-`dashboard_labels`, and top-level `run_colors` are still supported for
-compatibility, but they now emit deprecation warnings and normalize into the
-canonical schema above.
+Removed keys such as `processor.*`, `summaries.*`, `visualizer.*`, top-level
+`dashboard_labels`, and top-level `run_colors` now fail validation and name the
+canonical replacement. Unknown keys also fail instead of being silently ignored.
 
 The minimum useful config is usually:
 
@@ -306,7 +304,7 @@ Important path rules:
 - `root` is resolved relative to the config file if you give a relative path.
 - The prepared cache is created automatically next to `root` as `prepared_cache/`.
 - `runs[*].dir` should point at an ActivitySim output directory.
-- `skimjoin.distance_skim.file` may be absolute, or relative to each run directory.
+- `prepare.distance_skim.file` may be absolute, or relative to each run directory.
 - File entries under `files` can be bare stems like `final_trips` or explicit filenames like `final_trips.csv`.
 - `runs[*].file_map` uses the same filename rules as `files`, but applies only to that run.
 - `runs[*].prepared_table_map` must use explicit `.parquet` or `.csv` paths and resolves relative paths from the config file directory.
@@ -324,7 +322,7 @@ These are the sections most people need to touch:
 | `root` | Where summary caches are stored |
 | `pipeline` | Default workflow steps, dashboard mode, and overwrite behavior |
 | `runs` | Run directories, display labels, and optional per-run skim, raw file-map, custom prepared-table map, custom summary-table map, and weight overrides |
-| `skimjoin.distance_skim` | Default distance skim file and matrix name used by summaries |
+| `prepare.distance_skim` | Default distance skim file and matrix name used by summaries |
 | `zones` | MAZ/TAZ settings for skim joins and zone normalization |
 | `files` | Default ActivitySim output file stems or filenames used unless a run overrides them |
 | `columns` | Column aliases when outputs use non-default names |
@@ -342,7 +340,7 @@ These are the sections most people need to touch:
 | `summarize.group_*_tour_purposes` | Summary-time purpose regrouping switches |
 | `summarize.category_normalization` | Summary-affecting category normalization/regrouping |
 | `modes` | Optional mode ordering and grouped mode display |
-| `person_types` | Optional display labels for `ptype` values |
+| `display.labels.person_type` | Optional display labels for `ptype` values |
 
 Weighting rules:
 
@@ -356,14 +354,14 @@ Geography summary notes:
 - Native prepared geographies such as `home_taz`, `home_county`, and `home_mpo` may appear whenever those columns are available in prepared data, even when `summarize.geography.enabled: false`.
 - `summarize.geography` controls additional mapped geography aggregations, such as `home_geo__school_district`, `work_geo__county`, or `land_use_geo__district`.
 
-Legacy config notes:
+Removed config notes:
 
 - Prefer the canonical top-level schema: `root`, `pipeline`, `dashboard`, `display`, `summarize`, `segment`, and `skimjoin`.
-- Older keys such as `processor.root`, `summaries.weighting_modes`, `visualizer.dashboard_pages`, top-level `run_colors`, top-level `summary_categories`, and top-level `student_types` are still supported for compatibility, but now log deprecation warnings.
+- Older keys such as `processor.root`, `summaries.weighting_modes`, `visualizer.dashboard_pages`, top-level `run_colors`, top-level `summary_categories`, and top-level `student_types` are rejected with their canonical replacement.
 
 Geography note:
 
-- `geography.enabled: false` now disables both the older geography mapping behavior and the newer `geography.aggregations` derived columns. If you want aggregation-based geography summaries, `geography.enabled` must be `true`.
+- `summarize.geography.enabled: false` disables mapped geography aggregation columns. Set it to `true` for aggregation-based geography summaries.
 
 Category config note:
 
@@ -530,7 +528,7 @@ python run.py --config local_config.yaml ^
   --run-skim C:\path\to\base_skims.omx C:\path\to\build_skims.omx
 ```
 
-Use `null`, `None`, or an empty string in `--run-skim` to fall back to the configured `skimjoin.distance_skim.file`.
+Use `null`, `None`, or an empty string in `--run-skim` to fall back to the configured `prepare.distance_skim.file`.
 
 ## Codebase Map
 

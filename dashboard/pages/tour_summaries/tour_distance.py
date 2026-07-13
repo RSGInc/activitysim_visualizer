@@ -37,8 +37,8 @@ from dashboard.helpers.distance_range import (
     with_distance_axis,
 )
 from dashboard.helpers.time_distance_helpers import distance_sort_expr
-from dashboard.page_base import DashboardPage, SectionContent
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
+from dashboard.page_base import SectionContent
 
 
 def tour_distance_chart_data(
@@ -146,6 +146,17 @@ def average_distance_comparison_table(
     return out
 
 
+@dashboard_page(
+    page_id="tour_distance",
+    title="Tour Distance",
+    group_id="tour_summaries",
+    order=44,
+    required_summary_ids=(
+        "tour_distance_by_tour_purpose",
+        "average_mandatory_tour_distance_by_purpose_and_geography",
+        "average_nonmandatory_tour_distance_by_purpose_and_geography",
+    ),
+)
 class TourDistancePage(DashboardPage):
     """Render tour distance distributions and average-distance comparisons."""
 
@@ -386,17 +397,3 @@ class TourDistancePage(DashboardPage):
     ) -> pn.viewable.Viewable:
         """Render the average-distance comparison table."""
         return data_table(comparison_tables)
-
-
-PAGE = DashboardPageDefinition(
-    page_id="tour_distance",
-    title="Tour Distance",
-    group_id="tour_summaries",
-    order=44,
-    page_cls=TourDistancePage,
-    required_summary_ids=(
-        "tour_distance_by_tour_purpose",
-        "average_mandatory_tour_distance_by_purpose_and_geography",
-        "average_nonmandatory_tour_distance_by_purpose_and_geography",
-    ),
-)

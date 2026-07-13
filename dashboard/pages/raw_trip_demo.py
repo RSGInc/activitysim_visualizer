@@ -6,8 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
 from processor.models import RunData
 
 
@@ -41,6 +40,14 @@ def trip_mode_distribution(
     return [(label, _one_run(run.trips)) for label, run in prepared_runs]
 
 
+@dashboard_page(
+    page_id="raw_trip_demo",
+    title="Prepared Trip Demo",
+    order=900,
+    default_enabled=False,
+    prepared_data_mode="required",
+    required_prepared_tables=("trips",),
+)
 class RawTripDemoPage(DashboardPage):
     """Example page for future prepared-data pages to follow."""
 
@@ -104,14 +111,3 @@ class RawTripDemoPage(DashboardPage):
             yaxis_title="Trips",
             as_percent=self.as_percent,
         )
-
-
-PAGE = DashboardPageDefinition(
-    page_id="raw_trip_demo",
-    title="Prepared Trip Demo",
-    order=900,
-    default_enabled=False,
-    prepared_data_mode="required",
-    required_prepared_tables=("trips",),
-    page_cls=RawTripDemoPage,
-)

@@ -15,8 +15,7 @@ from dashboard.helpers.category_helpers import (
     nonempty,
     ordered_category_values,
 )
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
 
 AUTO_MODE_LABELS = ("Drive Alone", "Shared Ride 2", "Shared Ride 3+")
 
@@ -77,6 +76,13 @@ def trip_mode_percent_data(
     ]
 
 
+@dashboard_page(
+    page_id="trip_mode",
+    title="Trip Mode",
+    group_id="trip_summaries",
+    order=48,
+    required_summary_ids=("trip_mode_by_tour_purpose_and_tour_mode",),
+)
 class TripModePage(DashboardPage):
     TOTAL_PURPOSE_LABEL = "All Tour Purposes"
 
@@ -322,13 +328,3 @@ class TripModePage(DashboardPage):
             pn.pane.Markdown("### Trip Mode by Tour Mode"),
             *grid_rows,
         ]
-
-
-PAGE = DashboardPageDefinition(
-    page_id="trip_mode",
-    title="Trip Mode",
-    group_id="trip_summaries",
-    order=48,
-    page_cls=TripModePage,
-    required_summary_ids=("trip_mode_by_tour_purpose_and_tour_mode",),
-)

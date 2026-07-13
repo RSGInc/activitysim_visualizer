@@ -168,8 +168,8 @@ Important behavior:
   Loose dashboard-ready CSV/parquet files should be configured with
   `runs[*].summary_table_map`.
 - If an enabled page requires disaggregate tables, `run.py` loads prepared runs for that page set from memory, custom `prepared_table_map` inputs, prepared cache, or the prepare workflow.
-- Most pages should stay summary-backed and declare their requirements through `PAGE.required_summary_ids`.
-- Prepared-data pages must also declare `PAGE.required_prepared_tables`, which lets the workflow prune unused prepared tables before dashboard startup/export.
+- Most pages should stay summary-backed and declare their requirements through `@dashboard_page(required_summary_ids=...)`.
+- Prepared-data pages must also declare `required_prepared_tables` in `@dashboard_page`, which lets the workflow prune unused prepared tables before dashboard startup/export.
 
 When you want one invocation to do both processor work and dashboard startup, run
 the steps explicitly together:

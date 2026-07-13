@@ -10,8 +10,7 @@ import plotly.graph_objects as go
 
 from dashboard.components import selector_row
 from dashboard.helpers.category_helpers import nonempty
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
 
 TOTAL_FLOW_LABELS = {"total", "all", "all_geographies"}
 FLOW_COMPARISON_OPTIONS = [
@@ -429,6 +428,18 @@ def flow_comparison_heatmap(
     return tabs
 
 
+@dashboard_page(
+    page_id="regional_validation",
+    title="Regional Validation",
+    group_id="validation",
+    order=55,
+    default_enabled=False,
+    optional_summary_ids=(
+        "county_flows_validation_summary",
+        "county_flows_joja_validation_summary",
+        "commuting_flows",
+    ),
+)
 class RegionalValidationPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
         flow_options = self._available_flow_options()
@@ -563,18 +574,3 @@ class RegionalValidationPage(DashboardPage):
         return [
             self.render_flow_section(),
         ]
-
-
-PAGE = DashboardPageDefinition(
-    page_id="regional_validation",
-    title="Regional Validation",
-    group_id="validation",
-    order=55,
-    page_cls=RegionalValidationPage,
-    default_enabled=False,
-    optional_summary_ids=(
-        "county_flows_validation_summary",
-        "county_flows_joja_validation_summary",
-        "commuting_flows",
-    ),
-)

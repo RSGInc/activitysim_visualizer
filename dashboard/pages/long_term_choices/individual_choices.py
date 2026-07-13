@@ -18,8 +18,7 @@ from dashboard.helpers.person_type_helpers import (
     filter_person_type_counts,
     person_type_selector_options,
 )
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
 
 _BICYCLE_COMFORT_DISPLAY = {
     "1": "Strong and Fearless",
@@ -45,7 +44,7 @@ def normalize_bicycle_comfort_levels(
                 label,
                 df.with_columns(
                     pl.col("bicycle_comfort_level")
-                    .replace(
+                    .replace_strict(
                         _BICYCLE_COMFORT_DISPLAY,
                         default=pl.col("bicycle_comfort_level"),
                     )
@@ -56,6 +55,18 @@ def normalize_bicycle_comfort_levels(
     return out
 
 
+@dashboard_page(
+    page_id="individual_choices",
+    title="Individual Choices",
+    group_id="long_term_choices",
+    order=25,
+    required_summary_ids=(
+        "license_holding_status_distribution",
+        "bicycle_comfort_level_distribution",
+        "transit_pass_ownership_by_person_type",
+        "transit_subsidy_by_person_type",
+    ),
+)
 class IndividualChoicesPage(DashboardPage):
     """Person-type page for four long-term choice distributions."""
 
@@ -361,18 +372,3 @@ class IndividualChoicesPage(DashboardPage):
                 sizing_mode="stretch_width",
             ),
         ]
-
-
-PAGE = DashboardPageDefinition(
-    page_id="individual_choices",
-    title="Individual Choices",
-    group_id="long_term_choices",
-    order=25,
-    page_cls=IndividualChoicesPage,
-    required_summary_ids=(
-        "license_holding_status_distribution",
-        "bicycle_comfort_level_distribution",
-        "transit_pass_ownership_by_person_type",
-        "transit_subsidy_by_person_type",
-    ),
-)

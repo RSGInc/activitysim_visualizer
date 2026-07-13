@@ -31,7 +31,7 @@ def _write_config(
     modes_lines: list[str] | None = None,
     geography_lines: list[str] | None = None,
     export_html_lines: list[str] | None = None,
-    visualizer_lines: list[str] | None = None,
+    display_lines: list[str] | None = None,
     extra_lines: list[str] | None = None,
 ) -> Config:
     weighting_modes = weighting_modes or ["weighted", "unweighted"]
@@ -39,45 +39,59 @@ def _write_config(
     lines = [
         'name: "Test Config"',
         "runs: []",
-        "summaries:",
-        "  root: summary_cache",
+        "root: summary_cache",
+        "summarize:",
         "  weighting_modes:",
     ]
     lines.extend(f"    - {mode}" for mode in weighting_modes)
+    if geography_lines:
+        lines.append("  geography:")
+        lines.extend(f"    {line}" for line in geography_lines)
     lines.extend(
         [
-            "visualizer:",
-            '  dashboard_title: "Test Dashboard"',
+            "dashboard:",
+            '  title: "Test Dashboard"',
         ]
     )
-    if visualizer_lines:
-        lines.extend(f"  {line}" for line in visualizer_lines)
     if dashboard_pages is ...:
         dashboard_pages = [page_id for page_id, _ in EXPECTED_DEFAULT_PAGES]
     if dashboard_pages is not None:
-        lines.append("  dashboard_pages:")
+        lines.extend(["  live:", "    pages:"])
         for entry in dashboard_pages:
             if isinstance(entry, str):
-                lines.append(f"    - {entry}")
+                lines.append(f"      - {entry}")
                 continue
             if isinstance(entry, dict) and len(entry) == 1:
                 page_id, children = next(iter(entry.items()))
-                lines.append(f"    - {page_id}:")
+                lines.append(f"      - {page_id}:")
                 for child_id in children:
-                    lines.append(f"      - {child_id}")
+                    lines.append(f"        - {child_id}")
                 continue
             raise ValueError("dashboard_pages test helper only supports strings or single-key child mappings.")
-    if export_html_lines:
-        lines.append("  export_html:")
+    if export_html_lines is not None:
+        lines.append("  export:")
         lines.extend(f"    {line}" for line in export_html_lines)
+    if display_lines:
+        lines.append("display:")
+        lines.extend(f"  {line}" for line in display_lines)
     if modes_lines:
         lines.append("modes:")
         lines.extend(f"  {line}" for line in modes_lines)
     else:
         lines.append("modes: {}")
-    if geography_lines:
-        lines.append("geography:")
-        lines.extend(f"  {line}" for line in geography_lines)
+    if export_html_lines is not None:
+        pipeline_steps = (
+            "segment, summarize, dashboard"
+            if extra_lines and "segment:" in extra_lines
+            else "summarize, dashboard"
+        )
+        lines.extend(
+            [
+                "pipeline:",
+                f"  steps: [{pipeline_steps}]",
+                "  dashboard_mode: export",
+            ]
+        )
     if extra_lines:
         lines.extend(extra_lines)
 
@@ -677,8 +691,7 @@ def test_export_html_config_segmentation_defaults_to_live_dashboard_settings(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "segmentation:",
-            "  enabled: true",
+            "segment:",
             "  dashboard:",
             "    segmentation_type: signup_platform",
             "    visibility: segments_only",
@@ -702,9 +715,7 @@ def test_export_html_config_segmentation_defaults_to_live_dashboard_settings(
             "          label: Male",
             "          values: [1]",
         ],
-        export_html_lines=[
-            "enabled: true",
-        ],
+        export_html_lines=[],
     )
 
     assert config.export_html.dashboard.segmentation_type == "signup_platform"
@@ -717,8 +728,7 @@ def test_export_html_config_supports_segmentation_overrides(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "segmentation:",
-            "  enabled: true",
+            "segment:",
             "  dashboard:",
             "    segmentation_type: signup_platform",
             "    visibility: segments_only",
@@ -782,7 +792,6 @@ def test_export_html_config_resolves_output_path_relative_to_root(
     config = _write_config(
         tmp_path,
         export_html_lines=[
-            "enabled: true",
             "output_path: exports/dashboard.html",
         ],
     )
@@ -798,9 +807,7 @@ def test_export_html_enabled_without_pages_uses_all_dashboard_states_and_all_sel
     config = _write_config(
         tmp_path,
         dashboard_pages=["overview", "trip_mode"],
-        export_html_lines=[
-            "enabled: true",
-        ],
+        export_html_lines=[],
     )
 
     assert config.export_html.enabled is True
@@ -1035,9 +1042,8 @@ def test_export_html_config_rejects_invalid_or_empty_values(tmp_path: Path) -> N
         _write_config(
             tmp_path / "invalid_export_segmentation_type",
             extra_lines=[
-                "segmentation:",
-                "  enabled: true",
-                "  definitions:",
+                "segment:",
+                    "  definitions:",
                 "    signup_platform:",
                 "      source:",
                 "        type: prepared_column",
@@ -1061,9 +1067,8 @@ def test_export_html_config_rejects_invalid_or_empty_values(tmp_path: Path) -> N
         _write_config(
             tmp_path / "invalid_export_segmentation_visibility",
             extra_lines=[
-                "segmentation:",
-                "  enabled: true",
-                "  definitions:",
+                "segment:",
+                    "  definitions:",
                 "    signup_platform:",
                 "      source:",
                 "        type: prepared_column",
@@ -2288,7 +2293,7 @@ def test_export_html_save_writes_single_client_side_html_file(tmp_path: Path) ->
 def test_export_html_config_supports_missing_data_display(tmp_path: Path) -> None:
     config = _write_config(
         tmp_path,
-        visualizer_lines=["missing_data_display: blank"],
+        display_lines=["missing_data_display: blank"],
     )
 
     assert config.missing_data_display == "blank"
@@ -2303,7 +2308,7 @@ def test_export_html_config_rejects_invalid_missing_data_display(
     ):
         _write_config(
             tmp_path,
-            visualizer_lines=["missing_data_display: loud"],
+            display_lines=["missing_data_display: loud"],
         )
 
 

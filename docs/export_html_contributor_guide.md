@@ -21,18 +21,20 @@ Instead it:
 5. serializes the resulting page shell and region snapshots into JSON
 6. renders that JSON with `dashboard/export/assets/export_runtime.js`
 
-The important architectural change is that export metadata is no longer supposed to come from separate page-owned `PAGE.selectors` or `PAGE.export_regions` declarations for newly authored pages. It should come from runtime `selector(...)` and `section(...)` registration.
+Export metadata comes from the same runtime `selector(...)` and `section(...)`
+registrations used by the live dashboard; pages do not maintain a parallel
+export declaration.
 
 ## Source of Truth
 
 For new-style pages, export support is derived from:
 
-- `PAGE = DashboardPageDefinition(...)`
+- `@dashboard_page(...)`
 - `DashboardPage.build_page()`
 - `self.selector(...)`
 - `self.section(...)`
 
-`PAGE` still owns:
+The `@dashboard_page` declaration owns:
 
 - page identity
 - ordering
@@ -129,7 +131,8 @@ Export config validation checks:
 - unknown selector ids
 - unknown part ids
 
-For migrated pages, selector ids and part ids should resolve from the runtime registration graph first, with legacy `PAGE.selectors` and legacy export-part metadata only serving as compatibility fallback for untouched pages.
+Selector ids and part ids resolve from the runtime registration graph shared by
+live and export modes.
 
 ## When You Change the Contract
 

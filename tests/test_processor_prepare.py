@@ -69,10 +69,9 @@ def _write_config(
     lines = [
         'name: "Processor Prepare Test"',
         "runs: []",
-        "summaries:",
-        "  root: summary_cache",
-        "visualizer:",
-        '  dashboard_title: "Processor Prepare Test"',
+        "root: summary_cache",
+        "dashboard:",
+        '  title: "Processor Prepare Test"',
     ]
     if extra_lines:
         lines.extend(extra_lines)
@@ -1649,10 +1648,9 @@ def test_processor_read_run_marks_misnamed_configured_table_as_unavailable(
             [
                 'name: "Processor Prepare Test"',
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
-                "visualizer:",
-                '  dashboard_title: "Processor Prepare Test"',
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Processor Prepare Test"',
                 "files:",
                 "  trips: definitely_not_trips",
             ]
@@ -1717,10 +1715,9 @@ def test_config_normalizes_per_run_file_map_and_rejects_invalid_keys(
                 '    label: "Run A"',
                 "    file_map:",
                 "      households_alias: final_hh",
-                "summaries:",
-                "  root: summary_cache",
-                "visualizer:",
-                '  dashboard_title: "Invalid File Map Config"',
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Invalid File Map Config"',
             ]
         ),
         encoding="utf-8",
@@ -1912,19 +1909,20 @@ def test_processor_prepare_adds_configured_geography_aggregation_columns(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        Urban: [10]",
-            "        Rural: [20]",
-            "    district:",
-            "      source_zone_system: maz",
-            f"      file: {geography_csv.name}",
-            "      zone_id_col: MAZ",
-            "      geography_col: district",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          Urban: [10]",
+            "          Rural: [20]",
+            "      district:",
+            "        source_zone_system: maz",
+            f"        file: {geography_csv.name}",
+            "        zone_id_col: MAZ",
+            "        geography_col: district",
         ],
     )
 
@@ -1969,13 +1967,14 @@ def test_summary_geography_dimensions_include_native_home_geographies(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        West: [10]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          West: [10]",
         ],
     )
     df = pl.DataFrame(
@@ -2022,19 +2021,20 @@ def test_processor_prepare_skips_geography_aggregation_columns_when_geography_di
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: false",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        Urban: [10]",
-            "        Rural: [20]",
-            "    district:",
-            "      source_zone_system: maz",
-            f"      file: {geography_csv.name}",
-            "      zone_id_col: MAZ",
-            "      geography_col: district",
+            "summarize:",
+            "  geography:",
+            "    enabled: false",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          Urban: [10]",
+            "          Rural: [20]",
+            "      district:",
+            "        source_zone_system: maz",
+            f"        file: {geography_csv.name}",
+            "        zone_id_col: MAZ",
+            "        geography_col: district",
         ],
     )
 
@@ -2054,15 +2054,16 @@ def test_long_term_comparison_summaries_emit_configured_geography_levels(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        West: [10]",
-            "        Central: [20]",
-            "        East: [30]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          West: [10]",
+            "          Central: [20]",
+            "          East: [30]",
         ],
     )
     prepared = processor_prepare_data(_raw_run_with_student_enrollment_inputs(), config)
@@ -2167,15 +2168,16 @@ def test_shadow_pricing_residual_summaries_emit_configured_geography_levels(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        West: [10]",
-            "        Central: [20]",
-            "        East: [30]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          West: [10]",
+            "          Central: [20]",
+            "          East: [30]",
         ],
     )
     prepared = processor_prepare_data(_raw_run_with_student_enrollment_inputs(), config)
@@ -2304,14 +2306,15 @@ def test_workplace_shadow_pricing_residuals_preserve_modeled_only_rows(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        North: [10]",
-            "        South: [20]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          North: [10]",
+            "          South: [20]",
         ],
     )
     prepared = ProcessorRunData(
@@ -2386,15 +2389,16 @@ def test_shadow_pricing_histogram_summaries_include_dynamic_count_bins(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        West: [10]",
-            "        Central: [20]",
-            "        East: [30]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          West: [10]",
+            "          Central: [20]",
+            "          East: [30]",
         ],
     )
     prepared = processor_prepare_data(_raw_run_with_student_enrollment_inputs(), config)
@@ -2452,16 +2456,16 @@ def test_park_and_ride_location_residuals_roll_up_used_lots_only(
         extra_lines=[
             "columns:",
             "  pnr_lot_capacity: [PNR_CAP]",
-            "modes:",
-            "  pnr_tour_modes: [PNR_TRANSIT, PNR_LOCAL, PNR_PREMIUM]",
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    district:",
-            "      source_zone_system: maz",
-            "      mapping:",
-            "        North: [1, 2]",
-            "        South: [3, 4, 5]",
+                "summarize:",
+                "  pnr_tour_modes: [PNR_TRANSIT, PNR_LOCAL, PNR_PREMIUM]",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      district:",
+            "        source_zone_system: maz",
+            "        mapping:",
+            "          North: [1, 2]",
+            "          South: [3, 4, 5]",
         ],
     )
     prepared = ProcessorRunData(
@@ -2584,8 +2588,8 @@ def test_park_and_ride_location_residuals_support_taz_only_inputs(
         extra_lines=[
             "columns:",
             "  pnr_lot_capacity: [PNR_CAP]",
-            "modes:",
-            "  pnr_tour_modes: [PNR_TRANSIT]",
+                "summarize:",
+                "  pnr_tour_modes: [PNR_TRANSIT]",
         ],
     )
     prepared = ProcessorRunData(
@@ -2648,8 +2652,8 @@ def test_park_and_ride_location_residual_histogram_uses_zero_bin_and_configured_
         extra_lines=[
             "columns:",
             "  pnr_lot_capacity: [PNR_CAP]",
-            "modes:",
-            "  pnr_tour_modes: [PNR_TRANSIT, PNR_LOCAL]",
+                "summarize:",
+                "  pnr_tour_modes: [PNR_TRANSIT, PNR_LOCAL]",
         ],
     )
     prepared = ProcessorRunData(
@@ -2698,8 +2702,9 @@ def test_geography_summaries_include_all_geographies_rollups(tmp_path: Path) -> 
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
         ],
     )
     prepared = ProcessorRunData(
@@ -2779,14 +2784,15 @@ def test_geography_summaries_include_configured_aggregation_levels(tmp_path: Pat
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        West: [10]",
-            "        East: [20, 30]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          West: [10]",
+            "          East: [20, 30]",
         ],
     )
     prepared = ProcessorRunData(
@@ -2865,14 +2871,15 @@ def test_mandatory_distance_summaries_include_configured_geography_levels(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        West: [10]",
-            "        East: [20, 30]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          West: [10]",
+            "          East: [20, 30]",
         ],
     )
     prepared = ProcessorRunData(
@@ -2992,14 +2999,15 @@ def test_telecommute_summary_includes_configured_geography_levels(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        West: [10]",
-            "        East: [20, 30]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          West: [10]",
+            "          East: [20, 30]",
         ],
     )
     prepared = ProcessorRunData(
@@ -3138,14 +3146,15 @@ def test_nonmandatory_average_tour_distance_includes_configured_geography_levels
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        West: [10]",
-            "        East: [20, 30]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          West: [10]",
+            "          East: [20, 30]",
         ],
     )
     prepared = ProcessorRunData(
@@ -3276,26 +3285,6 @@ def test_student_type_config_supports_custom_person_segmentation(
     ]
 
 
-def test_prepare_student_types_override_legacy_top_level_student_types(
-    tmp_path: Path,
-) -> None:
-    config = _write_config(
-        tmp_path,
-        extra_lines=[
-            "student_types:",
-            "  - label: Legacy School",
-            "    land_use_columns: [ENROLLGRADEKto8]",
-            "prepare:",
-            "  student_types:",
-            "    - label: School",
-            "      land_use_columns: [ENROLLGRADEKto8]",
-            "    - label: University",
-            "      land_use_columns: [COLLEGEENROLL]",
-        ],
-    )
-
-    assert [entry.label for entry in config.student_types] == ["School", "University"]
-
 
 def test_student_type_config_supports_local_config_enrollment_columns(
     tmp_path: Path,
@@ -3303,11 +3292,12 @@ def test_student_type_config_supports_local_config_enrollment_columns(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "student_types:",
-            "  - label: School",
-            "    land_use_columns: [Elementary_Enrolment, Secondary_Enrolment]",
-            "  - label: University",
-            "    land_use_columns: [PostSecFTE]",
+            "prepare:",
+            "  student_types:",
+            "    - label: School",
+            "      land_use_columns: [Elementary_Enrolment, Secondary_Enrolment]",
+            "    - label: University",
+            "      land_use_columns: [PostSecFTE]",
         ],
     )
 
@@ -3354,13 +3344,14 @@ def test_student_type_config_rejects_custom_multi_school_segmentation_without_pe
         _write_config(
             tmp_path,
             extra_lines=[
-                "student_types:",
-                "  - label: Elementary/Middle School",
-                "    land_use_columns: [ENROLLGRADEKto8]",
-                "  - label: High School",
-                "    land_use_columns: [ENROLLGRADE9to12]",
-                "  - label: University",
-                "    land_use_columns: [COLLEGEENROLL]",
+                "prepare:",
+                "  student_types:",
+                "    - label: Elementary/Middle School",
+                "      land_use_columns: [ENROLLGRADEKto8]",
+                "    - label: High School",
+                "      land_use_columns: [ENROLLGRADE9to12]",
+                "    - label: University",
+                "      land_use_columns: [COLLEGEENROLL]",
             ],
         )
 
@@ -3555,17 +3546,18 @@ def test_processor_prepare_uses_canonical_student_aliases_for_student_type_deriv
             "  school_segment: school_segment_src",
             "  schg: schg_src",
             "  pstudent: pstudent_src",
-            "student_types:",
-            "  - label: School",
-            "    land_use_columns: [ENROLLGRADEKto8]",
-            "    person:",
-            "      is_university: false",
-            "      school_segment: [K12]",
-            "  - label: University",
-            "    land_use_columns: [COLLEGEENROLL]",
-            "    person:",
-            "      is_university: true",
-            "      pstudent: ['2']",
+            "prepare:",
+            "  student_types:",
+            "    - label: School",
+            "      land_use_columns: [ENROLLGRADEKto8]",
+            "      person:",
+            "        is_university: false",
+            "        school_segment: [K12]",
+            "    - label: University",
+            "      land_use_columns: [COLLEGEENROLL]",
+            "      person:",
+            "        is_university: true",
+            "        pstudent: ['2']",
         ],
     )
     raw = _raw_run()

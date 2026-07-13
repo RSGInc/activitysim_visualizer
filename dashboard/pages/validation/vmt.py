@@ -21,8 +21,7 @@ from dashboard.helpers.geography_helpers import (
     geography_name_selector_label,
     geography_type_options,
 )
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
 
 EXTERNAL_TOD_ORDER = ["EA", "AM", "MD", "PM", "EV", "EV1", "EV2"]
 EXTERNAL_COMMERCIAL_COLUMNS = ["car", "mu", "su"]
@@ -852,6 +851,23 @@ def external_travel_filter_options(
     return [EXTERNAL_COMMERCIAL_DAILY_PERIOD, *ordered_time_periods], purpose_options
 
 
+@dashboard_page(
+    page_id="vmt",
+    title="VMT Validation",
+    group_id="validation",
+    order=54,
+    required_summary_ids=(
+        PERSONAL_AUTO_VMT_SUMMARY_ID,
+        NON_MOTORIZED_VMT_SUMMARY_ID,
+        "bicycle_vmt_by_facility_type",
+    ),
+    optional_summary_ids=(
+        "commercial_vehicle_validation_summary",
+        "commercial_vehicle_vmt_validation_summary",
+        "external_trip_validation_summary",
+        "external_vmt_validation_summary",
+    ),
+)
 class VMTValidationPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
         personal_vmt = self.state.get_summary_table_set(
@@ -2096,23 +2112,3 @@ class VMTValidationPage(DashboardPage):
             self.render_external_travel_chart(),
         ]
         return content
-
-
-PAGE = DashboardPageDefinition(
-    page_id="vmt",
-    title="VMT Validation",
-    group_id="validation",
-    order=54,
-    page_cls=VMTValidationPage,
-    required_summary_ids=(
-        PERSONAL_AUTO_VMT_SUMMARY_ID,
-        NON_MOTORIZED_VMT_SUMMARY_ID,
-        "bicycle_vmt_by_facility_type",
-    ),
-    optional_summary_ids=(
-        "commercial_vehicle_validation_summary",
-        "commercial_vehicle_vmt_validation_summary",
-        "external_trip_validation_summary",
-        "external_vmt_validation_summary",
-    ),
-)

@@ -24,15 +24,14 @@ The framework takes care of:
 
 ## Registration Objects
 
-Each page module still exports a module-level `PAGE = DashboardPageDefinition(...)`.
-Creating the definition attaches it to `page_cls`; do not assign
-`MyPage.definition = PAGE` separately.
+Each page module declares one `DashboardPage` subclass with the
+`@dashboard_page(...)` decorator. Metadata and implementation therefore live at
+one declaration site.
 
-`DashboardPageDefinition` is intentionally narrow:
+The decorator accepts the intentionally narrow page definition fields:
 
 - `page_id`
 - `title`
-- `page_cls`
 - `order`
 - `group_id`
 - `default_enabled`
@@ -204,16 +203,22 @@ from __future__ import annotations
 
 import panel as pn
 
-from dashboard.page_base import DashboardPage, SectionContent
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
+from dashboard.page_base import SectionContent
 
 
+@dashboard_page(
+    page_id="my_new_page",
+    title="My New Page",
+    order=120,
+    required_summary_ids=("my_summary_table",),
+)
 class MyNewPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
-        self.purpose_sel = self.selector(
+        self.purpose_sel = self.select(
             "purpose",
-            widget=pn.widgets.Select(name="Purpose", options=["Total"], value="Total"),
-            label="Purpose",
+            "Purpose",
+            options=["Total"],
         )
 
         summary_section = self.section(
@@ -245,15 +250,6 @@ class MyNewPage(DashboardPage):
                 )
             ]
         return [pn.pane.Markdown(f"Current purpose: {self.purpose_sel.value}")]
-
-
-PAGE = DashboardPageDefinition(
-    page_id="my_new_page",
-    title="My New Page",
-    order=120,
-    page_cls=MyNewPage,
-    required_summary_ids=("my_summary_table",),
-)
 ```
 
 ## Authoring Rules
@@ -261,7 +257,7 @@ PAGE = DashboardPageDefinition(
 Do:
 
 - create widgets in `build_page()`
-- register every page-local interactive control with `selector(...)`
+- use `select(...)` for dropdowns and register other interactive controls with `selector(...)`
 - register every refreshable content area with `section(...)`
 - return content from section render functions
 - keep expensive reshaping work behind `get_filtered_view(...)`
@@ -271,10 +267,9 @@ Do:
 
 Do not:
 
-- call `_watch_widget(...)` on newly authored pages
 - assign `section.objects = ...` directly from page code
-- declare page-local selector metadata in `PAGE`
-- declare export regions in `PAGE`
+- declare page-local selector metadata in `@dashboard_page`
+- declare export regions in `@dashboard_page`
 - use `child_id`
 - put large data-transformation blocks inline in `build_page()`
 - let `render_*()` methods become catch-all implementations for the entire page
@@ -345,13 +340,13 @@ dashboard:
 ## Checklist
 
 1. Add or update the page module under `dashboard/pages/`.
-2. Add or update the module-level `PAGE`.
-3. If the page belongs to a group, set `group_id` on `PAGE` and keep the package `GROUP` aligned with `default_page_id`.
+2. Add or update the class's `@dashboard_page(...)` metadata.
+3. If the page belongs to a group, set `group_id` in the decorator and keep the package `GROUP` aligned with `default_page_id`.
 4. Implement `build_page()`.
 5. Register selectors and sections.
 6. Keep selector option logic in `sync_controls()`.
 7. Keep section renderers short and move reusable transforms into shared helpers.
-8. Declare the summary/prepared-data contract in `PAGE`.
+8. Declare the summary/prepared-data contract in `@dashboard_page(...)`.
 9. Add or update tests covering selector refresh and missing-data behavior.
 10. If the page should export interactively, add an export-focused test slice too.
 

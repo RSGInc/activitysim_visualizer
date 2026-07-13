@@ -138,19 +138,20 @@ Skip it when the table is private, transitional, or not yet used as a stable das
 
 If a page should consume the summary:
 
-1. Add the summary id to the page's `PAGE.required_summary_ids`, or to `PAGE.optional_summary_ids` when the page can still render without it.
+1. Add the summary id to the page's `@dashboard_page` `required_summary_ids`, or to `optional_summary_ids` when the page can still render without it.
 2. Use `require_summary(...)` or `require_summaries(...)` in a section render function.
 3. Keep page-specific filtering and chart shaping in the page module.
 
 Example:
 
 ```python
-PAGE = DashboardPageDefinition(
+@dashboard_page(
     page_id="trip_distance",
     title="Trip Distance",
-    page_cls=TripDistancePage,
     required_summary_ids=("trip_distance_by_mode",),
 )
+class TripDistancePage(DashboardPage):
+    ...
 ```
 
 This is what makes the summary available through `DashboardState` and keeps live mode, export mode, and validation aligned.
@@ -163,7 +164,7 @@ Use this order when adding a new summary that will appear in the dashboard:
 2. Register it in `processor/summarize/summary_specs.py` with a stable `summary_id`.
 3. Add or update the builder contract schema if the page will treat it as a stable reusable table.
 4. Add a new page or update an existing page in `dashboard/pages/`.
-5. Declare the page dependency in `PAGE.required_summary_ids` or `PAGE.optional_summary_ids`.
+5. Declare the page dependency in `@dashboard_page` `required_summary_ids` or `optional_summary_ids`.
 6. Add export selector metadata only if the page has page-local controls that must work in HTML export.
 7. Add tests covering the summary output shape and the page wiring.
 

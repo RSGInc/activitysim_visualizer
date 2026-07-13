@@ -12,8 +12,7 @@ from dashboard.helpers.time_distance_helpers import (
     timebin_duration_hours,
     timebin_label,
 )
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
 
 
 def tour_time_chart_data(
@@ -83,6 +82,13 @@ def tour_time_chart_data(
     return dep_data, arr_data, dur_data
 
 
+@dashboard_page(
+    page_id="tour_time",
+    title="Tour Time",
+    group_id="tour_summaries",
+    order=43,
+    required_summary_ids=("tour_time_of_day_by_tour_purpose",),
+)
 class TourTimePage(DashboardPage):
     TOTAL_PURPOSE_LABEL = "All Tour Purposes"
 
@@ -221,13 +227,3 @@ class TourTimePage(DashboardPage):
             display_purpose=display_purpose,
         )
         return [departure_chart, arrival_chart, duration_chart]
-
-
-PAGE = DashboardPageDefinition(
-    page_id="tour_time",
-    title="Tour Time",
-    group_id="tour_summaries",
-    order=43,
-    page_cls=TourTimePage,
-    required_summary_ids=("tour_time_of_day_by_tour_purpose",),
-)

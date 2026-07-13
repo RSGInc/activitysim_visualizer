@@ -8,8 +8,7 @@ import polars as pl
 from dashboard.components import density_chart, selector_row
 from dashboard.helpers.category_helpers import column_options, nonempty
 from dashboard.helpers.time_distance_helpers import max_timebin, timebin_label
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
 
 
 def profile_chart_frame(
@@ -70,6 +69,13 @@ def trip_stop_time_chart_data(
     return trip_data, stop_data
 
 
+@dashboard_page(
+    page_id="trip_stop_time",
+    title="Trip and Stop Time",
+    group_id="trip_summaries",
+    order=49,
+    required_summary_ids=("trip_departure_time_by_purpose",),
+)
 class TripStopTimePage(DashboardPage):
     TOTAL_PURPOSE_LABEL = "All Tour Purposes"
 
@@ -200,13 +206,3 @@ class TripStopTimePage(DashboardPage):
                 yaxis_title="Stops",
             ),
         ]
-
-
-PAGE = DashboardPageDefinition(
-    page_id="trip_stop_time",
-    title="Trip and Stop Time",
-    group_id="trip_summaries",
-    order=49,
-    page_cls=TripStopTimePage,
-    required_summary_ids=("trip_departure_time_by_purpose",),
-)

@@ -15,10 +15,20 @@ from dashboard.helpers.geography_helpers import (
     normalize_geography_data,
     with_display_geography_columns,
 )
-from dashboard.page_base import DashboardPage, SectionContent
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
+from dashboard.page_base import SectionContent
 
 
+@dashboard_page(
+    page_id="internal_external_tours",
+    title="Internal vs. External Tours",
+    group_id="tour_summaries",
+    order=46,
+    required_summary_ids=(
+        "internal_external_nonmandatory_tour_frequency_by_home_geography",
+        "external_nonmandatory_tour_locations",
+    ),
+)
 class InternalExternalToursPage(DashboardPage):
     """Compare internal/external non-mandatory tours across geography levels."""
 
@@ -204,16 +214,3 @@ class InternalExternalToursPage(DashboardPage):
             self._display_geography_table(table_data),
             "External Non-Mandatory Tour Location",
         )
-
-
-PAGE = DashboardPageDefinition(
-    page_id="internal_external_tours",
-    title="Internal vs. External Tours",
-    group_id="tour_summaries",
-    order=46,
-    page_cls=InternalExternalToursPage,
-    required_summary_ids=(
-        "internal_external_nonmandatory_tour_frequency_by_home_geography",
-        "external_nonmandatory_tour_locations",
-    ),
-)

@@ -18,8 +18,7 @@ from dashboard.helpers.person_type_helpers import (
     person_type_selector_options,
     person_type_weights_by_run,
 )
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
 
 TOUR_PURPOSE_LABEL_COL = "tour_purpose_label"
 PERSON_TYPE_SUMMARY_IDS = (
@@ -30,6 +29,19 @@ PERSON_TYPE_SUMMARY_IDS = (
     "trip_rates_by_person_type_and_trip_purpose",
 )
 
+@dashboard_page(
+    page_id="daily_activity_pattern",
+    title="Daily Activity Pattern",
+    group_id="daily_travel",
+    order=28,
+    required_summary_ids=(
+        "daily_activity_pattern_by_person_type",
+        "mandatory_tour_frequency_by_person_type",
+        "nonmandatory_tour_frequency_by_person_type",
+        "tour_rates_by_person_type_and_tour_purpose",
+        "trip_rates_by_person_type_and_trip_purpose",
+    ),
+)
 class DailyActivityPatternPage(DashboardPage):
     """Reference page for person-type filtering and weighted total-rate rollups."""
 
@@ -384,19 +396,3 @@ class DailyActivityPatternPage(DashboardPage):
                 ),
             ),
         ]
-
-
-PAGE = DashboardPageDefinition(
-    page_id="daily_activity_pattern",
-    title="Daily Activity Pattern",
-    group_id="daily_travel",
-    order=28,
-    page_cls=DailyActivityPatternPage,
-    required_summary_ids=(
-        "daily_activity_pattern_by_person_type",
-        "mandatory_tour_frequency_by_person_type",
-        "nonmandatory_tour_frequency_by_person_type",
-        "tour_rates_by_person_type_and_tour_purpose",
-        "trip_rates_by_person_type_and_trip_purpose",
-    ),
-)

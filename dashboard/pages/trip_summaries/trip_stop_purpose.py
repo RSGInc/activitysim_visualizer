@@ -12,8 +12,7 @@ from dashboard.helpers.category_helpers import (
     nonempty,
     ordered_category_values,
 )
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
 
 
 def order_chart_data(
@@ -97,6 +96,16 @@ def trip_purpose_chart_data(
     return out
 
 
+@dashboard_page(
+    page_id="trip_stop_purpose",
+    title="Trip and Stop Purpose",
+    group_id="trip_summaries",
+    order=47,
+    required_summary_ids=(
+        "trip_purpose_distribution",
+        "stop_destination_purpose_by_tour_purpose",
+    ),
+)
 class TripStopPurposePage(DashboardPage):
     TOTAL_PURPOSE_LABEL = "All Tour Purposes"
 
@@ -299,16 +308,3 @@ class TripStopPurposePage(DashboardPage):
                 sizing_mode="stretch_width",
             )
         ]
-
-
-PAGE = DashboardPageDefinition(
-    page_id="trip_stop_purpose",
-    title="Trip and Stop Purpose",
-    group_id="trip_summaries",
-    order=47,
-    page_cls=TripStopPurposePage,
-    required_summary_ids=(
-        "trip_purpose_distribution",
-        "stop_destination_purpose_by_tour_purpose",
-    ),
-)

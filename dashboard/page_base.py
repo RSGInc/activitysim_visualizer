@@ -9,7 +9,7 @@ from typing import Any, Callable, TYPE_CHECKING
 import panel as pn
 
 from runtime.logging import get_logger
-from dashboard import DashboardState
+from dashboard.state import DashboardState
 from dashboard.components import data_unavailable_card
 from dashboard.data_access import (
     DashboardDataSelection,
@@ -51,6 +51,8 @@ PAGE_SELECTOR_STYLESHEET = """
   font-weight: 500;
 }
 """
+
+_UNSET = object()
 
 
 @dataclass(frozen=True)
@@ -209,6 +211,35 @@ class DashboardPage:
         )
         return widget
 
+    def select(
+        self,
+        selector_id: str,
+        label: str,
+        *,
+        options,
+        value: object = _UNSET,
+        exportable: bool = True,
+        **widget_options,
+    ) -> pn.widgets.Select:
+        """Create and register the common single-value dropdown selector."""
+        if value is _UNSET:
+            if isinstance(options, dict):
+                value = next(iter(options.values()), None)
+            else:
+                value = next(iter(options), None)
+        widget = pn.widgets.Select(
+            name=label,
+            options=options,
+            value=value,
+            **widget_options,
+        )
+        return self.selector(
+            selector_id,
+            widget=widget,
+            label=label,
+            exportable=exportable,
+        )
+
     def section(
         self,
         section_id: str,
@@ -319,10 +350,6 @@ class DashboardPage:
             raise TypeError(
                 f"Dashboard page {self.name!r} build_page() must return a Panel viewable."
             )
-
-    def _watch_widget(self, widget: pn.widgets.Widget) -> None:
-        """Legacy helper for pages that have not migrated to selector()."""
-        widget.param.watch(lambda event: self.refresh(force=True), "value")
 
     def new_section(self, *objects, **kwargs) -> pn.Column:
         """Create a stable page section container that can be refreshed in place."""

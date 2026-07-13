@@ -41,10 +41,15 @@ def _write_main_config(
     run_dir = run_dir or (tmp_path / "run")
     lines = [
         'name: "Skimjoin Integration Test"',
-        "summaries:",
-        "  root: summary_cache",
-        "visualizer:",
-        '  dashboard_title: "Skimjoin Integration Test"',
+        "root: summary_cache",
+        "dashboard:",
+        '  title: "Skimjoin Integration Test"',
+        "pipeline:",
+        (
+            "  steps: [prepare, skimjoin, summarize, dashboard]"
+            if skimjoin_enabled
+            else "  steps: [summarize, dashboard]"
+        ),
         "zones:",
         f"  use_maz: {'true' if use_maz else 'false'}",
         "runs:",
@@ -54,14 +59,14 @@ def _write_main_config(
     if run_skimjoin_lines:
         lines.append("    skimjoin:")
         lines.extend(f"      {line}" for line in run_skimjoin_lines)
-    lines.extend(
-        [
-            "skimjoin:",
-            f"  enabled: {'true' if skimjoin_enabled else 'false'}",
-        ]
-    )
+    lines.append("skimjoin:")
     if skimjoin_config_name is not None:
-        lines.append(f"  config_path: {skimjoin_config_name}")
+        lines.extend(
+            [
+                "  defaults:",
+                f"    config_path: {skimjoin_config_name}",
+            ]
+        )
     config_path.write_text("\n".join(lines), encoding="utf-8")
     return Config.from_yaml(config_path)
 
@@ -845,10 +850,9 @@ def test_prepare_workflow_supports_two_runs_with_different_skimjoin_config_files
         "\n".join(
             [
                 'name: "Two Run Skimjoin Test"',
-                "summaries:",
-                "  root: summary_cache",
-                "visualizer:",
-                '  dashboard_title: "Two Run Skimjoin Test"',
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Two Run Skimjoin Test"',
                 "zones:",
                 "  use_maz: false",
                 "runs:",
@@ -910,10 +914,9 @@ def test_prepare_workflow_supports_two_runs_sharing_one_skimjoin_config_with_dif
         "\n".join(
             [
                 'name: "Shared Config Different Skims"',
-                "summaries:",
-                "  root: summary_cache",
-                "visualizer:",
-                '  dashboard_title: "Shared Config Different Skims"',
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Shared Config Different Skims"',
                 "zones:",
                 "  use_maz: false",
                 "runs:",

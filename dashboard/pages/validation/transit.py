@@ -7,8 +7,7 @@ import polars as pl
 
 from dashboard.components import bar_chart, selector_row
 from dashboard.helpers.category_helpers import common_column_options, column_options, nonempty
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
 
 
 def filter_transit_data(
@@ -46,6 +45,16 @@ def filter_transit_data(
     return out
 
 
+@dashboard_page(
+    page_id="transit",
+    title="Transit Validation",
+    group_id="validation",
+    order=53,
+    required_summary_ids=(
+        "transit_boardings_by_operator_and_technology",
+        "transit_transfer_rate",
+    ),
+)
 class TransitValidationPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
         tech_opts, _ = common_column_options(
@@ -232,16 +241,3 @@ class TransitValidationPage(DashboardPage):
         )
         operator_values = self._operator_values(boarding_list, transfer_list)
         return [self.render_transfer_chart(operator_values)]
-
-
-PAGE = DashboardPageDefinition(
-    page_id="transit",
-    title="Transit Validation",
-    group_id="validation",
-    order=53,
-    page_cls=TransitValidationPage,
-    required_summary_ids=(
-        "transit_boardings_by_operator_and_technology",
-        "transit_transfer_rate",
-    ),
-)

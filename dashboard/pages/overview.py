@@ -17,8 +17,8 @@ from dashboard.helpers.comparison_helpers import (
     build_base_run_percent_difference_table,
 )
 from dashboard.helpers.category_helpers import cap_numeric_category_data
-from dashboard.page_base import DashboardPage, SectionContent
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
+from dashboard.page_base import SectionContent
 
 KPI_METRICS = [
     ("person_count", "Population"),
@@ -95,6 +95,17 @@ def hh_size_chart_data(
     )
 
 
+@dashboard_page(
+    page_id="overview",
+    title="Overview",
+    order=10,
+    required_summary_ids=(
+        "population_totals",
+        "person_type_distribution",
+        "household_size_distribution",
+        "auto_vmt_totals",
+    ),
+)
 class OverviewPage(DashboardPage):
     """Render top-line KPIs plus two demographic distributions."""
 
@@ -310,17 +321,3 @@ class OverviewPage(DashboardPage):
                 self.render_household_size_chart(hhsize_result),
             ),
         ]
-
-
-PAGE = DashboardPageDefinition(
-    page_id="overview",
-    title="Overview",
-    order=10,
-    page_cls=OverviewPage,
-    required_summary_ids=(
-        "population_totals",
-        "person_type_distribution",
-        "household_size_distribution",
-        "auto_vmt_totals",
-    ),
-)

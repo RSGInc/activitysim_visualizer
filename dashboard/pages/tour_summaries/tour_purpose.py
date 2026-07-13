@@ -11,8 +11,7 @@ from dashboard.helpers.category_helpers import (
     nonempty,
     ordered_category_values,
 )
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
 
 
 def render_distribution_chart(
@@ -52,6 +51,16 @@ def render_distribution_chart(
     )
 
 
+@dashboard_page(
+    page_id="tour_purpose",
+    title="Tour Purpose",
+    group_id="tour_summaries",
+    order=41,
+    required_summary_ids=(
+        "tour_category_distribution",
+        "tour_purpose_distribution",
+    ),
+)
 class TourPurposePage(DashboardPage):
     """Simple reference page for summary-only chart sections with no selectors."""
 
@@ -96,16 +105,3 @@ class TourPurposePage(DashboardPage):
                 sizing_mode="stretch_width",
             )
         ]
-
-
-PAGE = DashboardPageDefinition(
-    page_id="tour_purpose",
-    title="Tour Purpose",
-    group_id="tour_summaries",
-    order=41,
-    page_cls=TourPurposePage,
-    required_summary_ids=(
-        "tour_category_distribution",
-        "tour_purpose_distribution",
-    ),
-)
