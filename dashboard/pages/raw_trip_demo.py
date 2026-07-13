@@ -115,5 +115,3 @@ PAGE = DashboardPageDefinition(
     required_prepared_tables=("trips",),
     page_cls=RawTripDemoPage,
 )
-
-RawTripDemoPage.definition = PAGE

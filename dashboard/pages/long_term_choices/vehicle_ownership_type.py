@@ -308,5 +308,3 @@ PAGE = DashboardPageDefinition(
         "vehicle_body_type_distribution",
     ),
 )
-
-VehicleOwnershipTypePage.definition = PAGE

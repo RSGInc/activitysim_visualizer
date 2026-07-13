@@ -332,5 +332,3 @@ PAGE = DashboardPageDefinition(
     page_cls=TripModePage,
     required_summary_ids=("trip_mode_by_tour_purpose_and_tour_mode",),
 )
-
-TripModePage.definition = PAGE

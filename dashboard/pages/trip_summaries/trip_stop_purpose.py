@@ -312,5 +312,3 @@ PAGE = DashboardPageDefinition(
         "stop_destination_purpose_by_tour_purpose",
     ),
 )
-
-TripStopPurposePage.definition = PAGE

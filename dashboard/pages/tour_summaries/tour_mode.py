@@ -545,5 +545,3 @@ PAGE = DashboardPageDefinition(
         "allocated_vehicle_body_type_by_occupancy",
     ),
 )
-
-TourModePage.definition = PAGE

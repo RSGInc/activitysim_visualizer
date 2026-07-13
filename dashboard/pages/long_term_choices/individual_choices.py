@@ -376,5 +376,3 @@ PAGE = DashboardPageDefinition(
         "transit_subsidy_by_person_type",
     ),
 )
-
-IndividualChoicesPage.definition = PAGE

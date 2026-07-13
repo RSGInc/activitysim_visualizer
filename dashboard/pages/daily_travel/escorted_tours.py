@@ -81,7 +81,6 @@ DISTANCE_DESCRIPTION = (
     "directions."
 )
 
-
 def direction_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
     """Return the dashboard's display directions in stable order."""
     directions = ordered_category_values(data_list, DIRECTION_COL)
@@ -898,5 +897,3 @@ PAGE = DashboardPageDefinition(
     page_cls=EscortedToursPage,
     required_summary_ids=(*PAGE_SUMMARY_IDS,),
 )
-
-EscortedToursPage.definition = PAGE

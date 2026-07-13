@@ -560,7 +560,7 @@ def test_dashboard_page_phase1_convenience_helpers(tmp_path: Path) -> None:
 
     class ProbePage(DashboardPage):
         def __init__(self) -> None:
-            super().__init__("Probe", state, config)
+            super().__init__(state, config)
             self.view = pn.Column()
 
         def _refresh(self) -> None:

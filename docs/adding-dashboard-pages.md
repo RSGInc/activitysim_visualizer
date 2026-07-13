@@ -25,6 +25,8 @@ The framework takes care of:
 ## Registration Objects
 
 Each page module still exports a module-level `PAGE = DashboardPageDefinition(...)`.
+Creating the definition attaches it to `page_cls`; do not assign
+`MyPage.definition = PAGE` separately.
 
 `DashboardPageDefinition` is intentionally narrow:
 
@@ -252,8 +254,6 @@ PAGE = DashboardPageDefinition(
     page_cls=MyNewPage,
     required_summary_ids=("my_summary_table",),
 )
-
-MyNewPage.definition = PAGE
 ```
 
 ## Authoring Rules

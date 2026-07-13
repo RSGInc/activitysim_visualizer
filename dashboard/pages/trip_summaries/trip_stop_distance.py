@@ -270,5 +270,3 @@ PAGE = DashboardPageDefinition(
         "stop_out_of_direction_distance_by_tour_purpose",
     ),
 )
-
-TripStopDistancePage.definition = PAGE

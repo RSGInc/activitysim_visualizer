@@ -17,7 +17,6 @@ PARKING_CAPACITY_COLUMNS = (
     "PARKING_SPACES",
 )
 
-
 def _parking_capacity_col(land_use: pl.DataFrame) -> str | None:
     for column in PARKING_CAPACITY_COLUMNS:
         if column in land_use.columns:
@@ -169,5 +168,3 @@ PAGE = DashboardPageDefinition(
     required_summary_ids=("parking_locations",),
     required_prepared_tables=("land_use",),
 )
-
-ParkingLocationPage.definition = PAGE

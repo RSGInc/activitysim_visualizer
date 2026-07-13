@@ -324,5 +324,3 @@ PAGE = DashboardPageDefinition(
         "auto_vmt_totals",
     ),
 )
-
-OverviewPage.definition = PAGE

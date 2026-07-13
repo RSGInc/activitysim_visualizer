@@ -400,5 +400,3 @@ PAGE = DashboardPageDefinition(
         "average_nonmandatory_tour_distance_by_purpose_and_geography",
     ),
 )
-
-TourDistancePage.definition = PAGE

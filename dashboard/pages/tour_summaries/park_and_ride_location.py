@@ -222,5 +222,3 @@ PAGE = DashboardPageDefinition(
         "park_and_ride_location_residual_histogram",
     ),
 )
-
-ParkAndRideLocationPage.definition = PAGE

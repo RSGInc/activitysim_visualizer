@@ -260,5 +260,3 @@ PAGE = DashboardPageDefinition(
         "atwork_subtour_frequency_distribution",
     ),
 )
-
-TourStopFrequencyPage.definition = PAGE

@@ -30,7 +30,6 @@ PERSON_TYPE_SUMMARY_IDS = (
     "trip_rates_by_person_type_and_trip_purpose",
 )
 
-
 class DailyActivityPatternPage(DashboardPage):
     """Reference page for person-type filtering and weighted total-rate rollups."""
 
@@ -401,5 +400,3 @@ PAGE = DashboardPageDefinition(
         "trip_rates_by_person_type_and_trip_purpose",
     ),
 )
-
-DailyActivityPatternPage.definition = PAGE

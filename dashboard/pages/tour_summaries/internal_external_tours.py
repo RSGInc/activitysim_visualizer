@@ -217,5 +217,3 @@ PAGE = DashboardPageDefinition(
         "external_nonmandatory_tour_locations",
     ),
 )
-
-InternalExternalToursPage.definition = PAGE

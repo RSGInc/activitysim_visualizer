@@ -568,5 +568,3 @@ PAGE = DashboardPageDefinition(
         "household_jtp_by_household_size_and_jtf",
     ),
 )
-
-JointTravelPage.definition = PAGE

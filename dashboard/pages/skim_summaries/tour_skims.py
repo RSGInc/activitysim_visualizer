@@ -23,7 +23,6 @@ from dashboard.pages.skim_summaries._shared import (
     tour_component_base_options,
     tour_mode_options,
 )
-
 TOP_SELECTOR_ROW_STYLESHEET = """
 :host(.tour-skim-top-selector) {
   max-width: 240px;
@@ -492,5 +491,3 @@ PAGE = DashboardPageDefinition(
     required_prepared_tables=("tours",),
     required_summary_ids=(TOUR_STATS_SUMMARY_ID,),
 )
-
-TourSkimsPage.definition = PAGE

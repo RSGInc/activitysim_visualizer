@@ -21,7 +21,6 @@ from dashboard.pages.skim_summaries._shared import (
     skim_family_options,
     skim_summary_precision_overrides,
 )
-
 TOP_SELECTOR_ROW_STYLESHEET = """
 :host(.trip-skim-top-selector) {
   max-width: 240px;
@@ -448,5 +447,3 @@ PAGE = DashboardPageDefinition(
     required_prepared_tables=("trips",),
     required_summary_ids=(TRIP_STATS_SUMMARY_ID,),
 )
-
-TripSkimsPage.definition = PAGE

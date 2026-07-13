@@ -578,5 +578,3 @@ PAGE = DashboardPageDefinition(
         "commuting_flows",
     ),
 )
-
-RegionalValidationPage.definition = PAGE

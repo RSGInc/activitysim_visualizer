@@ -81,25 +81,14 @@ class DashboardPage:
 
     definition: DashboardPageDefinition | None = None
 
-    def __init__(self, *args) -> None:
-        if len(args) == 2:
-            state, config = args
-            definition = self.definition
-            derived_name = (
-                definition.title if definition is not None else type(self).__name__
-            )
-        elif len(args) == 3:
-            derived_name, state, config = args
-        else:
-            raise TypeError(
-                "DashboardPage expects (state, config) or legacy (name, state, config)."
-            )
+    def __init__(self, state: DashboardState, config: Config) -> None:
         if not isinstance(state, DashboardState):
             raise TypeError("DashboardPage requires a DashboardState instance.")
         if not isinstance(config, Config):
             raise TypeError("DashboardPage requires a Config instance.")
 
-        name = str(derived_name)
+        definition = self.definition
+        name = definition.title if definition is not None else type(self).__name__
         self.name = name
         self.state = state
         self.config = config

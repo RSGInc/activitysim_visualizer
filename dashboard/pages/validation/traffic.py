@@ -982,5 +982,3 @@ PAGE = DashboardPageDefinition(
         "count_location_fit_validation_summary",
     ),
 )
-
-TrafficValidationPage.definition = PAGE

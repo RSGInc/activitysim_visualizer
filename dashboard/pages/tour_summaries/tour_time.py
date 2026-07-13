@@ -231,5 +231,3 @@ PAGE = DashboardPageDefinition(
     page_cls=TourTimePage,
     required_summary_ids=("tour_time_of_day_by_tour_purpose",),
 )
-
-TourTimePage.definition = PAGE

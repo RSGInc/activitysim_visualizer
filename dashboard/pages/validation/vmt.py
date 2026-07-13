@@ -2116,5 +2116,3 @@ PAGE = DashboardPageDefinition(
         "external_vmt_validation_summary",
     ),
 )
-
-VMTValidationPage.definition = PAGE

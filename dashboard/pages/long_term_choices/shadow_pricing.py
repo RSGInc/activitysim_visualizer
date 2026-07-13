@@ -460,5 +460,3 @@ PAGE = DashboardPageDefinition(
         "school_shadow_pricing_residual_histogram",
     ),
 )
-
-ShadowPricingPage.definition = PAGE

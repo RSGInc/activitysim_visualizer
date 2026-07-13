@@ -109,5 +109,3 @@ PAGE = DashboardPageDefinition(
         "tour_purpose_distribution",
     ),
 )
-
-TourPurposePage.definition = PAGE

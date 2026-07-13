@@ -43,7 +43,6 @@ from dashboard.pages.long_term_choices._mandatory_location_choice_support import
     work_from_home_chart_data,
 )
 
-
 class MandatoryLocationChoicePage(DashboardPage):
     """Geography-driven page for mandatory worker, commute, and distance summaries."""
 
@@ -803,5 +802,3 @@ PAGE = DashboardPageDefinition(
         "average_mandatory_tour_distance_by_purpose_and_geography",
     ),
 )
-
-MandatoryLocationChoicePage.definition = PAGE

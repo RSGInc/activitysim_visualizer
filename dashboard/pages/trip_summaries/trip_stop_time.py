@@ -210,5 +210,3 @@ PAGE = DashboardPageDefinition(
     page_cls=TripStopTimePage,
     required_summary_ids=("trip_departure_time_by_purpose",),
 )
-
-TripStopTimePage.definition = PAGE

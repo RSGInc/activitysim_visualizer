@@ -67,7 +67,7 @@ from dashboard.page_registry import (
     default_page_definitions,
     enabled_prepared_data_mode,
     page_definition_by_id,
-    resolve_page_definitions,
+    resolve_live_page_definitions,
 )
 from dashboard.state import DashboardState
 from processor.models import RunData
@@ -147,7 +147,7 @@ def test_discovered_page_modules_export_page_definitions_without_legacy_build_ap
     assert all(not hasattr(module, "build") for module in discovered_modules)
 
 
-def test_page_registry_smoke_checks_ids_titles_and_selector_uniqueness() -> None:
+def test_page_registry_smoke_checks_metadata_and_class_attachment() -> None:
     definitions = all_page_definitions()
 
     assert all(definition.page_id for definition in definitions)
@@ -156,8 +156,7 @@ def test_page_registry_smoke_checks_ids_titles_and_selector_uniqueness() -> None
     assert all(definition.page_cls is not None for definition in definitions)
 
     for definition in definitions:
-        selector_ids = [selector.selector_id for selector in definition.selectors]
-        assert len(selector_ids) == len(set(selector_ids))
+        assert definition.page_cls.definition is definition
         assert definition.prepared_data_mode in {"none", "optional", "required"}
         assert len(set(definition.required_summary_ids)) == len(
             definition.required_summary_ids
@@ -2038,7 +2037,7 @@ def test_resolve_page_definitions_defaults_to_default_pages_when_unconfigured(
 ) -> None:
     config = _write_config(tmp_path, dashboard_pages=None)
 
-    resolved_pages = resolve_page_definitions(config)
+    resolved_pages = resolve_live_page_definitions(config)
 
     assert [page.title for page in resolved_pages] == EXPECTED_DEFAULT_LEAF_PAGE_TITLES
 
@@ -2056,7 +2055,7 @@ def test_page_selectors_render_with_widget_label_instead_of_duplicate_markdown(
 
     selector_row = page.view.objects[1]
     assert isinstance(selector_row, pn.Row)
-    assert selector_row.objects == [page.tour_purpose_sel]
+    assert selector_row.objects == [page.tour_purpose_sel, page.hide_drive_alone]
     assert page.tour_purpose_sel.name == "Tour Purpose"
     assert "page-selector-widget" in page.tour_purpose_sel.css_classes
     assert PAGE_SELECTOR_STYLESHEET in page.tour_purpose_sel.stylesheets
@@ -2070,7 +2069,7 @@ def test_resolve_page_definitions_respects_configured_page_order_and_subset(
         dashboard_pages=["trip_mode", "overview", "joint_travel"],
     )
 
-    resolved_pages = resolve_page_definitions(config)
+    resolved_pages = resolve_live_page_definitions(config)
 
     assert [page.page_id for page in resolved_pages] == [
         "trip_mode",
@@ -2091,7 +2090,7 @@ def test_resolve_page_definitions_supports_nested_group_child_selection(
         ],
     )
 
-    resolved_pages = resolve_page_definitions(config)
+    resolved_pages = resolve_live_page_definitions(config)
 
     assert [page.page_id for page in resolved_pages] == [
         "overview",
@@ -2149,7 +2148,7 @@ def test_resolve_page_definitions_rejects_unknown_configured_page_ids(
     with pytest.raises(
         ValueError, match="Unsupported visualizer.dashboard_pages entries"
     ):
-        resolve_page_definitions(config)
+        resolve_live_page_definitions(config)
 
 
 def test_resolve_page_definitions_rejects_duplicate_configured_page_ids(
@@ -2202,12 +2201,20 @@ def test_build_dashboard_can_refresh_every_default_page_from_precomputed_summari
         for selector in leaf_pages["trip_stop_distance"].registered_selectors
     ] == [
         "tour_purpose",
+        "trip_stop_distance_min",
+        "trip_stop_distance_max",
     ]
     assert leaf_pages["daily_activity_pattern"].person_type_sel.options == [
         "All Person Types",
         "worker",
     ]
-    assert leaf_pages["joint_travel"].hhsize_sel.options == ["All", "2", "3"]
+    assert leaf_pages["joint_travel"].hhsize_sel.options == [
+        "All",
+        "2",
+        "3",
+        "4",
+        "5+",
+    ]
     assert leaf_pages["tour_time"].purpose_sel.options == ["All Tour Purposes", "work"]
     assert leaf_pages["tour_mode"].purpose_sel.options == ["All Tour Purposes", "work"]
     assert leaf_pages["tour_stop_frequency"].purpose_sel.options == [
@@ -2492,7 +2499,7 @@ def test_dashboard_page_cache_helpers_reuse_summary_and_filtered_view_results(
 
     class CacheProbePage(DashboardPage):
         def __init__(self) -> None:
-            super().__init__("Cache Probe", state, config)
+            super().__init__(state, config)
             self.view = pn.Column()
 
         def _filtered_view_factory(self) -> dict[str, str]:

@@ -14,12 +14,9 @@ from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import (
     DashboardDataRequirements,
-    PageExportPartDefinition,
-    PageExportRegionDefinition,
     DashboardGroupDefinition,
     DashboardPageConfigEntry,
     DashboardPageDefinition,
-    PageSelectorDefinition,
     PreparedDataMode,
 )
 from processor.models import PREPARED_TABLE_NAMES, PreparedTableName, RunData
@@ -192,7 +189,6 @@ def _page_definition_from_module(module: object) -> DashboardPageDefinition:
         raise ValueError(
             f"Dashboard page {page_definition.page_id!r} does not declare a page class."
         )
-    page_cls.definition = page_definition
     return page_definition
 
 
@@ -260,57 +256,6 @@ def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
             + ", ".join(repr(summary_id) for summary_id in unknown_summary_ids)
         )
 
-    selector_ids = [selector.selector_id for selector in page_definition.selectors]
-    if len(selector_ids) != len(set(selector_ids)):
-        raise ValueError(
-            f"Dashboard page {page_definition.page_id!r} declares duplicate selector ids."
-        )
-
-    region_ids = [region.region_id for region in page_definition.export_regions]
-    if len(region_ids) != len(set(region_ids)):
-        raise ValueError(
-            f"Dashboard page {page_definition.page_id!r} declares duplicate export region ids."
-        )
-    part_ids = [part.part_id for part in page_definition.export_parts]
-    if len(part_ids) != len(set(part_ids)):
-        raise ValueError(
-            f"Dashboard page {page_definition.page_id!r} declares duplicate export part ids."
-        )
-    if page_definition.export_regions and page_definition.export_parts:
-        raise ValueError(
-            f"Dashboard page {page_definition.page_id!r} must not declare both export_regions and export_parts."
-        )
-
-    selector_id_set = set(selector_ids)
-    exportable_selector_ids = {
-        selector.selector_id
-        for selector in page_definition.selectors
-        if selector.exportable
-    }
-    referenced_selector_ids: set[str] = set()
-    export_parts = effective_export_parts(page_definition)
-    for part in export_parts:
-        unknown_part_selectors = [
-            selector_id
-            for selector_id in part.selector_ids
-            if selector_id not in selector_id_set
-        ]
-        if unknown_part_selectors:
-            raise ValueError(
-                f"Dashboard page {page_definition.page_id!r} export part {part.part_id!r} "
-                "references unknown selector ids: "
-                + ", ".join(repr(selector_id) for selector_id in unknown_part_selectors)
-            )
-        referenced_selector_ids.update(part.selector_ids)
-    missing_region_selectors = sorted(exportable_selector_ids - referenced_selector_ids)
-    if exportable_selector_ids and missing_region_selectors:
-        raise ValueError(
-            f"Dashboard page {page_definition.page_id!r} does not assign export regions to "
-            "selector ids: "
-            + ", ".join(repr(selector_id) for selector_id in missing_region_selectors)
-        )
-
-
 def _validate_selected_page_definitions(
     page_definitions: (
         list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
@@ -343,61 +288,6 @@ def page_definitions_for_group(group_id: str) -> tuple[DashboardPageDefinition, 
         for page_definition in all_page_definitions()
         if page_definition.group_id == group_id
     )
-
-
-def selector_definition_by_id(
-    page_id: str, selector_id: str
-) -> PageSelectorDefinition | None:
-    """Look up one registered selector definition by page id and selector id."""
-    page_definition = page_definition_by_id(page_id)
-    if page_definition is None:
-        return None
-    for selector in page_definition.selectors:
-        if selector.selector_id == selector_id:
-            return selector
-    return None
-
-
-def export_part_definition_by_id(
-    page_id: str,
-    part_id: str,
-) -> PageExportPartDefinition | None:
-    """Look up one registered export part definition by page id and part id."""
-    page_definition = page_definition_by_id(page_id)
-    if page_definition is None:
-        return None
-    for part in effective_export_parts(page_definition):
-        if part.part_id == part_id:
-            return part
-    return None
-
-
-def effective_export_parts(
-    page_definition: DashboardPageDefinition,
-) -> tuple[PageExportPartDefinition, ...]:
-    """Return the effective export parts for one page definition."""
-    if page_definition.export_parts:
-        return page_definition.export_parts
-    return tuple(
-        PageExportPartDefinition(
-            part_id=region.region_id,
-            view_attr=region.view_attr,
-            selector_ids=region.selector_ids,
-        )
-        for region in page_definition.export_regions
-    )
-
-
-def exportable_page_selectors() -> (
-    list[tuple[DashboardPageDefinition, PageSelectorDefinition]]
-):
-    """Return all exportable page selectors in stable page/selector order."""
-    return [
-        (page_definition, selector)
-        for page_definition in all_page_definitions()
-        for selector in page_definition.selectors
-        if selector.exportable
-    ]
 
 
 def default_page_definitions() -> tuple[DashboardPageDefinition, ...]:
@@ -581,11 +471,6 @@ def resolve_live_page_definitions(config: Config) -> list[DashboardPageDefinitio
 def resolve_live_navigation_entries(config: Config) -> list[DashboardNavigationEntry]:
     """Resolve the live dashboard top-level navigation entries."""
     return list(navigation_entries_for_pages(resolve_live_page_definitions(config)))
-
-
-def resolve_page_definitions(config: Config) -> list[DashboardPageDefinition]:
-    """Compatibility alias for the live dashboard page resolver."""
-    return resolve_live_page_definitions(config)
 
 
 def resolve_export_page_definitions(config: Config) -> list[DashboardPageDefinition]:

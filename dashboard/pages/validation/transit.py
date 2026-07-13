@@ -245,5 +245,3 @@ PAGE = DashboardPageDefinition(
         "transit_transfer_rate",
     ),
 )
-
-TransitValidationPage.definition = PAGE
