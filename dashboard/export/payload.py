@@ -7,7 +7,7 @@ import json
 from time import perf_counter
 from typing import Any
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 import panel as pn
 
 from dashboard.components import (

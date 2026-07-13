@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 import polars as pl
 
 from processor.prepare.enrichment.autosuff import derive_household_autosuff_counts

@@ -548,6 +548,187 @@ def test_run_summary_workflow_overlays_summary_table_map_on_generated_summaries(
     ]
 
 
+def test_run_summary_workflow_reuses_all_existing_prepared_runs_when_cache_disabled(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_a_dir = tmp_path / "run_a"
+    run_b_dir = tmp_path / "run_b"
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {"dir": str(run_a_dir), "label": "Run A"},
+            {"dir": str(run_b_dir), "label": "Run B"},
+        ],
+    )
+    prepared_a = _fake_run_data("Run A", str(run_a_dir))
+    prepared_b = _fake_run_data("Run B", str(run_b_dir))
+    existing_result = ProcessorWorkflowResult(
+        prepared_runs=[("Run A", prepared_a), ("Run B", prepared_b)],
+        prepared_runs_by_key={
+            "run-a": ("Run A", prepared_a),
+            "run-b": ("Run B", prepared_b),
+        },
+        run_keys=["run-a", "run-b"],
+    )
+    summary_build_labels: list[str] = []
+
+    def fake_build_mode_summaries_with_metadata(rd, config, summary_ids=None):
+        summary_build_labels.append(rd.label)
+        requested = list(summary_ids or [])
+        return (
+            {
+                mode: {
+                    summary_id: pl.DataFrame({"run": [rd.label]})
+                    for summary_id in requested
+                }
+                for mode in config.weighting_modes
+            },
+            {
+                mode: {
+                    summary_id: {"state": "available"}
+                    for summary_id in requested
+                }
+                for mode in config.weighting_modes
+            },
+        )
+
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(
+        summary_cache,
+        "build_mode_summaries_with_metadata",
+        fake_build_mode_summaries_with_metadata,
+    )
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("existing prepared runs should be reused")
+        ),
+        prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("existing prepared runs should be reused")
+        ),
+    )
+
+    result = runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        prepared_prefer_cache=False,
+        write_cache=False,
+        existing_result=existing_result,
+    )
+
+    assert summary_build_labels == ["Run A", "Run B"]
+    assert result.prepared_runs_by_key["run-a"][1] is prepared_a
+    assert result.prepared_runs_by_key["run-b"][1] is prepared_b
+    assert result.run_keys == ["run-a", "run-b"]
+
+
+def test_prepare_then_summary_does_not_rerun_skimjoin_for_existing_prepared_runs(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_a_dir = tmp_path / "run_a"
+    run_b_dir = tmp_path / "run_b"
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {"dir": str(run_a_dir), "label": "Run A"},
+            {"dir": str(run_b_dir), "label": "Run B"},
+        ],
+        extra_lines=[
+            "pipeline:",
+            "  steps:",
+            "    - prepare",
+            "    - skimjoin",
+            "    - summarize",
+        ],
+    )
+    read_labels: list[str] = []
+    skimjoin_labels: list[str] = []
+
+    def fake_read_run(run_dir, config, label=None, **kwargs):
+        run_label = label or Path(run_dir).name
+        read_labels.append(run_label)
+        return _fake_run_data(run_label, str(run_dir))
+
+    def fake_apply_skimjoin(rd, config):
+        skimjoin_labels.append(rd.label)
+        return rd
+
+    def fake_build_mode_summaries_with_metadata(rd, config, summary_ids=None):
+        requested = list(summary_ids or [])
+        return (
+            {
+                mode: {
+                    summary_id: pl.DataFrame({"run": [rd.label]})
+                    for summary_id in requested
+                }
+                for mode in config.weighting_modes
+            },
+            {
+                mode: {
+                    summary_id: {"state": "available"}
+                    for summary_id in requested
+                }
+                for mode in config.weighting_modes
+            },
+        )
+
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(
+        summary_cache,
+        "build_mode_summaries_with_metadata",
+        fake_build_mode_summaries_with_metadata,
+    )
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=fake_read_run,
+        prepare_data=lambda rd, config: rd,
+    )
+    def fake_resolve_skimjoin(config, entry):
+        return SkimjoinSettings(
+            enabled=True,
+            config_path="mock_skimjoin.yaml",
+            config_digest="mock-digest",
+        )
+
+    monkeypatch.setattr(
+        "runtime.config.resolve_run_skimjoin_settings",
+        fake_resolve_skimjoin,
+    )
+    monkeypatch.setattr(
+        "runtime.config.normalize_prepare.resolve_run_skimjoin_settings",
+        fake_resolve_skimjoin,
+    )
+    monkeypatch.setattr(prepare_workflow, "apply_skimjoin", fake_apply_skimjoin)
+
+    prepare_result = runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=False,
+        apply_skimjoin=True,
+    )
+    runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        prepared_prefer_cache=False,
+        write_cache=False,
+        existing_result=prepare_result,
+        apply_skimjoin=True,
+    )
+
+    assert read_labels == ["Run A", "Run B"]
+    assert skimjoin_labels == ["Run A", "Run B"]
+
+
 def test_run_summary_workflow_does_not_build_non_default_registered_summaries(
     tmp_path: Path,
     monkeypatch,
@@ -2201,11 +2382,17 @@ def test_resolve_effective_plan_drops_dashboard_when_config_dashboard_mode_is_no
 
 def test_resolve_dashboard_execution_mode_maps_host_to_live_with_warning(
     caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     execution_mode = cli_run.resolve_dashboard_execution_mode("host")
 
     assert execution_mode == "live"
-    assert "pipeline.dashboard_mode 'host' is not implemented yet; using live mode." in caplog.text
+    captured = capsys.readouterr()
+    combined_output = caplog.text + captured.err + captured.out
+    assert (
+        "pipeline.dashboard_mode 'host' is not implemented yet; using live mode."
+        in combined_output
+    )
 
 
 def test_resolve_effective_plan_preserves_logical_skimjoin_step_for_prepare_only_defaults(

@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from uuid import uuid4
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 from plotly.offline import get_plotlyjs
 
 from dashboard.export.payload import build_export_artifacts, emit_export_size_warnings

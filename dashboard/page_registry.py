@@ -7,7 +7,7 @@ from functools import lru_cache
 import importlib
 import pkgutil
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 import dashboard.pages as dashboard_pages_package
 from dashboard import DashboardState
 from dashboard.data_access import DashboardPreparedRunProvider

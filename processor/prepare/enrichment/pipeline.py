@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 
 from processor.models import RunData
 from processor.prepare.enrichment.bootstrap import _init_prepare_state

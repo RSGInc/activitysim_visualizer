@@ -3235,19 +3235,20 @@ def test_student_type_config_supports_custom_person_segmentation(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "student_types:",
-            "  - label: Elementary/Middle School",
-            "    land_use_columns: [ENROLLGRADEKto8]",
-            "    person:",
-            "      school_segment: [1]",
-            "  - label: High School",
-            "    land_use_columns: [ENROLLGRADE9to12]",
-            "    person:",
-            "      SCHG: [2]",
-            "  - label: University",
-            "    land_use_columns: [COLLEGEENROLL]",
-            "    person:",
-            "      is_university: true",
+            "prepare:",
+            "  student_types:",
+            "    - label: Elementary/Middle School",
+            "      land_use_columns: [ENROLLGRADEKto8]",
+            "      person:",
+            "        school_segment: [1]",
+            "    - label: High School",
+            "      land_use_columns: [ENROLLGRADE9to12]",
+            "      person:",
+            "        SCHG: [2]",
+            "    - label: University",
+            "      land_use_columns: [COLLEGEENROLL]",
+            "      person:",
+            "        is_university: true",
         ],
     )
 
@@ -3273,6 +3274,27 @@ def test_student_type_config_supports_custom_person_segmentation(
         "Elementary/Middle School",
         "University",
     ]
+
+
+def test_prepare_student_types_override_legacy_top_level_student_types(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "student_types:",
+            "  - label: Legacy School",
+            "    land_use_columns: [ENROLLGRADEKto8]",
+            "prepare:",
+            "  student_types:",
+            "    - label: School",
+            "      land_use_columns: [ENROLLGRADEKto8]",
+            "    - label: University",
+            "      land_use_columns: [COLLEGEENROLL]",
+        ],
+    )
+
+    assert [entry.label for entry in config.student_types] == ["School", "University"]
 
 
 def test_student_type_config_supports_local_config_enrollment_columns(

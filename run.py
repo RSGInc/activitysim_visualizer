@@ -10,7 +10,7 @@ import sys
 import time
 from pathlib import Path
 
-from activitysim_viz_logging import configure_logging, get_logger, shutdown_logging
+from runtime.logging import configure_logging, get_logger, shutdown_logging
 from dashboard.page_registry import (
     export_data_requirements,
     live_data_requirements,

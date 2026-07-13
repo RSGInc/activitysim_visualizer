@@ -825,25 +825,81 @@ def test_summary_categories_change_summary_digest_without_changing_presentation_
     config_a = _write_config(
         tmp_path / "a",
         extra_lines=[
-            "summary_categories:",
-            "  geography:",
-            "    mapping:",
-            "      1: Urban",
+            "summarize:",
+            "  category_normalization:",
+            "    geography:",
+            "      mapping:",
+            "        1: Urban",
         ],
     )
     config_b = _write_config(
         tmp_path / "b",
         extra_lines=[
-            "summary_categories:",
-            "  geography:",
-            "    mapping:",
-            "      1: Core",
+            "summarize:",
+            "  category_normalization:",
+            "    geography:",
+            "      mapping:",
+            "        1: Core",
         ],
     )
 
     assert config_a.prepare_config_digest == config_b.prepare_config_digest
     assert config_a.summary_config_digest != config_b.summary_config_digest
     assert config_a.presentation_config_digest == config_b.presentation_config_digest
+
+
+def test_summarize_category_normalization_overrides_legacy_summary_categories(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "summary_categories:",
+            "  geography:",
+            "    mapping:",
+            "      1: Legacy",
+            "summarize:",
+            "  category_normalization:",
+            "    geography:",
+            "      mapping:",
+            "        1: Canonical",
+        ],
+    )
+
+    assert config.normalize_summary_value("geography", 1) == "Canonical"
+
+
+def test_legacy_summary_categories_remain_supported(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "summary_categories:",
+            "  geography:",
+            "    mapping:",
+            "      1: Legacy",
+        ],
+    )
+
+    assert config.normalize_summary_value("geography", 1) == "Legacy"
+
+
+def test_summarize_summary_categories_alias_remains_supported(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "summarize:",
+            "  summary_categories:",
+            "    geography:",
+            "      mapping:",
+            "        1: Section Alias",
+        ],
+    )
+
+    assert config.normalize_summary_value("geography", 1) == "Section Alias"
 
 
 def test_typed_geography_summaries_include_configured_aggregation_levels(

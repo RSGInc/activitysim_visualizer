@@ -11,7 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from activitysim_viz_logging import configure_logging, get_logger, shutdown_logging
+from runtime.logging import configure_logging, get_logger, shutdown_logging
 from dashboard.app import build_dashboard
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition

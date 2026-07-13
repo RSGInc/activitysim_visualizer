@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 from processor.analysis_units import AnalysisUnit
 from processor.models import ProcessorWorkflowResult, RunData
 

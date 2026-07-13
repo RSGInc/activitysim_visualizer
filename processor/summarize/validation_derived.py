@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 import polars as pl
 
 from processor.summarize.cache_types import SummaryRun, create_summary_run

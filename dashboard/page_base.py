@@ -8,7 +8,7 @@ from typing import Any, Callable, TYPE_CHECKING
 
 import panel as pn
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 from dashboard import DashboardState
 from dashboard.components import data_unavailable_card
 from dashboard.data_access import (

@@ -330,6 +330,7 @@ These are the sections most people need to touch:
 | `columns` | Column aliases when outputs use non-default names |
 | `prepare.output.file_format` | On-disk format for prepared caches written by the normal prepare workflow |
 | `prepare.validation.relationship_checks` | Whether cross-table prepared-key validation is disabled, warns, or errors |
+| `prepare.student_types` | Optional school/university enrollment definitions for shadow pricing pages |
 | `dashboard.title` | Title used in the live dashboard and HTML export |
 | `dashboard.live.pages` | Ordered list of live pages/groups to show |
 | `dashboard.export` | Export-only output path, page selection, and selector-state controls |
@@ -339,10 +340,9 @@ These are the sections most people need to touch:
 | `summarize.geography` | Optional configured district/county/zone mappings |
 | `summarize.pnr_tour_modes` | Which tour modes count as park-and-ride in summary builders |
 | `summarize.group_*_tour_purposes` | Summary-time purpose regrouping switches |
-| `summary_categories` | Summary-affecting category normalization/regrouping |
+| `summarize.category_normalization` | Summary-affecting category normalization/regrouping |
 | `modes` | Optional mode ordering and grouped mode display |
 | `person_types` | Optional display labels for `ptype` values |
-| `student_types` | Optional school/university enrollment definitions for shadow pricing pages |
 
 Weighting rules:
 
@@ -359,7 +359,7 @@ Geography summary notes:
 Legacy config notes:
 
 - Prefer the canonical top-level schema: `root`, `pipeline`, `dashboard`, `display`, `summarize`, `segment`, and `skimjoin`.
-- Older keys such as `processor.root`, `summaries.weighting_modes`, `visualizer.dashboard_pages`, and top-level `run_colors` are still supported for compatibility, but now log deprecation warnings.
+- Older keys such as `processor.root`, `summaries.weighting_modes`, `visualizer.dashboard_pages`, top-level `run_colors`, top-level `summary_categories`, and top-level `student_types` are still supported for compatibility, but now log deprecation warnings.
 
 Geography note:
 
@@ -367,7 +367,7 @@ Geography note:
 
 Category config note:
 
-- Use `summary_categories` when a mapping changes summary values, grouping membership, or canonical category values.
+- Use `summarize.category_normalization` when a mapping changes summary values, grouping membership, or canonical category values.
 - Use `display.labels` when a change is cosmetic and should only affect dashboard/export labels or ordering.
 
 ## Live Pages And Export Pages

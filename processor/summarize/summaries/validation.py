@@ -1,6 +1,6 @@
 """Validation summaries."""
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 import polars as pl
 from runtime.config import Config
 from processor.models import RunData

@@ -378,6 +378,47 @@ def _compatibility_normalize_raw_config(
         )
         normalized["geography"] = summarize_cfg["geography"]
 
+    if "category_normalization" in summarize_cfg:
+        warn_ignored_legacy_key(
+            mapping=raw,
+            key="summary_categories",
+            legacy_field_name="summary_categories",
+            replacement_field_name="summarize.category_normalization",
+            collector=legacy_warnings,
+        )
+        warn_ignored_legacy_key(
+            mapping=summarize_cfg,
+            key="summary_categories",
+            legacy_field_name="summarize.summary_categories",
+            replacement_field_name="summarize.category_normalization",
+            collector=legacy_warnings,
+        )
+        normalized["summary_categories"] = summarize_cfg["category_normalization"]
+    elif "summary_categories" in summarize_cfg:
+        warn_supported_legacy_key(
+            mapping=summarize_cfg,
+            key="summary_categories",
+            legacy_field_name="summarize.summary_categories",
+            replacement_field_name="summarize.category_normalization",
+            collector=legacy_warnings,
+        )
+        warn_ignored_legacy_key(
+            mapping=raw,
+            key="summary_categories",
+            legacy_field_name="summary_categories",
+            replacement_field_name="summarize.category_normalization",
+            collector=legacy_warnings,
+        )
+        normalized["summary_categories"] = summarize_cfg["summary_categories"]
+    else:
+        warn_supported_legacy_key(
+            mapping=raw,
+            key="summary_categories",
+            legacy_field_name="summary_categories",
+            replacement_field_name="summarize.category_normalization",
+            collector=legacy_warnings,
+        )
+
     for key in (
         "group_joint_tour_purposes",
         "group_atwork_tour_purposes",
@@ -499,6 +540,24 @@ def _compatibility_normalize_raw_config(
             collector=legacy_warnings,
         )
         prepare_cfg["distance_skim"] = legacy_distance_skim
+
+    if "student_types" in prepare_cfg:
+        warn_ignored_legacy_key(
+            mapping=raw,
+            key="student_types",
+            legacy_field_name="student_types",
+            replacement_field_name="prepare.student_types",
+            collector=legacy_warnings,
+        )
+        normalized["student_types"] = prepare_cfg["student_types"]
+    else:
+        warn_supported_legacy_key(
+            mapping=raw,
+            key="student_types",
+            legacy_field_name="student_types",
+            replacement_field_name="prepare.student_types",
+            collector=legacy_warnings,
+        )
 
     if prepare_cfg:
         normalized["prepare"] = prepare_cfg
@@ -905,9 +964,18 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         raw.get("transit_subsidies"),
         field_name="transit_subsidies",
     )
+    if "category_normalization" in summarize_cfg:
+        summary_category_raw = summarize_cfg.get("category_normalization")
+        summary_category_field_name = "summarize.category_normalization"
+    elif "summary_categories" in summarize_cfg:
+        summary_category_raw = summarize_cfg.get("summary_categories")
+        summary_category_field_name = "summarize.summary_categories"
+    else:
+        summary_category_raw = raw.get("summary_categories")
+        summary_category_field_name = "summary_categories"
     summary_categories = normalize_categories(
-        raw.get("summary_categories"),
-        field_name="summary_categories",
+        summary_category_raw,
+        field_name=summary_category_field_name,
     )
     dashboard_labels = normalize_categories(
         raw.get("dashboard_labels"),
@@ -1001,9 +1069,15 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         )
         else True
     )
+    if "student_types" in prepare_cfg:
+        student_types_raw = prepare_cfg.get("student_types")
+        student_types_field_name = "prepare.student_types"
+    else:
+        student_types_raw = raw.get("student_types")
+        student_types_field_name = "student_types"
     student_types = normalize_student_types(
-        raw.get("student_types"),
-        field_name="student_types",
+        student_types_raw,
+        field_name=student_types_field_name,
     )
 
     pnr_tour_modes_field_name = (

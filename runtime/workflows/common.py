@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 from processor.cache_identity import build_run_fingerprint, build_run_keys
 from processor.models import (
     PreparedTableName,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 from dashboard.page_registry import export_data_requirements, live_data_requirements
 from processor.models import RunData, prune_prepared_runs
 from runtime.config import Config

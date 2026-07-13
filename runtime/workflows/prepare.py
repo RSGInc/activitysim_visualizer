@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 from processor.cache_identity import build_run_fingerprint
 from processor.models import PreparedTableName, ProcessorWorkflowResult, RunData
 from processor.prepare.availability import (
@@ -342,6 +342,10 @@ def run_prepare_workflow(
         run_keys,
         run_fingerprints_by_key,
     ) = shared.init_processor_result(existing_result)
+    if existing_result is not None:
+        prepared_runs_by_key.update(existing_prepared_runs_by_key)
+        run_keys = list(existing_result.run_keys)
+        run_fingerprints_by_key.update(existing_result.run_fingerprints_by_key)
 
     for entry, run_key in run_entries_with_keys(run_entries):
         if shared.is_summary_table_map_only_run(entry):
@@ -365,7 +369,8 @@ def run_prepare_workflow(
         if prepared_loaded is None:
             continue
         prepared_runs_by_key[run_key] = prepared_loaded
-        run_keys.append(run_key)
+        if run_key not in run_keys:
+            run_keys.append(run_key)
         run_fingerprints_by_key[run_key] = dict(metadata["run_fingerprint"])
 
     return ProcessorWorkflowResult(
