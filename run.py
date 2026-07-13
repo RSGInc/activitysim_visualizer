@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 import logging
 import shutil
 import sys
@@ -16,19 +15,10 @@ from dashboard.page_registry import (
     live_data_requirements,
 )
 import runtime.workflows as runtime_workflows
+from runtime.workflows import WorkflowPlan
 
 LOGGER = get_logger("main")
 _EXPORT_HTML_USE_CONFIG_SENTINEL = "__USE_CONFIG_OR_DEFAULT_EXPORT_HTML__"
-
-
-@dataclass(frozen=True)
-class EffectiveWorkflowPlan:
-    """Resolved runtime workflow intent after merging CLI and config defaults."""
-
-    logical_steps: tuple[str, ...]
-    runtime_steps: tuple[str, ...]
-    dashboard_mode: str
-    overwrite: bool
 
 
 def parse_args() -> argparse.Namespace:
@@ -236,7 +226,7 @@ def resolve_effective_dashboard_mode(
     return str(config.pipeline.dashboard_mode).lower()
 
 
-def resolve_effective_plan(args: argparse.Namespace, config) -> EffectiveWorkflowPlan:
+def resolve_effective_plan(args: argparse.Namespace, config) -> WorkflowPlan:
     """Resolve logical steps, runtime steps, dashboard mode, and overwrite policy."""
     logical_steps = resolve_requested_steps(args, config)
     dashboard_mode = resolve_effective_dashboard_mode(
@@ -253,7 +243,7 @@ def resolve_effective_plan(args: argparse.Namespace, config) -> EffectiveWorkflo
         overwrite = True
 
     runtime_steps = tuple(collapse_runtime_steps(logical_steps))
-    return EffectiveWorkflowPlan(
+    return WorkflowPlan(
         logical_steps=tuple(logical_steps),
         runtime_steps=runtime_steps,
         dashboard_mode=dashboard_mode,
@@ -308,7 +298,7 @@ def _refresh_requested_caches(
 
 def resolve_cache_preferences(
     *,
-    plan: EffectiveWorkflowPlan,
+    plan: WorkflowPlan,
     refreshed_prepared: bool,
     refreshed_summary: bool,
 ) -> tuple[bool, bool]:
@@ -405,8 +395,7 @@ def main() -> None:
         )
         effective_processor_config = runtime_workflows.effective_processor_config(
             config,
-            apply_skimjoin="skimjoin" in plan.logical_steps,
-            apply_segmentation="segment" in plan.logical_steps,
+            plan=plan,
         )
         dashboard_execution_mode = (
             resolve_dashboard_execution_mode(plan.dashboard_mode)
@@ -427,23 +416,24 @@ def main() -> None:
             if "dashboard" in steps
             else None
         )
-        processor_result = None
+        prepared_artifact = None
+        summary_artifact = None
         summary_runs = []
         required_run_keys: list[str] = []
 
         if "prepare" in steps:
-            processor_result = runtime_workflows.run_prepare_workflow(
+            prepared_artifact = runtime_workflows.run_prepare_workflow(
                 config=config,
                 prepared_root=prepared_root,
                 run_entries=run_entries,
                 prefer_cache=prefer_prepared_cache,
                 write_cache=True,
-                existing_result=processor_result,
-                apply_skimjoin="skimjoin" in plan.logical_steps,
+                existing=prepared_artifact,
+                plan=plan,
             )
 
         if "summarize" in steps:
-            processor_result = runtime_workflows.run_summary_workflow(
+            summary_artifact = runtime_workflows.run_summary_workflow(
                 config=config,
                 cache_root=cache_root,
                 prepared_root=prepared_root,
@@ -451,12 +441,11 @@ def main() -> None:
                 prefer_cache=prefer_summary_cache and not args.write_csvs,
                 prepared_prefer_cache=prefer_prepared_cache,
                 write_cache=args.write_csvs or not args.skip_summary_cache_write,
-                existing_result=processor_result,
-                apply_skimjoin="skimjoin" in plan.logical_steps,
-                apply_segmentation="segment" in plan.logical_steps,
+                prepared=prepared_artifact,
+                plan=plan,
             )
-            summary_runs = processor_result.summary_runs
-            required_run_keys = list(processor_result.run_keys)
+            summary_runs = summary_artifact.runs
+            required_run_keys = list(summary_artifact.prepared.run_keys)
         elif "dashboard" in steps:
             assert dashboard_requirements is not None
             summary_runs = runtime_workflows.load_summary_runs_from_cache(
@@ -479,13 +468,13 @@ def main() -> None:
 
         assert dashboard_requirements is not None
         prepared_runs = []
-        processor_result = runtime_workflows.prune_processor_result(
-            processor_result,
+        summary_artifact = runtime_workflows.prune_summary_artifact(
+            summary_artifact,
             required_summary_ids=dashboard_requirements.summary_ids_for_pruning,
             required_prepared_tables=dashboard_requirements.required_prepared_tables,
         )
-        if processor_result is not None:
-            summary_runs = list(processor_result.summary_runs)
+        if summary_artifact is not None:
+            summary_runs = list(summary_artifact.runs)
         else:
             summary_runs = runtime_workflows.prune_summary_runs(
                 summary_runs,
@@ -501,8 +490,8 @@ def main() -> None:
             prepared_runs = []
         elif requires_prepared_data:
             existing_prepared_runs_by_key = (
-                processor_result.prepared_runs_by_key
-                if processor_result is not None
+                summary_artifact.prepared.by_key
+                if summary_artifact is not None
                 else None
             )
             prepared_runs = runtime_workflows.load_prepared_runs_for_dashboard(
@@ -511,7 +500,7 @@ def main() -> None:
                 required_run_keys=required_run_keys,
                 required_prepared_tables=dashboard_requirements.required_prepared_tables,
                 existing_prepared_runs_by_key=existing_prepared_runs_by_key,
-                apply_skimjoin="skimjoin" in plan.logical_steps,
+                plan=plan,
             )
         else:
             prepared_runs = []

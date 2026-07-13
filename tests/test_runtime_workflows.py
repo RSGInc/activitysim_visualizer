@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import runtime.workflows as runtime_workflows
 import run as cli_run
-from processor.models import ProcessorWorkflowResult
+from runtime.workflows import PreparedRunsArtifact, SummaryRunsArtifact, WorkflowPlan
 from processor.models import RunData
 from processor.prepare.availability import attach_table_availability
 from processor.prepare.cache import (
@@ -89,6 +89,26 @@ def _write_config(
         lines.extend(extra_lines)
     config_path.write_text("\n".join(lines), encoding="utf-8")
     return Config.from_yaml(config_path)
+
+
+def _workflow_plan(
+    config: Config,
+    *,
+    skimjoin: bool | None = None,
+    segment: bool | None = None,
+) -> WorkflowPlan:
+    steps = list(config.pipeline.steps)
+    for step, enabled, dependency in (
+        ("skimjoin", skimjoin, "prepare"),
+        ("segment", segment, "summarize"),
+    ):
+        if enabled is None:
+            continue
+        steps = [candidate for candidate in steps if candidate != step]
+        if enabled:
+            insert_at = steps.index(dependency) + 1
+            steps.insert(insert_at, step)
+    return WorkflowPlan.for_steps(config, steps)
 
 
 def _simple_summary_run(label: str, run_key: str) -> object:
@@ -363,14 +383,14 @@ def test_run_summary_workflow_loads_summary_only_run_without_prepared_inputs(
         write_cache=True,
     )
 
-    assert result.prepared_runs == []
-    assert [run.label for run in result.summary_runs] == ["External"]
+    assert result.prepared.runs == []
+    assert [run.label for run in result.runs] == ["External"]
     assert (
-        result.summary_runs[0].summaries_by_mode["weighted"]["totals"]["population"][0]
+        result.runs[0].summaries_by_mode["weighted"]["totals"]["population"][0]
         == 11.0
     )
     assert (
-        result.summary_runs[0].summaries_by_mode["unweighted"]["totals"]["population"][0]
+        result.runs[0].summaries_by_mode["unweighted"]["totals"]["population"][0]
         == 11.0
     )
 
@@ -401,7 +421,7 @@ def test_summary_only_run_loads_non_default_summary_table_map_id(
         write_cache=True,
     )
 
-    weighted = result.summary_runs[0].summaries_by_mode["weighted"]
+    weighted = result.runs[0].summaries_by_mode["weighted"]
     assert weighted["auto_vmt_validation_summary"].to_dicts() == [
         {
             "TOD": "Daily",
@@ -452,7 +472,7 @@ def test_summary_only_run_bypasses_skimjoin_when_pipeline_enables_it(
         run_entries=config.runs,
         prefer_cache=True,
         write_cache=True,
-        apply_skimjoin=True,
+        plan=_workflow_plan(config, skimjoin=True),
     )
     result = runtime_workflows.run_summary_workflow(
         config=config,
@@ -461,14 +481,14 @@ def test_summary_only_run_bypasses_skimjoin_when_pipeline_enables_it(
         run_entries=config.runs,
         prefer_cache=False,
         write_cache=True,
-        existing_result=prepare_result,
-        apply_skimjoin=True,
+        prepared=prepare_result,
+        plan=_workflow_plan(config, skimjoin=True),
     )
 
-    assert prepare_result.prepared_runs == []
-    assert [run.label for run in result.summary_runs] == ["External"]
+    assert prepare_result.runs == []
+    assert [run.label for run in result.runs] == ["External"]
     assert (
-        result.summary_runs[0].summaries_by_mode["weighted"]["totals"]["population"][0]
+        result.runs[0].summaries_by_mode["weighted"]["totals"]["population"][0]
         == 41.0
     )
     loaded = runtime_workflows.load_summary_runs_from_cache(
@@ -541,7 +561,7 @@ def test_run_summary_workflow_overlays_summary_table_map_on_generated_summaries(
         write_cache=False,
     )
 
-    weighted = result.summary_runs[0].summaries_by_mode["weighted"]
+    weighted = result.runs[0].summaries_by_mode["weighted"]
     assert weighted["totals"]["population"][0] == 99.0
     assert weighted["population_totals"].to_dicts() == [
         {"metric": "population_totals", "value": 1.0}
@@ -563,9 +583,9 @@ def test_run_summary_workflow_reuses_all_existing_prepared_runs_when_cache_disab
     )
     prepared_a = _fake_run_data("Run A", str(run_a_dir))
     prepared_b = _fake_run_data("Run B", str(run_b_dir))
-    existing_result = ProcessorWorkflowResult(
-        prepared_runs=[("Run A", prepared_a), ("Run B", prepared_b)],
-        prepared_runs_by_key={
+    existing_result = PreparedRunsArtifact(
+        runs=[("Run A", prepared_a), ("Run B", prepared_b)],
+        by_key={
             "run-a": ("Run A", prepared_a),
             "run-b": ("Run B", prepared_b),
         },
@@ -617,13 +637,13 @@ def test_run_summary_workflow_reuses_all_existing_prepared_runs_when_cache_disab
         prefer_cache=False,
         prepared_prefer_cache=False,
         write_cache=False,
-        existing_result=existing_result,
+        prepared=existing_result,
     )
 
     assert summary_build_labels == ["Run A", "Run B"]
-    assert result.prepared_runs_by_key["run-a"][1] is prepared_a
-    assert result.prepared_runs_by_key["run-b"][1] is prepared_b
-    assert result.run_keys == ["run-a", "run-b"]
+    assert result.prepared.by_key["run-a"][1] is prepared_a
+    assert result.prepared.by_key["run-b"][1] is prepared_b
+    assert result.prepared.run_keys == ["run-a", "run-b"]
 
 
 def test_prepare_then_summary_does_not_rerun_skimjoin_for_existing_prepared_runs(
@@ -711,7 +731,7 @@ def test_prepare_then_summary_does_not_rerun_skimjoin_for_existing_prepared_runs
         run_entries=config.runs,
         prefer_cache=False,
         write_cache=False,
-        apply_skimjoin=True,
+        plan=_workflow_plan(config, skimjoin=True),
     )
     runtime_workflows.run_summary_workflow(
         config=config,
@@ -721,8 +741,8 @@ def test_prepare_then_summary_does_not_rerun_skimjoin_for_existing_prepared_runs
         prefer_cache=False,
         prepared_prefer_cache=False,
         write_cache=False,
-        existing_result=prepare_result,
-        apply_skimjoin=True,
+        prepared=prepare_result,
+        plan=_workflow_plan(config, skimjoin=True),
     )
 
     assert read_labels == ["Run A", "Run B"]
@@ -788,7 +808,7 @@ def test_run_summary_workflow_does_not_build_non_default_registered_summaries(
     assert all("auto_vmt_validation_summary" not in call for call in build_calls if call)
     assert (
         "auto_vmt_validation_summary"
-        not in result.summary_runs[0].summaries_by_mode["weighted"]
+        not in result.runs[0].summaries_by_mode["weighted"]
     )
     assert not (
         Path(config.summary_root)
@@ -854,7 +874,7 @@ def test_mixed_run_preserves_generated_defaults_and_overlays_non_default_summary
         write_cache=False,
     )
 
-    weighted = result.summary_runs[0].summaries_by_mode["weighted"]
+    weighted = result.runs[0].summaries_by_mode["weighted"]
     assert weighted["totals"].to_dicts() == [{"population": 1.0}]
     assert weighted["auto_vmt_validation_summary"].to_dicts() == [
         {
@@ -902,7 +922,7 @@ def test_summary_table_map_file_identity_invalidates_summary_cache(
     )
 
     assert (
-        result.summary_runs[0].summaries_by_mode["weighted"]["totals"]["population"][0]
+        result.runs[0].summaries_by_mode["weighted"]["totals"]["population"][0]
         == 12.0
     )
 
@@ -1167,7 +1187,7 @@ def _segmented_run_data(label: str, run_dir: str) -> RunData:
         write_cache=True,
     )
 
-    assert [label for label, _ in result.prepared_runs] == ["Run A"]
+    assert [label for label, _ in result.runs] == ["Run A"]
     assert result.run_keys == ["run-a"]
 
 
@@ -1248,10 +1268,10 @@ def test_run_prepare_workflow_skips_integrated_skimjoin_when_apply_skimjoin_is_f
         run_entries=config.runs,
         prefer_cache=False,
         write_cache=False,
-        apply_skimjoin=False,
+        plan=_workflow_plan(config, skimjoin=False),
     )
 
-    assert [label for label, _ in result.prepared_runs] == ["Run A"]
+    assert [label for label, _ in result.runs] == ["Run A"]
 
 
 def test_run_prepare_workflow_applies_integrated_skimjoin_when_enabled_for_effective_workflow(
@@ -1298,10 +1318,10 @@ def test_run_prepare_workflow_applies_integrated_skimjoin_when_enabled_for_effec
         run_entries=config.runs,
         prefer_cache=False,
         write_cache=False,
-        apply_skimjoin=True,
+        plan=_workflow_plan(config, skimjoin=True),
     )
 
-    assert [label for label, _ in result.prepared_runs] == ["Run A"]
+    assert [label for label, _ in result.runs] == ["Run A"]
     assert skimjoin_calls == ["Run A"]
 
 
@@ -1353,10 +1373,10 @@ def test_run_summary_workflow_without_segment_step_builds_only_full_summary_runs
         run_entries=config.runs,
         prefer_cache=False,
         write_cache=False,
-        apply_segmentation=False,
+        plan=_workflow_plan(config, segment=False),
     )
 
-    assert [(run.segmentation_type, run.segment_id) for run in result.summary_runs] == [
+    assert [(run.segmentation_type, run.segment_id) for run in result.runs] == [
         ("full", "full")
     ]
 
@@ -1411,10 +1431,10 @@ def test_run_summary_workflow_with_segment_step_builds_full_and_segmented_summar
         run_entries=config.runs,
         prefer_cache=False,
         write_cache=False,
-        apply_segmentation=True,
+        plan=_workflow_plan(config, segment=True),
     )
 
-    assert [(run.segmentation_type, run.segment_id) for run in result.summary_runs] == [
+    assert [(run.segmentation_type, run.segment_id) for run in result.runs] == [
         ("full", "full"),
         ("market", "urban"),
         ("market", "rural"),
@@ -1454,8 +1474,8 @@ def test_run_prepare_workflow_loads_custom_prepared_tables_without_raw_prepare(
         write_cache=True,
     )
 
-    assert [label for label, _ in result.prepared_runs] == ["Prepared Run"]
-    assert result.prepared_runs[0][1].hh["household_id"].to_list() == [1]
+    assert [label for label, _ in result.runs] == ["Prepared Run"]
+    assert result.runs[0][1].hh["household_id"].to_list() == [1]
 
 
 def test_run_prepare_workflow_warns_on_inconsistent_custom_prepared_tables(
@@ -1479,7 +1499,7 @@ def test_run_prepare_workflow_warns_on_inconsistent_custom_prepared_tables(
         write_cache=True,
     )
 
-    assert [label for label, _ in result.prepared_runs] == ["Prepared Run"]
+    assert [label for label, _ in result.runs] == ["Prepared Run"]
     captured = capsys.readouterr()
     combined_output = caplog.text + captured.err + captured.out
     assert 'Prepared relationship validation found 3 failed checks for run "Prepared Run".' in combined_output
@@ -1544,7 +1564,7 @@ def test_run_prepare_workflow_skips_relationship_validation_when_disabled(
         write_cache=True,
     )
 
-    assert [label for label, _ in result.prepared_runs] == ["Prepared Run"]
+    assert [label for label, _ in result.runs] == ["Prepared Run"]
 
 
 def test_run_prepare_workflow_skips_run_when_no_raw_tables_are_available(
@@ -1583,8 +1603,8 @@ def test_run_prepare_workflow_skips_run_when_no_raw_tables_are_available(
         write_cache=True,
     )
 
-    assert result.prepared_runs == []
-    assert result.prepared_runs_by_key == {}
+    assert result.runs == []
+    assert result.by_key == {}
 
 
 def test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_unavailable(
@@ -1635,8 +1655,8 @@ def test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_unavailable
         write_cache=False,
     )
 
-    assert [label for label, _ in result.prepared_runs] == ["Run A"]
-    assert list(result.prepared_runs_by_key) == ["run-a"]
+    assert [label for label, _ in result.runs] == ["Run A"]
+    assert list(result.by_key) == ["run-a"]
 
 
 def test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_failed(
@@ -1692,8 +1712,8 @@ def test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_failed(
         write_cache=False,
     )
 
-    assert [label for label, _ in result.prepared_runs] == ["Run A"]
-    assert list(result.prepared_runs_by_key) == ["run-a"]
+    assert [label for label, _ in result.runs] == ["Run A"]
+    assert list(result.by_key) == ["run-a"]
     captured = capsys.readouterr()
     assert "recorded failed tables" in (caplog.text + captured.err + captured.out)
 
@@ -1762,7 +1782,7 @@ def test_run_prepare_workflow_validates_prepared_cache_loads(
         write_cache=True,
     )
 
-    assert [label for label, _ in result.prepared_runs] == ["Run A"]
+    assert [label for label, _ in result.runs] == ["Run A"]
     captured = capsys.readouterr()
     combined_output = caplog.text + captured.err + captured.out
     assert 'Prepared relationship validation found 3 failed checks for run "Run A".' in combined_output
@@ -1825,9 +1845,9 @@ def test_run_summary_workflow_uses_cache_hit_without_raw_read_or_summary_rebuild
         write_cache=False,
     )
 
-    assert [summary_run.label for summary_run in result.summary_runs] == ["Run A"]
-    assert result.prepared_runs == []
-    assert result.prepared_runs_by_key == {}
+    assert [summary_run.label for summary_run in result.runs] == ["Run A"]
+    assert result.prepared.runs == []
+    assert result.prepared.by_key == {}
 
 
 def test_run_summary_workflow_cache_hit_keeps_existing_prepared_run_by_key(
@@ -1881,11 +1901,11 @@ def test_run_summary_workflow_cache_hit_keeps_existing_prepared_run_by_key(
         ),
     )
 
-    existing_result = ProcessorWorkflowResult(
-        prepared_runs=[("Run A", prepared_run)],
-        prepared_runs_by_key={"run-a": ("Run A", prepared_run)},
+    existing_result = PreparedRunsArtifact(
+        runs=[("Run A", prepared_run)],
+        by_key={"run-a": ("Run A", prepared_run)},
         run_keys=["run-a"],
-        run_fingerprints_by_key={"run-a": fingerprint},
+        fingerprints_by_key={"run-a": fingerprint},
     )
 
     result = runtime_workflows.run_summary_workflow(
@@ -1894,12 +1914,12 @@ def test_run_summary_workflow_cache_hit_keeps_existing_prepared_run_by_key(
         run_entries=config.runs,
         prefer_cache=True,
         write_cache=False,
-        existing_result=existing_result,
+        prepared=existing_result,
     )
 
-    assert [summary_run.label for summary_run in result.summary_runs] == ["Run A"]
-    assert [label for label, _ in result.prepared_runs] == ["Run A"]
-    assert result.prepared_runs_by_key["run-a"][1] is prepared_run
+    assert [summary_run.label for summary_run in result.runs] == ["Run A"]
+    assert [label for label, _ in result.prepared.runs] == ["Run A"]
+    assert result.prepared.by_key["run-a"][1] is prepared_run
 
 
 def test_run_summary_workflow_rebuilds_and_writes_cache_on_cache_miss(
@@ -1947,9 +1967,9 @@ def test_run_summary_workflow_rebuilds_and_writes_cache_on_cache_miss(
     assert read_calls == ["Run A"]
     assert prepare_calls == ["Run A"]
     assert summary_build_calls == ["Run A"]
-    assert [summary_run.label for summary_run in result.summary_runs] == ["Run A"]
-    assert [label for label, _ in result.prepared_runs] == ["Run A"]
-    assert list(result.prepared_runs_by_key) == ["run-a"]
+    assert [summary_run.label for summary_run in result.runs] == ["Run A"]
+    assert [label for label, _ in result.prepared.runs] == ["Run A"]
+    assert list(result.prepared.by_key) == ["run-a"]
     assert (Path(config.summary_root) / "run-a" / "manifest.json").exists()
     assert (
         Path(config.summary_root) / "run-a" / "prepared_tables" / "manifest.json"
@@ -2020,7 +2040,7 @@ def test_run_summary_workflow_uses_prepared_cache_before_raw_rebuild(
     assert read_calls == []
     assert prepare_calls == []
     assert summary_build_calls == ["Run A"]
-    assert [label for label, _ in result.prepared_runs] == ["Run A"]
+    assert [label for label, _ in result.prepared.runs] == ["Run A"]
 
 
 def test_run_summary_workflow_reuses_in_memory_prepared_runs_without_reload(
@@ -2046,13 +2066,6 @@ def test_run_summary_workflow_reuses_in_memory_prepared_runs_without_reload(
         ),
     )
     monkeypatch.setattr(
-        runtime_workflows,
-        "load_prepared_run_cache",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("load_prepared_run_cache should not be called when prepared runs already exist in memory")
-        ),
-    )
-    monkeypatch.setattr(
         summary_cache,
         "build_mode_summaries_with_metadata",
         lambda rd, config: (
@@ -2061,11 +2074,11 @@ def test_run_summary_workflow_reuses_in_memory_prepared_runs_without_reload(
         )[1],
     )
 
-    existing_result = ProcessorWorkflowResult(
-        prepared_runs=[("Run A", prepared_run)],
-        prepared_runs_by_key={"run-a": ("Run A", prepared_run)},
+    existing_result = PreparedRunsArtifact(
+        runs=[("Run A", prepared_run)],
+        by_key={"run-a": ("Run A", prepared_run)},
         run_keys=["run-a"],
-        run_fingerprints_by_key={
+        fingerprints_by_key={
             "run-a": build_run_fingerprint(
                 label="Run A",
                 run_dir=config.runs[0]["dir"],
@@ -2083,11 +2096,11 @@ def test_run_summary_workflow_reuses_in_memory_prepared_runs_without_reload(
         run_entries=config.runs,
         prefer_cache=False,
         write_cache=False,
-        existing_result=existing_result,
+        prepared=existing_result,
     )
 
     assert summary_build_calls == ["Run A"]
-    assert result.prepared_runs_by_key["run-a"][1] is prepared_run
+    assert result.prepared.by_key["run-a"][1] is prepared_run
 
 
 def _patch_prepare_pipeline(
@@ -2219,7 +2232,7 @@ def test_run_summary_workflow_backfills_only_missing_summary_tables(
     )
 
     assert build_calls == [["new"]]
-    weighted_tables = result.summary_runs[0].summaries_by_mode["weighted"]
+    weighted_tables = result.runs[0].summaries_by_mode["weighted"]
     assert sorted(weighted_tables) == ["good", "new"]
 
 
@@ -2508,8 +2521,8 @@ def test_run_summary_workflow_continues_when_one_summary_fails(
         write_cache=False,
     )
 
-    weighted = result.summary_runs[0].summaries_by_mode["weighted"]
-    metadata = result.summary_runs[0].summary_metadata_by_mode["weighted"]
+    weighted = result.runs[0].summaries_by_mode["weighted"]
+    metadata = result.runs[0].summary_metadata_by_mode["weighted"]
     assert weighted["good"].to_dicts() == [{"value": 1.0}]
     assert weighted["bad"].is_empty()
     assert metadata["good"]["state"] == "available"
@@ -2617,7 +2630,7 @@ def test_load_prepared_runs_for_dashboard_supports_custom_prepared_runs(
     assert ordered_runs[0][1].trips["trip_id"].to_list() == [1000]
 
 
-def test_prune_processor_result_keeps_only_required_dashboard_data() -> None:
+def test_prune_summary_artifact_keeps_only_required_dashboard_data() -> None:
     prepared_run = RunData(
         label="Run A",
         run_dir="C:/runs/run_a",
@@ -2646,28 +2659,30 @@ def test_prune_processor_result_keeps_only_required_dashboard_data() -> None:
         },
         source_run_dir="C:/runs/run_a",
     )
-    result = ProcessorWorkflowResult(
-        summary_runs=[summary_run],
-        prepared_runs=[("Run A", prepared_run)],
-        prepared_runs_by_key={"run-a": ("Run A", prepared_run)},
-        run_keys=["run-a"],
+    result = SummaryRunsArtifact(
+        runs=[summary_run],
+        prepared=PreparedRunsArtifact(
+            runs=[("Run A", prepared_run)],
+            by_key={"run-a": ("Run A", prepared_run)},
+            run_keys=["run-a"],
+        ),
     )
 
-    pruned = runtime_workflows.prune_processor_result(
+    pruned = runtime_workflows.prune_summary_artifact(
         result,
         required_summary_ids=("population_totals",),
         required_prepared_tables=("trips",),
     )
 
     assert pruned is not None
-    assert list(pruned.summary_runs[0].summaries_by_mode["weighted"]) == [
+    assert list(pruned.runs[0].summaries_by_mode["weighted"]) == [
         "population_totals"
     ]
-    assert pruned.prepared_runs_by_key["run-a"][1].hh.is_empty()
-    assert pruned.prepared_runs_by_key["run-a"][1].per.is_empty()
-    assert pruned.prepared_runs_by_key["run-a"][1].trips is prepared_run.trips
-    assert pruned.prepared_runs_by_key["run-a"][1].trips["trip_id"].to_list() == [100]
-    assert pruned.prepared_runs_by_key["run-a"][1].skim_file is None
+    assert pruned.prepared.by_key["run-a"][1].hh.is_empty()
+    assert pruned.prepared.by_key["run-a"][1].per.is_empty()
+    assert pruned.prepared.by_key["run-a"][1].trips is prepared_run.trips
+    assert pruned.prepared.by_key["run-a"][1].trips["trip_id"].to_list() == [100]
+    assert pruned.prepared.by_key["run-a"][1].skim_file is None
 
 
 def test_load_prepared_runs_for_dashboard_prunes_existing_runs_to_required_tables(
@@ -2749,9 +2764,9 @@ def test_load_prepared_runs_for_dashboard_dedupes_required_run_keys(
                 kwargs["run_entries"]
             )
         ]
-        return ProcessorWorkflowResult(
-            prepared_runs=[("Run A", prepared_run)],
-            prepared_runs_by_key={"run-a": ("Run A", prepared_run)},
+        return PreparedRunsArtifact(
+            runs=[("Run A", prepared_run)],
+            by_key={"run-a": ("Run A", prepared_run)},
             run_keys=["run-a"],
         )
 

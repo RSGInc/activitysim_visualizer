@@ -9,7 +9,6 @@ from runtime.logging import get_logger
 from processor.cache_identity import build_run_fingerprint, build_run_keys
 from processor.models import (
     PreparedTableName,
-    ProcessorWorkflowResult,
     prune_prepared_runs,
 )
 from processor.prepare.cache import build_prepared_manifest_identity, prepared_root
@@ -17,6 +16,7 @@ from processor.prepare.reader import resolve_skim_path
 from processor.summarize import cache as summary_cache
 from runtime.config import Config
 from runtime.workflows import shared
+from runtime.workflows.artifacts import SummaryRunsArtifact
 
 LOGGER = get_logger("main")
 
@@ -212,15 +212,15 @@ def prune_summary_runs(
     )
 
 
-def prune_processor_result(
-    result: ProcessorWorkflowResult | None,
+def prune_summary_artifact(
+    artifact: SummaryRunsArtifact | None,
     *,
     required_summary_ids: list[str] | tuple[str, ...],
     required_prepared_tables: list[PreparedTableName] | tuple[PreparedTableName, ...],
-) -> ProcessorWorkflowResult | None:
-    """Return a processor result trimmed to the next dashboard/export step."""
-    return shared.prune_processor_result(
-        result,
+) -> SummaryRunsArtifact | None:
+    """Return summary/prepared artifacts trimmed to the next consumer."""
+    return shared.prune_summary_artifact(
+        artifact,
         required_summary_ids=required_summary_ids,
         required_prepared_tables=required_prepared_tables,
         prune_prepared_runs_fn=prune_prepared_runs,

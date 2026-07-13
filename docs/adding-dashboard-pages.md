@@ -156,12 +156,45 @@ The most commonly used data helpers remain available on `DashboardPage`:
 - `require_summary(...)`
 - `require_summaries(...)`
 - `optional_summary(...)`
+- `summary(...)` and `optional_summary_view(...)`
+- `tables(...)`
 - `unavailable_visualization(...)`
 - `data_not_available_card(...)`
 - `get_filtered_view(...)`
 - `clear_filtered_view_cache(...)`
 - `as_percent`
 - `weighting_key`
+
+### Querying summary tables
+
+Use `RunTableView` for the normal "apply the same Polars operations to every
+run" path. It keeps run labels attached while supporting fluent filtering,
+transformation, grouping, selection, sorting, and joining:
+
+```python
+summary = self.summary("trips_by_mode_and_purpose")
+if summary is None:
+    return self.summary_only_unavailable_card()
+
+chart_data = (
+    summary
+    .with_columns(pl.col("purpose").cast(pl.Utf8))
+    .where(purpose=self.purpose_sel.value)
+    .group("mode", pl.col("trip_count").sum())
+    .sort("mode")
+    .collect()
+)
+```
+
+When two summary tables must be combined, query each and call `.join(...)`;
+tables are matched by run label automatically. Use `.map(...)` only for a
+transformation that cannot be expressed by the standard query methods. This
+removes most page-local loops over `(run_label, dataframe)` pairs.
+
+For a page with many domain-specific queries, keep the page module focused on
+selectors, sections, and chart intent, and put those queries in a sibling
+`_<page>_data.py` module. `daily_travel/_escorted_tours_data.py` and
+`_joint_travel_data.py` are the reference examples.
 
 ## Shared Helper Map
 

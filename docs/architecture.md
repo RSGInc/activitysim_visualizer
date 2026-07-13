@@ -48,6 +48,11 @@ run.py
        E. dashboard.export.html.build_export_html_document()
 ```
 
+`WorkflowPlan` is the single resolved execution plan passed into these
+operations. `run_prepare_workflow()` returns `PreparedRunsArtifact`, and
+`run_summary_workflow()` returns `SummaryRunsArtifact`. Cache policy stays in
+these runtime workflows; processor functions only transform tables.
+
 ## Core Runtime Contracts
 
 ### `Config`
@@ -132,6 +137,11 @@ authoring model:
 - `person_type_helpers.py` centralizes person-type selectors and total-row handling
 - `time_distance_helpers.py` centralizes repeated time-bin and distance-bin behavior
 - `comparison_helpers.py` centralizes percent-error formatting and base-run comparisons
+
+For page-local table shaping, `dashboard.data_access.RunTableView` applies one
+fluent query to every run while preserving run labels. Pages should prefer its
+`where`, `with_columns`, `group`, `select`, `sort`, `join`, and `map` operations
+over open-coded loops through run/dataframe pairs.
 
 The skim pages intentionally keep their own family-specific shared module at
 `dashboard/pages/skim_summaries/_shared.py`. That file is the reference pattern

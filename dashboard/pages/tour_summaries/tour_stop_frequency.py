@@ -6,6 +6,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart, selector_row
+from dashboard.data_access import RunTableView
 from dashboard.helpers.category_helpers import (
     capped_numeric_category_expr,
     column_options,
@@ -34,8 +35,7 @@ def stop_frequency_chart_data(
         "Inbound": "inbound_stop_count",
     }[direction]
     cap_value = 6 if direction == "Both" else 3
-    out = []
-    for label, df in nonempty(data_list):
+    def build_frame(df: pl.DataFrame) -> pl.DataFrame:
         filtered = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
         if purpose is None:
             if "all_tour_purposes" in filtered["tour_purpose"].cast(pl.Utf8).unique().to_list():
@@ -51,8 +51,7 @@ def stop_frequency_chart_data(
                     .select("stop_frequency", "tour_count")
                     .sort(numeric_like_sort_expr("stop_frequency"))
                 )
-                out.append((label, filtered))
-                continue
+                return filtered
         else:
             filtered = filtered.filter(pl.col("tour_purpose") == purpose)
         filtered = filtered.with_columns(
@@ -63,8 +62,9 @@ def stop_frequency_chart_data(
             .select("stop_frequency", "tour_count")
             .sort(numeric_like_sort_expr("stop_frequency"))
         )
-        out.append((label, filtered))
-    return out
+        return filtered
+
+    return RunTableView.from_runs(data_list).map(build_frame).collect()
 
 
 @dashboard_page(

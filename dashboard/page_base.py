@@ -13,6 +13,7 @@ from dashboard.state import DashboardState
 from dashboard.components import data_unavailable_card
 from dashboard.data_access import (
     DashboardDataSelection,
+    RunTableView,
     VisualizationDiagnostic,
     VisualizationInputResult,
     VisualizationRunAvailability,
@@ -584,6 +585,28 @@ class DashboardPage:
     def get_summary(self, summary_name: str):
         """Return one summary table per run for the current weighting mode."""
         return self.state.get_summary_table_set(summary_name, self.weighting_key)
+
+    def tables(self, runs) -> RunTableView:
+        """Start a fluent query over corresponding tables from multiple runs."""
+        return RunTableView.from_runs(runs)
+
+    def summary(self, summary_name: str) -> RunTableView | None:
+        """Return a required summary as a fluent run-table query."""
+        runs = self.require_summary(summary_name)
+        return None if runs is None else self.tables(runs)
+
+    def optional_summary_view(
+        self,
+        summary_name: str,
+        *,
+        required_columns: tuple[str, ...] = (),
+    ) -> RunTableView | None:
+        """Return an optional summary as a fluent run-table query."""
+        runs = self.optional_summary(
+            summary_name,
+            required_columns=required_columns,
+        )
+        return None if runs is None else self.tables(runs)
 
     def has_summary(self, summary_name: str) -> bool:
         return self.state.has_summary_table_set(summary_name, self.weighting_key)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Callable, Iterable, Literal
 
 import polars as pl
 
@@ -20,6 +20,90 @@ VisualizationAvailability = Literal[
     "failed",
 ]
 VisualizationRenderState = Literal["rendered", "partial", "skipped"]
+RunTableData = list[tuple[str, pl.DataFrame]]
+
+
+@dataclass(frozen=True)
+class RunTableView:
+    """A fluent transformation over the same table from multiple runs.
+
+    Dashboard pages normally need to apply identical Polars operations to every
+    run. This wrapper keeps the run labels attached and makes that common path
+    read like a table query instead of a loop over ``(label, DataFrame)`` pairs.
+    """
+
+    runs: tuple[tuple[str, pl.DataFrame], ...]
+
+    @classmethod
+    def from_runs(cls, runs: RunTableData | None) -> "RunTableView":
+        return cls(
+            tuple((label, frame) for label, frame in (runs or []) if not frame.is_empty())
+        )
+
+    def collect(self) -> RunTableData:
+        return list(self.runs)
+
+    def map(self, transform: Callable[[pl.DataFrame], pl.DataFrame]) -> "RunTableView":
+        return RunTableView(
+            tuple((label, transform(frame)) for label, frame in self.runs)
+        )
+
+    def where(self, **equals: object) -> "RunTableView":
+        """Filter each run using column equality or membership constraints."""
+
+        def filter_frame(frame: pl.DataFrame) -> pl.DataFrame:
+            predicate: pl.Expr | None = None
+            for column, value in equals.items():
+                values = value if isinstance(value, (list, tuple, set, frozenset)) else None
+                condition = (
+                    pl.col(column).is_in(list(values))
+                    if values is not None
+                    else pl.col(column) == value
+                )
+                predicate = condition if predicate is None else predicate & condition
+            return frame if predicate is None else frame.filter(predicate)
+
+        return self.map(filter_frame)
+
+    def with_columns(self, *expressions: pl.Expr) -> "RunTableView":
+        return self.map(lambda frame: frame.with_columns(*expressions))
+
+    def select(self, *expressions: str | pl.Expr) -> "RunTableView":
+        return self.map(lambda frame: frame.select(*expressions))
+
+    def sort(self, *by: str | pl.Expr) -> "RunTableView":
+        return self.map(lambda frame: frame.sort(*by))
+
+    def group(self, by: str | Iterable[str], *aggregations: pl.Expr) -> "RunTableView":
+        return self.map(lambda frame: frame.group_by(by).agg(*aggregations))
+
+    def join(
+        self,
+        other: "RunTableView",
+        *,
+        on: str | list[str],
+        how: str = "left",
+    ) -> "RunTableView":
+        """Join tables with the corresponding run from another view."""
+        other_by_label = dict(other.runs)
+        return RunTableView(
+            tuple(
+                (label, frame.join(other_by_label[label], on=on, how=how))
+                for label, frame in self.runs
+                if label in other_by_label
+            )
+        )
+
+    def values(self, column: str) -> list[object]:
+        """Return distinct non-null values in first-seen run order."""
+        values: list[object] = []
+        for _, frame in self.runs:
+            if column not in frame.columns:
+                continue
+            for value in frame.get_column(column).drop_nulls().unique(maintain_order=True):
+                if value not in values:
+                    values.append(value)
+        return values
 
 
 @dataclass(frozen=True)

@@ -881,7 +881,7 @@ def test_prepare_workflow_supports_two_runs_with_different_skimjoin_config_files
         write_cache=False,
     )
 
-    outputs = {label: prepared for label, prepared in result.prepared_runs}
+    outputs = {label: prepared for label, prepared in result.runs}
     assert outputs["Run A"].trips["skim_time"].to_list() == [11.0]
     assert outputs["Run B"].trips["skim_time"].to_list() == [101.0]
 
@@ -948,7 +948,7 @@ def test_prepare_workflow_supports_two_runs_sharing_one_skimjoin_config_with_dif
         write_cache=False,
     )
 
-    outputs = {label: prepared for label, prepared in result.prepared_runs}
+    outputs = {label: prepared for label, prepared in result.runs}
     assert outputs["Run A"].trips["skim_time"].to_list() == [12.0]
     assert outputs["Run B"].trips["skim_time"].to_list() == [102.0]
 
@@ -1483,7 +1483,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
         write_cache=True,
     )
 
-    prepared = result.prepared_runs[0][1]
+    prepared = result.runs[0][1]
     assert prepared.trips["skim_time"].to_list() == [2.0]
     assert prepared.tours["skim_time_outbound"].to_list() == [2.0]
     assert prepared.tours["skim_time_inbound"].to_list() == [3.0]
@@ -1640,7 +1640,7 @@ def test_run_prepare_workflow_supports_file_specific_zone_lookup_overrides(
         write_cache=False,
     )
 
-    prepared = result.prepared_runs[0][1]
+    prepared = result.runs[0][1]
     assert prepared.skimjoin_manifest["skimjoin_status"] == "applied"
     assert prepared.trips["skim_fare"].to_list() == [7.5]
     assert prepared.tours["skim_fare_outbound"].to_list() == [7.5]
@@ -1682,7 +1682,7 @@ def test_apply_skimjoin_skips_missing_prepare_columns_gracefully(tmp_path: Path)
         write_cache=False,
     )
 
-    prepared = result.prepared_runs[0][1]
+    prepared = result.runs[0][1]
     skipped = prepared.skimjoin_reports["skipped_rule_report"]
     assert "skim_time" not in prepared.trips.columns
     assert prepared.skimjoin_manifest["skimjoin_status"] == "no_outputs"
@@ -1711,7 +1711,7 @@ def test_run_prepare_workflow_handles_trips_without_canonical_trip_id(tmp_path: 
         write_cache=False,
     )
 
-    prepared = result.prepared_runs[0][1]
+    prepared = result.runs[0][1]
     assert "trip_id" not in prepared.trips.columns
     assert prepared.trips["skim_time"].to_list() == [2.0]
     assert prepared.tours["skim_time_outbound"].to_list() == [2.0]
@@ -2547,7 +2547,7 @@ def test_run_prepare_workflow_supports_keyed_csv_skims_in_integrated_runtime(
         write_cache=False,
     )
 
-    prepared = result.prepared_runs[0][1]
+    prepared = result.runs[0][1]
     assert prepared.skimjoin_manifest["skimjoin_status"] == "applied"
     assert prepared.trips["skim_transit_maz_stop_walk"].to_list() == [0.25]
     assert prepared.tours["skim_transit_maz_stop_walk_outbound"].to_list() == [0.25]
@@ -2591,7 +2591,7 @@ def test_run_prepare_workflow_records_fallback_manifest_and_report(
         write_cache=True,
     )
 
-    prepared = result.prepared_runs[0][1]
+    prepared = result.runs[0][1]
     assert prepared.trips["skim_time"].to_list() == [2.0]
     assert prepared.skimjoin_manifest["skimjoin_fallback_count"] == 1
     assert prepared.skimjoin_manifest["skimjoin_fallback_outputs"] == ["skim_time"]
@@ -2664,7 +2664,7 @@ def test_run_prepare_workflow_supports_csv_od_skims_in_integrated_runtime(
         write_cache=False,
     )
 
-    prepared = result.prepared_runs[0][1]
+    prepared = result.runs[0][1]
     assert prepared.skimjoin_manifest["skimjoin_status"] == "applied"
     assert prepared.trips["skim_walk_maz_distance"].to_list() == [0.5]
     assert prepared.tours["skim_walk_maz_distance_outbound"].to_list() == [0.5]
@@ -3197,7 +3197,7 @@ def test_skimjoin_failure_keeps_non_skim_summaries_available_and_skim_summaries_
         write_cache=False,
     )
 
-    prepared = result.prepared_runs[0][1]
+    prepared = result.runs[0][1]
     summaries = summary_cache.build_summaries(
         prepared,
         config,

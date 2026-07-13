@@ -6,9 +6,14 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
-from processor.models import PreparedTableName, ProcessorWorkflowResult, RunData
+from processor.models import PreparedTableName, RunData
 from runtime.config import Config
 from runtime.config.signatures import digest_payload
+from runtime.workflows.artifacts import (
+    PreparedRunsArtifact,
+    SummaryRunsArtifact,
+    WorkflowPlan,
+)
 
 
 def summary_run_fingerprint(
@@ -35,14 +40,14 @@ def is_summary_table_map_only_run(entry: dict) -> bool:
 def effective_processor_config(
     config: Config,
     *,
-    apply_skimjoin: bool | None,
-    apply_segmentation: bool | None = None,
+    plan: WorkflowPlan,
 ) -> Config:
     """Return a runtime-effective config for processor/cache identity decisions."""
     effective = config
     skimjoin_enabled = effective.skimjoin_step_enabled()
-    if apply_skimjoin is not None and skimjoin_enabled != apply_skimjoin:
-        if apply_skimjoin:
+    run_skimjoin = plan.includes("skimjoin")
+    if skimjoin_enabled != run_skimjoin:
+        if run_skimjoin:
             raise ValueError(
                 "Cannot force integrated skimjoin on when the loaded config has it disabled."
             )
@@ -63,11 +68,9 @@ def effective_processor_config(
                 resolved_network_los_file=None,
             ),
         )
-    if (
-        apply_segmentation is not None
-        and bool(effective.segmentation.enabled) != apply_segmentation
-    ):
-        if apply_segmentation:
+    run_segmentation = plan.includes("segment")
+    if bool(effective.segmentation.enabled) != run_segmentation:
+        if run_segmentation:
             raise ValueError(
                 "Cannot force segmentation on when the loaded config has it disabled."
             )
@@ -275,16 +278,16 @@ def prune_summary_runs(
     ]
 
 
-def prune_processor_result(
-    result: ProcessorWorkflowResult | None,
+def prune_summary_artifact(
+    artifact: SummaryRunsArtifact | None,
     *,
     required_summary_ids: list[str] | tuple[str, ...],
     required_prepared_tables: list[PreparedTableName] | tuple[PreparedTableName, ...],
     prune_prepared_runs_fn: Callable[[list[tuple[str, RunData]], list[PreparedTableName] | tuple[PreparedTableName, ...]], list[tuple[str, RunData]]],
     prune_summary_runs_fn: Callable[[list[Any], list[str] | tuple[str, ...]], list[Any]],
-) -> ProcessorWorkflowResult | None:
-    """Return a processor result trimmed to the next dashboard/export step."""
-    if result is None:
+) -> SummaryRunsArtifact | None:
+    """Return summary/prepared artifacts trimmed for dashboard or export."""
+    if artifact is None:
         return None
 
     pruned_prepared_runs_by_key = {
@@ -294,18 +297,20 @@ def prune_processor_result(
                 1
             ],
         )
-        for run_key, (label, prepared_run) in result.prepared_runs_by_key.items()
+        for run_key, (label, prepared_run) in artifact.prepared.by_key.items()
     }
     ordered_prepared_runs = ordered_prepared_runs_by_key(
         prepared_runs_by_key=pruned_prepared_runs_by_key,
-        run_keys=result.run_keys,
+        run_keys=artifact.prepared.run_keys,
     )
-    return ProcessorWorkflowResult(
-        summary_runs=prune_summary_runs_fn(result.summary_runs, required_summary_ids),
-        prepared_runs=ordered_prepared_runs,
-        prepared_runs_by_key=pruned_prepared_runs_by_key,
-        run_keys=list(result.run_keys),
-        run_fingerprints_by_key=dict(result.run_fingerprints_by_key),
+    return SummaryRunsArtifact(
+        runs=prune_summary_runs_fn(artifact.runs, required_summary_ids),
+        prepared=PreparedRunsArtifact(
+            runs=ordered_prepared_runs,
+            by_key=pruned_prepared_runs_by_key,
+            run_keys=list(artifact.prepared.run_keys),
+            fingerprints_by_key=dict(artifact.prepared.fingerprints_by_key),
+        ),
     )
 
 
@@ -391,17 +396,17 @@ def run_cache_metadata(
     }
 
 
-def init_processor_result(
-    existing_result: ProcessorWorkflowResult | None,
+def init_prepared_artifact(
+    existing: PreparedRunsArtifact | None,
 ) -> tuple[
     dict[str, tuple[str, RunData]],
     dict[str, tuple[str, RunData]],
     list[str],
     dict[str, dict[str, object]],
 ]:
-    """Initialize shared workflow collections from an existing processor result."""
+    """Initialize workflow collections from an existing prepared artifact."""
     existing_prepared_runs_by_key = dict(
-        (existing_result.prepared_runs_by_key if existing_result else {}) or {}
+        (existing.by_key if existing else {}) or {}
     )
     return existing_prepared_runs_by_key, {}, [], {}
 

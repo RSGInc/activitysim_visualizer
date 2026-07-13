@@ -372,12 +372,13 @@ def test_build_export_payload_serializes_representative_page_region_structure(
             "      tour_purpose: all",
         ],
         extra_lines=[
-            "categories:",
-            "  mode:",
-            "    mapping:",
-            "      DRIVEALONE: Drive Alone",
-            "      WALK: Walk",
-            "      SHARED: Shared Ride",
+            "display:",
+            "  labels:",
+            "    mode:",
+            "      mapping:",
+            "        DRIVEALONE: Drive Alone",
+            "        WALK: Walk",
+            "        SHARED: Shared Ride",
         ],
     )
 

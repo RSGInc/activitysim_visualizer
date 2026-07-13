@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 from runtime.logging import get_logger
 from processor.analysis_units import AnalysisUnit
-from processor.models import ProcessorWorkflowResult, RunData
+from processor.models import RunData
 
 
 from processor.segmentation import build_analysis_units_for_run
@@ -20,6 +20,12 @@ from processor.summarize.external import (
 from runtime.config import Config
 from runtime.workflows.common import prepared_cache_root, run_entries_with_keys
 from runtime.workflows.prepare import run_prepare_workflow
+from runtime.workflows.artifacts import (
+    PreparedRunsArtifact,
+    SummaryCacheInspection,
+    SummaryRunsArtifact,
+    WorkflowPlan,
+)
 from runtime.workflows import shared
 
 LOGGER = get_logger("main")
@@ -51,7 +57,7 @@ def _load_summary_run_from_cache(
     run_key: str,
     run_fingerprint: dict[str, object],
     prepared_manifest_identity: dict[str, object],
-) -> Any | None:
+) -> SummaryCacheInspection | None:
     """Load one summary run from cache when valid."""
     try:
         inspection = summary_cache.inspect_summary_run_bundle(
@@ -87,11 +93,11 @@ def _load_summary_run_from_cache(
             label,
             ", ".join(reusable_summary_ids) if reusable_summary_ids else "(none)",
         )
-        return {
-            "summary_runs": cached_runs,
-            "reusable_summary_ids": reusable_summary_ids,
-            "stale_summary_ids": stale_summary_ids,
-        }
+        return SummaryCacheInspection(
+            runs=tuple(cached_runs),
+            reusable_summary_ids=tuple(reusable_summary_ids),
+            stale_summary_ids=tuple(stale_summary_ids),
+        )
     except summary_cache.SummaryCacheError as exc:
         LOGGER.info("Cache miss for %r: %s", label, exc)
         return None
@@ -221,25 +227,24 @@ def run_summary_workflow(
     prefer_cache: bool,
     write_cache: bool,
     prepared_prefer_cache: bool = True,
-    existing_result: ProcessorWorkflowResult | None = None,
-    apply_skimjoin: bool | None = None,
-    apply_segmentation: bool | None = None,
-) -> ProcessorWorkflowResult:
+    prepared: PreparedRunsArtifact | None = None,
+    plan: WorkflowPlan | None = None,
+) -> SummaryRunsArtifact:
     """Build or reuse summaries for the configured runs."""
+    plan = plan or WorkflowPlan.from_config(config)
     config = shared.effective_processor_config(
         config,
-        apply_skimjoin=apply_skimjoin,
-        apply_segmentation=apply_segmentation,
+        plan=plan,
     )
     summary_runs: list[Any] = []
     prepared_root = prepared_root or prepared_cache_root(config, create=True)
-    prepare_result = existing_result
+    prepare_artifact = prepared
     (
         existing_prepared_runs_by_key,
         prepared_runs_by_key,
         run_keys,
         run_fingerprints_by_key,
-    ) = shared.init_processor_result(prepare_result)
+    ) = shared.init_prepared_artifact(prepare_artifact)
     runs_with_keys = run_entries_with_keys(run_entries)
 
     for entry, run_key in runs_with_keys:
@@ -280,11 +285,11 @@ def run_summary_workflow(
                 prepared_manifest_identity=prepared_manifest_identity,
             )
             if cached_run is not None:
-                stale_summary_ids = list(cached_run["stale_summary_ids"])
+                stale_summary_ids = list(cached_run.stale_summary_ids)
                 if not stale_summary_ids:
                     summary_runs.extend(
                         merge_summary_table_map_run(
-                            cached_run["summary_runs"],
+                            list(cached_run.runs),
                             external_summary_run,
                         )
                     )
@@ -293,10 +298,10 @@ def run_summary_workflow(
                         prepared_runs_by_key[run_key] = cached_prepared_run
                     continue
 
-        cached_summary_runs = list(cached_run["summary_runs"]) if cached_run else []
+        cached_summary_runs = list(cached_run.runs) if cached_run else []
         summary_ids_to_build = summary_cache.requested_summary_ids(config)
         if cached_run is not None:
-            summary_ids_to_build = list(cached_run["stale_summary_ids"])
+            summary_ids_to_build = list(cached_run.stale_summary_ids)
         summary_ids_to_build = [
             summary_id
             for summary_id in summary_ids_to_build
@@ -329,16 +334,16 @@ def run_summary_workflow(
             )
             continue
 
-        prepare_result = run_prepare_workflow(
+        prepare_artifact = run_prepare_workflow(
             config=config,
             prepared_root=prepared_root,
             run_entries=[entry],
             prefer_cache=prepared_prefer_cache,
             write_cache=True,
-            existing_result=prepare_result,
-            apply_skimjoin=apply_skimjoin,
+            existing=prepare_artifact,
+            plan=plan,
         )
-        if run_key not in prepare_result.prepared_runs_by_key:
+        if run_key not in prepare_artifact.by_key:
             run_summary_runs = merge_summary_table_map_run(
                 cached_summary_runs,
                 external_summary_run,
@@ -362,8 +367,8 @@ def run_summary_workflow(
                 label,
             )
             continue
-        prepared_loaded = prepare_result.prepared_runs_by_key[run_key]
-        existing_prepared_runs_by_key = dict(prepare_result.prepared_runs_by_key)
+        prepared_loaded = prepare_artifact.by_key[run_key]
+        existing_prepared_runs_by_key = dict(prepare_artifact.by_key)
         prepared_runs_by_key[run_key] = prepared_loaded
 
         analysis_units = build_analysis_units_for_run(
@@ -428,13 +433,15 @@ def run_summary_workflow(
 
     if not summary_runs:
         raise ValueError("no runs were loaded.")
-    return ProcessorWorkflowResult(
-        summary_runs=summary_runs,
-        prepared_runs=_ordered_prepared_runs(
-            prepared_runs_by_key=prepared_runs_by_key,
+    return SummaryRunsArtifact(
+        runs=summary_runs,
+        prepared=PreparedRunsArtifact(
+            runs=_ordered_prepared_runs(
+                prepared_runs_by_key=prepared_runs_by_key,
+                run_keys=run_keys,
+            ),
+            by_key=prepared_runs_by_key,
             run_keys=run_keys,
+            fingerprints_by_key=run_fingerprints_by_key,
         ),
-        prepared_runs_by_key=prepared_runs_by_key,
-        run_keys=run_keys,
-        run_fingerprints_by_key=run_fingerprints_by_key,
     )

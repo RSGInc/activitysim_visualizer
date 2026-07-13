@@ -7,201 +7,25 @@ import polars as pl
 
 from dashboard.components import bar_chart, control_row, control_row_spacer, selector_row
 from dashboard.helpers.category_helpers import (
-    add_percent_of_total,
-    cap_numeric_category_data,
-    capped_numeric_category_expr,
     complete_category_counts,
     label_category_data,
-    numeric_like_sort_expr,
     nonempty,
 )
 from dashboard import DashboardPage, dashboard_page
-
-
-PARTY_SIZE_ALL_LABEL = "All Party Sizes"
-HOUSEHOLD_SIZE_ALL_LABEL = "All"
-JOINT_SIZE_VALUES = ["2", "3", "4", "5+"]
-
-
-def party_size_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
-    if not nonempty(data_list):
-        return [PARTY_SIZE_ALL_LABEL]
-    return [PARTY_SIZE_ALL_LABEL, *JOINT_SIZE_VALUES]
-
-
-def household_size_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
-    if not nonempty(data_list):
-        return [HOUSEHOLD_SIZE_ALL_LABEL]
-    return [HOUSEHOLD_SIZE_ALL_LABEL, *JOINT_SIZE_VALUES]
-
-
-def joint_household_size_values(
-    *data_lists: list[tuple[str, pl.DataFrame]],
-) -> list[str]:
-    """Return the capped household-size axis used by joint-travel charts."""
-    if any(nonempty(data_list) for data_list in data_lists):
-        return JOINT_SIZE_VALUES.copy()
-    return []
-
-
-def complete_joint_household_size_data(
-    data_list: list[tuple[str, pl.DataFrame]],
-    *,
-    value_col: str,
-    household_size_values: list[str],
-) -> list[tuple[str, pl.DataFrame]]:
-    """Complete household-size categories so joint-travel charts show every bin."""
-    normalized = [
-        (
-            label,
-            cap_numeric_category_data(
-                [(label, df.filter(pl.col("household_size").cast(pl.Int64, strict=False) >= 2))],
-                category_col="household_size",
-                cap_value=5,
-                value_cols=(value_col,),
-            )[0][1].select("household_size", value_col),
-        )
-        for label, df in nonempty(data_list)
-    ]
-    return complete_category_counts(
-        normalized,
-        category_col="household_size",
-        category_values=household_size_values,
-        value_cols=(value_col,),
-    )
-
-
-def ordered_composition(df: pl.DataFrame) -> pl.DataFrame:
-    """Order composition categories as adults, mixed, then children."""
-    if len(df) == 0 or "tour_composition" not in df.columns:
-        return df
-    return (
-        df.with_columns(
-            pl.col("tour_composition").cast(pl.Utf8).str.to_lowercase().alias("tour_composition")
-        )
-        .with_columns(
-            pl.when(pl.col("tour_composition") == "adults")
-            .then(0)
-            .when(pl.col("tour_composition") == "mixed")
-            .then(1)
-            .when(pl.col("tour_composition") == "children")
-            .then(2)
-            .otherwise(99)
-            .alias("_ord")
-        )
-        .sort("_ord")
-        .drop("_ord")
-    )
-
-
-def composition_by_party_size_data(
-    data_list: list[tuple[str, pl.DataFrame]],
-    party_size: str,
-) -> list[tuple[str, pl.DataFrame]]:
-    """Filter or aggregate joint-tour composition data by party size."""
-    out = []
-    for label, df in nonempty(data_list):
-        filtered = df.with_columns(capped_numeric_category_expr("party_size", 5))
-        if party_size == PARTY_SIZE_ALL_LABEL:
-            filtered = (
-                filtered.group_by("tour_composition")
-                .agg(joint_tour_count=pl.col("joint_tour_count").sum())
-                .with_columns(pl.col("tour_composition").cast(pl.Utf8))
-                .sort("tour_composition")
-            )
-        else:
-            filtered = (
-                filtered.filter(pl.col("party_size") == party_size)
-                .group_by("tour_composition")
-                .agg(joint_tour_count=pl.col("joint_tour_count").sum())
-                .with_columns(pl.col("tour_composition").cast(pl.Utf8))
-                .sort("tour_composition")
-            )
-        out.append((label, ordered_composition(filtered)))
-    return out
-
-
-def household_participation_data(
-    data_list: list[tuple[str, pl.DataFrame]],
-    household_size: str,
-) -> list[tuple[str, pl.DataFrame]]:
-    """Filter household participation rows to one household size or aggregate all sizes."""
-    out = []
-    for label, df in nonempty(data_list):
-        filtered = df.with_columns(
-            capped_numeric_category_expr("household_size", 5),
-            pl.col("jtf").cast(pl.Utf8),
-        )
-        if household_size == HOUSEHOLD_SIZE_ALL_LABEL:
-            filtered = (
-                filtered.group_by("jtf")
-                .agg(household_percent=pl.col("household_percent").mean())
-                .with_columns(pl.col("jtf").cast(pl.Utf8))
-                .sort("jtf")
-            )
-        else:
-            filtered = (
-                filtered.filter(pl.col("household_size") == household_size)
-                .group_by("jtf")
-                .agg(household_percent=pl.col("household_percent").mean())
-                .with_columns(pl.col("jtf").cast(pl.Utf8))
-                .sort("jtf")
-            )
-        out.append((label, filtered))
-    return out
-
-
-def person_participation_data(
-    data_list: list[tuple[str, pl.DataFrame]],
-    *,
-    as_percent: bool,
-) -> list[tuple[str, pl.DataFrame]]:
-    """Return joint-tour person participation counts or rates by household size."""
-    out = []
-    for label, df in nonempty(data_list):
-        base = df.with_columns(capped_numeric_category_expr("household_size", 5))
-        base = (
-            base.group_by("household_size")
-            .agg(
-                pl.col("joint_tour_person_count").sum(),
-                pl.col("total_person_count").sum(),
-            )
-            .sort(numeric_like_sort_expr("household_size"))
-        )
-        if as_percent:
-            base = base.with_columns(
-                pl.when(pl.col("total_person_count") > 0)
-                .then(pl.col("joint_tour_person_count") / pl.col("total_person_count") * 100.0)
-                .otherwise(0.0)
-                .alias("person_value")
-            )
-        else:
-            base = base.with_columns(pl.col("joint_tour_person_count").alias("person_value"))
-        out.append((label, base))
-    return out
-
-
-def joint_tour_frequency_data(
-    data_list: list[tuple[str, pl.DataFrame]],
-    *,
-    hide_no_joint_tours: bool,
-) -> list[tuple[str, pl.DataFrame]]:
-    """Return joint-tour frequency rows, optionally excluding the no-tour bucket."""
-    out = []
-    for label, df in nonempty(data_list):
-        filtered = df.with_columns(pl.col("jtf_label").cast(pl.Utf8))
-        filtered = add_percent_of_total(
-            [(label, filtered)],
-            value_col="household_count",
-            percent_col="household_count_percent",
-        )[0][1]
-        if hide_no_joint_tours:
-            filtered = filtered.filter(
-                pl.col("jtf_label").str.strip_chars().str.to_lowercase()
-                != "no joint tours"
-            )
-        out.append((label, filtered))
-    return out
+from dashboard.pages._joint_travel_data import (
+    HOUSEHOLD_SIZE_ALL_LABEL,
+    JOINT_SIZE_VALUES,
+    PARTY_SIZE_ALL_LABEL,
+    complete_joint_household_size_data,
+    composition_by_party_size_data,
+    household_participation_data,
+    household_size_options,
+    joint_household_size_values,
+    joint_party_size_data,
+    joint_tour_frequency_data,
+    party_size_options,
+    person_participation_data,
+)
 
 
 @dashboard_page(
@@ -330,18 +154,9 @@ class JointTravelPage(DashboardPage):
             (label, df.with_columns(pl.col("household_size").cast(pl.Utf8)))
             for label, df in nonempty(summaries["joint_tours_by_household_size"])
         ]
-        party_size_data = [
-            (
-                label,
-                cap_numeric_category_data(
-                    [(label, df)],
-                    category_col="party_size",
-                    cap_value=5,
-                    value_cols=("joint_tour_count",),
-                )[0][1],
-            )
-            for label, df in nonempty(summaries["joint_tour_party_size_distribution"])
-        ]
+        party_size_data = joint_party_size_data(
+            summaries["joint_tour_party_size_distribution"]
+        )
         household_size_values = joint_household_size_values(
             joint_tours_hhsize_data,
             summaries["person_jtp_by_household_size"],

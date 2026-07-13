@@ -6,7 +6,8 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import density_chart, selector_row
-from dashboard.helpers.category_helpers import column_options, nonempty
+from dashboard.data_access import RunTableView
+from dashboard.helpers.category_helpers import column_options
 from dashboard.helpers.time_distance_helpers import max_timebin, timebin_label
 from dashboard import DashboardPage, dashboard_page
 
@@ -41,32 +42,19 @@ def trip_stop_time_chart_data(
 ) -> tuple[list[tuple[str, pl.DataFrame]], list[tuple[str, pl.DataFrame]]]:
     """Build chart-ready trip and stop departure distributions for one purpose."""
     observed_max_timebin = max_timebin(data_list)
-    trip_data = []
-    stop_data = []
-    for label, df in nonempty(data_list):
-        trip_data.append(
-            (
-                label,
-                profile_chart_frame(
-                    df,
-                    value_col="departure_trip_count",
-                    purpose=tour_purpose,
-                    observed_max_timebin=observed_max_timebin,
-                ),
+    view = RunTableView.from_runs(data_list)
+
+    def profile(value_col: str) -> list[tuple[str, pl.DataFrame]]:
+        return view.map(
+            lambda frame: profile_chart_frame(
+                frame,
+                value_col=value_col,
+                purpose=tour_purpose,
+                observed_max_timebin=observed_max_timebin,
             )
-        )
-        stop_data.append(
-            (
-                label,
-                profile_chart_frame(
-                    df,
-                    value_col="departure_stop_count",
-                    purpose=tour_purpose,
-                    observed_max_timebin=observed_max_timebin,
-                ),
-            )
-        )
-    return trip_data, stop_data
+        ).collect()
+
+    return profile("departure_trip_count"), profile("departure_stop_count")
 
 
 @dashboard_page(

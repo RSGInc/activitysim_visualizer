@@ -179,19 +179,3 @@ def prune_prepared_runs(
         (label, prune_prepared_run(prepared_run, required_tables))
         for label, prepared_run in prepared_runs
     ]
-
-
-@dataclass
-class ProcessorWorkflowResult:
-    """Prepared and summary workflow outputs for one processor invocation.
-
-    This is the shared in-memory handoff between prepare, summarize, and
-    dashboard/export workflows. ``prepared_runs`` is the authoritative
-    prepared-table contract carried across those steps.
-    """
-
-    summary_runs: list[Any] = field(default_factory=list)
-    prepared_runs: list[tuple[str, RunData]] = field(default_factory=list)
-    prepared_runs_by_key: dict[str, tuple[str, RunData]] = field(default_factory=dict)
-    run_keys: list[str] = field(default_factory=list)
-    run_fingerprints_by_key: dict[str, dict[str, object]] = field(default_factory=dict)

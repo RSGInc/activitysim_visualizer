@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import run
 import runtime.workflows as runtime_workflows
+from runtime.workflows import WorkflowPlan
 from dashboard import app as dashboard_app
 from dashboard.export.html import ExportBuildError
 from processor.models import RunData
@@ -696,8 +697,7 @@ def test_main_dashboard_only_respects_pipeline_without_segment_when_loading_summ
     )
     effective_summary_config = runtime_workflows.effective_processor_config(
         config,
-        apply_skimjoin=False,
-        apply_segmentation=False,
+        plan=WorkflowPlan.for_steps(config, ("prepare", "summarize", "dashboard")),
     )
     summary_run = _simple_summary_run("Run A", "run-a")
     write_summary_run_cache(

@@ -6,7 +6,8 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import density_chart, selector_row
-from dashboard.helpers.category_helpers import column_options, nonempty
+from dashboard.data_access import RunTableView
+from dashboard.helpers.category_helpers import column_options
 from dashboard.helpers.time_distance_helpers import (
     max_timebin,
     timebin_duration_hours,
@@ -25,49 +26,31 @@ def tour_time_chart_data(
 ]:
     """Build departure, arrival, and duration distributions for one tour purpose."""
     observed_max_timebin = max_timebin(data_list)
-    dep_data = []
-    arr_data = []
-    dur_data = []
-    for label, df in nonempty(data_list):
-        filtered = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8)).filter(
-            pl.col("tour_purpose") == purpose
-        )
-        dep_data.append(
-            (
-                label,
-                filtered.select("time_bin", "departure_tour_count")
-                .sort("time_bin")
-                .with_columns(
+    filtered = (
+        RunTableView.from_runs(data_list)
+        .with_columns(pl.col("tour_purpose").cast(pl.Utf8))
+        .where(tour_purpose=purpose)
+    )
+
+    def clock_profile(value_col: str) -> list[tuple[str, pl.DataFrame]]:
+        return (
+            filtered.select("time_bin", value_col)
+            .sort("time_bin")
+            .with_columns(
                     pl.col("time_bin")
                     .map_elements(
                         lambda value: timebin_label(int(value), observed_max_timebin),
                         return_dtype=pl.Utf8,
                     )
                     .alias("clock_time")
-                ),
             )
+            .collect()
         )
-        arr_data.append(
-            (
-                label,
-                filtered.select("time_bin", "arrival_tour_count")
-                .sort("time_bin")
-                .with_columns(
-                    pl.col("time_bin")
-                    .map_elements(
-                        lambda value: timebin_label(int(value), observed_max_timebin),
-                        return_dtype=pl.Utf8,
-                    )
-                    .alias("clock_time")
-                ),
-            )
-        )
-        dur_data.append(
-            (
-                label,
-                filtered.select("time_bin", "duration_tour_count")
-                .sort("time_bin")
-                .with_columns(
+
+    duration = (
+        filtered.select("time_bin", "duration_tour_count")
+        .sort("time_bin")
+        .with_columns(
                     pl.col("time_bin")
                     .map_elements(
                         lambda value: timebin_duration_hours(
@@ -76,10 +59,10 @@ def tour_time_chart_data(
                         return_dtype=pl.Float64,
                     )
                     .alias("duration_hours")
-                ),
-            )
         )
-    return dep_data, arr_data, dur_data
+        .collect()
+    )
+    return clock_profile("departure_tour_count"), clock_profile("arrival_tour_count"), duration
 
 
 @dashboard_page(

@@ -7,12 +7,8 @@ import polars as pl
 
 from dashboard.components import bar_chart, density_chart, selector_row
 from dashboard.helpers.category_helpers import (
-    capped_numeric_category_expr,
-    capped_numeric_category_values,
     complete_category_counts,
     label_category_data,
-    nonempty,
-    numeric_like_sort_expr,
     ordered_category_values,
 )
 from dashboard.helpers.distance_range import (
@@ -22,11 +18,21 @@ from dashboard.helpers.distance_range import (
     fixed_distance_axis_ticks,
     with_distance_axis,
 )
-from dashboard.helpers.time_distance_helpers import distance_sort_expr
 from dashboard import DashboardPage, dashboard_page
+from dashboard.pages.daily_travel._escorted_tours_data import (
+    adult_escort_event_stop_chart_data,
+    adult_raw_direction,
+    default_direction_option,
+    direction_options,
+    escort_distance_chart_data,
+    escort_person_type_chart_data,
+    household_school_escort_chart_data,
+    schoolkids_per_escorted_tour_chart_data,
+    stop_count_category_values,
+    student_count_category_values,
+    student_school_escort_chart_data,
+)
 
-DIRECTION_COL = "direction"
-DISTANCE_BINS = [str(i) for i in range(40)] + ["40+"]
 STUDENT_ESCORT_TYPE_ORDER = [
     "not_escorted",
     "pure_escort",
@@ -79,243 +85,6 @@ DISTANCE_DESCRIPTION = (
     "`Both Directions` means the chauffer escorted in both outbound and inbound "
     "directions."
 )
-
-def direction_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
-    """Return the dashboard's display directions in stable order."""
-    directions = ordered_category_values(data_list, DIRECTION_COL)
-    if not directions:
-        return ["Both Directions"]
-    options = ["Both Directions"]
-    if "outbound" in directions:
-        options.append("Outbound")
-    if "inbound" in directions:
-        options.append("Inbound")
-    return options
-
-
-def adult_raw_direction(value: str) -> str:
-    """Translate the selector label into the raw summary value."""
-    return {
-        "Both Directions": "both",
-        "Outbound": "outbound",
-        "Inbound": "inbound",
-    }.get(value, "both")
-
-
-def default_direction_option(options: list[str]) -> str:
-    """Prefer outbound when available because it is usually the first interesting view."""
-    if "Outbound" in options:
-        return "Outbound"
-    return options[0] if options else "Both Directions"
-
-
-def adult_escort_event_stop_chart_data(
-    data_list: list[tuple[str, pl.DataFrame]],
-    segment: str,
-) -> list[tuple[str, pl.DataFrame]]:
-    """Build one stop-count distribution for a specific chauffeur segment."""
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in nonempty(data_list):
-        filtered = (
-            df.with_columns(pl.col("segment").cast(pl.Utf8))
-            .filter(pl.col("segment") == segment)
-            .with_columns(capped_numeric_category_expr("stop_count", 3))
-            .group_by("stop_count")
-            .agg(tour_count=pl.col("tour_count").sum())
-            .select("stop_count", "tour_count")
-            .sort(numeric_like_sort_expr("stop_count"))
-        )
-        out.append((label, filtered))
-    return out
-
-
-def escort_person_type_chart_data(
-    data_list: list[tuple[str, pl.DataFrame]],
-    direction: str,
-) -> list[tuple[str, pl.DataFrame]]:
-    """Build the person-type distribution for one adult escort direction."""
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in nonempty(data_list):
-        out.append(
-            (
-                label,
-                df.with_columns(pl.col(DIRECTION_COL).cast(pl.Utf8))
-                .filter(pl.col(DIRECTION_COL) == direction)
-                .with_columns(pl.col("person_type").cast(pl.Utf8))
-                .select("person_type", "tour_count"),
-            )
-        )
-    return out
-
-
-def escort_distance_chart_data(
-    data_list: list[tuple[str, pl.DataFrame]],
-    direction: str,
-    *,
-    y_col: str,
-) -> list[tuple[str, pl.DataFrame]]:
-    """Build one complete distance distribution for escort tours or trips."""
-    out: list[tuple[str, pl.DataFrame]] = []
-    bins_df = pl.DataFrame(
-        {"distance_bin": DISTANCE_BINS}, schema={"distance_bin": pl.Utf8}
-    )
-    for label, df in nonempty(data_list):
-        filtered = (
-            df.with_columns(pl.col(DIRECTION_COL).cast(pl.Utf8))
-            .filter(pl.col(DIRECTION_COL) == direction)
-            .select(
-                pl.col("distance_bin").cast(pl.Utf8),
-                pl.col(y_col).cast(pl.Float64).alias("freq"),
-            )
-            .with_columns(distance_sort_expr("distance_bin").alias("_sort_distance"))
-            .sort("_sort_distance")
-            .drop("_sort_distance")
-        )
-        completed = (
-            bins_df.join(filtered, on="distance_bin", how="left")
-            .with_columns(pl.col("freq").fill_null(0.0))
-            .select("distance_bin", "freq")
-        )
-        out.append((label, completed))
-    return out
-
-
-def student_school_escort_chart_data(
-    data_list: list[tuple[str, pl.DataFrame]],
-    direction: str,
-) -> list[tuple[str, pl.DataFrame]]:
-    """Build one student escort-type distribution for the selected direction."""
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in nonempty(data_list):
-        out.append(
-            (
-                label,
-                df.with_columns(pl.col(DIRECTION_COL).cast(pl.Utf8))
-                .filter(pl.col(DIRECTION_COL) == direction)
-                .select("escort_type", "tour_count"),
-            )
-        )
-    return out
-
-
-def household_school_escort_chart_data(
-    numerator_data_list: list[tuple[str, pl.DataFrame]],
-    denominator_data_list: list[tuple[str, pl.DataFrame]],
-    direction: str,
-) -> list[tuple[str, pl.DataFrame]]:
-    """Compute household counts and rates for the selected escort direction."""
-    denominator_by_label = {
-        label: (
-            df.with_columns(capped_numeric_category_expr("student_count", 6))
-            .group_by("student_count")
-            .agg(
-                pl.col("household_count")
-                .cast(pl.Float64)
-                .sum()
-                .alias("total_household_count")
-            )
-        )
-        for label, df in nonempty(denominator_data_list)
-    }
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in nonempty(numerator_data_list):
-        denominator = denominator_by_label.get(label)
-        if denominator is None or denominator.is_empty():
-            continue
-        filtered = (
-            df.with_columns(pl.col(DIRECTION_COL).cast(pl.Utf8))
-            .filter(pl.col(DIRECTION_COL) == direction)
-            .with_columns(capped_numeric_category_expr("student_count", 6))
-            .group_by("student_count")
-            .agg(
-                pl.col("household_count")
-                .cast(pl.Float64)
-                .sum()
-                .alias("household_count")
-            )
-        )
-        out.append(
-            (
-                label,
-                denominator.join(filtered, on="student_count", how="left")
-                .with_columns(
-                    pl.col("household_count").fill_null(0.0),
-                    pl.when(pl.col("total_household_count") > 0)
-                    .then(
-                        pl.col("household_count")
-                        / pl.col("total_household_count")
-                        * 100.0
-                    )
-                    .otherwise(0.0)
-                    .alias("pct"),
-                )
-                .select("student_count", "household_count", "pct"),
-            )
-        )
-    return out
-
-
-def schoolkids_per_escorted_tour_chart_data(
-    data_list: list[tuple[str, pl.DataFrame]],
-    direction: str,
-) -> list[tuple[str, pl.DataFrame]]:
-    """Build one schoolkids-per-tour distribution for the selected direction."""
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in nonempty(data_list):
-        out.append(
-            (
-                label,
-                df.with_columns(pl.col(DIRECTION_COL).cast(pl.Utf8))
-                .filter(pl.col(DIRECTION_COL) == direction)
-                .with_columns(
-                    capped_numeric_category_expr("student_count", 6),
-                    pl.col("avg_schoolkids_per_tour").cast(pl.Float64),
-                    pl.col("tour_count").cast(pl.Float64),
-                )
-                .with_columns(
-                    (
-                        pl.col("avg_schoolkids_per_tour") * pl.col("tour_count")
-                    ).alias("_weighted_schoolkids")
-                )
-                .group_by("student_count")
-                .agg(
-                    pl.col("_weighted_schoolkids").sum(),
-                    pl.col("tour_count").sum(),
-                )
-                .with_columns(
-                    pl.when(pl.col("tour_count") > 0)
-                    .then(pl.col("_weighted_schoolkids") / pl.col("tour_count"))
-                    .otherwise(0.0)
-                    .alias("avg_schoolkids_per_tour")
-                )
-                .select("student_count", "avg_schoolkids_per_tour", "tour_count")
-                .sort(numeric_like_sort_expr("student_count")),
-            )
-        )
-    return out
-
-
-def student_count_category_values(
-    data_list: list[tuple[str, pl.DataFrame]],
-) -> list[str]:
-    """Return observed student-count bins in numeric order."""
-    return capped_numeric_category_values(
-        data_list,
-        "student_count",
-        cap_value=6,
-    )
-
-
-def stop_count_category_values(
-    data_list: list[tuple[str, pl.DataFrame]],
-) -> list[str]:
-    """Return observed stop-count bins in numeric order."""
-    return capped_numeric_category_values(
-        data_list,
-        "stop_count",
-        cap_value=3,
-    )
-
 
 @dashboard_page(
     page_id="escorted_tours",

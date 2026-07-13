@@ -18,6 +18,7 @@ from dashboard.components import (
     set_bar_hover_mode,
     set_density_hover_mode,
 )
+from dashboard.data_access import RunTableView
 from dashboard.helpers.category_helpers import (
     column_value_intersection,
     common_column_options,
@@ -60,6 +61,35 @@ from dashboard.helpers.time_distance_helpers import (
 from dashboard.page_base import DashboardPage
 from dashboard.state import DashboardState
 from test_export_html import _full_summary_run, _write_config
+
+
+def test_run_table_view_filters_transforms_and_joins_by_run_label() -> None:
+    counts = RunTableView.from_runs(
+        [
+            ("Base", pl.DataFrame({"direction": ["outbound", "inbound"], "n": [2, 3]})),
+            ("Build", pl.DataFrame({"direction": ["outbound"], "n": [5]})),
+        ]
+    )
+    totals = RunTableView.from_runs(
+        [
+            ("Base", pl.DataFrame({"direction": ["outbound"], "total": [10]})),
+            ("Build", pl.DataFrame({"direction": ["outbound"], "total": [20]})),
+        ]
+    )
+
+    result = (
+        counts.where(direction="outbound")
+        .join(totals, on="direction")
+        .with_columns((pl.col("n") / pl.col("total") * 100).alias("pct"))
+        .select("direction", "pct")
+    )
+
+    assert result.values("direction") == ["outbound"]
+    assert [frame["pct"][0] for _, frame in result.collect()] == [20.0, 25.0]
+
+    empty_build = counts.where(direction="inbound")
+    assert [label for label, _ in empty_build.collect()] == ["Base", "Build"]
+    assert empty_build.collect()[1][1].is_empty()
 
 
 def test_category_helpers_support_intersection_normalization_and_numeric_sort(
