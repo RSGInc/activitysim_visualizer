@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from dashboard import DashboardState
 from dashboard.export.protocols import validate_export_page
-from dashboard.export.payload import resolve_page_parts
+from dashboard.export.traversal import resolve_page_parts
 from dashboard.page_registry import (
     build_registered_live_pages,
     build_registered_export_pages,

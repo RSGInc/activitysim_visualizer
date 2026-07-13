@@ -209,7 +209,10 @@ activitysim_visualizer/
 |   |-- export/
 |   |   |-- html.py
 |   |   |-- payload.py
+|   |   |-- page_serializer.py
+|   |   |-- selector_states.py
 |   |   |-- serializer.py
+|   |   |-- traversal.py
 |   |   |-- runtime_assets.py
 |   |   |-- types.py
 |   |   `-- assets/

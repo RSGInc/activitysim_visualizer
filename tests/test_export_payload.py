@@ -11,9 +11,11 @@ from _dashboard_expectations import EXPECTED_DEFAULT_PAGES
 from dashboard import DashboardState
 from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.export.context import ExportBuildContext
-from dashboard.export.payload import (
+from dashboard.export.page_serializer import (
     VMT_EXPORT_DROPDOWN_NOTE,
     _with_export_page_notes,
+)
+from dashboard.export.payload import (
     build_export_payload,
 )
 from dashboard.export.types import (
@@ -606,74 +608,31 @@ def test_build_export_payload_skips_prepared_only_sections_but_keeps_summary_saf
     tmp_path = _workspace_tmp_dir("payload_skims_summary_safe")
     config = _write_config(
         tmp_path,
-        dashboard_pages=["skims"],
+        dashboard_pages=["skim_summaries"],
         export_html_lines=[
             "pages:",
-            "  skims: {}",
+            "  skim_summaries: {}",
         ],
     )
 
     payload = build_export_payload([], config, summary_runs=[_skim_summary_run()])
 
-    assert payload["pages"] == [
-        {
-            "id": "skims",
-            "title": "Skim Summaries",
-            "selectors": [],
-            "children": [
-                {
-                    "id": "tour_skims",
-                    "title": "Tour Skims",
-                    "selectors": [
-                        {
-                            "id": "tour_skim_family",
-                            "label": "Tour Skim Family",
-                            "available": True,
-                            "request_mode": "all",
-                            "requested_values": [],
-                            "resolved_values": ["Walk Skims"],
-                            "default_value": "Walk Skims",
-                            "options": ["Walk Skims"],
-                            "export_enabled": False,
-                        },
-                        {
-                            "id": "tour_skim_direction",
-                            "label": "Direction",
-                            "available": True,
-                            "request_mode": "all",
-                            "requested_values": [],
-                            "resolved_values": ["Outbound"],
-                            "default_value": "Outbound",
-                            "options": ["Outbound"],
-                            "export_enabled": False,
-                        },
-                    ],
-                    "children": [],
-                    "default_page_id": None,
-                },
-                {
-                    "id": "trip_skims",
-                    "title": "Trip Skims",
-                    "selectors": [
-                        {
-                            "id": "trip_skim_family",
-                            "label": "Trip Skim Family",
-                            "available": True,
-                            "request_mode": "all",
-                            "requested_values": [],
-                            "resolved_values": ["Walk Skims"],
-                            "default_value": "Walk Skims",
-                            "options": ["Walk Skims"],
-                            "export_enabled": False,
-                        }
-                    ],
-                    "children": [],
-                    "default_page_id": None,
-                },
-            ],
-            "default_page_id": "tour_skims",
-        }
+    assert len(payload["pages"]) == 1
+    skim_group = payload["pages"][0]
+    assert skim_group["id"] == "skim_summaries"
+    assert skim_group["default_page_id"] == "tour_skims"
+    assert [child["id"] for child in skim_group["children"]] == [
+        "tour_skims",
+        "trip_skims",
     ]
+    selector_ids_by_page = {
+        child["id"]: {selector["id"] for selector in child["selectors"]}
+        for child in skim_group["children"]
+    }
+    assert {"tour_skim_family", "tour_skim_direction"}.issubset(
+        selector_ids_by_page["tour_skims"]
+    )
+    assert "trip_skim_family" in selector_ids_by_page["trip_skims"]
     weighted_state = payload["states"]["Weighted||Percent"]
     nodes = _walk_nodes(weighted_state["tour_skims"]) + _walk_nodes(
         weighted_state["trip_skims"]

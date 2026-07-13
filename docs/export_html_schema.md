@@ -5,7 +5,10 @@ This document defines the Python-to-JavaScript contract used by the standalone o
 The implementation lives under `dashboard/export/`:
 
 - `dashboard/export/html.py`: entry points that build and write the final self-contained HTML document
-- `dashboard/export/payload.py`: payload assembly, page-shell construction, and region-local selector expansion
+- `dashboard/export/payload.py`: dashboard-state and top-level payload composition
+- `dashboard/export/traversal.py`: page-tree and export-region resolution
+- `dashboard/export/selector_states.py`: selector request and canonical-state enumeration
+- `dashboard/export/page_serializer.py`: page-shell and region-variant serialization
 - `dashboard/export/serializer.py`: Panel-to-payload node serialization
 - `dashboard/export/runtime_assets.py`: asset loading and HTML shell assembly
 - `dashboard/export/types.py`: typed payload and node definitions

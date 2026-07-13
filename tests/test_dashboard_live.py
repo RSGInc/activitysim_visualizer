@@ -22,7 +22,7 @@ from _dashboard_expectations import (
 from test_export_html import _full_summary_run, _write_config
 from dashboard.app import build_dashboard
 from dashboard.data_access import DashboardPreparedRunProvider
-from dashboard.export.payload import resolve_export_section_states
+from dashboard.export.selector_states import resolve_export_section_states
 from dashboard.page_base import DashboardPage
 from dashboard.page_base import PAGE_SELECTOR_STYLESHEET
 from dashboard.page_definitions import DashboardPageDefinition

@@ -9,9 +9,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from dashboard.export.payload import (
-    _selector_options,
+from dashboard.export.selector_states import (
     resolve_export_section_states,
+    selector_options as _selector_options,
     temporary_widget_values,
 )
 from dashboard.export.runtime_assets import build_export_html_shell, load_export_runtime_js
