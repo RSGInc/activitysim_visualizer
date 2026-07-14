@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, data_table, selector_row
+from dashboard.rendering import data_table, selector_row
 from dashboard.helpers.category_helpers import (
     column_value_union,
     label_category_data,
@@ -870,11 +870,11 @@ def external_travel_filter_options(
 )
 class VMTValidationPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
-        personal_vmt = self.state.get_summary_table_set(
+        personal_vmt = self.data.summary(
             PERSONAL_AUTO_VMT_SUMMARY_ID,
             "weighted",
         )
-        non_motorized_vmt = self.state.get_summary_table_set(
+        non_motorized_vmt = self.data.summary(
             NON_MOTORIZED_VMT_SUMMARY_ID,
             "weighted",
         )
@@ -1251,7 +1251,7 @@ class VMTValidationPage(DashboardPage):
         )
 
     def sync_controls(self) -> None:
-        personal_vmt = self.state.get_summary_table_set(
+        personal_vmt = self.data.summary(
             PERSONAL_AUTO_VMT_SUMMARY_ID,
             self.weighting_key,
         )
@@ -1342,7 +1342,7 @@ class VMTValidationPage(DashboardPage):
                 breakdown_filter_selector.value = "All"
             breakdown_filter_selector.disabled = True
 
-        non_motorized_vmt = self.state.get_summary_table_set(
+        non_motorized_vmt = self.data.summary(
             NON_MOTORIZED_VMT_SUMMARY_ID,
             self.weighting_key,
         )
@@ -1481,7 +1481,7 @@ class VMTValidationPage(DashboardPage):
             if self.demo_commercial_metric_sel.value == "VMT"
             else "commercial_vehicle_validation_summary"
         )
-        demo_commercial_data = self.state.get_summary_table_set(
+        demo_commercial_data = self.data.summary(
             demo_commercial_summary_id,
             self.weighting_key,
         )
@@ -1520,7 +1520,7 @@ class VMTValidationPage(DashboardPage):
             if self.external_travel_metric_sel.value == "VMT"
             else "external_trip_validation_summary"
         )
-        external_travel_data = self.state.get_summary_table_set(
+        external_travel_data = self.data.summary(
             external_travel_summary_id,
             self.weighting_key,
         )
@@ -1647,19 +1647,19 @@ class VMTValidationPage(DashboardPage):
 
     def render_vmt_overview_section(self) -> list[pn.viewable.Viewable]:
         overview_data = vmt_overview_table_data(
-            personal_auto_vmt=self.state.get_summary_table_set(
+            personal_auto_vmt=self.data.summary(
                 PERSONAL_AUTO_VMT_SUMMARY_ID,
                 self.weighting_key,
             ),
-            non_motorized_vmt=self.state.get_summary_table_set(
+            non_motorized_vmt=self.data.summary(
                 NON_MOTORIZED_VMT_SUMMARY_ID,
                 self.weighting_key,
             ),
-            external_vmt=self.state.get_summary_table_set(
+            external_vmt=self.data.summary(
                 EXTERNAL_VMT_SUMMARY_ID,
                 self.weighting_key,
             ),
-            commercial_vmt=self.state.get_summary_table_set(
+            commercial_vmt=self.data.summary(
                 COMMERCIAL_VMT_SUMMARY_ID,
                 self.weighting_key,
             ),
@@ -1684,18 +1684,17 @@ class VMTValidationPage(DashboardPage):
     def render_personal_auto_vmt_section(self) -> list[pn.viewable.Viewable]:
         if not self.state.run_labels:
             return []
-        selection = self.inspect_summary(
+        personal_vmt = self.data.summary(
             PERSONAL_AUTO_VMT_SUMMARY_ID,
-            required_columns=PERSONAL_AUTO_VMT_REQUIRED_COLUMNS,
+            columns=PERSONAL_AUTO_VMT_REQUIRED_COLUMNS,
         )
-        if not selection.has_usable_runs:
+        if not personal_vmt:
             return [
                 self.data_not_available_card(
                     detail="Personal auto VMT by home geography, income segment, household size, and time period is unavailable.",
                     missing_items=[PERSONAL_AUTO_VMT_SUMMARY_ID],
                 )
             ]
-        personal_vmt = [(label, table) for label, table in selection.usable_runs]
         breakdown = str(self.personal_vmt_breakdown_sel.value)
         geography_type = self.selected_personal_vmt_geography_type_raw()
         geography_id = self.selected_personal_vmt_geography_raw()
@@ -1776,37 +1775,36 @@ class VMTValidationPage(DashboardPage):
         else:
             xaxis_categoryarray = list(dict.fromkeys(str(value) for value in category_values))
         use_time_period_percent = self.as_percent and breakdown == "Time Period"
-        chart = bar_chart(
+        chart = self.plot.bar(
             chart_data,
-            x_col="category",
-            y_col="auto_vmt_percent" if use_time_period_percent else "auto_vmt",
+            x="category",
+            y="auto_vmt_percent" if use_time_period_percent else "auto_vmt",
             title=f"Personal Auto VMT by {breakdown}",
-            xaxis_title=PERSONAL_AUTO_VMT_BREAKDOWN_AXIS_TITLES[breakdown],
-            yaxis_title=(
+            x_title=PERSONAL_AUTO_VMT_BREAKDOWN_AXIS_TITLES[breakdown],
+            y_title=(
                 "Percent of Vehicle Miles Traveled (%)"
                 if use_time_period_percent
                 else "Vehicle Miles Traveled"
             ),
-            as_percent=False if use_time_period_percent else self.as_percent,
-            xaxis_categoryarray=xaxis_categoryarray,
+            value_mode="count" if use_time_period_percent else "dashboard",
+            category_order=xaxis_categoryarray,
         )
         return [chart]
 
     def render_non_motorized_vmt_section(self) -> list[pn.viewable.Viewable]:
         if not self.state.run_labels:
             return []
-        selection = self.inspect_summary(
+        non_motorized_vmt = self.data.summary(
             NON_MOTORIZED_VMT_SUMMARY_ID,
-            required_columns=NON_MOTORIZED_VMT_REQUIRED_COLUMNS,
+            columns=NON_MOTORIZED_VMT_REQUIRED_COLUMNS,
         )
-        if not selection.has_usable_runs:
+        if not non_motorized_vmt:
             return [
                 self.data_not_available_card(
                     detail="Non-motorized VMT by home geography, income segment, household size, and time period is unavailable.",
                     missing_items=[NON_MOTORIZED_VMT_SUMMARY_ID],
                 )
             ]
-        non_motorized_vmt = [(label, table) for label, table in selection.usable_runs]
         breakdown = str(self.non_motorized_vmt_breakdown_sel.value)
         geography_type = self.selected_non_motorized_vmt_geography_type_raw()
         geography_id = self.selected_non_motorized_vmt_geography_raw()
@@ -1889,28 +1887,28 @@ class VMTValidationPage(DashboardPage):
                 dict.fromkeys(str(value) for value in category_values)
             )
         use_time_period_percent = self.as_percent and breakdown == "Time Period"
-        chart = bar_chart(
+        chart = self.plot.bar(
             chart_data,
-            x_col="category",
-            y_col=(
+            x="category",
+            y=(
                 "non_motorized_vmt_percent"
                 if use_time_period_percent
                 else "non_motorized_vmt"
             ),
             title=f"Non-Motorized VMT by {breakdown}",
-            xaxis_title=PERSONAL_AUTO_VMT_BREAKDOWN_AXIS_TITLES[breakdown],
-            yaxis_title=(
+            x_title=PERSONAL_AUTO_VMT_BREAKDOWN_AXIS_TITLES[breakdown],
+            y_title=(
                 "Percent of Non-Motorized Miles Traveled (%)"
                 if use_time_period_percent
                 else "Non-Motorized Miles Traveled"
             ),
-            as_percent=False if use_time_period_percent else self.as_percent,
-            xaxis_categoryarray=xaxis_categoryarray,
+            value_mode="count" if use_time_period_percent else "dashboard",
+            category_order=xaxis_categoryarray,
         )
         return [chart]
 
     def render_bicycle_chart(self) -> pn.viewable.Viewable:
-        bicycle_vmt = self.state.get_summary_table_set(
+        bicycle_vmt = self.data.summary(
             "bicycle_vmt_by_facility_type",
             self.weighting_key,
         )
@@ -1919,15 +1917,13 @@ class VMTValidationPage(DashboardPage):
                 detail="Bicycle VMT summaries are unavailable.",
                 missing_items=["bicycle_vmt_by_facility_type"],
             )
-        return bar_chart(
+        return self.plot.bar(
             nonempty(bicycle_vmt),
-            x_col="facility_type",
-            y_col="bicycle_vmt",
+            x="facility_type",
+            y="bicycle_vmt",
             title="Bicycle VMT by Facility Type",
-            xaxis_title="Bicycle Facility Type",
-            yaxis_title="Bicycle VMT",
-            pct_col="pct",
-            as_percent=self.as_percent,
+            x_title="Bicycle Facility Type",
+            y_title="Bicycle VMT",
         )
 
     def render_bicycle_section(self):
@@ -1946,7 +1942,7 @@ class VMTValidationPage(DashboardPage):
             "commercial_vehicle_vmt_validation_summary",
         ]
         if not any(
-            self.state.get_summary_table_set(summary_id, self.weighting_key)
+            self.data.summary(summary_id, self.weighting_key)
             for summary_id in summary_ids
         ):
             return []
@@ -1958,7 +1954,7 @@ class VMTValidationPage(DashboardPage):
             if self.demo_commercial_metric_sel.value == "VMT"
             else "commercial_vehicle_validation_summary"
         )
-        data = self.state.get_summary_table_set(summary_id, self.weighting_key)
+        data = self.data.summary(summary_id, self.weighting_key)
         if data is None:
             return self.data_not_available_card(
                 detail="Commercial vehicle summaries are unavailable.",
@@ -2005,24 +2001,24 @@ class VMTValidationPage(DashboardPage):
                 ),
             )
         )
-        return bar_chart(
+        return self.plot.bar(
             chart_data,
-            x_col="category",
-            y_col=(
+            x="category",
+            y=(
                 "value_percent"
                 if self.as_percent and breakdown == "Time Period"
                 else "value"
             ),
             title=f"Commercial Vehicle {metric} by {breakdown}",
-            xaxis_title=breakdown,
-            yaxis_title=(
+            x_title=breakdown,
+            y_title=(
                 f"Percent of {metric} (%)"
                 if self.as_percent and breakdown == "Time Period"
                 else metric
             ),
-            as_percent=False if self.as_percent and breakdown == "Time Period" else self.as_percent,
-            xaxis_categoryarray=xaxis_categoryarray,
-            showlegend=True,
+            value_mode="count" if breakdown == "Time Period" else "dashboard",
+            category_order=xaxis_categoryarray,
+            show_legend=True,
         )
 
     def render_external_travel_chart(self) -> pn.viewable.Viewable:
@@ -2031,7 +2027,7 @@ class VMTValidationPage(DashboardPage):
             if self.external_travel_metric_sel.value == "VMT"
             else "external_trip_validation_summary"
         )
-        data = self.state.get_summary_table_set(summary_id, self.weighting_key)
+        data = self.data.summary(summary_id, self.weighting_key)
         if data is None:
             return self.data_not_available_card(
                 detail="External travel summaries are unavailable.",
@@ -2078,24 +2074,24 @@ class VMTValidationPage(DashboardPage):
                 ),
             )
         )
-        return bar_chart(
+        return self.plot.bar(
             chart_data,
-            x_col="category",
-            y_col=(
+            x="category",
+            y=(
                 "value_percent"
                 if self.as_percent and breakdown == "Time Period"
                 else "value"
             ),
             title=f"External {metric} by {breakdown}",
-            xaxis_title=breakdown,
-            yaxis_title=(
+            x_title=breakdown,
+            y_title=(
                 f"Percent of {metric} (%)"
                 if self.as_percent and breakdown == "Time Period"
                 else metric
             ),
-            as_percent=False if self.as_percent and breakdown == "Time Period" else self.as_percent,
-            xaxis_categoryarray=xaxis_categoryarray,
-            showlegend=True,
+            value_mode="count" if breakdown == "Time Period" else "dashboard",
+            category_order=xaxis_categoryarray,
+            show_legend=True,
         )
 
     def render_external_vmt_section(self) -> list[pn.viewable.Viewable]:
@@ -2104,7 +2100,7 @@ class VMTValidationPage(DashboardPage):
             "external_vmt_validation_summary",
         ]
         if not any(
-            self.state.get_summary_table_set(summary_id, self.weighting_key)
+            self.data.summary(summary_id, self.weighting_key)
             for summary_id in summary_ids
         ):
             return []

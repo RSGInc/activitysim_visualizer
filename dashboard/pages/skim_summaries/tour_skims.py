@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import panel as pn
 
-from dashboard.components import control_row, data_table, density_chart
+from dashboard.rendering import control_row, data_table
 from dashboard import DashboardPage, dashboard_page
 from dashboard.pages.skim_summaries._shared import (
     ALL_RECORDS_SCENARIO,
@@ -56,9 +56,7 @@ class TourSkimsPage(DashboardPage):
 
     def build_page(self) -> pn.viewable.Viewable:
         """Build the summary shell and the live directional distribution controls."""
-        tour_stats = self.state.get_summary_series_set(
-            TOUR_STATS_SUMMARY_ID, "weighted"
-        )
+        tour_stats = self.data.summary_series(TOUR_STATS_SUMMARY_ID, weighting="weighted")
         family_options = skim_family_options(
             self.config,
             tour_stats,
@@ -212,14 +210,11 @@ class TourSkimsPage(DashboardPage):
 
     def _tour_summaries(self):
         """Return the skim tour statistics for the current weighting mode."""
-        return self.state.get_summary_series_set(
-            TOUR_STATS_SUMMARY_ID,
-            self.weighting_key,
-        )
+        return self.data.summary_series(TOUR_STATS_SUMMARY_ID)
 
     def _tour_prepared_runs(self):
         """Return prepared runs in the weighting mode expected by live distributions."""
-        return self.get_prepared_runs(weighted=(self.weighting_key == "weighted"))
+        return self.data.prepared_runs(weighted=(self.weighting_key == "weighted"))
 
     def _tour_skim_scenario_value(self) -> str:
         return (
@@ -427,17 +422,15 @@ class TourSkimsPage(DashboardPage):
                 title=f"{title} Data Not Available",
             )
 
-        return density_chart(
+        return self.plot.density(
             distribution_data,
-            x_col="bin_mid",
-            y_col="freq",
+            x="bin_mid",
+            y="freq",
             title=f"{title} Tour Distribution - {component} / {mode}",
-            xaxis_title="Skim Value",
-            yaxis_title="Tours",
-            normalize=self.as_percent,
+            x_title="Skim Value",
+            y_title="Tours",
             height=320,
-            as_percent=False,
-            xaxis_range=x_range,
+            x_range=x_range,
         )
 
     def render_distribution_section(self):

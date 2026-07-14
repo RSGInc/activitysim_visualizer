@@ -5,8 +5,8 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import density_chart, selector_row
-from dashboard.data_access import RunTableView
+from dashboard.rendering import selector_row
+from dashboard.data_access import RunTables
 from dashboard.helpers.category_helpers import column_options
 from dashboard.helpers.time_distance_helpers import (
     max_timebin,
@@ -27,7 +27,7 @@ def tour_time_chart_data(
     """Build departure, arrival, and duration distributions for one tour purpose."""
     observed_max_timebin = max_timebin(data_list)
     filtered = (
-        RunTableView.from_runs(data_list)
+        RunTables.from_runs(data_list)
         .with_columns(pl.col("tour_purpose").cast(pl.Utf8))
         .where(tour_purpose=purpose)
     )
@@ -44,7 +44,6 @@ def tour_time_chart_data(
                     )
                     .alias("clock_time")
             )
-            .collect()
         )
 
     duration = (
@@ -60,7 +59,6 @@ def tour_time_chart_data(
                     )
                     .alias("duration_hours")
         )
-        .collect()
     )
     return clock_profile("departure_tour_count"), clock_profile("arrival_tour_count"), duration
 
@@ -98,7 +96,7 @@ class TourTimePage(DashboardPage):
         )
 
     def _purpose_options(self) -> list[str]:
-        data = self.state.get_summary_table_set(
+        data = self.data.summary(
             "tour_time_of_day_by_tour_purpose",
             "weighted",
         )
@@ -123,8 +121,8 @@ class TourTimePage(DashboardPage):
         return options or [self.TOTAL_PURPOSE_LABEL]
 
     def sync_controls(self) -> None:
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        summaries = self.data.summaries(*self.required_summary_ids)
+        if not all(summaries.values()):
             return
         purpose_opts, self._purpose_to_raw = column_options(
             summaries["tour_time_of_day_by_tour_purpose"],
@@ -163,45 +161,39 @@ class TourTimePage(DashboardPage):
             factory=lambda: tour_time_chart_data(tod_list, raw_purpose),
         )
         return (
-            density_chart(
+            self.plot.density(
                 dep_data,
-                "clock_time",
-                "departure_tour_count",
-                f"Tour Departure Time Distribution - {display_purpose}",
-                "Clock Time (start at 03:00)",
-                normalize=False,
-                yaxis_title="Tours",
-                hover_xaxis_title="Clock Time",
-                as_percent=self.as_percent,
+                x="clock_time",
+                y="departure_tour_count",
+                title=f"Tour Departure Time Distribution - {display_purpose}",
+                x_title="Clock Time (start at 03:00)",
+                y_title="Tours",
+                hover_x_title="Clock Time",
             ),
-            density_chart(
+            self.plot.density(
                 arr_data,
-                "clock_time",
-                "arrival_tour_count",
-                f"Tour Arrival Time Distribution - {display_purpose}",
-                "Clock Time (start at 03:00)",
-                normalize=False,
-                yaxis_title="Tours",
-                hover_xaxis_title="Clock Time",
-                as_percent=self.as_percent,
+                x="clock_time",
+                y="arrival_tour_count",
+                title=f"Tour Arrival Time Distribution - {display_purpose}",
+                x_title="Clock Time (start at 03:00)",
+                y_title="Tours",
+                hover_x_title="Clock Time",
             ),
-            density_chart(
+            self.plot.density(
                 dur_data,
-                "duration_hours",
-                "duration_tour_count",
-                f"Tour Duration Distribution - {display_purpose}",
-                "Tour Duration (hours)",
-                normalize=False,
-                yaxis_title="Tours",
-                as_percent=self.as_percent,
+                x="duration_hours",
+                y="duration_tour_count",
+                title=f"Tour Duration Distribution - {display_purpose}",
+                x_title="Tour Duration (hours)",
+                y_title="Tours",
             ),
         )
 
     def render_body(self):
         if not self.state.run_labels:
             return [self.no_runs_message()]
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        summaries = self.data.summaries(*self.required_summary_ids)
+        if not all(summaries.values()):
             return [self.summary_only_unavailable_card()]
         display_purpose, raw_purpose = self._selected_purpose()
         departure_chart, arrival_chart, duration_chart = self.render_time_charts(

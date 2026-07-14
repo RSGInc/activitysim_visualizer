@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import polars as pl
 
-from dashboard.data_access import RunTableView
+from dashboard.data_access import RunTables
 from dashboard.helpers.category_helpers import (
     add_percent_of_total,
     cap_numeric_category_data,
@@ -49,7 +49,7 @@ def complete_joint_household_size_data(
                         ),
                     )
                 ],
-                category_col="household_size",
+                category="household_size",
                 cap_value=5,
                 value_cols=(value_col,),
             )[0][1].select("household_size", value_col),
@@ -58,7 +58,7 @@ def complete_joint_household_size_data(
     ]
     return complete_category_counts(
         normalized,
-        category_col="household_size",
+        category="household_size",
         category_values=household_size_values,
         value_cols=(value_col,),
     )
@@ -68,7 +68,7 @@ def joint_party_size_data(data_list):
     """Return the standard capped party-size distribution."""
     return cap_numeric_category_data(
         data_list,
-        category_col="party_size",
+        category="party_size",
         cap_value=5,
         value_cols=("joint_tour_count",),
     )
@@ -100,7 +100,7 @@ def _ordered_composition(frame: pl.DataFrame) -> pl.DataFrame:
 
 
 def composition_by_party_size_data(data_list, party_size: str):
-    view = RunTableView.from_runs(data_list).with_columns(
+    view = RunTables.from_runs(data_list).with_columns(
         capped_numeric_category_expr("party_size", 5)
     )
     if party_size != PARTY_SIZE_ALL_LABEL:
@@ -112,12 +112,11 @@ def composition_by_party_size_data(data_list, party_size: str):
         )
         .with_columns(pl.col("tour_composition").cast(pl.Utf8))
         .map(_ordered_composition)
-        .collect()
     )
 
 
 def household_participation_data(data_list, household_size: str):
-    view = RunTableView.from_runs(data_list).with_columns(
+    view = RunTables.from_runs(data_list).with_columns(
         capped_numeric_category_expr("household_size", 5),
         pl.col("jtf").cast(pl.Utf8),
     )
@@ -129,13 +128,12 @@ def household_participation_data(data_list, household_size: str):
             pl.col("household_percent").mean().alias("household_percent"),
         )
         .sort("jtf")
-        .collect()
     )
 
 
 def person_participation_data(data_list, *, as_percent: bool):
     view = (
-        RunTableView.from_runs(data_list)
+        RunTables.from_runs(data_list)
         .with_columns(capped_numeric_category_expr("household_size", 5))
         .group(
             "household_size",
@@ -155,7 +153,7 @@ def person_participation_data(data_list, *, as_percent: bool):
         view = view.with_columns(
             pl.col("joint_tour_person_count").alias("person_value")
         )
-    return view.collect()
+    return view
 
 
 def joint_tour_frequency_data(data_list, *, hide_no_joint_tours: bool):
@@ -173,4 +171,4 @@ def joint_tour_frequency_data(data_list, *, hide_no_joint_tours: bool):
             )
         return result
 
-    return RunTableView.from_runs(data_list).map(transform).collect()
+    return RunTables.from_runs(data_list).map(transform)

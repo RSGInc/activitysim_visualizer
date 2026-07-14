@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, density_chart, selector_row
+from dashboard.rendering import selector_row
 from dashboard.helpers.category_helpers import (
     complete_category_counts,
     label_category_data,
@@ -131,7 +131,7 @@ class EscortedToursPage(DashboardPage):
 
     def _direction_options(self) -> list[str]:
         """Discover available direction values from the core school escort summary."""
-        data = self.state.get_summary_table_set(
+        data = self.data.summary(
             "school_escorted_tours_by_escort_type_and_direction",
             "weighted",
         )
@@ -141,8 +141,8 @@ class EscortedToursPage(DashboardPage):
 
     def sync_controls(self) -> None:
         """Keep the direction selector aligned with currently available summaries."""
-        summaries = self.require_summaries(*CORE_SUMMARY_IDS)
-        if summaries is None:
+        summaries = self.data.summaries(*CORE_SUMMARY_IDS)
+        if not all(summaries.values()):
             return
         options = direction_options(
             summaries["school_escorted_tours_by_escort_type_and_direction"]
@@ -153,10 +153,10 @@ class EscortedToursPage(DashboardPage):
 
     def _load_page_summaries(self):
         """Load core summaries plus optional add-on summaries used by static sections."""
-        summaries = self.require_summaries(*CORE_SUMMARY_IDS)
-        if summaries is None:
+        summaries = self.data.summaries(*CORE_SUMMARY_IDS)
+        if not all(summaries.values()):
             return None
-        optional_summaries = self.optional_summaries_dict(*OPTIONAL_SUMMARY_IDS)
+        optional_summaries = self.data.summaries(*OPTIONAL_SUMMARY_IDS, required=False)
         return {**summaries, **optional_summaries}
 
     def render_static_body_section(self):
@@ -238,13 +238,13 @@ class EscortedToursPage(DashboardPage):
                 direction,
                 factory=lambda direction=direction: complete_category_counts(
                     student_school_escort_chart_data(summary_data, direction),
-                    category_col="escort_type",
+                    category="escort_type",
                     category_values=escort_order,
                     value_cols=("tour_count", "pct"),
                 ),
             )
             charts.append(
-                bar_chart(
+                self.plot.bar(
                     label_category_data(
                         chart_data,
                         source_col="escort_type",
@@ -252,14 +252,12 @@ class EscortedToursPage(DashboardPage):
                         config=self.config,
                         target_col="escort_type_label",
                     ),
-                    x_col="escort_type_label",
-                    y_col="tour_count",
+                    x="escort_type_label",
+                    y="tour_count",
                     title=f"Student School Escort Status - {label}",
-                    xaxis_title="Escort Type",
-                    yaxis_title="Student School Tours",
-                    pct_col="pct",
-                    as_percent=self.as_percent,
-                    xaxis_categoryarray=escort_labels,
+                    x_title="Escort Type",
+                    y_title="Student School Tours",
+                    category_order=escort_labels,
                 )
             )
         return charts
@@ -325,25 +323,25 @@ class EscortedToursPage(DashboardPage):
                             direction,
                         )
                     ],
-                    category_col="student_count",
+                    category="student_count",
                     category_values=student_count_values,
                     value_cols=("household_count", "pct"),
                 ),
             )
             charts.append(
-                bar_chart(
+                self.plot.bar(
                     chart_data,
-                    x_col="student_count",
-                    y_col="pct" if self.as_percent else "household_count",
+                    x="student_count",
+                    y="pct" if self.as_percent else "household_count",
                     title=f"Households With School Escorting - {label}",
-                    xaxis_title="Students in Household",
-                    yaxis_title=(
+                    x_title="Students in Household",
+                    y_title=(
                         "Percent of Households with Students (%)"
                         if self.as_percent
                         else "Number of Households with Students"
                     ),
-                    as_percent=False,
-                    xaxis_categoryarray=student_count_values,
+                    value_mode="count",
+                    category_order=student_count_values,
                 )
             )
         return charts
@@ -404,21 +402,21 @@ class EscortedToursPage(DashboardPage):
                             direction,
                         )
                     ],
-                    category_col="student_count",
+                    category="student_count",
                     category_values=student_count_values,
                     value_cols=("avg_schoolkids_per_tour", "tour_count"),
                 ),
             )
             charts.append(
-                bar_chart(
+                self.plot.bar(
                     chart_data,
-                    x_col="student_count",
-                    y_col="avg_schoolkids_per_tour",
+                    x="student_count",
+                    y="avg_schoolkids_per_tour",
                     title=f"Schoolkids Per Adult Chauffer Tour - {label}",
-                    xaxis_title="Students in Household",
-                    yaxis_title="Average Schoolkids per Adult Chauffer Tour",
-                    as_percent=False,
-                    xaxis_categoryarray=student_count_values,
+                    x_title="Students in Household",
+                    y_title="Average Schoolkids per Adult Chauffer Tour",
+                    value_mode="count",
+                    category_order=student_count_values,
                 )
             )
         return charts
@@ -458,21 +456,19 @@ class EscortedToursPage(DashboardPage):
             segment,
             factory=lambda: complete_category_counts(
                 adult_escort_event_stop_chart_data(summary_data, segment),
-                category_col="stop_count",
+                category="stop_count",
                 category_values=stop_values,
                 value_cols=("tour_count",),
             ),
         )
-        return bar_chart(
+        return self.plot.bar(
             chart_data,
-            x_col="stop_count",
-            y_col="tour_count",
+            x="stop_count",
+            y="tour_count",
             title=title,
-            xaxis_title="Stop Count",
-            yaxis_title="Chauffer Escorting Tour-Legs",
-            pct_col="pct",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=stop_values,
+            x_title="Stop Count",
+            y_title="Chauffer Escorting Tour-Legs",
+            category_order=stop_values,
         )
 
     def render_static_triptych_section(
@@ -515,13 +511,13 @@ class EscortedToursPage(DashboardPage):
             summaries["adult_escorted_tour_distance_distribution_by_direction"],
             raw_direction,
             cache_key="adult_escorted_tour_distance_distribution_by_direction",
-            y_col="tour_count",
+            y="tour_count",
         )
         trip_distance_data = self.escort_distance_data(
             summaries["adult_escorted_trip_distance_distribution_by_direction"],
             raw_direction,
             cache_key="adult_escorted_trip_distance_distribution_by_direction",
-            y_col="trip_count",
+            y="trip_count",
         )
         observed_bounds = distance_axis_bounds([*tour_distance_data, *trip_distance_data])
         bounds = (0.0, 40.0) if observed_bounds is not None else None
@@ -593,12 +589,12 @@ class EscortedToursPage(DashboardPage):
             raw_direction,
             factory=lambda: complete_category_counts(
                 escort_person_type_chart_data(summary_data, raw_direction),
-                category_col="person_type",
+                category="person_type",
                 category_values=person_type_values,
                 value_cols=("tour_count",),
             ),
         )
-        return bar_chart(
+        return self.plot.bar(
             label_category_data(
                 chart_data,
                 source_col="person_type",
@@ -606,14 +602,12 @@ class EscortedToursPage(DashboardPage):
                 config=self.config,
                 target_col="person_type_label",
             ),
-            x_col="person_type_label",
-            y_col="tour_count",
+            x="person_type_label",
+            y="tour_count",
             title=f"Chauffer Tours by Person Type - {direction_label}",
-            xaxis_title="Person Type",
-            yaxis_title="Chauffer Tours",
-            pct_col="pct",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=self.config.ordered_labels(
+            x_title="Person Type",
+            y_title="Chauffer Tours",
+            category_order=self.config.ordered_labels(
                 "person_type", person_type_values
             ),
         )
@@ -624,7 +618,7 @@ class EscortedToursPage(DashboardPage):
         raw_direction: str,
         *,
         cache_key: str,
-        y_col: str,
+        y: str,
     ) -> list[tuple[str, pl.DataFrame]]:
         """Return one chart-ready escort distance distribution."""
         return self.get_filtered_view(
@@ -633,7 +627,7 @@ class EscortedToursPage(DashboardPage):
             factory=lambda: escort_distance_chart_data(
                 summary_data,
                 raw_direction,
-                y_col=y_col,
+                y_col=y,
             ),
         )
 
@@ -649,16 +643,14 @@ class EscortedToursPage(DashboardPage):
         """Render one escort distance distribution."""
         axis_data = with_distance_axis(chart_data)
         tickvals, ticktext = fixed_distance_axis_ticks()
-        return density_chart(
+        return self.plot.density(
             axis_data,
-            x_col="_distance_axis",
-            y_col="freq",
+            x="_distance_axis",
+            y="freq",
             title=f"{title_prefix} - {direction_label}",
-            xaxis_title="Distance (miles)",
-            yaxis_title=yaxis_title,
-            normalize=False,
-            as_percent=self.as_percent,
-            xaxis_range=x_range,
-            xaxis_tickvals=tickvals,
-            xaxis_ticktext=ticktext,
+            x_title="Distance (miles)",
+            y_title=yaxis_title,
+            x_range=x_range,
+            tick_values=tickvals,
+            tick_text=ticktext,
         )

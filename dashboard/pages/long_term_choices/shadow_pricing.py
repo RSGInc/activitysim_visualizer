@@ -5,8 +5,8 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import data_table, density_chart, selector_row
-from dashboard.data_access import RunTableView
+from dashboard.rendering import data_table, selector_row
+from dashboard.data_access import RunTables
 from dashboard.helpers.comparison_helpers import format_percent_error_table
 from dashboard.helpers.geography_helpers import (
     ALL_GEOGRAPHY_TYPES_LABEL,
@@ -93,7 +93,7 @@ def filter_student_type(
                 filtered = filtered.filter(pl.col("student_type") == student_type)
         return filtered
 
-    return RunTableView.from_runs(data_list).map(prepare).collect()
+    return RunTables.from_runs(data_list).map(prepare)
 
 
 @dashboard_page(
@@ -208,16 +208,16 @@ class ShadowPricingPage(DashboardPage):
             }
 
         workplace_summary = normalize_geography_data(
-            self.optional_summary("workplace_shadow_pricing_residuals")
+            self.data.summary("workplace_shadow_pricing_residuals", required=False)
         )
         school_summary = normalize_geography_data(
-            self.optional_summary("school_shadow_pricing_residuals")
+            self.data.summary("school_shadow_pricing_residuals", required=False)
         )
         workplace_hist = normalize_geography_data(
-            self.optional_summary("workplace_shadow_pricing_residual_histogram")
+            self.data.summary("workplace_shadow_pricing_residual_histogram", required=False)
         )
         school_hist = normalize_geography_data(
-            self.optional_summary("school_shadow_pricing_residual_histogram")
+            self.data.summary("school_shadow_pricing_residual_histogram", required=False)
         )
         geo_opts, geo_raw_by_label = geography_type_options(
             workplace_hist or school_hist or workplace_summary or school_summary,
@@ -277,15 +277,13 @@ class ShadowPricingPage(DashboardPage):
         return [
             pn.pane.Markdown("### Workplace Employment"),
             selector_row(self.geo_level_sel),
-            density_chart(
+            self.plot.density(
                 workplace_data,
-                x_col="bin_start",
-                y_col="geography_count",
+                x="bin_start",
+                y="geography_count",
                 title="Workplace Residual Distribution",
-                xaxis_title="Residual (Modeled - Target)",
-                yaxis_title="Geographies",
-                normalize=False,
-                as_percent=self.as_percent,
+                x_title="Residual (Modeled - Target)",
+                y_title="Geographies",
             ),
         ]
 
@@ -381,15 +379,13 @@ class ShadowPricingPage(DashboardPage):
         return [
             pn.pane.Markdown("### School Enrollment"),
             selector_row(self.student_type_sel),
-            density_chart(
+            self.plot.density(
                 school_data,
-                x_col="bin_start",
-                y_col="geography_count",
+                x="bin_start",
+                y="geography_count",
                 title="School Residual Distribution",
-                xaxis_title="Residual (Modeled - Target)",
-                yaxis_title="Geographies",
-                normalize=False,
-                as_percent=self.as_percent,
+                x_title="Residual (Modeled - Target)",
+                y_title="Geographies",
             ),
         ]
 

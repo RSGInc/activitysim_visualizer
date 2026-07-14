@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import polars as pl
 
-from dashboard.data_access import RunTableView
+from dashboard.data_access import RunTables
 from dashboard.helpers.category_helpers import (
     capped_numeric_category_expr,
     capped_numeric_category_values,
@@ -41,27 +41,25 @@ def default_direction_option(options: list[str]) -> str:
 
 def adult_escort_event_stop_chart_data(data_list, segment: str):
     return (
-        RunTableView.from_runs(data_list)
+        RunTables.from_runs(data_list)
         .with_columns(pl.col("segment").cast(pl.Utf8))
         .where(segment=segment)
         .with_columns(capped_numeric_category_expr("stop_count", 3))
         .group("stop_count", pl.col("tour_count").sum().alias("tour_count"))
         .select("stop_count", "tour_count")
         .sort(numeric_like_sort_expr("stop_count"))
-        .collect()
     )
 
 
 def escort_person_type_chart_data(data_list, direction: str):
     return (
-        RunTableView.from_runs(data_list)
+        RunTables.from_runs(data_list)
         .with_columns(
             pl.col(DIRECTION_COL).cast(pl.Utf8),
             pl.col("person_type").cast(pl.Utf8),
         )
         .where(direction=direction)
         .select("person_type", "tour_count")
-        .collect()
     )
 
 
@@ -71,7 +69,7 @@ def escort_distance_chart_data(data_list, direction: str, *, y_col: str):
         schema={"distance_bin": pl.Utf8},
     )
     return (
-        RunTableView.from_runs(data_list)
+        RunTables.from_runs(data_list)
         .with_columns(pl.col(DIRECTION_COL).cast(pl.Utf8))
         .where(direction=direction)
         .select(
@@ -83,23 +81,21 @@ def escort_distance_chart_data(data_list, direction: str, *, y_col: str):
             .with_columns(pl.col("freq").fill_null(0.0))
             .select("distance_bin", "freq")
         )
-        .collect()
     )
 
 
 def student_school_escort_chart_data(data_list, direction: str):
     return (
-        RunTableView.from_runs(data_list)
+        RunTables.from_runs(data_list)
         .with_columns(pl.col(DIRECTION_COL).cast(pl.Utf8))
         .where(direction=direction)
         .select("escort_type", "tour_count")
-        .collect()
     )
 
 
 def household_school_escort_chart_data(numerator, denominator, direction: str):
     totals = (
-        RunTableView.from_runs(denominator)
+        RunTables.from_runs(denominator)
         .with_columns(capped_numeric_category_expr("student_count", 6))
         .group(
             "student_count",
@@ -107,7 +103,7 @@ def household_school_escort_chart_data(numerator, denominator, direction: str):
         )
     )
     escorted = (
-        RunTableView.from_runs(numerator)
+        RunTables.from_runs(numerator)
         .with_columns(pl.col(DIRECTION_COL).cast(pl.Utf8))
         .where(direction=direction)
         .with_columns(capped_numeric_category_expr("student_count", 6))
@@ -126,13 +122,12 @@ def household_school_escort_chart_data(numerator, denominator, direction: str):
             .alias("pct"),
         )
         .select("student_count", "household_count", "pct")
-        .collect()
     )
 
 
 def schoolkids_per_escorted_tour_chart_data(data_list, direction: str):
     return (
-        RunTableView.from_runs(data_list)
+        RunTables.from_runs(data_list)
         .with_columns(pl.col(DIRECTION_COL).cast(pl.Utf8))
         .where(direction=direction)
         .with_columns(
@@ -158,7 +153,6 @@ def schoolkids_per_escorted_tour_chart_data(data_list, direction: str):
         )
         .select("student_count", "avg_schoolkids_per_tour", "tour_count")
         .sort(numeric_like_sort_expr("student_count"))
-        .collect()
     )
 
 

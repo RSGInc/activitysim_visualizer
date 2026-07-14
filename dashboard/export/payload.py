@@ -8,14 +8,7 @@ from typing import Any
 from runtime.logging import get_logger
 import panel as pn
 
-from dashboard.components import (
-    build_run_legend_entries,
-    set_bar_hover_mode,
-    set_density_hover_mode,
-    set_percent_mode,
-    set_run_colors,
-    set_run_label_order,
-)
+from dashboard.rendering import RenderContext, run_legend_entries
 from dashboard import DashboardState
 from dashboard.export.context import ExportBuildContext
 from dashboard.export.protocols import validate_export_page
@@ -82,9 +75,6 @@ def build_export_artifacts(
     summary_runs: list[SummaryRun] | None = None,
 ) -> tuple[ExportPayload, dict[str, Any]]:
     """Build export payload plus sidecar diagnostics."""
-    set_run_colors(config.run_colors)
-    set_bar_hover_mode(config.bar_hover_mode)
-    set_density_hover_mode(config.density_hover_mode)
     validate_page_export_config(config)
     export_weight_values = config.export_html.panel_weighting_values()
     export_value_values = config.export_html.panel_value_values()
@@ -94,7 +84,6 @@ def build_export_artifacts(
         prepared_run_provider=build_export_prepared_run_provider(runs, config),
     )
     chrome_state = context.build_dashboard_state()
-    set_run_label_order(chrome_state.run_labels)
     state_payloads: dict[str, dict[str, Any]] = {}
     diagnostics_by_state: dict[str, Any] = {}
 
@@ -114,7 +103,9 @@ def build_export_artifacts(
     payload: ExportPayload = {
         "schema_version": EXPORT_SCHEMA_VERSION,
         "title": config.dashboard_title,
-        "runs_loaded": build_run_legend_entries(chrome_state.run_labels),
+        "runs_loaded": run_legend_entries(
+            RenderContext.from_dashboard(config, chrome_state)
+        ),
         "chrome": {
             "layout": "left_rail",
             "rail_sections": ["runs_loaded", "display_options"],
@@ -381,7 +372,6 @@ def serialize_dashboard_state(
     state = context.build_dashboard_state()
     state.weight_mode = weight_mode
     state.value_mode = value_mode
-    set_percent_mode(value_mode == "Percent")
     pages = build_registered_export_pages(state, context.config)
 
     leaf_page_defs: list[PageDescriptorPayload] = []

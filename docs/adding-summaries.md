@@ -139,7 +139,7 @@ Skip it when the table is private, transitional, or not yet used as a stable das
 If a page should consume the summary:
 
 1. Add the summary id to the page's `@dashboard_page` `required_summary_ids`, or to `optional_summary_ids` when the page can still render without it.
-2. Use `require_summary(...)` or `require_summaries(...)` in a section render function.
+2. Use `self.data.summary(...)` or `self.data.summaries(...)` in a section render function.
 3. Keep page-specific filtering and chart shaping in the page module.
 
 Example:

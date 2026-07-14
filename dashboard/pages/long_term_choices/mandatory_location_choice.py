@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, data_table, density_chart, selector_row
+from dashboard.rendering import data_table, selector_row
 from dashboard.helpers.distance_range import (
     DistanceRangeControls,
     capped_distance_max_options,
@@ -243,7 +243,7 @@ class MandatoryLocationChoicePage(DashboardPage):
                 },
             }
 
-        summaries = self.optional_summaries_dict(
+        summaries = self.data.summaries(
             "internal_external_worker_by_geography",
             "external_worker_workplace_locations",
             "work_from_home_rate_by_geography",
@@ -469,24 +469,23 @@ class MandatoryLocationChoicePage(DashboardPage):
             }
         )
 
-        return bar_chart(
+        return self.plot.bar(
             chart_data,
-            x_col="workplace_location_label",
-            y_col=(
+            x="workplace_location_label",
+            y=(
                 "external_worker_percent"
                 if self.as_percent and is_all_geographies(geo_level)
                 else "person_count"
             ),
             title="External Worker Workplace Location",
-            xaxis_title="Workplace Location",
-            yaxis_title=(
+            x_title="Workplace Location",
+            y_title=(
                 "Workers with External Workplaces (%)"
                 if self.as_percent and is_all_geographies(geo_level)
                 else "External Workers"
             ),
-            pct_col="pct",
-            as_percent=False if is_all_geographies(geo_level) else self.as_percent,
-            xaxis_categoryarray=workplace_location_values,
+            value_mode="count" if is_all_geographies(geo_level) else "dashboard",
+            category_order=workplace_location_values,
         )
 
     def render_distance_distribution_section(self) -> SectionContent:
@@ -631,18 +630,16 @@ class MandatoryLocationChoicePage(DashboardPage):
 
         axis_data = with_distance_axis(distance_data)
         tickvals, ticktext = fixed_distance_axis_ticks()
-        return density_chart(
+        return self.plot.density(
             axis_data,
-            x_col="_distance_axis",
-            y_col="person_count",
+            x="_distance_axis",
+            y="person_count",
             title=title,
-            xaxis_title="Distance (miles)",
-            yaxis_title=yaxis_title,
-            normalize=False,
-            as_percent=self.as_percent,
-            xaxis_range=x_range,
-            xaxis_tickvals=tickvals,
-            xaxis_ticktext=ticktext,
+            x_title="Distance (miles)",
+            y_title=yaxis_title,
+            x_range=x_range,
+            tick_values=tickvals,
+            tick_text=ticktext,
         )
 
     def render_remote_work_section(self) -> SectionContent:
@@ -681,10 +678,10 @@ class MandatoryLocationChoicePage(DashboardPage):
                 geography,
             ),
         )
-        return bar_chart(
+        return self.plot.bar(
             wfh_data,
-            x_col="geography_label",
-            y_col=(
+            x="geography_label",
+            y=(
                 "work_from_home_percent"
                 if self.as_percent
                 else "work_from_home_worker_count"
@@ -694,13 +691,13 @@ class MandatoryLocationChoicePage(DashboardPage):
                 if self.as_percent
                 else "Workers Working From Home by Geography"
             ),
-            xaxis_title="Geography",
-            yaxis_title=(
+            x_title="Geography",
+            y_title=(
                 "Workers Working From Home (%)"
                 if self.as_percent
                 else "Workers Working From Home"
             ),
-            as_percent=False,
+            value_mode="count",
         )
 
     def render_telecommute_chart(
@@ -739,15 +736,14 @@ class MandatoryLocationChoicePage(DashboardPage):
                 config=self.config,
             ),
         )
-        return bar_chart(
+        return self.plot.bar(
             chart_data,
-            x_col="telecommute_frequency_label",
-            y_col="person_count",
+            x="telecommute_frequency_label",
+            y="person_count",
             title="Telecommute Rate",
-            xaxis_title="Telecommute Frequency",
-            yaxis_title="Workers Who Do Not Work From Home",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=self.config.ordered_labels(
+            x_title="Telecommute Frequency",
+            y_title="Workers Who Do Not Work From Home",
+            category_order=self.config.ordered_labels(
                 "telecommute_frequency",
                 telecommute_values,
             ),

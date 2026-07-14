@@ -23,7 +23,7 @@ workflow code sees it. Removed and unknown keys fail with a focused error.
 | Summary generation | Register builders and compute weighted/unweighted tables | `processor/summarize/builder.py`, `processor/summarize/summary_specs.py`, `processor/summarize/summaries/*.py` |
 | Summary cache I/O | Inspect, write, and load cache manifests and CSVs | `processor/summarize/cache.py`, `processor/summarize/cache_storage.py` |
 | Dashboard registry and state | Discover pages, validate page contracts, hold live state and cached filtered views | `dashboard/page_registry.py`, `dashboard/page_definitions.py`, `dashboard/state.py`, `dashboard/page_base.py` |
-| Rendering | Build the live Panel app or serialize a client-side HTML document | `dashboard/app.py`, `dashboard/components.py`, `dashboard/export/` |
+| Rendering | Build context-bound Plotly figures and the live or exported view | `dashboard/rendering/`, `dashboard/app.py`, `dashboard/export/` |
 
 ## End-to-End Flow
 
@@ -139,7 +139,7 @@ authoring model:
 - `time_distance_helpers.py` centralizes repeated time-bin and distance-bin behavior
 - `comparison_helpers.py` centralizes percent-error formatting and base-run comparisons
 
-For page-local table shaping, `dashboard.data_access.RunTableView` applies one
+For page-local table shaping, `dashboard.data_access.RunTables` applies one
 fluent query to every run while preserving run labels. Pages should prefer its
 `where`, `with_columns`, `group`, `select`, `sort`, `join`, `requiring`,
 `drop_empty`, and `map` operations over open-coded loops through
@@ -205,7 +205,12 @@ activitysim_visualizer/
 |           `-- validation.py
 |-- dashboard/
 |   |-- app.py
-|   |-- components.py
+|   |-- rendering/
+|   |   |-- context.py
+|   |   |-- figures.py
+|   |   |-- plotter.py
+|   |   |-- layout.py
+|   |   `-- tables.py
 |   |-- export/
 |   |   |-- html.py
 |   |   |-- payload.py

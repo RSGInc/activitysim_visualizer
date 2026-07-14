@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import panel as pn
 
-from dashboard.components import bar_chart, selector_row
+from dashboard.rendering import selector_row
 from dashboard.helpers.category_helpers import (
     complete_category_counts,
     label_category_data,
@@ -71,7 +71,7 @@ class DailyActivityPatternPage(DashboardPage):
     def _person_type_source_data(self, weighting_key: str):
         """Use the first available person-type summary to seed the selector domain."""
         for summary_id in PERSON_TYPE_SUMMARY_IDS:
-            data = self.state.get_summary_table_set(summary_id, weighting_key)
+            data = self.data.summary(summary_id, weighting_key)
             if data is not None:
                 return data
         return None
@@ -102,7 +102,7 @@ class DailyActivityPatternPage(DashboardPage):
 
     def _optional_summaries(self):
         """Load each chart's summary independently so partial pages still render."""
-        return self.optional_summaries_dict(*self.required_summary_ids)
+        return self.data.summaries(*self.required_summary_ids)
 
     def _missing_chart_card(self, summary_id: str) -> pn.Card:
         return self.data_not_available_card(
@@ -116,7 +116,7 @@ class DailyActivityPatternPage(DashboardPage):
         *,
         cache_key: str,
         raw_person_type: str | None,
-        category_col: str,
+        category: str,
         category_id: str | None,
         source_col_for_labels: str | None = None,
         target_col_for_labels: str | None = None,
@@ -124,7 +124,7 @@ class DailyActivityPatternPage(DashboardPage):
         """Build one count-style chart dataset after person-type filtering and completion."""
         category_values = ordered_category_values(
             summary_data,
-            category_col,
+            category,
             category_id=category_id,
             config=self.config,
         )
@@ -133,7 +133,7 @@ class DailyActivityPatternPage(DashboardPage):
             raw_person_type,
             factory=lambda: complete_category_counts(
                 filter_person_type_counts(summary_data, raw_person_type),
-                category_col=category_col,
+                category=category,
                 category_values=category_values,
                 value_cols=("person_count", "pct"),
             ),
@@ -157,7 +157,7 @@ class DailyActivityPatternPage(DashboardPage):
         *,
         cache_key: str,
         raw_person_type: str | None,
-        category_col: str,
+        category: str,
         category_id: str,
         rate_col: str,
         target_col: str,
@@ -166,7 +166,7 @@ class DailyActivityPatternPage(DashboardPage):
         """Build one rate chart dataset, including weighted total-person-type rollups."""
         category_values = ordered_category_values(
             summary_data,
-            category_col,
+            category,
             category_id=category_id,
             config=self.config,
         )
@@ -178,17 +178,17 @@ class DailyActivityPatternPage(DashboardPage):
                     filter_person_type_rates(
                         summary_data,
                         raw_person_type,
-                        purpose_col=category_col,
+                        purpose_col=category,
                         rate_col=rate_col,
                         person_weights=person_weights,
                     ),
-                    category_col=category_col,
+                    category=category,
                     category_values=category_values,
                     value_cols=(rate_col,),
                 ),
                 category_id=category_id,
                 config=self.config,
-                source_col=category_col,
+                source_col=category,
                 target_col=target_col,
             ),
         )
@@ -208,21 +208,19 @@ class DailyActivityPatternPage(DashboardPage):
             summary_data,
             cache_key="daily_activity_pattern",
             raw_person_type=raw_person_type,
-            category_col="daily_activity_pattern",
+            category="daily_activity_pattern",
             category_id="daily_activity_pattern",
             source_col_for_labels="daily_activity_pattern",
             target_col_for_labels="daily_activity_pattern_label",
         )
-        return bar_chart(
+        return self.plot.bar(
             chart_data,
-            x_col="daily_activity_pattern_label",
-            y_col="person_count",
+            x="daily_activity_pattern_label",
+            y="person_count",
             title=f"Daily Activity Pattern - {display_person_type}",
-            xaxis_title="Daily Activity Pattern",
-            yaxis_title="Persons",
-            pct_col="pct",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=label_values,
+            x_title="Daily Activity Pattern",
+            y_title="Persons",
+            category_order=label_values,
         )
 
     def render_mandatory_tour_frequency_chart(
@@ -239,21 +237,19 @@ class DailyActivityPatternPage(DashboardPage):
             summary_data,
             cache_key="mandatory_tour_frequency",
             raw_person_type=raw_person_type,
-            category_col="mandatory_tour_frequency",
+            category="mandatory_tour_frequency",
             category_id="mandatory_tour_frequency",
             source_col_for_labels="mandatory_tour_frequency",
             target_col_for_labels="mandatory_tour_frequency_label",
         )
-        return bar_chart(
+        return self.plot.bar(
             chart_data,
-            x_col="mandatory_tour_frequency_label",
-            y_col="person_count",
+            x="mandatory_tour_frequency_label",
+            y="person_count",
             title=f"Mandatory Tour Frequency - {display_person_type}",
-            xaxis_title="Mandatory Tour Frequency",
-            yaxis_title="Persons",
-            pct_col="pct",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=label_values,
+            x_title="Mandatory Tour Frequency",
+            y_title="Persons",
+            category_order=label_values,
         )
 
     def render_nonmandatory_tour_frequency_chart(
@@ -270,19 +266,17 @@ class DailyActivityPatternPage(DashboardPage):
             summary_data,
             cache_key="nonmandatory_tour_frequency",
             raw_person_type=raw_person_type,
-            category_col="nonmandatory_tour_frequency",
+            category="nonmandatory_tour_frequency",
             category_id=None,
         )
-        return bar_chart(
+        return self.plot.bar(
             chart_data,
-            x_col="nonmandatory_tour_frequency",
-            y_col="person_count",
+            x="nonmandatory_tour_frequency",
+            y="person_count",
             title=f"Non-Mandatory Tour Frequency - {display_person_type}",
-            xaxis_title="Non-Mandatory Tour Frequency",
-            yaxis_title="Persons",
-            pct_col="pct",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=x_values,
+            x_title="Non-Mandatory Tour Frequency",
+            y_title="Persons",
+            category_order=x_values,
         )
 
     def render_tour_rate_chart(
@@ -300,21 +294,21 @@ class DailyActivityPatternPage(DashboardPage):
             summary_data,
             cache_key="tour_rate_per_person",
             raw_person_type=raw_person_type,
-            category_col="tour_purpose",
+            category="tour_purpose",
             category_id="tour_purpose",
             rate_col="tour_rate",
             target_col=TOUR_PURPOSE_LABEL_COL,
             person_weights=person_weights,
         )
-        return bar_chart(
+        return self.plot.bar(
             chart_data,
-            x_col=TOUR_PURPOSE_LABEL_COL,
-            y_col="tour_rate",
+            x=TOUR_PURPOSE_LABEL_COL,
+            y="tour_rate",
             title=f"Daily Tour Rate per Person by Tour Purpose - {display_person_type}",
-            xaxis_title="Tour Purpose",
-            yaxis_title="Tours per Person-Day",
-            as_percent=False,
-            xaxis_categoryarray=label_values,
+            x_title="Tour Purpose",
+            y_title="Tours per Person-Day",
+            value_mode="count",
+            category_order=label_values,
         )
 
     def render_trip_rate_chart(
@@ -332,21 +326,21 @@ class DailyActivityPatternPage(DashboardPage):
             summary_data,
             cache_key="trip_rate_per_person",
             raw_person_type=raw_person_type,
-            category_col="trip_purpose",
+            category="trip_purpose",
             category_id="trip_purpose",
             rate_col="trip_rate",
             target_col="trip_purpose",
             person_weights=person_weights,
         )
-        return bar_chart(
+        return self.plot.bar(
             chart_data,
-            x_col="trip_purpose",
-            y_col="trip_rate",
+            x="trip_purpose",
+            y="trip_rate",
             title=f"Daily Trip Rate per Person by Trip Purpose - {display_person_type}",
-            xaxis_title="Trip Purpose",
-            yaxis_title="Trips per Person-Day",
-            as_percent=False,
-            xaxis_categoryarray=label_values,
+            x_title="Trip Purpose",
+            y_title="Trips per Person-Day",
+            value_mode="count",
+            category_order=label_values,
         )
 
     def render_body(self):

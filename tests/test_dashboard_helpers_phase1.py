@@ -5,20 +5,18 @@ import sys
 
 import panel as pn
 import polars as pl
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from dashboard.components import (
-    bar_chart,
-    column_titles_for_display,
+from dashboard.rendering import (
+    Plotter,
+    RenderContext,
+    column_titles,
     data_table,
-    density_chart,
-    scatter_chart,
-    set_bar_hover_mode,
-    set_density_hover_mode,
 )
-from dashboard.data_access import RunTableView
+from dashboard.data_access import RunTables
 from dashboard.helpers.category_helpers import (
     column_value_intersection,
     common_column_options,
@@ -66,13 +64,13 @@ from test_export_html import _full_summary_run, _write_config
 
 
 def test_run_table_view_filters_transforms_and_joins_by_run_label() -> None:
-    counts = RunTableView.from_runs(
+    counts = RunTables.from_runs(
         [
             ("Base", pl.DataFrame({"direction": ["outbound", "inbound"], "n": [2, 3]})),
             ("Build", pl.DataFrame({"direction": ["outbound"], "n": [5]})),
         ]
     )
-    totals = RunTableView.from_runs(
+    totals = RunTables.from_runs(
         [
             ("Base", pl.DataFrame({"direction": ["outbound"], "total": [10]})),
             ("Build", pl.DataFrame({"direction": ["outbound"], "total": [20]})),
@@ -87,32 +85,32 @@ def test_run_table_view_filters_transforms_and_joins_by_run_label() -> None:
     )
 
     assert result.values("direction") == ["outbound"]
-    assert [frame["pct"][0] for _, frame in result.collect()] == [20.0, 25.0]
+    assert [frame["pct"][0] for _, frame in result] == [20.0, 25.0]
 
     empty_build = counts.where(direction="inbound")
-    assert [label for label, _ in empty_build.collect()] == ["Base", "Build"]
-    assert empty_build.collect()[1][1].is_empty()
+    assert [label for label, _ in empty_build] == ["Base", "Build"]
+    assert empty_build[1][1].is_empty()
 
-    complete = RunTableView.from_runs(
+    complete = RunTables.from_runs(
         [
             ("Base", pl.DataFrame({"id": [1], "value": [2]})),
             ("Build", pl.DataFrame({"id": [2]})),
         ]
     ).requiring("id", "value")
-    assert [label for label, _ in complete.collect()] == ["Base"]
-    assert [label for label, _ in empty_build.drop_empty().collect()] == ["Base"]
+    assert [label for label, _ in complete] == ["Base"]
+    assert [label for label, _ in empty_build.drop_empty()] == ["Base"]
 
-    outer = RunTableView.from_runs(
+    outer = RunTables.from_runs(
         [("Base", pl.DataFrame({"id": [1], "left": [10]}))]
     ).join(
-        RunTableView.from_runs(
+        RunTables.from_runs(
             [("Base", pl.DataFrame({"id": [2], "right": [20]}))]
         ),
         on="id",
         how="full",
         coalesce=True,
     )
-    assert outer.collect()[0][1].sort("id")["id"].to_list() == [1, 2]
+    assert outer[0][1].sort("id")["id"].to_list() == [1, 2]
 
 
 def test_parking_query_joins_summary_and_prepared_tables_by_run() -> None:
@@ -142,7 +140,7 @@ def test_parking_query_joins_summary_and_prepared_tables_by_run() -> None:
         )
     ]
 
-    result = parking_scatter_data(summaries, [("Base", prepared)])
+    result = parking_scatter_data(summaries, [("Base", prepared.land_use)])
 
     assert [label for label, _ in result] == ["Base"]
     assert result[0][1].to_dict(as_series=False) == {
@@ -173,7 +171,7 @@ def test_category_helpers_support_intersection_normalization_and_numeric_sort(
     )
     completed = complete_category_counts(
         [("Base", pl.DataFrame({"bin": ["10", "40+"], "count": [2, 1]}))],
-        category_col="bin",
+        category="bin",
         category_values=["2", "10", "40+"],
         value_cols=("count",),
     )
@@ -371,7 +369,7 @@ def test_comparison_helpers_format_and_build_comparison_tables() -> None:
                 "tour_count": [1.0, 3.0, 2.0],
             }
         ),
-        category_col="purpose",
+        category="purpose",
         average_col="average_distance",
         weight_col="tour_count",
     )
@@ -479,7 +477,7 @@ def test_data_table_drops_index_columns_and_hides_pandas_index() -> None:
 
 
 def test_column_titles_for_display_humanizes_machine_column_names() -> None:
-    titles = column_titles_for_display(
+    titles = column_titles(
         [
             "id",
             "facility_type",
@@ -500,9 +498,8 @@ def test_column_titles_for_display_humanizes_machine_column_names() -> None:
     }
 
 
-def test_bar_chart_omits_pct_hover_lines() -> None:
-    set_bar_hover_mode("closest")
-    chart = bar_chart(
+def test_figure_first_bar_omits_undeclared_hover_columns() -> None:
+    figure = Plotter(RenderContext()).figure.bar(
         [
             (
                 "Base",
@@ -515,35 +512,45 @@ def test_bar_chart_omits_pct_hover_lines() -> None:
                 ),
             )
         ],
-        x_col="mode",
-        y_col="trip_count",
-        pct_col="pct",
-        xaxis_categoryarray=["Walk", "Bike"],
+        x="mode",
+        y="trip_count",
+        category_order=["Walk", "Bike"],
     )
 
-    hover = list(chart.object.data[0].customdata)
+    hover = list(figure.data[0].customdata)
 
     assert "Pct:" not in hover[0]
     assert "Pct:" not in hover[1]
     assert hover[0] == "Base<br>mode: Walk<br>Count: 5.0"
-    assert chart.object.layout.hovermode != "x unified"
+    assert figure.layout.hovermode != "x unified"
+
+
+def test_figure_builder_reports_run_and_missing_columns() -> None:
+    with pytest.raises(
+        ValueError,
+        match="bar chart for run 'Base' is missing columns: trip_count",
+    ):
+        Plotter(RenderContext()).figure.bar(
+            [("Base", pl.DataFrame({"mode": ["Walk"]}))],
+            x="mode",
+            y="trip_count",
+        )
 
 
 def test_bar_and_density_chart_hover_formatting_matches_units() -> None:
-    bar = bar_chart(
+    bar = Plotter(RenderContext(value_mode="share")).bar(
         [
             (
                 "Base",
                 pl.DataFrame({"mode": ["Walk", "Bike"], "trip_count": [25.0, 75.0]}),
             )
         ],
-        x_col="mode",
-        y_col="trip_count",
-        xaxis_title="Mode",
-        yaxis_title="Trips",
-        as_percent=True,
+        x="mode",
+        y="trip_count",
+        x_title="Mode",
+        y_title="Trips",
     )
-    density_percent = density_chart(
+    density_percent = Plotter(RenderContext(value_mode="share")).density(
         [
             (
                 "Base",
@@ -552,24 +559,22 @@ def test_bar_and_density_chart_hover_formatting_matches_units() -> None:
                 ),
             )
         ],
-        x_col="clock_time",
-        y_col="trip_count",
-        xaxis_title="Clock Time",
-        yaxis_title="Trips",
-        as_percent=True,
+        x="clock_time",
+        y="trip_count",
+        x_title="Clock Time",
+        y_title="Trips",
     )
-    density_count = density_chart(
+    density_count = Plotter(RenderContext(value_mode="count")).density(
         [
             (
                 "Base",
                 pl.DataFrame({"clock_time": ["03:00"], "trip_count": [1234.0]}),
             )
         ],
-        x_col="clock_time",
-        y_col="trip_count",
-        xaxis_title="Clock Time",
-        yaxis_title="Trips",
-        as_percent=False,
+        x="clock_time",
+        y="trip_count",
+        x_title="Clock Time",
+        y_title="Trips",
     )
 
     assert list(bar.object.data[0].customdata)[0] == (
@@ -589,9 +594,9 @@ def test_bar_chart_uses_configured_all_series_hover_mode() -> None:
         ("Build", pl.DataFrame({"mode": ["Walk", "Bike"], "trip_count": [7.0, 0.5]})),
     ]
 
-    set_bar_hover_mode("all")
-    all_hover_chart = bar_chart(data, x_col="mode", y_col="trip_count")
-    set_bar_hover_mode("closest")
+    all_hover_chart = Plotter(RenderContext(bar_hover_mode="all")).bar(
+        data, x="mode", y="trip_count"
+    )
 
     assert all_hover_chart.object.layout.hovermode == "x unified"
 
@@ -602,19 +607,17 @@ def test_density_chart_uses_configured_all_series_hover_mode() -> None:
         ("Build", pl.DataFrame({"bin": [1, 2], "count": [8.0, 15.0]})),
     ]
 
-    set_density_hover_mode("closest")
-    default_chart = density_chart(data, x_col="bin", y_col="count")
-
-    set_density_hover_mode("all")
-    all_hover_chart = density_chart(data, x_col="bin", y_col="count")
-    set_density_hover_mode("closest")
+    default_chart = Plotter(RenderContext()).density(data, x="bin", y="count")
+    all_hover_chart = Plotter(RenderContext(density_hover_mode="all")).density(
+        data, x="bin", y="count"
+    )
 
     assert default_chart.object.layout.hovermode != "x unified"
     assert all_hover_chart.object.layout.hovermode == "x unified"
 
 
 def test_scatter_chart_can_add_one_to_one_reference_line() -> None:
-    chart = scatter_chart(
+    chart = Plotter(RenderContext()).scatter(
         [
             (
                 "Base",
@@ -626,9 +629,9 @@ def test_scatter_chart_can_add_one_to_one_reference_line() -> None:
                 ),
             )
         ],
-        x_col="observed",
-        y_col="modeled",
-        one_to_one_line=True,
+        x="observed",
+        y="modeled",
+        one_to_one=True,
     )
 
     reference_line = chart.object.data[-1]
@@ -654,7 +657,7 @@ def test_dashboard_page_phase1_convenience_helpers(tmp_path: Path) -> None:
             self.view = pn.Column()
 
         def _refresh(self) -> None:
-            self.summary_dict = self.optional_summaries_dict(
+            self.summary_dict = self.data.summaries(
                 "population_totals",
                 "missing_summary",
             )
@@ -668,5 +671,5 @@ def test_dashboard_page_phase1_convenience_helpers(tmp_path: Path) -> None:
     assert isinstance(no_runs, pn.pane.Markdown)
     assert no_runs.object == "No runs loaded."
     assert unavailable.title == "Data Not Available"
-    assert page.summary_dict["population_totals"] is not None
-    assert page.summary_dict["missing_summary"] is None
+    assert page.summary_dict["population_totals"]
+    assert not page.summary_dict["missing_summary"]

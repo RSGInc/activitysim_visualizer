@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from dashboard.components import bar_chart
+from dashboard.rendering import Plotter, RenderContext
 from dashboard.pages.long_term_choices.individual_choices import (
     IndividualChoicesPage,
 )
@@ -3392,7 +3392,7 @@ def test_overview_page_skips_bad_run_for_one_visualization_but_keeps_rendering(
     person_type_diag = next(
         diagnostic
         for diagnostic in page.visualization_diagnostics
-        if diagnostic.visualization_id == "overview_person_type_distribution"
+        if diagnostic.visualization_id == "person_type_distribution"
     )
     assert person_type_diag.render_state == "partial"
     assert person_type_diag.usable_run_labels == ("Base",)
@@ -3695,7 +3695,7 @@ def test_tour_mode_vehicle_filters_sort_categories_stably() -> None:
             )
         ],
         "All",
-        category_col="fuel_type",
+        category="fuel_type",
     )
 
     assert filtered[0][1]["fuel_type"].to_list() == [
@@ -5594,7 +5594,7 @@ def test_tour_distance_nonmandatory_average_table_filters_to_selected_geography(
 
 
 def test_bar_chart_pins_category_order_from_input_sequence() -> None:
-    chart = bar_chart(
+    chart = Plotter(RenderContext()).bar(
         [
             (
                 "Base",
@@ -5606,8 +5606,8 @@ def test_bar_chart_pins_category_order_from_input_sequence() -> None:
                 ),
             )
         ],
-        x_col="fuel_type",
-        y_col="vehicle_count",
+        x="fuel_type",
+        y="vehicle_count",
     )
 
     category_array = list(chart.object.layout.xaxis.categoryarray)

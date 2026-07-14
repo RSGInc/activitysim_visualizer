@@ -5,14 +5,7 @@ from __future__ import annotations
 import panel as pn
 
 from dashboard import DashboardState
-from dashboard.components import (
-    build_run_legend_panes,
-    set_bar_hover_mode,
-    set_density_hover_mode,
-    set_percent_mode,
-    set_run_colors,
-    set_run_label_order,
-)
+from dashboard.rendering import RenderContext, run_legend_panes
 from dashboard.page_registry import (
     build_dashboard_prepared_run_provider,
     build_registered_live_pages,
@@ -41,9 +34,6 @@ def build_dashboard(
     summary_runs: list[SummaryRun] | None = None,
 ) -> pn.template.FastListTemplate:
     """Assemble the full Panel dashboard from a list of (label, RunData) tuples."""
-    set_run_colors(config.run_colors)
-    set_bar_hover_mode(config.bar_hover_mode)
-    set_density_hover_mode(config.density_hover_mode)
     prepared_run_provider = build_dashboard_prepared_run_provider(prepared_runs, config)
     state = DashboardState(
         summary_runs=summary_runs,
@@ -53,7 +43,6 @@ def build_dashboard(
         default_segmentation_visibility=config.segmentation.dashboard.visibility,
     )
     run_labels = state.run_labels
-    set_run_label_order(run_labels)
 
     weight_mode = pn.widgets.RadioButtonGroup(
         name="Weighting",
@@ -74,7 +63,6 @@ def build_dashboard(
     # if static_export:
     #     weight_mode.disabled = True
     #     value_mode.disabled = True
-    #     set_percent_mode(True)
     #     pages = build_registered_live_pages(state, config)
     #     for page in pages:
     #         page.mark_stale()
@@ -145,7 +133,7 @@ def build_dashboard(
 
     sidebar_items = [
         pn.pane.Markdown("## Runs Loaded"),
-        *build_run_legend_panes(run_labels),
+        *run_legend_panes(RenderContext.from_dashboard(config, state)),
         pn.layout.Divider(),
         pn.pane.Markdown("## Display Options"),
         pn.pane.HTML(

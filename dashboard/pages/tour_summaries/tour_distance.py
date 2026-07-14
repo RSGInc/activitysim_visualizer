@@ -5,8 +5,8 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import data_table, density_chart, selector_row
-from dashboard.data_access import RunTableView
+from dashboard.rendering import data_table, selector_row
+from dashboard.data_access import RunTables
 from dashboard.helpers.category_helpers import (
     column_options,
     nonempty,
@@ -48,7 +48,7 @@ def tour_distance_chart_data(
 ) -> list[tuple[str, pl.DataFrame]]:
     """Prepare the distance distribution for one tour purpose."""
     return (
-        RunTableView.from_runs(data_list)
+        RunTables.from_runs(data_list)
         .with_columns(pl.col("tour_purpose").cast(pl.Utf8))
         .where(tour_purpose=purpose)
         .select(
@@ -60,7 +60,6 @@ def tour_distance_chart_data(
         )
         .sort("_sort_distance")
         .map(lambda frame: frame.drop("_sort_distance"))
-        .collect()
     )
 
 
@@ -104,7 +103,7 @@ def average_distance_comparison_table(
     _, base_run_df = runs[0]
     base_lookup = weighted_average_lookup(
         base_run_df,
-        category_col="nonmandatory_tour_purpose",
+        category="nonmandatory_tour_purpose",
         average_col="average_tour_distance",
         weight_col="tour_count",
     )
@@ -114,7 +113,7 @@ def average_distance_comparison_table(
     for run_label, run_df in runs:
         run_lookup = weighted_average_lookup(
             run_df,
-            category_col="nonmandatory_tour_purpose",
+            category="nonmandatory_tour_purpose",
             average_col="average_tour_distance",
             weight_col="tour_count",
         )
@@ -218,7 +217,7 @@ class TourDistancePage(DashboardPage):
 
     def _summaries(self) -> dict[str, object] | None:
         """Return the required summary bundle for this page."""
-        return self.require_summaries(*self.required_summary_ids)
+        return self.data.summaries(*self.required_summary_ids)
 
     def sync_controls(self) -> None:
         """Recompute selector domains from the current summary tables."""
@@ -346,18 +345,16 @@ class TourDistancePage(DashboardPage):
         """Render the distance distribution chart for one selected purpose."""
         axis_data = with_distance_axis(distance_data)
         tickvals, ticktext = fixed_distance_axis_ticks()
-        return density_chart(
+        return self.plot.density(
             axis_data,
-            "_distance_axis",
-            "tour_count",
-            f"Tour Distance Distribution - {display_purpose}",
-            "Distance (miles)",
-            normalize=False,
-            yaxis_title="Tours",
-            as_percent=self.as_percent,
-            xaxis_range=x_range,
-            xaxis_tickvals=tickvals,
-            xaxis_ticktext=ticktext,
+            x="_distance_axis",
+            y="tour_count",
+            title=f"Tour Distance Distribution - {display_purpose}",
+            x_title="Distance (miles)",
+            y_title="Tours",
+            x_range=x_range,
+            tick_values=tickvals,
+            tick_text=ticktext,
         )
 
     def render_average_section(self) -> SectionContent:

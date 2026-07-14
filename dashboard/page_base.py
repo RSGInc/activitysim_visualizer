@@ -10,14 +10,14 @@ import panel as pn
 
 from runtime.logging import get_logger
 from dashboard.state import DashboardState
-from dashboard.components import data_unavailable_card
+from dashboard.rendering import data_unavailable_card
 from dashboard.data_access import (
     DashboardDataSelection,
-    RunTableView,
+    PageData,
     VisualizationDiagnostic,
-    VisualizationInputResult,
     VisualizationRunAvailability,
 )
+from dashboard.rendering import Plotter, RenderContext
 from runtime.config import Config
 
 if TYPE_CHECKING:
@@ -92,10 +92,19 @@ class DashboardPage:
 
         definition = self.definition
         name = definition.title if definition is not None else type(self).__name__
+        page_state_id = definition.page_id if definition is not None else type(self).__name__
         self.name = name
         self.state = state
         self.config = config
-        self._page_state = state.get_page_state(name)
+        self._page_state = state.get_page_state(page_state_id)
+        self.data = PageData(
+            state,
+            weighting_key=lambda: self.weighting_key,
+            required_summary_ids=lambda: self.required_summary_ids,
+            record_selection=self._record_data_selection,
+            warn_missing=self._warn_missing_summary,
+            warn_missing_prepared=self._warn_missing_prepared,
+        )
         self.view: pn.viewable.Viewable | None = None
         self._registered_selectors: dict[str, RegisteredPageSelector] = {}
         self._registered_sections: dict[str, RegisteredPageSection] = {}
@@ -363,6 +372,11 @@ class DashboardPage:
         return self.state.value_mode == "Percent"
 
     @property
+    def plot(self) -> Plotter:
+        """Return a plotter bound to the current immutable render state."""
+        return Plotter(RenderContext.from_dashboard(self.config, self.state))
+
+    @property
     def weighting_key(self) -> str:
         """Return the current weighting key used for summary-table lookup."""
         return self.state.weighting_key()
@@ -401,6 +415,55 @@ class DashboardPage:
             return
         LOGGER.warning(message)
         warnings.add(key)
+
+    def _record_data_selection(
+        self,
+        source_id: str,
+        selection: DashboardDataSelection,
+    ) -> None:
+        self._page_state.setdefault("required_summary_selections", {})[source_id] = selection
+        render_state = (
+            "skipped"
+            if not selection.has_usable_runs
+            else "partial"
+            if selection.excluded_runs
+            else "rendered"
+        )
+        self._page_state.setdefault("visualization_diagnostics", []).append(
+            VisualizationDiagnostic(
+                visualization_id=source_id,
+                render_state=render_state,
+                input_kind=selection.source_kind,
+                input_ids=(source_id,),
+                usable_run_labels=tuple(label for label, _ in selection.usable_runs),
+                excluded_runs=tuple(selection.excluded_runs),
+            )
+        )
+
+    def _warn_missing_summary(self, summary_id: str) -> None:
+        self._warn_once(
+            f"missing-summary:{summary_id}",
+            (
+                f"Warning: dashboard page '{self.name}' requires summary "
+                f"'{summary_id}' for weighting mode '{self.weighting_key}', "
+                "but no usable data was available."
+            ),
+        )
+
+    def _warn_missing_prepared(self) -> None:
+        availability = self.state.prepared_run_availability
+        reason = (
+            "prepared run data was not requested for this dashboard session"
+            if availability == "not_requested"
+            else "prepared run data is unavailable"
+        )
+        self._warn_once(
+            f"missing-prepared-runs:{availability}",
+            (
+                f"Warning: dashboard page '{self.name}' requires prepared run data, "
+                f"but {reason}."
+            ),
+        )
 
     def data_not_available_card(
         self,
@@ -453,264 +516,6 @@ class DashboardPage:
     @property
     def visualization_diagnostics(self) -> list[VisualizationDiagnostic]:
         return list(self._page_state.get("visualization_diagnostics", []))
-
-    def _record_visualization_diagnostic(
-        self,
-        result: VisualizationInputResult,
-    ) -> None:
-        render_state = "rendered"
-        if not result.has_usable_runs:
-            render_state = "skipped"
-        elif result.excluded_runs:
-            render_state = "partial"
-        diagnostics = self._page_state.setdefault("visualization_diagnostics", [])
-        diagnostics.append(
-            VisualizationDiagnostic(
-                visualization_id=result.visualization_id,
-                render_state=render_state,
-                input_kind=result.input_kind,
-                input_ids=result.input_ids,
-                usable_run_labels=tuple(
-                    label
-                    for label, _ in next(iter(result.usable_by_input.values()), [])
-                ),
-                excluded_runs=tuple(result.excluded_runs),
-            )
-        )
-
-    def _combine_selections(
-        self,
-        visualization_id: str,
-        selections: dict[str, DashboardDataSelection],
-    ) -> VisualizationInputResult:
-        usable_labels_by_input = {
-            input_id: {label for label, _ in selection.usable_runs}
-            for input_id, selection in selections.items()
-        }
-        common_labels = (
-            set.intersection(*usable_labels_by_input.values())
-            if usable_labels_by_input
-            else set()
-        )
-        usable_by_input = {
-            input_id: [
-                (label, value)
-                for label, value in selection.usable_runs
-                if label in common_labels
-            ]
-            for input_id, selection in selections.items()
-        }
-        excluded_by_key: dict[tuple[str, str, str], VisualizationRunAvailability] = {}
-        for selection in selections.values():
-            for issue in selection.excluded_runs:
-                excluded_by_key[(issue.label, issue.source_kind, issue.source_id)] = (
-                    issue
-                )
-            for label, _ in selection.usable_runs:
-                if label in common_labels:
-                    continue
-                excluded_by_key[(label, selection.source_kind, selection.source_id)] = (
-                    VisualizationRunAvailability(
-                        label=label,
-                        status="missing",
-                        detail="required alongside another unavailable input for this visualization",
-                        source_kind=selection.source_kind,
-                        source_id=selection.source_id,
-                    )
-                )
-        input_kinds = {selection.source_kind for selection in selections.values()}
-        input_kind = next(iter(input_kinds)) if len(input_kinds) == 1 else "mixed"
-        result = VisualizationInputResult(
-            visualization_id=visualization_id,
-            input_kind=input_kind,
-            usable_by_input=usable_by_input,
-            excluded_runs=list(excluded_by_key.values()),
-            input_ids=tuple(selections),
-        )
-        self._record_visualization_diagnostic(result)
-        return result
-
-    def resolve_summary_visualization(
-        self,
-        visualization_id: str,
-        *,
-        summary_requirements: dict[str, tuple[str, ...]],
-        weighting_key: str | None = None,
-    ) -> VisualizationInputResult:
-        selections = {
-            summary_name: self.state.inspect_summary_table(
-                summary_name,
-                weighting_key=weighting_key or self.weighting_key,
-                required_columns=required_columns,
-            )
-            for summary_name, required_columns in summary_requirements.items()
-        }
-        return self._combine_selections(visualization_id, selections)
-
-    def resolve_prepared_visualization(
-        self,
-        visualization_id: str,
-        *,
-        table_requirements: dict[str, tuple[str, ...]],
-        weighted: bool | None = None,
-    ) -> VisualizationInputResult:
-        selections = {
-            table_name: self.state.inspect_prepared_table(
-                table_name,
-                weighted=weighted,
-                required_columns=required_columns,
-            )
-            for table_name, required_columns in table_requirements.items()
-        }
-        return self._combine_selections(visualization_id, selections)
-
-    def unavailable_visualization(
-        self,
-        result: VisualizationInputResult,
-        *,
-        detail: str,
-        title: str = "Data Not Available",
-    ) -> pn.viewable.Viewable:
-        if self.missing_data_display == "blank":
-            return pn.Spacer(height=0)
-        missing_items = list(result.input_ids)
-        if result.excluded_runs:
-            detail = self._format_issue_detail(detail, result.excluded_runs)
-        return self.data_not_available_card(
-            detail=detail,
-            missing_items=missing_items,
-            title=title,
-        )
-
-    def get_summary(self, summary_name: str):
-        """Return one summary table per run for the current weighting mode."""
-        return self.state.get_summary_table_set(summary_name, self.weighting_key)
-
-    def tables(self, runs) -> RunTableView:
-        """Start a fluent query over corresponding tables from multiple runs."""
-        return RunTableView.from_runs(runs)
-
-    def summary(self, summary_name: str) -> RunTableView | None:
-        """Return a required summary as a fluent run-table query."""
-        runs = self.require_summary(summary_name)
-        return None if runs is None else self.tables(runs)
-
-    def optional_summary_view(
-        self,
-        summary_name: str,
-        *,
-        required_columns: tuple[str, ...] = (),
-    ) -> RunTableView | None:
-        """Return an optional summary as a fluent run-table query."""
-        runs = self.optional_summary(
-            summary_name,
-            required_columns=required_columns,
-        )
-        return None if runs is None else self.tables(runs)
-
-    def has_summary(self, summary_name: str) -> bool:
-        return self.state.has_summary_table_set(summary_name, self.weighting_key)
-
-    def require_summary(self, summary_name: str):
-        """Return one summary table per run, warning once when unavailable."""
-        selection = self.state.inspect_summary_table(
-            summary_name,
-            weighting_key=self.weighting_key,
-        )
-        self._page_state.setdefault("required_summary_selections", {})[summary_name] = (
-            selection
-        )
-        if not selection.has_usable_runs:
-            self._warn_once(
-                f"missing-summary:{summary_name}",
-                (
-                    f"Warning: dashboard page '{self.name}' requires summary "
-                    f"'{summary_name}' for weighting mode '{self.weighting_key}', "
-                    "but no usable data was available."
-                ),
-            )
-            return None
-        return [(label, table) for label, table in selection.usable_runs]
-
-    def inspect_summary(
-        self,
-        summary_name: str,
-        *,
-        required_columns: tuple[str, ...] = (),
-    ):
-        """Inspect one summary table and store its availability for page diagnostics."""
-        selection = self.state.inspect_summary_table(
-            summary_name,
-            weighting_key=self.weighting_key,
-            required_columns=required_columns,
-        )
-        self._page_state.setdefault("required_summary_selections", {})[summary_name] = (
-            selection
-        )
-        return selection
-
-    def optional_summary(
-        self,
-        summary_name: str,
-        *,
-        required_columns: tuple[str, ...] = (),
-    ):
-        """Return usable rows for one summary or ``None`` when unavailable."""
-        selection = self.inspect_summary(
-            summary_name,
-            required_columns=required_columns,
-        )
-        if not selection.has_usable_runs:
-            return None
-        return [(label, table) for label, table in selection.usable_runs]
-
-    def optional_summaries_dict(
-        self,
-        *summary_names: str,
-        required_columns_by_summary: dict[str, tuple[str, ...]] | None = None,
-    ) -> dict[str, Any]:
-        """Return optional summaries keyed by summary id without failing the whole page."""
-        required_columns_by_summary = required_columns_by_summary or {}
-        return {
-            summary_name: self.optional_summary(
-                summary_name,
-                required_columns=required_columns_by_summary.get(summary_name, ()),
-            )
-            for summary_name in summary_names
-        }
-
-    def require_summaries(self, *summary_names: str) -> dict[str, Any] | None:
-        """Return multiple summary tables or ``None`` when any are missing."""
-        selections = {
-            summary_name: self.state.inspect_summary_table(
-                summary_name,
-                weighting_key=self.weighting_key,
-            )
-            for summary_name in summary_names
-        }
-        self._page_state["required_summary_selections"] = selections
-        missing = [
-            summary_name
-            for summary_name in summary_names
-            if not selections[summary_name].has_usable_runs
-        ]
-        if missing:
-            for summary_name in missing:
-                self._warn_once(
-                    f"missing-summary:{summary_name}",
-                    (
-                        f"Warning: dashboard page '{self.name}' requires summary "
-                        f"'{summary_name}' for weighting mode '{self.weighting_key}', "
-                        "but no usable data was available."
-                    ),
-                )
-            return None
-        return {
-            summary_name: [
-                (label, table) for label, table in selections[summary_name].usable_runs
-            ]
-            for summary_name in summary_names
-        }
 
     def _missing_item_statuses(
         self,
@@ -779,31 +584,6 @@ class DashboardPage:
                     f"- `{source_id}` is {status.replace('_', ' ')} for {label_list}: {issue_detail}"
                 )
         return "\n".join(lines)
-
-    def get_prepared_runs(self, *, weighted: bool | None = None):
-        """Return prepared runs when this dashboard session has loaded them explicitly."""
-        return self.state.get_prepared_runs_if_loaded(weighted=weighted)
-
-    def require_prepared_runs(self, *, weighted: bool | None = None):
-        """Return prepared runs or warn once when this session does not have them."""
-        prepared_runs = self.get_prepared_runs(weighted=weighted)
-        if prepared_runs is not None:
-            return prepared_runs
-
-        availability = self.state.prepared_run_availability
-        reason = (
-            "prepared run data was not requested for this dashboard session"
-            if availability == "not_requested"
-            else "prepared run data is unavailable"
-        )
-        self._warn_once(
-            f"missing-prepared-runs:{availability}",
-            (
-                f"Warning: dashboard page '{self.name}' requires prepared run data, "
-                f"but {reason}."
-            ),
-        )
-        return None
 
     def get_filtered_view(self, view_name: str, *filters: Any, factory):
         """Return a cached chart-ready filtered view for the current page state."""

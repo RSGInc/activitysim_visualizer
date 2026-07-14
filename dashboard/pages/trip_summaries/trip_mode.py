@@ -5,8 +5,8 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, selector_row
-from dashboard.data_access import RunTableView
+from dashboard.rendering import selector_row
+from dashboard.data_access import RunTables
 from dashboard.helpers.category_helpers import (
     add_percent_of_total,
     category_label_matches,
@@ -29,7 +29,7 @@ def filtered_trip_mode_data(
 ) -> list[tuple[str, pl.DataFrame]]:
     """Filter trip mode summaries to one selected tour purpose and optional tour mode."""
     view = (
-        RunTableView.from_runs(data_list)
+        RunTables.from_runs(data_list)
         .with_columns(
             pl.col("tour_purpose").cast(pl.Utf8),
             pl.col("tour_mode").cast(pl.Utf8),
@@ -44,7 +44,7 @@ def filtered_trip_mode_data(
                 ~pl.col("trip_mode").is_in(sorted(hidden_mode_values))
             )
         )
-    return view.collect()
+    return view
 
 
 def trip_mode_percent_data(
@@ -56,7 +56,7 @@ def trip_mode_percent_data(
     """Complete trip-mode rows, compute full-denominator percents, then hide rows."""
     completed = complete_category_counts(
         data_list,
-        category_col="trip_mode",
+        category="trip_mode",
         category_values=all_trip_mode_values,
         value_cols=("trip_count", "pct"),
     )
@@ -69,9 +69,8 @@ def trip_mode_percent_data(
         return with_percent
     hidden_values = sorted(hidden_trip_mode_values)
     return (
-        RunTableView.from_runs(with_percent)
+        RunTables.from_runs(with_percent)
         .map(lambda frame: frame.filter(~pl.col("trip_mode").is_in(hidden_values)))
-        .collect()
     )
 
 
@@ -110,7 +109,7 @@ class TripModePage(DashboardPage):
 
     def build_page(self) -> pn.viewable.Viewable:
         purpose_opts, self._tour_purpose_to_raw = column_options(
-            self.state.get_summary_table_set(
+            self.data.summary(
                 "trip_mode_by_tour_purpose_and_tour_mode", "weighted"
             )
             or [],
@@ -154,8 +153,8 @@ class TripModePage(DashboardPage):
         )
 
     def sync_controls(self) -> None:
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        summaries = self.data.summaries(*self.required_summary_ids)
+        if not all(summaries.values()):
             return
         purpose_opts, self._tour_purpose_to_raw = column_options(
             summaries["trip_mode_by_tour_purpose_and_tour_mode"],
@@ -267,25 +266,23 @@ class TripModePage(DashboardPage):
             if tour_mode is not None
             else self._overall_chart_title(display_purpose)
         )
-        return bar_chart(
+        return self.plot.bar(
             mode_data,
-            x_col="trip_mode_label",
-            y_col="trip_count",
+            x="trip_mode_label",
+            y="trip_count",
             title=chart_title,
-            xaxis_title="Trip Mode",
-            yaxis_title="Trips",
-            pct_col="pct",
-            percent_y_col="trip_count_percent",
-            as_percent=self.as_percent,
+            x_title="Trip Mode",
+            y_title="Trips",
+            share_y="trip_count_percent",
             height=320 if tour_mode is not None else 400,
-            xaxis_categoryarray=trip_mode_label_values,
+            category_order=trip_mode_label_values,
         )
 
     def render_body(self):
         if not self.state.run_labels:
             return [self.no_runs_message()]
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        summaries = self.data.summaries(*self.required_summary_ids)
+        if not all(summaries.values()):
             return [self.summary_only_unavailable_card()]
         trip_mode_list = summaries["trip_mode_by_tour_purpose_and_tour_mode"]
         display_purpose, raw_purpose = self._selected_purpose()

@@ -5,8 +5,8 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, kpi_box, selector_row
-from dashboard.data_access import RunTableView
+from dashboard.rendering import selector_row
+from dashboard.data_access import RunTables
 from dashboard.helpers.category_helpers import cap_numeric_category_data, nonempty
 from dashboard.helpers.geography_helpers import rename_present
 from dashboard import DashboardPage, dashboard_page
@@ -21,9 +21,8 @@ def _cast_category(
 ) -> list[tuple[str, pl.DataFrame]]:
     """Cast one chart category column to strings for stable display ordering."""
     return (
-        RunTableView.from_runs(data_list)
+        RunTables.from_runs(data_list)
         .with_columns(pl.col(category_col).cast(pl.Utf8))
-        .collect()
     )
 
 
@@ -35,9 +34,8 @@ def _normalize_vehicle_summary_columns(
 ) -> list[tuple[str, pl.DataFrame]]:
     """Accept legacy summary column names while exposing one canonical chart column."""
     return (
-        RunTableView.from_runs(data_list)
+        RunTables.from_runs(data_list)
         .map(lambda frame: rename_present(frame, {legacy_col: canonical_col}))
-        .collect()
     )
 
 
@@ -86,10 +84,10 @@ def _auto_ownership_chart_data(
             .sort(pl.col("household_vehicle_count").cast(pl.Int64, strict=False))
         )
 
-    out = RunTableView.from_runs(data_list).map(prepare).collect()
+    out = RunTables.from_runs(data_list).map(prepare)
     return cap_numeric_category_data(
         out,
-        category_col="household_vehicle_count",
+        category="household_vehicle_count",
         cap_value=4,
         value_cols=("household_count",),
     )
@@ -135,13 +133,13 @@ class VehicleOwnershipTypePage(DashboardPage):
         )
 
     def _optional_summaries(self) -> dict[str, list[tuple[str, pl.DataFrame]] | None]:
-        return self.optional_summaries_dict(*self.required_summary_ids)
+        return self.data.summaries(*self.required_summary_ids)
 
     def _summary_only_unavailable(self) -> pn.Card:
         return self.summary_only_unavailable_card()
 
     def _household_size_options(self) -> list[str]:
-        data = self.state.get_summary_table_set(
+        data = self.data.summary(
             "auto_ownership_distribution",
             "weighted",
         )
@@ -149,7 +147,7 @@ class VehicleOwnershipTypePage(DashboardPage):
 
     def sync_controls(self) -> None:
         """Keep the household-size selector aligned with available auto ownership data."""
-        summaries = self.optional_summaries_dict("auto_ownership_distribution")
+        summaries = self.data.summaries("auto_ownership_distribution")
         options = _auto_ownership_household_size_options(
             summaries["auto_ownership_distribution"]
         )
@@ -234,18 +232,16 @@ class VehicleOwnershipTypePage(DashboardPage):
                 missing_items=["auto_ownership_distribution"],
             )
         household_size = str(self.hhsize_sel.value)
-        return bar_chart(
+        return self.plot.bar(
             _auto_ownership_chart_data(
                 summary_data,
                 household_size,
             ),
-            x_col="household_vehicle_count",
-            y_col="household_count",
+            x="household_vehicle_count",
+            y="household_count",
             title=f"Auto Ownership by Household Size - {household_size}",
-            xaxis_title="Household Vehicles",
-            yaxis_title="Households",
-            pct_col="pct",
-            as_percent=self.as_percent,
+            x_title="Household Vehicles",
+            y_title="Households",
         )
 
     def render_autonomous_vehicle_kpi(self, summary_data):
@@ -261,7 +257,7 @@ class VehicleOwnershipTypePage(DashboardPage):
                 detail="The autonomous vehicle ownership summary is empty.",
                 missing_items=["autonomous_vehicle_ownership_totals"],
             )
-        return kpi_box(
+        return self.plot.kpi(
             "Autonomous Vehicle Ownership",
             av_values,
             format_fn=lambda value: f"{value:,.0f}",
@@ -288,13 +284,11 @@ class VehicleOwnershipTypePage(DashboardPage):
             canonical_col=canonical_col,
             legacy_col=legacy_col,
         )
-        return bar_chart(
+        return self.plot.bar(
             _cast_category(normalized, canonical_col),
-            x_col=canonical_col,
-            y_col="vehicle_count",
+            x=canonical_col,
+            y="vehicle_count",
             title=title,
-            xaxis_title=xaxis_title,
-            yaxis_title="Vehicles",
-            pct_col="pct",
-            as_percent=self.as_percent,
+            x_title=xaxis_title,
+            y_title="Vehicles",
         )

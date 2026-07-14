@@ -6,9 +6,8 @@ import panel as pn
 import polars as pl
 
 from dashboard import DashboardPage, dashboard_page
-from dashboard.components import data_table, scatter_chart
-from dashboard.data_access import RunTableView
-from processor.models import RunData
+from dashboard.rendering import data_table
+from dashboard.data_access import RunTables
 
 PARKING_CAPACITY_COLUMNS = (
     "PRKSPACES",
@@ -26,17 +25,17 @@ def _parking_capacity_col(land_use: pl.DataFrame) -> str | None:
 
 def parking_scatter_data(
     parking_summary: list[tuple[str, pl.DataFrame]],
-    prepared_runs: list[tuple[str, RunData]],
+    land_use_tables: list[tuple[str, pl.DataFrame]],
 ) -> list[tuple[str, pl.DataFrame]]:
     capacity_tables: list[tuple[str, pl.DataFrame]] = []
-    for label, run in prepared_runs:
-        capacity_col = _parking_capacity_col(run.land_use)
+    for label, land_use in land_use_tables:
+        capacity_col = _parking_capacity_col(land_use)
         if capacity_col is None:
             continue
         capacity_tables.append(
             (
                 label,
-                run.land_use.select(
+                land_use.select(
                     pl.col("MAZ").cast(pl.Utf8).alias("geography_id"),
                     pl.col(capacity_col).cast(pl.Float64).alias("parking_capacity"),
                 )
@@ -46,7 +45,7 @@ def parking_scatter_data(
         )
 
     parking_counts = (
-        RunTableView.from_runs(parking_summary)
+        RunTables.from_runs(parking_summary)
         .map(
             lambda frame: frame.filter(
                 pl.col("geography_type").cast(pl.Utf8) == "maz"
@@ -57,14 +56,13 @@ def parking_scatter_data(
         )
     )
     return (
-        RunTableView.from_runs(capacity_tables)
+        RunTables.from_runs(capacity_tables)
         .join(parking_counts, on="geography_id", how="full", coalesce=True)
         .with_columns(
             pl.col("parking_capacity").fill_null(0.0),
             pl.col("trip_count").fill_null(0.0),
         )
         .sort("geography_id")
-        .collect()
     )
 
 
@@ -99,38 +97,36 @@ class ParkingLocationPage(DashboardPage):
         if not self.state.run_labels:
             return [self.no_runs_message()]
 
-        parking_result = self.resolve_summary_visualization(
-            "parking_location_scatter",
-            summary_requirements={
-                "parking_locations": ("geography_type", "geography_id", "trip_count")
-            },
+        parking_tables = self.data.summary(
+            "parking_locations",
+            columns=("geography_type", "geography_id", "trip_count"),
         )
-        prepared_result = self.resolve_prepared_visualization(
-            "parking_location_land_use",
-            table_requirements={"land_use": ("MAZ",)},
+        land_use_tables = self.data.prepared(
+            "land_use",
+            columns=("MAZ",),
             weighted=self.weighting_key == "weighted",
         )
-        if not parking_result.has_usable_runs or not prepared_result.has_usable_runs:
+        if not parking_tables or not land_use_tables:
             detail = (
                 "Parking location scatterplots require parking trip summaries and prepared "
                 "land use tables with parking capacity columns."
             )
-            result = (
-                parking_result
-                if not parking_result.has_usable_runs
-                else prepared_result
-            )
-            return [self.unavailable_visualization(result, detail=detail)]
+            missing = []
+            if not parking_tables:
+                missing.append("parking_locations")
+            if not land_use_tables:
+                missing.append("land_use")
+            return [self.data_not_available_card(detail=detail, missing_items=missing)]
 
         scatter_data = self.get_filtered_view(
             "parking_location_scatter",
             tuple(
                 label
-                for label, _ in parking_result.usable_by_input["parking_locations"]
+                for label, _ in parking_tables
             ),
             factory=lambda: parking_scatter_data(
-                parking_result.usable_by_input["parking_locations"],
-                prepared_result.usable_by_input["land_use"],
+                parking_tables,
+                land_use_tables,
             ),
         )
         if not scatter_data:
@@ -154,13 +150,13 @@ class ParkingLocationPage(DashboardPage):
         scatter_data: list[tuple[str, pl.DataFrame]],
     ) -> pn.viewable.Viewable:
         """Render the parking capacity versus trips scatterplot."""
-        return scatter_chart(
+        return self.plot.scatter(
             scatter_data,
-            x_col="parking_capacity",
-            y_col="trip_count",
+            x="parking_capacity",
+            y="trip_count",
             title="Parking Capacity vs Trips Parked by Zone",
-            xaxis_title="Parking Capacity",
-            yaxis_title="Trips Parked",
+            x_title="Parking Capacity",
+            y_title="Trips Parked",
             drop_zero_y=False,
         )
 

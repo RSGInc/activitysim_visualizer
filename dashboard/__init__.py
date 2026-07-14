@@ -3,6 +3,8 @@
 from dashboard.data_access import (
     DashboardPreparedRunProvider,
     DashboardSummarySeries,
+    PageData,
+    RunTables,
 )
 from dashboard.state import DashboardState
 from dashboard.page_base import DashboardPage
@@ -13,5 +15,7 @@ __all__ = [
     "DashboardPage",
     "DashboardState",
     "DashboardSummarySeries",
+    "PageData",
+    "RunTables",
     "dashboard_page",
 ]

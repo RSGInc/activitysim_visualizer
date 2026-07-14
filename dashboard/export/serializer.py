@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 import panel as pn
 
-from dashboard.components import format_numeric_for_display
+from dashboard.rendering import format_numeric
 from dashboard.export.types import ExportNode
 from dashboard.page_definitions import DashboardPageDefinition
 
@@ -24,7 +24,7 @@ def _serialize_table_cell(value: Any) -> Any:
     Tabulator, so we normalize numeric display here using the same
     significant-digit rule as live dashboard tables.
     """
-    return format_numeric_for_display(sanitize_export_payload(value), precision=2)
+    return format_numeric(sanitize_export_payload(value), precision=2)
 
 
 def serialize_viewable(

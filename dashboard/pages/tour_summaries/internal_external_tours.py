@@ -5,8 +5,8 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import data_table, selector_row
-from dashboard.data_access import RunTableView
+from dashboard.rendering import data_table, selector_row
+from dashboard.data_access import RunTables
 from dashboard.helpers.geography_helpers import (
     ALL_GEOGRAPHY_TYPES_LABEL,
     ALL_GEOGRAPHY_TYPES_VALUE,
@@ -61,7 +61,7 @@ class InternalExternalToursPage(DashboardPage):
 
     def sync_controls(self) -> None:
         """Keep the geography-level selector aligned with available summaries."""
-        summaries = self.optional_summaries_dict(
+        summaries = self.data.summaries(
             "internal_external_nonmandatory_tour_frequency_by_home_geography",
             "external_nonmandatory_tour_locations",
         )
@@ -127,7 +127,7 @@ class InternalExternalToursPage(DashboardPage):
                 display_df.select(ordered_columns) if ordered_columns else display_df
             )
 
-        return RunTableView.from_runs(data_list).map(prepare).collect()
+        return RunTables.from_runs(data_list).map(prepare)
 
     def render_body_section(self) -> SectionContent:
         """Render the two tour tables side by side for the selected level."""
@@ -135,7 +135,7 @@ class InternalExternalToursPage(DashboardPage):
             return [self.no_runs_message()]
 
         geo_level = self.selected_geography_level_raw()
-        summaries = self.optional_summaries_dict(
+        summaries = self.data.summaries(
             "internal_external_nonmandatory_tour_frequency_by_home_geography",
             "external_nonmandatory_tour_locations",
         )

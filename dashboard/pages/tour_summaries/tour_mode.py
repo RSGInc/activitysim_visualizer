@@ -5,8 +5,8 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, selector_row
-from dashboard.data_access import RunTableView
+from dashboard.rendering import selector_row
+from dashboard.data_access import RunTables
 from dashboard.helpers.category_helpers import (
     add_percent_of_total,
     column_options,
@@ -65,7 +65,7 @@ def vehicle_attribute_data(
     data_list: list[tuple[str, pl.DataFrame]],
     occupancy: str,
     *,
-    category_col: str,
+    category: str,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Filter one allocated-vehicle summary to the selected occupancy level."""
 
@@ -81,7 +81,7 @@ def vehicle_attribute_data(
                 .sort("_sort_age")
                 .drop("_sort_age")
             )
-        return df.sort(category_col) if category_col in df.columns else df
+        return df.sort(category) if category in df.columns else df
 
     def shape(df: pl.DataFrame) -> pl.DataFrame:
         filtered = df
@@ -89,13 +89,13 @@ def vehicle_attribute_data(
             filtered = filtered.with_columns(pl.col("occupancy").cast(pl.Utf8))
             if occupancy == "All":
                 filtered = (
-                    filtered.group_by(category_col)
+                    filtered.group_by(category)
                     .agg(vehicle_count=pl.col("vehicle_count").sum())
                 )
             else:
                 filtered = filtered.filter(pl.col("occupancy") == occupancy)
         return sort_filtered(filtered)
-    return RunTableView.from_runs(data_list).map(shape).collect()
+    return RunTables.from_runs(data_list).map(shape)
 
 
 def tour_mode_chart_data(
@@ -129,7 +129,7 @@ def tour_mode_chart_data(
                 ~pl.col("tour_mode").is_in(sorted(hidden_mode_values))
             )
         return chart_df
-    return RunTableView.from_runs(data_list).map(shape).collect()
+    return RunTables.from_runs(data_list).map(shape)
 
 
 @dashboard_page(
@@ -196,7 +196,7 @@ class TourModePage(DashboardPage):
 
     def _initial_purpose_options(self) -> list[str]:
         """Populate the purpose selector before the first page refresh."""
-        summaries = self.state.get_summary_table_set(
+        summaries = self.data.summary(
             "tour_mode_by_tour_purpose_and_auto_sufficiency",
             "weighted",
         )
@@ -219,15 +219,15 @@ class TourModePage(DashboardPage):
 
     def _initial_occupancy_options(self) -> list[str]:
         """Populate the occupancy selector before the first page refresh."""
-        age_summary = self.state.get_summary_table_set(
+        age_summary = self.data.summary(
             "allocated_vehicle_age_by_occupancy",
             "weighted",
         )
-        fuel_summary = self.state.get_summary_table_set(
+        fuel_summary = self.data.summary(
             "allocated_vehicle_fuel_type_by_occupancy",
             "weighted",
         )
-        body_summary = self.state.get_summary_table_set(
+        body_summary = self.data.summary(
             "allocated_vehicle_body_type_by_occupancy",
             "weighted",
         )
@@ -243,7 +243,7 @@ class TourModePage(DashboardPage):
 
     def _summaries(self):
         """Load every summary used by either page section."""
-        return self.optional_summaries_dict(
+        return self.data.summaries(
             "tour_mode_by_tour_purpose_and_auto_sufficiency",
             "allocated_vehicle_age_by_occupancy",
             "allocated_vehicle_fuel_type_by_occupancy",
@@ -367,20 +367,18 @@ class TourModePage(DashboardPage):
             config=self.config,
             target_col="tour_mode_label",
         )
-        return bar_chart(
+        return self.plot.bar(
             labeled,
-            "tour_mode_label",
-            "tour_count",
-            (
+            x="tour_mode_label",
+            y="tour_count",
+            title=(
                 "Tour Mode - "
                 f"{auto_sufficiency_display_label(auto_sufficiency, self.config)}"
             ),
-            "Tour Mode",
-            yaxis_title="Tours",
-            pct_col="pct",
-            percent_y_col="tour_count_percent",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=self.config.ordered_labels("mode", mode_values),
+            x_title="Tour Mode",
+            y_title="Tours",
+            share_y="tour_count_percent",
+            category_order=self.config.ordered_labels("mode", mode_values),
         )
 
     def render_vehicle_section(self):
@@ -420,19 +418,17 @@ class TourModePage(DashboardPage):
             factory=lambda: vehicle_attribute_data(
                 summary_data,
                 occupancy,
-                category_col="age",
+                category="age",
             ),
         )
-        return bar_chart(
+        return self.plot.bar(
             chart_data,
-            "age",
-            "vehicle_count",
-            "Allocated Vehicle Age by Occupancy Level",
-            "Vehicle Age",
-            yaxis_title="Allocated Vehicles",
-            pct_col="pct",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=age_values,
+            x="age",
+            y="vehicle_count",
+            title="Allocated Vehicle Age by Occupancy Level",
+            x_title="Vehicle Age",
+            y_title="Allocated Vehicles",
+            category_order=age_values,
         )
 
     def render_vehicle_fuel_chart(self, summary_data, occupancy: str) -> pn.viewable.Viewable:
@@ -449,19 +445,17 @@ class TourModePage(DashboardPage):
             factory=lambda: vehicle_attribute_data(
                 summary_data,
                 occupancy,
-                category_col="fuel_type",
+                category="fuel_type",
             ),
         )
-        return bar_chart(
+        return self.plot.bar(
             chart_data,
-            "fuel_type",
-            "vehicle_count",
-            "Allocated Vehicle Fuel Type by Occupancy Level",
-            "Vehicle Fuel Type",
-            yaxis_title="Allocated Vehicles",
-            pct_col="pct",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=fuel_values,
+            x="fuel_type",
+            y="vehicle_count",
+            title="Allocated Vehicle Fuel Type by Occupancy Level",
+            x_title="Vehicle Fuel Type",
+            y_title="Allocated Vehicles",
+            category_order=fuel_values,
         )
 
     def render_vehicle_body_chart(self, summary_data, occupancy: str) -> pn.viewable.Viewable:
@@ -478,19 +472,17 @@ class TourModePage(DashboardPage):
             factory=lambda: vehicle_attribute_data(
                 summary_data,
                 occupancy,
-                category_col="body_type",
+                category="body_type",
             ),
         )
-        return bar_chart(
+        return self.plot.bar(
             chart_data,
-            "body_type",
-            "vehicle_count",
-            "Allocated Vehicle Body Type by Occupancy Level",
-            "Vehicle Body Type",
-            yaxis_title="Allocated Vehicles",
-            pct_col="pct",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=body_values,
+            x="body_type",
+            y="vehicle_count",
+            title="Allocated Vehicle Body Type by Occupancy Level",
+            x_title="Vehicle Body Type",
+            y_title="Allocated Vehicles",
+            category_order=body_values,
         )
 
     def ordered_vehicle_values(

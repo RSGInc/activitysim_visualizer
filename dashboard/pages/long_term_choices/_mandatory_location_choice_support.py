@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import polars as pl
 
-from dashboard.data_access import RunTableView
+from dashboard.data_access import RunTables
 from dashboard.helpers.category_helpers import (
     cap_numeric_category_frame,
     label_category_data,
@@ -50,7 +50,7 @@ def adapt_external_workplace(
             {"external_worker_count": "person_count"},
         )
 
-    return RunTableView.from_runs(normalize_geography_data(data_list)).map(normalize).collect()
+    return RunTables.from_runs(normalize_geography_data(data_list)).map(normalize)
 
 
 def adapt_commuting_flows(
@@ -58,7 +58,7 @@ def adapt_commuting_flows(
 ) -> list[tuple[str, pl.DataFrame]]:
     """Normalize commuting-flow geography column names used by this page."""
     return (
-        RunTableView.from_runs(data_list)
+        RunTables.from_runs(data_list)
         .map(
             lambda frame: rename_present(
                 frame,
@@ -68,7 +68,6 @@ def adapt_commuting_flows(
                 },
             )
         )
-        .collect()
     )
 
 
@@ -142,7 +141,7 @@ def work_from_home_chart_data(
             )
             .sort("geography_label")
         )
-    return RunTableView.from_runs(wfh_list).map(prepare).collect()
+    return RunTables.from_runs(wfh_list).map(prepare)
 
 
 def distance_distribution_chart_data(
@@ -150,18 +149,17 @@ def distance_distribution_chart_data(
 ) -> list[tuple[str, pl.DataFrame]]:
     """Aggregate geography-sliced distance summaries into distance-bin distributions."""
     return (
-        RunTableView.from_runs(data_list)
+        RunTables.from_runs(data_list)
         .requiring("person_count", "distance_bin")
         .map(
             lambda frame: cap_numeric_category_frame(
                 frame.group_by("distance_bin")
                 .agg(person_count=pl.col("person_count").sum()),
-                category_col="distance_bin",
+                category="distance_bin",
                 cap_value=40,
                 value_cols=("person_count",),
             )
         )
-        .collect()
     )
 
 
@@ -191,10 +189,9 @@ def telecommute_chart_data(
         )
 
     completed = (
-        RunTableView.from_runs(data_list)
+        RunTables.from_runs(data_list)
         .requiring("telecommute_frequency", "person_count")
         .map(complete)
-        .collect()
     )
 
     return label_category_data(
@@ -234,7 +231,7 @@ def mandatory_distance_comparison_table(
     _, base_run_df = runs[0]
     base_lookup = weighted_average_lookup(
         base_run_df,
-        category_col="mandatory_tour_purpose",
+        category="mandatory_tour_purpose",
         average_col="average_tour_distance",
         weight_col="person_count",
     )
@@ -244,7 +241,7 @@ def mandatory_distance_comparison_table(
     for run_label, run_df in runs:
         lookup = weighted_average_lookup(
             run_df,
-            category_col="mandatory_tour_purpose",
+            category="mandatory_tour_purpose",
             average_col="average_tour_distance",
             weight_col="person_count",
         )

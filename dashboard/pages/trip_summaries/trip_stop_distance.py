@@ -5,8 +5,8 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import density_chart, selector_row
-from dashboard.data_access import RunTableView
+from dashboard.rendering import selector_row
+from dashboard.data_access import RunTables
 from dashboard.helpers.category_helpers import (
     cap_numeric_category_frame,
     column_options,
@@ -43,7 +43,7 @@ def distance_chart_data(
         if cap_at is not None:
             chart = cap_numeric_category_frame(
                 chart,
-                category_col="distance_bin",
+                category="distance_bin",
                 cap_value=cap_at,
                 value_cols=("freq",),
             )
@@ -52,7 +52,7 @@ def distance_chart_data(
             .sort("_sort_distance")
             .drop("_sort_distance")
         )
-    return RunTableView.from_runs(data_list).map(shape).collect()
+    return RunTables.from_runs(data_list).map(shape)
 
 
 @dashboard_page(
@@ -79,7 +79,7 @@ class TripStopDistancePage(DashboardPage):
 
     def build_page(self) -> pn.viewable.Viewable:
         purpose_opts, self._tour_purpose_to_raw = column_options(
-            self.state.get_summary_table_set("trip_distance_by_purpose", "weighted") or [],
+            self.data.summary("trip_distance_by_purpose", "weighted"),
             "tour_purpose",
             category_id="tour_purpose",
             config=self.config,
@@ -122,8 +122,8 @@ class TripStopDistancePage(DashboardPage):
         )
 
     def sync_controls(self) -> None:
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        summaries = self.data.summaries(*self.required_summary_ids)
+        if not all(summaries.values()):
             return
         purpose_opts, self._tour_purpose_to_raw = column_options(
             summaries["trip_distance_by_purpose"],
@@ -177,25 +177,23 @@ class TripStopDistancePage(DashboardPage):
         )
         axis_data = with_distance_axis(chart_data)
         tickvals, ticktext = fixed_distance_axis_ticks()
-        return density_chart(
+        return self.plot.density(
             axis_data,
-            x_col="_distance_axis",
-            y_col="freq",
+            x="_distance_axis",
+            y="freq",
             title=f"{title} for {self._tour_slice_title_label(display_purpose)}",
-            xaxis_title=xaxis_title,
-            yaxis_title=yaxis_title,
-            normalize=False,
-            as_percent=self.as_percent,
-            xaxis_range=x_range,
-            xaxis_tickvals=tickvals,
-            xaxis_ticktext=ticktext,
+            x_title=xaxis_title,
+            y_title=yaxis_title,
+            x_range=x_range,
+            tick_values=tickvals,
+            tick_text=ticktext,
         )
 
     def render_body(self):
         if not self.state.run_labels:
             return [self.no_runs_message()]
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        summaries = self.data.summaries(*self.required_summary_ids)
+        if not all(summaries.values()):
             return [self.summary_only_unavailable_card()]
 
         display_purpose, raw_purpose = self._selected_purpose()

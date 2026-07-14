@@ -367,20 +367,20 @@ def capped_numeric_category_expr(
 def cap_numeric_category_frame(
     df: pl.DataFrame,
     *,
-    category_col: str,
+    category: str,
     cap_value: int,
     value_cols: tuple[str, ...],
     target_col: str | None = None,
 ) -> pl.DataFrame:
     """Aggregate numeric categories at or above ``cap_value`` into one ``N+`` bucket."""
-    output_col = target_col or category_col
-    if category_col not in df.columns:
+    output_col = target_col or category
+    if category not in df.columns:
         return df
     available_value_cols = [column for column in value_cols if column in df.columns]
     if not available_value_cols:
         return df.with_columns(
             capped_numeric_category_expr(
-                category_col,
+                category,
                 cap_value,
                 target_col=output_col,
             )
@@ -388,7 +388,7 @@ def cap_numeric_category_frame(
     return (
         df.with_columns(
             capped_numeric_category_expr(
-                category_col,
+                category,
                 cap_value,
                 target_col=output_col,
             )
@@ -402,7 +402,7 @@ def cap_numeric_category_frame(
 def cap_numeric_category_data(
     data_list: list[tuple[str, pl.DataFrame]],
     *,
-    category_col: str,
+    category: str,
     cap_value: int,
     value_cols: tuple[str, ...],
     target_col: str | None = None,
@@ -413,7 +413,7 @@ def cap_numeric_category_data(
             label,
             cap_numeric_category_frame(
                 df,
-                category_col=category_col,
+                category=category,
                 cap_value=cap_value,
                 value_cols=value_cols,
                 target_col=target_col,
@@ -458,7 +458,7 @@ def capped_numeric_category_values(
 def complete_category_counts(
     data_list: list[tuple[str, pl.DataFrame]],
     *,
-    category_col: str,
+    category: str,
     category_values: list[str],
     value_cols: tuple[str, ...],
     extra_fill_values: dict[str, Any] | None = None,
@@ -466,19 +466,19 @@ def complete_category_counts(
     """Ensure each run has one row per category value with zero-filled metric columns."""
     if not category_values:
         return data_list
-    base = pl.DataFrame({category_col: category_values}, schema={category_col: pl.Utf8})
+    base = pl.DataFrame({category: category_values}, schema={category: pl.Utf8})
     fill_values = dict(extra_fill_values or {})
     out: list[tuple[str, pl.DataFrame]] = []
     for label, df in data_list:
         if df is None:
             completed = base
         else:
-            available_cols = [column for column in df.columns if column != category_col]
+            available_cols = [column for column in df.columns if column != category]
             completed = base.join(
-                df.with_columns(pl.col(category_col).cast(pl.Utf8)).select(
-                    category_col, *available_cols
+                df.with_columns(pl.col(category).cast(pl.Utf8)).select(
+                    category, *available_cols
                 ),
-                on=category_col,
+                on=category,
                 how="left",
             )
         fill_exprs = []

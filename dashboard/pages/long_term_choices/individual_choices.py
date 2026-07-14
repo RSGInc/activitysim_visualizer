@@ -5,8 +5,8 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, selector_row
-from dashboard.data_access import RunTableView
+from dashboard.rendering import selector_row
+from dashboard.data_access import RunTables
 from dashboard.helpers.category_helpers import (
     complete_category_counts,
     label_category_data,
@@ -39,7 +39,7 @@ def normalize_bicycle_comfort_levels(
 ) -> list[tuple[str, pl.DataFrame]]:
     """Map legacy bicycle comfort codes to the dashboard's readable category labels."""
     return (
-        RunTableView.from_runs(
+        RunTables.from_runs(
             normalize_category_strings(data_list, "bicycle_comfort_level")
         )
         .with_columns(
@@ -50,7 +50,6 @@ def normalize_bicycle_comfort_levels(
                     )
                     .alias("bicycle_comfort_level")
         )
-        .collect()
     )
 
 
@@ -103,7 +102,7 @@ class IndividualChoicesPage(DashboardPage):
     def _person_type_options(self) -> list[str]:
         """Build one person-type selector across every summary used on the page."""
         summary_lists = [
-            self.state.get_summary_table_set(summary_name, self.weighting_key)
+            self.data.summary(summary_name, self.weighting_key)
             for summary_name in self._summary_names()
         ]
         options, self._person_type_to_raw = person_type_selector_options(
@@ -131,8 +130,8 @@ class IndividualChoicesPage(DashboardPage):
         *,
         detail: str,
     ) -> list[tuple[str, pl.DataFrame]] | pn.Card:
-        summary = self.optional_summary(summary_name)
-        if summary is not None:
+        summary = self.data.summary(summary_name, required=False)
+        if summary:
             return summary
         return self.data_not_available_card(detail=detail, missing_items=[summary_name])
 
@@ -142,7 +141,7 @@ class IndividualChoicesPage(DashboardPage):
         *,
         cache_key: str,
         raw_person_type: str | None,
-        category_col: str,
+        category: str,
         category_id: str | None = None,
         source_col_for_labels: str | None = None,
         target_col_for_labels: str | None = None,
@@ -150,7 +149,7 @@ class IndividualChoicesPage(DashboardPage):
         """Filter one summary to the selected person type and complete missing categories."""
         category_values = ordered_category_values(
             summary_data,
-            category_col,
+            category,
             category_id=category_id,
             config=self.config,
         )
@@ -159,7 +158,7 @@ class IndividualChoicesPage(DashboardPage):
             raw_person_type,
             factory=lambda: complete_category_counts(
                 filter_person_type_counts(summary_data, raw_person_type),
-                category_col=category_col,
+                category=category,
                 category_values=category_values,
                 value_cols=("person_count", "pct"),
             ),
@@ -191,21 +190,19 @@ class IndividualChoicesPage(DashboardPage):
             normalized_summary,
             cache_key="license_holding_status_distribution",
             raw_person_type=raw_person_type,
-            category_col="license_holding_status",
+            category="license_holding_status",
             category_id="license_holding_status",
             source_col_for_labels="license_holding_status",
             target_col_for_labels="license_holding_status_label",
         )
-        return bar_chart(
+        return self.plot.bar(
             chart_data,
-            x_col="license_holding_status_label",
-            y_col="person_count",
+            x="license_holding_status_label",
+            y="person_count",
             title=f"License Holding Status Among Persons Aged 16+ - {display_person_type}",
-            xaxis_title="License Status",
-            yaxis_title="Persons Age 16+",
-            pct_col="pct",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=label_values,
+            x_title="License Status",
+            y_title="Persons Age 16+",
+            category_order=label_values,
         )
 
     def render_bike_chart(self, display_person_type: str, raw_person_type: str | None):
@@ -222,18 +219,16 @@ class IndividualChoicesPage(DashboardPage):
             normalized_summary,
             cache_key="bicycle_comfort_level_distribution",
             raw_person_type=raw_person_type,
-            category_col="bicycle_comfort_level",
+            category="bicycle_comfort_level",
         )
-        return bar_chart(
+        return self.plot.bar(
             chart_data,
-            x_col="bicycle_comfort_level",
-            y_col="person_count",
+            x="bicycle_comfort_level",
+            y="person_count",
             title=f"Bicycle Comfort Level - {display_person_type}",
-            xaxis_title="Bicycle Comfort Level",
-            yaxis_title="Persons",
-            pct_col="pct",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=x_values,
+            x_title="Bicycle Comfort Level",
+            y_title="Persons",
+            category_order=x_values,
         )
 
     def render_pass_chart(self, display_person_type: str, raw_person_type: str | None):
@@ -252,21 +247,19 @@ class IndividualChoicesPage(DashboardPage):
             normalized_summary,
             cache_key="transit_pass_ownership_by_person_type",
             raw_person_type=raw_person_type,
-            category_col="transit_pass_ownership_status",
+            category="transit_pass_ownership_status",
             category_id="transit_pass_ownership_status",
             source_col_for_labels="transit_pass_ownership_status",
             target_col_for_labels="transit_pass_ownership_status_label",
         )
-        return bar_chart(
+        return self.plot.bar(
             chart_data,
-            x_col="transit_pass_ownership_status_label",
-            y_col="person_count",
+            x="transit_pass_ownership_status_label",
+            y="person_count",
             title=f"Transit Pass Ownership - {display_person_type}",
-            xaxis_title="Transit Pass Ownership Status",
-            yaxis_title="Persons",
-            pct_col="pct",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=label_values,
+            x_title="Transit Pass Ownership Status",
+            y_title="Persons",
+            category_order=label_values,
         )
 
     def render_subsidy_chart(self, display_person_type: str, raw_person_type: str | None):
@@ -309,7 +302,7 @@ class IndividualChoicesPage(DashboardPage):
                 label_category_data(
                     complete_category_counts(
                         filter_person_type_counts(normalized_summary, raw_person_type),
-                        category_col=subsidy_category_col,
+                        category=subsidy_category_col,
                         category_values=raw_subsidy_values,
                         value_cols=("person_count", "pct"),
                     ),
@@ -321,33 +314,31 @@ class IndividualChoicesPage(DashboardPage):
                 if subsidy_category_col == "transit_subsidy_status"
                 else complete_category_counts(
                     filter_person_type_counts(normalized_summary, raw_person_type),
-                    category_col=subsidy_category_col,
+                    category=subsidy_category_col,
                     category_values=display_values,
                     value_cols=("person_count", "pct"),
                 )
             ),
         )
-        return bar_chart(
+        return self.plot.bar(
             chart_data,
-            x_col=(
+            x=(
                 "transit_subsidy_display"
                 if subsidy_category_col == "transit_subsidy_status"
                 else subsidy_category_col
             ),
-            y_col="person_count",
+            y="person_count",
             title=(
                 "Transit Subsidy Type Among Workers - "
                 f"{'All Workers' if raw_person_type == ALL_PERSON_TYPES else display_person_type}"
             ),
-            xaxis_title="Transit Subsidy Status",
-            yaxis_title=(
+            x_title="Transit Subsidy Status",
+            y_title=(
                 "All Workers"
                 if raw_person_type == ALL_PERSON_TYPES
                 else f"{display_person_type}"
             ),
-            pct_col="pct",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=(
+            category_order=(
                 self.config.ordered_labels("transit_subsidy", raw_subsidy_values)
                 if subsidy_category_col == "transit_subsidy_status"
                 else display_values

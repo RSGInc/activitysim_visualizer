@@ -5,8 +5,8 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, selector_row
-from dashboard.data_access import RunTableView
+from dashboard.rendering import selector_row
+from dashboard.data_access import RunTables
 from dashboard.helpers.category_helpers import (
     capped_numeric_category_expr,
     column_options,
@@ -64,7 +64,7 @@ def stop_frequency_chart_data(
         )
         return filtered
 
-    return RunTableView.from_runs(data_list).map(build_frame).collect()
+    return RunTables.from_runs(data_list).map(build_frame)
 
 
 @dashboard_page(
@@ -82,7 +82,7 @@ class TourStopFrequencyPage(DashboardPage):
 
     def build_page(self) -> pn.viewable.Viewable:
         purpose_opts, self._purpose_to_raw = column_options(
-            self.state.get_summary_table_set(
+            self.data.summary(
                 "tour_stop_frequency_by_tour_purpose", "weighted"
             )
             or [],
@@ -120,8 +120,8 @@ class TourStopFrequencyPage(DashboardPage):
         )
 
     def sync_controls(self) -> None:
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        summaries = self.data.summaries(*self.required_summary_ids)
+        if not all(summaries.values()):
             return
         purpose_opts, self._purpose_to_raw = column_options(
             summaries["tour_stop_frequency_by_tour_purpose"],
@@ -161,7 +161,7 @@ class TourStopFrequencyPage(DashboardPage):
         )
         raw_values = STOP_FREQUENCY_VALUES[direction]
         label_values = self.config.ordered_labels("stop_frequency", raw_values)
-        return bar_chart(
+        return self.plot.bar(
             label_category_data(
                 stop_data,
                 source_col="stop_frequency",
@@ -169,14 +169,12 @@ class TourStopFrequencyPage(DashboardPage):
                 config=self.config,
                 target_col="stop_frequency_label",
             ),
-            "stop_frequency_label",
-            "tour_count",
-            f"Tour Stop Frequency - Purpose: {display_purpose}, Direction: {direction}",
-            "Stop Count",
-            pct_col="pct",
-            yaxis_title="Tours",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=label_values,
+            x="stop_frequency_label",
+            y="tour_count",
+            title=f"Tour Stop Frequency - Purpose: {display_purpose}, Direction: {direction}",
+            x_title="Stop Count",
+            y_title="Tours",
+            category_order=label_values,
         )
 
     def render_atwork_chart(
@@ -195,7 +193,7 @@ class TourStopFrequencyPage(DashboardPage):
                 )
             ],
         )
-        return bar_chart(
+        return self.plot.bar(
             label_category_data(
                 atwork_list,
                 source_col="atwork_subtour_frequency_category",
@@ -203,21 +201,19 @@ class TourStopFrequencyPage(DashboardPage):
                 config=self.config,
                 target_col="atwork_subtour_frequency_label",
             ),
-            "atwork_subtour_frequency_label",
-            "atwork_subtour_count",
-            "At-Work Sub-Tour Frequency",
-            "At-Work Sub-Tour Frequency",
-            pct_col="pct",
-            yaxis_title="At-Work Sub-Tours",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=label_values,
+            x="atwork_subtour_frequency_label",
+            y="atwork_subtour_count",
+            title="At-Work Sub-Tour Frequency",
+            x_title="At-Work Sub-Tour Frequency",
+            y_title="At-Work Sub-Tours",
+            category_order=label_values,
         )
 
     def render_body(self):
         if not self.state.run_labels:
             return [self.no_runs_message()]
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        summaries = self.data.summaries(*self.required_summary_ids)
+        if not all(summaries.values()):
             return [self.summary_only_unavailable_card()]
         stop_list = summaries["tour_stop_frequency_by_tour_purpose"]
         atwork_list = nonempty(summaries["atwork_subtour_frequency_distribution"])

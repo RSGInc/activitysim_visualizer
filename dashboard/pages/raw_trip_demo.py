@@ -5,14 +5,13 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart
 from dashboard import DashboardPage, dashboard_page
-from processor.models import RunData
+from dashboard.data_access import RunTables
 
 
 def trip_mode_distribution(
-    prepared_runs: list[tuple[str, RunData]],
-) -> list[tuple[str, pl.DataFrame]]:
+    trip_tables: RunTables,
+) -> RunTables:
     """Aggregate prepared trip records into one trip-mode distribution per run."""
 
     def _one_run(trips: pl.DataFrame) -> pl.DataFrame:
@@ -37,7 +36,7 @@ def trip_mode_distribution(
             .sort("trip_mode")
         )
 
-    return [(label, _one_run(run.trips)) for label, run in prepared_runs]
+    return trip_tables.map(_one_run)
 
 
 @dashboard_page(
@@ -65,28 +64,27 @@ class RawTripDemoPage(DashboardPage):
         if not self.state.run_labels:
             return [self.no_runs_message()]
 
-        prepared_result = self.resolve_prepared_visualization(
-            "raw_trip_demo_trip_modes",
-            table_requirements={"trips": ("trip_mode",)},
+        trip_tables = self.data.prepared(
+            "trips",
+            columns=("trip_mode",),
         )
-        if not prepared_result.has_usable_runs:
+        if not trip_tables:
             return [
                 pn.pane.Markdown("## Prepared Trip Demo"),
-                self.unavailable_visualization(
-                    prepared_result,
+                self.data_not_available_card(
                     detail=(
                         "This demo page intentionally requires disaggregate prepared trip "
                         "records and does not render from summary tables."
                     ),
+                    missing_items=["trips"],
                 ),
             ]
 
-        prepared_runs = prepared_result.usable_by_input["trips"]
         trip_mode_list = self.get_filtered_view(
             "raw_trip_demo_trip_modes",
             self.weighting_key,
-            tuple(label for label, _ in prepared_runs),
-            factory=lambda: trip_mode_distribution(prepared_runs),
+            tuple(label for label, _ in trip_tables),
+            factory=lambda: trip_mode_distribution(trip_tables),
         )
         return [
             pn.pane.Markdown("## Prepared Trip Demo"),
@@ -102,12 +100,11 @@ class RawTripDemoPage(DashboardPage):
         trip_mode_list: list[tuple[str, pl.DataFrame]],
     ) -> pn.viewable.Viewable:
         """Render the prepared-run trip mode distribution."""
-        return bar_chart(
+        return self.plot.bar(
             trip_mode_list,
-            x_col="trip_mode",
-            y_col="freq",
+            x="trip_mode",
+            y="freq",
             title="Trip Mode Distribution From Raw Trips",
-            xaxis_title="Trip Mode",
-            yaxis_title="Trips",
-            as_percent=self.as_percent,
+            x_title="Trip Mode",
+            y_title="Trips",
         )

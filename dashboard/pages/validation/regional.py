@@ -8,7 +8,7 @@ import panel as pn
 import polars as pl
 import plotly.graph_objects as go
 
-from dashboard.components import selector_row
+from dashboard.rendering import selector_row
 from dashboard.helpers.category_helpers import nonempty
 from dashboard import DashboardPage, dashboard_page
 
@@ -492,7 +492,7 @@ class RegionalValidationPage(DashboardPage):
             if any(
                 not df.is_empty()
                 for _, df in nonempty(
-                    self.state.get_summary_table_set(
+                    self.data.summary(
                         flow_option.summary_id,
                         self.weighting_key,
                     )
@@ -513,7 +513,7 @@ class RegionalValidationPage(DashboardPage):
     def render_flow_section(self) -> pn.viewable.Viewable:
         flow_label = str(self.flow_matrix_sel.value)
         flow_option = FLOW_OPTIONS[flow_label]
-        observed_data = self.state.get_summary_table_set(
+        observed_data = self.data.summary(
             flow_option.summary_id,
             self.weighting_key,
         )
@@ -533,7 +533,7 @@ class RegionalValidationPage(DashboardPage):
                 ),
                 sizing_mode="stretch_width",
             )
-        modeled_data = self.state.get_summary_table_set(
+        modeled_data = self.data.summary(
             "commuting_flows",
             self.weighting_key,
         )

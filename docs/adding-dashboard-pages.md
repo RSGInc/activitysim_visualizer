@@ -115,7 +115,7 @@ Use the current pages below as implementation references when possible:
   - good reference for straightforward section rendering
 - `dashboard/pages/raw_trip_demo.py`
   - smallest prepared-data page
-  - good reference for `resolve_prepared_visualization(...)`
+  - good reference for `self.data.prepared(...)`
 - `dashboard/pages/trip_summaries/trip_mode.py`
   - good reference for one-selector, one-section chart pages
 - `dashboard/pages/long_term_choices/mandatory_location_choice.py`
@@ -149,31 +149,33 @@ self.section_view("section_id")
 self.mark_section_stale("section_id")
 ```
 
-The most commonly used data helpers remain available on `DashboardPage`:
+All page data access starts at `self.data`:
 
-- `resolve_summary_visualization(...)`
-- `resolve_prepared_visualization(...)`
-- `require_summary(...)`
-- `require_summaries(...)`
-- `optional_summary(...)`
-- `summary(...)` and `optional_summary_view(...)`
-- `tables(...)`
-- `unavailable_visualization(...)`
-- `data_not_available_card(...)`
-- `get_filtered_view(...)`
-- `clear_filtered_view_cache(...)`
-- `as_percent`
-- `weighting_key`
+- `self.data.summary(id, columns=...)` returns one `RunTables` query;
+- `self.data.summaries(*ids, columns=...)` returns queries keyed by id;
+- `self.data.prepared(table, columns=...)` returns the same query type for a
+  prepared table; and
+- `self.data.prepared_runs(...)` is reserved for specialized skim features that
+  need matrix-bearing `RunData` objects.
+
+An unavailable input is an empty `RunTables`, so use `if not data`. Structured
+per-run availability details remain attached as `data.issues` and are also used
+by `data_not_available_card(...)`. Pages should not access `DashboardState`
+tables directly.
 
 ### Querying summary tables
 
-Use `RunTableView` for the normal "apply the same Polars operations to every
-run" path. It keeps run labels attached while supporting fluent filtering,
+`self.data.summary(...)` returns `RunTables` for the normal "apply the same
+Polars operations to every run" path. It keeps run labels and availability
+details attached while supporting fluent filtering,
 transformation, grouping, selection, sorting, and joining:
 
 ```python
-summary = self.summary("trips_by_mode_and_purpose")
-if summary is None:
+summary = self.data.summary(
+    "trips_by_mode_and_purpose",
+    columns=("purpose", "mode", "trip_count"),
+)
+if not summary:
     return self.summary_only_unavailable_card()
 
 chart_data = (
@@ -182,9 +184,14 @@ chart_data = (
     .where(purpose=self.purpose_sel.value)
     .group("mode", pl.col("trip_count").sum())
     .sort("mode")
-    .collect()
 )
 ```
+
+Pass the resulting `RunTables` directly to `self.plot.bar(...)`,
+`self.plot.density(...)`, or `data_table(...)`; do not convert it back to raw
+tuple lists. Plot arguments are keyword-only and use `x`, `y`, `x_title`, and
+`y_title`. The default `value_mode="dashboard"` follows the page-wide
+Count/Share toggle.
 
 When two summary tables must be combined, query each and call `.join(...)`;
 tables are matched by run label automatically. Use `.requiring(...)` when an
@@ -277,8 +284,8 @@ class MyNewPage(DashboardPage):
             self.purpose_sel.value = options[0]
 
     def render_summary(self) -> SectionContent:
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        summaries = self.data.summaries(*self.required_summary_ids)
+        if not all(summaries.values()):
             return [
                 self.data_not_available_card(
                     detail="This page depends on precomputed summaries.",
@@ -297,7 +304,9 @@ Do:
 - register every refreshable content area with `section(...)`
 - return content from section render functions
 - keep expensive reshaping work behind `get_filtered_view(...)`
-- prefer `require_summaries(...)`, `optional_summary(...)`, `resolve_summary_visualization(...)`, and `resolve_prepared_visualization(...)` over repeated ad hoc state lookups in render code
+- use only `self.data.summary(...)`, `self.data.summaries(...)`, and
+  `self.data.prepared(...)` for ordinary page data access
+- pass `RunTables` through query helpers and renderers without collecting it
 - add a concise module docstring that explains what the page shows
 - add short docstrings to helper functions when they encode a business rule that is not obvious from the function name
 

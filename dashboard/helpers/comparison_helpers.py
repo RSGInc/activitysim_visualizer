@@ -188,7 +188,7 @@ def build_base_run_percent_difference_table(
 def weighted_average_lookup(
     df: pl.DataFrame,
     *,
-    category_col: str,
+    category: str,
     average_col: str,
     weight_col: str,
 ) -> dict[str, float]:
@@ -200,21 +200,21 @@ def weighted_average_lookup(
     """
     if df.is_empty():
         return {}
-    if category_col not in df.columns or average_col not in df.columns:
+    if category not in df.columns or average_col not in df.columns:
         return {}
     if weight_col not in df.columns:
         aggregated = (
-            df.group_by(category_col)
+            df.group_by(category)
             .agg(pl.col(average_col).mean().alias(average_col))
-            .select(category_col, average_col)
+            .select(category, average_col)
         )
         return {
-            str(row[category_col]): float(row[average_col])
+            str(row[category]): float(row[average_col])
             for row in aggregated.to_dicts()
-            if row.get(category_col) is not None and row.get(average_col) is not None
+            if row.get(category) is not None and row.get(average_col) is not None
         }
     aggregated = (
-        df.group_by(category_col)
+        df.group_by(category)
         .agg(
             pl.col(weight_col).sum().alias(weight_col),
             (pl.col(average_col) * pl.col(weight_col)).sum().alias("_weighted_value"),
@@ -225,10 +225,10 @@ def weighted_average_lookup(
             .otherwise(None)
             .alias(average_col)
         )
-        .select(category_col, average_col)
+        .select(category, average_col)
     )
     return {
-        str(row[category_col]): float(row[average_col])
+        str(row[category]): float(row[average_col])
         for row in aggregated.to_dicts()
-        if row.get(category_col) is not None and row.get(average_col) is not None
+        if row.get(category) is not None and row.get(average_col) is not None
     }

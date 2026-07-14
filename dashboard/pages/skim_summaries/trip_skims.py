@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import panel as pn
 
-from dashboard.components import control_row, data_table, density_chart
+from dashboard.rendering import control_row, data_table
 from dashboard import DashboardPage, dashboard_page
 from dashboard.pages.skim_summaries._shared import (
     ALL_RECORDS_SCENARIO,
@@ -46,9 +46,7 @@ class TripSkimsPage(DashboardPage):
 
     def build_page(self) -> pn.viewable.Viewable:
         """Build the skim summary shell and the live-only distribution controls."""
-        trip_stats = self.state.get_summary_series_set(
-            TRIP_STATS_SUMMARY_ID, "weighted"
-        )
+        trip_stats = self.data.summary_series(TRIP_STATS_SUMMARY_ID, weighting="weighted")
         trip_family_options = skim_family_options(
             self.config,
             trip_stats,
@@ -163,14 +161,11 @@ class TripSkimsPage(DashboardPage):
 
     def _trip_summaries(self):
         """Return the skim trip statistics for the current weighting mode."""
-        return self.state.get_summary_series_set(
-            TRIP_STATS_SUMMARY_ID,
-            self.weighting_key,
-        )
+        return self.data.summary_series(TRIP_STATS_SUMMARY_ID)
 
     def _trip_prepared_runs(self):
         """Return prepared runs in the weighting mode expected by distribution charts."""
-        return self.get_prepared_runs(weighted=(self.weighting_key == "weighted"))
+        return self.data.prepared_runs(weighted=(self.weighting_key == "weighted"))
 
     def _trip_skim_scenario_value(self) -> str:
         return (
@@ -400,17 +395,15 @@ class TripSkimsPage(DashboardPage):
         x_range: tuple[float, float],
     ) -> pn.viewable.Viewable:
         """Render the live prepared-trip skim distribution chart."""
-        return density_chart(
+        return self.plot.density(
             trip_distribution_data,
-            x_col="bin_mid",
-            y_col="freq",
+            x="bin_mid",
+            y="freq",
             title=f"Trip Distribution - {component} / {trip_mode}",
-            xaxis_title="Skim Value",
-            yaxis_title="Trips",
-            normalize=self.as_percent,
+            x_title="Skim Value",
+            y_title="Trips",
             height=320,
-            as_percent=False,
-            xaxis_range=x_range,
+            x_range=x_range,
         )
 
     def _apply_top_selector_sizing(self, widget: pn.widgets.Widget) -> None:

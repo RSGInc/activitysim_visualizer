@@ -7,7 +7,7 @@ import math
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, data_table, scatter_chart, selector_row
+from dashboard.rendering import data_table, selector_row
 from dashboard.helpers.category_helpers import (
     label_category_data,
     label_category_frame,
@@ -533,19 +533,19 @@ def demo_volume_comparison_table(
 )
 class TrafficValidationPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
-        demo_link_list = self.state.get_summary_table_set(
+        demo_link_list = self.data.summary(
             "link_validation_summary", "weighted"
         )
-        demo_count_list = self.state.get_summary_table_set(
+        demo_count_list = self.data.summary(
             "count_location_counts_validation_summary", "weighted"
         )
-        demo_volume_list = self.state.get_summary_table_set(
+        demo_volume_list = self.data.summary(
             "count_location_volumes_validation_summary", "weighted"
         )
-        demo_scatter_list = self.state.get_summary_table_set(
+        demo_scatter_list = self.data.summary(
             "count_location_scatter_validation_summary", "weighted"
         )
-        demo_fit_list = self.state.get_summary_table_set(
+        demo_fit_list = self.data.summary(
             "count_location_fit_validation_summary", "weighted"
         )
         facility_opts, self.demo_facility_raw_by_label = demo_facility_options(
@@ -638,19 +638,19 @@ class TrafficValidationPage(DashboardPage):
         )
 
     def sync_controls(self) -> None:
-        demo_link_list = self.state.get_summary_table_set(
+        demo_link_list = self.data.summary(
             "link_validation_summary", self.weighting_key
         )
-        demo_count_list = self.state.get_summary_table_set(
+        demo_count_list = self.data.summary(
             "count_location_counts_validation_summary", self.weighting_key
         )
-        demo_volume_list = self.state.get_summary_table_set(
+        demo_volume_list = self.data.summary(
             "count_location_volumes_validation_summary", self.weighting_key
         )
-        demo_scatter_list = self.state.get_summary_table_set(
+        demo_scatter_list = self.data.summary(
             "count_location_scatter_validation_summary", self.weighting_key
         )
-        demo_fit_list = self.state.get_summary_table_set(
+        demo_fit_list = self.data.summary(
             "count_location_fit_validation_summary", self.weighting_key
         )
         facility_opts, self.demo_facility_raw_by_label = demo_facility_options(
@@ -688,13 +688,13 @@ class TrafficValidationPage(DashboardPage):
             cache_key,
             factory=lambda: validation_chart_data(data_list),
         )
-        return scatter_chart(
+        return self.plot.scatter(
             chart_data,
-            x_col="observed_volume",
-            y_col="modeled_volume",
+            x="observed_volume",
+            y="modeled_volume",
             title=title,
-            xaxis_title="Observed Traffic Volume",
-            yaxis_title="Modeled Traffic Volume",
+            x_title="Observed Traffic Volume",
+            y_title="Modeled Traffic Volume",
         )
 
     def render_screenline_flow_section(self):
@@ -703,7 +703,7 @@ class TrafficValidationPage(DashboardPage):
 
         return [
             self.render_validation_chart(
-                self.state.get_summary_table_set(
+                self.data.summary(
                     "screenline_flow_comparisons", self.weighting_key
                 ),
                 cache_key="screenline_flow_comparisons",
@@ -717,16 +717,16 @@ class TrafficValidationPage(DashboardPage):
         if not self.state.run_labels:
             return []
 
-        count_list = self.state.get_summary_table_set(
+        count_list = self.data.summary(
             "count_location_counts_validation_summary", self.weighting_key
         )
-        volume_list = self.state.get_summary_table_set(
+        volume_list = self.data.summary(
             "count_location_volumes_validation_summary", self.weighting_key
         )
-        scatter_list = self.state.get_summary_table_set(
+        scatter_list = self.data.summary(
             "count_location_scatter_validation_summary", self.weighting_key
         )
-        fit_list = self.state.get_summary_table_set(
+        fit_list = self.data.summary(
             "count_location_fit_validation_summary", self.weighting_key
         )
         if not any((count_list, volume_list, scatter_list, fit_list)):
@@ -787,19 +787,19 @@ class TrafficValidationPage(DashboardPage):
         if not self.state.run_labels:
             return [self.no_runs_message()]
 
-        link_list = self.state.get_summary_table_set(
+        link_list = self.data.summary(
             "link_validation_summary", self.weighting_key
         )
-        count_list = self.state.get_summary_table_set(
+        count_list = self.data.summary(
             "count_location_counts_validation_summary", self.weighting_key
         )
-        volume_list = self.state.get_summary_table_set(
+        volume_list = self.data.summary(
             "count_location_volumes_validation_summary", self.weighting_key
         )
-        scatter_list = self.state.get_summary_table_set(
+        scatter_list = self.data.summary(
             "count_location_scatter_validation_summary", self.weighting_key
         )
-        fit_list = self.state.get_summary_table_set(
+        fit_list = self.data.summary(
             "count_location_fit_validation_summary", self.weighting_key
         )
         if not any((link_list, count_list, volume_list, scatter_list, fit_list)):
@@ -836,15 +836,15 @@ class TrafficValidationPage(DashboardPage):
                 ),
             )
             section.append(
-                scatter_chart(
+                self.plot.scatter(
                     scatter_data,
-                    x_col="observed_volume",
-                    y_col="modeled_volume",
+                    x="observed_volume",
+                    y="modeled_volume",
                     title=f"Count Location Observed vs Modeled - {period}",
-                    xaxis_title="Observed Count",
-                    yaxis_title="Modeled Volume",
+                    x_title="Observed Count",
+                    y_title="Modeled Volume",
                     fit_overlays=fit_data,
-                    one_to_one_line=True,
+                    one_to_one=True,
                 )
             )
         elif count_list is not None and volume_list is not None:
@@ -859,14 +859,14 @@ class TrafficValidationPage(DashboardPage):
                 ),
             )
             section.append(
-                scatter_chart(
+                self.plot.scatter(
                     scatter_data,
-                    x_col="observed_volume",
-                    y_col="modeled_volume",
+                    x="observed_volume",
+                    y="modeled_volume",
                     title=f"Count Location Observed vs Modeled - {period}",
-                    xaxis_title="Observed Count",
-                    yaxis_title="Modeled Volume",
-                    one_to_one_line=True,
+                    x_title="Observed Count",
+                    y_title="Modeled Volume",
+                    one_to_one=True,
                 )
             )
         else:
@@ -894,15 +894,15 @@ class TrafficValidationPage(DashboardPage):
                 ),
             )
             section.append(
-                bar_chart(
+                self.plot.bar(
                     aggregate_data,
-                    x_col="facility_type_label",
-                    y_col="volume",
+                    x="facility_type_label",
+                    y="volume",
                     title=f"Link Volume by Facility Type - {period}",
-                    xaxis_title="Facility Type",
-                    yaxis_title="Volume",
-                    xaxis_categoryarray=facility_categoryarray,
-                    showlegend=True,
+                    x_title="Facility Type",
+                    y_title="Volume",
+                    category_order=facility_categoryarray,
+                    show_legend=True,
                 )
             )
         else:
@@ -918,13 +918,13 @@ class TrafficValidationPage(DashboardPage):
         if not self.state.run_labels:
             return [self.no_runs_message()]
 
-        link_list = self.state.get_summary_table_set(
+        link_list = self.data.summary(
             "link_validation_summary", self.weighting_key
         )
-        count_list = self.state.get_summary_table_set(
+        count_list = self.data.summary(
             "count_location_counts_validation_summary", self.weighting_key
         )
-        volume_list = self.state.get_summary_table_set(
+        volume_list = self.data.summary(
             "count_location_volumes_validation_summary", self.weighting_key
         )
         if not any((link_list, count_list, volume_list)):

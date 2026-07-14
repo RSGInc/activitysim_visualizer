@@ -5,7 +5,6 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart
 from dashboard.helpers.category_helpers import (
     label_category_data,
     nonempty,
@@ -22,7 +21,7 @@ def render_distribution_chart(
     title: str,
     xaxis_title: str,
     config,
-    as_percent: bool,
+    plot,
 ) -> pn.viewable.Viewable:
     """Build one labeled distribution chart from a summary table list."""
     values = ordered_category_values(
@@ -38,16 +37,14 @@ def render_distribution_chart(
         config=config,
         target_col=f"{source_col}_label",
     )
-    return bar_chart(
+    return plot.bar(
         labeled_data,
-        x_col=f"{source_col}_label",
-        y_col="tour_count",
+        x=f"{source_col}_label",
+        y="tour_count",
         title=title,
-        xaxis_title=xaxis_title,
-        yaxis_title="Tours",
-        pct_col="pct",
-        as_percent=as_percent,
-        xaxis_categoryarray=config.ordered_labels(category_id, values),
+        x_title=xaxis_title,
+        y_title="Tours",
+        category_order=config.ordered_labels(category_id, values),
     )
 
 
@@ -76,8 +73,8 @@ class TourPurposePage(DashboardPage):
         if not self.state.run_labels:
             return [self.no_runs_message()]
 
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        summaries = self.data.summaries(*self.required_summary_ids)
+        if not all(summaries.values()):
             return [self.summary_only_unavailable_card()]
 
         category_data = nonempty(summaries["tour_category_distribution"])
@@ -91,7 +88,7 @@ class TourPurposePage(DashboardPage):
                     title="Tour Category",
                     xaxis_title="Tour Category",
                     config=self.config,
-                    as_percent=self.as_percent,
+                    plot=self.plot,
                 ),
                 render_distribution_chart(
                     purpose_data,
@@ -100,7 +97,7 @@ class TourPurposePage(DashboardPage):
                     title="Tour Purpose",
                     xaxis_title="Tour Purpose",
                     config=self.config,
-                    as_percent=self.as_percent,
+                    plot=self.plot,
                 ),
                 sizing_mode="stretch_width",
             )

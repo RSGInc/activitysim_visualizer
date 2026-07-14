@@ -5,8 +5,8 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, selector_row
-from dashboard.data_access import RunTableView
+from dashboard.rendering import selector_row
+from dashboard.data_access import RunTables
 from dashboard.helpers.category_helpers import common_column_options, column_options, nonempty
 from dashboard import DashboardPage, dashboard_page
 
@@ -43,7 +43,7 @@ def filter_transit_data(
             )
         return filtered
 
-    return RunTableView.from_runs(data_list).map(prepare).collect()
+    return RunTables.from_runs(data_list).map(prepare)
 
 
 @dashboard_page(
@@ -59,16 +59,16 @@ def filter_transit_data(
 class TransitValidationPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
         tech_opts, _ = common_column_options(
-            self.state.get_summary_table_set(
+            self.data.summary(
                 "transit_boardings_by_operator_and_technology", "weighted"
             ),
-            self.state.get_summary_table_set("transit_transfer_rate", "weighted"),
+            self.data.summary("transit_transfer_rate", "weighted"),
             column="technology",
             total_raw="All",
             total_label="All",
         )
         access_opts, _ = column_options(
-            self.state.get_summary_table_set("transit_transfer_rate", "weighted") or [],
+            self.data.summary("transit_transfer_rate", "weighted"),
             "access_mode",
             total_raw="All",
             total_label="All",
@@ -110,11 +110,11 @@ class TransitValidationPage(DashboardPage):
         )
 
     def sync_controls(self) -> None:
-        boarding_list = self.state.get_summary_table_set(
+        boarding_list = self.data.summary(
             "transit_boardings_by_operator_and_technology",
             self.weighting_key,
         )
-        transfer_list = self.state.get_summary_table_set(
+        transfer_list = self.data.summary(
             "transit_transfer_rate",
             self.weighting_key,
         )
@@ -158,7 +158,7 @@ class TransitValidationPage(DashboardPage):
     def render_boardings_chart(
         self, operator_values: list[str]
     ) -> pn.viewable.Viewable:
-        boarding_list = self.state.get_summary_table_set(
+        boarding_list = self.data.summary(
             "transit_boardings_by_operator_and_technology",
             self.weighting_key,
         )
@@ -173,22 +173,20 @@ class TransitValidationPage(DashboardPage):
             technology,
             factory=lambda: filter_transit_data(boarding_list, technology),
         )
-        return bar_chart(
+        return self.plot.bar(
             boarding_data,
-            x_col="operator",
-            y_col="boardings",
+            x="operator",
+            y="boardings",
             title=f"Total Transit Boardings by Operator - {technology}",
-            xaxis_title="Operator",
-            yaxis_title="Transit Boardings",
-            pct_col="pct",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=operator_values,
+            x_title="Operator",
+            y_title="Transit Boardings",
+            category_order=operator_values,
         )
 
     def render_transfer_chart(
         self, operator_values: list[str]
     ) -> pn.viewable.Viewable:
-        transfer_list = self.state.get_summary_table_set(
+        transfer_list = self.data.summary(
             "transit_transfer_rate",
             self.weighting_key,
         )
@@ -204,25 +202,25 @@ class TransitValidationPage(DashboardPage):
             (technology, access_mode),
             factory=lambda: filter_transit_data(transfer_list, technology, access_mode),
         )
-        return bar_chart(
+        return self.plot.bar(
             transfer_data,
-            x_col="operator",
-            y_col="transfer_rate",
+            x="operator",
+            y="transfer_rate",
             title=f"Transit Transfer Rate - {technology}, {access_mode}",
-            xaxis_title="Operator",
-            yaxis_title="Boardings per Linked Trip",
-            as_percent=False,
-            xaxis_categoryarray=operator_values,
+            x_title="Operator",
+            y_title="Boardings per Linked Trip",
+            value_mode="count",
+            category_order=operator_values,
         )
 
     def render_boardings_section(self):
         if not self.state.run_labels:
             return [self.no_runs_message()]
-        boarding_list = self.state.get_summary_table_set(
+        boarding_list = self.data.summary(
             "transit_boardings_by_operator_and_technology",
             self.weighting_key,
         )
-        transfer_list = self.state.get_summary_table_set(
+        transfer_list = self.data.summary(
             "transit_transfer_rate",
             self.weighting_key,
         )
@@ -232,11 +230,11 @@ class TransitValidationPage(DashboardPage):
     def render_transfer_section(self):
         if not self.state.run_labels:
             return [self.no_runs_message()]
-        boarding_list = self.state.get_summary_table_set(
+        boarding_list = self.data.summary(
             "transit_boardings_by_operator_and_technology",
             self.weighting_key,
         )
-        transfer_list = self.state.get_summary_table_set(
+        transfer_list = self.data.summary(
             "transit_transfer_rate",
             self.weighting_key,
         )

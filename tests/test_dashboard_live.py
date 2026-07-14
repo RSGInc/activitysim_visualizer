@@ -2165,7 +2165,7 @@ def test_resolve_page_definitions_rejects_duplicate_configured_page_ids(
 ) -> None:
     with pytest.raises(
         ValueError,
-        match="visualizer.dashboard_pages contains duplicate page id 'overview'",
+        match="dashboard.live.pages contains duplicate page id 'overview'",
     ):
         _write_config(tmp_path, dashboard_pages=["overview", "overview"])
 
@@ -2202,7 +2202,7 @@ def test_build_dashboard_can_refresh_every_default_page_from_precomputed_summari
     for index, page in enumerate(pages):
         tabs.active = index
         assert page.view is not None
-    assert state.page_state["Overview"]["last_rendered_state"] == state.global_state_key()
+    assert state.page_state["overview"]["last_rendered_state"] == state.global_state_key()
 
     leaf_pages = {page.page_id(): page for page in template._dashboard_leaf_pages}
     assert [
@@ -2348,37 +2348,37 @@ def test_build_dashboard_switches_tabs_and_refreshes_only_the_active_page(
     tabs = template.main[0]
 
     assert state.active_tab == 0
-    assert state.page_state["Overview"]["last_rendered_state"] == state.global_state_key()
-    assert state.page_state["Daily Activity Pattern"].get("last_rendered_state") is None
+    assert state.page_state["overview"]["last_rendered_state"] == state.global_state_key()
+    assert state.page_state["daily_activity_pattern"].get("last_rendered_state") is None
 
     tabs.active = 1
 
     assert state.active_tab == 1
-    assert state.page_state["Overview"]["last_rendered_state"] == state.global_state_key()
+    assert state.page_state["overview"]["last_rendered_state"] == state.global_state_key()
     assert (
-        state.page_state["Daily Activity Pattern"]["last_rendered_state"]
+        state.page_state["daily_activity_pattern"]["last_rendered_state"]
         == state.global_state_key()
     )
-    assert state.page_state["Tour Purpose"].get("last_rendered_state") is None
+    assert state.page_state["tour_purpose"].get("last_rendered_state") is None
 
     state.weight_mode = "Unweighted"
 
-    assert state.page_state["Overview"]["last_rendered_state"] is None
+    assert state.page_state["overview"]["last_rendered_state"] is None
     assert (
-        state.page_state["Daily Activity Pattern"]["last_rendered_state"]
+        state.page_state["daily_activity_pattern"]["last_rendered_state"]
         == state.global_state_key()
     )
-    assert state.page_state["Tour Purpose"].get("last_rendered_state") is None
+    assert state.page_state["tour_purpose"].get("last_rendered_state") is None
 
     state.value_mode = "Count"
 
     assert (
-        state.page_state["Daily Activity Pattern"]["last_rendered_state"]
+        state.page_state["daily_activity_pattern"]["last_rendered_state"]
         == state.global_state_key()
     )
-    assert state.page_state["Overview"].get("last_rendered_state") is None
-    assert state.page_state["Mandatory Location Choice"].get("last_rendered_state") is None
-    assert state.page_state["Tour Purpose"].get("last_rendered_state") is None
+    assert state.page_state["overview"].get("last_rendered_state") is None
+    assert state.page_state["mandatory_location_choice"].get("last_rendered_state") is None
+    assert state.page_state["tour_purpose"].get("last_rendered_state") is None
 
 
 def test_build_dashboard_preserves_widget_state_across_tab_switches(
@@ -2516,7 +2516,7 @@ def test_dashboard_page_cache_helpers_reuse_summary_and_filtered_view_results(
             return {"kind": "filtered_view"}
 
         def _refresh(self) -> None:
-            self.summary_value = self.require_summary("probe_summary")
+            self.summary_value = self.data.summary("probe_summary")
             self.filtered_view_value = self.get_filtered_view(
                 "probe_view",
                 "default",

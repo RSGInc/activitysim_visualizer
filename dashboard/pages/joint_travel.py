@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, control_row, control_row_spacer, selector_row
+from dashboard.rendering import control_row, control_row_spacer, selector_row
 from dashboard.helpers.category_helpers import (
     complete_category_counts,
     label_category_data,
@@ -91,22 +91,22 @@ class JointTravelPage(DashboardPage):
         )
 
     def _party_size_options(self) -> list[str]:
-        data = self.state.get_summary_table_set(
+        data = self.data.summary(
             "joint_tour_composition_by_party_size",
             "weighted",
         )
         return party_size_options(data) if data is not None else ["All"]
 
     def _household_size_options(self) -> list[str]:
-        data = self.state.get_summary_table_set(
+        data = self.data.summary(
             "household_jtp_by_household_size_and_jtf",
             "weighted",
         )
         return household_size_options(data) if data is not None else ["All"]
 
     def sync_controls(self) -> None:
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        summaries = self.data.summaries(*self.required_summary_ids)
+        if not all(summaries.values()):
             return
         party_opts = party_size_options(summaries["joint_tour_composition_by_party_size"])
         hh_opts = household_size_options(summaries["household_jtp_by_household_size_and_jtf"])
@@ -118,7 +118,7 @@ class JointTravelPage(DashboardPage):
             self.hhsize_sel.value = hh_opts[0]
 
     def _summaries(self):
-        return self.require_summaries(*self.required_summary_ids)
+        return self.data.summaries(*self.required_summary_ids)
 
     def _values_for_column(
         self,
@@ -275,42 +275,39 @@ class JointTravelPage(DashboardPage):
                 hide_no_joint_tours=bool(self.hide_no_joint_tours.value),
             ),
         )
-        return bar_chart(
+        return self.plot.bar(
             frequency_data,
-            x_col="jtf_label",
-            y_col="household_count",
+            x="jtf_label",
+            y="household_count",
             title="Joint Tour Frequency by Joint Tour Pattern",
-            xaxis_title="Joint Tour Pattern",
-            yaxis_title="Households",
+            x_title="Joint Tour Pattern",
+            y_title="Households",
             height=450,
-            percent_y_col="household_count_percent",
-            as_percent=self.as_percent,
+            share_y="household_count_percent",
         )
 
     def render_household_size_chart(self, summary_data, household_size_values: list[str]):
         """Render joint tours by household size."""
-        return bar_chart(
+        return self.plot.bar(
             summary_data,
-            "household_size",
-            "joint_tour_hh_count",
-            "Joint Tours by Household Size",
-            "Household Size",
-            yaxis_title="Households with a Joint Tour",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=household_size_values,
+            x="household_size",
+            y="joint_tour_hh_count",
+            title="Joint Tours by Household Size",
+            x_title="Household Size",
+            y_title="Households with a Joint Tour",
+            category_order=household_size_values,
         )
 
     def render_party_size_chart(self, summary_data, party_size_values: list[str]):
         """Render joint tours by party size."""
-        return bar_chart(
+        return self.plot.bar(
             summary_data,
-            "party_size",
-            "joint_tour_count",
-            "Joint Tours by Party Size",
-            "Party Size",
-            yaxis_title="Joint Tours",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=party_size_values,
+            x="party_size",
+            y="joint_tour_count",
+            title="Joint Tours by Party Size",
+            x_title="Party Size",
+            y_title="Joint Tours",
+            category_order=party_size_values,
         )
 
     def render_composition_chart(
@@ -320,7 +317,7 @@ class JointTravelPage(DashboardPage):
         party_size: str,
     ):
         """Render joint tour composition for one selected party size."""
-        return bar_chart(
+        return self.plot.bar(
             label_category_data(
                 summary_data,
                 source_col="tour_composition",
@@ -328,13 +325,12 @@ class JointTravelPage(DashboardPage):
                 config=self.config,
                 target_col="tour_composition_label",
             ),
-            "tour_composition_label",
-            "joint_tour_count",
-            f"Joint Tour Composition by Party Size - {party_size}",
-            "Tour Composition",
-            yaxis_title="Joint Tours",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=composition_label_values,
+            x="tour_composition_label",
+            y="joint_tour_count",
+            title=f"Joint Tour Composition by Party Size - {party_size}",
+            x_title="Tour Composition",
+            y_title="Joint Tours",
+            category_order=composition_label_values,
         )
 
     def render_person_participation_chart(
@@ -343,17 +339,17 @@ class JointTravelPage(DashboardPage):
         household_size_values: list[str],
     ):
         """Render people participating in joint travel by household size."""
-        return bar_chart(
+        return self.plot.bar(
             summary_data,
-            "household_size",
-            "person_value",
-            "People Taking Part in a Joint Tour by Household Size",
-            "Household Size",
-            yaxis_title=(
+            x="household_size",
+            y="person_value",
+            title="People Taking Part in a Joint Tour by Household Size",
+            x_title="Household Size",
+            y_title=(
                 "Percent of People (%)" if self.as_percent else "People Taking Joint Tours"
             ),
-            as_percent=False,
-            xaxis_categoryarray=household_size_values,
+            value_mode="count",
+            category_order=household_size_values,
         )
 
     def render_household_participation_chart(
@@ -363,7 +359,7 @@ class JointTravelPage(DashboardPage):
         household_size: str,
     ):
         """Render household participation in joint tours for one household size."""
-        return bar_chart(
+        return self.plot.bar(
             label_category_data(
                 summary_data,
                 source_col="jtf",
@@ -371,11 +367,11 @@ class JointTravelPage(DashboardPage):
                 config=self.config,
                 target_col="jtf_label",
             ),
-            "jtf_label",
-            "household_percent",
-            f"Households Taking Part in a Joint Tour - {household_size}",
-            "Joint Tour Count",
-            yaxis_title="Percent of Households (%)",
-            as_percent=False,
-            xaxis_categoryarray=jtf_values,
+            x="jtf_label",
+            y="household_percent",
+            title=f"Households Taking Part in a Joint Tour - {household_size}",
+            x_title="Joint Tour Count",
+            y_title="Percent of Households (%)",
+            value_mode="count",
+            category_order=jtf_values,
         )

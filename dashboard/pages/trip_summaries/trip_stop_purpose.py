@@ -5,8 +5,8 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, control_row, control_row_spacer
-from dashboard.data_access import RunTableView
+from dashboard.rendering import control_row, control_row_spacer
+from dashboard.data_access import RunTables
 from dashboard.helpers.category_helpers import (
     column_options,
     label_category_data,
@@ -42,7 +42,7 @@ def order_chart_data(
             .sort("_category_order")
             .drop("_category_order")
         )
-    return RunTableView.from_runs(data_list).map(order).collect()
+    return RunTables.from_runs(data_list).map(order)
 
 
 def stop_purpose_chart_data(
@@ -62,7 +62,7 @@ def stop_purpose_chart_data(
         else:
             filtered = filtered.filter(pl.col("tour_purpose") == tour_purpose)
         return filtered
-    return RunTableView.from_runs(data_list).map(shape).collect()
+    return RunTables.from_runs(data_list).map(shape)
 
 
 def trip_purpose_chart_data(
@@ -86,7 +86,7 @@ def trip_purpose_chart_data(
         else:
             filtered = filtered.filter(pl.col("tour_purpose") == tour_purpose)
         return filtered
-    return RunTableView.from_runs(data_list).map(shape).collect()
+    return RunTables.from_runs(data_list).map(shape)
 
 
 @dashboard_page(
@@ -123,7 +123,7 @@ class TripStopPurposePage(DashboardPage):
 
     def build_page(self) -> pn.viewable.Viewable:
         purpose_opts, self._tour_purpose_to_raw = column_options(
-            self.state.get_summary_table_set(
+            self.data.summary(
                 "stop_destination_purpose_by_tour_purpose", "weighted"
             )
             or [],
@@ -161,8 +161,8 @@ class TripStopPurposePage(DashboardPage):
         )
 
     def sync_controls(self) -> None:
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        summaries = self.data.summaries(*self.required_summary_ids)
+        if not all(summaries.values()):
             return
         purpose_opts, self._tour_purpose_to_raw = column_options(
             summaries["stop_destination_purpose_by_tour_purpose"],
@@ -217,16 +217,14 @@ class TripStopPurposePage(DashboardPage):
             column="trip_purpose",
             ordered_values=label_values,
         )
-        return bar_chart(
+        return self.plot.bar(
             chart_data,
-            x_col="trip_purpose",
-            y_col="trip_count",
+            x="trip_purpose",
+            y="trip_count",
             title=self._trip_purpose_title(display_purpose),
-            xaxis_title="Trip Purpose",
-            yaxis_title="Trips",
-            pct_col="pct",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=label_values,
+            x_title="Trip Purpose",
+            y_title="Trips",
+            category_order=label_values,
         )
 
     def render_stop_purpose_chart(
@@ -259,23 +257,21 @@ class TripStopPurposePage(DashboardPage):
             column="stop_destination_purpose",
             ordered_values=label_values,
         )
-        return bar_chart(
+        return self.plot.bar(
             chart_data,
-            x_col="stop_destination_purpose",
-            y_col="stop_count",
+            x="stop_destination_purpose",
+            y="stop_count",
             title=self._stop_purpose_title(display_purpose),
-            xaxis_title="Stop Destination Purpose",
-            yaxis_title="Stops",
-            pct_col="pct",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=label_values,
+            x_title="Stop Destination Purpose",
+            y_title="Stops",
+            category_order=label_values,
         )
 
     def render_body(self):
         if not self.state.run_labels:
             return [self.no_runs_message()]
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        summaries = self.data.summaries(*self.required_summary_ids)
+        if not all(summaries.values()):
             return [self.summary_only_unavailable_card()]
         display_purpose, raw_tour_purpose = self._selected_purpose()
         return [

@@ -10,7 +10,7 @@ from typing import Any
 import panel as pn
 import polars as pl
 
-from dashboard.components import control_row
+from dashboard.rendering import control_row
 from dashboard.helpers.category_helpers import nonempty
 
 

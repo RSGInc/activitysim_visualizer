@@ -5,8 +5,8 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import density_chart, selector_row
-from dashboard.data_access import RunTableView
+from dashboard.rendering import selector_row
+from dashboard.data_access import RunTables
 from dashboard.helpers.category_helpers import column_options
 from dashboard.helpers.time_distance_helpers import max_timebin, timebin_label
 from dashboard import DashboardPage, dashboard_page
@@ -42,7 +42,7 @@ def trip_stop_time_chart_data(
 ) -> tuple[list[tuple[str, pl.DataFrame]], list[tuple[str, pl.DataFrame]]]:
     """Build chart-ready trip and stop departure distributions for one purpose."""
     observed_max_timebin = max_timebin(data_list)
-    view = RunTableView.from_runs(data_list)
+    view = RunTables.from_runs(data_list)
 
     def profile(value_col: str) -> list[tuple[str, pl.DataFrame]]:
         return view.map(
@@ -52,7 +52,7 @@ def trip_stop_time_chart_data(
                 purpose=tour_purpose,
                 observed_max_timebin=observed_max_timebin,
             )
-        ).collect()
+        )
 
     return profile("departure_trip_count"), profile("departure_stop_count")
 
@@ -69,7 +69,7 @@ class TripStopTimePage(DashboardPage):
 
     def build_page(self) -> pn.viewable.Viewable:
         purpose_opts, self._purpose_to_raw = column_options(
-            self.state.get_summary_table_set("trip_departure_time_by_purpose", "weighted")
+            self.data.summary("trip_departure_time_by_purpose", "weighted")
             or [],
             "tour_purpose",
             category_id="tour_purpose",
@@ -109,8 +109,8 @@ class TripStopTimePage(DashboardPage):
         )
 
     def sync_controls(self) -> None:
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        summaries = self.data.summaries(*self.required_summary_ids)
+        if not all(summaries.values()):
             return
         purpose_opts, self._purpose_to_raw = column_options(
             summaries["trip_departure_time_by_purpose"],
@@ -154,23 +154,21 @@ class TripStopTimePage(DashboardPage):
             factory=lambda: trip_stop_time_chart_data(data_list, raw_purpose),
         )
         chart_data = trip_data if y_col == "departure_trip_count" else stop_data
-        return density_chart(
+        return self.plot.density(
             chart_data,
-            x_col="clock_time",
-            y_col=y_col,
+            x="clock_time",
+            y=y_col,
             title=f"{title} - {display_purpose}",
-            xaxis_title="Clock Time (start at 03:00)",
-            normalize=False,
-            yaxis_title=yaxis_title,
-            hover_xaxis_title="Clock Time",
-            as_percent=self.as_percent,
+            x_title="Clock Time (start at 03:00)",
+            y_title=yaxis_title,
+            hover_x_title="Clock Time",
         )
 
     def render_body(self):
         if not self.state.run_labels:
             return [self.no_runs_message()]
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        summaries = self.data.summaries(*self.required_summary_ids)
+        if not all(summaries.values()):
             return [self.summary_only_unavailable_card()]
         display_purpose, raw_purpose = self._selected_purpose()
         tod_list = summaries["trip_departure_time_by_purpose"]

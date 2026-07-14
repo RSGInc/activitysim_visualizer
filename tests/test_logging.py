@@ -70,7 +70,7 @@ class _PreparedWarningProbePage(DashboardPage):
         return self.new_section(pn.pane.Markdown("Probe"))
 
     def _refresh(self) -> None:
-        self.require_prepared_runs()
+        self.data.prepared_runs()
 
 
 _PreparedWarningProbePage.definition = DashboardPageDefinition(

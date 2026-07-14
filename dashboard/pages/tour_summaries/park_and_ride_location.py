@@ -5,7 +5,7 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import data_table, density_chart, selector_row
+from dashboard.rendering import data_table, selector_row
 from dashboard.helpers.comparison_helpers import format_percent_error_table
 from dashboard.helpers.geography_helpers import (
     ALL_GEOGRAPHY_TYPES_LABEL,
@@ -106,10 +106,10 @@ class ParkAndRideLocationPage(DashboardPage):
             }
 
         residuals = normalize_geography_data(
-            self.optional_summary("park_and_ride_location_residuals")
+            self.data.summary("park_and_ride_location_residuals", required=False)
         )
         histogram = normalize_geography_data(
-            self.optional_summary("park_and_ride_location_residual_histogram")
+            self.data.summary("park_and_ride_location_residual_histogram", required=False)
         )
         geo_opts, geo_raw_by_label = geography_type_options(
             histogram or residuals,
@@ -153,15 +153,13 @@ class ParkAndRideLocationPage(DashboardPage):
         )
         return [
             selector_row(self.geo_level_sel),
-            density_chart(
+            self.plot.density(
                 filtered,
-                x_col="bin_start",
-                y_col="geography_count",
+                x="bin_start",
+                y="geography_count",
                 title="Park-and-Ride Residual Distribution",
-                xaxis_title="Residual (Modeled - Capacity)",
-                yaxis_title="Geographies",
-                normalize=False,
-                as_percent=self.as_percent,
+                x_title="Residual (Modeled - Capacity)",
+                y_title="Geographies",
             ),
         ]
 
