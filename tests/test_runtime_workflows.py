@@ -24,16 +24,16 @@ from runtime.config.models import SkimjoinSettings
 from processor.summarize.contracts import (
     empty_summary_frame,
     get_summary_contract,
-    summary_contract,
+    summary,
 )
 from processor.summarize import cache as summary_cache
+from processor.summarize import catalog as summary_catalog
 from processor.summarize import builder as summary_builder
 from processor.summarize.cache import (
     build_run_fingerprint,
     write_summary_run_cache,
 )
 from processor.summarize.cache_types import create_summary_run
-from processor.summarize.summary_specs import SummarySpec
 from runtime.workflows import prepare as prepare_workflow
 
 
@@ -159,9 +159,25 @@ def _write_custom_prepared_tables(
     root.mkdir(parents=True, exist_ok=True)
     tables = {
         "households": pl.DataFrame({"household_id": [1], "finalweight": [1.0]}),
-        "persons": pl.DataFrame({"person_id": [10], "household_id": [1], "finalweight": [1.0]}),
-        "tours": pl.DataFrame({"tour_id": [100], "person_id": [10], "household_id": [1], "finalweight": [1.0]}),
-        "trips": pl.DataFrame({"trip_id": [1000], "tour_id": [100], "person_id": [10], "finalweight": [1.0]}),
+        "persons": pl.DataFrame(
+            {"person_id": [10], "household_id": [1], "finalweight": [1.0]}
+        ),
+        "tours": pl.DataFrame(
+            {
+                "tour_id": [100],
+                "person_id": [10],
+                "household_id": [1],
+                "finalweight": [1.0],
+            }
+        ),
+        "trips": pl.DataFrame(
+            {
+                "trip_id": [1000],
+                "tour_id": [100],
+                "person_id": [10],
+                "finalweight": [1.0],
+            }
+        ),
         "joint_tour_participants": pl.DataFrame({"tour_id": [], "person_id": []}),
         "land_use": pl.DataFrame({"zone_id": [1], "TAZ": [1]}),
     }
@@ -315,11 +331,11 @@ def test_non_default_summary_specs_remain_registered_but_not_default_built(
 ) -> None:
     config = _write_config(tmp_path, runs=[{"label": "External"}])
 
-    spec = summary_builder.SUMMARY_SPEC_BY_ID["auto_vmt_validation_summary"]
+    spec = summary_catalog.SUMMARY_BY_ID["auto_vmt_validation_summary"]
 
     assert spec.build_by_default is False
     assert (
-        summary_builder.SUMMARY_FILENAME_BY_ID["auto_vmt_validation_summary"]
+        summary_catalog.SUMMARY_FILENAME_BY_ID["auto_vmt_validation_summary"]
         == "auto_vmt_validation_summary.csv"
     )
     assert "auto_vmt_validation_summary" not in summary_builder.DEFAULT_SUMMARY_IDS
@@ -347,13 +363,13 @@ def test_validation_scaffold_summaries_are_registered_with_empty_contracts(
     }
 
     for summary_id in expected_ids:
-        spec = summary_builder.SUMMARY_SPEC_BY_ID[summary_id]
+        spec = summary_catalog.SUMMARY_BY_ID[summary_id]
         contract = get_summary_contract(spec.builder)
 
         assert spec.build_by_default is False
         assert contract is not None
         assert empty_summary_frame(spec.builder).schema == dict(contract.schema)
-        assert summary_builder.SUMMARY_FILENAME_BY_ID[summary_id] == f"{summary_id}.csv"
+        assert summary_catalog.SUMMARY_FILENAME_BY_ID[summary_id] == f"{summary_id}.csv"
         assert summary_id not in summary_builder.DEFAULT_SUMMARY_IDS
         assert summary_id not in summary_builder.DEFAULT_SUMMARY_IDS
 
@@ -385,8 +401,7 @@ def test_run_summary_workflow_loads_summary_only_run_without_prepared_inputs(
     assert result.prepared.runs == []
     assert [run.label for run in result.runs] == ["External"]
     assert (
-        result.runs[0].summaries_by_mode["weighted"]["totals"]["population"][0]
-        == 11.0
+        result.runs[0].summaries_by_mode["weighted"]["totals"]["population"][0] == 11.0
     )
     assert (
         result.runs[0].summaries_by_mode["unweighted"]["totals"]["population"][0]
@@ -487,8 +502,7 @@ def test_summary_only_run_bypasses_skimjoin_when_pipeline_enables_it(
     assert prepare_result.runs == []
     assert [run.label for run in result.runs] == ["External"]
     assert (
-        result.runs[0].summaries_by_mode["weighted"]["totals"]["population"][0]
-        == 41.0
+        result.runs[0].summaries_by_mode["weighted"]["totals"]["population"][0] == 41.0
     )
     loaded = runtime_workflows.load_summary_runs_from_cache(
         config=config,
@@ -517,8 +531,12 @@ def test_run_summary_workflow_overlays_summary_table_map_on_generated_summaries(
             }
         ],
     )
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals", "population_totals"])
-    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(
+        summary_builder, "DEFAULT_SUMMARY_IDS", ["totals", "population_totals"]
+    )
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
         lambda rd, config, summary_ids=None: (
             {
                 "weighted": {
@@ -531,10 +549,7 @@ def test_run_summary_workflow_overlays_summary_table_map_on_generated_summaries(
                 },
             },
             {
-                mode: {
-                    summary_id: {"state": "available"}
-                    for summary_id in summary_ids
-                }
+                mode: {summary_id: {"state": "available"} for summary_id in summary_ids}
                 for mode in ("weighted", "unweighted")
             },
         ),
@@ -602,16 +617,15 @@ def test_run_summary_workflow_reuses_all_existing_prepared_runs_when_cache_disab
                 for mode in config.weighting_modes
             },
             {
-                mode: {
-                    summary_id: {"state": "available"}
-                    for summary_id in requested
-                }
+                mode: {summary_id: {"state": "available"} for summary_id in requested}
                 for mode in config.weighting_modes
             },
         )
 
     monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
         fake_build_mode_summaries_with_metadata,
     )
     _patch_prepare_pipeline(
@@ -684,16 +698,15 @@ def test_prepare_then_summary_does_not_rerun_skimjoin_for_existing_prepared_runs
                 for mode in config.weighting_modes
             },
             {
-                mode: {
-                    summary_id: {"state": "available"}
-                    for summary_id in requested
-                }
+                mode: {summary_id: {"state": "available"} for summary_id in requested}
                 for mode in config.weighting_modes
             },
         )
 
     monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
         fake_build_mode_summaries_with_metadata,
     )
     _patch_prepare_pipeline(
@@ -701,6 +714,7 @@ def test_prepare_then_summary_does_not_rerun_skimjoin_for_existing_prepared_runs
         read_run=fake_read_run,
         prepare_data=lambda rd, config: rd,
     )
+
     def fake_resolve_skimjoin(config, entry):
         return SkimjoinSettings(
             enabled=True,
@@ -765,15 +779,14 @@ def test_run_summary_workflow_does_not_build_non_default_registered_summaries(
                 for mode in config.weighting_modes
             },
             {
-                mode: {
-                    summary_id: {"state": "available"}
-                    for summary_id in requested
-                }
+                mode: {summary_id: {"state": "available"} for summary_id in requested}
                 for mode in config.weighting_modes
             },
         )
 
-    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
         fake_build_mode_summaries_with_metadata,
     )
     monkeypatch.setattr(
@@ -796,7 +809,9 @@ def test_run_summary_workflow_does_not_build_non_default_registered_summaries(
     )
 
     assert build_calls
-    assert all("auto_vmt_validation_summary" not in call for call in build_calls if call)
+    assert all(
+        "auto_vmt_validation_summary" not in call for call in build_calls if call
+    )
     assert (
         "auto_vmt_validation_summary"
         not in result.runs[0].summaries_by_mode["weighted"]
@@ -830,7 +845,9 @@ def test_mixed_run_preserves_generated_defaults_and_overlays_non_default_summary
         ],
     )
     monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
-    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
         lambda rd, config, summary_ids=None: (
             {
                 mode: {
@@ -911,8 +928,7 @@ def test_summary_table_map_file_identity_invalidates_summary_cache(
     )
 
     assert (
-        result.runs[0].summaries_by_mode["weighted"]["totals"]["population"][0]
-        == 12.0
+        result.runs[0].summaries_by_mode["weighted"]["totals"]["population"][0] == 12.0
     )
 
 
@@ -969,7 +985,9 @@ def test_dashboard_only_loads_non_default_summary_table_map_id(
     )
 
     assert [run.label for run in loaded] == ["External"]
-    loaded_table = loaded[0].summaries_by_mode["weighted"]["auto_vmt_validation_summary"]
+    loaded_table = loaded[0].summaries_by_mode["weighted"][
+        "auto_vmt_validation_summary"
+    ]
     assert loaded_table.to_dicts() == [
         {
             "TOD": "Daily",
@@ -1007,9 +1025,10 @@ def test_dashboard_only_respects_empty_required_summary_ids_for_optional_only_pa
         required_summary_ids=(),
     )
 
-    assert loaded[0].summaries_by_mode["weighted"]["auto_vmt_validation_summary"][
-        "SOV"
-    ][0] == 17.0
+    assert (
+        loaded[0].summaries_by_mode["weighted"]["auto_vmt_validation_summary"]["SOV"][0]
+        == 17.0
+    )
 
 
 def test_summary_table_map_contract_rejects_missing_external_columns(
@@ -1247,7 +1266,9 @@ def test_run_prepare_workflow_skips_integrated_skimjoin_when_apply_skimjoin_is_f
         prepare_workflow,
         "apply_skimjoin",
         lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("apply_skimjoin should not be called when skimjoin is disabled for the effective workflow")
+            AssertionError(
+                "apply_skimjoin should not be called when skimjoin is disabled for the effective workflow"
+            )
         ),
     )
 
@@ -1350,7 +1371,9 @@ def test_run_summary_workflow_without_segment_step_builds_only_full_summary_runs
         ),
         prepare_data=lambda rd, config: rd,
     )
-    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
         lambda rd, config: _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
     )
 
@@ -1406,7 +1429,9 @@ def test_run_summary_workflow_with_segment_step_builds_full_and_segmented_summar
         ),
         prepare_data=lambda rd, config: rd,
     )
-    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
         lambda rd, config: _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
     )
 
@@ -1487,8 +1512,14 @@ def test_run_prepare_workflow_warns_on_inconsistent_custom_prepared_tables(
     assert [label for label, _ in result.runs] == ["Prepared Run"]
     captured = capsys.readouterr()
     combined_output = caplog.text + captured.err + captured.out
-    assert 'Prepared relationship validation found 3 failed checks for run "Prepared Run".' in combined_output
-    assert "trips rows reference person_id values not present in persons.person_id" in combined_output
+    assert (
+        'Prepared relationship validation found 3 failed checks for run "Prepared Run".'
+        in combined_output
+    )
+    assert (
+        "trips rows reference person_id values not present in persons.person_id"
+        in combined_output
+    )
 
 
 def test_run_prepare_workflow_errors_on_inconsistent_custom_prepared_tables_when_configured(
@@ -1507,7 +1538,10 @@ def test_run_prepare_workflow_errors_on_inconsistent_custom_prepared_tables_when
         ],
     )
 
-    with pytest.raises(RuntimeError, match='Prepared relationship validation failed for run "Prepared Run"'):
+    with pytest.raises(
+        RuntimeError,
+        match='Prepared relationship validation failed for run "Prepared Run"',
+    ):
         runtime_workflows.run_prepare_workflow(
             config=config,
             prepared_root=runtime_workflows.prepared_cache_root(config, create=True),
@@ -1537,7 +1571,9 @@ def test_run_prepare_workflow_skips_relationship_validation_when_disabled(
     monkeypatch.setattr(
         "runtime.workflows.prepare.validate_prepared_relationships",
         lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("validate_prepared_relationships should not be called when disabled")
+            AssertionError(
+                "validate_prepared_relationships should not be called when disabled"
+            )
         ),
     )
 
@@ -1565,17 +1601,19 @@ def test_run_prepare_workflow_skips_run_when_no_raw_tables_are_available(
 
     _patch_prepare_pipeline(
         monkeypatch,
-        read_run=lambda run_dir, config, label=None, **kwargs: attach_table_availability(
-            _fake_run_data(label or Path(run_dir).name, str(run_dir)),
-            table_states={
-                "households": "unavailable",
-                "persons": "unavailable",
-                "tours": "unavailable",
-                "trips": "unavailable",
-                "joint_tour_participants": "unavailable",
-                "land_use": "unavailable",
-            },
-            table_reasons={"households": "missing"},
+        read_run=lambda run_dir, config, label=None, **kwargs: (
+            attach_table_availability(
+                _fake_run_data(label or Path(run_dir).name, str(run_dir)),
+                table_states={
+                    "households": "unavailable",
+                    "persons": "unavailable",
+                    "tours": "unavailable",
+                    "trips": "unavailable",
+                    "joint_tour_participants": "unavailable",
+                    "land_use": "unavailable",
+                },
+                table_reasons={"households": "missing"},
+            )
         ),
         prepare_data=lambda rd, config: rd,
     )
@@ -1605,29 +1643,31 @@ def test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_unavailable
 
     _patch_prepare_pipeline(
         monkeypatch,
-        read_run=lambda run_dir, config, label=None, **kwargs: attach_table_availability(
-            RunData(
-                label=label or Path(run_dir).name,
-                run_dir=str(run_dir),
-                skim_file=None,
-                hh=pl.DataFrame({"household_id": [1]}),
-                per=pl.DataFrame(),
-                tours=pl.DataFrame(),
-                trips=pl.DataFrame(),
-                joint_participants=pl.DataFrame(),
-                land_use=pl.DataFrame(),
-                skim_matrix=None,
-                skim_zone_map=None,
-            ),
-            table_states={
-                "households": "available",
-                "persons": "unavailable",
-                "tours": "unavailable",
-                "trips": "unavailable",
-                "joint_tour_participants": "unavailable",
-                "land_use": "unavailable",
-            },
-            table_reasons={"persons": "missing"},
+        read_run=lambda run_dir, config, label=None, **kwargs: (
+            attach_table_availability(
+                RunData(
+                    label=label or Path(run_dir).name,
+                    run_dir=str(run_dir),
+                    skim_file=None,
+                    hh=pl.DataFrame({"household_id": [1]}),
+                    per=pl.DataFrame(),
+                    tours=pl.DataFrame(),
+                    trips=pl.DataFrame(),
+                    joint_participants=pl.DataFrame(),
+                    land_use=pl.DataFrame(),
+                    skim_matrix=None,
+                    skim_zone_map=None,
+                ),
+                table_states={
+                    "households": "available",
+                    "persons": "unavailable",
+                    "tours": "unavailable",
+                    "trips": "unavailable",
+                    "joint_tour_participants": "unavailable",
+                    "land_use": "unavailable",
+                },
+                table_reasons={"persons": "missing"},
+            )
         ),
         prepare_data=lambda rd, config: rd,
     )
@@ -1659,32 +1699,34 @@ def test_run_prepare_workflow_keeps_partial_run_when_some_tables_are_failed(
 
     _patch_prepare_pipeline(
         monkeypatch,
-        read_run=lambda run_dir, config, label=None, **kwargs: attach_table_availability(
-            RunData(
-                label=label or Path(run_dir).name,
-                run_dir=str(run_dir),
-                skim_file=None,
-                hh=pl.DataFrame({"household_id": [1]}),
-                per=pl.DataFrame({"person_id": [1]}),
-                tours=pl.DataFrame(),
-                trips=pl.DataFrame(),
-                joint_participants=pl.DataFrame(),
-                land_use=pl.DataFrame(),
-                skim_matrix=None,
-                skim_zone_map=None,
-            ),
-            table_states={
-                "households": "available",
-                "persons": "available",
-                "tours": "failed",
-                "trips": "unavailable",
-                "joint_tour_participants": "unavailable",
-                "land_use": "unavailable",
-            },
-            table_reasons={
-                "tours": "tour enrichment failed",
-                "trips": "missing",
-            },
+        read_run=lambda run_dir, config, label=None, **kwargs: (
+            attach_table_availability(
+                RunData(
+                    label=label or Path(run_dir).name,
+                    run_dir=str(run_dir),
+                    skim_file=None,
+                    hh=pl.DataFrame({"household_id": [1]}),
+                    per=pl.DataFrame({"person_id": [1]}),
+                    tours=pl.DataFrame(),
+                    trips=pl.DataFrame(),
+                    joint_participants=pl.DataFrame(),
+                    land_use=pl.DataFrame(),
+                    skim_matrix=None,
+                    skim_zone_map=None,
+                ),
+                table_states={
+                    "households": "available",
+                    "persons": "available",
+                    "tours": "failed",
+                    "trips": "unavailable",
+                    "joint_tour_participants": "unavailable",
+                    "land_use": "unavailable",
+                },
+                table_reasons={
+                    "tours": "tour enrichment failed",
+                    "trips": "missing",
+                },
+            )
         ),
         prepare_data=lambda rd, config: rd,
     )
@@ -1770,7 +1812,10 @@ def test_run_prepare_workflow_validates_prepared_cache_loads(
     assert [label for label, _ in result.runs] == ["Run A"]
     captured = capsys.readouterr()
     combined_output = caplog.text + captured.err + captured.out
-    assert 'Prepared relationship validation found 3 failed checks for run "Run A".' in combined_output
+    assert (
+        'Prepared relationship validation found 3 failed checks for run "Run A".'
+        in combined_output
+    )
 
 
 def test_run_summary_workflow_uses_cache_hit_without_raw_read_or_summary_rebuild(
@@ -1812,7 +1857,9 @@ def test_run_summary_workflow_uses_cache_hit_without_raw_read_or_summary_rebuild
             AssertionError("prepare_data should not be called on a cache hit")
         ),
     )
-    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError(
                 "build_mode_summaries_with_metadata should not be called on a cache hit"
@@ -1874,7 +1921,9 @@ def test_run_summary_workflow_cache_hit_keeps_existing_prepared_run_by_key(
             AssertionError("prepare_data should not be called on a summary-cache hit")
         ),
     )
-    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
         lambda *args, **kwargs: (_ for _ in ()).throw(
             AssertionError(
                 "build_mode_summaries_with_metadata should not be called on a summary-cache hit"
@@ -1928,7 +1977,9 @@ def test_run_summary_workflow_rebuilds_and_writes_cache_on_cache_miss(
             rd,
         )[1],
     )
-    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
         lambda rd, config: (
             summary_build_calls.append(rd.label),
             _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
@@ -1998,7 +2049,9 @@ def test_run_summary_workflow_uses_prepared_cache_before_raw_rebuild(
             rd,
         )[1],
     )
-    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
         lambda rd, config: (
             summary_build_calls.append(rd.label),
             _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
@@ -2036,13 +2089,19 @@ def test_run_summary_workflow_reuses_in_memory_prepared_runs_without_reload(
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("read_run should not be called when prepared runs already exist in memory")
+            AssertionError(
+                "read_run should not be called when prepared runs already exist in memory"
+            )
         ),
         prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("prepare_data should not be called when prepared runs already exist in memory")
+            AssertionError(
+                "prepare_data should not be called when prepared runs already exist in memory"
+            )
         ),
     )
-    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
         lambda rd, config: (
             summary_build_calls.append(rd.label),
             _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
@@ -2094,11 +2153,11 @@ def test_run_summary_workflow_backfills_only_missing_summary_tables(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    @summary_contract(schema={"value": pl.Float64})
+    @summary(id="good", schema={"value": pl.Float64})
     def good_summary(rd: RunData, config: Config) -> pl.DataFrame:
         return pl.DataFrame({"value": [1.0]})
 
-    @summary_contract(schema={"value": pl.Float64})
+    @summary(id="new", schema={"value": pl.Float64})
     def new_summary(rd: RunData, config: Config) -> pl.DataFrame:
         return pl.DataFrame({"value": [2.0]})
 
@@ -2138,17 +2197,17 @@ def test_run_summary_workflow_backfills_only_missing_summary_tables(
         source_run_dir=str(run_dir),
     )
     monkeypatch.setitem(
-        summary_builder.SUMMARY_SPEC_BY_ID,
+        summary_catalog.SUMMARY_BY_ID,
         "good",
-        SummarySpec("good", "good", good_summary),
+        good_summary.summary_definition,
     )
     monkeypatch.setitem(
-        summary_builder.SUMMARY_SPEC_BY_ID,
+        summary_catalog.SUMMARY_BY_ID,
         "new",
-        SummarySpec("new", "new", new_summary),
+        new_summary.summary_definition,
     )
-    monkeypatch.setitem(summary_builder.SUMMARY_FILENAME_BY_ID, "good", "good.csv")
-    monkeypatch.setitem(summary_builder.SUMMARY_FILENAME_BY_ID, "new", "new.csv")
+    monkeypatch.setitem(summary_catalog.SUMMARY_FILENAME_BY_ID, "good", "good.csv")
+    monkeypatch.setitem(summary_catalog.SUMMARY_FILENAME_BY_ID, "new", "new.csv")
     summary_cache.write_summary_run_bundle(
         [cached_only_good],
         config,
@@ -2182,7 +2241,9 @@ def test_run_summary_workflow_backfills_only_missing_summary_tables(
             metadata[mode] = mode_metadata
         return tables, metadata
 
-    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
         fake_build_mode_summaries_with_metadata,
     )
     _patch_prepare_pipeline(
@@ -2191,7 +2252,9 @@ def test_run_summary_workflow_backfills_only_missing_summary_tables(
             AssertionError("read_run should not be called when prepared cache is valid")
         ),
         prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("prepare_data should not be called when prepared cache is valid")
+            AssertionError(
+                "prepare_data should not be called when prepared cache is valid"
+            )
         ),
     )
 
@@ -2292,7 +2355,9 @@ def test_resolve_requested_steps_uses_config_pipeline_defaults(tmp_path: Path) -
     ]
 
 
-def test_resolve_effective_plan_uses_pipeline_dashboard_mode_and_overwrite(tmp_path: Path) -> None:
+def test_resolve_effective_plan_uses_pipeline_dashboard_mode_and_overwrite(
+    tmp_path: Path,
+) -> None:
     config = _write_config(
         tmp_path,
         runs=[],
@@ -2464,19 +2529,23 @@ def test_run_summary_workflow_continues_when_one_summary_fails(
         runs=[{"dir": str(run_dir), "label": "Run A"}],
     )
 
-    @summary_contract(schema={"value": pl.Float64})
+    @summary(id="good", schema={"value": pl.Float64})
     def good_summary(rd: RunData, config: Config) -> pl.DataFrame:
         return pl.DataFrame({"value": [1.0]})
 
-    @summary_contract(schema={"value": pl.Float64})
+    @summary(id="bad", schema={"value": pl.Float64})
     def bad_summary(rd: RunData, config: Config) -> pl.DataFrame:
         raise RuntimeError("boom")
 
     monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["good", "bad"])
-    monkeypatch.setitem(summary_builder.SUMMARY_SPEC_BY_ID, "good", SummarySpec("good", "good", good_summary))
-    monkeypatch.setitem(summary_builder.SUMMARY_SPEC_BY_ID, "bad", SummarySpec("bad", "bad", bad_summary))
-    monkeypatch.setitem(summary_builder.SUMMARY_FILENAME_BY_ID, "good", "good.csv")
-    monkeypatch.setitem(summary_builder.SUMMARY_FILENAME_BY_ID, "bad", "bad.csv")
+    monkeypatch.setitem(
+        summary_catalog.SUMMARY_BY_ID, "good", good_summary.summary_definition
+    )
+    monkeypatch.setitem(
+        summary_catalog.SUMMARY_BY_ID, "bad", bad_summary.summary_definition
+    )
+    monkeypatch.setitem(summary_catalog.SUMMARY_FILENAME_BY_ID, "good", "good.csv")
+    monkeypatch.setitem(summary_catalog.SUMMARY_FILENAME_BY_ID, "bad", "bad.csv")
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda run_dir, config, label=None, **kwargs: _fake_run_data(
@@ -2557,10 +2626,14 @@ def test_load_prepared_runs_for_dashboard_returns_empty_when_required_runs_are_m
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("read_run should not be called when required runs are unresolved")
+            AssertionError(
+                "read_run should not be called when required runs are unresolved"
+            )
         ),
         prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("prepare_data should not be called when required runs are unresolved")
+            AssertionError(
+                "prepare_data should not be called when required runs are unresolved"
+            )
         ),
     )
 
@@ -2577,7 +2650,9 @@ def test_load_prepared_runs_for_dashboard_supports_custom_prepared_runs(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    prepared_map = _write_custom_prepared_tables(tmp_path / "custom_prepared", file_format="csv")
+    prepared_map = _write_custom_prepared_tables(
+        tmp_path / "custom_prepared", file_format="csv"
+    )
     config = _write_config(
         tmp_path,
         runs=[{"label": "Prepared Run", "prepared_table_map": prepared_map}],
@@ -2586,10 +2661,14 @@ def test_load_prepared_runs_for_dashboard_supports_custom_prepared_runs(
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("read_run should not be called for custom prepared dashboard loads")
+            AssertionError(
+                "read_run should not be called for custom prepared dashboard loads"
+            )
         ),
         prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("prepare_data should not be called for custom prepared dashboard loads")
+            AssertionError(
+                "prepare_data should not be called for custom prepared dashboard loads"
+            )
         ),
     )
 
@@ -2648,9 +2727,7 @@ def test_prune_summary_artifact_keeps_only_required_dashboard_data() -> None:
     )
 
     assert pruned is not None
-    assert list(pruned.runs[0].summaries_by_mode["weighted"]) == [
-        "population_totals"
-    ]
+    assert list(pruned.runs[0].summaries_by_mode["weighted"]) == ["population_totals"]
     assert pruned.prepared.by_key["run-a"][1].hh.is_empty()
     assert pruned.prepared.by_key["run-a"][1].per.is_empty()
     assert pruned.prepared.by_key["run-a"][1].trips is prepared_run.trips
@@ -2684,10 +2761,14 @@ def test_load_prepared_runs_for_dashboard_prunes_existing_runs_to_required_table
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("read_run should not be called when the run is already loaded")
+            AssertionError(
+                "read_run should not be called when the run is already loaded"
+            )
         ),
         prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("prepare_data should not be called when the run is already loaded")
+            AssertionError(
+                "prepare_data should not be called when the run is already loaded"
+            )
         ),
     )
 
@@ -2743,7 +2824,9 @@ def test_load_prepared_runs_for_dashboard_dedupes_required_run_keys(
             run_keys=["run-a"],
         )
 
-    monkeypatch.setattr(prepare_workflow, "run_prepare_workflow", fake_run_prepare_workflow)
+    monkeypatch.setattr(
+        prepare_workflow, "run_prepare_workflow", fake_run_prepare_workflow
+    )
 
     ordered_runs = runtime_workflows.load_prepared_runs_for_dashboard(
         config=config,

@@ -26,25 +26,27 @@ The prepared tables documented below are the main contract those functions shoul
 - Put the builder in one of the modules under `processor/summarize/summaries/`.
 - Follow the existing topical split:
   - `demographics.py` for household/person summaries
-  - `long_term.py` for ownership, telecommute, and geography-based long-term summaries
-  - `daily_travel.py` for person-day and tour-frequency summaries
+  - `long_term_person.py`, `long_term_vehicle.py`, `long_term_geography.py`, and
+    `long_term_distance.py` for long-term choices
+  - `daily_travel_activity.py` and the `daily_travel_escort_*` modules for
+    daily-travel summaries
   - `joint_travel.py` for joint-tour and participant summaries
   - `tour.py` for tour-level distributions
   - `trip.py` for trip/stop distributions
 
 Examples worth copying:
 
-- `processor/summarize/summaries/daily_travel.py`
+- `processor/summarize/summaries/daily_travel_activity.py`
 - `processor/summarize/summaries/trip.py`
 - `processor/summarize/summaries/tour.py`
-- `processor/summarize/summaries/long_term.py`
+- `processor/summarize/summaries/long_term_person.py`
 
 ### Builder Pattern Used In This Repo
 
 Most builders follow the same pattern:
 
 1. Define a stable output schema up front.
-2. Check for the required prepared columns and return an empty typed table if they are missing.
+2. Declare required prepared columns in `@summary(...)`; the wrapper supplies a typed empty result.
 3. Use prepared columns from `RunData` rather than raw ActivitySim inputs.
 4. Aggregate with `finalweight` unless the logic explicitly needs something else.
 5. Cast output columns to stable types before returning.
@@ -93,24 +95,27 @@ def my_summary(rd: RunData, config: Config) -> pl.DataFrame:
 - Geography-aware summaries usually emit per-geography rows plus an `all_geographies` row when `config.geography_enabled` is true.
 - Dense outputs are often better than sparse outputs for charts. For example, distance-bin and time-bin summaries fill in missing bins with zeros.
 
-### Registering A New Summary
+### Declaring A New Summary
 
-After you add the function, register it in `processor/summarize/summary_specs.py` by adding a `SummarySpec` entry to `SUMMARY_SPECS`:
+Declare the summary beside its builder:
 
 ```python
-SummarySpec(
-    "my_summary_id",
-    "my_summary_filename",
-    my_module.my_summary,
-),
+@summary(
+    id="my_summary_id",
+    schema={"category": pl.Utf8, "value": pl.Float64},
+    required_columns={"trips": ("category", "finalweight")},
+)
+def my_summary(run: RunData, config: Config) -> pl.DataFrame:
+    ...
 ```
 
 Notes:
 
 - `summary_id` is the stable internal identifier used by the cache and dashboard layers.
-- `filename` becomes the CSV name written to the summary cache.
+- `filename` defaults to the id and becomes the CSV name written to the cache.
 - The builder must return a single `pl.DataFrame`.
-- If you need multiple outputs from one shared computation, follow the `long_term.tlfd(...)` pattern and add small wrapper builders in `summary_specs.py`.
+- The declared columns, order, and dtypes are validated after every successful call.
+- If you need multiple outputs from one shared computation, add small declared wrappers in the owning domain module.
 
 ### When To Update `processor/summarize/schema.py`
 
@@ -122,10 +127,10 @@ That file is not required for every summary, but it is used for dashboard-facing
 
 - Add the builder function under `processor/summarize/summaries/`.
 - Use prepared `RunData` tables and columns from the schema reference below.
-- Return an empty typed DataFrame if required inputs are missing.
+- Declare mechanical prerequisites; the decorator supplies the typed empty result.
 - Aggregate with weights, usually `finalweight`.
 - Cast and order output columns explicitly.
-- Register the summary in `processor/summarize/summary_specs.py`.
+- Declare the summary with `@summary(...)`; no second registry edit is needed.
 - Add a canonical output schema in `processor/summarize/schema.py` if the dashboard depends on fixed columns.
 - Run the relevant summary build or tests to verify the output shape.
 

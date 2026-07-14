@@ -1,7 +1,7 @@
 import polars as pl
 from runtime.config import Config
 from processor.models import RunData
-from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize.contracts import summary
 
 
 def _tour_purpose_column(tours: pl.DataFrame) -> str | None:
@@ -13,22 +13,24 @@ def _tour_purpose_column(tours: pl.DataFrame) -> str | None:
     return "tour_purpose"
 
 
-@summary_contract(
-    schema={},
+@summary(
+    id="geo_flows",
+    filename="geoFlows",
+    schema={
+        "origin_geography": pl.Utf8,
+        "destination_geography": pl.Utf8,
+        "person_count": pl.Float64,
+    },
     required_columns={"per": ("HGEO", "WGEO", "finalweight")},
 )
 def geo_flows(rd: RunData, config: Config) -> pl.DataFrame:
-    """Home-to-work geography flow matrix.
-
-    Returns wide DataFrame: row=HGEO, col=WGEO value, plus Total row/col.
-    Returns empty DataFrame if geography is not enabled.
-    """
+    """Return canonical long-form home-to-work geography flows."""
     if (
         not config.geography_enabled
         or "HGEO" not in rd.per.columns
         or "WGEO" not in rd.per.columns
     ):
-        return pl.DataFrame()
+        return geo_flows.empty()
 
     workers = (
         rd.per.filter(
@@ -38,27 +40,18 @@ def geo_flows(rd: RunData, config: Config) -> pl.DataFrame:
         else rd.per
     )
 
-    pivot = (
+    return (
         workers.filter(pl.col("HGEO").is_not_null() & pl.col("WGEO").is_not_null())
         .group_by(["HGEO", "WGEO"])
-        .agg(pl.col("finalweight").sum().alias("n"))
-        .pivot(on="WGEO", index="HGEO", values="n", aggregate_function="sum")
+        .agg(person_count=pl.col("finalweight").sum())
+        .with_columns(
+            pl.col("HGEO").cast(pl.Utf8).alias("origin_geography"),
+            pl.col("WGEO").cast(pl.Utf8).alias("destination_geography"),
+            pl.col("person_count").cast(pl.Float64),
+        )
+        .select("origin_geography", "destination_geography", "person_count")
+        .sort("origin_geography", "destination_geography")
     )
-
-    if len(pivot) == 0:
-        return pl.DataFrame()
-
-    geo_cols = [c for c in pivot.columns if c != "HGEO"]
-    pivot = pivot.fill_null(0)
-    pivot = pivot.with_columns(pl.sum_horizontal(geo_cols).alias("Total"))
-
-    # Totals row
-    total_vals: dict = {"HGEO": "Total"}
-    for col in geo_cols + ["Total"]:
-        if col in pivot.columns:
-            total_vals[col] = pivot[col].sum()
-    pivot = pl.concat([pivot, pl.DataFrame([total_vals])])
-    return pivot
 
 
 def _combined_nm_tours(
@@ -96,7 +89,9 @@ def _combined_nm_tours(
     return pl.concat(parts)
 
 
-@summary_contract(
+@summary(
+    id="destination_distance",
+    filename="destinationDistByPurpose",
     schema={
         "purpose": pl.Utf8,
         "distbin": pl.Int32,
@@ -124,7 +119,7 @@ def distance_distribution(rd: RunData, config: Config) -> pl.DataFrame:
             .to_list()
         )
     else:
-        return empty_summary_frame(distance_distribution)
+        return distance_distribution.empty()
 
     labels = ["All NM"] + purposes
     bins = list(range(41))
@@ -166,7 +161,9 @@ def distance_distribution(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="destination_average_distance",
+    filename="destinationAvgDistance",
     schema={
         "purpose": pl.Utf8,
         "avg_distance": pl.Float64,
@@ -193,7 +190,7 @@ def average_distance(rd: RunData, config: Config) -> pl.DataFrame:
             .to_list()
         )
     else:
-        return empty_summary_frame(average_distance)
+        return average_distance.empty()
 
     rows: list[dict[str, object]] = []
     for purpose in purposes:
@@ -223,7 +220,8 @@ def average_distance(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="nm_tour_rates",
     schema={
         "ptype": pl.Utf8,
         "tour_purp": pl.Utf8,
@@ -247,7 +245,7 @@ def nm_tour_rates(rd: RunData, config: Config) -> pl.DataFrame:
         or ptype_col is None
         or ptype_col not in rd.tours.columns
     ):
-        return empty_summary_frame(nm_tour_rates)
+        return nm_tour_rates.empty()
 
     nm_tours = rd.tours.filter(pl.col("tour_category") == "non-mandatory")
     purposes = (
@@ -301,7 +299,8 @@ def nm_tour_rates(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="totals",
     schema={
         "population": pl.Float64,
         "households": pl.Float64,
@@ -422,7 +421,7 @@ def tour_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
     Purpose groups are derived from the config-resolved tour purpose column.
     """
     if "tour_mode" not in rd.tours.columns:
-        return empty_summary_frame(grouped_tour_mode_profile)
+        return grouped_tour_mode_profile.empty()
 
     indiv = (
         rd.tours.filter(
@@ -459,7 +458,7 @@ def tour_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
                     (f"joint_{p}", joint, pl.col(purpose_col).cast(pl.Utf8) == p)
                 )
     else:
-        return empty_summary_frame(grouped_tour_mode_profile)
+        return grouped_tour_mode_profile.empty()
 
     all_modes = rd.tours["tour_mode"].drop_nulls().unique().to_list()
     all_modes = config.ordered_modes(all_modes)
@@ -537,7 +536,9 @@ def tour_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
     return pl.concat([pivot, total], how="vertical")
 
 
-@summary_contract(
+@summary(
+    id="grouped_tour_mode_profile",
+    filename="groupedTmodeProfile_vis",
     schema={
         "mode_group": pl.Utf8,
         "purpose": pl.Utf8,
@@ -555,11 +556,11 @@ def grouped_tour_mode_profile(rd: RunData, config: Config) -> pl.DataFrame:
     Returns empty DataFrame if mode_groups not configured.
     """
     if not config.mode_groups:
-        return empty_summary_frame(grouped_tour_mode_profile)
+        return grouped_tour_mode_profile.empty()
 
     detail = tour_mode_profile(rd, config)
     if len(detail) == 0:
-        return empty_summary_frame(grouped_tour_mode_profile)
+        return grouped_tour_mode_profile.empty()
 
     mode_to_group = {}
     for grp, modes in config.mode_groups.items():

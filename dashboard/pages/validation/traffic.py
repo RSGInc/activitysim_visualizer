@@ -735,7 +735,7 @@ class TrafficValidationPage(DashboardPage):
         period = self.demo_period_sel.value
         volume_col = DEMO_TRAFFIC_TIME_PERIODS[str(period)]
         facility_type = self.selected_facility_type_raw()
-        if scatter_list is not None:
+        if scatter_list:
             scatter_data = self.get_filtered_view(
                 "demo_count_scatter_facility_summary",
                 (period, facility_type),
@@ -745,7 +745,7 @@ class TrafficValidationPage(DashboardPage):
                     facility_type=facility_type,
                 ),
             )
-        elif count_list is not None and volume_list is not None:
+        elif count_list and volume_list:
             scatter_data = self.get_filtered_view(
                 "demo_count_scatter_fallback_facility_summary",
                 (period, facility_type),
@@ -816,7 +816,7 @@ class TrafficValidationPage(DashboardPage):
         section: list[pn.viewable.Viewable] = [
             pn.pane.Markdown("### Traffic Volume Summaries")
         ]
-        if scatter_list is not None:
+        if scatter_list:
             scatter_data = self.get_filtered_view(
                 "demo_count_scatter",
                 (period, facility_type),

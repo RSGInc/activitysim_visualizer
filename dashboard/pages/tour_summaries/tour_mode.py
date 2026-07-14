@@ -293,7 +293,7 @@ class TourModePage(DashboardPage):
         mode_summary = summaries["tour_mode_by_tour_purpose_and_auto_sufficiency"]
         selected_purpose = str(self.purpose_sel.value)
         raw_purpose = self._purpose_to_raw.get(selected_purpose, "all_tour_purposes")
-        if mode_summary is None:
+        if not mode_summary:
             return [
                 pn.pane.Markdown("### Tour Mode"),
                 self.data_not_available_card(
@@ -406,7 +406,7 @@ class TourModePage(DashboardPage):
 
     def render_vehicle_age_chart(self, summary_data, occupancy: str) -> pn.viewable.Viewable:
         """Render allocated vehicle age by occupancy level."""
-        if summary_data is None:
+        if not summary_data:
             return self.data_not_available_card(
                 detail="The allocated vehicle age summary is unavailable.",
                 missing_items=["allocated_vehicle_age_by_occupancy"],
@@ -433,7 +433,7 @@ class TourModePage(DashboardPage):
 
     def render_vehicle_fuel_chart(self, summary_data, occupancy: str) -> pn.viewable.Viewable:
         """Render allocated vehicle fuel type by occupancy level."""
-        if summary_data is None:
+        if not summary_data:
             return self.data_not_available_card(
                 detail="The allocated vehicle fuel summary is unavailable.",
                 missing_items=["allocated_vehicle_fuel_type_by_occupancy"],
@@ -460,7 +460,7 @@ class TourModePage(DashboardPage):
 
     def render_vehicle_body_chart(self, summary_data, occupancy: str) -> pn.viewable.Viewable:
         """Render allocated vehicle body type by occupancy level."""
-        if summary_data is None:
+        if not summary_data:
             return self.data_not_available_card(
                 detail="The allocated vehicle body summary is unavailable.",
                 missing_items=["allocated_vehicle_body_type_by_occupancy"],

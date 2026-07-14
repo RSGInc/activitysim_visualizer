@@ -11,11 +11,10 @@ import polars as pl
 from runtime.logging import get_logger
 from processor.models import RunData
 from processor.summarize.cache_types import normalize_weighting_modes, strip_weights
-from processor.summarize.contracts import empty_summary_frame, missing_summary_inputs
-from processor.summarize.summary_specs import (
+from processor.summarize.contracts import missing_summary_inputs
+from processor.summarize.catalog import (
     DEFAULT_SUMMARY_IDS,
-    SUMMARY_FILENAME_BY_ID,
-    SUMMARY_SPEC_BY_ID,
+    SUMMARY_BY_ID,
 )
 from runtime.config import Config
 
@@ -23,7 +22,7 @@ LOGGER = get_logger("processor.summarize.builder")
 
 
 def summary_builder_identity(summary_id: str) -> dict[str, object]:
-    spec = SUMMARY_SPEC_BY_ID[summary_id]
+    spec = SUMMARY_BY_ID[summary_id]
     try:
         source = inspect.getsource(spec.builder)
     except (OSError, TypeError):
@@ -60,7 +59,7 @@ def summary_digests(
 
 
 def _summary_spec(summary_id: str):
-    spec = SUMMARY_SPEC_BY_ID.get(summary_id)
+    spec = SUMMARY_BY_ID.get(summary_id)
     if spec is None:
         raise KeyError(f"Unknown summary id: {summary_id}")
     return spec
@@ -71,7 +70,7 @@ def _summary_ids(summary_ids: list[str] | None) -> list[str]:
 
 
 def _empty_summary(summary_id: str) -> pl.DataFrame:
-    return empty_summary_frame(_summary_spec(summary_id).builder)
+    return _summary_spec(summary_id).empty()
 
 
 def _build_one(
@@ -165,12 +164,8 @@ def build_mode_summaries_with_metadata(
 ]:
     tables_by_mode: dict[str, dict[str, pl.DataFrame]] = {}
     metadata_by_mode: dict[str, dict[str, dict[str, object]]] = {}
-    for mode, mode_run in _runs_by_weighting_mode(
-        run, config, weighting_modes
-    ).items():
-        tables, metadata = build_summaries_with_metadata(
-            mode_run, config, summary_ids
-        )
+    for mode, mode_run in _runs_by_weighting_mode(run, config, weighting_modes).items():
+        tables, metadata = build_summaries_with_metadata(mode_run, config, summary_ids)
         tables_by_mode[mode] = tables
         metadata_by_mode[mode] = metadata
     return tables_by_mode, metadata_by_mode

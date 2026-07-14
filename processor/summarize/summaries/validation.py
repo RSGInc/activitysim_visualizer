@@ -4,7 +4,7 @@ from runtime.logging import get_logger
 import polars as pl
 from runtime.config import Config
 from processor.models import RunData
-from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize.contracts import summary
 from processor.summarize.summaries.summary_helpers import (
     _configured_geography_dimensions,
 )
@@ -21,6 +21,16 @@ NON_MOTORIZED_MODES = {"WALK", "BIKE", "EBIKE"}
 
 # TODO: Update with actual fields from Visum outputs/traffic count inputs
 # TODO Maybe change to outer join
+@summary(
+    id="traffic_count_comparisons",
+    schema={
+        "count_location_id": pl.Utf8,
+        "direction": pl.Utf8,
+        "count_period": pl.Utf8,
+        "observed_volume": pl.Float64,
+        "modeled_volume": pl.Float64,
+    },
+)
 def traffic_count_comparisons(rd: RunData, config: Config) -> pl.DataFrame:
     result_schema = {
         "count_location_id": pl.Utf8,
@@ -105,6 +115,16 @@ def traffic_count_comparisons(rd: RunData, config: Config) -> pl.DataFrame:
 
 
 # TODO update based on actual visum output shape; input shape
+@summary(
+    id="screenline_flow_comparisons",
+    schema={
+        "screenline_id": pl.Utf8,
+        "direction": pl.Utf8,
+        "count_period": pl.Utf8,
+        "observed_volume": pl.Float64,
+        "modeled_volume": pl.Float64,
+    },
+)
 def screenline_flow_comparisons(rd: RunData, config: Config) -> pl.DataFrame:
     result_schema = {
         "screenline_id": pl.Utf8,
@@ -178,6 +198,10 @@ def screenline_flow_comparisons(rd: RunData, config: Config) -> pl.DataFrame:
 
 
 # TODO: Rewrite once I know what the VISUM fields look like
+@summary(
+    id="transit_boardings_by_operator_and_technology",
+    schema={"operator": pl.Utf8, "technology": pl.Utf8, "boardings": pl.Float64},
+)
 def total_transit_boardings(rd: RunData, config: Config) -> pl.DataFrame:
     result_schema = {
         "operator": pl.Utf8,
@@ -249,6 +273,15 @@ def total_transit_boardings(rd: RunData, config: Config) -> pl.DataFrame:
 
 
 # TODO: Update once we know the shape of the Visum transit output
+@summary(
+    id="transit_transfer_rate",
+    schema={
+        "operator": pl.Utf8,
+        "technology": pl.Utf8,
+        "access_mode": pl.Utf8,
+        "transfer_rate": pl.Float64,
+    },
+)
 def transit_transfer_rate(rd: RunData, config: Config) -> pl.DataFrame:
     result_schema = {
         "operator": pl.Utf8,
@@ -355,7 +388,8 @@ def transit_transfer_rate(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="auto_vmt_totals",
     schema={
         "auto_vmt": pl.Float64,
     },
@@ -454,8 +488,9 @@ def _distance_base(
         rd.label,
     )
     return (
-        trips.filter(_auto_mode_filter(config) & pl.col("od_dist").is_not_null())
-        .with_columns(pl.col("od_dist").cast(pl.Float64).alias("_vmt_distance")),
+        trips.filter(
+            _auto_mode_filter(config) & pl.col("od_dist").is_not_null()
+        ).with_columns(pl.col("od_dist").cast(pl.Float64).alias("_vmt_distance")),
         "od_dist",
     )
 
@@ -511,16 +546,14 @@ def _aggregate_vmt_for_geography(
 ) -> pl.DataFrame:
     working = df
     if geography_col is None:
-        working = working.with_columns(
-            pl.lit(ALL_GEOGRAPHIES).alias("_geography_id")
-        )
+        working = working.with_columns(pl.lit(ALL_GEOGRAPHIES).alias("_geography_id"))
     else:
         working = working.filter(pl.col(geography_col).is_not_null()).with_columns(
             pl.col(geography_col).cast(pl.Utf8).alias("_geography_id")
         )
 
     if working.is_empty():
-        return empty_summary_frame(auto_vmt_by_home_geography_income_hhsize_time_period)
+        return auto_vmt_by_home_geography_income_hhsize_time_period.empty()
 
     aggregated = (
         working.group_by(
@@ -578,9 +611,8 @@ def _with_derived_daily_vmt_rows(
         return df
 
     groups_with_period_rows = non_daily.select(group_cols).unique()
-    daily_only_rows = (
-        df.filter(pl.col("time_period") == DAILY_TIME_PERIOD)
-        .join(groups_with_period_rows, on=group_cols, how="anti")
+    daily_only_rows = df.filter(pl.col("time_period") == DAILY_TIME_PERIOD).join(
+        groups_with_period_rows, on=group_cols, how="anti"
     )
     derived_daily_rows = (
         df.join(groups_with_period_rows, on=group_cols, how="inner")
@@ -599,7 +631,8 @@ def _with_derived_daily_vmt_rows(
     ).select(df.columns)
 
 
-@summary_contract(
+@summary(
+    id="auto_vmt_by_home_geography_income_hhsize_time_period",
     schema={
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
@@ -620,7 +653,7 @@ def auto_vmt_by_home_geography_income_hhsize_time_period(
 ) -> pl.DataFrame:
     distance_selection = _distance_base(rd, config)
     if distance_selection is None:
-        return empty_summary_frame(auto_vmt_by_home_geography_income_hhsize_time_period)
+        return auto_vmt_by_home_geography_income_hhsize_time_period.empty()
 
     base, distance_source = distance_selection
     base, time_period_source = _with_time_period(base, rd, config)
@@ -647,9 +680,9 @@ def auto_vmt_by_home_geography_income_hhsize_time_period(
     income_exprs: list[pl.Expr] = []
     if "income_segment" in base.columns and "income_segment_hh" in base.columns:
         income_exprs.append(
-            pl.coalesce(
-                [pl.col("income_segment"), pl.col("income_segment_hh")]
-            ).alias("_income_segment")
+            pl.coalesce([pl.col("income_segment"), pl.col("income_segment_hh")]).alias(
+                "_income_segment"
+            )
         )
     elif "income_segment" in base.columns:
         income_exprs.append(pl.col("income_segment").alias("_income_segment"))
@@ -728,7 +761,7 @@ def auto_vmt_by_home_geography_income_hhsize_time_period(
     ]
     outputs = [output for output in outputs if not output.is_empty()]
     if not outputs:
-        return empty_summary_frame(auto_vmt_by_home_geography_income_hhsize_time_period)
+        return auto_vmt_by_home_geography_income_hhsize_time_period.empty()
 
     return (
         pl.concat(outputs, how="vertical")
@@ -883,18 +916,14 @@ def _aggregate_non_motorized_vmt_for_geography(
 ) -> pl.DataFrame:
     working = df
     if geography_col is None:
-        working = working.with_columns(
-            pl.lit(ALL_GEOGRAPHIES).alias("_geography_id")
-        )
+        working = working.with_columns(pl.lit(ALL_GEOGRAPHIES).alias("_geography_id"))
     else:
         working = working.filter(pl.col(geography_col).is_not_null()).with_columns(
             pl.col(geography_col).cast(pl.Utf8).alias("_geography_id")
         )
 
     if working.is_empty():
-        return empty_summary_frame(
-            non_motorized_vmt_by_home_geography_income_hhsize_time_period
-        )
+        return non_motorized_vmt_by_home_geography_income_hhsize_time_period.empty()
 
     aggregated = (
         working.group_by(
@@ -929,7 +958,8 @@ def _aggregate_non_motorized_vmt_for_geography(
     )
 
 
-@summary_contract(
+@summary(
+    id="non_motorized_vmt_by_home_geography_income_hhsize_time_period",
     schema={
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
@@ -950,9 +980,7 @@ def non_motorized_vmt_by_home_geography_income_hhsize_time_period(
 ) -> pl.DataFrame:
     distance_selection = _non_motorized_distance_base(rd)
     if distance_selection is None:
-        return empty_summary_frame(
-            non_motorized_vmt_by_home_geography_income_hhsize_time_period
-        )
+        return non_motorized_vmt_by_home_geography_income_hhsize_time_period.empty()
 
     base, _ = distance_selection
     base, time_period_source = _with_time_period(base, rd, config)
@@ -979,9 +1007,9 @@ def non_motorized_vmt_by_home_geography_income_hhsize_time_period(
     income_exprs: list[pl.Expr] = []
     if "income_segment" in base.columns and "income_segment_hh" in base.columns:
         income_exprs.append(
-            pl.coalesce(
-                [pl.col("income_segment"), pl.col("income_segment_hh")]
-            ).alias("_income_segment")
+            pl.coalesce([pl.col("income_segment"), pl.col("income_segment_hh")]).alias(
+                "_income_segment"
+            )
         )
     elif "income_segment" in base.columns:
         income_exprs.append(pl.col("income_segment").alias("_income_segment"))
@@ -1038,9 +1066,7 @@ def non_motorized_vmt_by_home_geography_income_hhsize_time_period(
     ]
     outputs = [output for output in outputs if not output.is_empty()]
     if not outputs:
-        return empty_summary_frame(
-            non_motorized_vmt_by_home_geography_income_hhsize_time_period
-        )
+        return non_motorized_vmt_by_home_geography_income_hhsize_time_period.empty()
 
     return (
         pl.concat(outputs, how="vertical")
@@ -1070,6 +1096,14 @@ def non_motorized_vmt_by_home_geography_income_hhsize_time_period(
 
 
 # TODO: Update once I know the shape of the Commercial VMT model output
+@summary(
+    id="commercial_vmt_totals",
+    schema={
+        "commercial_vehicle_type": pl.Utf8,
+        "external_vmt": pl.Float64,
+        "internal_vmt": pl.Float64,
+    },
+)
 def commercial_vehicle_vmt(rd: RunData, config: Config) -> pl.DataFrame:
     result_schema = {
         "commercial_vehicle_type": pl.Utf8,
@@ -1170,6 +1204,10 @@ def commercial_vehicle_vmt(rd: RunData, config: Config) -> pl.DataFrame:
 
 
 # TODO: Update once I know the shape of the Bicycle output
+@summary(
+    id="bicycle_vmt_by_facility_type",
+    schema={"facility_type": pl.Utf8, "bicycle_vmt": pl.Float64},
+)
 def bicycle_vmt_by_facility(rd: RunData, config: Config) -> pl.DataFrame:
     result_schema = {
         "facility_type": pl.Utf8,

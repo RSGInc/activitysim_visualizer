@@ -3,38 +3,20 @@
 import polars as pl
 
 from processor.models import RunData
-from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize.contracts import summary
 from processor.summarize.summaries.summary_helpers import _summary_purpose_column
-from processor.summarize.summaries.tour_geography import (
-    avg_mand_tour_distance,
-    avg_non_mand_tour_distance,
-    ext_non_mand_tour_loc,
-    int_vs_ext_non_mand_tour_freq,
-)
-from processor.summarize.summaries.tour_profiles import (
-    at_work_sub_tour_freq,
-    atwork_subtour_frequency_distribution,
-    stop_freq,
-    tour_distance,
-    tour_mode,
-    tour_tod,
-)
-from processor.summarize.summaries.tour_vehicles import (
-    allocated_vehicle_age,
-    allocated_vehicle_body,
-    allocated_vehicle_fuel,
-)
 from runtime.config import Config
 
 
-@summary_contract(
+@summary(
+    id="tour_category_distribution",
     schema={"tour_category": pl.Utf8, "tour_count": pl.Float64},
     required_columns={"tours": ("tour_category", "finalweight")},
 )
 def tour_category(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"tour_category", "finalweight"}
     if not required.issubset(set(rd.tours.columns)):
-        return empty_summary_frame(tour_category)
+        return tour_category.empty()
 
     return (
         rd.tours.filter(pl.col("tour_category").is_not_null())
@@ -49,17 +31,18 @@ def tour_category(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="tour_purpose_distribution",
     schema={"tour_purpose": pl.Utf8, "tour_count": pl.Float64},
     required_columns={"tours": ("tour_purpose", "finalweight")},
 )
 def tour_purpose(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"tour_purpose", "finalweight"}
     if not required.issubset(set(rd.tours.columns)):
-        return empty_summary_frame(tour_purpose)
+        return tour_purpose.empty()
     purpose_col = _summary_purpose_column(rd.tours)
     if not purpose_col:
-        return empty_summary_frame(tour_purpose)
+        return tour_purpose.empty()
 
     return (
         rd.tours.filter(pl.col(purpose_col).is_not_null())

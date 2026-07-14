@@ -19,7 +19,7 @@ from dashboard.page_definitions import (
     PreparedDataMode,
 )
 from processor.models import PREPARED_TABLE_NAMES, PreparedTableName, RunData
-from processor.summarize.builder import SUMMARY_SPEC_BY_ID
+from processor.summarize.catalog import SUMMARY_BY_ID
 from runtime.config import Config
 from runtime.config.models import DashboardPageConfigEntry
 
@@ -261,7 +261,7 @@ def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
     unknown_summary_ids = [
         summary_id
         for summary_id in (*required_summary_ids, *optional_summary_ids)
-        if summary_id not in SUMMARY_SPEC_BY_ID
+        if summary_id not in SUMMARY_BY_ID
     ]
     if unknown_summary_ids:
         raise ValueError(

@@ -8,9 +8,8 @@ import polars as pl
 
 from processor.cache_identity import file_identity
 from processor.summarize.cache_types import SummaryRun, create_summary_run
-from processor.summarize.contracts import get_summary_contract
 from processor.summarize.validation_derived import apply_validation_derived_summaries
-from processor.summarize.summary_specs import SUMMARY_SPEC_BY_ID
+from processor.summarize.catalog import SUMMARY_BY_ID
 from runtime.config import Config
 
 
@@ -28,14 +27,12 @@ def summary_table_map_identity(
     ]
     if missing_paths:
         raise ValueError(
-            "summary_table_map references missing files: "
-            + "; ".join(missing_paths)
+            "summary_table_map references missing files: " + "; ".join(missing_paths)
         )
     return {
         "summary_table_map": normalized,
         "summary_table_fingerprints": {
-            summary_id: file_identity(path)
-            for summary_id, path in normalized.items()
+            summary_id: file_identity(path) for summary_id, path in normalized.items()
         },
     }
 
@@ -49,7 +46,7 @@ def validate_summary_table_map_ids(
     unknown_ids = [
         summary_id
         for summary_id in sorted(summary_table_map or {})
-        if summary_id not in SUMMARY_SPEC_BY_ID
+        if summary_id not in SUMMARY_BY_ID
     ]
     if unknown_ids:
         raise ValueError(
@@ -69,9 +66,7 @@ def _read_summary_table(path: str | Path) -> pl.DataFrame:
 
 
 def _validate_summary_columns(summary_id: str, table: pl.DataFrame) -> None:
-    contract = get_summary_contract(SUMMARY_SPEC_BY_ID[summary_id].builder)
-    if contract is None:
-        return
+    contract = SUMMARY_BY_ID[summary_id].contract
     missing_columns = [
         column for column in contract.columns if column not in table.columns
     ]
@@ -97,7 +92,9 @@ def load_summary_table_map(
     for summary_id, path in sorted(summary_table_map.items()):
         table_path = Path(path)
         if not table_path.exists():
-            raise ValueError(f"summary_table_map[{summary_id!r}] does not exist: {path}")
+            raise ValueError(
+                f"summary_table_map[{summary_id!r}] does not exist: {path}"
+            )
         table = _read_summary_table(table_path)
         _validate_summary_columns(summary_id, table)
         tables[summary_id] = table

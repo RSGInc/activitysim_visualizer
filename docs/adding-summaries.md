@@ -1,218 +1,113 @@
 # Adding Summary Tables
 
-This guide is for contributors adding a new summary table to the `processor/summarize/` package and, optionally, exposing it in the dashboard.
+A summary is declared once, beside its builder, with `@summary(...)`. The
+declaration supplies its registry identity, cache filename, input prerequisites,
+typed empty result, and strict output contract.
 
-The short version is:
-
-1. Add or update a builder function in `processor/summarize/summaries/`.
-2. Register it in `processor/summarize/summary_specs.py`.
-3. Declare the builder contract once so summarize can derive empty fallback schema and dashboard-facing columns from the builder itself.
-4. Wire it into a dashboard page through `required_summary_ids` or `optional_summary_ids` if a page needs it.
-5. Add tests.
-
-## Mental Model
-
-A summary builder is a pure data step:
-
-- input: prepared `RunData` plus normalized `Config`
-- output: one Polars `DataFrame`
-
-The builder should not know whether the dashboard is in live mode or export mode. It should also not special-case weighted vs unweighted logic; `processor.summarize.builder` handles that by swapping `finalweight` before invoking the registered builder.
-
-Each registered builder should also own its summary contract through `processor/summarize/contracts.py`. That contract is the single source of truth for:
-
-- the typed empty fallback frame
-- safe preflight prerequisites used by resilient summarize execution
-- exported output-column metadata derived by `processor/summarize/schema.py`
-
-## Step 1: Choose the Right Module
-
-Add the summary to the most relevant existing topic module when possible:
-
-- `processor/summarize/summaries/demographics.py`
-- `processor/summarize/summaries/daily_travel.py`
-- `processor/summarize/summaries/joint_travel.py`
-- `processor/summarize/summaries/long_term.py`
-- `processor/summarize/summaries/tour.py`
-- `processor/summarize/summaries/trip.py`
-- `processor/summarize/summaries/validation.py`
-- `processor/summarize/summaries/legacy.py`
-
-Create a new module only when the summary is a distinct topic area rather than just another table in an existing topic.
-
-## Step 2: Write the Builder Function
-
-New summary builders should follow this signature and declare a contract:
+## Minimal summary
 
 ```python
-@summary_contract(
+import polars as pl
+
+from processor.models import RunData
+from processor.summarize import summary
+from runtime.config import Config
+
+
+@summary(
+    id="trip_distance_by_mode",
     schema={
         "trip_mode": pl.Utf8,
-        "distance_bin": pl.Int64,
-        "freq": pl.Float64,
+        "trip_count": pl.Float64,
+        "average_distance": pl.Float64,
     },
-    required_columns={"trips": ("trip_mode", "distance", "finalweight")},
-)
-def my_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    ...
-```
-
-Expectations:
-
-- Read from the prepared runtime tables on `RunData`.
-- Aggregate `pl.col("finalweight").sum()` instead of counting rows directly.
-- Return a plain `pl.DataFrame`.
-- Let the contract define the typed empty fallback schema once.
-- If the builder has more nuanced missing-data logic than the contract can express, return `empty_summary_frame(my_summary)` or an equivalent typed empty frame with the same schema.
-- Keep domain-specific reshaping in the summary layer only if it is part of the table contract. Page-specific chart shaping belongs in the dashboard page.
-
-Example skeleton:
-
-```python
-@summary_contract(
-    schema={
-        "trip_mode": pl.Utf8,
-        "distance_bin": pl.Int64,
-        "freq": pl.Float64,
+    required_columns={
+        "trips": ("trip_mode", "od_dist", "finalweight"),
     },
-    required_columns={"trips": ("trip_mode", "distance", "finalweight")},
 )
-def trip_distance_by_mode(rd: RunData, config: Config) -> pl.DataFrame:
-    if "distance" not in rd.trips.columns:
-        return empty_summary_frame(trip_distance_by_mode)
-
+def trip_distance_by_mode(run: RunData, config: Config) -> pl.DataFrame:
     return (
-        rd.trips
-        .filter(pl.col("trip_mode").is_not_null())
-        .with_columns((pl.col("distance") / 5).floor().cast(pl.Int64).mul(5).alias("distance_bin"))
-        .group_by(["trip_mode", "distance_bin"])
-        .agg(pl.col("finalweight").sum().alias("freq"))
-        .sort(["trip_mode", "distance_bin"])
+        run.trips.group_by("trip_mode")
+        .agg(
+            trip_count=pl.col("finalweight").sum(),
+            average_distance=(
+                (pl.col("od_dist") * pl.col("finalweight")).sum()
+                / pl.col("finalweight").sum()
+            ),
+        )
+        .with_columns(
+            pl.col("trip_mode").cast(pl.Utf8),
+            pl.col("trip_count").cast(pl.Float64),
+            pl.col("average_distance").cast(pl.Float64),
+        )
+        .select("trip_mode", "trip_count", "average_distance")
+        .sort("trip_mode")
     )
 ```
 
-## Step 3: Register the Summary in `processor/summarize/summary_specs.py`
+No second registry edit is required. `processor.summarize.catalog` explicitly
+imports the owning domain modules and collects their declarations. Duplicate ids
+fail during catalog import.
 
-Registration still happens in the `SUMMARY_SPECS` tuple:
+## Declaration fields
 
-```python
-SummarySpec("trip_distance_by_mode", "tripDistanceByMode", trips.trip_distance_by_mode)
-```
+- `id` is the stable cache and dashboard identifier. It defaults to the function
+  name when that name is already appropriate.
+- `schema` is ordered. Successful results must contain exactly these columns, in
+  this order, with these Polars dtypes.
+- `required_columns` maps a `RunData` table name to its mechanical prerequisites.
+- `required_tables` is for prerequisites where table presence alone is enough;
+  use `"skim"` for a required skim matrix.
+- `filename` defaults to `id`. Set it only for a current external cache-file
+  contract.
+- `build_by_default=False` registers an optional summary without adding it to an
+  ordinary full build.
 
-`SummarySpec` stays intentionally small:
+## Missing input and empty results
 
-- `summary_id`: stable id used by dashboard pages and tests
-- `filename`: CSV filename stem written under each weighting mode directory
-- `builder`: function that returns the summary table
-- `build_by_default`: whether raw/prepared runs generate this summary automatically
+The decorator performs the same prerequisite preflight for direct calls and
+bulk builds. If a declared table or column is unavailable, the builder is not
+called and its typed empty result is returned.
 
-The cache module derives these related structures from `SUMMARY_SPECS`:
-
-- `SUMMARY_SPEC_BY_ID`
-- `SUMMARY_FILENAME_BY_ID`
-- `DEFAULT_SUMMARY_IDS`
-
-Registered summaries are valid IDs for dashboard pages, cache filenames,
-contracts, and `runs[*].summary_table_map`. Default-built summaries are the
-registered subset generated automatically for normal raw/prepared runs. Use
-`build_by_default=False` for external or validation-scaffold summaries that
-should be loaded through `summary_table_map` without producing `__empty__`
-cache CSVs for normal runs.
-
-If the summary is not in `SUMMARY_SPECS`, it does not exist to the rest of the
-application.
-
-## Step 4: Use Derived Output Schema Metadata When Needed
-
-If the new table is a reusable dashboard-facing contract, make sure its builder contract schema is correct. `processor/summarize/schema.py` now derives canonical output columns from the registered builders instead of maintaining a separate hand-written column map.
-
-Do this when:
-
-- dashboard pages depend on a stable shape
-- the summary has fallback or empty-frame behavior that should keep the same columns
-- you want `tests/test_runtime_canonical_columns.py` to enforce the contract
-
-Skip it when the table is private, transitional, or not yet used as a stable dashboard input.
-
-## Step 5: Wire It Into a Dashboard Page
-
-If a page should consume the summary:
-
-1. Add the summary id to the page's `@dashboard_page` `required_summary_ids`, or to `optional_summary_ids` when the page can still render without it.
-2. Use `self.data.summary(...)` or `self.data.summaries(...)` in a section render function.
-3. Keep page-specific filtering and chart shaping in the page module.
-
-Example:
+For domain-specific empty conditions inside the builder, use the declaration's
+empty result:
 
 ```python
-@dashboard_page(
-    page_id="trip_distance",
-    title="Trip Distance",
-    required_summary_ids=("trip_distance_by_mode",),
-)
-class TripDistancePage(DashboardPage):
+@summary(id="example", schema={"value": pl.Float64})
+def example(run: RunData, config: Config) -> pl.DataFrame:
+    filtered = run.trips.filter(pl.col("od_dist") >= 0)
+    if filtered.is_empty():
+        return example.empty()
     ...
 ```
 
-This is what makes the summary available through `DashboardState` and keeps live mode, export mode, and validation aligned.
+Do not repeat simple declared column checks inside a new builder. Internal
+guards should represent domain meaning the decorator cannot express.
 
-## End-to-End Example
+## Strict successful results
 
-Use this order when adding a new summary that will appear in the dashboard:
+The wrapper rejects:
 
-1. Add `trip_distance_by_mode()` to `processor/summarize/summaries/trip.py`.
-2. Register it in `processor/summarize/summary_specs.py` with a stable `summary_id`.
-3. Add or update the builder contract schema if the page will treat it as a stable reusable table.
-4. Add a new page or update an existing page in `dashboard/pages/`.
-5. Declare the page dependency in `@dashboard_page` `required_summary_ids` or `optional_summary_ids`.
-6. Add export selector metadata only if the page has page-local controls that must work in HTML export.
-7. Add tests covering the summary output shape and the page wiring.
+- non-DataFrame results;
+- missing or unexpected columns;
+- columns in a different order; and
+- dtypes that differ from the declaration.
 
-## Testing Checklist
+Cast and select explicitly at the end of a builder. The framework does not
+silently coerce a result because that can hide an aggregation or schema bug.
 
-### Summary-focused tests
+## Shared computations
 
-Prefer adding or extending:
+Keep shared calculations as ordinary functions and declare each persisted
+output with a small `@summary(...)` wrapper in its owning domain module. Avoid a
+general summary DSL and avoid facade modules whose only purpose is re-exporting
+builders.
 
-- `tests/test_runtime_canonical_columns.py` for canonical prepared-column usage and output shape
-- `tests/test_summary_cache.py` for cache-layer registration or manifest behavior
+## Checklist
 
-Test at least:
-
-- weighted and unweighted paths behave through `finalweight`
-- missing-column fallback returns the expected empty schema
-- unavailable and failed summaries are recorded with explicit manifest state
-- output columns remain stable
-
-### Dashboard-facing tests
-
-If the summary is used by a page, add or extend:
-
-- `tests/test_dashboard_live.py`
-- `tests/test_export_html.py`
-
-Test at least:
-
-- the page validates and refreshes using the new summary id
-- export works if the page participates in HTML export
-- page selectors still serialize correctly if the new summary changes available options
-
-## Common Mistakes
-
-- counting rows instead of summing `finalweight`
-- reading raw ActivitySim column names directly when `prepare_data()` already provides canonical aliases
-- registering the builder locally but forgetting to add it to `SUMMARY_SPECS`
-- duplicating output schema in both the builder and `processor/summarize/schema.py`
-- returning different columns from the empty-data path and the populated-data path
-- putting chart-specific reshaping into the summary table when it belongs in the page
-
-## Good Files to Read Before Editing
-
-- `processor/summarize/cache.py` for registration and weighting behavior
-- `processor/summarize/contracts.py` for builder contracts and typed empty fallback helpers
-- `processor/models.py` for the prepared `RunData` contract
-- `processor/prepare/enrichment/pipeline.py` for the `prepare_data()` entrypoint
-- `processor/prepare/enrichment/canonicalize.py` and `processor/prepare/enrichment/columns.py` for canonical column preparation helpers
-- `processor/summarize/schema.py` for dashboard-facing output contracts
-- `tests/test_runtime_canonical_columns.py` for the expected testing style
-- [adding-dashboard-pages.md](adding-dashboard-pages.md) if the summary will be displayed in the UI
+- Put the builder in the domain module that owns the calculation.
+- Declare identity, ordered schema, and prerequisites with `@summary(...)`.
+- Aggregate `finalweight`; weighting mode is applied before the builder runs.
+- Return one long-form `pl.DataFrame`; pivot only for display.
+- Use `builder.empty()` only for domain-specific empty conditions.
+- Add focused tests for the calculation and its declared result contract.

@@ -224,7 +224,7 @@ Summary builders should always aggregate `finalweight` rather than switching beh
 |---|---|
 | How are runs loaded and normalized? | `processor/prepare/reader.py`, `processor/prepare/enrichment/pipeline.py` |
 | Why was a prepared or summary cache reused or rejected? | `runtime/workflows/`, `processor/prepare/cache.py`, `processor/summarize/cache.py` |
-| Which summary ids exist? | `processor/summarize/summary_specs.py` |
+| Which summary ids exist? | `@summary(...)` declarations in `processor/summarize/summaries/`, assembled by `processor/summarize/catalog.py` |
 | Which output columns are considered canonical? | `processor/summarize/schema.py`, derived from builder contracts |
 | How does a page get discovered? | `dashboard/page_registry.py` |
 | How does export know about page-local selectors? | `dashboard/page_base.py`, `dashboard/export/payload.py`, `dashboard/export/serializer.py` |

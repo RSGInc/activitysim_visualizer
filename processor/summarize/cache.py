@@ -20,9 +20,9 @@ from processor.summarize.cache_storage import (
 from processor.summarize.cache_types import (
     SummaryRun,
 )
-from processor.summarize.summary_specs import (
+from processor.summarize.catalog import (
     SUMMARY_FILENAME_BY_ID,
-    SUMMARY_SPEC_BY_ID,
+    SUMMARY_BY_ID,
 )
 from runtime.config import Config
 
@@ -81,7 +81,7 @@ def load_summary_run_cache(
         expected_prepared_manifest_identity=expected_prepared_manifest_identity,
         expected_label=expected_label,
         expected_run_key=expected_run_key,
-        summary_spec_by_id=SUMMARY_SPEC_BY_ID,
+        summary_spec_by_id=SUMMARY_BY_ID,
     )
 
 
@@ -157,7 +157,7 @@ def load_summary_run_bundle(
         expected_prepared_manifest_identity=expected_prepared_manifest_identity,
         expected_label=expected_label,
         expected_run_key=expected_run_key,
-        summary_spec_by_id=SUMMARY_SPEC_BY_ID,
+        summary_spec_by_id=SUMMARY_BY_ID,
     )
 
 

@@ -72,7 +72,7 @@ from dashboard.page_registry import (
 from dashboard.state import DashboardState
 from processor.models import RunData
 from processor.summarize.cache_types import create_summary_run
-from processor.summarize.summary_specs import SUMMARY_SPEC_BY_ID
+from processor.summarize.catalog import SUMMARY_BY_ID
 
 
 def _collect_tabulators(viewable) -> list[pn.widgets.Tabulator]:
@@ -110,10 +110,17 @@ def _raw_trip_run() -> RunData:
 def test_page_registry_exposes_expected_default_definitions() -> None:
     definitions = default_page_definitions()
 
-    assert [definition.page_id for definition in definitions] == EXPECTED_DEFAULT_LEAF_PAGE_IDS
-    assert [definition.title for definition in definitions] == EXPECTED_DEFAULT_LEAF_PAGE_TITLES
+    assert [
+        definition.page_id for definition in definitions
+    ] == EXPECTED_DEFAULT_LEAF_PAGE_IDS
+    assert [
+        definition.title for definition in definitions
+    ] == EXPECTED_DEFAULT_LEAF_PAGE_TITLES
     assert page_definition_by_id("daily_activity_pattern") is not None
-    assert page_definition_by_id("daily_activity_pattern").title == "Daily Activity Pattern"
+    assert (
+        page_definition_by_id("daily_activity_pattern").title
+        == "Daily Activity Pattern"
+    )
     assert page_definition_by_id("daily_activity_pattern").group_id == "daily_travel"
     assert not hasattr(page_definition_by_id("daily_activity_pattern"), "child_id")
     assert page_definition_by_id("trip_mode").page_cls is not None
@@ -129,7 +136,9 @@ def test_discovered_page_modules_declare_decorated_page_classes() -> None:
     for module_info in pkgutil.iter_modules(dashboard_pages_package.__path__):
         if module_info.name.startswith("_"):
             continue
-        module = importlib.import_module(f"{dashboard_pages_package.__name__}.{module_info.name}")
+        module = importlib.import_module(
+            f"{dashboard_pages_package.__name__}.{module_info.name}"
+        )
         discovered_modules.append(module)
         if module_info.ispkg:
             discovered_modules.extend(
@@ -171,14 +180,14 @@ def test_page_registry_smoke_checks_metadata_and_class_attachment() -> None:
             definition.required_summary_ids
         )
         assert all(
-            summary_id in SUMMARY_SPEC_BY_ID
+            summary_id in SUMMARY_BY_ID
             for summary_id in definition.required_summary_ids
         )
         assert len(set(definition.optional_summary_ids)) == len(
             definition.optional_summary_ids
         )
         assert all(
-            summary_id in SUMMARY_SPEC_BY_ID
+            summary_id in SUMMARY_BY_ID
             for summary_id in definition.optional_summary_ids
         )
 
@@ -654,9 +663,11 @@ def test_external_travel_helper_aggregates_selected_breakdown(
         breakdown="Trip Purpose",
         time_period="AM",
     )
-    time_period_options, (purpose_options, raw_by_label) = external_travel_filter_options(
-        data,
-        config=config,
+    time_period_options, (purpose_options, raw_by_label) = (
+        external_travel_filter_options(
+            data,
+            config=config,
+        )
     )
 
     assert by_period[0][1].to_dicts() == [
@@ -1023,9 +1034,7 @@ def test_non_motorized_vmt_section_mirrors_personal_auto_controls(
     page.refresh(force=True)
 
     markdown_titles = [
-        obj.object
-        for obj in page.view.objects
-        if isinstance(obj, pn.pane.Markdown)
+        obj.object for obj in page.view.objects if isinstance(obj, pn.pane.Markdown)
     ]
     assert markdown_titles[:3] == [
         "## VMT Validation",
@@ -1395,9 +1404,13 @@ def test_vmt_export_states_collapse_ignored_personal_auto_selectors(
             "available": True,
             "request_mode": request_modes[selector_id],
             "requested_values": requested_values.get(selector_id, []),
-            "resolved_values": [str(option) for option in selector_widgets[selector_id].options],
+            "resolved_values": [
+                str(option) for option in selector_widgets[selector_id].options
+            ],
             "default_value": str(selector_widgets[selector_id].value),
-            "options": [str(option) for option in selector_widgets[selector_id].options],
+            "options": [
+                str(option) for option in selector_widgets[selector_id].options
+            ],
             "export_enabled": True,
         }
         for selector_id in active_selector_ids
@@ -1420,12 +1433,12 @@ def test_vmt_export_states_collapse_ignored_personal_auto_selectors(
     mode_states = [
         state for state in states if state["personal_auto_vmt_breakdown"] == "Mode"
     ]
-    assert len(
-        {state["personal_auto_vmt_geography_type"] for state in mode_states}
-    ) == 1
-    assert {
-        state["personal_auto_vmt_geography_type"] for state in mode_states
-    } == {"All Geography Types"}
+    assert (
+        len({state["personal_auto_vmt_geography_type"] for state in mode_states}) == 1
+    )
+    assert {state["personal_auto_vmt_geography_type"] for state in mode_states} == {
+        "All Geography Types"
+    }
     assert len({state["personal_auto_vmt_geography"] for state in mode_states}) == 1
     home_state_groups = {
         tuple(
@@ -1442,9 +1455,7 @@ def test_vmt_export_states_collapse_ignored_personal_auto_selectors(
         if state["personal_auto_vmt_breakdown"] == "Home Geography"
     ]
     assert len(home_states) == len(home_state_groups)
-    assert len(
-        {state["personal_auto_vmt_geography_type"] for state in home_states}
-    ) > 1
+    assert len({state["personal_auto_vmt_geography_type"] for state in home_states}) > 1
     assert aliases
 
 
@@ -1645,7 +1656,9 @@ def _export_selector_metadata(
                 str(option) for option in selector_widgets[selector_id].options
             ],
             "default_value": str(selector_widgets[selector_id].value),
-            "options": [str(option) for option in selector_widgets[selector_id].options],
+            "options": [
+                str(option) for option in selector_widgets[selector_id].options
+            ],
             "export_enabled": True,
         }
         for selector_id in selector_ids
@@ -1766,9 +1779,7 @@ def test_mandatory_location_choice_export_aliases_invalid_geography_pairs(
         ),
     )
 
-    state_pairs = {
-        (state["geography_level"], state["geography"]) for state in states
-    }
+    state_pairs = {(state["geography_level"], state["geography"]) for state in states}
     assert ("County", "North") not in state_pairs
     assert ("District", "Durham") not in state_pairs
     assert ("District", "Wake") not in state_pairs
@@ -1849,9 +1860,7 @@ def test_tour_distance_export_geography_pairs_follow_selected_level(
         ),
     )
 
-    state_pairs = {
-        (state["geography_level"], state["geography"]) for state in states
-    }
+    state_pairs = {(state["geography_level"], state["geography"]) for state in states}
     assert ("District", "North") in state_pairs
     assert ("District", "South") in state_pairs
     assert ("County", "Wake") in state_pairs
@@ -2122,7 +2131,9 @@ def test_enabled_prepared_data_mode_tracks_optional_and_required_page_sets(
     assert enabled_prepared_data_mode(raw_demo_config) == "required"
 
 
-def test_data_requirements_for_pages_aggregates_summary_and_prepared_dependencies() -> None:
+def test_data_requirements_for_pages_aggregates_summary_and_prepared_dependencies() -> (
+    None
+):
     overview = page_definition_by_id("overview")
     raw_trip_demo = page_definition_by_id("raw_trip_demo")
 
@@ -2174,9 +2185,15 @@ def test_build_dashboard_uses_expected_default_page_order(tmp_path: Path) -> Non
     config = _write_config(tmp_path)
     template = build_dashboard([], config, summary_runs=[_full_summary_run()])
 
-    assert [page.name for page in template._dashboard_pages] == EXPECTED_DEFAULT_PAGE_TITLES
-    assert [page.page_id() for page in template._dashboard_pages] == EXPECTED_DEFAULT_PAGE_IDS
-    assert [page.page_id() for page in template._dashboard_leaf_pages] == EXPECTED_DEFAULT_LEAF_PAGE_IDS
+    assert [
+        page.name for page in template._dashboard_pages
+    ] == EXPECTED_DEFAULT_PAGE_TITLES
+    assert [
+        page.page_id() for page in template._dashboard_pages
+    ] == EXPECTED_DEFAULT_PAGE_IDS
+    assert [
+        page.page_id() for page in template._dashboard_leaf_pages
+    ] == EXPECTED_DEFAULT_LEAF_PAGE_IDS
 
 
 def test_build_dashboard_sidebar_uses_shared_run_legend_markup(tmp_path: Path) -> None:
@@ -2202,7 +2219,9 @@ def test_build_dashboard_can_refresh_every_default_page_from_precomputed_summari
     for index, page in enumerate(pages):
         tabs.active = index
         assert page.view is not None
-    assert state.page_state["overview"]["last_rendered_state"] == state.global_state_key()
+    assert (
+        state.page_state["overview"]["last_rendered_state"] == state.global_state_key()
+    )
 
     leaf_pages = {page.page_id(): page for page in template._dashboard_leaf_pages}
     assert [
@@ -2260,7 +2279,9 @@ def test_build_dashboard_loads_prepared_runs_for_optional_default_pages_when_ava
     assert weighted_runs[0][0] == "Base"
 
 
-def test_build_dashboard_loads_prepared_runs_when_demo_page_is_enabled(tmp_path: Path) -> None:
+def test_build_dashboard_loads_prepared_runs_when_demo_page_is_enabled(
+    tmp_path: Path,
+) -> None:
     config = _write_config(tmp_path, dashboard_pages=["raw_trip_demo"])
     template = build_dashboard([("Base", _raw_trip_run())], config)
     page = template._dashboard_pages[0]
@@ -2278,7 +2299,9 @@ def test_build_dashboard_shows_unavailable_card_when_demo_page_has_no_prepared_r
     page = template._dashboard_pages[0]
 
     assert template._dashboard_state.prepared_run_availability == "unavailable"
-    assert any(getattr(obj, "title", "") == "Data Not Available" for obj in page.view.objects)
+    assert any(
+        getattr(obj, "title", "") == "Data Not Available" for obj in page.view.objects
+    )
 
 
 def test_dashboard_state_exposes_summary_first_accessors(tmp_path: Path) -> None:
@@ -2348,13 +2371,17 @@ def test_build_dashboard_switches_tabs_and_refreshes_only_the_active_page(
     tabs = template.main[0]
 
     assert state.active_tab == 0
-    assert state.page_state["overview"]["last_rendered_state"] == state.global_state_key()
+    assert (
+        state.page_state["overview"]["last_rendered_state"] == state.global_state_key()
+    )
     assert state.page_state["daily_activity_pattern"].get("last_rendered_state") is None
 
     tabs.active = 1
 
     assert state.active_tab == 1
-    assert state.page_state["overview"]["last_rendered_state"] == state.global_state_key()
+    assert (
+        state.page_state["overview"]["last_rendered_state"] == state.global_state_key()
+    )
     assert (
         state.page_state["daily_activity_pattern"]["last_rendered_state"]
         == state.global_state_key()
@@ -2377,7 +2404,9 @@ def test_build_dashboard_switches_tabs_and_refreshes_only_the_active_page(
         == state.global_state_key()
     )
     assert state.page_state["overview"].get("last_rendered_state") is None
-    assert state.page_state["mandatory_location_choice"].get("last_rendered_state") is None
+    assert (
+        state.page_state["mandatory_location_choice"].get("last_rendered_state") is None
+    )
     assert state.page_state["tour_purpose"].get("last_rendered_state") is None
 
 
@@ -2428,7 +2457,10 @@ def test_build_dashboard_preserves_individual_choices_person_type_across_tab_swi
                 "bicycle_comfort_level_distribution": pl.DataFrame(
                     {
                         "person_type": ["all_person_types", "worker"],
-                        "bicycle_comfort_level": ["InterestedButConcerned", "StrongAndFearless"],
+                        "bicycle_comfort_level": [
+                            "InterestedButConcerned",
+                            "StrongAndFearless",
+                        ],
                         "person_count": [50.0, 20.0],
                         "pct": [0.5, 0.5],
                     }
@@ -2494,8 +2526,14 @@ def test_dashboard_page_cache_helpers_reuse_summary_and_filtered_view_results(
         label=summary_run.label,
         run_key=summary_run.run_key,
         summaries_by_mode={
-            "weighted": {**summary_run.summaries_by_mode["weighted"], "probe_summary": pl.DataFrame({"value": ["summary"]})},
-            "unweighted": {**summary_run.summaries_by_mode["unweighted"], "probe_summary": pl.DataFrame({"value": ["summary"]})},
+            "weighted": {
+                **summary_run.summaries_by_mode["weighted"],
+                "probe_summary": pl.DataFrame({"value": ["summary"]}),
+            },
+            "unweighted": {
+                **summary_run.summaries_by_mode["unweighted"],
+                "probe_summary": pl.DataFrame({"value": ["summary"]}),
+            },
         },
         source_run_dir=summary_run.source_run_dir,
         manifest=summary_run.manifest,
@@ -2901,7 +2939,11 @@ def test_skim_pages_render_disaggregated_distribution_plots_when_prepared_runs_a
                 "skimjoin_trip_component_ecdf": pl.DataFrame(
                     {
                         "trip_mode": ["SOV", "SOV", "SOV"],
-                        "component": ["skim_auto_time", "skim_auto_time", "skim_auto_time"],
+                        "component": [
+                            "skim_auto_time",
+                            "skim_auto_time",
+                            "skim_auto_time",
+                        ],
                         "percentile": [0.0, 0.99, 1.0],
                         "value": [10.0, 14.0, 200.0],
                         "n_valid": [100.0, 100.0, 100.0],
@@ -2992,9 +3034,9 @@ def test_skim_pages_render_disaggregated_distribution_plots_when_prepared_runs_a
     trip_page.refresh(force=True)
 
     assert isinstance(trip_page._distribution_section.objects[-1], pn.pane.Plotly)
-    assert tuple(trip_page._distribution_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
-        (10.0, 200.0)
-    )
+    assert tuple(
+        trip_page._distribution_section.objects[-1].object.layout.xaxis.range
+    ) == pytest.approx((10.0, 200.0))
     assert trip_page._distribution_section.objects[-1].object.layout.title.text == (
         "Trip Distribution - skim_auto_time / All Modes"
     )
@@ -3002,15 +3044,15 @@ def test_skim_pages_render_disaggregated_distribution_plots_when_prepared_runs_a
     trip_page.trip_min_sel.value = 11.0
     trip_page.trip_max_sel.value = 13.0
 
-    assert tuple(trip_page._distribution_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
-        (11.0, 13.0)
-    )
+    assert tuple(
+        trip_page._distribution_section.objects[-1].object.layout.xaxis.range
+    ) == pytest.approx((11.0, 13.0))
 
     trip_page.trip_reset_btn.clicks = trip_page.trip_reset_btn.clicks + 1
 
-    assert tuple(trip_page._distribution_section.objects[-1].object.layout.xaxis.range) == pytest.approx(
-        (10.0, 200.0)
-    )
+    assert tuple(
+        trip_page._distribution_section.objects[-1].object.layout.xaxis.range
+    ) == pytest.approx((10.0, 200.0))
 
     tour_page = TourSkimsPage(state, config)
     tour_page.refresh(force=True)
@@ -3023,9 +3065,7 @@ def test_skim_pages_render_disaggregated_distribution_plots_when_prepared_runs_a
     assert tuple(outbound_plot.object.layout.xaxis.range) == pytest.approx(
         (10.0, 200.0)
     )
-    assert tuple(inbound_plot.object.layout.xaxis.range) == pytest.approx(
-        (10.0, 200.0)
-    )
+    assert tuple(inbound_plot.object.layout.xaxis.range) == pytest.approx((10.0, 200.0))
     assert outbound_plot.object.layout.title.text == (
         "Outbound Tour Distribution - skim_auto_time_outbound / All Modes"
     )
@@ -3040,12 +3080,8 @@ def test_skim_pages_render_disaggregated_distribution_plots_when_prepared_runs_a
 
     outbound_plot = tour_page._distribution_section.objects[1]
     inbound_plot = tour_page._distribution_section.objects[3]
-    assert tuple(outbound_plot.object.layout.xaxis.range) == pytest.approx(
-        (11.0, 13.0)
-    )
-    assert tuple(inbound_plot.object.layout.xaxis.range) == pytest.approx(
-        (11.0, 13.0)
-    )
+    assert tuple(outbound_plot.object.layout.xaxis.range) == pytest.approx((11.0, 13.0))
+    assert tuple(inbound_plot.object.layout.xaxis.range) == pytest.approx((11.0, 13.0))
 
     tour_page.outbound_reset_btn.clicks = tour_page.outbound_reset_btn.clicks + 1
     tour_page.inbound_reset_btn.clicks = tour_page.inbound_reset_btn.clicks + 1
@@ -3055,6 +3091,4 @@ def test_skim_pages_render_disaggregated_distribution_plots_when_prepared_runs_a
     assert tuple(outbound_plot.object.layout.xaxis.range) == pytest.approx(
         (10.0, 200.0)
     )
-    assert tuple(inbound_plot.object.layout.xaxis.range) == pytest.approx(
-        (10.0, 200.0)
-    )
+    assert tuple(inbound_plot.object.layout.xaxis.range) == pytest.approx((10.0, 200.0))

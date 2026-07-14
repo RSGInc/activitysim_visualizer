@@ -19,7 +19,7 @@ def _summary_purpose_column(df: pl.DataFrame) -> str:
     return purpose_column(df)
 
 
-def _weighted_group_sum(
+def weighted_group_sum(
     df: pl.DataFrame,
     group_cols: str | list[str],
     *,
@@ -84,7 +84,7 @@ def _dense_zero_fill(
     )
 
 
-def _aggregate_counts_by_geography(
+def aggregate_counts_by_geography(
     df: pl.DataFrame,
     *,
     geography_type: str,
@@ -181,7 +181,7 @@ def _configured_land_use_geography_dimensions(
     return base_dimensions
 
 
-def _aggregate_counts_across_geographies(
+def aggregate_counts_across_geographies(
     df: pl.DataFrame,
     *,
     geography_dimensions: list[tuple[str, str]],
@@ -190,7 +190,7 @@ def _aggregate_counts_across_geographies(
 ) -> pl.DataFrame:
     """Aggregate one frame across multiple geography dimensions."""
     outputs = [
-        _aggregate_counts_by_geography(
+        aggregate_counts_by_geography(
             df.filter(pl.col(column).is_not_null()),
             geography_type=geography_type,
             geography_id_col=column,
@@ -348,7 +348,7 @@ def _residual_histogram_summary(
     )
 
 
-def _aggregate_weighted_average_across_geographies(
+def aggregate_weighted_average_across_geographies(
     df: pl.DataFrame,
     *,
     geography_dimensions: list[tuple[str, str]],

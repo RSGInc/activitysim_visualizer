@@ -7,7 +7,7 @@ import math
 import polars as pl
 
 from processor.models import RunData
-from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize.contracts import empty_summary_frame, summary
 from runtime.config import Config
 
 _PERCENTILES = [index / 100 for index in range(101)]
@@ -119,7 +119,9 @@ def _weighted_stats_rows(
 
     mode_groups = _mode_groups(df, mode_column=mode_column)
     for component in component_columns:
-        pertinent_df = _pertinent_component_df(df, component=component, mode_column=mode_column)
+        pertinent_df = _pertinent_component_df(
+            df, component=component, mode_column=mode_column
+        )
         for mode_value, mode_df in [(_ALL_MODES, pertinent_df), *mode_groups]:
             rows.append(
                 _weighted_stats_row(
@@ -150,7 +152,9 @@ def _weighted_ecdf_rows(
 
     mode_groups = _mode_groups(df, mode_column=mode_column)
     for component in component_columns:
-        pertinent_df = _pertinent_component_df(df, component=component, mode_column=mode_column)
+        pertinent_df = _pertinent_component_df(
+            df, component=component, mode_column=mode_column
+        )
         for mode_value, mode_df in [(_ALL_MODES, pertinent_df), *mode_groups]:
             valid_df = mode_df.filter(pl.col(component).is_not_null())
             if valid_df.is_empty():
@@ -162,9 +166,13 @@ def _weighted_ecdf_rows(
             ]
             weights = [
                 float(value)
-                for value in valid_df.get_column("finalweight").cast(pl.Float64).to_list()
+                for value in valid_df.get_column("finalweight")
+                .cast(pl.Float64)
+                .to_list()
             ]
-            sorted_values, sorted_weights, n_valid = _sorted_weighted_pairs(values, weights)
+            sorted_values, sorted_weights, n_valid = _sorted_weighted_pairs(
+                values, weights
+            )
             if n_valid <= 0:
                 continue
 
@@ -219,7 +227,7 @@ def _stats_frame(
             pl.when(pl.col(mode_column) == _ALL_MODES)
             .then(0)
             .otherwise(1)
-            .alias("__mode_sort")
+            .alias("__mode_sort"),
         )
         .sort(["__scenario_sort", "__mode_sort", mode_column, "component"])
         .drop("__scenario_sort", "__mode_sort")
@@ -259,7 +267,7 @@ def _ecdf_frame(
             pl.when(pl.col(mode_column) == _ALL_MODES)
             .then(0)
             .otherwise(1)
-            .alias("__mode_sort")
+            .alias("__mode_sort"),
         )
         .sort(
             ["__scenario_sort", "__mode_sort", mode_column, "component", "percentile"]
@@ -365,7 +373,10 @@ def _weighted_stats_row(
             "missing_share": None if n_total == 0 else 1.0,
         }
 
-    mean = sum(value * weight for value, weight in zip(values, weights, strict=False)) / n_valid
+    mean = (
+        sum(value * weight for value, weight in zip(values, weights, strict=False))
+        / n_valid
+    )
     variance = (
         sum(
             weight * ((value - mean) ** 2)
@@ -374,9 +385,7 @@ def _weighted_stats_row(
         / n_valid
     )
     zero_weight = sum(
-        weight
-        for value, weight in zip(values, weights, strict=False)
-        if value == 0.0
+        weight for value, weight in zip(values, weights, strict=False) if value == 0.0
     )
     return {
         "skim_scenario": skim_scenario,
@@ -476,7 +485,10 @@ def _weighted_stats_row_from_sidecar_group(
                 "missing_share": (None if n_total == 0 else 1.0),
             }
         ]
-    values = [float(value) for value in valid_df.get_column("value").cast(pl.Float64).to_list()]
+    values = [
+        float(value)
+        for value in valid_df.get_column("value").cast(pl.Float64).to_list()
+    ]
     weights = [
         float(value)
         for value in valid_df.get_column("finalweight").cast(pl.Float64).to_list()
@@ -484,7 +496,10 @@ def _weighted_stats_row_from_sidecar_group(
     n_valid = float(sum(weights))
     if n_valid <= 0:
         return []
-    mean = sum(value * weight for value, weight in zip(values, weights, strict=False)) / n_valid
+    mean = (
+        sum(value * weight for value, weight in zip(values, weights, strict=False))
+        / n_valid
+    )
     variance = (
         sum(
             weight * ((value - mean) ** 2)
@@ -493,9 +508,7 @@ def _weighted_stats_row_from_sidecar_group(
         / n_valid
     )
     zero_weight = sum(
-        weight
-        for value, weight in zip(values, weights, strict=False)
-        if value == 0.0
+        weight for value, weight in zip(values, weights, strict=False) if value == 0.0
     )
     return [
         {
@@ -526,7 +539,10 @@ def _weighted_ecdf_rows_from_sidecar_group(
     valid_df = df.filter(pl.col("value").is_not_null())
     if valid_df.is_empty():
         return []
-    values = [float(value) for value in valid_df.get_column("value").cast(pl.Float64).to_list()]
+    values = [
+        float(value)
+        for value in valid_df.get_column("value").cast(pl.Float64).to_list()
+    ]
     weights = [
         float(value)
         for value in valid_df.get_column("finalweight").cast(pl.Float64).to_list()
@@ -549,11 +565,14 @@ def _weighted_ecdf_rows_from_sidecar_group(
             "value": quantile_value,
             "n_valid": n_valid,
         }
-        for percentile, quantile_value in zip(_PERCENTILES, quantile_values, strict=False)
+        for percentile, quantile_value in zip(
+            _PERCENTILES, quantile_values, strict=False
+        )
     ]
 
 
-@summary_contract(
+@summary(
+    id="skimjoin_trip_component_stats",
     schema={
         "skim_scenario": pl.Utf8,
         "trip_mode": pl.Utf8,
@@ -580,7 +599,9 @@ def trip_skim_component_stats(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="skimjoin_trip_component_ecdf",
+    build_by_default=False,
     schema={
         "skim_scenario": pl.Utf8,
         "trip_mode": pl.Utf8,
@@ -600,7 +621,8 @@ def trip_skim_component_ecdf(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="skimjoin_tour_component_stats",
     schema={
         "skim_scenario": pl.Utf8,
         "tour_mode": pl.Utf8,
@@ -627,7 +649,9 @@ def tour_skim_component_stats(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="skimjoin_tour_component_ecdf",
+    build_by_default=False,
     schema={
         "skim_scenario": pl.Utf8,
         "tour_mode": pl.Utf8,

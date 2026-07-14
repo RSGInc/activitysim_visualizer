@@ -64,7 +64,7 @@ from processor.models import RunData
 from processor.prepare.cache import build_prepared_manifest_identity
 from processor.prepare.enrichment.pipeline import prepare_data
 from processor.summarize import builder as summary_builder_module
-from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize.contracts import empty_summary_frame, summary
 from processor.summarize.cache import (
     build_run_fingerprint,
     build_run_keys,
@@ -74,8 +74,7 @@ from processor.summarize.cache import (
 from processor.summarize.cache_types import SummaryCacheError, create_summary_run
 from processor.summarize.builder import build_summaries_with_metadata
 from processor.summarize.schema import SUMMARY_OUTPUT_COLUMNS
-from processor.summarize.summary_specs import SUMMARY_SPECS, SummarySpec
-from processor.summarize.summary_specs import SUMMARY_SPEC_BY_ID
+from processor.summarize.catalog import SUMMARY_BY_ID, SUMMARY_DEFINITIONS
 from runtime.config import Config
 from runtime.config.models import SkimjoinSettings
 from processor.summarize.summaries import legacy
@@ -147,9 +146,7 @@ def _write_config(
     )
     if extra_lines:
         config_path.write_text(
-            config_path.read_text(encoding="utf-8")
-            + "\n"
-            + "\n".join(extra_lines),
+            config_path.read_text(encoding="utf-8") + "\n" + "\n".join(extra_lines),
             encoding="utf-8",
         )
     if dashboard_lines:
@@ -255,16 +252,146 @@ def _skim_summary_tables() -> tuple[dict[str, pl.DataFrame], dict[str, pl.DataFr
                     "HOV3",
                     "SCHOOLBUS",
                 ],
-                "n_total": [10.0, 12.0, 10.0, 7.0, 7.0, 7.0, 7.0, 6.0, 8.0, 9.0, 11.0, 5.0],
-                "n_valid": [9.0, 11.0, 10.0, 7.0, 7.0, 7.0, 7.0, 6.0, 8.0, 9.0, 10.0, 5.0],
-                "mean": [15.126, 3.452, 99.111, 1.827, 12.233, 1.604, 28.06, 8.887, 34.221, 28.781, 7.004, 18.5],
-                "std": [1.554, 0.882, 9.001, 0.214, 2.104, 0.187, 3.109, 1.443, 5.115, 4.201, 0.993, 1.2],
-                "min": [11.0, 1.2, 88.0, 1.4, 8.1, 1.2, 22.0, 5.5, 20.0, 18.0, 5.0, 17.0],
-                "max": [18.5, 5.4, 110.0, 2.1, 16.8, 1.9, 35.0, 12.7, 44.0, 37.0, 8.9, 20.0],
-                "median": [15.0, 3.5, 100.0, 1.8, 12.0, 1.6, 28.0, 8.8, 34.0, 28.5, 7.0, 18.0],
-                "mode": [14.0, 3.0, 98.0, 1.7, 11.5, 1.5, 27.0, 8.4, 33.0, 27.0, 7.0, 18.0],
-                "zero_share": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                "missing_share": [0.1, 0.08, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.09, 0.0],
+                "n_total": [
+                    10.0,
+                    12.0,
+                    10.0,
+                    7.0,
+                    7.0,
+                    7.0,
+                    7.0,
+                    6.0,
+                    8.0,
+                    9.0,
+                    11.0,
+                    5.0,
+                ],
+                "n_valid": [
+                    9.0,
+                    11.0,
+                    10.0,
+                    7.0,
+                    7.0,
+                    7.0,
+                    7.0,
+                    6.0,
+                    8.0,
+                    9.0,
+                    10.0,
+                    5.0,
+                ],
+                "mean": [
+                    15.126,
+                    3.452,
+                    99.111,
+                    1.827,
+                    12.233,
+                    1.604,
+                    28.06,
+                    8.887,
+                    34.221,
+                    28.781,
+                    7.004,
+                    18.5,
+                ],
+                "std": [
+                    1.554,
+                    0.882,
+                    9.001,
+                    0.214,
+                    2.104,
+                    0.187,
+                    3.109,
+                    1.443,
+                    5.115,
+                    4.201,
+                    0.993,
+                    1.2,
+                ],
+                "min": [
+                    11.0,
+                    1.2,
+                    88.0,
+                    1.4,
+                    8.1,
+                    1.2,
+                    22.0,
+                    5.5,
+                    20.0,
+                    18.0,
+                    5.0,
+                    17.0,
+                ],
+                "max": [
+                    18.5,
+                    5.4,
+                    110.0,
+                    2.1,
+                    16.8,
+                    1.9,
+                    35.0,
+                    12.7,
+                    44.0,
+                    37.0,
+                    8.9,
+                    20.0,
+                ],
+                "median": [
+                    15.0,
+                    3.5,
+                    100.0,
+                    1.8,
+                    12.0,
+                    1.6,
+                    28.0,
+                    8.8,
+                    34.0,
+                    28.5,
+                    7.0,
+                    18.0,
+                ],
+                "mode": [
+                    14.0,
+                    3.0,
+                    98.0,
+                    1.7,
+                    11.5,
+                    1.5,
+                    27.0,
+                    8.4,
+                    33.0,
+                    27.0,
+                    7.0,
+                    18.0,
+                ],
+                "zero_share": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                ],
+                "missing_share": [
+                    0.1,
+                    0.08,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.09,
+                    0.0,
+                ],
             }
         ),
         "skimjoin_tour_component_stats": pl.DataFrame(
@@ -350,7 +477,9 @@ def _attach_test_skimjoin_config(
                 SimpleNamespace(mode="HOV2", output="skim_auto_time_inbound"),
                 SimpleNamespace(mode="HOV2", output="skim_auto_cost_outbound"),
                 SimpleNamespace(mode="HOV2", output="skim_auto_cost_inbound"),
-                SimpleNamespace(mode="WALK_TRANSIT", output="skim_transit_tiv_outbound"),
+                SimpleNamespace(
+                    mode="WALK_TRANSIT", output="skim_transit_tiv_outbound"
+                ),
                 SimpleNamespace(mode="KNR_TRANSIT", output="skim_transit_tiv_inbound"),
                 SimpleNamespace(mode="WALK", output="skim_walk_time_outbound"),
                 SimpleNamespace(mode="WALK", output="skim_walk_time_inbound"),
@@ -472,11 +601,36 @@ def _write_custom_prepared_tables(
     root.mkdir(parents=True, exist_ok=True)
     tables = {
         "households": pl.DataFrame({"household_id": [1], "finalweight": [1.0]}),
-        "persons": pl.DataFrame({"person_id": [10], "household_id": [1], "finalweight": [1.0]}),
-        "day": pl.DataFrame({"day_id": [100], "person_id": [10], "household_id": [1], "finalweight": [1.0]}),
-        "tours": pl.DataFrame({"tour_id": [100], "person_id": [10], "household_id": [1], "finalweight": [1.0]}),
-        "trips": pl.DataFrame({"trip_id": [1000], "tour_id": [100], "person_id": [10], "finalweight": [1.0]}),
-        "vehicles": pl.DataFrame({"vehicle_id": [1001], "household_id": [1], "finalweight": [1.0]}),
+        "persons": pl.DataFrame(
+            {"person_id": [10], "household_id": [1], "finalweight": [1.0]}
+        ),
+        "day": pl.DataFrame(
+            {
+                "day_id": [100],
+                "person_id": [10],
+                "household_id": [1],
+                "finalweight": [1.0],
+            }
+        ),
+        "tours": pl.DataFrame(
+            {
+                "tour_id": [100],
+                "person_id": [10],
+                "household_id": [1],
+                "finalweight": [1.0],
+            }
+        ),
+        "trips": pl.DataFrame(
+            {
+                "trip_id": [1000],
+                "tour_id": [100],
+                "person_id": [10],
+                "finalweight": [1.0],
+            }
+        ),
+        "vehicles": pl.DataFrame(
+            {"vehicle_id": [1001], "household_id": [1], "finalweight": [1.0]}
+        ),
         "joint_tour_participants": pl.DataFrame({"tour_id": [], "person_id": []}),
         "land_use": pl.DataFrame({"zone_id": [1], "TAZ": [1]}),
     }
@@ -545,7 +699,12 @@ def test_summary_cache_round_trip_creates_configured_layout(tmp_path: Path) -> N
         {"purpose": "shopping", "distbin": 0, "freq": 2.0},
         {"purpose": "shopping", "distbin": 1, "freq": 4.0},
     ]
-    assert loaded.summaries_by_mode["weighted"]["geo_flows"].width == 0
+    assert loaded.summaries_by_mode["weighted"]["geo_flows"].is_empty()
+    assert loaded.summaries_by_mode["weighted"]["geo_flows"].columns == [
+        "origin_geography",
+        "destination_geography",
+        "person_count",
+    ]
 
 
 def test_write_summary_run_cache_removes_legacy_summary_cache_sibling(
@@ -712,9 +871,7 @@ def test_summary_cache_detects_custom_prepared_table_path_or_mtime_change(
     changed_path_map = dict(prepared_map)
     changed_path_map["households"] = str(moved_households)
 
-    with pytest.raises(
-        SummaryCacheError, match="prepared manifest identity mismatch"
-    ):
+    with pytest.raises(SummaryCacheError, match="prepared manifest identity mismatch"):
         load_summary_run_cache(
             cache_dir,
             config,
@@ -759,9 +916,7 @@ def test_summary_cache_detects_custom_prepared_table_path_or_mtime_change(
 
     os.utime(trips_path, ns=(updated_ns, updated_ns))
 
-    with pytest.raises(
-        SummaryCacheError, match="prepared manifest identity mismatch"
-    ):
+    with pytest.raises(SummaryCacheError, match="prepared manifest identity mismatch"):
         load_summary_run_cache(
             cache_dir,
             config,
@@ -795,18 +950,18 @@ def test_summary_cache_ignores_presentation_only_config_changes(
             [
                 'name: "Test Config"',
                 "runs: []",
-                    "root: summary_cache",
-                    "summarize:",
-                    "  weighting_modes: [weighted, unweighted]",
-                    "dashboard:",
-                    '  title: "Dashboard A"',
-                    "  live:",
-                    "    pages: [overview, trip_mode]",
-                    "  export:",
+                "root: summary_cache",
+                "summarize:",
+                "  weighting_modes: [weighted, unweighted]",
+                "dashboard:",
+                '  title: "Dashboard A"',
+                "  live:",
+                "    pages: [overview, trip_mode]",
+                "  export:",
                 "    dashboard:",
                 "      weighting: all",
                 "    pages:",
-                    "      trip_mode: {}",
+                "      trip_mode: {}",
                 "      overview: {}",
             ]
         ),
@@ -819,19 +974,19 @@ def test_summary_cache_ignores_presentation_only_config_changes(
             [
                 'name: "Test Config"',
                 "runs: []",
-                    "root: summary_cache",
-                    "summarize:",
-                    "  weighting_modes: [weighted, unweighted]",
-                    "dashboard:",
-                    '  title: "Dashboard B"',
-                    "  live:",
-                    "    pages: [trip_mode, overview]",
-                    "  export:",
+                "root: summary_cache",
+                "summarize:",
+                "  weighting_modes: [weighted, unweighted]",
+                "dashboard:",
+                '  title: "Dashboard B"',
+                "  live:",
+                "    pages: [trip_mode, overview]",
+                "  export:",
                 "    dashboard:",
                 "      values: all",
                 "    pages:",
                 "      overview: {}",
-                    "      trip_mode:",
+                "      trip_mode:",
                 "        purpose: all",
             ]
         ),
@@ -887,11 +1042,11 @@ def test_summary_cache_invalidates_when_summary_affecting_config_changes(
             [
                 'name: "Test Config"',
                 "runs: []",
-                    "root: summary_cache",
-                    "summarize:",
-                    "  weighting_modes: [weighted]",
-                    "dashboard:",
-                    '  title: "Test Dashboard"',
+                "root: summary_cache",
+                "summarize:",
+                "  weighting_modes: [weighted]",
+                "dashboard:",
+                '  title: "Test Dashboard"',
             ]
         ),
         encoding="utf-8",
@@ -977,20 +1132,8 @@ def test_prepare_data_overwrites_numeric_tour_purpose_before_destination_summari
 
 
 def test_registered_summary_builders_expose_contract_metadata() -> None:
-    allowed_missing = {
-        "traffic_count_comparisons",
-        "screenline_flow_comparisons",
-        "transit_boardings_by_operator_and_technology",
-        "transit_transfer_rate",
-        "commercial_vmt_totals",
-        "bicycle_vmt_by_facility_type",
-    }
-    missing = [
-        spec.summary_id
-        for spec in SUMMARY_SPECS
-        if not hasattr(spec.builder, "_summary_contract")
-    ]
-    assert set(missing) == allowed_missing
+    assert SUMMARY_DEFINITIONS
+    assert all(definition.contract.schema for definition in SUMMARY_DEFINITIONS)
 
 
 def test_summary_output_columns_are_derived_from_builder_contracts() -> None:
@@ -1013,7 +1156,8 @@ def test_build_summaries_with_metadata_marks_missing_inputs_unavailable(
 ) -> None:
     config = _write_config(tmp_path)
 
-    @summary_contract(
+    @summary(
+        id="probe_unavailable",
         schema={"value": pl.Float64},
         required_columns={"trips": ("needed",)},
     )
@@ -1022,13 +1166,11 @@ def test_build_summaries_with_metadata_marks_missing_inputs_unavailable(
             "builder should not be called when prerequisites are missing"
         )
 
-    spec = SummarySpec("probe_unavailable", "probe_unavailable", unavailable_summary)
+    spec = unavailable_summary.summary_definition
     monkeypatch.setattr(
         summary_builder_module, "DEFAULT_SUMMARY_IDS", ["probe_unavailable"]
     )
-    monkeypatch.setitem(
-        summary_builder_module.SUMMARY_SPEC_BY_ID, "probe_unavailable", spec
-    )
+    monkeypatch.setitem(SUMMARY_BY_ID, "probe_unavailable", spec)
 
     tables, metadata = build_summaries_with_metadata(_destination_raw_run(), config)
 
@@ -1181,12 +1323,12 @@ def test_summary_cache_writes_sentinel_csvs_for_empty_unavailable_and_failed_sum
         ),
     )
 
-    assert (
-        cache_dir / "weighted" / "destinationDistByPurpose.csv"
-    ).read_text(encoding="utf-8") == "__empty__\n"
-    assert (
-        cache_dir / "weighted" / "destinationAvgDistance.csv"
-    ).read_text(encoding="utf-8") == "__empty__\n"
+    assert (cache_dir / "weighted" / "destinationDistByPurpose.csv").read_text(
+        encoding="utf-8"
+    ) == "__empty__\n"
+    assert (cache_dir / "weighted" / "destinationAvgDistance.csv").read_text(
+        encoding="utf-8"
+    ) == "__empty__\n"
 
     loaded = load_summary_run_cache(
         cache_dir,
@@ -1324,7 +1466,11 @@ def test_trip_mode_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None
     page = TripModePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.tour_purpose_sel.options) == ["All Tour Purposes", "eatout", "social"]
+    assert list(page.tour_purpose_sel.options) == [
+        "All Tour Purposes",
+        "eatout",
+        "social",
+    ]
     plots = _collect_plotly_panes(page._body)
     all_titles = {str(plot.object.layout.title.text) for plot in plots}
     assert "Trip Mode Distribution for All Tours" in all_titles
@@ -1383,7 +1529,11 @@ def test_trip_mode_selector_uses_union_across_runs_and_zero_fills_missing_modes(
     page = TripModePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.tour_purpose_sel.options) == ["All Tour Purposes", "eatout", "social"]
+    assert list(page.tour_purpose_sel.options) == [
+        "All Tour Purposes",
+        "eatout",
+        "social",
+    ]
     page.tour_purpose_sel.value = "social"
     charts = page.render_body()
     overall_chart = charts[0]
@@ -1396,7 +1546,9 @@ def test_trip_mode_selector_uses_union_across_runs_and_zero_fills_missing_modes(
     assert list(traces["Build"].y) == [1.0, 5.0]
 
 
-def test_trip_mode_page_uses_configured_mode_labels_on_plot_axes(tmp_path: Path) -> None:
+def test_trip_mode_page_uses_configured_mode_labels_on_plot_axes(
+    tmp_path: Path,
+) -> None:
     config = _write_config(
         tmp_path,
         extra_lines=[
@@ -1642,7 +1794,11 @@ def test_trip_stop_time_live_page_uses_shared_summary_helpers(
     page = TripStopTimePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.tour_purpose_sel.options) == ["All Tour Purposes", "eatout", "social"]
+    assert list(page.tour_purpose_sel.options) == [
+        "All Tour Purposes",
+        "eatout",
+        "social",
+    ]
     page.tour_purpose_sel.value = "social"
     page.refresh(force=True)
     assert page._body.objects
@@ -1884,10 +2040,16 @@ def test_trip_stop_distance_live_page_uses_shared_summary_helpers(
     page = TripStopDistancePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.tour_purpose_sel.options) == ["All Tour Purposes", "eatout", "social"]
+    assert list(page.tour_purpose_sel.options) == [
+        "All Tour Purposes",
+        "eatout",
+        "social",
+    ]
     assert page.tour_purpose_sel.value == "All Tour Purposes"
     assert page.view.objects
-    all_titles = [plot.object.layout.title.text for plot in _collect_plotly_panes(page._body)]
+    all_titles = [
+        plot.object.layout.title.text for plot in _collect_plotly_panes(page._body)
+    ]
     assert "Trip Distance Distribution for All Tours" in all_titles
     assert "Stop Out-of-Direction Distance Distribution for All Tours" in all_titles
     stop_ood_plot = next(
@@ -1943,7 +2105,9 @@ def test_trip_stop_distance_live_page_uses_shared_summary_helpers(
         plot.object.layout.title.text for plot in _collect_plotly_panes(page._body)
     ]
     assert "Trip Distance Distribution for social Tours" in social_titles
-    assert "Stop Out-of-Direction Distance Distribution for social Tours" in social_titles
+    assert (
+        "Stop Out-of-Direction Distance Distribution for social Tours" in social_titles
+    )
 
 
 def test_tour_stop_frequency_chart_data_caps_directional_stop_counts() -> None:
@@ -2128,9 +2292,7 @@ def test_daily_activity_pattern_page_renders_available_charts_when_one_summary_i
 
     assert len(plots) == 4
     card_markdown = [
-        str(card.objects[0].object)
-        for card in cards
-        if getattr(card, "objects", None)
+        str(card.objects[0].object) for card in cards if getattr(card, "objects", None)
     ]
     assert any(
         getattr(card, "title", "") == "Data Not Available"
@@ -2381,7 +2543,10 @@ def test_joint_travel_composition_plot_keeps_category_axis_when_party_size_filte
         if str(plot.object.layout.title.text)
         == "Joint Tour Composition by Party Size - 2"
     )
-    assert list(composition_plot.object.layout.xaxis.categoryarray) == ["adults", "mixed"]
+    assert list(composition_plot.object.layout.xaxis.categoryarray) == [
+        "adults",
+        "mixed",
+    ]
     assert list(composition_plot.object.data[0].x) == ["adults", "mixed"]
     assert len(composition_plot.object.data[0].y) == 2
     assert composition_plot.object.data[0].y[0] > 0
@@ -2680,7 +2845,9 @@ def test_tour_purpose_labels_render_consistently_across_pages(tmp_path: Path) ->
     tour_purpose_page.refresh(force=True)
     tour_purpose_plots = _collect_plotly_panes(tour_purpose_page._body)
     purpose_chart = next(
-        plot for plot in tour_purpose_plots if plot.object.layout.title.text == "Tour Purpose"
+        plot
+        for plot in tour_purpose_plots
+        if plot.object.layout.title.text == "Tour Purpose"
     )
     assert list(purpose_chart.object.layout.xaxis.categoryarray) == [
         "Work Trips",
@@ -3103,8 +3270,7 @@ def test_escorted_tours_page_renders_core_charts_when_optional_summaries_missing
 
     assert page.view.objects
     titles = [
-        str(plot.object.layout.title.text)
-        for plot in _collect_plotly_panes(page.view)
+        str(plot.object.layout.title.text) for plot in _collect_plotly_panes(page.view)
     ]
     assert "Chauffer Tours by Person Type - Both Directions" in titles
     assert "Chauffer Tour Distance Distribution - Both Directions" in titles
@@ -3189,7 +3355,8 @@ def test_escorted_tours_page_uses_configured_escort_labels_for_student_status(
     student_plot = next(
         plot
         for plot in plots
-        if str(plot.object.layout.title.text) == "Student School Escort Status - Outbound"
+        if str(plot.object.layout.title.text)
+        == "Student School Escort Status - Outbound"
     )
     assert list(student_plot.object.layout.xaxis.categoryarray) == [
         "Unescorted",
@@ -3408,10 +3575,10 @@ def test_individual_choices_page_renders_partial_content_when_some_summaries_mis
         label="Base",
         weighted={
             "license_holding_status_distribution": empty_summary_frame(
-                SUMMARY_SPEC_BY_ID["license_holding_status_distribution"].builder
+                SUMMARY_BY_ID["license_holding_status_distribution"].builder
             ),
             "bicycle_comfort_level_distribution": empty_summary_frame(
-                SUMMARY_SPEC_BY_ID["bicycle_comfort_level_distribution"].builder
+                SUMMARY_BY_ID["bicycle_comfort_level_distribution"].builder
             ),
             "transit_pass_ownership_by_person_type": pl.DataFrame(
                 {
@@ -3475,13 +3642,13 @@ def test_tour_summaries_tour_mode_page_renders_main_chart_without_vehicle_summar
                 }
             ),
             "allocated_vehicle_age_by_occupancy": empty_summary_frame(
-                SUMMARY_SPEC_BY_ID["allocated_vehicle_age_by_occupancy"].builder
+                SUMMARY_BY_ID["allocated_vehicle_age_by_occupancy"].builder
             ),
             "allocated_vehicle_fuel_type_by_occupancy": empty_summary_frame(
-                SUMMARY_SPEC_BY_ID["allocated_vehicle_fuel_type_by_occupancy"].builder
+                SUMMARY_BY_ID["allocated_vehicle_fuel_type_by_occupancy"].builder
             ),
             "allocated_vehicle_body_type_by_occupancy": empty_summary_frame(
-                SUMMARY_SPEC_BY_ID["allocated_vehicle_body_type_by_occupancy"].builder
+                SUMMARY_BY_ID["allocated_vehicle_body_type_by_occupancy"].builder
             ),
         },
     )
@@ -3549,13 +3716,13 @@ def test_tour_summaries_tour_mode_page_uses_configured_mode_labels_on_plot_axes(
                 }
             ),
             "allocated_vehicle_age_by_occupancy": empty_summary_frame(
-                SUMMARY_SPEC_BY_ID["allocated_vehicle_age_by_occupancy"].builder
+                SUMMARY_BY_ID["allocated_vehicle_age_by_occupancy"].builder
             ),
             "allocated_vehicle_fuel_type_by_occupancy": empty_summary_frame(
-                SUMMARY_SPEC_BY_ID["allocated_vehicle_fuel_type_by_occupancy"].builder
+                SUMMARY_BY_ID["allocated_vehicle_fuel_type_by_occupancy"].builder
             ),
             "allocated_vehicle_body_type_by_occupancy": empty_summary_frame(
-                SUMMARY_SPEC_BY_ID["allocated_vehicle_body_type_by_occupancy"].builder
+                SUMMARY_BY_ID["allocated_vehicle_body_type_by_occupancy"].builder
             ),
         },
     )
@@ -3617,7 +3784,7 @@ def test_mandatory_location_choice_uses_union_of_available_geographies(
         label="Base",
         weighted={
             "internal_external_worker_by_geography": empty_summary_frame(
-                SUMMARY_SPEC_BY_ID["internal_external_worker_by_geography"].builder
+                SUMMARY_BY_ID["internal_external_worker_by_geography"].builder
             ),
             "work_location_distance_distribution_by_geography": pl.DataFrame(
                 {
@@ -3654,7 +3821,7 @@ def test_mandatory_location_choice_can_show_maz_when_enabled(
         label="Base",
         weighted={
             "internal_external_worker_by_geography": empty_summary_frame(
-                SUMMARY_SPEC_BY_ID["internal_external_worker_by_geography"].builder
+                SUMMARY_BY_ID["internal_external_worker_by_geography"].builder
             ),
             "work_location_distance_distribution_by_geography": pl.DataFrame(
                 {
@@ -3788,7 +3955,11 @@ def test_internal_external_tours_geo_selector_uses_union_levels_across_tables(
     page = InternalExternalToursPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["All Geography Types", "District", "MAZ"]
+    assert list(page.geo_level_sel.options) == [
+        "All Geography Types",
+        "District",
+        "MAZ",
+    ]
     tables = _collect_tabulators(page._body)
     assert len(tables) == 2
     frequency_table = tables[0].value
@@ -3904,7 +4075,11 @@ def test_shadow_pricing_geo_selector_keeps_maz_available_when_disabled(
     page = ShadowPricingPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["All Geography Types", "District", "MAZ"]
+    assert list(page.geo_level_sel.options) == [
+        "All Geography Types",
+        "District",
+        "MAZ",
+    ]
 
 
 def test_shadow_pricing_geo_selector_shows_detailed_levels_when_enabled(
@@ -3964,7 +4139,11 @@ def test_shadow_pricing_geo_selector_shows_detailed_levels_when_enabled(
     page = ShadowPricingPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["All Geography Types", "District", "MAZ"]
+    assert list(page.geo_level_sel.options) == [
+        "All Geography Types",
+        "District",
+        "MAZ",
+    ]
 
 
 def test_shadow_pricing_page_uses_residual_histograms_and_filters_school_student_type(
@@ -4125,7 +4304,9 @@ def test_shadow_pricing_page_uses_residual_histograms_and_filters_school_student
         for plot in _collect_plotly_panes(page._workplace_plot_section)
         if plot.object.layout.title.text == "Workplace Residual Distribution"
     )
-    assert workplace_plot.object.layout.xaxis.title.text == "Residual (Modeled - Target)"
+    assert (
+        workplace_plot.object.layout.xaxis.title.text == "Residual (Modeled - Target)"
+    )
     assert [list(trace.x) for trace in workplace_plot.object.data] == district_x
     assert workplace_plot.object.layout.yaxis.title.text == "Percent of Geographies (%)"
 
@@ -4178,8 +4359,22 @@ def test_shadow_pricing_school_all_student_type_uses_upstream_rollup_histogram(
             ),
             "school_shadow_pricing_residual_histogram": pl.DataFrame(
                 {
-                    "geography_type": ["district", "district", "district", "district", "district", "district"],
-                    "student_type": ["School", "School", "University", "University", "All", "All"],
+                    "geography_type": [
+                        "district",
+                        "district",
+                        "district",
+                        "district",
+                        "district",
+                        "district",
+                    ],
+                    "student_type": [
+                        "School",
+                        "School",
+                        "University",
+                        "University",
+                        "All",
+                        "All",
+                    ],
                     "bin_start": [-2.0, 0.0, -2.0, 0.0, -2.0, 0.0],
                     "bin_end": [0.0, 2.0, 0.0, 2.0, 0.0, 2.0],
                     "geography_count": [3.0, 1.0, 2.0, 4.0, 5.0, 5.0],
@@ -4265,9 +4460,7 @@ def test_shadow_pricing_tables_display_friendly_geography_columns(
     page.refresh(force=True)
 
     workplace = page.render_workplace_table(
-        summary_run.summaries_by_mode["weighted"][
-            "workplace_shadow_pricing_residuals"
-        ]
+        summary_run.summaries_by_mode["weighted"]["workplace_shadow_pricing_residuals"]
     )
     school = page.render_school_table(
         summary_run.summaries_by_mode["weighted"]["school_shadow_pricing_residuals"]
@@ -4689,7 +4882,9 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
         card.title == "Mandatory Location Distance Data Not Available"
         for card in _collect_cards(page._distance_section)
     )
-    comparison_table = _collect_tabulators(page._mandatory_distance_table_section)[0].value
+    comparison_table = _collect_tabulators(page._mandatory_distance_table_section)[
+        0
+    ].value
     comparison_tabs = _collect_tabs(page._mandatory_distance_table_section)[0]
     assert list(comparison_tabs._names) == ["Base"]
     assert comparison_table.columns.tolist() == [
@@ -4818,7 +5013,11 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
     assert list(page.geography_sel.options) == ["All Geographies"]
     page.geo_level_sel.value = "School District"
     page.refresh(force=True)
-    assert list(page.geography_sel.options) == ["All School Districts", "North", "South"]
+    assert list(page.geography_sel.options) == [
+        "All School Districts",
+        "North",
+        "South",
+    ]
     page.geography_sel.value = "North"
     page.refresh(force=True)
 
@@ -4852,7 +5051,8 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
     wfh_plot = next(
         plot
         for plot in remote_work_plots
-        if plot.object.layout.title.text in {
+        if plot.object.layout.title.text
+        in {
             "Work From Home Rate by Geography",
             "Workers Working From Home by Geography",
         }
@@ -4865,7 +5065,9 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
     )
     assert list(telecommute_plot.object.data[0].x) == ["never", "often"]
 
-    comparison_table = _collect_tabulators(page._mandatory_distance_table_section)[0].value
+    comparison_table = _collect_tabulators(page._mandatory_distance_table_section)[
+        0
+    ].value
     comparison_tabs = _collect_tabs(page._mandatory_distance_table_section)[0]
     assert list(comparison_tabs._names) == ["Base"]
     assert comparison_table.columns.tolist() == [
@@ -4927,7 +5129,10 @@ def test_mandatory_location_choice_reuses_collected_data_on_selector_changes(
                 {
                     "origin_geography_type": ["all_geographies", "school_district"],
                     "origin_geography_id": ["all_geographies", "North"],
-                    "destination_geography_type": ["all_geographies", "school_district"],
+                    "destination_geography_type": [
+                        "all_geographies",
+                        "school_district",
+                    ],
                     "destination_geography_id": ["all_geographies", "North"],
                     "commuter_count": [4.0, 3.0],
                 }
@@ -5187,7 +5392,9 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
         page.demo_period_sel,
         page.demo_facility_sel,
     ]
-    assert page._external_volume_body.objects[0].object == "### Traffic Volume Summaries"
+    assert (
+        page._external_volume_body.objects[0].object == "### Traffic Volume Summaries"
+    )
     facility_tables = _collect_tabulators(page._facility_summary_body)
     assert len(facility_tables) == 1
     facility_table = facility_tables[0].value
@@ -5239,8 +5446,7 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
     count_plot = next(
         plot
         for plot in _collect_plotly_panes(page._external_volume_body)
-        if plot.object.layout.title.text
-        == "Count Location Observed vs Modeled - AM"
+        if plot.object.layout.title.text == "Count Location Observed vs Modeled - AM"
     )
     reference_line = count_plot.object.data[-1]
 
@@ -5358,7 +5564,9 @@ def test_tour_distance_chart_casts_distance_bins_consistently_across_runs(
     page = TourDistancePage(state, config)
     page.refresh(force=True)
 
-    plot = next(obj for obj in page._distance_section.objects if isinstance(obj, pn.pane.Plotly))
+    plot = next(
+        obj for obj in page._distance_section.objects if isinstance(obj, pn.pane.Plotly)
+    )
     traces = {trace.name: list(trace.x) for trace in plot.object.data}
     assert traces["A"] == [0.0, 1.0]
     assert traces["B"] == [0.0]
@@ -5762,8 +5970,7 @@ def test_vehicle_ownership_type_live_page_uses_shared_summary_helpers(
     filtered_plot = next(
         plot
         for plot in _collect_plotly_panes(page._ownership_section)
-        if str(plot.object.layout.title.text)
-        == "Auto Ownership by Household Size - 5+"
+        if str(plot.object.layout.title.text) == "Auto Ownership by Household Size - 5+"
     )
     assert list(filtered_plot.object.data[0].x) == ["4+"]
     assert list(filtered_plot.object.data[0].y) == [18.0]

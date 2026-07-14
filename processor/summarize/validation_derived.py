@@ -32,11 +32,15 @@ COUNT_LOCATION_PERIOD_COLUMNS = {
 
 
 def _empty_count_location_scatter_validation_summary() -> pl.DataFrame:
-    return empty_summary_frame(validation_scaffolds.count_location_scatter_validation_summary)
+    return empty_summary_frame(
+        validation_scaffolds.count_location_scatter_validation_summary
+    )
 
 
 def _empty_count_location_fit_validation_summary() -> pl.DataFrame:
-    return empty_summary_frame(validation_scaffolds.count_location_fit_validation_summary)
+    return empty_summary_frame(
+        validation_scaffolds.count_location_fit_validation_summary
+    )
 
 
 def build_count_location_scatter_validation_summary(
@@ -93,7 +97,9 @@ def _equation_label(slope: float, intercept: float) -> str:
     return f"y = {slope:.2f}x {sign} {abs(intercept):.2f}"
 
 
-def _fit_group(df: pl.DataFrame, *, facility_type: str, period: str) -> dict[str, object]:
+def _fit_group(
+    df: pl.DataFrame, *, facility_type: str, period: str
+) -> dict[str, object]:
     points = df.select("observed_volume", "modeled_volume").drop_nulls()
     n = points.height
     base: dict[str, object] = {
@@ -133,8 +139,10 @@ def _fit_group(df: pl.DataFrame, *, facility_type: str, period: str) -> dict[str
     sse = sum((yi - yhat) ** 2 for yi, yhat in zip(y, fitted))
     ss_yy = sum((yi - y_mean) ** 2 for yi in y)
     r_squared = (
-        1.0 if math.isclose(sse, 0.0) else 0.0
-    ) if math.isclose(ss_yy, 0.0) else max(0.0, min(1.0, 1.0 - sse / ss_yy))
+        (1.0 if math.isclose(sse, 0.0) else 0.0)
+        if math.isclose(ss_yy, 0.0)
+        else max(0.0, min(1.0, 1.0 - sse / ss_yy))
+    )
 
     base.update(
         slope=float(slope),
@@ -185,7 +193,9 @@ def build_count_location_fit_validation_summary(scatter: pl.DataFrame) -> pl.Dat
     )
 
 
-def apply_validation_derived_summaries(summary_runs: list[SummaryRun]) -> list[SummaryRun]:
+def apply_validation_derived_summaries(
+    summary_runs: list[SummaryRun],
+) -> list[SummaryRun]:
     """Rebuild derived validation summaries for every summary run when inputs exist."""
     if not summary_runs:
         return []
@@ -210,7 +220,9 @@ def apply_validation_derived_summaries(summary_runs: list[SummaryRun]) -> list[S
             counts = mode_tables.get(COUNT_LOCATION_COUNTS_ID)
             volumes = mode_tables.get(COUNT_LOCATION_VOLUMES_ID)
             if counts is not None and volumes is not None:
-                scatter = build_count_location_scatter_validation_summary(counts, volumes)
+                scatter = build_count_location_scatter_validation_summary(
+                    counts, volumes
+                )
                 fit = build_count_location_fit_validation_summary(scatter)
                 mode_tables[COUNT_LOCATION_SCATTER_ID] = scatter
                 mode_tables[COUNT_LOCATION_FIT_ID] = fit

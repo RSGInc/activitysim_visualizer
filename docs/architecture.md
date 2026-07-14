@@ -20,7 +20,7 @@ workflow code sees it. Removed and unknown keys fail with a focused error.
 | CLI and workflow orchestration | Parse step selections, choose cache-first vs rebuild flow, and hand off to prepare/summarize/dashboard workflows | `run.py`, `runtime/workflows/` |
 | Shared runtime contracts | Normalize YAML config and expose shared cross-cutting contracts used by both processor and dashboard | public surface `runtime.config`, implementation in `runtime/config/` |
 | Processor prepare step | Read raw ActivitySim outputs, materialize canonical prepared columns, and manage prepared-table cache I/O | `processor/models.py`, `processor/prepare/*` |
-| Summary generation | Register builders and compute weighted/unweighted tables | `processor/summarize/builder.py`, `processor/summarize/summary_specs.py`, `processor/summarize/summaries/*.py` |
+| Summary generation | Declare builders and compute weighted/unweighted tables | `processor/summarize/contracts.py`, `processor/summarize/catalog.py`, `processor/summarize/summaries/*.py` |
 | Summary cache I/O | Inspect, write, and load cache manifests and CSVs | `processor/summarize/cache.py`, `processor/summarize/cache_storage.py` |
 | Dashboard registry and state | Discover pages, validate page contracts, hold live state and cached filtered views | `dashboard/page_registry.py`, `dashboard/page_definitions.py`, `dashboard/state.py`, `dashboard/page_base.py` |
 | Rendering | Build context-bound Plotly figures and the live or exported view | `dashboard/rendering/`, `dashboard/app.py`, `dashboard/export/` |
@@ -92,15 +92,19 @@ workflow, and `segment` currently resolves inside the summarize workflow.
 
 `processor.models.RunData` is the prepared-data contract consumed by summary builders and prepared-data dashboard pages. Summary code should rely on canonical prepared columns rather than guessing raw ActivitySim column names directly. `processor/prepare/` is the layer that materializes those canonical fields and owns prepared-table cache helpers.
 
-### `SummarySpec` and `SUMMARY_SPECS`
+### `@summary` and the summary catalog
 
-`processor.summarize.summary_specs.SUMMARY_SPECS` is the summary registry. It defines:
+Each persisted summary is declared beside its builder with `@summary(...)`. The
+declaration defines:
 
 - the stable summary id used by dashboard pages
 - the CSV filename stem used in cache directories
-- the builder function that produces the summary table
+- its ordered output schema and prepared-input prerequisites
+- whether it is built by default
 
-Adding a summary is not complete until it is registered there.
+`processor.summarize.catalog` imports the owning domain modules explicitly,
+collects those declarations deterministically, and rejects duplicate ids.
+Successful builder results are validated for exact columns, order, and dtypes.
 
 ### `DashboardPageDefinition` and `DashboardPage`
 
@@ -186,20 +190,26 @@ activitysim_visualizer/
 |       |-- cache.py
 |       |-- cache_storage.py
 |       |-- cache_types.py
-|       |-- summary_specs.py
+|       |-- catalog.py
+|       |-- contracts.py
 |       `-- summaries/
 |   `-- summarize/
 |       |-- __init__.py
 |       |-- cache.py
 |       |-- schema.py
-|       |-- summary_specs.py
+|       |-- catalog.py
 |       |-- writer.py
 |       `-- summaries/
-|           |-- daily_travel.py
+|           |-- daily_travel_activity.py
+|           |-- daily_travel_escort_counts.py
+|           |-- daily_travel_escort_distributions.py
 |           |-- demographics.py
 |           |-- joint_travel.py
 |           |-- legacy.py
-|           |-- long_term.py
+|           |-- long_term_person.py
+|           |-- long_term_vehicle.py
+|           |-- long_term_geography.py
+|           |-- long_term_distance.py
 |           |-- tour.py
 |           |-- trip.py
 |           `-- validation.py

@@ -21,7 +21,6 @@ from processor.summarize.cache_types import (
     SummaryRun,
     normalize_weighting_modes,
 )
-from processor.summarize.contracts import empty_summary_frame
 from processor.summarize.writer import write_all
 from runtime.config import Config
 
@@ -78,9 +77,9 @@ def _build_mode_cache_payload(
 
     for summary_id, table in mode_tables.items():
         filename = Path(
-            summary_file_map([summary_id], summary_filename_by_id=summary_filename_by_id)[
-                summary_id
-            ]
+            summary_file_map(
+                [summary_id], summary_filename_by_id=summary_filename_by_id
+            )[summary_id]
         ).stem
         state, detail = _summary_storage_state(
             table,
@@ -300,7 +299,9 @@ def write_summary_run_bundle(
             if summary_run.is_full_segment and mode not in empty_summaries:
                 empty_summaries[mode] = list(mode_payload["empty_summaries"])
                 summary_states[mode] = dict(mode_payload["summary_states"])
-                unavailable_summaries[mode] = list(mode_payload["unavailable_summaries"])
+                unavailable_summaries[mode] = list(
+                    mode_payload["unavailable_summaries"]
+                )
                 failed_summaries[mode] = list(mode_payload["failed_summaries"])
                 summary_diagnostics[mode] = dict(mode_payload["summary_diagnostics"])
                 manifest_summary_digests[mode] = {
@@ -368,8 +369,7 @@ def write_summary_run_bundle(
     )
     manifest["segmentation_enabled"] = len(summary_runs) > 1
     manifest["segmentation_types"] = [
-        segmentation_type_entries[key]
-        for key in sorted(segmentation_type_entries)
+        segmentation_type_entries[key] for key in sorted(segmentation_type_entries)
     ]
     write_manifest(run_dir, manifest)
     _remove_legacy_summary_cache_dir(output_root, run_key)
@@ -445,7 +445,9 @@ def _validated_mode_and_summary_ids(
     manifest_modes = normalize_weighting_modes(
         [str(mode) for mode in manifest.get("weighting_modes", [])]
     )
-    missing_modes = [mode for mode in resolved_expected_modes if mode not in manifest_modes]
+    missing_modes = [
+        mode for mode in resolved_expected_modes if mode not in manifest_modes
+    ]
     if missing_modes:
         raise SummaryCacheError(
             f"Cache {cache_dir} is missing weighting modes: {missing_modes}"
@@ -521,7 +523,7 @@ def _empty_summary_result(
     spec = summary_spec_by_id.get(summary_id)
     if spec is None:
         return pl.DataFrame()
-    return empty_summary_frame(spec.builder)
+    return spec.empty()
 
 
 def _loaded_summary_table(
@@ -605,9 +607,7 @@ def _segment_mode_dirs(
         group_dict = dict(group)
         for raw_segment in list(group_dict.get("segments", [])):
             segment = dict(raw_segment)
-            segment_key = (
-                f"{group_dict.get('segmentation_type', 'full')}::{segment.get('segment_id', 'full')}"
-            )
+            segment_key = f"{group_dict.get('segmentation_type', 'full')}::{segment.get('segment_id', 'full')}"
             summary_roots = {
                 str(mode): str(path)
                 for mode, path in dict(segment.get("summary_roots", {})).items()
@@ -900,7 +900,9 @@ def load_summary_run_bundle(
                 str(summary_id): str(detail)
                 for summary_id, detail in dict(mode_details).items()
             }
-            for mode, mode_details in dict(segment.get("summary_diagnostics", {})).items()
+            for mode, mode_details in dict(
+                segment.get("summary_diagnostics", {})
+            ).items()
         }
         empty_summaries = {
             mode: [

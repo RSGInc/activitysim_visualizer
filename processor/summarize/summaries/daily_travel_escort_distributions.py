@@ -5,7 +5,7 @@ from __future__ import annotations
 import polars as pl
 
 from processor.models import RunData
-from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize.contracts import summary
 from processor.summarize.summaries.daily_travel_escort_shared import (
     _adult_side_escorted_tours,
     _adult_side_explicit_escorted_tours,
@@ -21,10 +21,16 @@ from processor.summarize.summaries.summary_helpers import (
 from runtime.config import Config
 
 
-@summary_contract(
+@summary(
+    id="adult_escorted_tour_distance_distribution_by_direction",
     schema={"distance_bin": pl.Utf8, "direction": pl.Utf8, "tour_count": pl.Float64},
     required_columns={
-        "tours": ("SKIMDIST", "school_esc_outbound", "school_esc_inbound", "finalweight")
+        "tours": (
+            "SKIMDIST",
+            "school_esc_outbound",
+            "school_esc_inbound",
+            "finalweight",
+        )
     },
 )
 def adult_escorted_tour_distance_distribution_by_direction(
@@ -32,23 +38,17 @@ def adult_escorted_tour_distance_distribution_by_direction(
 ) -> pl.DataFrame:
     required = {"SKIMDIST", "school_esc_outbound", "school_esc_inbound", "finalweight"}
     if not required.issubset(set(rd.tours.columns)):
-        return empty_summary_frame(
-            adult_escorted_tour_distance_distribution_by_direction
-        )
+        return adult_escorted_tour_distance_distribution_by_direction.empty()
 
     escorted = _adult_side_escorted_tours(rd)
     if escorted.is_empty():
-        return empty_summary_frame(
-            adult_escorted_tour_distance_distribution_by_direction
-        )
+        return adult_escorted_tour_distance_distribution_by_direction.empty()
 
     base = escorted.filter(pl.col("SKIMDIST").is_not_null()).with_columns(
         _rounded_distance_bin_expr("SKIMDIST")
     )
     if base.is_empty():
-        return empty_summary_frame(
-            adult_escorted_tour_distance_distribution_by_direction
-        )
+        return adult_escorted_tour_distance_distribution_by_direction.empty()
 
     result = pl.concat(
         [
@@ -67,10 +67,13 @@ def adult_escorted_tour_distance_distribution_by_direction(
         ],
         how="vertical",
     )
-    return _sorted_distance_bins(result, direction_col="direction", value_col="tour_count")
+    return _sorted_distance_bins(
+        result, direction_col="direction", value_col="tour_count"
+    )
 
 
-@summary_contract(
+@summary(
+    id="adult_escorted_trip_distance_distribution_by_direction",
     schema={"distance_bin": pl.Utf8, "direction": pl.Utf8, "trip_count": pl.Float64},
     required_columns={
         "tours": ("tour_id", "school_esc_outbound", "school_esc_inbound"),
@@ -81,21 +84,15 @@ def adult_escorted_trip_distance_distribution_by_direction(
     rd: RunData, config: Config
 ) -> pl.DataFrame:
     if "tour_id" not in rd.tours.columns or "tour_id" not in rd.trips.columns:
-        return empty_summary_frame(
-            adult_escorted_trip_distance_distribution_by_direction
-        )
+        return adult_escorted_trip_distance_distribution_by_direction.empty()
 
     direction_expr = _trip_direction_expr(rd.trips)
     if direction_expr is None:
-        return empty_summary_frame(
-            adult_escorted_trip_distance_distribution_by_direction
-        )
+        return adult_escorted_trip_distance_distribution_by_direction.empty()
 
     escorted_tours = _adult_side_explicit_escorted_tours(rd)
     if escorted_tours.is_empty():
-        return empty_summary_frame(
-            adult_escorted_trip_distance_distribution_by_direction
-        )
+        return adult_escorted_trip_distance_distribution_by_direction.empty()
 
     escorted_trip_ids = escorted_tours.select(
         "tour_id", "school_esc_outbound", "school_esc_inbound"
@@ -106,18 +103,14 @@ def adult_escorted_trip_distance_distribution_by_direction(
         or "od_dist" not in trips.columns
         or "finalweight" not in trips.columns
     ):
-        return empty_summary_frame(
-            adult_escorted_trip_distance_distribution_by_direction
-        )
+        return adult_escorted_trip_distance_distribution_by_direction.empty()
 
     base = trips.filter(pl.col("od_dist").is_not_null()).with_columns(
         direction_expr,
         _rounded_distance_bin_expr("od_dist"),
     )
     if base.is_empty():
-        return empty_summary_frame(
-            adult_escorted_trip_distance_distribution_by_direction
-        )
+        return adult_escorted_trip_distance_distribution_by_direction.empty()
 
     result = pl.concat(
         [
@@ -145,10 +138,13 @@ def adult_escorted_trip_distance_distribution_by_direction(
         ],
         how="vertical",
     )
-    return _sorted_distance_bins(result, direction_col="direction", value_col="trip_count")
+    return _sorted_distance_bins(
+        result, direction_col="direction", value_col="trip_count"
+    )
 
 
-@summary_contract(
+@summary(
+    id="adult_escort_event_stop_distribution",
     schema={"segment": pl.Utf8, "stop_count": pl.Int32, "tour_count": pl.Float64},
     required_columns={
         "tours": ("tour_id", "school_esc_outbound", "school_esc_inbound"),
@@ -163,11 +159,11 @@ def adult_escorted_trip_distance_distribution_by_direction(
 )
 def adult_escort_event_stop_distribution(rd: RunData, config: Config) -> pl.DataFrame:
     if "tour_id" not in rd.tours.columns or "tour_id" not in rd.trips.columns:
-        return empty_summary_frame(adult_escort_event_stop_distribution)
+        return adult_escort_event_stop_distribution.empty()
 
     escorted = _adult_side_explicit_escorted_tours(rd)
     if escorted.is_empty():
-        return empty_summary_frame(adult_escort_event_stop_distribution)
+        return adult_escort_event_stop_distribution.empty()
 
     required_trip_cols = {
         "tour_id",
@@ -177,14 +173,14 @@ def adult_escort_event_stop_distribution(rd: RunData, config: Config) -> pl.Data
         "finalweight",
     }
     if not required_trip_cols.issubset(set(rd.trips.columns)):
-        return empty_summary_frame(adult_escort_event_stop_distribution)
+        return adult_escort_event_stop_distribution.empty()
 
     escorted_trip_ids = escorted.select(
         "tour_id", "school_esc_outbound", "school_esc_inbound"
     ).unique()
     trips = rd.trips.join(escorted_trip_ids, on="tour_id", how="inner")
     if trips.is_empty():
-        return empty_summary_frame(adult_escort_event_stop_distribution)
+        return adult_escort_event_stop_distribution.empty()
 
     events = (
         trips.filter(pl.col("escort_event_role").is_not_null())
@@ -207,7 +203,7 @@ def adult_escort_event_stop_distribution(rd: RunData, config: Config) -> pl.Data
         )
     )
     if events.is_empty():
-        return empty_summary_frame(adult_escort_event_stop_distribution)
+        return adult_escort_event_stop_distribution.empty()
 
     empty_segment_schema = {
         "segment": pl.Utf8,
@@ -245,7 +241,7 @@ def adult_escort_event_stop_distribution(rd: RunData, config: Config) -> pl.Data
         how="vertical",
     )
     if result.is_empty():
-        return empty_summary_frame(adult_escort_event_stop_distribution)
+        return adult_escort_event_stop_distribution.empty()
 
     return (
         result.with_columns(
@@ -258,7 +254,8 @@ def adult_escort_event_stop_distribution(rd: RunData, config: Config) -> pl.Data
     )
 
 
-@summary_contract(
+@summary(
+    id="adult_escort_trip_stop_frequency",
     schema={
         "tour_purpose": pl.Utf8,
         "outbound_stop_count": pl.Int32,
@@ -288,24 +285,33 @@ def adult_escort_trip_stop_frequency(rd: RunData, config: Config) -> pl.DataFram
         "finalweight",
     }
     if not required.issubset(set(rd.tours.columns)):
-        return empty_summary_frame(adult_escort_trip_stop_frequency)
+        return adult_escort_trip_stop_frequency.empty()
 
     escorted = _adult_side_escorted_tours(rd)
     if escorted.is_empty():
-        return empty_summary_frame(adult_escort_trip_stop_frequency)
+        return adult_escort_trip_stop_frequency.empty()
 
     purpose_col = _summary_purpose_column(escorted)
     if not purpose_col:
-        return empty_summary_frame(adult_escort_trip_stop_frequency)
+        return adult_escort_trip_stop_frequency.empty()
 
     return (
         escorted.filter(pl.col(purpose_col).is_not_null())
         .with_columns(
             [
                 pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"),
-                pl.col("num_ob_stops").clip(0, 3).cast(pl.Int32).alias("outbound_stop_count"),
-                pl.col("num_ib_stops").clip(0, 3).cast(pl.Int32).alias("inbound_stop_count"),
-                pl.col("num_tot_stops").clip(0, 6).cast(pl.Int32).alias("total_stop_count"),
+                pl.col("num_ob_stops")
+                .clip(0, 3)
+                .cast(pl.Int32)
+                .alias("outbound_stop_count"),
+                pl.col("num_ib_stops")
+                .clip(0, 3)
+                .cast(pl.Int32)
+                .alias("inbound_stop_count"),
+                pl.col("num_tot_stops")
+                .clip(0, 6)
+                .cast(pl.Int32)
+                .alias("total_stop_count"),
             ]
         )
         .group_by(

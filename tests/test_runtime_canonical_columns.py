@@ -12,14 +12,12 @@ from runtime.config import Config
 from processor.models import RunData
 from processor.prepare.enrichment.pipeline import prepare_data
 from processor.summarize.schema import SUMMARY_OUTPUT_COLUMNS
-from processor.summarize.summaries import (
-    daily_travel,
-    joint_travel,
-    legacy,
-    long_term,
-    tour,
-    trip,
-)
+from processor.summarize.summaries import joint_travel, legacy, tour, trip
+from processor.summarize.summaries import tour_profiles, trip_distributions
+from processor.summarize.summaries import daily_travel_activity
+from processor.summarize.summaries import daily_travel_escort_counts
+from processor.summarize.summaries import daily_travel_escort_distributions
+from processor.summarize.summaries import long_term_geography, long_term_person
 from processor.tour_purpose import with_summary_tour_purpose
 
 
@@ -384,7 +382,9 @@ def test_tour_purpose_grouping_flags_parse_explicit_booleans(tmp_path: Path) -> 
     assert config.group_school_tour_purposes is True
 
 
-def test_tour_purpose_grouping_flags_allow_explicit_false_overrides(tmp_path: Path) -> None:
+def test_tour_purpose_grouping_flags_allow_explicit_false_overrides(
+    tmp_path: Path,
+) -> None:
     config = _write_config(
         tmp_path,
         extra_lines=[
@@ -536,7 +536,6 @@ def test_category_specs_apply_ascending_descending_and_data_fallbacks(
     ]
 
 
-
 def test_geography_aggregations_support_inline_and_file_mappings(
     tmp_path: Path,
 ) -> None:
@@ -565,7 +564,9 @@ def test_geography_aggregations_support_inline_and_file_mappings(
         ],
     )
 
-    assert [aggregation.name for aggregation in config.geography_aggregations.aggregations] == [
+    assert [
+        aggregation.name for aggregation in config.geography_aggregations.aggregations
+    ] == [
         "county",
         "district",
     ]
@@ -822,9 +823,6 @@ def test_summary_categories_change_summary_digest_without_changing_presentation_
     assert config_a.presentation_config_digest == config_b.presentation_config_digest
 
 
-
-
-
 def test_typed_geography_summaries_include_configured_aggregation_levels(
     tmp_path: Path,
 ) -> None:
@@ -865,25 +863,18 @@ def test_typed_geography_summaries_include_configured_aggregation_levels(
         skim_matrix=None,
         skim_zone_map=None,
     )
-    wfh = long_term.wfh(prepared, config)
-    flows = long_term.commuting_flows(prepared, config)
+    wfh = long_term_geography.wfh(prepared, config)
+    flows = long_term_geography.commuting_flows(prepared, config)
     assert ("county" in wfh["geography_type"].to_list()) is True
-    assert (
-        wfh.filter(pl.col("geography_type") == "county")["geography_id"].to_list()
-        == ["Urban"]
-    )
-    assert (
-        flows.filter(pl.col("origin_geography_type") == "county")[
-            "origin_geography_id"
-        ].to_list()
-        == ["Urban"]
-    )
-    assert (
-        flows.filter(pl.col("destination_geography_type") == "county")[
-            "destination_geography_id"
-        ].to_list()
-        == ["Rural"]
-    )
+    assert wfh.filter(pl.col("geography_type") == "county")[
+        "geography_id"
+    ].to_list() == ["Urban"]
+    assert flows.filter(pl.col("origin_geography_type") == "county")[
+        "origin_geography_id"
+    ].to_list() == ["Urban"]
+    assert flows.filter(pl.col("destination_geography_type") == "county")[
+        "destination_geography_id"
+    ].to_list() == ["Rural"]
 
 
 def test_config_summary_signature_changes_when_tour_purpose_grouping_changes(
@@ -1272,7 +1263,7 @@ def test_transit_subsidy_summary_uses_raw_categories_and_label_overrides(
         skim_zone_map=None,
     )
 
-    result = long_term.transit_subsidy(run, config).sort(
+    result = long_term_person.transit_subsidy(run, config).sort(
         ["person_type", "transit_subsidy_status"]
     )
 
@@ -1436,9 +1427,9 @@ def test_tour_purpose_grouping_preserves_current_behavior_when_disabled(
         trip_weight_col=prepared.trip_weight_col,
     )
 
-    tour_tod_profiles = tour.tour_tod(prepared, config)
+    tour_tod_profiles = tour_profiles.tour_tod(prepared, config)
     trip_mode_profile = trip.trip_mode(prepared, config)
-    person_tour_rates = daily_travel.tour_rate_per_person(prepared, config)
+    person_tour_rates = daily_travel_activity.tour_rate_per_person(prepared, config)
 
     tour_purposes = set(tour_tod_profiles["tour_purpose"].unique().to_list())
     assert "joint_eatout" in tour_purposes
@@ -1469,9 +1460,9 @@ def test_tour_purpose_grouping_rolls_up_joint_atwork_and_school_across_summaries
         trip_weight_col=prepared.trip_weight_col,
     )
 
-    tour_tod_profiles = tour.tour_tod(prepared, config)
+    tour_tod_profiles = tour_profiles.tour_tod(prepared, config)
     trip_mode_profile = trip.trip_mode(prepared, config)
-    person_tour_rates = daily_travel.tour_rate_per_person(prepared, config)
+    person_tour_rates = daily_travel_activity.tour_rate_per_person(prepared, config)
 
     tour_purposes = set(tour_tod_profiles["tour_purpose"].unique().to_list())
     assert "joint" in tour_purposes
@@ -1493,7 +1484,9 @@ def test_tour_purpose_grouping_rolls_up_joint_atwork_and_school_across_summaries
 
     non_total = tour_tod_profiles.filter(pl.col("tour_purpose") != "all_tour_purposes")
     total = tour_tod_profiles.filter(pl.col("tour_purpose") == "all_tour_purposes")
-    assert total["departure_tour_count"].sum() == non_total["departure_tour_count"].sum()
+    assert (
+        total["departure_tour_count"].sum() == non_total["departure_tour_count"].sum()
+    )
 
 
 def test_tour_rate_per_person_includes_all_person_types_total(tmp_path: Path) -> None:
@@ -1524,7 +1517,7 @@ def test_tour_rate_per_person_includes_all_person_types_total(tmp_path: Path) ->
         skim_zone_map=None,
     )
 
-    summary = daily_travel.tour_rate_per_person(rd, config).sort(
+    summary = daily_travel_activity.tour_rate_per_person(rd, config).sort(
         ["person_type", "tour_purpose"]
     )
 
@@ -1588,9 +1581,11 @@ def test_atwork_subtour_frequency_summary_counts_parent_work_tours_only(
         skim_zone_map=None,
     )
 
-    summary = tour.at_work_sub_tour_freq(rd, config)
+    summary = tour_profiles.at_work_sub_tour_freq(rd, config)
 
-    assert summary.sort("atwork_subtour_frequency_category").to_dict(as_series=False) == {
+    assert summary.sort("atwork_subtour_frequency_category").to_dict(
+        as_series=False
+    ) == {
         "atwork_subtour_frequency_category": ["eat", "no_subtours"],
         "atwork_subtour_count": [3.0, 2.0],
     }
@@ -1616,7 +1611,12 @@ def test_escorted_tour_summaries_exclude_child_person_types(tmp_path: Path) -> N
                 "person_id": [101, 101, 103, 102],
                 "person_type": [4, 4, 2, 7],
                 "tour_purpose": ["escort", "shopping", "escort", "school"],
-                "school_esc_outbound": ["ride_share", None, "pure_escort", "pure_escort"],
+                "school_esc_outbound": [
+                    "ride_share",
+                    None,
+                    "pure_escort",
+                    "pure_escort",
+                ],
                 "school_esc_inbound": [None, "ride_share", "pure_escort", "ride_share"],
                 "SKIMDIST": [12.2, 7.6, 44.4, 9.1],
                 "num_ob_stops": [1, 5, 4, 2],
@@ -1639,28 +1639,33 @@ def test_escorted_tour_summaries_exclude_child_person_types(tmp_path: Path) -> N
         skim_zone_map=None,
     )
 
-    total = daily_travel.total_escorted_tours(rd, config)
-    school = daily_travel.escorted_tours_to_from_school(rd, config).sort(
+    total = daily_travel_escort_counts.total_escorted_tours(rd, config)
+    school = daily_travel_escort_counts.escorted_tours_to_from_school(rd, config).sort(
         ["escort_type", "direction"]
     )
-    purposes = daily_travel.adult_escorted_tour_purposes_by_direction(rd, config).sort(
-        ["tour_purpose", "direction"]
-    )
-    person_types = daily_travel.adult_escorted_tours_by_person_type_and_direction(
+    purposes = daily_travel_escort_counts.adult_escorted_tour_purposes_by_direction(
         rd, config
-    ).sort(["person_type", "direction"])
-    tour_distance = (
-        daily_travel.adult_escorted_tour_distance_distribution_by_direction(
+    ).sort(["tour_purpose", "direction"])
+    person_types = (
+        daily_travel_escort_counts.adult_escorted_tours_by_person_type_and_direction(
             rd, config
-        ).sort(["direction", "distance_bin"])
+        ).sort(["person_type", "direction"])
     )
-    trip_distance = (
-        daily_travel.adult_escorted_trip_distance_distribution_by_direction(
-            rd, config
-        ).sort(["direction", "distance_bin"])
-    )
-    stop_frequency = daily_travel.adult_escort_trip_stop_frequency(rd, config).sort(
-        ["tour_purpose", "outbound_stop_count", "inbound_stop_count", "total_stop_count"]
+    tour_distance = daily_travel_escort_distributions.adult_escorted_tour_distance_distribution_by_direction(
+        rd, config
+    ).sort(["direction", "distance_bin"])
+    trip_distance = daily_travel_escort_distributions.adult_escorted_trip_distance_distribution_by_direction(
+        rd, config
+    ).sort(["direction", "distance_bin"])
+    stop_frequency = daily_travel_escort_distributions.adult_escort_trip_stop_frequency(
+        rd, config
+    ).sort(
+        [
+            "tour_purpose",
+            "outbound_stop_count",
+            "inbound_stop_count",
+            "total_stop_count",
+        ]
     )
 
     assert total.to_dict(as_series=False) == {"tour_count": [5.0]}
@@ -1780,9 +1785,9 @@ def test_adult_escort_event_stop_distribution_filters_to_explicit_escort_types(
         skim_zone_map=None,
     )
 
-    summary = daily_travel.adult_escort_event_stop_distribution(rd, config).sort(
-        ["segment", "stop_count"]
-    )
+    summary = daily_travel_escort_distributions.adult_escort_event_stop_distribution(
+        rd, config
+    ).sort(["segment", "stop_count"])
 
     assert summary.to_dict(as_series=False) == {
         "segment": [
@@ -1844,16 +1849,12 @@ def test_adult_escort_distance_distributions_filter_to_explicit_escort_types(
         skim_zone_map=None,
     )
 
-    tour_distance = (
-        daily_travel.adult_escorted_tour_distance_distribution_by_direction(
-            rd, config
-        ).sort(["direction", "distance_bin"])
-    )
-    trip_distance = (
-        daily_travel.adult_escorted_trip_distance_distribution_by_direction(
-            rd, config
-        ).sort(["direction", "distance_bin"])
-    )
+    tour_distance = daily_travel_escort_distributions.adult_escorted_tour_distance_distribution_by_direction(
+        rd, config
+    ).sort(["direction", "distance_bin"])
+    trip_distance = daily_travel_escort_distributions.adult_escorted_trip_distance_distribution_by_direction(
+        rd, config
+    ).sort(["direction", "distance_bin"])
 
     assert tour_distance.to_dict(as_series=False) == {
         "distance_bin": ["40+", "19", "40+", "12", "40+"],
@@ -1894,9 +1895,30 @@ def test_student_school_escort_status_by_direction_summarizes_student_school_tou
                 "tour_id": [2001, 2002, 2003, 2004, 2005, 2006],
                 "person_id": [201, 202, 202, 203, 204, 204],
                 "person_type": [6, 7, 7, 4, 8, 8],
-                "tour_purpose": ["school", "school", "school", "school", "shopping", "school"],
-                "school_esc_outbound": ["none", "pure_escort", "ride_share", "pure_escort", "ride_share", "pure_escort"],
-                "school_esc_inbound": ["none", "ride_share", "none", "pure_escort", "ride_share", "pure_escort"],
+                "tour_purpose": [
+                    "school",
+                    "school",
+                    "school",
+                    "school",
+                    "shopping",
+                    "school",
+                ],
+                "school_esc_outbound": [
+                    "none",
+                    "pure_escort",
+                    "ride_share",
+                    "pure_escort",
+                    "ride_share",
+                    "pure_escort",
+                ],
+                "school_esc_inbound": [
+                    "none",
+                    "ride_share",
+                    "none",
+                    "pure_escort",
+                    "ride_share",
+                    "pure_escort",
+                ],
                 "finalweight": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
             }
         ),
@@ -1907,9 +1929,9 @@ def test_student_school_escort_status_by_direction_summarizes_student_school_tou
         skim_zone_map=None,
     )
 
-    summary = daily_travel.student_school_escort_status_by_direction(rd, config).sort(
-        ["direction", "escort_type"]
-    )
+    summary = daily_travel_escort_counts.student_school_escort_status_by_direction(
+        rd, config
+    ).sort(["direction", "escort_type"])
 
     assert summary.to_dict(as_series=False) == {
         "direction": [
@@ -1970,9 +1992,9 @@ def test_student_school_escort_status_treats_blank_labels_as_not_escorted(
         skim_zone_map=None,
     )
 
-    summary = daily_travel.student_school_escort_status_by_direction(rd, config).sort(
-        ["direction", "escort_type"]
-    )
+    summary = daily_travel_escort_counts.student_school_escort_status_by_direction(
+        rd, config
+    ).sort(["direction", "escort_type"])
 
     assert summary.to_dict(as_series=False) == {
         "direction": [
@@ -2038,14 +2060,12 @@ def test_households_with_school_escorting_by_student_count_and_direction_summari
         skim_zone_map=None,
     )
 
-    denominator = daily_travel.student_households_by_student_count(rd, config).sort(
-        "student_count"
-    )
-    summary = (
-        daily_travel.households_with_school_escorting_by_student_count_and_direction(
-            rd, config
-        ).sort(["direction", "student_count"])
-    )
+    denominator = daily_travel_escort_counts.student_households_by_student_count(
+        rd, config
+    ).sort("student_count")
+    summary = daily_travel_escort_counts.households_with_school_escorting_by_student_count_and_direction(
+        rd, config
+    ).sort(["direction", "student_count"])
 
     assert denominator.to_dict(as_series=False) == {
         "student_count": [1, 2],
@@ -2091,7 +2111,14 @@ def test_schoolkids_per_escorted_tour_by_student_count_and_direction_summarizes_
             {
                 "tour_id": [2001, 2002, 2003, 2004, 2005, 2006],
                 "person_id": [101, 101, 103, 104, 104, 106],
-                "tour_purpose": ["escort", "escort", "escort", "escort", "shopping", "escort"],
+                "tour_purpose": [
+                    "escort",
+                    "escort",
+                    "escort",
+                    "escort",
+                    "shopping",
+                    "escort",
+                ],
                 "school_esc_outbound": [
                     "pure_escort",
                     "ride_share",
@@ -2108,7 +2135,7 @@ def test_schoolkids_per_escorted_tour_by_student_count_and_direction_summarizes_
                     "pure_escort",
                     "ride_share",
                 ],
-                "num_escorted": [1.0, 2.0, 3.0, 4.0, 9.0, None],
+                "num_escortees": [1.0, 2.0, 3.0, 4.0, 9.0, None],
                 "finalweight": [2.0, 1.0, 3.0, 4.0, 5.0, 6.0],
             }
         ),
@@ -2119,11 +2146,9 @@ def test_schoolkids_per_escorted_tour_by_student_count_and_direction_summarizes_
         skim_zone_map=None,
     )
 
-    summary = (
-        daily_travel.schoolkids_per_escorted_tour_by_student_count_and_direction(
-            rd, config
-        ).sort(["direction", "student_count"])
-    )
+    summary = daily_travel_escort_counts.schoolkids_per_escorted_tour_by_student_count_and_direction(
+        rd, config
+    ).sort(["direction", "student_count"])
 
     assert summary.to_dict(as_series=False) == {
         "student_count": [1, 1, 1],
@@ -2234,9 +2259,10 @@ def test_prepare_data_derives_trip_and_tour_period_labels(
     assert prepared.tours["start_period"].to_list() == ["AM"]
     assert prepared.tours["end_period"].to_list() == ["EV"]
     assert prepared.tours["first_inbound_trip_period"].to_list() == ["PM"]
-    assert prepared.prepare_diagnostics["time_periods.trips.trip_period"][
-        "unresolved"
-    ] == 2
+    assert (
+        prepared.prepare_diagnostics["time_periods.trips.trip_period"]["unresolved"]
+        == 2
+    )
 
 
 def test_prepare_data_preserves_raw_trip_period_when_source_missing(
@@ -2260,9 +2286,10 @@ def test_prepare_data_preserves_raw_trip_period_when_source_missing(
     prepared = prepare_data(raw, config)
 
     assert prepared.trips["trip_period"].to_list() == ["AM", "PM"]
-    assert prepared.prepare_diagnostics["time_periods.trips.trip_period"][
-        "status"
-    ] == "source_column_missing"
+    assert (
+        prepared.prepare_diagnostics["time_periods.trips.trip_period"]["status"]
+        == "source_column_missing"
+    )
 
 
 def test_prepare_data_resolves_shared_alias_lists_independently_per_run(
@@ -2436,12 +2463,12 @@ def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
     assert stop_purpose["tour_purpose"].to_list() == ["eatout"]
     assert stop_purpose["stop_destination_purpose"].to_list() == ["shop"]
 
-    stop_freq = tour.stop_freq(prepared, config)
+    stop_freq = tour_profiles.stop_freq(prepared, config)
     assert stop_freq.columns == list(
         SUMMARY_OUTPUT_COLUMNS["tour_stop_frequency_by_tour_purpose"]
     )
 
-    stop_location = trip.stop_ood_distance(prepared, config)
+    stop_location = trip_distributions.stop_ood_distance(prepared, config)
     assert stop_location.columns == list(
         SUMMARY_OUTPUT_COLUMNS["stop_out_of_direction_distance_by_tour_purpose"]
     )
@@ -2449,7 +2476,7 @@ def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
         assert "all_tour_purposes" in stop_location["tour_purpose"].unique().to_list()
         assert "eatout" in stop_location["tour_purpose"].unique().to_list()
 
-    stop_timing = trip.trip_stop_tod(prepared, config)
+    stop_timing = trip_distributions.trip_stop_tod(prepared, config)
     assert stop_timing.columns == list(
         SUMMARY_OUTPUT_COLUMNS["trip_departure_time_by_purpose"]
     )
@@ -2466,7 +2493,7 @@ def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
         "freq_all",
     ]
 
-    tour_tod_profiles = tour.tour_tod(prepared, config)
+    tour_tod_profiles = tour_profiles.tour_tod(prepared, config)
     assert tour_tod_profiles.columns == [
         "time_bin",
         "tour_purpose",
@@ -2482,8 +2509,8 @@ def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
         assert totals_df["employment"].to_list() == [24.0]
 
     distance_df = legacy.distance_distribution(prepared, config)
-    assert "purpose" in distance_df.columns
-    assert "All NM" in distance_df["purpose"].to_list()
+    assert distance_df.columns == ["purpose", "distbin", "freq"]
+    assert distance_df.is_empty()
 
 
 def test_summaries_return_empty_tables_when_canonical_columns_are_missing(
@@ -2499,7 +2526,9 @@ def test_summaries_return_empty_tables_when_canonical_columns_are_missing(
         hh=prepared.hh,
         per=prepared.per,
         tours=prepared.tours.drop(["tour_purpose", "summary_tour_purpose"]),
-        trips=prepared.trips.drop(["tour_purpose", "summary_tour_purpose", "trip_purpose"]),
+        trips=prepared.trips.drop(
+            ["tour_purpose", "summary_tour_purpose", "trip_purpose"]
+        ),
         joint_participants=prepared.joint_participants,
         land_use=prepared.land_use,
         skim_matrix=prepared.skim_matrix,
@@ -2511,10 +2540,10 @@ def test_summaries_return_empty_tables_when_canonical_columns_are_missing(
 
     assert trip.trip_mode(prepared, config).is_empty()
     assert trip.stop_purpose_by_tour_purpose(prepared, config).is_empty()
-    assert trip.trip_stop_tod(prepared, config).is_empty()
-    assert trip.stop_ood_distance(prepared, config).is_empty()
-    assert tour.stop_freq(prepared, config).is_empty()
-    assert tour.tour_tod(prepared, config).is_empty()
+    assert trip_distributions.trip_stop_tod(prepared, config).is_empty()
+    assert trip_distributions.stop_ood_distance(prepared, config).is_empty()
+    assert tour_profiles.stop_freq(prepared, config).is_empty()
+    assert tour_profiles.tour_tod(prepared, config).is_empty()
     assert legacy.distance_distribution(prepared, config).is_empty()
 
 

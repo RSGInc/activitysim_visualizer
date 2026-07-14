@@ -5,11 +5,13 @@ from __future__ import annotations
 import polars as pl
 
 from processor.models import RunData
-from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize.contracts import summary
 from runtime.config import Config
 
 
-@summary_contract(
+@summary(
+    id="link_validation_summary",
+    build_by_default=False,
     schema={
         "id": pl.Int64,
         "From_Node": pl.Int64,
@@ -19,13 +21,15 @@ from runtime.config import Config
         "md_vol": pl.Float64,
         "pm_vol": pl.Float64,
         "day_vol": pl.Float64,
-    }
+    },
 )
 def link_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(link_validation_summary)
+    return link_validation_summary.empty()
 
 
-@summary_contract(
+@summary(
+    id="count_location_counts_validation_summary",
+    build_by_default=False,
     schema={
         "id": pl.Int64,
         "FACTYPE": pl.Int64,
@@ -33,13 +37,17 @@ def link_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
         "md_vol": pl.Float64,
         "pm_vol": pl.Float64,
         "day_vol": pl.Float64,
-    }
+    },
 )
-def count_location_counts_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(count_location_counts_validation_summary)
+def count_location_counts_validation_summary(
+    rd: RunData, config: Config
+) -> pl.DataFrame:
+    return count_location_counts_validation_summary.empty()
 
 
-@summary_contract(
+@summary(
+    id="count_location_volumes_validation_summary",
+    build_by_default=False,
     schema={
         "id": pl.Int64,
         "FACTYPE": pl.Int64,
@@ -47,26 +55,34 @@ def count_location_counts_validation_summary(rd: RunData, config: Config) -> pl.
         "md_vol": pl.Float64,
         "pm_vol": pl.Float64,
         "day_vol": pl.Float64,
-    }
+    },
 )
-def count_location_volumes_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(count_location_volumes_validation_summary)
+def count_location_volumes_validation_summary(
+    rd: RunData, config: Config
+) -> pl.DataFrame:
+    return count_location_volumes_validation_summary.empty()
 
 
-@summary_contract(
+@summary(
+    id="count_location_scatter_validation_summary",
+    build_by_default=False,
     schema={
         "id": pl.Int64,
         "facility_type": pl.Utf8,
         "period": pl.Utf8,
         "observed_volume": pl.Float64,
         "modeled_volume": pl.Float64,
-    }
+    },
 )
-def count_location_scatter_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(count_location_scatter_validation_summary)
+def count_location_scatter_validation_summary(
+    rd: RunData, config: Config
+) -> pl.DataFrame:
+    return count_location_scatter_validation_summary.empty()
 
 
-@summary_contract(
+@summary(
+    id="count_location_fit_validation_summary",
+    build_by_default=False,
     schema={
         "facility_type": pl.Utf8,
         "period": pl.Utf8,
@@ -78,13 +94,15 @@ def count_location_scatter_validation_summary(rd: RunData, config: Config) -> pl
         "observed_max": pl.Float64,
         "equation_label": pl.Utf8,
         "r_squared_label": pl.Utf8,
-    }
+    },
 )
 def count_location_fit_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(count_location_fit_validation_summary)
+    return count_location_fit_validation_summary.empty()
 
 
-@summary_contract(
+@summary(
+    id="county_flows_validation_summary",
+    build_by_default=False,
     schema={
         "": pl.Utf8,
         "Albany": pl.Float64,
@@ -92,49 +110,57 @@ def count_location_fit_validation_summary(rd: RunData, config: Config) -> pl.Dat
         "Lebanon": pl.Float64,
         "Philomath": pl.Float64,
         "Total": pl.Float64,
-    }
+    },
 )
 def county_flows_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(county_flows_validation_summary)
+    return county_flows_validation_summary.empty()
 
 
-@summary_contract(
+@summary(
+    id="county_flows_joja_validation_summary",
+    build_by_default=False,
     schema={
         "": pl.Utf8,
         "Benton": pl.Float64,
         "Linn": pl.Float64,
         "Marion": pl.Float64,
         "Total": pl.Float64,
-    }
+    },
 )
 def county_flows_joja_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(county_flows_joja_validation_summary)
+    return county_flows_joja_validation_summary.empty()
 
 
-@summary_contract(
+@summary(
+    id="commercial_vehicle_validation_summary",
+    build_by_default=False,
     schema={
         "tod": pl.Utf8,
         "car": pl.Float64,
         "mu": pl.Float64,
         "su": pl.Float64,
         "Total": pl.Float64,
-    }
+    },
 )
 def commercial_vehicle_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(commercial_vehicle_validation_summary)
+    return commercial_vehicle_validation_summary.empty()
 
 
-@summary_contract(
+@summary(
+    id="commercial_vehicle_vmt_validation_summary",
+    build_by_default=False,
     schema={
         "tod": pl.Utf8,
         "car": pl.Float64,
         "mu": pl.Float64,
         "su": pl.Float64,
         "Total": pl.Float64,
-    }
+    },
 )
-def commercial_vehicle_vmt_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(commercial_vehicle_vmt_validation_summary)
+def commercial_vehicle_vmt_validation_summary(
+    rd: RunData, config: Config
+) -> pl.DataFrame:
+    return commercial_vehicle_vmt_validation_summary.empty()
 
 
 _EXTERNAL_PURPOSE_SCHEMA = {
@@ -152,17 +178,27 @@ _EXTERNAL_PURPOSE_SCHEMA = {
 }
 
 
-@summary_contract(schema=_EXTERNAL_PURPOSE_SCHEMA)
+@summary(
+    id="external_trip_validation_summary",
+    build_by_default=False,
+    schema=_EXTERNAL_PURPOSE_SCHEMA,
+)
 def external_trip_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(external_trip_validation_summary)
+    return external_trip_validation_summary.empty()
 
 
-@summary_contract(schema=_EXTERNAL_PURPOSE_SCHEMA)
+@summary(
+    id="external_vmt_validation_summary",
+    build_by_default=False,
+    schema=_EXTERNAL_PURPOSE_SCHEMA,
+)
 def external_vmt_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(external_vmt_validation_summary)
+    return external_vmt_validation_summary.empty()
 
 
-@summary_contract(
+@summary(
+    id="auto_vmt_validation_summary",
+    build_by_default=False,
     schema={
         "TOD": pl.Utf8,
         "SOV": pl.Float64,
@@ -170,18 +206,20 @@ def external_vmt_validation_summary(rd: RunData, config: Config) -> pl.DataFrame
         "HOV3": pl.Float64,
         "Truck": pl.Float64,
         "Total": pl.Float64,
-    }
+    },
 )
 def auto_vmt_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(auto_vmt_validation_summary)
+    return auto_vmt_validation_summary.empty()
 
 
-@summary_contract(
+@summary(
+    id="work_from_home_validation_summary",
+    build_by_default=False,
     schema={
         "District": pl.Utf8,
         "Workers": pl.Float64,
         "WFH": pl.Float64,
-    }
+    },
 )
 def work_from_home_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return empty_summary_frame(work_from_home_validation_summary)
+    return work_from_home_validation_summary.empty()

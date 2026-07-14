@@ -202,7 +202,7 @@ class DailyActivityPatternPage(DashboardPage):
         raw_person_type,
     ):
         summary_data = summaries["daily_activity_pattern_by_person_type"]
-        if summary_data is None:
+        if not summary_data:
             return self._missing_chart_card("daily_activity_pattern_by_person_type")
         chart_data, _, label_values = self._count_chart(
             summary_data,
@@ -231,7 +231,7 @@ class DailyActivityPatternPage(DashboardPage):
         raw_person_type,
     ):
         summary_data = summaries["mandatory_tour_frequency_by_person_type"]
-        if summary_data is None:
+        if not summary_data:
             return self._missing_chart_card("mandatory_tour_frequency_by_person_type")
         chart_data, _, label_values = self._count_chart(
             summary_data,
@@ -260,7 +260,7 @@ class DailyActivityPatternPage(DashboardPage):
         raw_person_type,
     ):
         summary_data = summaries["nonmandatory_tour_frequency_by_person_type"]
-        if summary_data is None:
+        if not summary_data:
             return self._missing_chart_card("nonmandatory_tour_frequency_by_person_type")
         chart_data, x_values, _ = self._count_chart(
             summary_data,
@@ -288,7 +288,7 @@ class DailyActivityPatternPage(DashboardPage):
         person_weights,
     ):
         summary_data = summaries["tour_rates_by_person_type_and_tour_purpose"]
-        if summary_data is None:
+        if not summary_data:
             return self._missing_chart_card("tour_rates_by_person_type_and_tour_purpose")
         chart_data, label_values = self._rate_chart(
             summary_data,
@@ -320,7 +320,7 @@ class DailyActivityPatternPage(DashboardPage):
         person_weights,
     ):
         summary_data = summaries["trip_rates_by_person_type_and_trip_purpose"]
-        if summary_data is None:
+        if not summary_data:
             return self._missing_chart_card("trip_rates_by_person_type_and_trip_purpose")
         chart_data, label_values = self._rate_chart(
             summary_data,
