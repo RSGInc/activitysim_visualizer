@@ -233,11 +233,6 @@ def at_work_sub_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def atwork_subtour_frequency_distribution(rd: RunData, config: Config) -> pl.DataFrame:
-    """Backward-compatible alias used by summary spec registration."""
-    return at_work_sub_tour_freq(rd, config)
-
-
 @summary(
     id="tour_time_of_day_by_tour_purpose",
     schema={

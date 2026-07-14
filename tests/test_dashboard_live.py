@@ -213,8 +213,8 @@ def test_dashboard_state_reports_missing_non_default_summary_as_diagnostic() -> 
         label="Base",
         run_key="base",
         summaries_by_mode={
-            "weighted": {"totals": pl.DataFrame({"population": [1.0]})},
-            "unweighted": {"totals": pl.DataFrame({"population": [1.0]})},
+            "weighted": {"population_totals": pl.DataFrame({"population": [1.0]})},
+            "unweighted": {"population_totals": pl.DataFrame({"population": [1.0]})},
         },
     )
     state = DashboardState(
@@ -1170,8 +1170,8 @@ def test_vmt_page_registers_personal_auto_vmt_and_renders_missing_card(
         label="Base",
         run_key="base",
         summaries_by_mode={
-            "weighted": {"totals": pl.DataFrame({"population": [1.0]})},
-            "unweighted": {"totals": pl.DataFrame({"population": [1.0]})},
+            "weighted": {"population_totals": pl.DataFrame({"population": [1.0]})},
+            "unweighted": {"population_totals": pl.DataFrame({"population": [1.0]})},
         },
     )
     state = DashboardState(

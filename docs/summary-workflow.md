@@ -21,10 +21,10 @@ Understanding which workflow you are in makes the rest of the codebase much easi
 
 `run.py` resolves execution in this order:
 
-1. Load config and normalize any legacy keys to the canonical config schema.
+1. Load and validate the canonical config schema.
 2. Start from `pipeline.steps` when CLI step flags are absent.
 3. Apply CLI overrides such as `--prepare-only`, `--summarize`, `--dashboard`,
-   `--from-csvs`, and `--no-dashboard`.
+   and `--from-csvs`.
 4. Collapse logical steps into runtime workflow boundaries.
 5. Resolve dashboard mode from CLI first, then `pipeline.dashboard_mode`.
 
@@ -58,9 +58,8 @@ High-level path:
 6. After any prepared run is loaded, the workflow optionally validates cross-table key relationships according to `prepare.validation.relationship_checks` (`warn` by default).
 7. `processor.prepare.cache.write_prepared_run_cache()` writes one prepared cache directory per raw-derived run.
 
-Integrated skimjoin, when enabled through `pipeline.steps`, legacy
-`skimjoin.enabled`, or run/global skimjoin config, runs against those prepared
-tables. That now includes a prepared tour column named
+Integrated skimjoin, when enabled through `pipeline.steps` and skimjoin config,
+runs against those prepared tables. That includes a prepared tour column named
 `first_inbound_trip_depart`, derived from the first inbound trip on each tour so
 inbound tour PERIOD lookups do not reuse the outbound tour start time.
 
@@ -124,10 +123,11 @@ Cache layout:
 <summary_root>/
   <run_key>/
     manifest.json
-    weighted/
-      <summary_file>.csv
-    unweighted/
-      <summary_file>.csv
+    summary_tables/
+      weighted/
+        <summary_file>.csv
+      unweighted/
+        <summary_file>.csv
 ```
 
 `manifest.json` is important. Prepared manifests record the schema version, prepare-config digest, run fingerprint, table file mapping, and per-table state/diagnostic metadata. Summary manifests record the schema version, summary ids, weighting modes, summary file mapping, run fingerprint, summary-config digest, and per-summary state/diagnostic metadata used to validate whether a cache is still safe to reuse.
@@ -226,6 +226,7 @@ Summary builders should always aggregate `finalweight` rather than switching beh
 | Why was a prepared or summary cache reused or rejected? | `runtime/workflows/`, `processor/prepare/cache.py`, `processor/summarize/cache.py` |
 | Which summary ids exist? | `@summary(...)` declarations in `processor/summarize/summaries/`, assembled by `processor/summarize/catalog.py` |
 | Which output columns are considered canonical? | `processor/summarize/schema.py`, derived from builder contracts |
+| Where are calibration CSVs written? | `processor/summarize/csv_export.py`, through the summary-cache workflow |
 | How does a page get discovered? | `dashboard/page_registry.py` |
 | How does export know about page-local selectors? | `dashboard/page_base.py`, `dashboard/export/payload.py`, `dashboard/export/serializer.py` |
 
@@ -244,3 +245,18 @@ For prepare internals, the enrichment package is now split by responsibility:
 - [adding-dashboard-pages.md](adding-dashboard-pages.md)
 - [export_html_schema.md](export_html_schema.md)
 - [export_html_contributor_guide.md](export_html_contributor_guide.md)
+
+## Fast contributor checks
+
+Use the focused contract closest to your change:
+
+```bash
+pytest tests/test_summary_declarations.py tests/test_summary_csv_export.py
+pytest tests/test_page_authoring.py
+pytest tests/test_figure_builders.py
+pytest tests/test_export_serializer.py
+```
+
+The full `tests/test_export_html.py` suite is a release-boundary check. It is
+intentionally excluded from the normal page, query, figure, and summary inner
+loop because it renders the complete standalone dashboard state space.

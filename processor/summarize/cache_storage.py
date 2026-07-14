@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-import shutil
 
 import polars as pl
 
@@ -21,7 +20,7 @@ from processor.summarize.cache_types import (
     SummaryRun,
     normalize_weighting_modes,
 )
-from processor.summarize.writer import write_all
+from processor.summarize.csv_export import write_summary_csvs
 from runtime.config import Config
 
 SCHEMA_VERSION = 15
@@ -183,12 +182,6 @@ def _segment_manifest_entry(
     }
 
 
-def _remove_legacy_summary_cache_dir(output_root: Path, run_key: str) -> None:
-    legacy_dir = output_root / "summary_cache" / run_key
-    if legacy_dir.exists():
-        shutil.rmtree(legacy_dir)
-
-
 def write_summary_run_cache(
     summary_run: SummaryRun,
     config: Config,
@@ -230,7 +223,7 @@ def write_summary_run_cache(
             summary_id: (summary_digests or {}).get(summary_id, "")
             for summary_id in summary_ids
         }
-        write_all(mode_payload["file_tables"], run_dir / mode)
+        write_summary_csvs(mode_payload["file_tables"], run_dir / mode)
 
     manifest = _summary_manifest(
         summary_run=summary_run,
@@ -248,7 +241,6 @@ def write_summary_run_cache(
         summary_filename_by_id=summary_filename_by_id,
     )
     write_manifest(run_dir, manifest)
-    _remove_legacy_summary_cache_dir(output_root, summary_run.run_key)
     summary_run.manifest = manifest
     return run_dir
 
@@ -324,7 +316,7 @@ def write_summary_run_bundle(
                 / summary_run.segmentation_type
                 / summary_run.segment_id
             )
-            write_all(mode_payload["file_tables"], mode_dir)
+            write_summary_csvs(mode_payload["file_tables"], mode_dir)
         if summary_run.is_full_segment:
             continue
         entry = segmentation_type_entries.setdefault(
@@ -372,7 +364,6 @@ def write_summary_run_bundle(
         segmentation_type_entries[key] for key in sorted(segmentation_type_entries)
     ]
     write_manifest(run_dir, manifest)
-    _remove_legacy_summary_cache_dir(output_root, run_key)
     for summary_run in summary_runs:
         summary_run.manifest = manifest
     return run_dir
@@ -404,13 +395,11 @@ def _validate_manifest_identity(
         raise SummaryCacheError(
             f"Cache summary config digest mismatch in {cache_dir}; summaries were built from a different summary configuration."
         )
-    if (
-        expected_summary_config_digest is not None
-        and manifest.get("summary_config_digest") is None
-        and manifest.get("config_digest") is not None
-    ):
+    if expected_summary_config_digest is not None and manifest.get(
+        "summary_config_digest"
+    ) is None:
         raise SummaryCacheError(
-            f"Cache {cache_dir} uses a legacy full-config digest. Rebuild summaries once to migrate to presentation-safe caches."
+            f"Cache {cache_dir} has no summary config digest. Rebuild its summaries."
         )
     if (
         expected_run_fingerprint is not None
@@ -535,11 +524,20 @@ def _loaded_summary_table(
     manifest_summary_states: dict[str, dict[str, str]],
     summary_spec_by_id: dict[str, object],
 ) -> tuple[pl.DataFrame, str]:
-    table = pl.read_csv(path, infer_schema_length=10000)
+    is_declared_empty = summary_id in empty_summaries.get(mode, [])
+    spec = summary_spec_by_id.get(summary_id)
+    if is_declared_empty or spec is None:
+        table = pl.read_csv(path, infer_schema_length=10000)
+    else:
+        table = pl.read_csv(
+            path,
+            infer_schema_length=10000,
+            schema_overrides=dict(spec.contract.schema),
+        )
     state = manifest_summary_states.get(mode, {}).get(summary_id)
     if state is None:
-        state = "empty" if summary_id in empty_summaries.get(mode, []) else "available"
-    if summary_id in empty_summaries.get(mode, []) and is_empty_sentinel_frame(table):
+        state = "empty" if is_declared_empty else "available"
+    if is_declared_empty and is_empty_sentinel_frame(table):
         table = _empty_summary_result(
             summary_id,
             summary_spec_by_id=summary_spec_by_id,

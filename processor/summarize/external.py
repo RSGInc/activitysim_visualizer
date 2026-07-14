@@ -65,7 +65,7 @@ def _read_summary_table(path: str | Path) -> pl.DataFrame:
     raise ValueError(f"Summary table path must end with '.csv' or '.parquet': {path}")
 
 
-def _validate_summary_columns(summary_id: str, table: pl.DataFrame) -> None:
+def _canonical_summary_table(summary_id: str, table: pl.DataFrame) -> pl.DataFrame:
     contract = SUMMARY_BY_ID[summary_id].contract
     missing_columns = [
         column for column in contract.columns if column not in table.columns
@@ -75,6 +75,20 @@ def _validate_summary_columns(summary_id: str, table: pl.DataFrame) -> None:
             f"summary_table_map[{summary_id!r}] is missing required columns: "
             + ", ".join(sorted(missing_columns))
         )
+    unexpected_columns = [
+        column for column in table.columns if column not in contract.columns
+    ]
+    if unexpected_columns:
+        raise ValueError(
+            f"summary_table_map[{summary_id!r}] has unexpected columns: "
+            + ", ".join(sorted(unexpected_columns))
+        )
+    try:
+        return table.cast(dict(contract.schema)).select(contract.columns)
+    except (pl.exceptions.InvalidOperationError, pl.exceptions.ComputeError) as exc:
+        raise ValueError(
+            f"summary_table_map[{summary_id!r}] cannot be cast to its declared schema: {exc}"
+        ) from exc
 
 
 def load_summary_table_map(
@@ -96,7 +110,7 @@ def load_summary_table_map(
                 f"summary_table_map[{summary_id!r}] does not exist: {path}"
             )
         table = _read_summary_table(table_path)
-        _validate_summary_columns(summary_id, table)
+        table = _canonical_summary_table(summary_id, table)
         tables[summary_id] = table
         metadata[summary_id] = {
             "state": "empty" if table.is_empty() else "available",

@@ -36,7 +36,7 @@ _BICYCLE_COMFORT_DISPLAY = {
 def normalize_bicycle_comfort_levels(
     data_list: list[tuple[str, pl.DataFrame]],
 ) -> list[tuple[str, pl.DataFrame]]:
-    """Map legacy bicycle comfort codes to the dashboard's readable category labels."""
+    """Map configured bicycle comfort codes to readable dashboard labels."""
     return RunTables.from_runs(
         normalize_category_strings(data_list, "bicycle_comfort_level")
     ).with_columns(

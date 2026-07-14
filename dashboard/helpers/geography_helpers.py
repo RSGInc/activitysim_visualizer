@@ -129,7 +129,7 @@ def with_display_geography_columns(
 
 
 def normalize_geography_level_value(value: str | None) -> str:
-    """Normalize legacy aggregate geography level tokens to the canonical raw value."""
+    """Normalize accepted aggregate geography tokens to the canonical raw value."""
     value_str = str(value)
     if value_str in {ALL_GEOGRAPHIES_LABEL, "All", "Total"}:
         return AGGREGATE_GEOGRAPHY_LEVEL
@@ -384,7 +384,7 @@ def geography_type_options(
 
 
 def aggregate_geography_level_values() -> set[str]:
-    """Return raw values used by current and legacy summaries for aggregate geography levels."""
+    """Return accepted raw values for aggregate geography levels."""
     return {AGGREGATE_GEOGRAPHY_LEVEL, "All", "Total", ALL_GEOGRAPHIES_LABEL}
 
 

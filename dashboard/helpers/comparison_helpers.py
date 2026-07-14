@@ -87,14 +87,6 @@ def ab_difference_value(
     return math.sqrt((a_value - b_value) ** 2)
 
 
-def ab_rmse_value(
-    quantity_a: float | int | None,
-    quantity_b: float | int | None,
-) -> float | None:
-    """Backward-compatible alias for the row-level absolute difference."""
-    return ab_difference_value(quantity_a, quantity_b)
-
-
 def build_ab_comparison_row(
     *,
     keys: Mapping[str, Any],

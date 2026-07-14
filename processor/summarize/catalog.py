@@ -11,7 +11,6 @@ from processor.summarize.summaries import (
     daily_travel_escort_distributions,
     demographics,
     joint_travel,
-    legacy,
     long_term_distance,
     long_term_geography,
     long_term_person,
@@ -46,7 +45,6 @@ SUMMARY_MODULES: tuple[ModuleType, ...] = (
     skimjoin,
     validation,
     validation_scaffolds,
-    legacy,
 )
 
 

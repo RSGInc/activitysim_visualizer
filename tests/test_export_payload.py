@@ -642,9 +642,12 @@ def test_build_export_payload_skips_prepared_only_sections_but_keeps_summary_saf
         + list(_region_nodes(weighted_state["trip_skims"]).keys())
     )
 
-    assert region_ids == ["tour_skim_summary_section", "trip_skim_summary_section"]
+    assert region_ids == ["summary.body", "summary.body"]
     assert not any(node.get("widget_type") == "float_input" for node in nodes)
-    assert not any(node.get("selector_id") in {"trip_min", "trip_max", "tour_min", "tour_max"} for node in nodes)
+    assert not any(
+        node.get("selector_id") in {"trip_min", "trip_max", "tour_min", "tour_max"}
+        for node in nodes
+    )
 
 
 def test_build_export_payload_omits_prepared_only_pages() -> None:

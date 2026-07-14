@@ -32,7 +32,7 @@ from dashboard.rendering import selector_row
     page_id="trips_by_purpose",
     title="Trips by Purpose",
     order=120,
-    required_summary_ids=("trips_by_mode_and_purpose",),
+    required_summary_ids=("trip_mode_by_tour_purpose_and_tour_mode",),
 )
 class TripsByPurposePage(DashboardPage):
     def build_page(self):
@@ -55,26 +55,26 @@ class TripsByPurposePage(DashboardPage):
 
     def trips(self):
         return self.data.summary(
-            "trips_by_mode_and_purpose",
-            columns=("purpose", "mode", "trip_count"),
+            "trip_mode_by_tour_purpose_and_tour_mode",
+            columns=("tour_purpose", "trip_mode", "trip_count"),
         )
 
     def purpose_options(self):
         data = self.trips()
-        return data.values("purpose") if data else ["All"]
+        return data.values("tour_purpose") if data else ["All"]
 
     def render_mode_chart(self):
         data = self.trips()
         if not data:
             return self.summary_only_unavailable_card()
         chart_data = self.query(
-            lambda: data.where(purpose=self.purpose.value).group(
-                "mode", pl.col("trip_count").sum()
+            lambda: data.where(tour_purpose=self.purpose.value).group(
+                "trip_mode", pl.col("trip_count").sum()
             )
         )
         return self.plot.bar(
             chart_data,
-            x="mode",
+            x="trip_mode",
             y="trip_count",
             title="Trips by Mode",
             x_title="Mode",
@@ -197,3 +197,12 @@ independent add-on features. Grouped navigation is declared with
 - Split unrelated workflows into `PageFeature` objects.
 - Keep export behavior derived from the same selector and section declarations.
 - Add focused query/figure tests before an end-to-end export test.
+
+Run page authoring and query contracts while iterating:
+
+```bash
+pytest tests/test_page_authoring.py
+```
+
+Add `tests/test_figure_builders.py` when changing plot construction. Reserve
+`tests/test_export_html.py` for release-boundary verification.

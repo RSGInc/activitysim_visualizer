@@ -572,7 +572,7 @@ def wide_tod_chart_data(
     value_columns: list[str],
     exclude_total_period: bool = True,
 ) -> list[tuple[str, pl.DataFrame]]:
-    """Return long chart-ready rows from legacy wide time-of-day summaries."""
+    """Return long chart-ready rows from external wide time-of-day summaries."""
     out: list[tuple[str, pl.DataFrame]] = []
     for label, df in nonempty(data_list):
         available_columns = [column for column in value_columns if column in df.columns]

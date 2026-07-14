@@ -23,8 +23,8 @@ SUMMARY_OUTPUT_COLUMNS: dict[str, tuple[str, ...]] = {
         "trip_mode_by_tour_purpose_and_tour_mode",
         "tour_mode_by_tour_purpose_and_auto_sufficiency",
         "tour_time_of_day_by_tour_purpose",
-        "destination_distance",
-        "destination_average_distance",
+        "tour_distance_by_tour_purpose",
+        "average_nonmandatory_tour_distance_by_purpose_and_geography",
     )
 }
 

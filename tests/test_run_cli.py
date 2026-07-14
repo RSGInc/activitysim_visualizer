@@ -96,7 +96,7 @@ def _simple_summary_mode_build(label: str, run_key: str) -> tuple[dict, dict]:
     return (
         summary_run.summaries_by_mode,
         {
-            mode: {"totals": {"state": "available"}}
+            mode: {"population_totals": {"state": "available"}}
             for mode in summary_run.summaries_by_mode
         },
     )
@@ -149,70 +149,6 @@ def _patch_prepare_pipeline(
         monkeypatch.setattr(prepare_workflow, "read_run", read_run)
     if prepare_data is not None:
         monkeypatch.setattr(prepare_workflow, "prepare_data", prepare_data)
-
-
-def test_main_no_dashboard_overrides_config_default_and_skips_dashboard(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    run_dir = tmp_path / "run_a"
-    _write_cli_config(
-        tmp_path,
-        runs=[{"dir": str(run_dir), "label": "Run A"}],
-        extra_lines=[
-            "pipeline:",
-            "  steps:",
-            "    - summarize",
-            "    - dashboard",
-        ],
-    )
-    read_calls: list[str] = []
-    built_summaries: list[str] = []
-
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
-    _patch_prepare_pipeline(
-        monkeypatch,
-        read_run=lambda run_dir, config, label=None, **kwargs: (
-            read_calls.append(label or Path(run_dir).name),
-            _fake_run_data(label or Path(run_dir).name, str(run_dir)),
-        )[1],
-        prepare_data=lambda rd, config: rd,
-    )
-    monkeypatch.setattr(summary_builder, "build_mode_summaries_with_metadata",
-        lambda rd, config: (
-            built_summaries.append(rd.label),
-            _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
-        )[1],
-    )
-    monkeypatch.setattr(
-        dashboard_app,
-        "build_dashboard",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("dashboard should not be built")
-        ),
-    )
-    monkeypatch.setattr(
-        pn,
-        "serve",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            AssertionError("panel serve should not be called")
-        ),
-    )
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "activitysim-viz",
-            "--config",
-            str(tmp_path / "config.yaml"),
-            "--no-dashboard",
-        ],
-    )
-
-    run.main()
-
-    assert read_calls == ["Run A"]
-    assert built_summaries == ["Run A"]
 
 
 def test_main_rejects_from_csvs_with_write_csvs(monkeypatch, capsys) -> None:
@@ -292,7 +228,7 @@ def test_main_dashboard_step_without_summarize_loads_cached_summaries_from_confi
     )
     dashboard_calls: list[dict[str, object]] = []
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
@@ -369,7 +305,7 @@ def test_main_uses_config_dashboard_step_for_live_dashboard_only_run(
     dashboard_calls: list[dict[str, object]] = []
     serve_calls: list[dict[str, object]] = []
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
@@ -463,7 +399,7 @@ def test_main_uses_config_dashboard_mode_export_without_cli_override(
     )
     export_calls: list[dict[str, object]] = []
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
@@ -545,7 +481,7 @@ def test_main_config_dashboard_mode_host_falls_back_to_live_dashboard(
     dashboard_calls: list[dict[str, object]] = []
     serve_calls: list[dict[str, object]] = []
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
@@ -618,7 +554,7 @@ def test_main_config_dashboard_mode_none_skips_dashboard_phase(
     read_calls: list[str] = []
     built_summaries: list[str] = []
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda run_dir, config, label=None, **kwargs: (
@@ -717,7 +653,7 @@ def test_main_dashboard_only_respects_pipeline_without_segment_when_loading_summ
     )
     dashboard_calls: list[dict[str, object]] = []
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
@@ -765,7 +701,7 @@ def test_main_loads_dashboard_from_explicit_summary_cache_dirs_without_raw_reads
     dashboard_calls: list[dict[str, object]] = []
     serve_calls: list[object] = []
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
@@ -883,7 +819,7 @@ def test_main_prepare_only_writes_prepared_cache_and_exits(
     assert not (Path(config.summary_root) / "run-a" / "manifest.json").exists()
 
 
-def test_main_write_csvs_no_dashboard_writes_summary_cache_and_exits(
+def test_main_explicit_summarize_write_csvs_writes_summary_cache_and_exits(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -895,7 +831,7 @@ def test_main_write_csvs_no_dashboard_writes_summary_cache_and_exits(
     read_calls: list[str] = []
     built_summaries: list[str] = []
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda run_dir, config, label=None, **kwargs: (
@@ -931,8 +867,8 @@ def test_main_write_csvs_no_dashboard_writes_summary_cache_and_exits(
             "activitysim-viz",
             "--config",
             str(tmp_path / "config.yaml"),
+            "--summarize",
             "--write-csvs",
-            "--no-dashboard",
         ],
     )
 
@@ -942,7 +878,7 @@ def test_main_write_csvs_no_dashboard_writes_summary_cache_and_exits(
     assert read_calls == ["Run A"]
     assert built_summaries == ["Run A"]
     assert (cache_dir / "manifest.json").exists()
-    assert (cache_dir / "summary_tables" / "weighted" / "totals.csv").exists()
+    assert (cache_dir / "summary_tables" / "weighted" / "population_totals.csv").exists()
 
 
 def test_main_explicit_prepare_and_summarize_runs_processor_without_dashboard(
@@ -958,7 +894,7 @@ def test_main_explicit_prepare_and_summarize_runs_processor_without_dashboard(
     prepare_calls: list[str] = []
     built_summaries: list[str] = []
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda run_dir, config, label=None, **kwargs: (
@@ -1045,7 +981,7 @@ def test_main_refresh_summary_cache_rebuilds_and_rewrites_run_cache(
     prepare_calls: list[str] = []
     summary_build_calls: list[str] = []
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda run_dir, config, label=None, **kwargs: (
@@ -1115,7 +1051,7 @@ def test_main_refresh_prepared_cache_rebuilds_prepared_tables_before_summarize(
     prepare_calls: list[str] = []
     summary_build_calls: list[str] = []
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda run_dir, config, label=None, **kwargs: (
@@ -1191,7 +1127,7 @@ def test_main_uses_cache_hit_for_one_run_and_raw_fallback_for_another(
     read_calls: list[str] = []
     built_summaries: list[str] = []
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda run_dir, config, label=None, **kwargs: (
@@ -1293,7 +1229,7 @@ def test_main_refresh_caches_rebuilds_prepared_and_summary_caches(
     prepare_calls: list[str] = []
     summary_build_calls: list[str] = []
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda run_dir, config, label=None, **kwargs: (
@@ -1389,7 +1325,7 @@ def test_main_loads_prepared_runs_for_enabled_live_prepared_data_page_even_on_ca
     dashboard_calls: list[dict[str, object]] = []
     read_calls: list[str] = []
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda run_dir, config, label=None, **kwargs: (
@@ -1465,7 +1401,7 @@ def test_main_from_csvs_loads_prepared_runs_for_enabled_live_prepared_data_page_
     dashboard_calls: list[dict[str, object]] = []
     read_calls: list[str] = []
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda run_dir, config, label=None, **kwargs: (
@@ -1519,7 +1455,7 @@ def test_main_from_csvs_keeps_prepared_data_page_unavailable_when_no_inputs_exis
     cache_dir = write_summary_run_cache(summary_run, config)
     dashboard_calls: list[dict[str, object]] = []
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
@@ -1595,7 +1531,7 @@ def test_main_export_does_not_load_prepared_runs_for_live_only_prepared_data_pag
     )
     export_calls: list[dict[str, object]] = []
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
@@ -1688,7 +1624,7 @@ def test_main_surfaces_export_build_phase_failures_in_cli(
         ),
     )
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     monkeypatch.setattr(
         "dashboard.export.html.write_export_html_document",  # type: ignore[arg-type]
         lambda *args, **kwargs: (_ for _ in ()).throw(
@@ -1783,7 +1719,7 @@ def test_main_dashboard_only_exits_with_friendly_message_for_stale_summary_cache
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     monkeypatch.setattr(
         sys,
         "argv",

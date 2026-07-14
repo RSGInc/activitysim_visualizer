@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dashboard.export.selector_states import (
     resolve_export_section_states,
     selector_options as _selector_options,
-    temporary_widget_values,
+    scoped_widget_values,
 )
 from dashboard.export.runtime_assets import build_export_html_shell, load_export_runtime_js
 from dashboard.export.serializer import serialize_viewable
@@ -208,7 +208,7 @@ def test_generated_export_html_contains_no_raw_nan_or_infinity(tmp_path: Path) -
     assert "Infinity" not in payload_json
 
 
-def test_temporary_widget_values_restores_original_values_after_success() -> None:
+def test_scoped_widget_values_restores_original_values_after_success() -> None:
     widgets = {
         "tour_purpose": pn.widgets.Select(
             name="Tour Purpose",
@@ -222,7 +222,7 @@ def test_temporary_widget_values_restores_original_values_after_success() -> Non
         ),
     }
 
-    with temporary_widget_values(
+    with scoped_widget_values(
         widgets,
         {"tour_purpose": "eatout", "tour_mode": "Walk"},
     ):
@@ -233,7 +233,7 @@ def test_temporary_widget_values_restores_original_values_after_success() -> Non
     assert widgets["tour_mode"].value == "Drive"
 
 
-def test_temporary_widget_values_restores_original_values_after_exception() -> None:
+def test_scoped_widget_values_restores_original_values_after_exception() -> None:
     widgets = {
         "tour_purpose": pn.widgets.Select(
             name="Tour Purpose",
@@ -244,7 +244,7 @@ def test_temporary_widget_values_restores_original_values_after_exception() -> N
     }
 
     with pytest.raises(RuntimeError, match="boom"):
-        with temporary_widget_values(
+        with scoped_widget_values(
             widgets,
             {"tour_purpose": "eatout", "missing_safe": "ignored"},
         ):
@@ -300,7 +300,7 @@ def test_checkbox_selector_exports_string_options_and_sets_boolean_values() -> N
     assert node["options"] == ["False", "True"]
     assert node["selector_id"] == "include_totals"
     assert node["export_enabled"] is True
-    with temporary_widget_values({"include_totals": checkbox}, {"include_totals": "True"}):
+    with scoped_widget_values({"include_totals": checkbox}, {"include_totals": "True"}):
         assert checkbox.value is True
 
     assert checkbox.value is False

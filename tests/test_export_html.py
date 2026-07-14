@@ -199,13 +199,6 @@ def _full_summary_run():
                 "person_count": [5.0, 1.0, 3.0, 0.5, 2.0, 0.5],
             }
         ),
-        "geo_flows": pl.DataFrame(
-            {
-                "Home Geography": ["Urban", "Suburban"],
-                "Work Geography": ["Urban", "Suburban"],
-                "Workers": [7.0, 4.0],
-            }
-        ),
         "internal_external_worker_by_geography": pl.DataFrame(
             {
                 "geography_level": ["Urban", "Suburban"],
@@ -350,19 +343,6 @@ def _full_summary_run():
                 "household_size": ["2", "2", "3", "3"],
                 "jtf": ["0", "1", "0", "2+"],
                 "household_percent": [40.0, 60.0, 37.5, 62.5],
-            }
-        ),
-        "destination_distance": pl.DataFrame(
-            {
-                "purpose": ["All NM", "All NM", "eatout", "eatout", "social", "social"],
-                "distbin": [0, 1, 0, 1, 0, 1],
-                "freq": [5.0, 7.5, 2.0, 4.0, 3.0, 2.0],
-            }
-        ),
-        "destination_average_distance": pl.DataFrame(
-            {
-                "purpose": ["eatout", "social"],
-                "avg_distance": [3.25, 4.5],
             }
         ),
         "tour_time_of_day_by_tour_purpose": pl.DataFrame(
@@ -928,26 +908,14 @@ def test_config_allows_missing_dashboard_pages(tmp_path: Path) -> None:
     assert config.dashboard_pages is None
 
 
-def test_config_defaults_when_summaries_and_visualizer_sections_are_absent(
+def test_config_defaults_when_optional_sections_are_absent(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         "\n".join(
             [
-                'name: "Legacy Layout"',
-                'dashboard_title: "Ignored Legacy Title"',
-                "run_colors:",
-                '  - "#111111"',
-                "outputs:",
-                "  summary_root: ignored_summary_cache",
-                "  weighting_modes:",
-                "    - weighted",
-                "  export_html:",
-                "    dashboard:",
-                "      weighting: all",
-                "dashboard_pages:",
-                "  - raw_trip_demo",
+                'name: "Minimal Layout"',
                 "runs: []",
             ]
         ),
@@ -960,7 +928,7 @@ def test_config_defaults_when_summaries_and_visualizer_sections_are_absent(
         (tmp_path / "artifacts" / "summary_cache").resolve()
     )
     assert config.weighting_modes == ["weighted", "unweighted"]
-    assert config.dashboard_title == "Ignored Legacy Title"
+    assert config.dashboard_title == "ActivitySim Visualizer"
     assert config.dashboard_pages is None
     assert config.run_colors == [
         "#1f77b4",
@@ -975,52 +943,6 @@ def test_config_defaults_when_summaries_and_visualizer_sections_are_absent(
     assert config.export_html.dashboard.weighting == ["weighted", "unweighted"]
     assert config.export_html.dashboard.values == ["percent", "count"]
     assert config.export_html.pages == {}
-
-
-def test_config_prefers_visualizer_dashboard_title_over_legacy_top_level_title(
-    tmp_path: Path,
-) -> None:
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        "\n".join(
-            [
-                'name: "Dashboard Title Precedence"',
-                'dashboard_title: "Legacy Dashboard Title"',
-                "runs: []",
-                "visualizer:",
-                '  dashboard_title: "Visualizer Dashboard Title"',
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    config = Config.from_yaml(config_path)
-
-    assert config.dashboard_title == "Visualizer Dashboard Title"
-
-
-def test_config_ignores_flat_export_html_dashboard_aliases(tmp_path: Path) -> None:
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        "\n".join(
-            [
-                'name: "Flat Export Legacy"',
-                "runs: []",
-                "visualizer:",
-                "  export_html:",
-                "    weighting: all",
-                "    values: all",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    config = Config.from_yaml(config_path)
-
-    assert config.export_html.dashboard.weighting == ["weighted", "unweighted"]
-    assert config.export_html.dashboard.values == ["percent", "count"]
-
-
 def test_export_html_config_rejects_invalid_or_empty_values(tmp_path: Path) -> None:
     with pytest.raises(
         ValueError, match="Unsupported visualizer.export_html.dashboard.weighting"

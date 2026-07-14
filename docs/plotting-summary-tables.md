@@ -146,3 +146,12 @@ assert list(figure.data[0].x) == ["Walk", "Bike"]
 ```
 
 This keeps plot tests fast and isolates data/query behavior from Panel.
+
+Use the focused plotting target during development:
+
+```bash
+pytest tests/test_figure_builders.py
+```
+
+Page query behavior belongs in `tests/test_page_authoring.py`; the complete
+HTML export suite is a separate release-boundary check.

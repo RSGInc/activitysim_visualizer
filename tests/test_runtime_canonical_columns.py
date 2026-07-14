@@ -12,7 +12,7 @@ from runtime.config import Config
 from processor.models import RunData
 from processor.prepare.enrichment.pipeline import prepare_data
 from processor.summarize.schema import SUMMARY_OUTPUT_COLUMNS
-from processor.summarize.summaries import joint_travel, legacy, tour, trip
+from processor.summarize.summaries import joint_travel, tour, trip
 from processor.summarize.summaries import tour_profiles, trip_distributions
 from processor.summarize.summaries import daily_travel_activity
 from processor.summarize.summaries import daily_travel_escort_counts
@@ -2483,16 +2483,6 @@ def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
     assert "all_tour_purposes" in stop_timing["tour_purpose"].unique().to_list()
     assert "eatout" in stop_timing["tour_purpose"].unique().to_list()
 
-    tour_mode_profile = legacy.tour_mode_profile(prepared, config)
-    assert tour_mode_profile.columns == [
-        "tour_mode",
-        "purpose",
-        "freq_as0",
-        "freq_as1",
-        "freq_as2",
-        "freq_all",
-    ]
-
     tour_tod_profiles = tour_profiles.tour_tod(prepared, config)
     assert tour_tod_profiles.columns == [
         "time_bin",
@@ -2503,15 +2493,6 @@ def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
     ]
     assert "all_tour_purposes" in tour_tod_profiles["tour_purpose"].unique().to_list()
     assert "eatout" in tour_tod_profiles["tour_purpose"].unique().to_list()
-
-    if "od_dist" in prepared.trips.columns:
-        totals_df = legacy.system_totals(prepared, config)
-        assert totals_df["employment"].to_list() == [24.0]
-
-    distance_df = legacy.distance_distribution(prepared, config)
-    assert distance_df.columns == ["purpose", "distbin", "freq"]
-    assert distance_df.is_empty()
-
 
 def test_summaries_return_empty_tables_when_canonical_columns_are_missing(
     tmp_path: Path,
@@ -2544,9 +2525,6 @@ def test_summaries_return_empty_tables_when_canonical_columns_are_missing(
     assert trip_distributions.stop_ood_distance(prepared, config).is_empty()
     assert tour_profiles.stop_freq(prepared, config).is_empty()
     assert tour_profiles.tour_tod(prepared, config).is_empty()
-    assert legacy.distance_distribution(prepared, config).is_empty()
-
-
 def test_prepare_data_skips_fragile_joins_when_dependency_keys_are_missing(
     tmp_path: Path,
 ) -> None:

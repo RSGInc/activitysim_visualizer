@@ -245,7 +245,7 @@ def build_region_nodes(
                 state_key = variant_key(state_values)
                 with (
                     selector_states.suppress_page_selector_refresh(page),
-                    selector_states.temporary_widget_values(
+                    selector_states.scoped_widget_values(
                         selector_widgets,
                         state_spec,
                     ),
@@ -286,7 +286,7 @@ def build_region_nodes(
 
         with (
             selector_states.suppress_page_selector_refresh(page),
-            selector_states.temporary_widget_values(
+            selector_states.scoped_widget_values(
                 selector_widgets,
                 dict(zip(active_selector_ids, default_values)),
             ),

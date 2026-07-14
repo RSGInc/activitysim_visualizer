@@ -158,7 +158,7 @@ def test_config_parses_multiple_segmentation_definitions(tmp_path: Path) -> None
     assert config.segmentation.definition_by_name("county") is not None
 
 
-def test_config_accepts_canonical_and_legacy_segmentation_source_tables(
+def test_config_normalizes_segmentation_source_tables(
     tmp_path: Path,
 ) -> None:
     config = _write_config(
@@ -662,12 +662,12 @@ def test_dashboard_state_filters_to_configured_segmentation_type_and_shows_all_v
     full_run = create_summary_run(
         label="Run A",
         run_key="run-a",
-        summaries_by_mode={"weighted": {"totals": pl.DataFrame({"x": [1]})}},
+        summaries_by_mode={"weighted": {"population_totals": pl.DataFrame({"x": [1]})}},
     )
     north_county = create_summary_run(
         label="Run A",
         run_key="run-a",
-        summaries_by_mode={"weighted": {"totals": pl.DataFrame({"x": [2]})}},
+        summaries_by_mode={"weighted": {"population_totals": pl.DataFrame({"x": [2]})}},
         segmentation_type="county",
         segment_id="north",
         segment_label="North",
@@ -676,7 +676,7 @@ def test_dashboard_state_filters_to_configured_segmentation_type_and_shows_all_v
     south_county = create_summary_run(
         label="Run A",
         run_key="run-a",
-        summaries_by_mode={"weighted": {"totals": pl.DataFrame({"x": [3]})}},
+        summaries_by_mode={"weighted": {"population_totals": pl.DataFrame({"x": [3]})}},
         segmentation_type="county",
         segment_id="south",
         segment_label="South",
@@ -685,7 +685,7 @@ def test_dashboard_state_filters_to_configured_segmentation_type_and_shows_all_v
     low_vot = create_summary_run(
         label="Run A",
         run_key="run-a",
-        summaries_by_mode={"weighted": {"totals": pl.DataFrame({"x": [4]})}},
+        summaries_by_mode={"weighted": {"population_totals": pl.DataFrame({"x": [4]})}},
         segmentation_type="vot",
         segment_id="low",
         segment_label="Low VOT",
@@ -700,7 +700,7 @@ def test_dashboard_state_filters_to_configured_segmentation_type_and_shows_all_v
     )
 
     assert state.run_labels == ["Run A (Full)", "Run A (North)", "Run A (South)"]
-    summary_set = state.get_summary_table_set("totals", weighting_key="weighted")
+    summary_set = state.get_summary_table_set("population_totals", weighting_key="weighted")
     assert summary_set is not None
     assert [label for label, _ in summary_set] == [
         "Run A (Full)",
@@ -713,12 +713,12 @@ def test_dashboard_state_segments_only_hides_full_for_selected_type() -> None:
     full_run = create_summary_run(
         label="Run A",
         run_key="run-a",
-        summaries_by_mode={"weighted": {"totals": pl.DataFrame({"x": [1]})}},
+        summaries_by_mode={"weighted": {"population_totals": pl.DataFrame({"x": [1]})}},
     )
     north_county = create_summary_run(
         label="Run A",
         run_key="run-a",
-        summaries_by_mode={"weighted": {"totals": pl.DataFrame({"x": [2]})}},
+        summaries_by_mode={"weighted": {"population_totals": pl.DataFrame({"x": [2]})}},
         segmentation_type="county",
         segment_id="north",
         segment_label="North",
@@ -740,7 +740,7 @@ def test_dashboard_state_segments_only_keeps_full_runs_when_no_segmented_series_
     full_run = create_summary_run(
         label="Run A",
         run_key="run-a",
-        summaries_by_mode={"weighted": {"totals": pl.DataFrame({"x": [1]})}},
+        summaries_by_mode={"weighted": {"population_totals": pl.DataFrame({"x": [1]})}},
     )
 
     state = DashboardState(
@@ -752,7 +752,7 @@ def test_dashboard_state_segments_only_keeps_full_runs_when_no_segmented_series_
 
     assert state.has_segmented_summary_series is False
     assert state.run_labels == ["Run A"]
-    summary_set = state.get_summary_table_set("totals", weighting_key="weighted")
+    summary_set = state.get_summary_table_set("population_totals", weighting_key="weighted")
     assert summary_set is not None
     assert [label for label, _ in summary_set] == ["Run A"]
 
@@ -791,12 +791,12 @@ def test_summary_cache_round_trip_persists_multiple_segmentation_types(
         create_summary_run(
             label="Run A",
             run_key="run-a",
-            summaries_by_mode={"weighted": {"totals": pl.DataFrame({"x": [1]})}},
+            summaries_by_mode={"weighted": {"population_totals": pl.DataFrame({"x": [1]})}},
         ),
         create_summary_run(
             label="Run A",
             run_key="run-a",
-            summaries_by_mode={"weighted": {"totals": pl.DataFrame({"x": [2]})}},
+            summaries_by_mode={"weighted": {"population_totals": pl.DataFrame({"x": [2]})}},
             segmentation_type="county",
             segment_id="north",
             segment_label="North",
@@ -805,7 +805,7 @@ def test_summary_cache_round_trip_persists_multiple_segmentation_types(
         create_summary_run(
             label="Run A",
             run_key="run-a",
-            summaries_by_mode={"weighted": {"totals": pl.DataFrame({"x": [3]})}},
+            summaries_by_mode={"weighted": {"population_totals": pl.DataFrame({"x": [3]})}},
             segmentation_type="vot",
             segment_id="low",
             segment_label="Low VOT",

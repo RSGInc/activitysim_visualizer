@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+import sys
 from types import ModuleType
 
 import polars as pl
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from processor.models import RunData
 from processor.summarize.catalog import build_summary_catalog

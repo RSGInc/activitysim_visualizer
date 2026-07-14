@@ -103,6 +103,21 @@ output with a small `@summary(...)` wrapper in its owning domain module. Avoid a
 general summary DSL and avoid facade modules whose only purpose is re-exporting
 builders.
 
+## Calibration CSV boundary
+
+Summary CSVs are a supported output, not a second summary API. The summarize
+workflow writes each declared table to its manifest-controlled filename under
+`summary_tables/<weighting mode>/`. Use:
+
+```bash
+python run.py --config local_config.yaml --summarize --write-csvs
+```
+
+`processor.summarize.csv_export.write_summary_csvs()` is the narrow writer
+boundary. It accepts a mapping of plain filename stems to Polars DataFrames.
+Pages should read summaries through `self.data.summary(...)`; they should not
+open these CSVs directly.
+
 ## Checklist
 
 - Put the builder in the domain module that owns the calculation.
@@ -111,3 +126,9 @@ builders.
 - Return one long-form `pl.DataFrame`; pivot only for display.
 - Use `builder.empty()` only for domain-specific empty conditions.
 - Add focused tests for the calculation and its declared result contract.
+
+Fast checks:
+
+```bash
+pytest tests/test_summary_declarations.py tests/test_summary_csv_export.py
+```

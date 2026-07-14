@@ -77,7 +77,6 @@ from processor.summarize.schema import SUMMARY_OUTPUT_COLUMNS
 from processor.summarize.catalog import SUMMARY_BY_ID, SUMMARY_DEFINITIONS
 from runtime.config import Config
 from runtime.config.models import SkimjoinSettings
-from processor.summarize.summaries import legacy
 
 
 def _collect_cards(viewable) -> list[pn.Card]:
@@ -161,36 +160,42 @@ def _write_config(
 
 def _sample_summary_run() -> object:
     weighted = {
-        "destination_distance": pl.DataFrame(
+        "tour_distance_by_tour_purpose": pl.DataFrame(
             {
-                "purpose": ["All NM", "All NM", "shopping", "shopping"],
-                "distbin": [0, 1, 0, 1],
-                "freq": [5.0, 7.5, 2.0, 4.0],
+                "distance_bin": ["0", "1", "0", "1"],
+                "tour_purpose": ["all", "all", "shopping", "shopping"],
+                "tour_count": [5.0, 7.5, 2.0, 4.0],
             }
         ),
-        "destination_average_distance": pl.DataFrame(
+        "average_nonmandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
             {
-                "purpose": ["shopping"],
-                "avg_distance": [3.25],
+                "nonmandatory_tour_purpose": ["shopping"],
+                "geography_type": ["all_geographies"],
+                "geography_id": ["all_geographies"],
+                "average_tour_distance": [3.25],
+                "tour_count": [6.0],
             }
         ),
-        "geo_flows": pl.DataFrame(),
+        "commuting_flows": pl.DataFrame(),
     }
     unweighted = {
-        "destination_distance": pl.DataFrame(
+        "tour_distance_by_tour_purpose": pl.DataFrame(
             {
-                "purpose": ["All NM", "All NM", "shopping", "shopping"],
-                "distbin": [0, 1, 0, 1],
-                "freq": [2.0, 3.0, 1.0, 2.0],
+                "distance_bin": ["0", "1", "0", "1"],
+                "tour_purpose": ["all", "all", "shopping", "shopping"],
+                "tour_count": [2.0, 3.0, 1.0, 2.0],
             }
         ),
-        "destination_average_distance": pl.DataFrame(
+        "average_nonmandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
             {
-                "purpose": ["shopping"],
-                "avg_distance": [2.5],
+                "nonmandatory_tour_purpose": ["shopping"],
+                "geography_type": ["all_geographies"],
+                "geography_id": ["all_geographies"],
+                "average_tour_distance": [2.5],
+                "tour_count": [3.0],
             }
         ),
-        "geo_flows": pl.DataFrame(),
+        "commuting_flows": pl.DataFrame(),
     }
     return create_summary_run(
         label="Base",
@@ -668,17 +673,21 @@ def test_summary_cache_round_trip_creates_configured_layout(tmp_path: Path) -> N
     assert cache_dir == Path(config.summary_root) / "base"
     assert cache_dir.exists()
     assert (cache_dir / "manifest.json").exists()
-    assert (cache_dir / "weighted" / "destinationDistByPurpose.csv").exists()
-    assert (cache_dir / "unweighted" / "destinationAvgDistance.csv").exists()
+    assert (cache_dir / "weighted" / "tour_distance_by_tour_purpose.csv").exists()
+    assert (
+        cache_dir
+        / "unweighted"
+        / "average_nonmandatory_tour_distance_by_purpose_and_geography.csv"
+    ).exists()
 
     loaded = load_summary_run_cache(
         cache_dir,
         config,
         expected_modes=config.weighting_modes,
         expected_summary_ids=[
-            "destination_distance",
-            "destination_average_distance",
-            "geo_flows",
+            "tour_distance_by_tour_purpose",
+            "average_nonmandatory_tour_distance_by_purpose_and_geography",
+            "commuting_flows",
         ],
         expected_summary_config_digest=config.summary_config_digest,
         expected_run_fingerprint=fingerprint,
@@ -693,34 +702,20 @@ def test_summary_cache_round_trip_creates_configured_layout(tmp_path: Path) -> N
 
     assert loaded.label == "Base"
     assert loaded.run_key == "base"
-    assert loaded.summaries_by_mode["weighted"]["destination_distance"].to_dicts() == [
-        {"purpose": "All NM", "distbin": 0, "freq": 5.0},
-        {"purpose": "All NM", "distbin": 1, "freq": 7.5},
-        {"purpose": "shopping", "distbin": 0, "freq": 2.0},
-        {"purpose": "shopping", "distbin": 1, "freq": 4.0},
+    assert loaded.summaries_by_mode["weighted"]["tour_distance_by_tour_purpose"].to_dicts() == [
+        {"distance_bin": "0", "tour_purpose": "all", "tour_count": 5.0},
+        {"distance_bin": "1", "tour_purpose": "all", "tour_count": 7.5},
+        {"distance_bin": "0", "tour_purpose": "shopping", "tour_count": 2.0},
+        {"distance_bin": "1", "tour_purpose": "shopping", "tour_count": 4.0},
     ]
-    assert loaded.summaries_by_mode["weighted"]["geo_flows"].is_empty()
-    assert loaded.summaries_by_mode["weighted"]["geo_flows"].columns == [
-        "origin_geography",
-        "destination_geography",
-        "person_count",
+    assert loaded.summaries_by_mode["weighted"]["commuting_flows"].is_empty()
+    assert loaded.summaries_by_mode["weighted"]["commuting_flows"].columns == [
+        "origin_geography_type",
+        "origin_geography_id",
+        "destination_geography_type",
+        "destination_geography_id",
+        "commuter_count",
     ]
-
-
-def test_write_summary_run_cache_removes_legacy_summary_cache_sibling(
-    tmp_path: Path,
-) -> None:
-    config = _write_config(tmp_path)
-    summary_run = _sample_summary_run()
-    output_root = Path(config.summary_root)
-    legacy_dir = output_root / "summary_cache" / "base"
-    legacy_dir.mkdir(parents=True, exist_ok=True)
-    (legacy_dir / "stale.txt").write_text("old", encoding="utf-8")
-
-    cache_dir = write_summary_run_cache(summary_run, config, output_root=output_root)
-
-    assert cache_dir == output_root / "base"
-    assert not legacy_dir.exists()
 
 
 def test_summary_cache_detects_file_map_only_run_fingerprint_mismatch(
@@ -755,9 +750,9 @@ def test_summary_cache_detects_file_map_only_run_fingerprint_mismatch(
             config,
             expected_modes=config.weighting_modes,
             expected_summary_ids=[
-                "destination_distance",
-                "destination_average_distance",
-                "geo_flows",
+                "tour_distance_by_tour_purpose",
+                "average_nonmandatory_tour_distance_by_purpose_and_geography",
+                "commuting_flows",
             ],
             expected_summary_config_digest=config.summary_config_digest,
             expected_run_fingerprint=build_run_fingerprint(
@@ -812,9 +807,9 @@ def test_summary_cache_detects_fallback_file_map_only_run_fingerprint_mismatch(
             config,
             expected_modes=config.weighting_modes,
             expected_summary_ids=[
-                "destination_distance",
-                "destination_average_distance",
-                "geo_flows",
+                "tour_distance_by_tour_purpose",
+                "average_nonmandatory_tour_distance_by_purpose_and_geography",
+                "commuting_flows",
             ],
             expected_summary_config_digest=config.summary_config_digest,
             expected_run_fingerprint=build_run_fingerprint(
@@ -877,9 +872,9 @@ def test_summary_cache_detects_custom_prepared_table_path_or_mtime_change(
             config,
             expected_modes=config.weighting_modes,
             expected_summary_ids=[
-                "destination_distance",
-                "destination_average_distance",
-                "geo_flows",
+                "tour_distance_by_tour_purpose",
+                "average_nonmandatory_tour_distance_by_purpose_and_geography",
+                "commuting_flows",
             ],
             expected_summary_config_digest=config.summary_config_digest,
             expected_run_fingerprint=fingerprint,
@@ -922,9 +917,9 @@ def test_summary_cache_detects_custom_prepared_table_path_or_mtime_change(
             config,
             expected_modes=config.weighting_modes,
             expected_summary_ids=[
-                "destination_distance",
-                "destination_average_distance",
-                "geo_flows",
+                "tour_distance_by_tour_purpose",
+                "average_nonmandatory_tour_distance_by_purpose_and_geography",
+                "commuting_flows",
             ],
             expected_summary_config_digest=config.summary_config_digest,
             expected_run_fingerprint=fingerprint,
@@ -1013,9 +1008,9 @@ def test_summary_cache_ignores_presentation_only_config_changes(
         config_b,
         expected_modes=config_b.weighting_modes,
         expected_summary_ids=[
-            "destination_distance",
-            "destination_average_distance",
-            "geo_flows",
+            "tour_distance_by_tour_purpose",
+            "average_nonmandatory_tour_distance_by_purpose_and_geography",
+            "commuting_flows",
         ],
         expected_summary_config_digest=config_b.summary_config_digest,
         expected_run_fingerprint=fingerprint,
@@ -1075,9 +1070,9 @@ def test_summary_cache_invalidates_when_summary_affecting_config_changes(
             changed_config,
             expected_modes=changed_config.weighting_modes,
             expected_summary_ids=[
-                "destination_distance",
-                "destination_average_distance",
-                "geo_flows",
+                "tour_distance_by_tour_purpose",
+                "average_nonmandatory_tour_distance_by_purpose_and_geography",
+                "commuting_flows",
             ],
             expected_summary_config_digest=changed_config.summary_config_digest,
             expected_run_fingerprint=fingerprint,
@@ -1091,31 +1086,6 @@ def test_summary_cache_invalidates_when_summary_affecting_config_changes(
         )
 
 
-def test_destination_legacy_summaries_prefer_readable_purpose_aliases(
-    tmp_path: Path,
-) -> None:
-    config = _write_config(tmp_path)
-    prepared = prepare_data(_prepared_destination_raw_run(), config)
-
-    distance_df = legacy.distance_distribution(prepared, config)
-    average_df = legacy.average_distance(prepared, config)
-
-    assert sorted(distance_df["purpose"].unique().to_list()) == ["All NM", "eatout"]
-    assert average_df["purpose"].to_list() == ["eatout"]
-
-
-def test_destination_legacy_summaries_return_empty_without_canonical_purpose(
-    tmp_path: Path,
-) -> None:
-    config = _write_config(tmp_path)
-
-    distance_df = legacy.distance_distribution(_destination_raw_run(), config)
-    average_df = legacy.average_distance(_destination_raw_run(), config)
-
-    assert distance_df.is_empty()
-    assert average_df.is_empty()
-
-
 def test_prepare_data_overwrites_numeric_tour_purpose_before_destination_summaries(
     tmp_path: Path,
 ) -> None:
@@ -1123,13 +1093,6 @@ def test_prepare_data_overwrites_numeric_tour_purpose_before_destination_summari
     prepared = prepare_data(_prepared_destination_raw_run(), config)
 
     assert prepared.tours["tour_purpose"].to_list() == ["eatout"]
-
-    distance_df = legacy.distance_distribution(prepared, config)
-    average_df = legacy.average_distance(prepared, config)
-
-    assert sorted(distance_df["purpose"].unique().to_list()) == ["All NM", "eatout"]
-    assert average_df["purpose"].to_list() == ["eatout"]
-
 
 def test_registered_summary_builders_expose_contract_metadata() -> None:
     assert SUMMARY_DEFINITIONS
@@ -1143,10 +1106,10 @@ def test_summary_output_columns_are_derived_from_builder_contracts() -> None:
         "trip_mode",
         "trip_count",
     )
-    assert SUMMARY_OUTPUT_COLUMNS["destination_distance"] == (
-        "purpose",
-        "distbin",
-        "freq",
+    assert SUMMARY_OUTPUT_COLUMNS["tour_distance_by_tour_purpose"] == (
+        "distance_bin",
+        "tour_purpose",
+        "tour_count",
     )
 
 
@@ -1191,31 +1154,31 @@ def test_summary_cache_round_trip_preserves_summary_states_and_diagnostics(
         run_key="base",
         summaries_by_mode={
             "weighted": {
-                "destination_distance": pl.DataFrame(),
-                "destination_average_distance": pl.DataFrame(),
+                "tour_distance_by_tour_purpose": pl.DataFrame(),
+                "average_nonmandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(),
             },
             "unweighted": {
-                "destination_distance": pl.DataFrame(),
-                "destination_average_distance": pl.DataFrame(),
+                "tour_distance_by_tour_purpose": pl.DataFrame(),
+                "average_nonmandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(),
             },
         },
         summary_metadata_by_mode={
             "weighted": {
-                "destination_distance": {
+                "tour_distance_by_tour_purpose": {
                     "state": "unavailable",
                     "detail": "tours (missing required columns: SKIMDIST)",
                 },
-                "destination_average_distance": {
+                "average_nonmandatory_tour_distance_by_purpose_and_geography": {
                     "state": "failed",
                     "detail": "boom",
                 },
             },
             "unweighted": {
-                "destination_distance": {
+                "tour_distance_by_tour_purpose": {
                     "state": "unavailable",
                     "detail": "tours (missing required columns: SKIMDIST)",
                 },
-                "destination_average_distance": {
+                "average_nonmandatory_tour_distance_by_purpose_and_geography": {
                     "state": "failed",
                     "detail": "boom",
                 },
@@ -1241,8 +1204,8 @@ def test_summary_cache_round_trip_preserves_summary_states_and_diagnostics(
         config,
         expected_modes=config.weighting_modes,
         expected_summary_ids=[
-            "destination_distance",
-            "destination_average_distance",
+            "tour_distance_by_tour_purpose",
+            "average_nonmandatory_tour_distance_by_purpose_and_geography",
         ],
         expected_summary_config_digest=config.summary_config_digest,
         expected_run_fingerprint=fingerprint,
@@ -1256,17 +1219,17 @@ def test_summary_cache_round_trip_preserves_summary_states_and_diagnostics(
     )
 
     assert (
-        loaded.summary_metadata_by_mode["weighted"]["destination_distance"]["state"]
+        loaded.summary_metadata_by_mode["weighted"]["tour_distance_by_tour_purpose"]["state"]
         == "unavailable"
     )
     assert (
-        loaded.summary_metadata_by_mode["weighted"]["destination_average_distance"][
+        loaded.summary_metadata_by_mode["weighted"]["average_nonmandatory_tour_distance_by_purpose_and_geography"][
             "state"
         ]
         == "failed"
     )
     assert loaded.manifest["failed_summaries"]["weighted"] == [
-        "destination_average_distance"
+        "average_nonmandatory_tour_distance_by_purpose_and_geography"
     ]
 
 
@@ -1279,30 +1242,30 @@ def test_summary_cache_writes_sentinel_csvs_for_empty_unavailable_and_failed_sum
         run_key="base",
         summaries_by_mode={
             "weighted": {
-                "destination_distance": pl.DataFrame(),
-                "destination_average_distance": pl.DataFrame(),
+                "tour_distance_by_tour_purpose": pl.DataFrame(),
+                "average_nonmandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(),
             },
             "unweighted": {
-                "destination_distance": pl.DataFrame(),
-                "destination_average_distance": pl.DataFrame(),
+                "tour_distance_by_tour_purpose": pl.DataFrame(),
+                "average_nonmandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(),
             },
         },
         summary_metadata_by_mode={
             "weighted": {
-                "destination_distance": {
+                "tour_distance_by_tour_purpose": {
                     "state": "unavailable",
                     "detail": "tours (missing required columns: SKIMDIST)",
                 },
-                "destination_average_distance": {
+                "average_nonmandatory_tour_distance_by_purpose_and_geography": {
                     "state": "failed",
                     "detail": "boom",
                 },
             },
             "unweighted": {
-                "destination_distance": {
+                "tour_distance_by_tour_purpose": {
                     "state": "empty",
                 },
-                "destination_average_distance": {
+                "average_nonmandatory_tour_distance_by_purpose_and_geography": {
                     "state": "failed",
                     "detail": "boom",
                 },
@@ -1323,20 +1286,22 @@ def test_summary_cache_writes_sentinel_csvs_for_empty_unavailable_and_failed_sum
         ),
     )
 
-    assert (cache_dir / "weighted" / "destinationDistByPurpose.csv").read_text(
+    assert (cache_dir / "weighted" / "tour_distance_by_tour_purpose.csv").read_text(
         encoding="utf-8"
     ) == "__empty__\n"
-    assert (cache_dir / "weighted" / "destinationAvgDistance.csv").read_text(
-        encoding="utf-8"
-    ) == "__empty__\n"
+    assert (
+        cache_dir
+        / "weighted"
+        / "average_nonmandatory_tour_distance_by_purpose_and_geography.csv"
+    ).read_text(encoding="utf-8") == "__empty__\n"
 
     loaded = load_summary_run_cache(
         cache_dir,
         config,
         expected_modes=config.weighting_modes,
         expected_summary_ids=[
-            "destination_distance",
-            "destination_average_distance",
+            "tour_distance_by_tour_purpose",
+            "average_nonmandatory_tour_distance_by_purpose_and_geography",
         ],
         expected_summary_config_digest=config.summary_config_digest,
         expected_run_fingerprint=fingerprint,
@@ -1350,12 +1315,18 @@ def test_summary_cache_writes_sentinel_csvs_for_empty_unavailable_and_failed_sum
     )
 
     assert (
-        loaded.summaries_by_mode["weighted"]["destination_distance"].schema
-        == empty_summary_frame(legacy.distance_distribution).schema
+        loaded.summaries_by_mode["weighted"]["tour_distance_by_tour_purpose"].schema
+        == empty_summary_frame(
+            SUMMARY_BY_ID["tour_distance_by_tour_purpose"].builder
+        ).schema
     )
     assert (
-        loaded.summaries_by_mode["weighted"]["destination_average_distance"].schema
-        == empty_summary_frame(legacy.average_distance).schema
+        loaded.summaries_by_mode["weighted"]["average_nonmandatory_tour_distance_by_purpose_and_geography"].schema
+        == empty_summary_frame(
+            SUMMARY_BY_ID[
+                "average_nonmandatory_tour_distance_by_purpose_and_geography"
+            ].builder
+        ).schema
     )
 
 

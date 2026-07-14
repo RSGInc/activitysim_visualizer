@@ -24,7 +24,7 @@ the result. This is not a frontend application with a separate deployment model.
   enabled region roots are present and non-overlapping.
 - `selector_states.py`
   Resolves selector requests, enumerates canonical region states, and owns the
-  temporary widget-mutation boundary.
+  scoped widget-mutation boundary.
 - `page_serializer.py`
   Serializes page shells and selector-driven region variants.
 - `serializer.py`
@@ -97,7 +97,7 @@ boundary explicit in both Python and JavaScript code.
 
 Region export works by temporarily mutating selector widget values so each selector
 combination can be rendered and serialized. That mutation is isolated in
-`selector_states.temporary_widget_values(...)` so widget state is restored on
+`selector_states.scoped_widget_values(...)` so widget state is restored on
 both success and failure paths.
 
 If you touch selector-driven region export:

@@ -8,7 +8,6 @@ import polars as pl
 from dashboard.rendering import selector_row
 from dashboard.data_access import RunTables
 from dashboard.helpers.category_helpers import cap_numeric_category_data, nonempty
-from dashboard.helpers.geography_helpers import rename_present
 from dashboard import DashboardPage, dashboard_page
 
 ALL_HOUSEHOLD_SIZES = "All"
@@ -22,18 +21,6 @@ def _cast_category(
     """Cast one chart category column to strings for stable display ordering."""
     return RunTables.from_runs(data_list).with_columns(
         pl.col(category_col).cast(pl.Utf8)
-    )
-
-
-def _normalize_vehicle_summary_columns(
-    data_list: list[tuple[str, pl.DataFrame]],
-    *,
-    canonical_col: str,
-    legacy_col: str,
-) -> list[tuple[str, pl.DataFrame]]:
-    """Accept legacy summary column names while exposing one canonical chart column."""
-    return RunTables.from_runs(data_list).map(
-        lambda frame: rename_present(frame, {legacy_col: canonical_col})
     )
 
 
@@ -175,34 +162,30 @@ class VehicleOwnershipTypePage(DashboardPage):
             (
                 "vehicle_age_distribution",
                 "age",
-                "vehicle_age",
                 "Vehicle Age",
                 "Vehicle Age",
             ),
             (
                 "vehicle_fuel_type_distribution",
                 "fuel_type",
-                "vehicle_fuel_type",
                 "Vehicle Fuel Type",
                 "Fuel Type",
             ),
             (
                 "vehicle_body_type_distribution",
                 "body_type",
-                "vehicle_body_type",
                 "Vehicle Body Type",
                 "Body Type",
             ),
         ]
 
-        for summary_id, canonical_col, legacy_col, title, xaxis_title in chart_specs:
+        for summary_id, canonical_col, title, xaxis_title in chart_specs:
             summary = summaries[summary_id]
             vehicle_views.append(
                 self.render_vehicle_attribute_chart(
                     summary,
                     summary_id=summary_id,
                     canonical_col=canonical_col,
-                    legacy_col=legacy_col,
                     title=title,
                     xaxis_title=xaxis_title,
                 )
@@ -255,7 +238,6 @@ class VehicleOwnershipTypePage(DashboardPage):
         *,
         summary_id: str,
         canonical_col: str,
-        legacy_col: str,
         title: str,
         xaxis_title: str,
     ):
@@ -265,13 +247,8 @@ class VehicleOwnershipTypePage(DashboardPage):
                 detail=f"The {title.lower()} summary is unavailable.",
                 missing_items=[summary_id],
             )
-        normalized = _normalize_vehicle_summary_columns(
-            summary_data,
-            canonical_col=canonical_col,
-            legacy_col=legacy_col,
-        )
         return self.plot.bar(
-            _cast_category(normalized, canonical_col),
+            _cast_category(summary_data, canonical_col),
             x=canonical_col,
             y="vehicle_count",
             title=title,

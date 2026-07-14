@@ -117,8 +117,8 @@ def _simple_summary_run(label: str, run_key: str) -> object:
         label=label,
         run_key=run_key,
         summaries_by_mode={
-            "weighted": {"totals": pl.DataFrame({"population": [100.0]})},
-            "unweighted": {"totals": pl.DataFrame({"population": [50.0]})},
+            "weighted": {"population_totals": pl.DataFrame({"person_count": [100.0]})},
+            "unweighted": {"population_totals": pl.DataFrame({"person_count": [50.0]})},
         },
         source_run_dir=f"C:/runs/{run_key}",
     )
@@ -129,7 +129,7 @@ def _simple_summary_mode_build(label: str, run_key: str) -> tuple[dict, dict]:
     return (
         summary_run.summaries_by_mode,
         {
-            mode: {"totals": {"state": "available"}}
+            mode: {"population_totals": {"state": "available"}}
             for mode in summary_run.summaries_by_mode
         },
     )
@@ -238,15 +238,11 @@ def _write_summary_table(path: Path, value: float) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     pl.DataFrame(
         {
-            "households": [value],
-            "population": [value],
-            "tours": [value],
-            "trips": [value],
-            "stops": [value],
-            "vehicle_trips": [value],
-            "vmt": [value],
-            "pmt": [value],
-            "employment": [value],
+            "person_count": [value],
+            "household_count": [value],
+            "tour_count": [value],
+            "trip_count": [value],
+            "stop_count": [value],
         }
     ).write_csv(path)
     return str(path.resolve())
@@ -384,7 +380,7 @@ def test_run_summary_workflow_loads_summary_only_run_without_prepared_inputs(
         runs=[
             {
                 "label": "External",
-                "summary_table_map": {"totals": summary_path},
+                "summary_table_map": {"population_totals": summary_path},
             }
         ],
     )
@@ -401,10 +397,10 @@ def test_run_summary_workflow_loads_summary_only_run_without_prepared_inputs(
     assert result.prepared.runs == []
     assert [run.label for run in result.runs] == ["External"]
     assert (
-        result.runs[0].summaries_by_mode["weighted"]["totals"]["population"][0] == 11.0
+        result.runs[0].summaries_by_mode["weighted"]["population_totals"]["person_count"][0] == 11.0
     )
     assert (
-        result.runs[0].summaries_by_mode["unweighted"]["totals"]["population"][0]
+        result.runs[0].summaries_by_mode["unweighted"]["population_totals"]["person_count"][0]
         == 11.0
     )
 
@@ -465,7 +461,7 @@ def test_summary_only_run_bypasses_skimjoin_when_pipeline_enables_it(
         runs=[
             {
                 "label": "External",
-                "summary_table_map": {"totals": summary_path},
+                "summary_table_map": {"population_totals": summary_path},
             }
         ],
         extra_lines=[
@@ -502,16 +498,16 @@ def test_summary_only_run_bypasses_skimjoin_when_pipeline_enables_it(
     assert prepare_result.runs == []
     assert [run.label for run in result.runs] == ["External"]
     assert (
-        result.runs[0].summaries_by_mode["weighted"]["totals"]["population"][0] == 41.0
+        result.runs[0].summaries_by_mode["weighted"]["population_totals"]["person_count"][0] == 41.0
     )
     loaded = runtime_workflows.load_summary_runs_from_cache(
         config=config,
         cache_root=Path(config.summary_root),
         explicit_cache_dirs=None,
         run_entries=config.runs,
-        required_summary_ids=("totals",),
+        required_summary_ids=("population_totals",),
     )
-    assert loaded[0].summaries_by_mode["weighted"]["totals"]["population"][0] == 41.0
+    assert loaded[0].summaries_by_mode["weighted"]["population_totals"]["person_count"][0] == 41.0
 
 
 def test_run_summary_workflow_overlays_summary_table_map_on_generated_summaries(
@@ -527,12 +523,14 @@ def test_run_summary_workflow_overlays_summary_table_map_on_generated_summaries(
             {
                 "dir": str(run_dir),
                 "label": "Run A",
-                "summary_table_map": {"totals": summary_path},
+                "summary_table_map": {"population_totals": summary_path},
             }
         ],
     )
     monkeypatch.setattr(
-        summary_builder, "DEFAULT_SUMMARY_IDS", ["totals", "population_totals"]
+        summary_builder,
+        "DEFAULT_SUMMARY_IDS",
+        ["population_totals", "auto_vmt_totals"],
     )
     monkeypatch.setattr(
         summary_builder,
@@ -574,9 +572,9 @@ def test_run_summary_workflow_overlays_summary_table_map_on_generated_summaries(
     )
 
     weighted = result.runs[0].summaries_by_mode["weighted"]
-    assert weighted["totals"]["population"][0] == 99.0
-    assert weighted["population_totals"].to_dicts() == [
-        {"metric": "population_totals", "value": 1.0}
+    assert weighted["population_totals"]["person_count"][0] == 99.0
+    assert weighted["auto_vmt_totals"].to_dicts() == [
+        {"metric": "auto_vmt_totals", "value": 1.0}
     ]
 
 
@@ -622,7 +620,7 @@ def test_run_summary_workflow_reuses_all_existing_prepared_runs_when_cache_disab
             },
         )
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     monkeypatch.setattr(
         summary_builder,
         "build_mode_summaries_with_metadata",
@@ -703,7 +701,7 @@ def test_prepare_then_summary_does_not_rerun_skimjoin_for_existing_prepared_runs
             },
         )
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     monkeypatch.setattr(
         summary_builder,
         "build_mode_summaries_with_metadata",
@@ -844,19 +842,19 @@ def test_mixed_run_preserves_generated_defaults_and_overlays_non_default_summary
             }
         ],
     )
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     monkeypatch.setattr(
         summary_builder,
         "build_mode_summaries_with_metadata",
         lambda rd, config, summary_ids=None: (
             {
                 mode: {
-                    "totals": pl.DataFrame({"population": [1.0]}),
+                    "population_totals": pl.DataFrame({"person_count": [1.0]}),
                 }
                 for mode in config.weighting_modes
             },
             {
-                mode: {"totals": {"state": "available"}}
+                mode: {"population_totals": {"state": "available"}}
                 for mode in config.weighting_modes
             },
         ),
@@ -881,7 +879,7 @@ def test_mixed_run_preserves_generated_defaults_and_overlays_non_default_summary
     )
 
     weighted = result.runs[0].summaries_by_mode["weighted"]
-    assert weighted["totals"].to_dicts() == [{"population": 1.0}]
+    assert weighted["population_totals"].to_dicts() == [{"person_count": 1.0}]
     assert weighted["auto_vmt_validation_summary"].to_dicts() == [
         {
             "TOD": "Daily",
@@ -904,7 +902,7 @@ def test_summary_table_map_file_identity_invalidates_summary_cache(
         runs=[
             {
                 "label": "External",
-                "summary_table_map": {"totals": summary_path},
+                "summary_table_map": {"population_totals": summary_path},
             }
         ],
     )
@@ -928,7 +926,7 @@ def test_summary_table_map_file_identity_invalidates_summary_cache(
     )
 
     assert (
-        result.runs[0].summaries_by_mode["weighted"]["totals"]["population"][0] == 12.0
+        result.runs[0].summaries_by_mode["weighted"]["population_totals"]["person_count"][0] == 12.0
     )
 
 
@@ -942,7 +940,7 @@ def test_dashboard_only_loads_summary_table_map_without_cache(
         runs=[
             {
                 "label": "External",
-                "summary_table_map": {"totals": summary_path},
+                "summary_table_map": {"population_totals": summary_path},
             }
         ],
     )
@@ -952,11 +950,11 @@ def test_dashboard_only_loads_summary_table_map_without_cache(
         cache_root=Path(config.summary_root),
         explicit_cache_dirs=None,
         run_entries=config.runs,
-        required_summary_ids=("totals",),
+        required_summary_ids=("population_totals",),
     )
 
     assert [run.label for run in loaded] == ["External"]
-    assert loaded[0].summaries_by_mode["weighted"]["totals"]["population"][0] == 21.0
+    assert loaded[0].summaries_by_mode["weighted"]["population_totals"]["person_count"][0] == 21.0
 
 
 def test_dashboard_only_loads_non_default_summary_table_map_id(
@@ -1069,7 +1067,7 @@ def test_prune_summary_runs_keeps_optional_summary_ids_when_requested() -> None:
         run_key="external",
         summaries_by_mode={
             "weighted": {
-                "totals": pl.DataFrame({"population": [1.0]}),
+                "population_totals": pl.DataFrame({"person_count": [1.0]}),
                 "auto_vmt_validation_summary": pl.DataFrame(
                     {
                         "TOD": ["Daily"],
@@ -1082,7 +1080,7 @@ def test_prune_summary_runs_keeps_optional_summary_ids_when_requested() -> None:
                 ),
             },
             "unweighted": {
-                "totals": pl.DataFrame({"population": [1.0]}),
+                "population_totals": pl.DataFrame({"person_count": [1.0]}),
                 "auto_vmt_validation_summary": pl.DataFrame(
                     {
                         "TOD": ["Daily"],
@@ -1099,11 +1097,11 @@ def test_prune_summary_runs_keeps_optional_summary_ids_when_requested() -> None:
 
     pruned = runtime_workflows.prune_summary_runs(
         [summary_run],
-        ("totals", "auto_vmt_validation_summary"),
+        ("population_totals", "auto_vmt_validation_summary"),
     )
 
     assert set(pruned[0].summaries_by_mode["weighted"]) == {
-        "totals",
+        "population_totals",
         "auto_vmt_validation_summary",
     }
 
@@ -1847,7 +1845,7 @@ def test_run_summary_workflow_uses_cache_hit_without_raw_read_or_summary_rebuild
         ),
     )
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
@@ -1911,7 +1909,7 @@ def test_run_summary_workflow_cache_hit_keeps_existing_prepared_run_by_key(
         ),
     )
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
@@ -1965,7 +1963,7 @@ def test_run_summary_workflow_rebuilds_and_writes_cache_on_cache_miss(
     prepare_calls: list[str] = []
     summary_build_calls: list[str] = []
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda run_dir, config, label=None, **kwargs: (
@@ -2037,7 +2035,7 @@ def test_run_summary_workflow_uses_prepared_cache_before_raw_rebuild(
         run_fingerprint=processor_prepare_fingerprint,
     )
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda run_dir, config, label=None, **kwargs: (
@@ -2085,7 +2083,7 @@ def test_run_summary_workflow_reuses_in_memory_prepared_runs_without_reload(
     prepared_run = _fake_run_data("Run A", str(run_dir))
     summary_build_calls: list[str] = []
 
-    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
     _patch_prepare_pipeline(
         monkeypatch,
         read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
@@ -2339,7 +2337,6 @@ def test_resolve_requested_steps_uses_config_pipeline_defaults(tmp_path: Path) -
         dashboard=False,
         prepare_only=False,
         write_csvs=False,
-        no_dashboard=False,
         from_csvs=None,
         skip_summary_cache_write=False,
         refresh_caches=False,
@@ -2377,7 +2374,6 @@ def test_resolve_effective_plan_uses_pipeline_dashboard_mode_and_overwrite(
         dashboard=False,
         prepare_only=False,
         write_csvs=False,
-        no_dashboard=False,
         from_csvs=None,
         skip_summary_cache_write=False,
         refresh_caches=False,
@@ -2415,7 +2411,6 @@ def test_resolve_effective_plan_drops_dashboard_when_config_dashboard_mode_is_no
         dashboard=False,
         prepare_only=False,
         write_csvs=False,
-        no_dashboard=False,
         from_csvs=None,
         skip_summary_cache_write=False,
         refresh_caches=False,
@@ -2466,7 +2461,6 @@ def test_resolve_effective_plan_preserves_logical_skimjoin_step_for_prepare_only
         dashboard=False,
         prepare_only=False,
         write_csvs=False,
-        no_dashboard=False,
         from_csvs=None,
         skip_summary_cache_write=False,
         refresh_caches=False,

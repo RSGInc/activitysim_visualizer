@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-import shutil
 
 import polars as pl
 
@@ -237,12 +236,6 @@ def _write_sidecar_tables(
     return {attr_name: filenames[attr_name] for attr_name in sidecar_frames}
 
 
-def _remove_legacy_prepared_cache_dir(output_root: Path, run_key: str) -> None:
-    legacy_dir = output_root / "prepared_cache" / run_key
-    if legacy_dir.exists():
-        shutil.rmtree(legacy_dir)
-
-
 def write_prepared_run_cache(
     rd: RunData,
     config: Config,
@@ -376,7 +369,6 @@ def write_prepared_run_cache(
         "skimjoin_tour_hypothetical_rows": int(rd.tour_hypothetical_skims.height),
     }
     write_manifest(cache_dir, manifest)
-    _remove_legacy_prepared_cache_dir(output_root, run_key)
     return PreparedRunCacheEntry(
         label=rd.label,
         run_key=run_key,

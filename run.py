@@ -73,11 +73,6 @@ def parse_args() -> argparse.Namespace:
         help="Force summary cache writes during the summarize step.",
     )
     parser.add_argument(
-        "--no-dashboard",
-        action="store_true",
-        help="Legacy shortcut to skip the dashboard step during default runs.",
-    )
-    parser.add_argument(
         "--from-csvs",
         nargs="*",
         metavar="CSV_DIR",
@@ -135,8 +130,6 @@ def _validate_cli_step_flags(args: argparse.Namespace) -> None:
         raise ValueError(
             "--prepare-only cannot be combined with --prepare, --summarize, or --dashboard."
         )
-    if args.dashboard and args.no_dashboard:
-        raise ValueError("--dashboard cannot be combined with --no-dashboard.")
 
 
 def _config_default_logical_steps(config) -> list[str]:
@@ -179,8 +172,6 @@ def resolve_requested_steps(args: argparse.Namespace, config) -> list[str]:
             steps = ["dashboard"]
         else:
             steps = _config_default_logical_steps(config)
-            if args.no_dashboard:
-                steps = [step for step in steps if step != "dashboard"]
 
     if args.from_csvs is not None and any(
         step in {"prepare", "summarize"} for step in steps
@@ -219,8 +210,6 @@ def resolve_effective_dashboard_mode(
         return "none"
     if args.export_html is not None:
         return "export"
-    if args.no_dashboard:
-        return "none"
     if args.dashboard:
         return "live"
     return str(config.pipeline.dashboard_mode).lower()

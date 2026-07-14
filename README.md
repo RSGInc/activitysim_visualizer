@@ -187,7 +187,7 @@ files with `runs[*].summary_table_map`:
 runs:
   - label: Summary Only Demo
     summary_table_map:
-      totals: path\to\summaries\totals.csv
+      population_totals: path\to\summaries\population_totals.csv
       traffic_count_comparisons: path\to\summaries\traffic_count_comparisons.parquet
 ```
 

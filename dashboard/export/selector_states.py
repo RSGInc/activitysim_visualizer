@@ -91,7 +91,7 @@ def resolve_export_section_states(
         canonical_values: dict[str, str],
         raw_values: dict[str, str],
     ) -> None:
-        with suppress_page_selector_refresh(page), temporary_widget_values(
+        with suppress_page_selector_refresh(page), scoped_widget_values(
             selector_widgets, canonical_values
         ):
             sync_page_controls(page)
@@ -184,7 +184,7 @@ def suppress_page_selector_refresh(page: Any) -> Iterator[None]:
 
 
 @contextmanager
-def temporary_widget_values(
+def scoped_widget_values(
     selector_widgets: dict[str, pn.widgets.Widget | None],
     values_by_selector_id: dict[str, Any],
 ) -> Iterator[None]:
