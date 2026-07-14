@@ -214,6 +214,50 @@ class MandatoryLocationChoicePage(DashboardPage):
             return value
         return ALL_WITHIN_LEVEL_VALUE
 
+    def export_selector_dependencies(self) -> dict[str, dict[str, object]]:
+        """Describe the Geography Name selector's export-time dependency."""
+        geography_opts_by_level = self._current_data.get("geography_opts_by_level", {})
+        options_by_geography_type: dict[str, list[str]] = {}
+        disabled_geography_types: list[str] = []
+
+        for display_level, raw_level_value in self._geo_level_raw_by_label.items():
+            raw_level = (
+                ALL_GEOGRAPHY_TYPES_VALUE
+                if raw_level_value is None
+                else str(raw_level_value)
+            )
+            level_options, raw_by_label = geography_opts_by_level.get(
+                raw_level,
+                (
+                    [ALL_WITHIN_LEVEL_VALUE],
+                    {ALL_WITHIN_LEVEL_VALUE: ALL_WITHIN_LEVEL_VALUE},
+                ),
+            )
+            export_options = [ALL_WITHIN_LEVEL_VALUE]
+            for option in level_options:
+                raw_value = raw_by_label.get(str(option), str(option))
+                if raw_value is None:
+                    continue
+                raw_value_str = str(raw_value)
+                if (
+                    raw_value_str == ALL_WITHIN_LEVEL_VALUE
+                    or is_all_geographies(raw_value_str)
+                ):
+                    continue
+                if str(option) not in export_options:
+                    export_options.append(str(option))
+            options_by_geography_type[str(display_level)] = export_options
+            if raw_level == ALL_GEOGRAPHY_TYPES_VALUE:
+                disabled_geography_types.append(str(display_level))
+
+        return {
+            "geography": {
+                "parent_selector_id": "geography_level",
+                "options_by_parent_value": options_by_geography_type,
+                "disabled_parent_values": disabled_geography_types,
+            }
+        }
+
     def _selected_geography(self) -> tuple[str, str]:
         """Return the effective geography selection, honoring export-mode flattening."""
         geo_level = self.selected_geography_level_raw()

@@ -128,6 +128,29 @@
             "INVALID_SELECTOR_DEFAULT"
           );
         }
+        if (selector.parent_selector_id) {
+          const parentSelector = (pageDescriptor.selectors || []).find((candidate) => {
+            return candidate.id === selector.parent_selector_id;
+          });
+          if (!parentSelector) {
+            fail(
+              "Selector " + selector.id + " on page " + pageDescriptor.id + " references an unknown parent selector.",
+              null,
+              "INVALID_SELECTOR_PARENT"
+            );
+          }
+          for (const options of Object.values(selector.options_by_parent_value || {})) {
+            for (const option of options || []) {
+              if ((selector.options || []).indexOf(option) === -1) {
+                fail(
+                  "Dependent selector " + selector.id + " contains an option outside its exported domain.",
+                  null,
+                  "INVALID_DEPENDENT_SELECTOR_OPTION"
+                );
+              }
+            }
+          }
+        }
       }
     }
   }

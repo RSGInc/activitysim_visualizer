@@ -19,6 +19,19 @@
     return null;
   }
 
+  function findPageDescriptorById(pageDescriptors, pageId) {
+    for (const page of pageDescriptors || []) {
+      if (page.id === pageId) {
+        return page;
+      }
+      const childMatch = findPageDescriptorById(page.children || [], pageId);
+      if (childMatch) {
+        return childMatch;
+      }
+    }
+    return null;
+  }
+
   function hasChildren(pageDescriptor) {
     return !!(pageDescriptor && pageDescriptor.children && pageDescriptor.children.length);
   }
@@ -177,6 +190,19 @@
       && value !== "Home Geography"
     ) {
       pageState.non_motorized_vmt_geography_type = "All Geography Types";
+    }
+    const pageDescriptor = findPageDescriptorById(currentPayload.pages || [], pageId);
+    for (const selector of (pageDescriptor && pageDescriptor.selectors) || []) {
+      if (selector.parent_selector_id !== selectorId) {
+        continue;
+      }
+      const dependentOptions = (
+        selector.options_by_parent_value
+        && selector.options_by_parent_value[value]
+      ) || [];
+      if (dependentOptions.length) {
+        pageState[selector.id] = dependentOptions[0];
+      }
     }
     nextState.pageSelectors[pageId] = pageState;
     return normalizeState(currentPayload, nextState);

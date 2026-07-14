@@ -212,7 +212,7 @@ def serialize_viewable(
                 disabled = False
             else:
                 disabled = True
-        return {
+        payload = {
             "kind": "widget",
             "widget_type": "select",
             "name": widget_name,
@@ -222,6 +222,19 @@ def serialize_viewable(
             "selector_id": selector_id,
             "export_enabled": bool(selector_meta and selector_meta["export_enabled"]),
         }
+        if selector_meta and selector_meta.get("parent_selector_id"):
+            payload.update(
+                {
+                    "parent_selector_id": selector_meta["parent_selector_id"],
+                    "options_by_parent_value": selector_meta.get(
+                        "options_by_parent_value", {}
+                    ),
+                    "disabled_parent_values": selector_meta.get(
+                        "disabled_parent_values", []
+                    ),
+                }
+            )
+        return payload
     if isinstance(obj, pn.widgets.Checkbox):
         if id(obj) in hidden_widget_ids:
             return {"kind": "spacer", "height": 0, "width": 0}

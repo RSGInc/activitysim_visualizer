@@ -401,6 +401,7 @@ def serialize_dashboard_state(
             )
             for selector_def in selector_defs
         }
+        selector_states.apply_selector_dependencies(page, selector_metadata_by_id)
         widget_metadata = page_serializer.build_widget_metadata(
             page,
             selector_metadata_by_id=selector_metadata_by_id,
