@@ -1827,13 +1827,136 @@ def test_build_export_html_document_serializes_long_term_geography_variants(
     }
     assert page_defs["mandatory_location_choice"]["selectors"][0]["export_enabled"] is True
     assert page_defs["mandatory_location_choice"]["selectors"][1]["id"] == "geography"
-    assert page_defs["mandatory_location_choice"]["selectors"][1]["export_enabled"] is True
-    assert "All" in page_defs["mandatory_location_choice"]["selectors"][1]["resolved_values"]
-    assert len(page_defs["mandatory_location_choice"]["selectors"][1]["resolved_values"]) > 1
+    geography_selector = page_defs["mandatory_location_choice"]["selectors"][1]
+    assert geography_selector["export_enabled"] is True
+    assert "All" in geography_selector["resolved_values"]
+    assert len(geography_selector["resolved_values"]) > 1
+    assert geography_selector["parent_selector_id"] == "geography_level"
+    assert set(geography_selector["options_by_parent_value"]) == {
+        "All Geography Types",
+        "Suburban",
+        "Urban",
+    }
+    assert geography_selector["options_by_parent_value"]["All Geography Types"] == [
+        "All"
+    ]
+    assert geography_selector["disabled_parent_values"] == ["All Geography Types"]
 
     mandatory_location_choice = payload["states"]["Weighted||Percent"]["mandatory_location_choice"]
     assert mandatory_location_choice["kind"] == "page"
     assert "commuting_flows" not in _region_nodes(mandatory_location_choice)
+
+
+def test_mandatory_location_export_filters_dependent_names_to_exported_types(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=[{"long_term_choices": ["mandatory_location_choice"]}],
+        export_html_lines=[
+            "pages:",
+            "  long_term_choices:",
+            "    mandatory_location_choice:",
+            "      geography_level:",
+            "        - All Geography Types",
+            "        - County",
+            "        - MPO",
+        ],
+    )
+    base_run = _full_summary_run()
+    summaries_by_mode: dict[str, dict[str, pl.DataFrame]] = {}
+    for weighting_mode, summaries in base_run.summaries_by_mode.items():
+        updated = dict(summaries)
+        factor = 1.0 if weighting_mode == "weighted" else 0.5
+        updated["internal_external_worker_by_geography"] = pl.DataFrame(
+            {
+                "geography_level": ["county", "mpo", "taz", "taz"],
+                "geography": ["Alpha County", "Regional MPO", "101", "102"],
+                "internal_worker_count": [10.0, 20.0, 3.0, 4.0],
+                "external_worker_count": [1.0, 2.0, 0.0, 1.0],
+            }
+        ).with_columns(
+            pl.col("internal_worker_count") * factor,
+            pl.col("external_worker_count") * factor,
+        )
+        distance = pl.DataFrame(
+            {
+                "geography_level": ["county", "mpo", "taz", "taz"],
+                "geography": ["Alpha County", "Regional MPO", "101", "102"],
+                "distance_bin": [1.0, 1.0, 1.0, 1.0],
+                "person_count": [10.0, 20.0, 3.0, 4.0],
+            }
+        ).with_columns(pl.col("person_count") * factor)
+        for summary_id in (
+            "work_location_distance_distribution_by_geography",
+            "school_location_distance_distribution_by_geography",
+            "university_location_distance_distribution_by_geography",
+        ):
+            updated[summary_id] = distance
+        updated["average_mandatory_tour_distance_by_purpose_and_geography"] = (
+            pl.DataFrame(
+                {
+                    "geography_level": ["county", "mpo", "taz", "taz"],
+                    "geography": ["Alpha County", "Regional MPO", "101", "102"],
+                    "mandatory_tour_purpose": ["work", "work", "work", "work"],
+                    "average_tour_distance": [8.0, 9.0, 4.0, 5.0],
+                }
+            )
+        )
+        updated["work_from_home_rate_by_geography"] = pl.DataFrame(
+            {
+                "geography_level": ["county", "mpo", "taz", "taz"],
+                "geography": ["Alpha County", "Regional MPO", "101", "102"],
+                "worker_count": [10.0, 20.0, 3.0, 4.0],
+                "work_from_home_worker_count": [1.0, 2.0, 0.0, 1.0],
+            }
+        ).with_columns(
+            pl.col("worker_count") * factor,
+            pl.col("work_from_home_worker_count") * factor,
+        )
+        summaries_by_mode[weighting_mode] = updated
+
+    summary_run = create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode=summaries_by_mode,
+        source_run_dir="C:/runs/base",
+    )
+    html = build_export_html_document([], config, summary_runs=[summary_run])
+    payload = _extract_payload(html)
+    page = _flatten_page_descriptors(payload["pages"])["mandatory_location_choice"]
+    geography_type = _selector_by_id(page, "geography_level")
+    geography_name = _selector_by_id(page, "geography")
+
+    assert geography_type["resolved_values"] == [
+        "All Geography Types",
+        "County",
+        "MPO",
+    ]
+    assert geography_name["options_by_parent_value"] == {
+        "All Geography Types": ["All"],
+        "County": ["All", "Alpha County"],
+        "MPO": ["All", "Regional MPO"],
+    }
+    assert geography_name["resolved_values"] == [
+        "All",
+        "Alpha County",
+        "Regional MPO",
+    ]
+    assert "101" not in geography_name["options"]
+    assert "102" not in geography_name["options"]
+
+    page_node = payload["states"]["Weighted||Percent"]["mandatory_location_choice"]
+    geography_widget = next(
+        node
+        for node in _walk_nodes(page_node)
+        if node.get("kind") == "widget" and node.get("selector_id") == "geography"
+    )
+    assert geography_widget["parent_selector_id"] == "geography_level"
+    assert geography_widget["disabled_parent_values"] == ["All Geography Types"]
+    assert geography_widget["options_by_parent_value"] == (
+        geography_name["options_by_parent_value"]
+    )
 
 
 def test_build_export_html_document_warns_and_falls_back_when_long_term_geography_is_unavailable(

@@ -527,6 +527,7 @@ def serialize_dashboard_state(
             )
             for selector_def in selector_defs
         }
+        apply_selector_dependencies(page, selector_metadata_by_id)
         widget_metadata = build_widget_metadata(
             page_def,
             page,
@@ -715,6 +716,70 @@ def build_widget_metadata(
         if widget is not None:
             metadata[id(widget)] = (selector_id, selector_meta)
     return metadata
+
+
+def apply_selector_dependencies(
+    page: Any,
+    selector_metadata_by_id: dict[str, SelectorMetadataPayload],
+) -> None:
+    """Attach page-owned dependent-selector domains to export metadata."""
+    dependency_provider = getattr(page, "export_selector_dependencies", None)
+    if not callable(dependency_provider):
+        return
+
+    dependencies = dependency_provider() or {}
+    for selector_id, dependency in dependencies.items():
+        selector_meta = selector_metadata_by_id.get(str(selector_id))
+        parent_selector_id = str(dependency.get("parent_selector_id", ""))
+        parent_meta = selector_metadata_by_id.get(parent_selector_id)
+        if selector_meta is None or parent_meta is None:
+            continue
+
+        raw_options_by_parent = dependency.get("options_by_parent_value", {})
+        if not isinstance(raw_options_by_parent, dict):
+            continue
+        parent_values = [str(value) for value in parent_meta["resolved_values"]]
+        options_by_parent_value = {
+            parent_value: [
+                str(option)
+                for option in raw_options_by_parent.get(parent_value, [])
+            ]
+            for parent_value in parent_values
+        }
+        allowed_options: list[str] = []
+        for parent_value in parent_values:
+            for option in options_by_parent_value[parent_value]:
+                if option not in allowed_options:
+                    allowed_options.append(option)
+        if not allowed_options:
+            continue
+
+        original_resolved = {
+            str(value) for value in selector_meta["resolved_values"]
+        }
+        if selector_meta["request_mode"] == "all":
+            resolved_values = allowed_options
+        else:
+            resolved_values = [
+                option for option in allowed_options if option in original_resolved
+            ]
+        if not resolved_values:
+            resolved_values = [allowed_options[0]]
+
+        selector_meta["options"] = allowed_options
+        selector_meta["resolved_values"] = resolved_values
+        if str(selector_meta["default_value"]) not in allowed_options:
+            selector_meta["default_value"] = allowed_options[0]
+        selector_meta["export_enabled"] = bool(
+            selector_meta["available"] and len(resolved_values) > 1
+        )
+        selector_meta["parent_selector_id"] = parent_selector_id
+        selector_meta["options_by_parent_value"] = options_by_parent_value
+        selector_meta["disabled_parent_values"] = [
+            str(value)
+            for value in dependency.get("disabled_parent_values", [])
+            if str(value) in parent_values
+        ]
 
 
 def build_region_nodes(

@@ -24,7 +24,13 @@ WidgetType = Literal["radio_button_group", "select", "float_input", "checkbox", 
 RegionContentMode = Literal["snapshot"]
 
 
-class SelectorMetadataPayload(TypedDict):
+class DependentSelectorPayload(TypedDict, total=False):
+    parent_selector_id: str
+    options_by_parent_value: dict[str, list[str]]
+    disabled_parent_values: list[str]
+
+
+class SelectorMetadataPayload(DependentSelectorPayload):
     id: str
     label: str
     available: bool
@@ -106,7 +112,7 @@ class TableNode(TypedDict):
     rows: list[dict[str, Any]]
 
 
-class WidgetNode(TypedDict):
+class WidgetNode(DependentSelectorPayload):
     kind: Literal["widget"]
     widget_type: WidgetType
     name: str

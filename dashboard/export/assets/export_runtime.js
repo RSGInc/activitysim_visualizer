@@ -413,6 +413,29 @@
             "INVALID_SELECTOR_DEFAULT"
           );
         }
+        if (selector.parent_selector_id) {
+          const parentSelector = (pageDescriptor.selectors || []).find((candidate) => {
+            return candidate.id === selector.parent_selector_id;
+          });
+          if (!parentSelector) {
+            fail(
+              "Selector " + selector.id + " on page " + pageDescriptor.id + " references an unknown parent selector.",
+              null,
+              "INVALID_SELECTOR_PARENT"
+            );
+          }
+          for (const options of Object.values(selector.options_by_parent_value || {})) {
+            for (const option of options || []) {
+              if ((selector.options || []).indexOf(option) === -1) {
+                fail(
+                  "Dependent selector " + selector.id + " contains an option outside its exported domain.",
+                  null,
+                  "INVALID_DEPENDENT_SELECTOR_OPTION"
+                );
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -537,6 +560,19 @@
     for (const page of pageDescriptors || []) {
       if (page.id === pageId) {
         return page;
+      }
+    }
+    return null;
+  }
+
+  function findPageDescriptorById(pageDescriptors, pageId) {
+    for (const page of pageDescriptors || []) {
+      if (page.id === pageId) {
+        return page;
+      }
+      const childMatch = findPageDescriptorById(page.children || [], pageId);
+      if (childMatch) {
+        return childMatch;
       }
     }
     return null;
@@ -700,6 +736,19 @@
       && value !== "Home Geography"
     ) {
       pageState.non_motorized_vmt_geography_type = "All Geography Types";
+    }
+    const pageDescriptor = findPageDescriptorById(currentPayload.pages || [], pageId);
+    for (const selector of (pageDescriptor && pageDescriptor.selectors) || []) {
+      if (selector.parent_selector_id !== selectorId) {
+        continue;
+      }
+      const dependentOptions = (
+        selector.options_by_parent_value
+        && selector.options_by_parent_value[value]
+      ) || [];
+      if (dependentOptions.length) {
+        pageState[selector.id] = dependentOptions[0];
+      }
     }
     nextState.pageSelectors[pageId] = pageState;
     return normalizeState(currentPayload, nextState);
@@ -1000,7 +1049,20 @@
    * Widget renderers for export payload nodes.
    */
 
-  function resolveWidgetValue(node, context, leafPageId) {
+  function resolveWidgetOptions(node, context, leafPageId) {
+    if (!(node.parent_selector_id && leafPageId)) {
+      return node.options || [];
+    }
+    const pageSelectorState = getPageSelectorState(context.state, leafPageId);
+    const parentValue = pageSelectorState[node.parent_selector_id];
+    const dependentOptions = (
+      node.options_by_parent_value
+      && node.options_by_parent_value[parentValue]
+    );
+    return dependentOptions || node.options || [];
+  }
+
+  function resolveWidgetValue(node, context, leafPageId, effectiveOptions) {
     if (!(node.export_enabled && node.selector_id && leafPageId)) {
       return node.value;
     }
@@ -1009,7 +1071,7 @@
     if (
       runtimeValue !== undefined
       && runtimeValue !== null
-      && (node.options || []).indexOf(runtimeValue) !== -1
+      && effectiveOptions.indexOf(runtimeValue) !== -1
     ) {
       return runtimeValue;
     }
@@ -1031,10 +1093,33 @@
   }
 
   function isWidgetDisabled(node, context, leafPageId) {
+    if (node.parent_selector_id && leafPageId) {
+      const pageSelectorState = getPageSelectorState(context.state, leafPageId);
+      const parentValue = pageSelectorState[node.parent_selector_id];
+      if ((node.disabled_parent_values || []).indexOf(parentValue) !== -1) {
+        return true;
+      }
+    }
     return !!node.disabled || isVmtGeographyTypeUnavailable(node, context, leafPageId);
   }
 
-  function selectorChangeOptions(node, leafPageId) {
+  function selectorHasDependents(context, leafPageId, selectorId) {
+    const pageDescriptor = findPageDescriptorById(
+      context.payload.pages || [],
+      leafPageId
+    );
+    return !!(
+      pageDescriptor
+      && (pageDescriptor.selectors || []).some((selector) => {
+        return selector.parent_selector_id === selectorId;
+      })
+    );
+  }
+
+  function selectorChangeOptions(node, context, leafPageId) {
+    if (selectorHasDependents(context, leafPageId, node.selector_id)) {
+      return {};
+    }
     if (
       leafPageId === "vmt"
       && (
@@ -1054,12 +1139,18 @@
         text: node.name || "",
       }),
     ]);
-    const effectiveValue = resolveWidgetValue(node, context, leafPageId);
+    const effectiveOptions = resolveWidgetOptions(node, context, leafPageId);
+    const effectiveValue = resolveWidgetValue(
+      node,
+      context,
+      leafPageId,
+      effectiveOptions
+    );
 
     if (node.widget_type === "select") {
       const select = document.createElement("select");
       select.disabled = isWidgetDisabled(node, context, leafPageId);
-      for (const option of node.options || []) {
+      for (const option of effectiveOptions) {
         const opt = document.createElement("option");
         opt.value = option;
         opt.textContent = option;
@@ -1073,7 +1164,7 @@
           actions.setPageSelector(
             node.selector_id,
             select.value,
-            selectorChangeOptions(node, leafPageId)
+            selectorChangeOptions(node, context, leafPageId)
           );
         });
       }

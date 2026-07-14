@@ -587,11 +587,12 @@ class TrafficValidationPage(DashboardPage):
         )
         self._facility_summary_body = self.section(
             "traffic_facility_summary_body",
-            selectors=(
-                "demo_period",
-                "demo_facility_type",
-            ),
             render=self.render_demo_facility_summary_section,
+        )
+        self._link_volume_body = self.section(
+            "traffic_link_volume_body",
+            selectors=("demo_period",),
+            render=self.render_demo_link_volume_section,
         )
         self._external_top_body = self.section(
             "traffic_top_count_body",
@@ -609,11 +610,13 @@ class TrafficValidationPage(DashboardPage):
         return self.new_section(
             pn.pane.Markdown("## Traffic Validation"),
             self._facility_summary_body,
+            pn.pane.Markdown("### Traffic Volume Summaries"),
             selector_row(
                 self.demo_period_sel,
                 self.demo_facility_sel,
             ),
             self._external_volume_body,
+            self._link_volume_body,
             pn.pane.Markdown("### Top Count Locations by Modeled Volume"),
             selector_row(self.demo_top_period_sel, self.demo_top_n_sel),
             self._external_top_body,
@@ -717,9 +720,11 @@ class TrafficValidationPage(DashboardPage):
         if not any((count_list, volume_list, scatter_list, fit_list)):
             return []
 
-        period = self.demo_period_sel.value
+        # This overview intentionally stays on the unfiltered daily totals. The
+        # controls below it belong to the Traffic Volume Summaries charts.
+        period = "Day"
         volume_col = DEMO_TRAFFIC_TIME_PERIODS[str(period)]
-        facility_type = self.selected_facility_type_raw()
+        facility_type = "All"
         if scatter_list is not None:
             scatter_data = self.get_filtered_view(
                 "demo_count_scatter_facility_summary",
@@ -772,9 +777,6 @@ class TrafficValidationPage(DashboardPage):
         if not self.state.run_labels:
             return [self.no_runs_message()]
 
-        link_list = self.state.get_summary_table_set(
-            "link_validation_summary", self.weighting_key
-        )
         count_list = self.state.get_summary_table_set(
             "count_location_counts_validation_summary", self.weighting_key
         )
@@ -787,20 +789,12 @@ class TrafficValidationPage(DashboardPage):
         fit_list = self.state.get_summary_table_set(
             "count_location_fit_validation_summary", self.weighting_key
         )
-        if not any((link_list, count_list, volume_list, scatter_list, fit_list)):
+        if not any((count_list, volume_list, scatter_list, fit_list)):
             return []
         period = self.demo_period_sel.value
         volume_col = DEMO_TRAFFIC_TIME_PERIODS[str(period)]
         facility_type = self.selected_facility_type_raw()
-        facility_label = str(self.demo_facility_sel.value)
-        facility_categoryarray = (
-            [facility_label]
-            if facility_type != "All"
-            else [option for option in self.demo_facility_sel.options if option != "All"]
-        )
-        section: list[pn.viewable.Viewable] = [
-            pn.pane.Markdown("### Traffic Volume Summaries")
-        ]
+        section: list[pn.viewable.Viewable] = []
         if scatter_list is not None:
             scatter_data = self.get_filtered_view(
                 "demo_count_scatter",
@@ -867,37 +861,51 @@ class TrafficValidationPage(DashboardPage):
                     ],
                 )
             )
-        if link_list is not None:
-            aggregate_data = self.get_filtered_view(
-                "demo_link_aggregate",
-                (period, facility_type),
-                factory=lambda: demo_link_aggregate_data(
-                    link_list,
-                    volume_col=volume_col,
-                    facility_type=facility_type,
-                    config=self.config,
-                ),
-            )
-            section.append(
-                bar_chart(
-                    aggregate_data,
-                    x_col="facility_type_label",
-                    y_col="volume",
-                    title=f"Link Volume by Facility Type - {period}",
-                    xaxis_title="Facility Type",
-                    yaxis_title="Volume",
-                    xaxis_categoryarray=facility_categoryarray,
-                    showlegend=True,
-                )
-            )
-        else:
-            section.append(
+        return section
+
+    def render_demo_link_volume_section(self) -> list[pn.viewable.Viewable]:
+        if not self.state.run_labels:
+            return []
+
+        link_list = self.state.get_summary_table_set(
+            "link_validation_summary", self.weighting_key
+        )
+        if link_list is None:
+            return [
                 self.data_not_available_card(
                     detail="Link validation summaries are unavailable.",
                     missing_items=["link_validation_summary"],
                 )
+            ]
+
+        period = self.demo_period_sel.value
+        volume_col = DEMO_TRAFFIC_TIME_PERIODS[str(period)]
+        aggregate_data = self.get_filtered_view(
+            "demo_link_aggregate",
+            (period,),
+            factory=lambda: demo_link_aggregate_data(
+                link_list,
+                volume_col=volume_col,
+                facility_type="All",
+                config=self.config,
+            ),
+        )
+        return [
+            bar_chart(
+                aggregate_data,
+                x_col="facility_type_label",
+                y_col="volume",
+                title=f"Link Volume by Facility Type - {period}",
+                xaxis_title="Facility Type",
+                yaxis_title="Volume",
+                xaxis_categoryarray=[
+                    option
+                    for option in self.demo_facility_sel.options
+                    if option != "All"
+                ],
+                showlegend=True,
             )
-        return section
+        ]
 
     def render_demo_top_count_section(self) -> list[pn.viewable.Viewable]:
         if not self.state.run_labels:
