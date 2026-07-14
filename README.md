@@ -587,3 +587,8 @@ When behavior changes, update docs in the same change:
 - New page, selector, or export behavior: update `wiki/31-dashboard-pages.md`, `wiki/32-figures-and-widgets.md`, or `wiki/33-dashboard-page-recipes.md`.
 - New export payload/runtime behavior: update `wiki/34-html-export.md`.
 - Architecture or runtime-flow changes: update `wiki/12-running-workflows.md`, `wiki/20-output-processor.md`, or `wiki/30-output-visualizer.md`.
+
+## Tests
+
+See [`docs/testing.md`](docs/testing.md) for the complete suite, the fast
+development loop, and the exhaustive offline-export test boundary.

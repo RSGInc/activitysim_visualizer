@@ -33,3 +33,6 @@ package = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "full_export: exhaustive offline-export tests that render every default page and state",
+]

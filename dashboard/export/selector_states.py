@@ -268,8 +268,8 @@ def selector_values_for_current_state(
 
     option_lookup = {option.strip().lower(): option for option in options}
     resolved: list[str] = []
-    for token in selector_metadata["requested_values"]:
-        option = option_lookup.get(str(token).strip().lower())
+    for value in selector_metadata["resolved_values"]:
+        option = option_lookup.get(str(value).strip().lower())
         if option is not None and option not in resolved:
             resolved.append(option)
     return resolved

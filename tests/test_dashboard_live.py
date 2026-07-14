@@ -2164,7 +2164,7 @@ def test_resolve_page_definitions_rejects_unknown_configured_page_ids(
     config = _write_config(tmp_path, dashboard_pages=["overview", "unknown_page"])
 
     with pytest.raises(
-        ValueError, match="Unsupported visualizer.dashboard_pages entries"
+        ValueError, match="Unsupported dashboard.live.pages entries"
     ):
         resolve_live_page_definitions(config)
 

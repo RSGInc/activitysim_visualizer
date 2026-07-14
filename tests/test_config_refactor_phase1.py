@@ -211,6 +211,43 @@ def test_unknown_top_level_config_key_is_rejected(tmp_path: Path) -> None:
         _write_config(tmp_path, ["dashbaord: {}", "runs: []"])
 
 
+def test_dashboard_host_placeholder_is_validated_and_ignored(tmp_path: Path) -> None:
+    config = _write_config(
+        tmp_path,
+        [
+            "pipeline:",
+            "  steps: [dashboard]",
+            "  dashboard_mode: live",
+            "dashboard:",
+            "  host:",
+            "    account: example-account",
+            "    app_id: 12345",
+            "    title: Example Dashboard",
+            "    verify: true",
+            "runs: []",
+        ],
+    )
+
+    assert config.pipeline.dashboard_mode == "live"
+    assert not hasattr(config, "host")
+
+
+def test_dashboard_host_placeholder_rejects_unknown_fields(tmp_path: Path) -> None:
+    with pytest.raises(
+        ValueError,
+        match="Unknown dashboard.host config keys: 'acount'",
+    ):
+        _write_config(
+            tmp_path,
+            [
+                "dashboard:",
+                "  host:",
+                "    acount: typo",
+                "runs: []",
+            ],
+        )
+
+
 @pytest.mark.parametrize(
     ("lines", "message"),
     [

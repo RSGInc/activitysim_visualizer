@@ -864,7 +864,9 @@ def test_prepare_workflow_supports_two_runs_with_different_skimjoin_config_files
                 "    skimjoin:",
                 "      config_path: skimjoin_b.yaml",
                 "skimjoin:",
-                "  enabled: true",
+                "  defaults: {}",
+                "pipeline:",
+                "  steps: [prepare, skimjoin]",
             ]
         ),
         encoding="utf-8",
@@ -930,8 +932,10 @@ def test_prepare_workflow_supports_two_runs_sharing_one_skimjoin_config_with_dif
                 "      skim_files:",
                 f'        - "{str(skim_b.resolve()).replace("\\", "/")}"',
                 "skimjoin:",
-                "  enabled: true",
-                "  config_path: skimjoin.yaml",
+                "  defaults:",
+                "    config_path: skimjoin.yaml",
+                "pipeline:",
+                "  steps: [prepare, skimjoin]",
             ]
         ),
         encoding="utf-8",

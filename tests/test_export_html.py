@@ -762,7 +762,7 @@ def test_export_html_config_supports_new_summaries_and_visualizer_sections(
     assert config.summary_root.endswith("summary_cache")
     assert _configured_page_ids(config) == ["overview", "trip_mode"]
     assert config.export_html.enabled is True
-    assert list(config.export_html.pages) == ["trip_mode"]
+    assert list(config.export_html.pages) == ["trip_mode", "overview"]
     assert config.export_html.pages_configured is True
 
 
@@ -945,7 +945,7 @@ def test_config_defaults_when_optional_sections_are_absent(
     assert config.export_html.pages == {}
 def test_export_html_config_rejects_invalid_or_empty_values(tmp_path: Path) -> None:
     with pytest.raises(
-        ValueError, match="Unsupported visualizer.export_html.dashboard.weighting"
+        ValueError, match="Unsupported dashboard.export.dashboard.weighting"
     ):
         _write_config(
             tmp_path / "invalid",
@@ -959,7 +959,7 @@ def test_export_html_config_rejects_invalid_or_empty_values(tmp_path: Path) -> N
 
     with pytest.raises(
         ValueError,
-        match="visualizer.export_html.dashboard.segmentation_type must name one configured segmentation definition",
+        match="dashboard.export.dashboard.segmentation_type must name one configured segment definition",
     ):
         _write_config(
             tmp_path / "invalid_export_segmentation_type",
@@ -984,7 +984,7 @@ def test_export_html_config_rejects_invalid_or_empty_values(tmp_path: Path) -> N
 
     with pytest.raises(
         ValueError,
-        match="visualizer.export_html.dashboard.segmentation_visibility must be one of full_only, segments_only, or full_and_segments",
+        match="dashboard.export.dashboard.segmentation_visibility must be one of full_only, segments_only, or full_and_segments",
     ):
         _write_config(
             tmp_path / "invalid_export_segmentation_visibility",
@@ -1011,7 +1011,7 @@ def test_export_html_config_rejects_invalid_or_empty_values(tmp_path: Path) -> N
 def test_config_rejects_duplicate_dashboard_pages(tmp_path: Path) -> None:
     with pytest.raises(
         ValueError,
-        match="visualizer.dashboard_pages contains duplicate page id",
+        match="dashboard.live.pages contains duplicate page id",
     ):
         _write_config(
             tmp_path,
@@ -1020,7 +1020,7 @@ def test_config_rejects_duplicate_dashboard_pages(tmp_path: Path) -> None:
 
     with pytest.raises(
         ValueError,
-        match="visualizer.export_html.dashboard.values resolved to no values",
+        match="dashboard.export.dashboard.values resolved to no values",
     ):
         _write_config(
             tmp_path / "empty",
@@ -1032,7 +1032,7 @@ def test_config_rejects_duplicate_dashboard_pages(tmp_path: Path) -> None:
 
     with pytest.raises(
         ValueError,
-        match="visualizer\\.export_html\\.pages\\.trip_summaries(\\.children)?\\.trip_mode\\.tour_purpose resolved to no values",
+        match="dashboard\\.export\\.pages\\.trip_summaries(\\.children)?\\.trip_mode\\.tour_purpose resolved to no values",
     ):
         _write_config(
             tmp_path / "empty_page_values",
@@ -1120,15 +1120,11 @@ def _plot_node_by_title(node: dict, title: str) -> dict:
     )
 
 
+@pytest.mark.full_export
 def test_build_export_html_document_serializes_dashboard_states_and_pages(
-    tmp_path: Path,
+    representative_full_export_html: str,
 ) -> None:
-    config = _write_config(tmp_path)
-    html = build_export_html_document(
-        [],
-        config,
-        summary_runs=[_full_summary_run()],
-    )
+    html = representative_full_export_html
     payload = _extract_payload(html)
 
     assert payload["schema_version"] == EXPORT_SCHEMA_VERSION
@@ -1370,19 +1366,13 @@ def test_build_export_html_document_respects_configured_dashboard_page_subset_an
         ("overview", "Overview"),
         ("trip_summaries", "Trip Summaries"),
     ]
-    assert payload["pages"][1]["default_page_id"] == "trip_stop_purpose"
+    assert payload["pages"][1]["default_page_id"] == "trip_mode"
     assert [(child["id"], child["title"]) for child in payload["pages"][1]["children"]] == [
-        ("trip_stop_purpose", "Trip and Stop Purpose"),
         ("trip_mode", "Trip Mode"),
-        ("trip_stop_time", "Trip and Stop Time"),
-        ("trip_stop_distance", "Trip and Stop Distance"),
     ]
     assert list(payload["states"]["Weighted||Percent"]) == [
         "overview",
-        "trip_stop_purpose",
         "trip_mode",
-        "trip_stop_time",
-        "trip_stop_distance",
     ]
 
 
@@ -1456,10 +1446,10 @@ def test_build_export_html_document_keeps_summary_safe_skims_content_and_hides_p
 ) -> None:
     config = _write_config(
         tmp_path,
-        dashboard_pages=["skims"],
+        dashboard_pages=["skim_summaries"],
         export_html_lines=[
             "pages:",
-            "  skims: {}",
+            "  skim_summaries: {}",
         ],
     )
 
@@ -1471,7 +1461,7 @@ def test_build_export_html_document_keeps_summary_safe_skims_content_and_hides_p
     )
 
     assert [(page["id"], page["title"]) for page in payload["pages"]] == [
-        ("skims", "Skim Summaries")
+        ("skim_summaries", "Skim Summaries")
     ]
     assert not any(
         node.get("selector_id") in {"trip_min", "trip_max", "tour_min", "tour_max"}
@@ -1500,7 +1490,7 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
             "    children:",
             "      daily_activity_pattern:",
                 "        person_type:",
-                "          - total",
+                "          - all",
                 "          - worker",
             "  tour_summaries:",
             "    children:",
@@ -2144,7 +2134,7 @@ def test_build_export_html_document_rejects_unknown_page_and_selector_ids(
         ],
     )
     with pytest.raises(
-        ValueError, match="Unsupported visualizer.export_html.pages entries"
+        ValueError, match="Unsupported dashboard.export.pages entries"
     ):
         build_export_html_document(
             [], bad_page_config, summary_runs=[_full_summary_run()]
@@ -2161,7 +2151,7 @@ def test_build_export_html_document_rejects_unknown_page_and_selector_ids(
     )
     with pytest.raises(
         ValueError,
-        match="Unsupported visualizer.export_html.pages.trip_summaries.trip_mode entries",
+        match="Unsupported dashboard.export.pages.trip_summaries.trip_mode entries",
     ):
         build_export_html_document(
             [],
@@ -2173,10 +2163,13 @@ def test_build_export_html_document_rejects_unknown_page_and_selector_ids(
 def test_export_html_save_writes_single_client_side_html_file(tmp_path: Path) -> None:
     config = _write_config(
         tmp_path,
+        dashboard_pages=[{"trip_summaries": ["trip_mode"]}],
         export_html_lines=[
             "dashboard:",
             "  weighting: all",
             "  values: all",
+            "pages:",
+            "  trip_mode: {}",
         ],
     )
     out_dir = tmp_path / "html_export"
@@ -2226,7 +2219,7 @@ def test_export_html_config_rejects_invalid_missing_data_display(
 ) -> None:
     with pytest.raises(
         ValueError,
-        match="visualizer.missing_data_display must be either 'card' or 'blank'",
+        match="display.missing_data_display must be either 'card' or 'blank'",
     ):
         _write_config(
             tmp_path,
@@ -2259,7 +2252,11 @@ def test_export_html_save_fails_fast_without_final_files_when_html_write_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = _write_config(tmp_path)
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=["overview"],
+        export_html_lines=["pages:", "  overview: {}"],
+    )
     out_path = tmp_path / "dashboard.html"
 
     def fail_html_temp_write(path: Path, contents: str) -> None:
@@ -2280,7 +2277,11 @@ def test_export_html_save_rejects_malformed_assembled_html_before_finalizing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = _write_config(tmp_path)
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=["overview"],
+        export_html_lines=["pages:", "  overview: {}"],
+    )
     out_path = tmp_path / "dashboard.html"
 
     monkeypatch.setattr(

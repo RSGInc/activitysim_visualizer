@@ -106,7 +106,14 @@ def validate_canonical_config(raw: Mapping[str, object]) -> None:
     _reject_unknown_keys(
         dashboard,
         field_name="dashboard",
-        allowed={"title", "live", "export", "enable_maz_geographies", "pages"},
+        allowed={
+            "title",
+            "live",
+            "export",
+            "host",
+            "enable_maz_geographies",
+            "pages",
+        },
     )
     _reject_keys(
         dashboard,
@@ -114,6 +121,7 @@ def validate_canonical_config(raw: Mapping[str, object]) -> None:
         replacements={"pages": "Use dashboard.live.pages."},
     )
     export = _mapping(dashboard.get("export"), field_name="dashboard.export")
+    host = _mapping(dashboard.get("host"), field_name="dashboard.host")
     live = _mapping(dashboard.get("live"), field_name="dashboard.live")
     _reject_unknown_keys(
         live,
@@ -133,6 +141,11 @@ def validate_canonical_config(raw: Mapping[str, object]) -> None:
             "weighting",
             "values",
         },
+    )
+    _reject_unknown_keys(
+        host,
+        field_name="dashboard.host",
+        allowed={"account", "app_id", "title", "verify"},
     )
     _reject_keys(
         export,

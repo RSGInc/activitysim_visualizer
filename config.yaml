@@ -217,6 +217,13 @@ dashboard:
     #           enabled: false
     #         school_table:
     #           enabled: false
+  # Reserved for a future hosted-dashboard implementation. These settings are
+  # validated but intentionally ignored by the current runtime.
+  # host:
+  #   account: my-connect-cloud-account
+  #   app_id: 12345
+  #   title: ActivitySim Comparison Visualizer
+  #   verify: true
 
 display:
   # bar_hover_mode: all # closest | all

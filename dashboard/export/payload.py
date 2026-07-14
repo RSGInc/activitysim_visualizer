@@ -358,7 +358,7 @@ def _export_part_disable_hint(
     part_id: str,
 ) -> str:
     page_key = _page_config_key(page_def)
-    return f"visualizer.export_html.pages.{page_key}.parts.{part_id}.enabled: false"
+    return f"dashboard.export.pages.{page_key}.parts.{part_id}.enabled: false"
 
 
 def serialize_dashboard_state(
@@ -604,10 +604,11 @@ def validate_page_export_config(config: Config) -> None:
         page_id
         for page_id in config.export_html.pages
         if _page_definition_for_export_override(page_id) is None
+        and group_definition_by_id(page_id) is None
     )
     if unknown_pages:
         raise ValueError(
-            "Unsupported visualizer.export_html.pages entries: "
+            "Unsupported dashboard.export.pages entries: "
             + ", ".join(repr(page_id) for page_id in unknown_pages)
         )
 
@@ -618,7 +619,7 @@ def validate_page_export_config(config: Config) -> None:
     )
     if unknown_excluded_pages:
         raise ValueError(
-            "Unsupported visualizer.export_html.exclude_pages entries: "
+            "Unsupported dashboard.export.exclude_pages entries: "
             + ", ".join(repr(page_id) for page_id in unknown_excluded_pages)
         )
     unknown_excluded_groups = sorted(
@@ -628,13 +629,15 @@ def validate_page_export_config(config: Config) -> None:
     )
     if unknown_excluded_groups:
         raise ValueError(
-            "Unsupported visualizer.export_html.exclude_groups entries: "
+            "Unsupported dashboard.export.exclude_groups entries: "
             + ", ".join(repr(group_id) for group_id in unknown_excluded_groups)
         )
 
     for page_id, override in config.export_html.pages.items():
         page_def = _page_definition_for_export_override(page_id)
         if page_def is None:
+            # A group-level empty mapping selects all of that group's live
+            # children and has no leaf selectors or parts to validate.
             continue
         page = _build_validation_page(page_def, config)
         selector_defs = traversal.page_selectors(page)
@@ -647,7 +650,7 @@ def validate_page_export_config(config: Config) -> None:
         )
         if unknown_selectors:
             raise ValueError(
-                f"Unsupported visualizer.export_html.pages.{page_id} entries: "
+                f"Unsupported dashboard.export.pages.{page_id} entries: "
                 + ", ".join(repr(selector_id) for selector_id in unknown_selectors)
             )
         export_parts = traversal.page_export_parts(page)
@@ -658,7 +661,7 @@ def validate_page_export_config(config: Config) -> None:
         )
         if unknown_parts:
             raise ValueError(
-                f"Unsupported visualizer.export_html.pages.{_page_config_key(page_def)}.parts entries: "
+                f"Unsupported dashboard.export.pages.{_page_config_key(page_def)}.parts entries: "
                 + ", ".join(repr(part_id) for part_id in unknown_parts)
             )
 
@@ -687,7 +690,7 @@ def _selector_field_name(
     page_def: DashboardPageDefinition,
     selector_id: str,
 ) -> str:
-    return f"visualizer.export_html.pages.{_page_config_key(page_def)}.{selector_id}"
+    return f"dashboard.export.pages.{_page_config_key(page_def)}.{selector_id}"
 
 
 def _page_config_key(page_def: DashboardPageDefinition | None) -> str:

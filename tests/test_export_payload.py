@@ -4,6 +4,8 @@ from pathlib import Path
 import sys
 from uuid import uuid4
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -78,6 +80,7 @@ def test_vmt_export_content_includes_dropdown_availability_note() -> None:
     assert vmt_content["children"][2] is section_node
 
 
+@pytest.mark.full_export
 def test_build_export_payload_has_stable_top_level_contract() -> None:
     tmp_path = _workspace_tmp_dir("payload_contract")
     config = _write_config(
@@ -493,6 +496,11 @@ def test_build_export_payload_normalizes_group_default_page_ids_to_leaf_page_ids
     tmp_path = _workspace_tmp_dir("payload_group_defaults")
     config = _write_config(
         tmp_path,
+        dashboard_pages=[
+            {"daily_travel": ["daily_activity_pattern"]},
+            {"tour_summaries": ["tour_purpose"]},
+            {"trip_summaries": ["trip_stop_purpose"]},
+        ],
         export_html_lines=[
             "dashboard:",
             "  weighting: all",
@@ -560,6 +568,7 @@ def test_build_export_payload_applies_excluded_pages_and_groups() -> None:
     tmp_path = _workspace_tmp_dir("payload_exclusions")
     config = _write_config(
         tmp_path,
+        dashboard_pages=["overview", "shadow_pricing", "validation"],
         export_html_lines=[
             "exclude_pages:",
             "  - shadow_pricing",

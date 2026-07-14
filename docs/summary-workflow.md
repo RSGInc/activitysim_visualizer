@@ -39,6 +39,10 @@ Dashboard mode supports:
 - `export`: write standalone HTML
 - `host`: reserved for future hosted deployment behavior; current runtime falls back to live mode
 
+An optional `dashboard.host` mapping may hold the reserved `account`, `app_id`,
+`title`, and `verify` fields. They are validated placeholders only and have no
+runtime effect yet.
+
 ## Step 1: Prepare
 
 Typical command:

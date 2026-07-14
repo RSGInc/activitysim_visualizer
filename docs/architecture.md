@@ -73,6 +73,10 @@ Treat it as the contract for:
 - which pages are enabled
 - how export selector requests are configured
 
+`dashboard.host` is a reserved placeholder for a future hosting integration.
+The schema accepts `account`, `app_id`, `title`, and `verify`, but the current
+runtime deliberately does not store or act on them.
+
 If a new feature adds a config key or changes config behavior, the README and any relevant docs in this folder should be updated in the same change.
 
 `Config.pipeline` is the canonical home for workflow defaults. Today the

@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dashboard.export.selector_states import (
     resolve_export_section_states,
     selector_options as _selector_options,
+    selector_values_for_current_state,
     scoped_widget_values,
 )
 from dashboard.export.runtime_assets import build_export_html_shell, load_export_runtime_js
@@ -35,6 +36,24 @@ REQUIRED_TOP_LEVEL_FIELDS = {
     "page_export_support",
     "client_runtime",
 }
+
+
+def test_explicit_selector_enumeration_uses_resolved_display_values() -> None:
+    widget = pn.widgets.Select(
+        options=["All Person Types", "worker"],
+        value="All Person Types",
+    )
+    metadata = {
+        "request_mode": "explicit",
+        "requested_values": ["all", "worker"],
+        "resolved_values": ["All Person Types", "worker"],
+    }
+
+    assert selector_values_for_current_state(
+        selector_id="person_type",
+        widget=widget,
+        selector_metadata=metadata,
+    ) == ["All Person Types", "worker"]
 
 
 def _load_fixture(name: str) -> dict:
@@ -191,10 +210,13 @@ def test_runtime_asset_contains_sortable_export_table_helpers() -> None:
 def test_generated_export_html_contains_no_raw_nan_or_infinity(tmp_path: Path) -> None:
     config = _write_config(
         tmp_path,
+        dashboard_pages=["overview"],
         export_html_lines=[
             "dashboard:",
             "  weighting: all",
             "  values: all",
+            "pages:",
+            "  overview: {}",
         ],
     )
 

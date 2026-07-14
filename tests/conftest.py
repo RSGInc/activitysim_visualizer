@@ -26,3 +26,26 @@ def tmp_path(request: pytest.FixtureRequest) -> Path:
     )
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+@pytest.fixture(scope="session")
+def representative_full_export_html() -> str:
+    """Build the immutable all-page export once for cross-cutting assertions."""
+    from dashboard.export.html import build_export_html_document
+    from test_export_html import _full_summary_run, _write_config
+
+    path = Path("tmp_export_test_artifacts") / f"full_export_{uuid4().hex}"
+    path.mkdir(parents=True, exist_ok=True)
+    config = _write_config(
+        path,
+        export_html_lines=[
+            "dashboard:",
+            "  weighting: all",
+            "  values: all",
+        ],
+    )
+    return build_export_html_document(
+        [],
+        config,
+        summary_runs=[_full_summary_run()],
+    )

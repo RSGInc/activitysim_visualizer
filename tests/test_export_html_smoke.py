@@ -27,10 +27,13 @@ def test_export_html_smoke_writes_single_self_contained_file() -> None:
     tmp_path = _workspace_tmp_dir("html_smoke_file")
     config = _write_config(
         tmp_path,
+        dashboard_pages=[{"trip_summaries": ["trip_mode"]}],
         export_html_lines=[
             "dashboard:",
             "  weighting: all",
             "  values: all",
+            "pages:",
+            "  trip_mode: {}",
         ],
     )
     out_path = tmp_path / "smoke" / "dashboard.html"
@@ -98,27 +101,24 @@ def test_export_html_smoke_embeds_versioned_payload_and_runtime() -> None:
         ("trip_summaries", "Trip Summaries")
     ]
     trip_summaries = payload["pages"][0]
-    assert trip_summaries["default_page_id"] == "trip_stop_purpose"
+    assert trip_summaries["default_page_id"] == "trip_mode"
     assert [(child["id"], child["title"]) for child in trip_summaries["children"]] == [
-        ("trip_stop_purpose", "Trip and Stop Purpose"),
         ("trip_mode", "Trip Mode"),
-        ("trip_stop_time", "Trip and Stop Time"),
-        ("trip_stop_distance", "Trip and Stop Distance"),
     ]
     trip_mode = next(child for child in trip_summaries["children"] if child["id"] == "trip_mode")
-    assert trip_mode["selectors"] == [
-        {
-            "id": "tour_purpose",
-            "label": "Tour Purpose",
-            "available": True,
-            "request_mode": "all",
-            "requested_values": [],
-            "resolved_values": ["All", "eatout", "social"],
-            "default_value": "All",
-            "options": ["All", "eatout", "social"],
-            "export_enabled": True,
-        }
-    ]
+    selectors = {selector["id"]: selector for selector in trip_mode["selectors"]}
+    assert selectors["tour_purpose"] == {
+        "id": "tour_purpose",
+        "label": "Tour Purpose",
+        "available": True,
+        "request_mode": "all",
+        "requested_values": [],
+        "resolved_values": ["All Tour Purposes", "eatout", "social"],
+        "default_value": "All Tour Purposes",
+        "options": ["All Tour Purposes", "eatout", "social"],
+        "export_enabled": True,
+    }
+    assert selectors["hide_drive_alone"]["resolved_values"] == ["False", "True"]
     assert payload["states"]["Weighted||Percent"]["trip_mode"]["kind"] == "page"
     assert "Unsupported export schema version." in html
     assert "__EXPORT_SCHEMA_VERSION__" not in html
@@ -147,6 +147,11 @@ def test_export_html_smoke_serializes_grouped_default_page_as_leaf_page_id() -> 
     tmp_path = _workspace_tmp_dir("html_smoke_grouped_defaults")
     config = _write_config(
         tmp_path,
+        dashboard_pages=[
+            {"daily_travel": ["daily_activity_pattern"]},
+            {"tour_summaries": ["tour_purpose"]},
+            {"trip_summaries": ["trip_stop_purpose"]},
+        ],
         export_html_lines=[
             "dashboard:",
             "  weighting: all",

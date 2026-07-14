@@ -57,13 +57,13 @@ def test_export_logs_selector_unavailable_warning_once_and_falls_back(caplog: py
     warning_messages = [
         record.getMessage()
         for record in caplog.records
-        if "visualizer.export_html.pages.long_term_choices.shadow_pricing.student_type"
+        if "dashboard.export.pages.long_term_choices.shadow_pricing.student_type"
         in record.getMessage()
     ]
 
     assert payload["states"]["Weighted||Percent"]["shadow_pricing"]["kind"] == "page"
     assert warning_messages == [
-        "Warning: visualizer.export_html.pages.long_term_choices.shadow_pricing.student_type is configured, but no enabled export part uses this selector. Ignoring the configuration."
+        "Warning: dashboard.export.pages.long_term_choices.shadow_pricing.student_type is configured, but no enabled export part uses this selector. Ignoring the configuration."
     ]
 
 
@@ -83,7 +83,7 @@ def test_export_raises_readable_error_for_invalid_selector_values() -> None:
 
     with pytest.raises(
         ExportBuildError,
-        match="Unsupported visualizer.export_html.pages.trip_summaries.trip_mode.tour_purpose values: 'invalid-purpose'",
+        match="Unsupported dashboard.export.pages.trip_summaries.trip_mode.tour_purpose values: 'invalid-purpose'",
     ):
         build_export_html_document([], config, summary_runs=[_full_summary_run()])
 
@@ -109,13 +109,13 @@ def test_export_rejects_unknown_page_and_selector_configuration_entries() -> Non
     )
 
     with pytest.raises(
-        ValueError, match="Unsupported visualizer.export_html.pages entries"
+        ValueError, match="Unsupported dashboard.export.pages entries"
     ):
         build_export_html_document([], bad_page_config, summary_runs=[_full_summary_run()])
 
     with pytest.raises(
         ValueError,
-        match="Unsupported visualizer.export_html.pages.trip_summaries.trip_mode entries",
+        match="Unsupported dashboard.export.pages.trip_summaries.trip_mode entries",
     ):
         build_export_html_document(
             [],
@@ -124,6 +124,7 @@ def test_export_rejects_unknown_page_and_selector_configuration_entries() -> Non
         )
 
 
+@pytest.mark.full_export
 def test_export_logs_total_payload_warning_for_large_default_export(
     caplog: pytest.LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
@@ -183,7 +184,7 @@ def test_export_logs_static_heavy_region_warning_with_disable_hint(
     assert any(
         "overview is large because region overview_demographics contributes about"
         in message
-        and "visualizer.export_html.pages.overview.parts.overview_demographics.enabled: false"
+        and "dashboard.export.pages.overview.parts.overview_demographics.enabled: false"
         in message
         for message in messages
     )
@@ -218,7 +219,7 @@ def test_export_logs_selector_expansion_warning_with_disable_hint(
         "tour_mode expands region tour_mode_modes to 4 selector combinations"
         in message
         and "selectors: tour_purpose, hide_drive_alone" in message
-        and "visualizer.export_html.pages.tour_summaries.tour_mode.parts.tour_mode_modes.enabled: false"
+        and "dashboard.export.pages.tour_summaries.tour_mode.parts.tour_mode_modes.enabled: false"
         in message
         for message in messages
     )

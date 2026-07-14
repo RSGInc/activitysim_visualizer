@@ -248,6 +248,13 @@ def normalize_export_page_entries(
         if not isinstance(raw_page_cfg, dict):
             raise ValueError(f"{field_name}.{page_id} must be a mapping.")
 
+        # An empty mapping selects a page or group without overriding its
+        # selectors. Preserve it so dashboard.export.pages can also define the
+        # exported page set.
+        if not raw_page_cfg:
+            normalized[page_id] = ExportPageOverride()
+            continue
+
         is_leaf_override = any(
             str(key).strip().lower() in {"enabled", "parts"}
             or not isinstance(value, dict)
