@@ -20,9 +20,8 @@ def _cast_category(
     category_col: str,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Cast one chart category column to strings for stable display ordering."""
-    return (
-        RunTables.from_runs(data_list)
-        .with_columns(pl.col(category_col).cast(pl.Utf8))
+    return RunTables.from_runs(data_list).with_columns(
+        pl.col(category_col).cast(pl.Utf8)
     )
 
 
@@ -33,9 +32,8 @@ def _normalize_vehicle_summary_columns(
     legacy_col: str,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Accept legacy summary column names while exposing one canonical chart column."""
-    return (
-        RunTables.from_runs(data_list)
-        .map(lambda frame: rename_present(frame, {legacy_col: canonical_col}))
+    return RunTables.from_runs(data_list).map(
+        lambda frame: rename_present(frame, {legacy_col: canonical_col})
     )
 
 
@@ -54,9 +52,7 @@ def _av_kpi_values(
 def _auto_ownership_has_household_size(
     data_list: list[tuple[str, pl.DataFrame]] | None,
 ) -> bool:
-    return any(
-        "household_size" in df.columns for _, df in nonempty(data_list or [])
-    )
+    return any("household_size" in df.columns for _, df in nonempty(data_list or []))
 
 
 def _auto_ownership_household_size_options(
@@ -72,6 +68,7 @@ def _auto_ownership_chart_data(
     household_size: str,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Filter to one household-size bucket and aggregate vehicle-count bins."""
+
     def prepare(frame: pl.DataFrame) -> pl.DataFrame:
         filtered = frame
         if "household_size" in filtered.columns:
@@ -110,11 +107,10 @@ class VehicleOwnershipTypePage(DashboardPage):
     """Vehicle ownership summary page."""
 
     def build_page(self) -> pn.viewable.Viewable:
-        hhsize_opts = self._household_size_options()
         self.hhsize_sel = self.select(
             "household_size",
             "Household Size",
-            options=hhsize_opts,
+            options=self._household_size_options,
         )
         self._ownership_section = self.section(
             "vehicle_ownership_summary",
@@ -141,19 +137,9 @@ class VehicleOwnershipTypePage(DashboardPage):
     def _household_size_options(self) -> list[str]:
         data = self.data.summary(
             "auto_ownership_distribution",
-            "weighted",
+            self.weighting_key,
         )
         return _auto_ownership_household_size_options(data)
-
-    def sync_controls(self) -> None:
-        """Keep the household-size selector aligned with available auto ownership data."""
-        summaries = self.data.summaries("auto_ownership_distribution")
-        options = _auto_ownership_household_size_options(
-            summaries["auto_ownership_distribution"]
-        )
-        self.hhsize_sel.options = options
-        if self.hhsize_sel.value not in options:
-            self.hhsize_sel.value = options[0]
 
     def render_ownership_summary(self):
         if not self.state.run_labels:

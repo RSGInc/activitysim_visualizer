@@ -31,6 +31,7 @@ def distance_chart_data(
     cap_at: int | None = None,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Filter one distribution summary to a tour purpose and order the distance bins."""
+
     def shape(frame: pl.DataFrame) -> pl.DataFrame:
         chart = (
             frame.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
@@ -48,10 +49,13 @@ def distance_chart_data(
                 value_cols=("freq",),
             )
         return (
-            chart.with_columns(distance_sort_expr("distance_bin").alias("_sort_distance"))
+            chart.with_columns(
+                distance_sort_expr("distance_bin").alias("_sort_distance")
+            )
             .sort("_sort_distance")
             .drop("_sort_distance")
         )
+
     return RunTables.from_runs(data_list).map(shape)
 
 
@@ -78,30 +82,10 @@ class TripStopDistancePage(DashboardPage):
         return purpose_label
 
     def build_page(self) -> pn.viewable.Viewable:
-        purpose_opts, self._tour_purpose_to_raw = column_options(
-            self.data.summary("trip_distance_by_purpose", "weighted"),
+        self.tour_purpose_sel = self.select(
             "tour_purpose",
-            category_id="tour_purpose",
-            config=self.config,
-            state=self.state,
-            cache_key=(
-                "trip_stop_distance",
-                "trip_distance_by_purpose",
-                "tour_purpose",
-                "weighted",
-            ),
-            total_raw="all_tour_purposes",
-            total_label=self.TOTAL_PURPOSE_LABEL,
-        )
-        purpose_opts = purpose_opts or [self.TOTAL_PURPOSE_LABEL]
-        self.tour_purpose_sel = self.selector(
-            "tour_purpose",
-            widget=pn.widgets.Select(
-                name="Tour Purpose",
-                options=purpose_opts,
-                value=purpose_opts[0],
-            ),
-            label="Tour Purpose",
+            "Tour Purpose",
+            options=self._purpose_options,
         )
         self.trip_stop_distance_range = DistanceRangeControls.create(
             self,
@@ -121,39 +105,28 @@ class TripStopDistancePage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def sync_controls(self) -> None:
-        summaries = self.data.summaries(*self.required_summary_ids)
-        if not all(summaries.values()):
-            return
+    def _purpose_options(self) -> list[str]:
         purpose_opts, self._tour_purpose_to_raw = column_options(
-            summaries["trip_distance_by_purpose"],
+            self.data.summary("trip_distance_by_purpose", self.weighting_key) or [],
             "tour_purpose",
             category_id="tour_purpose",
             config=self.config,
-            state=self.state,
-            cache_key=(
-                "trip_stop_distance",
-                "trip_distance_by_purpose",
-                "tour_purpose",
-                self.weighting_key,
-            ),
             total_raw="all_tour_purposes",
             total_label=self.TOTAL_PURPOSE_LABEL,
         )
-        self.tour_purpose_sel.options = purpose_opts or [self.TOTAL_PURPOSE_LABEL]
-        if self.tour_purpose_sel.value not in self.tour_purpose_sel.options:
-            self.tour_purpose_sel.value = self.tour_purpose_sel.options[0]
+        return purpose_opts or [self.TOTAL_PURPOSE_LABEL]
 
     def _selected_purpose(self) -> tuple[str, str]:
         display_purpose = self.tour_purpose_sel.value
-        raw_purpose = self._tour_purpose_to_raw.get(display_purpose, "all_tour_purposes")
+        raw_purpose = self._tour_purpose_to_raw.get(
+            display_purpose, "all_tour_purposes"
+        )
         return display_purpose, raw_purpose
 
     def render_distance_chart(
         self,
         *,
         summary_data: list[tuple[str, pl.DataFrame]],
-        cache_key: str,
         raw_purpose: str,
         display_purpose: str,
         x_col: str,
@@ -164,16 +137,14 @@ class TripStopDistancePage(DashboardPage):
         cap_at: int | None = None,
         x_range: tuple[float, float] | None = None,
     ) -> pn.viewable.Viewable:
-        chart_data = self.get_filtered_view(
-            cache_key,
-            (raw_purpose, cap_at),
-            factory=lambda: distance_chart_data(
+        chart_data = self.query(
+            lambda: distance_chart_data(
                 summary_data,
                 raw_purpose,
                 x_col,
                 y_col,
                 cap_at=cap_at,
-            ),
+            )
         )
         axis_data = with_distance_axis(chart_data)
         tickvals, ticktext = fixed_distance_axis_ticks()
@@ -197,29 +168,27 @@ class TripStopDistancePage(DashboardPage):
             return [self.summary_only_unavailable_card()]
 
         display_purpose, raw_purpose = self._selected_purpose()
-        trip_distance_data = self.get_filtered_view(
-            "trip_distance",
-            (raw_purpose, None),
-            factory=lambda: distance_chart_data(
+        trip_distance_data = self.query(
+            lambda: distance_chart_data(
                 summaries["trip_distance_by_purpose"],
                 raw_purpose,
                 "distance_bin",
                 "trip_count",
                 cap_at=None,
-            ),
+            )
         )
-        stop_distance_data = self.get_filtered_view(
-            "stop_out_of_direction_distance",
-            (raw_purpose, 40),
-            factory=lambda: distance_chart_data(
+        stop_distance_data = self.query(
+            lambda: distance_chart_data(
                 summaries["stop_out_of_direction_distance_by_tour_purpose"],
                 raw_purpose,
                 "distance_bin",
                 "stop_count",
                 cap_at=40,
-            ),
+            )
         )
-        observed_bounds = distance_axis_bounds([*trip_distance_data, *stop_distance_data])
+        observed_bounds = distance_axis_bounds(
+            [*trip_distance_data, *stop_distance_data]
+        )
         bounds = (0.0, 40.0) if observed_bounds is not None else None
         self.trip_stop_distance_range.sync(
             (raw_purpose, self.weighting_key),
@@ -238,7 +207,6 @@ class TripStopDistancePage(DashboardPage):
             self.trip_stop_distance_range.row(),
             self.render_distance_chart(
                 summary_data=summaries["trip_distance_by_purpose"],
-                cache_key="trip_distance",
                 raw_purpose=raw_purpose,
                 display_purpose=display_purpose,
                 x_col="distance_bin",
@@ -249,8 +217,9 @@ class TripStopDistancePage(DashboardPage):
                 x_range=x_range,
             ),
             self.render_distance_chart(
-                summary_data=summaries["stop_out_of_direction_distance_by_tour_purpose"],
-                cache_key="stop_out_of_direction_distance",
+                summary_data=summaries[
+                    "stop_out_of_direction_distance_by_tour_purpose"
+                ],
                 raw_purpose=raw_purpose,
                 display_purpose=display_purpose,
                 x_col="distance_bin",

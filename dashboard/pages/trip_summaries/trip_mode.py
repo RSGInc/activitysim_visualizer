@@ -68,9 +68,8 @@ def trip_mode_percent_data(
     if not hidden_trip_mode_values:
         return with_percent
     hidden_values = sorted(hidden_trip_mode_values)
-    return (
-        RunTables.from_runs(with_percent)
-        .map(lambda frame: frame.filter(~pl.col("trip_mode").is_in(hidden_values)))
+    return RunTables.from_runs(with_percent).map(
+        lambda frame: frame.filter(~pl.col("trip_mode").is_in(hidden_values))
     )
 
 
@@ -108,32 +107,10 @@ class TripModePage(DashboardPage):
         )
 
     def build_page(self) -> pn.viewable.Viewable:
-        purpose_opts, self._tour_purpose_to_raw = column_options(
-            self.data.summary(
-                "trip_mode_by_tour_purpose_and_tour_mode", "weighted"
-            )
-            or [],
+        self.tour_purpose_sel = self.select(
             "tour_purpose",
-            category_id="tour_purpose",
-            config=self.config,
-            state=self.state,
-            cache_key=(
-                "trip_mode",
-                "trip_mode_by_tour_purpose_and_tour_mode",
-                "tour_purpose",
-                "weighted",
-            ),
-            total_raw="all_tour_purposes",
-            total_label=self.TOTAL_PURPOSE_LABEL,
-        )
-        self.tour_purpose_sel = self.selector(
-            "tour_purpose",
-            widget=pn.widgets.Select(
-                name="Tour Purpose",
-                options=purpose_opts or [self.TOTAL_PURPOSE_LABEL],
-                value=(purpose_opts or [self.TOTAL_PURPOSE_LABEL])[0],
-            ),
-            label="Tour Purpose",
+            "Tour Purpose",
+            options=self._purpose_options,
         )
         self.hide_drive_alone = self.selector(
             "hide_drive_alone",
@@ -152,32 +129,25 @@ class TripModePage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def sync_controls(self) -> None:
-        summaries = self.data.summaries(*self.required_summary_ids)
-        if not all(summaries.values()):
-            return
+    def _purpose_options(self) -> list[str]:
         purpose_opts, self._tour_purpose_to_raw = column_options(
-            summaries["trip_mode_by_tour_purpose_and_tour_mode"],
+            self.data.summary(
+                "trip_mode_by_tour_purpose_and_tour_mode", self.weighting_key
+            )
+            or [],
             "tour_purpose",
             category_id="tour_purpose",
             config=self.config,
-            state=self.state,
-            cache_key=(
-                "trip_mode",
-                "trip_mode_by_tour_purpose_and_tour_mode",
-                "tour_purpose",
-                self.weighting_key,
-            ),
             total_raw="all_tour_purposes",
             total_label=self.TOTAL_PURPOSE_LABEL,
         )
-        self.tour_purpose_sel.options = purpose_opts or [self.TOTAL_PURPOSE_LABEL]
-        if self.tour_purpose_sel.value not in self.tour_purpose_sel.options:
-            self.tour_purpose_sel.value = self.tour_purpose_sel.options[0]
+        return purpose_opts or [self.TOTAL_PURPOSE_LABEL]
 
     def _selected_purpose(self) -> tuple[str, str]:
         display_purpose = self.tour_purpose_sel.value
-        raw_purpose = self._tour_purpose_to_raw.get(display_purpose, "all_tour_purposes")
+        raw_purpose = self._tour_purpose_to_raw.get(
+            display_purpose, "all_tour_purposes"
+        )
         return display_purpose, str(raw_purpose)
 
     def _mode_axes(
@@ -237,15 +207,8 @@ class TripModePage(DashboardPage):
         display_purpose: str,
         tour_mode: str | None = None,
     ) -> pn.viewable.Viewable:
-        cache_key = (
-            "trip_mode_overall" if tour_mode is None else "trip_mode_grid",
-            raw_purpose,
-            tour_mode,
-            tuple(trip_mode_values),
-        )
-        mode_data = self.get_filtered_view(
-            *cache_key,
-            factory=lambda: label_category_data(
+        mode_data = self.query(
+            lambda: label_category_data(
                 trip_mode_percent_data(
                     filtered_trip_mode_data(
                         trip_mode_list,
@@ -259,7 +222,7 @@ class TripModePage(DashboardPage):
                 config=self.config,
                 source_col="trip_mode",
                 target_col="trip_mode_label",
-            ),
+            )
         )
         chart_title = (
             self._tour_mode_chart_title(tour_mode, display_purpose)

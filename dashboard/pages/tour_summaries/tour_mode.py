@@ -88,13 +88,13 @@ def vehicle_attribute_data(
         if "occupancy" in filtered.columns:
             filtered = filtered.with_columns(pl.col("occupancy").cast(pl.Utf8))
             if occupancy == "All":
-                filtered = (
-                    filtered.group_by(category)
-                    .agg(vehicle_count=pl.col("vehicle_count").sum())
+                filtered = filtered.group_by(category).agg(
+                    vehicle_count=pl.col("vehicle_count").sum()
                 )
             else:
                 filtered = filtered.filter(pl.col("occupancy") == occupancy)
         return sort_filtered(filtered)
+
     return RunTables.from_runs(data_list).map(shape)
 
 
@@ -111,6 +111,7 @@ def tour_mode_chart_data(
         "Auto Deficient": "tour_count_auto_deficient",
         "Auto Sufficient": "tour_count_auto_sufficient",
     }[auto_sufficiency]
+
     def shape(df: pl.DataFrame) -> pl.DataFrame:
         filtered = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8)).filter(
             pl.col("tour_purpose") == purpose
@@ -129,6 +130,7 @@ def tour_mode_chart_data(
                 ~pl.col("tour_mode").is_in(sorted(hidden_mode_values))
             )
         return chart_df
+
     return RunTables.from_runs(data_list).map(shape)
 
 
@@ -146,6 +148,7 @@ def tour_mode_chart_data(
 )
 class TourModePage(DashboardPage):
     """Render tour mode splits and allocated vehicle characteristics."""
+
     TOTAL_PURPOSE_LABEL = "All Tour Purposes"
 
     def build_page(self) -> pn.viewable.Viewable:
@@ -205,13 +208,6 @@ class TourModePage(DashboardPage):
             "tour_purpose",
             category_id="tour_purpose",
             config=self.config,
-            state=self.state,
-            cache_key=(
-                "tour_mode",
-                "tour_mode_by_tour_purpose_and_auto_sufficiency",
-                "tour_purpose",
-                "weighted",
-            ),
             total_raw="all_tour_purposes",
             total_label=self.TOTAL_PURPOSE_LABEL,
         )
@@ -258,13 +254,6 @@ class TourModePage(DashboardPage):
             "tour_purpose",
             category_id="tour_purpose",
             config=self.config,
-            state=self.state,
-            cache_key=(
-                "tour_mode",
-                "tour_mode_by_tour_purpose_and_auto_sufficiency",
-                "tour_purpose",
-                self.weighting_key,
-            ),
             total_raw="all_tour_purposes",
             total_label=self.TOTAL_PURPOSE_LABEL,
         )
@@ -350,15 +339,13 @@ class TourModePage(DashboardPage):
         hidden_mode_values: set[str],
     ) -> pn.viewable.Viewable:
         """Render one auto-sufficiency slice of the selected tour purpose."""
-        mode_data = self.get_filtered_view(
-            "tour_mode",
-            (raw_purpose, auto_sufficiency, tuple(mode_values)),
-            factory=lambda: tour_mode_chart_data(
+        mode_data = self.query(
+            lambda: tour_mode_chart_data(
                 summary_data,
                 raw_purpose,
                 auto_sufficiency,
                 hidden_mode_values,
-            ),
+            )
         )
         labeled = label_category_data(
             mode_data,
@@ -404,7 +391,9 @@ class TourModePage(DashboardPage):
             ),
         ]
 
-    def render_vehicle_age_chart(self, summary_data, occupancy: str) -> pn.viewable.Viewable:
+    def render_vehicle_age_chart(
+        self, summary_data, occupancy: str
+    ) -> pn.viewable.Viewable:
         """Render allocated vehicle age by occupancy level."""
         if not summary_data:
             return self.data_not_available_card(
@@ -412,14 +401,12 @@ class TourModePage(DashboardPage):
                 missing_items=["allocated_vehicle_age_by_occupancy"],
             )
         age_values = self.ordered_vehicle_values(summary_data, "age")
-        chart_data = self.get_filtered_view(
-            "allocated_vehicle_age",
-            occupancy,
-            factory=lambda: vehicle_attribute_data(
+        chart_data = self.query(
+            lambda: vehicle_attribute_data(
                 summary_data,
                 occupancy,
                 category="age",
-            ),
+            )
         )
         return self.plot.bar(
             chart_data,
@@ -431,7 +418,9 @@ class TourModePage(DashboardPage):
             category_order=age_values,
         )
 
-    def render_vehicle_fuel_chart(self, summary_data, occupancy: str) -> pn.viewable.Viewable:
+    def render_vehicle_fuel_chart(
+        self, summary_data, occupancy: str
+    ) -> pn.viewable.Viewable:
         """Render allocated vehicle fuel type by occupancy level."""
         if not summary_data:
             return self.data_not_available_card(
@@ -439,14 +428,12 @@ class TourModePage(DashboardPage):
                 missing_items=["allocated_vehicle_fuel_type_by_occupancy"],
             )
         fuel_values = self.ordered_vehicle_values(summary_data, "fuel_type")
-        chart_data = self.get_filtered_view(
-            "allocated_vehicle_fuel",
-            occupancy,
-            factory=lambda: vehicle_attribute_data(
+        chart_data = self.query(
+            lambda: vehicle_attribute_data(
                 summary_data,
                 occupancy,
                 category="fuel_type",
-            ),
+            )
         )
         return self.plot.bar(
             chart_data,
@@ -458,7 +445,9 @@ class TourModePage(DashboardPage):
             category_order=fuel_values,
         )
 
-    def render_vehicle_body_chart(self, summary_data, occupancy: str) -> pn.viewable.Viewable:
+    def render_vehicle_body_chart(
+        self, summary_data, occupancy: str
+    ) -> pn.viewable.Viewable:
         """Render allocated vehicle body type by occupancy level."""
         if not summary_data:
             return self.data_not_available_card(
@@ -466,14 +455,12 @@ class TourModePage(DashboardPage):
                 missing_items=["allocated_vehicle_body_type_by_occupancy"],
             )
         body_values = self.ordered_vehicle_values(summary_data, "body_type")
-        chart_data = self.get_filtered_view(
-            "allocated_vehicle_body",
-            occupancy,
-            factory=lambda: vehicle_attribute_data(
+        chart_data = self.query(
+            lambda: vehicle_attribute_data(
                 summary_data,
                 occupancy,
                 category="body_type",
-            ),
+            )
         )
         return self.plot.bar(
             chart_data,
@@ -494,11 +481,15 @@ class TourModePage(DashboardPage):
         values = {
             str(value)
             for _, df in nonempty(summary_data)
-            for value in (df[column].cast(pl.Utf8).to_list() if column in df.columns else [])
+            for value in (
+                df[column].cast(pl.Utf8).to_list() if column in df.columns else []
+            )
         }
         if column == "age":
             return sorted(
                 values,
-                key=lambda value: 999 if value == "20+" else int(value) if value.isdigit() else 1000,
+                key=lambda value: (
+                    999 if value == "20+" else int(value) if value.isdigit() else 1000
+                ),
             )
         return sorted(values)

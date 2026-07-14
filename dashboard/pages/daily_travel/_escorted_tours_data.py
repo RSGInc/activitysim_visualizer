@@ -36,7 +36,11 @@ def adult_raw_direction(value: str) -> str:
 
 
 def default_direction_option(options: list[str]) -> str:
-    return "Outbound" if "Outbound" in options else (options[0] if options else "Both Directions")
+    return (
+        "Outbound"
+        if "Outbound" in options
+        else (options[0] if options else "Both Directions")
+    )
 
 
 def adult_escort_event_stop_chart_data(data_list, segment: str):
@@ -77,9 +81,11 @@ def escort_distance_chart_data(data_list, direction: str, *, y_col: str):
             pl.col(y_col).cast(pl.Float64).alias("freq"),
         )
         .map(
-            lambda filtered: bins.join(filtered, on="distance_bin", how="left")
-            .with_columns(pl.col("freq").fill_null(0.0))
-            .select("distance_bin", "freq")
+            lambda filtered: (
+                bins.join(filtered, on="distance_bin", how="left")
+                .with_columns(pl.col("freq").fill_null(0.0))
+                .select("distance_bin", "freq")
+            )
         )
     )
 
@@ -99,7 +105,10 @@ def household_school_escort_chart_data(numerator, denominator, direction: str):
         .with_columns(capped_numeric_category_expr("student_count", 6))
         .group(
             "student_count",
-            pl.col("household_count").cast(pl.Float64).sum().alias("total_household_count"),
+            pl.col("household_count")
+            .cast(pl.Float64)
+            .sum()
+            .alias("total_household_count"),
         )
     )
     escorted = (

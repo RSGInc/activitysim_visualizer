@@ -38,14 +38,10 @@ class InternalExternalToursPage(DashboardPage):
         self._geo_level_raw_by_label: dict[str, str | None] = {
             ALL_GEOGRAPHY_TYPES_LABEL: ALL_GEOGRAPHY_TYPES_VALUE
         }
-        self.geo_level_sel = self.selector(
+        self.geo_level_sel = self.select(
             "geography_level",
-            widget=pn.widgets.Select(
-                name=GEOGRAPHY_TYPE_SELECTOR_LABEL,
-                options=[ALL_GEOGRAPHY_TYPES_LABEL],
-                value=ALL_GEOGRAPHY_TYPES_LABEL,
-            ),
-            label=GEOGRAPHY_TYPE_SELECTOR_LABEL,
+            GEOGRAPHY_TYPE_SELECTOR_LABEL,
+            options=self._geography_options,
         )
         self._body = self.section(
             "internal_external_tours_body",
@@ -59,15 +55,17 @@ class InternalExternalToursPage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def sync_controls(self) -> None:
-        """Keep the geography-level selector aligned with available summaries."""
+    def _geography_options(self) -> list[str]:
+        """Return available geography levels and refresh their raw mapping."""
         summaries = self.data.summaries(
             "internal_external_nonmandatory_tour_frequency_by_home_geography",
             "external_nonmandatory_tour_locations",
         )
         geo_opts, self._geo_level_raw_by_label = geography_type_options(
             normalize_geography_data(
-                summaries["internal_external_nonmandatory_tour_frequency_by_home_geography"]
+                summaries[
+                    "internal_external_nonmandatory_tour_frequency_by_home_geography"
+                ]
             )
             or None,
             normalize_geography_data(summaries["external_nonmandatory_tour_locations"])
@@ -75,9 +73,7 @@ class InternalExternalToursPage(DashboardPage):
             config=self.config,
             include_all_types=True,
         )
-        self.geo_level_sel.options = geo_opts
-        if self.geo_level_sel.value not in geo_opts:
-            self.geo_level_sel.value = geo_opts[0]
+        return geo_opts
 
     def selected_geography_level_raw(self) -> str:
         """Return the raw geography type selected in the display selector."""
@@ -99,6 +95,7 @@ class InternalExternalToursPage(DashboardPage):
             "geography_id",
             "home_geography",
         }
+
         def prepare(df: pl.DataFrame) -> pl.DataFrame:
             display_df = with_display_geography_columns(
                 df,
@@ -123,9 +120,7 @@ class InternalExternalToursPage(DashboardPage):
                 )
                 if column in display_df.columns
             ]
-            return (
-                display_df.select(ordered_columns) if ordered_columns else display_df
-            )
+            return display_df.select(ordered_columns) if ordered_columns else display_df
 
         return RunTables.from_runs(data_list).map(prepare)
 
@@ -142,7 +137,9 @@ class InternalExternalToursPage(DashboardPage):
         int_ext_widget = self.render_internal_external_table(
             geo_level,
             normalize_geography_data(
-                summaries["internal_external_nonmandatory_tour_frequency_by_home_geography"]
+                summaries[
+                    "internal_external_nonmandatory_tour_frequency_by_home_geography"
+                ]
             ),
         )
         external_locations_widget = self.render_external_locations_table(
@@ -171,11 +168,7 @@ class InternalExternalToursPage(DashboardPage):
                 ],
             )
 
-        table_data = self.get_filtered_view(
-            "internal_external_nonmandatory_tours",
-            geo_level,
-            factory=lambda: filter_geography_level(summary_data, geo_level),
-        )
+        table_data = self.query(lambda: filter_geography_level(summary_data, geo_level))
         return data_table(
             self._display_geography_table(table_data, geography_col="home_geography"),
             "Internal vs. External Non-Mandatory Tour Frequency",
@@ -193,11 +186,7 @@ class InternalExternalToursPage(DashboardPage):
                 missing_items=["external_nonmandatory_tour_locations"],
             )
 
-        table_data = self.get_filtered_view(
-            "external_nonmandatory_tour_locations",
-            geo_level,
-            factory=lambda: filter_geography_level(summary_data, geo_level),
-        )
+        table_data = self.query(lambda: filter_geography_level(summary_data, geo_level))
         if not any(not df.is_empty() for _, df in table_data):
             return self.data_not_available_card(
                 detail=(

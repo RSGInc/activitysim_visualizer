@@ -20,6 +20,7 @@ from dashboard.pages.skim_summaries._shared import (
     skim_family_options,
     skim_summary_precision_overrides,
 )
+
 TOP_SELECTOR_ROW_STYLESHEET = """
 :host(.trip-skim-top-selector) {
   max-width: 240px;
@@ -46,7 +47,9 @@ class TripSkimsPage(DashboardPage):
 
     def build_page(self) -> pn.viewable.Viewable:
         """Build the skim summary shell and the live-only distribution controls."""
-        trip_stats = self.data.summary_series(TRIP_STATS_SUMMARY_ID, weighting="weighted")
+        trip_stats = self.data.summary_series(
+            TRIP_STATS_SUMMARY_ID, weighting="weighted"
+        )
         trip_family_options = skim_family_options(
             self.config,
             trip_stats,
@@ -126,13 +129,15 @@ class TripSkimsPage(DashboardPage):
             self.trip_mode_sel.value = self.trip_mode_sel.options[0]
         self.trip_reset_btn.on_click(lambda event: self._reset_distribution_range())
 
-        self._summary_section = self.section(
-            "trip_skim_summary_section",
+        summary = self.feature("summary")
+        distribution = self.feature("distribution")
+        self._summary_section = summary.section(
+            "body",
             selectors=("trip_skim_family", "trip_skim_scenario"),
             render=self.render_summary_section,
         )
-        self._distribution_section = self.section(
-            "trip_skim_distribution_section",
+        self._distribution_section = distribution.section(
+            "body",
             selectors=(
                 "trip_skim_scenario",
                 "trip_distribution_component",
@@ -289,18 +294,15 @@ class TripSkimsPage(DashboardPage):
                 ),
             ]
 
-        trip_stats_data = self.get_filtered_view(
-            "trip_skim_family_stats",
-            family,
-            self._trip_skim_scenario_value(),
-            factory=lambda: family_stats_table(
+        trip_stats_data = self.query(
+            lambda: family_stats_table(
                 self.config,
                 trip_stats,
                 family=family,
                 mode_column="trip_mode",
                 target_table="trips",
                 skim_scenario=self._trip_skim_scenario_value(),
-            ),
+            )
         )
         if not any(not df.is_empty() for _, df in trip_stats_data):
             return [
@@ -332,15 +334,8 @@ class TripSkimsPage(DashboardPage):
                 ),
             ]
 
-        trip_distribution_data = self.get_filtered_view(
-            "trip_skim_distribution",
-            component,
-            trip_mode,
-            self.weighting_key,
-            self._trip_skim_scenario_value(),
-            trip_distribution_x_range[0],
-            trip_distribution_x_range[1],
-            factory=lambda: distribution_bins(
+        trip_distribution_data = self.query(
+            lambda: distribution_bins(
                 self._trip_prepared_runs(),
                 table_name="trips",
                 mode_column="trip_mode",
@@ -348,7 +343,7 @@ class TripSkimsPage(DashboardPage):
                 component=component,
                 x_range=trip_distribution_x_range,
                 skim_scenario=self._trip_skim_scenario_value(),
-            ),
+            )
         )
 
         trip_distribution_view = (

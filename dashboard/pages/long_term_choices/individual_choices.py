@@ -15,7 +15,6 @@ from dashboard.helpers.category_helpers import (
 )
 from dashboard.helpers.person_type_helpers import (
     ALL_PERSON_TYPES,
-    PERSON_TYPE_COL,
     filter_person_type_counts,
     person_type_selector_options,
 )
@@ -38,18 +37,15 @@ def normalize_bicycle_comfort_levels(
     data_list: list[tuple[str, pl.DataFrame]],
 ) -> list[tuple[str, pl.DataFrame]]:
     """Map legacy bicycle comfort codes to the dashboard's readable category labels."""
-    return (
-        RunTables.from_runs(
-            normalize_category_strings(data_list, "bicycle_comfort_level")
+    return RunTables.from_runs(
+        normalize_category_strings(data_list, "bicycle_comfort_level")
+    ).with_columns(
+        pl.col("bicycle_comfort_level")
+        .replace_strict(
+            _BICYCLE_COMFORT_DISPLAY,
+            default=pl.col("bicycle_comfort_level"),
         )
-        .with_columns(
-                    pl.col("bicycle_comfort_level")
-                    .replace_strict(
-                        _BICYCLE_COMFORT_DISPLAY,
-                        default=pl.col("bicycle_comfort_level"),
-                    )
-                    .alias("bicycle_comfort_level")
-        )
+        .alias("bicycle_comfort_level")
     )
 
 
@@ -69,15 +65,10 @@ class IndividualChoicesPage(DashboardPage):
     """Person-type page for four long-term choice distributions."""
 
     def build_page(self) -> pn.viewable.Viewable:
-        person_type_opts = self._person_type_options()
-        self.person_type_sel = self.selector(
+        self.person_type_sel = self.select(
             "person_type",
-            widget=pn.widgets.Select(
-                name="Person Type",
-                options=person_type_opts,
-                value=person_type_opts[0],
-            ),
-            label="Person Type",
+            "Person Type",
+            options=self._person_type_options,
         )
         self._body = self.section(
             "individual_choices_body",
@@ -108,16 +99,8 @@ class IndividualChoicesPage(DashboardPage):
         options, self._person_type_to_raw = person_type_selector_options(
             *summary_lists,
             config=self.config,
-            state=self.state,
-            cache_key=("individual_choices", PERSON_TYPE_COL, self.weighting_key),
         )
         return options or ["Total"]
-
-    def sync_controls(self) -> None:
-        options = self._person_type_options()
-        self.person_type_sel.options = options
-        if self.person_type_sel.value not in options:
-            self.person_type_sel.value = options[0]
 
     def _selected_person_type(self) -> tuple[str, str | None]:
         display_value = str(self.person_type_sel.value)
@@ -139,7 +122,6 @@ class IndividualChoicesPage(DashboardPage):
         self,
         summary_data: list[tuple[str, pl.DataFrame]],
         *,
-        cache_key: str,
         raw_person_type: str | None,
         category: str,
         category_id: str | None = None,
@@ -153,15 +135,13 @@ class IndividualChoicesPage(DashboardPage):
             category_id=category_id,
             config=self.config,
         )
-        chart_data = self.get_filtered_view(
-            cache_key,
-            raw_person_type,
-            factory=lambda: complete_category_counts(
+        chart_data = self.query(
+            lambda: complete_category_counts(
                 filter_person_type_counts(summary_data, raw_person_type),
                 category=category,
                 category_values=category_values,
                 value_cols=("person_count", "pct"),
-            ),
+            )
         )
         if source_col_for_labels is None or category_id is None:
             return chart_data, category_values, category_values
@@ -176,7 +156,9 @@ class IndividualChoicesPage(DashboardPage):
         label_values = self.config.ordered_labels(category_id, category_values)
         return labeled_data, category_values, label_values
 
-    def render_license_chart(self, display_person_type: str, raw_person_type: str | None):
+    def render_license_chart(
+        self, display_person_type: str, raw_person_type: str | None
+    ):
         """Render license holding status for the selected person type."""
         summary = self._summary_or_placeholder(
             "license_holding_status_distribution",
@@ -185,10 +167,11 @@ class IndividualChoicesPage(DashboardPage):
         if isinstance(summary, pn.Card):
             return summary
 
-        normalized_summary = normalize_category_strings(summary, "license_holding_status")
+        normalized_summary = normalize_category_strings(
+            summary, "license_holding_status"
+        )
         chart_data, _, label_values = self._count_chart_data(
             normalized_summary,
-            cache_key="license_holding_status_distribution",
             raw_person_type=raw_person_type,
             category="license_holding_status",
             category_id="license_holding_status",
@@ -217,7 +200,6 @@ class IndividualChoicesPage(DashboardPage):
         normalized_summary = normalize_bicycle_comfort_levels(summary)
         chart_data, x_values, _ = self._count_chart_data(
             normalized_summary,
-            cache_key="bicycle_comfort_level_distribution",
             raw_person_type=raw_person_type,
             category="bicycle_comfort_level",
         )
@@ -245,7 +227,6 @@ class IndividualChoicesPage(DashboardPage):
         )
         chart_data, _, label_values = self._count_chart_data(
             normalized_summary,
-            cache_key="transit_pass_ownership_by_person_type",
             raw_person_type=raw_person_type,
             category="transit_pass_ownership_status",
             category_id="transit_pass_ownership_status",
@@ -262,7 +243,9 @@ class IndividualChoicesPage(DashboardPage):
             category_order=label_values,
         )
 
-    def render_subsidy_chart(self, display_person_type: str, raw_person_type: str | None):
+    def render_subsidy_chart(
+        self, display_person_type: str, raw_person_type: str | None
+    ):
         """Render transit subsidy categories, handling both raw and pre-labeled summaries."""
         summary = self._summary_or_placeholder(
             "transit_subsidy_by_person_type",
@@ -288,17 +271,18 @@ class IndividualChoicesPage(DashboardPage):
             config=self.config,
         )
         display_values = (
-            [self.config.label_value("transit_subsidy", value) for value in raw_subsidy_values]
+            [
+                self.config.label_value("transit_subsidy", value)
+                for value in raw_subsidy_values
+            ]
             if subsidy_category_col == "transit_subsidy_label"
             else raw_subsidy_values
         )
 
         # Some summary variants already contain dashboard-ready labels, while others still need
         # config-driven relabeling from a raw status code.
-        chart_data = self.get_filtered_view(
-            "transit_subsidy_by_person_type",
-            raw_person_type,
-            factory=lambda: (
+        chart_data = self.query(
+            lambda: (
                 label_category_data(
                     complete_category_counts(
                         filter_person_type_counts(normalized_summary, raw_person_type),
@@ -318,7 +302,7 @@ class IndividualChoicesPage(DashboardPage):
                     category_values=display_values,
                     value_cols=("person_count", "pct"),
                 )
-            ),
+            )
         )
         return self.plot.bar(
             chart_data,

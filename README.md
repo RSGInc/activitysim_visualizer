@@ -47,7 +47,10 @@ Dashboard pages now use one shared authoring model:
 
 - page classes use `@dashboard_page(...)` and subclass `DashboardPage`
 - dropdowns use `select(...)`; custom widgets use `selector(...)`
+- dynamic selectors declare an option provider and default policy
 - refreshable regions are registered with `section(...)`
+- large pages compose related selectors and sections with `feature(...)`
+- repeated chart transforms use `query(...)` without page-authored cache keys
 - live refresh and export metadata both derive from those registrations
 
 The main shared page-helper modules live under `dashboard/helpers/`:
@@ -547,6 +550,11 @@ activitysim_visualizer/
 |   |-- app.py
 |   |-- export/
 |   |-- page_base.py
+|   |-- page_declarations.py
+|   |-- page_diagnostics.py
+|   |-- page_features.py
+|   |-- page_lifecycle.py
+|   |-- page_navigation.py
 |   |-- page_definitions.py
 |   |-- page_registry.py
 |   |-- state.py

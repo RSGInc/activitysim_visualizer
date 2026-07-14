@@ -331,8 +331,8 @@ def _refresh_page_part_view(
     context_label: str,
 ) -> pn.viewable.Viewable:
     """Refresh one page and resolve the current export-part subtree."""
-    if hasattr(page, "clear_filtered_view_cache"):
-        page.clear_filtered_view_cache()
+    if hasattr(page, "clear_query_cache"):
+        page.clear_query_cache()
     page.refresh(force=True)
     refreshed_part_view = part_def.view_for(page)
     if refreshed_part_view is None:

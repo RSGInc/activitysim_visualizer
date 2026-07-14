@@ -325,8 +325,7 @@ def demo_facility_comparison_table(
             if facility_points.is_empty():
                 continue
             observed = [
-                float(value)
-                for value in facility_points["observed_volume"].to_list()
+                float(value) for value in facility_points["observed_volume"].to_list()
             ]
             modeled = [
                 float(value) for value in facility_points["modeled_volume"].to_list()
@@ -454,10 +453,11 @@ def demo_volume_comparison_table(
             )
         )
         link_df = link_by_label.get(label)
-        has_link_metadata = (
-            link_df is not None
-            and {"id", "From_Node", "To_Node"}.issubset(link_df.columns)
-        )
+        has_link_metadata = link_df is not None and {
+            "id",
+            "From_Node",
+            "To_Node",
+        }.issubset(link_df.columns)
         if has_link_metadata:
             link_metadata = (
                 link_df.select(
@@ -470,9 +470,8 @@ def demo_volume_comparison_table(
             )
             joined = joined.join(link_metadata, on="id", how="left")
 
-        joined = (
-            joined.sort(["_quantity_b", "id"], descending=[True, False])
-            .head(top_n)
+        joined = joined.sort(["_quantity_b", "id"], descending=[True, False]).head(
+            top_n
         )
         metadata_columns: list[str] = []
         if has_link_metadata:
@@ -485,9 +484,7 @@ def demo_volume_comparison_table(
             modeled = float(row["_quantity_b"])
             difference = modeled - observed
             percent_difference = (
-                ""
-                if observed == 0.0
-                else f"{(difference / observed) * 100.0:.2f}%"
+                "" if observed == 0.0 else f"{(difference / observed) * 100.0:.2f}%"
             )
             table_row = {
                 "link_id": row["id"],
@@ -520,9 +517,7 @@ def demo_volume_comparison_table(
     title="Traffic Validation",
     group_id="validation",
     order=52,
-    required_summary_ids=(
-        "screenline_flow_comparisons",
-    ),
+    required_summary_ids=("screenline_flow_comparisons",),
     optional_summary_ids=(
         "link_validation_summary",
         "count_location_counts_validation_summary",
@@ -533,9 +528,7 @@ def demo_volume_comparison_table(
 )
 class TrafficValidationPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
-        demo_link_list = self.data.summary(
-            "link_validation_summary", "weighted"
-        )
+        demo_link_list = self.data.summary("link_validation_summary", "weighted")
         demo_count_list = self.data.summary(
             "count_location_counts_validation_summary", "weighted"
         )
@@ -565,14 +558,10 @@ class TrafficValidationPage(DashboardPage):
             ),
             label="Period",
         )
-        self.demo_facility_sel = self.selector(
+        self.demo_facility_sel = self.select(
             "demo_facility_type",
-            widget=pn.widgets.Select(
-                name="Facility Type",
-                options=facility_opts,
-                value=facility_opts[0],
-            ),
-            label="Facility Type",
+            "Facility Type",
+            options=self._facility_options,
         )
         self.demo_top_period_sel = self.selector(
             "demo_top_period",
@@ -592,24 +581,28 @@ class TrafficValidationPage(DashboardPage):
             ),
             label="Top N by Modeled Volume",
         )
-        self._external_volume_body = self.section(
-            "traffic_volume_body",
+        observed_fit = self.feature("observed_model_fit")
+        facility = self.feature("facility_summaries")
+        links = self.feature("link_tables")
+        screenlines = self.feature("screenlines")
+        self._external_volume_body = observed_fit.section(
+            "body",
             selectors=(
                 "demo_period",
                 "demo_facility_type",
             ),
             render=self.render_demo_traffic_section,
         )
-        self._facility_summary_body = self.section(
-            "traffic_facility_summary_body",
+        self._facility_summary_body = facility.section(
+            "body",
             selectors=(
                 "demo_period",
                 "demo_facility_type",
             ),
             render=self.render_demo_facility_summary_section,
         )
-        self._external_top_body = self.section(
-            "traffic_top_count_body",
+        self._external_top_body = links.section(
+            "body",
             selectors=(
                 "demo_facility_type",
                 "demo_top_period",
@@ -617,8 +610,8 @@ class TrafficValidationPage(DashboardPage):
             ),
             render=self.render_demo_top_count_section,
         )
-        self._screenline_body = self.section(
-            "screenline_flow_body",
+        self._screenline_body = screenlines.section(
+            "body",
             render=self.render_screenline_flow_section,
         )
         return self.new_section(
@@ -637,7 +630,8 @@ class TrafficValidationPage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def sync_controls(self) -> None:
+    def _facility_options(self) -> list[str]:
+        """Return facility labels and refresh their raw-value mapping."""
         demo_link_list = self.data.summary(
             "link_validation_summary", self.weighting_key
         )
@@ -661,9 +655,7 @@ class TrafficValidationPage(DashboardPage):
             demo_fit_list,
             config=self.config,
         )
-        self.demo_facility_sel.options = facility_opts
-        if self.demo_facility_sel.value not in facility_opts:
-            self.demo_facility_sel.value = facility_opts[0]
+        return facility_opts
 
     def selected_facility_type_raw(self) -> str:
         selected = str(self.demo_facility_sel.value)
@@ -674,7 +666,6 @@ class TrafficValidationPage(DashboardPage):
         self,
         data_list: list[tuple[str, pl.DataFrame]] | None,
         *,
-        cache_key: str,
         title: str,
         detail: str,
         missing_summary_id: str,
@@ -684,10 +675,7 @@ class TrafficValidationPage(DashboardPage):
                 detail=detail,
                 missing_items=[missing_summary_id],
             )
-        chart_data = self.get_filtered_view(
-            cache_key,
-            factory=lambda: validation_chart_data(data_list),
-        )
+        chart_data = self.query(lambda: validation_chart_data(data_list))
         return self.plot.scatter(
             chart_data,
             x="observed_volume",
@@ -703,10 +691,7 @@ class TrafficValidationPage(DashboardPage):
 
         return [
             self.render_validation_chart(
-                self.data.summary(
-                    "screenline_flow_comparisons", self.weighting_key
-                ),
-                cache_key="screenline_flow_comparisons",
+                self.data.summary("screenline_flow_comparisons", self.weighting_key),
                 title="Screenline Flow Comparisons",
                 detail="Screenline flow comparisons are unavailable.",
                 missing_summary_id="screenline_flow_comparisons",
@@ -736,41 +721,35 @@ class TrafficValidationPage(DashboardPage):
         volume_col = DEMO_TRAFFIC_TIME_PERIODS[str(period)]
         facility_type = self.selected_facility_type_raw()
         if scatter_list:
-            scatter_data = self.get_filtered_view(
-                "demo_count_scatter_facility_summary",
-                (period, facility_type),
-                factory=lambda: demo_count_scatter_data(
+            scatter_data = self.query(
+                lambda: demo_count_scatter_data(
                     scatter_list,
                     period=str(period),
                     facility_type=facility_type,
-                ),
+                )
             )
         elif count_list and volume_list:
-            scatter_data = self.get_filtered_view(
-                "demo_count_scatter_fallback_facility_summary",
-                (period, facility_type),
-                factory=lambda: demo_count_scatter_data_from_sources(
+            scatter_data = self.query(
+                lambda: demo_count_scatter_data_from_sources(
                     count_list,
                     volume_list,
                     volume_col=volume_col,
                     facility_type=facility_type,
-                ),
+                )
             )
         else:
             return []
 
         if not scatter_data:
             return []
-        facility_comparison = self.get_filtered_view(
-            "demo_count_facility_comparison",
-            (period, facility_type),
-            factory=lambda: demo_facility_comparison_table(
+        facility_comparison = self.query(
+            lambda: demo_facility_comparison_table(
                 scatter_data,
                 fit_list,
                 period=str(period),
                 facility_type=facility_type,
                 config=self.config,
-            ),
+            )
         )
         if not facility_comparison:
             return []
@@ -787,9 +766,7 @@ class TrafficValidationPage(DashboardPage):
         if not self.state.run_labels:
             return [self.no_runs_message()]
 
-        link_list = self.data.summary(
-            "link_validation_summary", self.weighting_key
-        )
+        link_list = self.data.summary("link_validation_summary", self.weighting_key)
         count_list = self.data.summary(
             "count_location_counts_validation_summary", self.weighting_key
         )
@@ -811,29 +788,27 @@ class TrafficValidationPage(DashboardPage):
         facility_categoryarray = (
             [facility_label]
             if facility_type != "All"
-            else [option for option in self.demo_facility_sel.options if option != "All"]
+            else [
+                option for option in self.demo_facility_sel.options if option != "All"
+            ]
         )
         section: list[pn.viewable.Viewable] = [
             pn.pane.Markdown("### Traffic Volume Summaries")
         ]
         if scatter_list:
-            scatter_data = self.get_filtered_view(
-                "demo_count_scatter",
-                (period, facility_type),
-                factory=lambda: demo_count_scatter_data(
+            scatter_data = self.query(
+                lambda: demo_count_scatter_data(
                     scatter_list,
                     period=str(period),
                     facility_type=facility_type,
-                ),
+                )
             )
-            fit_data = self.get_filtered_view(
-                "demo_count_fit",
-                (period, facility_type),
-                factory=lambda: demo_count_fit_line_data(
+            fit_data = self.query(
+                lambda: demo_count_fit_line_data(
                     fit_list,
                     period=str(period),
                     facility_type=facility_type,
-                ),
+                )
             )
             section.append(
                 self.plot.scatter(
@@ -848,15 +823,13 @@ class TrafficValidationPage(DashboardPage):
                 )
             )
         elif count_list is not None and volume_list is not None:
-            scatter_data = self.get_filtered_view(
-                "demo_count_scatter_fallback",
-                (period, facility_type),
-                factory=lambda: demo_count_scatter_data_from_sources(
+            scatter_data = self.query(
+                lambda: demo_count_scatter_data_from_sources(
                     count_list,
                     volume_list,
                     volume_col=volume_col,
                     facility_type=facility_type,
-                ),
+                )
             )
             section.append(
                 self.plot.scatter(
@@ -883,15 +856,13 @@ class TrafficValidationPage(DashboardPage):
                 )
             )
         if link_list is not None:
-            aggregate_data = self.get_filtered_view(
-                "demo_link_aggregate",
-                (period, facility_type),
-                factory=lambda: demo_link_aggregate_data(
+            aggregate_data = self.query(
+                lambda: demo_link_aggregate_data(
                     link_list,
                     volume_col=volume_col,
                     facility_type=facility_type,
                     config=self.config,
-                ),
+                )
             )
             section.append(
                 self.plot.bar(
@@ -918,9 +889,7 @@ class TrafficValidationPage(DashboardPage):
         if not self.state.run_labels:
             return [self.no_runs_message()]
 
-        link_list = self.data.summary(
-            "link_validation_summary", self.weighting_key
-        )
+        link_list = self.data.summary("link_validation_summary", self.weighting_key)
         count_list = self.data.summary(
             "count_location_counts_validation_summary", self.weighting_key
         )
@@ -936,10 +905,8 @@ class TrafficValidationPage(DashboardPage):
         top_n = int(self.demo_top_n_sel.value)
 
         if count_list is not None and volume_list is not None:
-            volume_comparison = self.get_filtered_view(
-                "demo_volume_comparison",
-                (top_period, facility_type, top_n),
-                factory=lambda: label_category_data(
+            volume_comparison = self.query(
+                lambda: label_category_data(
                     demo_volume_comparison_table(
                         count_list,
                         volume_list,
@@ -952,7 +919,7 @@ class TrafficValidationPage(DashboardPage):
                     category_id=FACILITY_TYPE_CATEGORY_ID,
                     config=self.config,
                     target_col="facility_type",
-                ),
+                )
             )
             return [
                 pn.pane.Markdown(

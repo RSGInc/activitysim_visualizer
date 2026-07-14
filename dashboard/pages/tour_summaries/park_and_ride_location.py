@@ -36,7 +36,10 @@ class ParkAndRideLocationPage(DashboardPage):
 
     def _maz_tables_disabled(self) -> bool:
         """Return whether MAZ-level tables should be hidden by configuration."""
-        return self.selected_geography_level_raw().lower() == "maz" and not self.config.enable_maz_geographies
+        return (
+            self.selected_geography_level_raw().lower() == "maz"
+            and not self.config.enable_maz_geographies
+        )
 
     def _all_geographies_distribution_card(self) -> pn.Card:
         """Explain why the aggregate residual cannot be shown as a distribution."""
@@ -55,14 +58,10 @@ class ParkAndRideLocationPage(DashboardPage):
         self._geo_level_raw_by_label: dict[str, str | None] = {
             ALL_GEOGRAPHY_TYPES_LABEL: "all_geographies"
         }
-        self.geo_level_sel = self.selector(
+        self.geo_level_sel = self.select(
             "geography_level",
-            widget=pn.widgets.Select(
-                name=GEOGRAPHY_TYPE_SELECTOR_LABEL,
-                options=[ALL_GEOGRAPHY_TYPES_LABEL],
-                value=ALL_GEOGRAPHY_TYPES_LABEL,
-            ),
-            label=GEOGRAPHY_TYPE_SELECTOR_LABEL,
+            GEOGRAPHY_TYPE_SELECTOR_LABEL,
+            options=self._geography_options,
         )
         self._plot_section = self.section(
             "pnr_plot",
@@ -81,20 +80,22 @@ class ParkAndRideLocationPage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def sync_controls(self) -> None:
-        """Refresh page-local summary state and selector options."""
+    def _geography_options(self) -> list[str]:
+        """Refresh page data and return available geography levels."""
         self._current_data = self._collect_data()
         geo_opts = self._current_data["geo_opts"]
         self._geo_level_raw_by_label = self._current_data["geo_raw_by_label"]
-        self.geo_level_sel.options = geo_opts
-        if self.geo_level_sel.value not in geo_opts:
-            self.geo_level_sel.value = geo_opts[0]
+        return geo_opts
 
     def selected_geography_level_raw(self) -> str:
         """Return the raw geography type selected in the display selector."""
         selected = str(self.geo_level_sel.value)
         raw_value = self._geo_level_raw_by_label.get(selected, selected)
-        return "all_geographies" if raw_value is None else normalize_geography_level_value(str(raw_value))
+        return (
+            "all_geographies"
+            if raw_value is None
+            else normalize_geography_level_value(str(raw_value))
+        )
 
     def _collect_data(self) -> dict[str, object]:
         """Collect and normalize park-and-ride summaries."""
@@ -109,7 +110,9 @@ class ParkAndRideLocationPage(DashboardPage):
             self.data.summary("park_and_ride_location_residuals", required=False)
         )
         histogram = normalize_geography_data(
-            self.data.summary("park_and_ride_location_residual_histogram", required=False)
+            self.data.summary(
+                "park_and_ride_location_residual_histogram", required=False
+            )
         )
         geo_opts, geo_raw_by_label = geography_type_options(
             histogram or residuals,
@@ -120,7 +123,8 @@ class ParkAndRideLocationPage(DashboardPage):
         return {
             "mode": "ready",
             "geo_opts": geo_opts or [ALL_GEOGRAPHY_TYPES_LABEL],
-            "geo_raw_by_label": geo_raw_by_label or {ALL_GEOGRAPHY_TYPES_LABEL: "all_geographies"},
+            "geo_raw_by_label": geo_raw_by_label
+            or {ALL_GEOGRAPHY_TYPES_LABEL: "all_geographies"},
             "residuals": residuals or None,
             "histogram": histogram or None,
         }
@@ -146,11 +150,7 @@ class ParkAndRideLocationPage(DashboardPage):
                 self._all_geographies_distribution_card(),
             ]
 
-        filtered = self.get_filtered_view(
-            "pnr_residual_histogram",
-            geo_level,
-            factory=lambda: filter_geography_level(histogram, geo_level),
-        )
+        filtered = self.query(lambda: filter_geography_level(histogram, geo_level))
         return [
             selector_row(self.geo_level_sel),
             self.plot.density(
@@ -180,11 +180,7 @@ class ParkAndRideLocationPage(DashboardPage):
             ]
 
         geo_level = self.selected_geography_level_raw()
-        filtered = self.get_filtered_view(
-            "pnr_residuals",
-            geo_level,
-            factory=lambda: filter_geography_level(residuals, geo_level),
-        )
+        filtered = self.query(lambda: filter_geography_level(residuals, geo_level))
         return [
             data_table(
                 [
@@ -214,6 +210,4 @@ class ParkAndRideLocationPage(DashboardPage):
             )
             if column in display_df.columns
         ]
-        return format_percent_error_table(
-            display_df.select(columns)
-        )
+        return format_percent_error_table(display_df.select(columns))

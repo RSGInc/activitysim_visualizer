@@ -20,15 +20,25 @@ JOINT_SIZE_VALUES = ["2", "3", "4", "5+"]
 
 
 def party_size_options(data_list) -> list[str]:
-    return [PARTY_SIZE_ALL_LABEL, *JOINT_SIZE_VALUES] if nonempty(data_list) else [PARTY_SIZE_ALL_LABEL]
+    return (
+        [PARTY_SIZE_ALL_LABEL, *JOINT_SIZE_VALUES]
+        if nonempty(data_list)
+        else [PARTY_SIZE_ALL_LABEL]
+    )
 
 
 def household_size_options(data_list) -> list[str]:
-    return [HOUSEHOLD_SIZE_ALL_LABEL, *JOINT_SIZE_VALUES] if nonempty(data_list) else [HOUSEHOLD_SIZE_ALL_LABEL]
+    return (
+        [HOUSEHOLD_SIZE_ALL_LABEL, *JOINT_SIZE_VALUES]
+        if nonempty(data_list)
+        else [HOUSEHOLD_SIZE_ALL_LABEL]
+    )
 
 
 def joint_household_size_values(*data_lists) -> list[str]:
-    return JOINT_SIZE_VALUES.copy() if any(nonempty(data) for data in data_lists) else []
+    return (
+        JOINT_SIZE_VALUES.copy() if any(nonempty(data) for data in data_lists) else []
+    )
 
 
 def complete_joint_household_size_data(
@@ -122,13 +132,10 @@ def household_participation_data(data_list, household_size: str):
     )
     if household_size != HOUSEHOLD_SIZE_ALL_LABEL:
         view = view.where(household_size=household_size)
-    return (
-        view.group(
-            "jtf",
-            pl.col("household_percent").mean().alias("household_percent"),
-        )
-        .sort("jtf")
-    )
+    return view.group(
+        "jtf",
+        pl.col("household_percent").mean().alias("household_percent"),
+    ).sort("jtf")
 
 
 def person_participation_data(data_list, *, as_percent: bool):
@@ -145,7 +152,9 @@ def person_participation_data(data_list, *, as_percent: bool):
     if as_percent:
         view = view.with_columns(
             pl.when(pl.col("total_person_count") > 0)
-            .then(pl.col("joint_tour_person_count") / pl.col("total_person_count") * 100.0)
+            .then(
+                pl.col("joint_tour_person_count") / pl.col("total_person_count") * 100.0
+            )
             .otherwise(0.0)
             .alias("person_value")
         )

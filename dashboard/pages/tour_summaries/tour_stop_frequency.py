@@ -35,30 +35,44 @@ def stop_frequency_chart_data(
         "Inbound": "inbound_stop_count",
     }[direction]
     cap_value = 6 if direction == "Both" else 3
+
     def build_frame(df: pl.DataFrame) -> pl.DataFrame:
         filtered = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
         if purpose is None:
-            if "all_tour_purposes" in filtered["tour_purpose"].cast(pl.Utf8).unique().to_list():
-                filtered = filtered.filter(pl.col("tour_purpose") == "all_tour_purposes")
+            if (
+                "all_tour_purposes"
+                in filtered["tour_purpose"].cast(pl.Utf8).unique().to_list()
+            ):
+                filtered = filtered.filter(
+                    pl.col("tour_purpose") == "all_tour_purposes"
+                )
             else:
-                filtered = filtered.with_columns(
-                    capped_numeric_category_expr(stop_col, cap_value)
-                ).group_by(stop_col).agg(
-                    tour_count=pl.col("tour_count").sum()
+                filtered = (
+                    filtered.with_columns(
+                        capped_numeric_category_expr(stop_col, cap_value)
+                    )
+                    .group_by(stop_col)
+                    .agg(tour_count=pl.col("tour_count").sum())
                 )
                 filtered = (
-                    filtered.with_columns(pl.col(stop_col).cast(pl.Utf8).alias("stop_frequency"))
+                    filtered.with_columns(
+                        pl.col(stop_col).cast(pl.Utf8).alias("stop_frequency")
+                    )
                     .select("stop_frequency", "tour_count")
                     .sort(numeric_like_sort_expr("stop_frequency"))
                 )
                 return filtered
         else:
             filtered = filtered.filter(pl.col("tour_purpose") == purpose)
-        filtered = filtered.with_columns(
-            capped_numeric_category_expr(stop_col, cap_value)
-        ).group_by(stop_col).agg(tour_count=pl.col("tour_count").sum())
         filtered = (
-            filtered.with_columns(pl.col(stop_col).cast(pl.Utf8).alias("stop_frequency"))
+            filtered.with_columns(capped_numeric_category_expr(stop_col, cap_value))
+            .group_by(stop_col)
+            .agg(tour_count=pl.col("tour_count").sum())
+        )
+        filtered = (
+            filtered.with_columns(
+                pl.col(stop_col).cast(pl.Utf8).alias("stop_frequency")
+            )
             .select("stop_frequency", "tour_count")
             .sort(numeric_like_sort_expr("stop_frequency"))
         )
@@ -81,32 +95,10 @@ class TourStopFrequencyPage(DashboardPage):
     TOTAL_PURPOSE_LABEL = "All Tour Purposes"
 
     def build_page(self) -> pn.viewable.Viewable:
-        purpose_opts, self._purpose_to_raw = column_options(
-            self.data.summary(
-                "tour_stop_frequency_by_tour_purpose", "weighted"
-            )
-            or [],
+        self.purpose_sel = self.select(
             "tour_purpose",
-            category_id="tour_purpose",
-            config=self.config,
-            state=self.state,
-            cache_key=(
-                "tour_stop_frequency",
-                "tour_stop_frequency_by_tour_purpose",
-                "tour_purpose",
-                "weighted",
-            ),
-            total_raw=None,
-            total_label=self.TOTAL_PURPOSE_LABEL,
-        )
-        self.purpose_sel = self.selector(
-            "tour_purpose",
-            widget=pn.widgets.Select(
-                name="Tour Purpose",
-                options=purpose_opts or [self.TOTAL_PURPOSE_LABEL],
-                value=(purpose_opts or [self.TOTAL_PURPOSE_LABEL])[0],
-            ),
-            label="Tour Purpose",
+            "Tour Purpose",
+            options=self._purpose_options,
         )
         self._body = self.section(
             "tour_stop_frequency_body",
@@ -119,28 +111,17 @@ class TourStopFrequencyPage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def sync_controls(self) -> None:
-        summaries = self.data.summaries(*self.required_summary_ids)
-        if not all(summaries.values()):
-            return
+    def _purpose_options(self) -> list[str]:
         purpose_opts, self._purpose_to_raw = column_options(
-            summaries["tour_stop_frequency_by_tour_purpose"],
+            self.data.summary("tour_stop_frequency_by_tour_purpose", self.weighting_key)
+            or [],
             "tour_purpose",
             category_id="tour_purpose",
             config=self.config,
-            state=self.state,
-            cache_key=(
-                "tour_stop_frequency",
-                "tour_stop_frequency_by_tour_purpose",
-                "tour_purpose",
-                self.weighting_key,
-            ),
             total_raw=None,
             total_label=self.TOTAL_PURPOSE_LABEL,
         )
-        self.purpose_sel.options = purpose_opts or [self.TOTAL_PURPOSE_LABEL]
-        if self.purpose_sel.value not in self.purpose_sel.options:
-            self.purpose_sel.value = self.purpose_sel.options[0]
+        return purpose_opts or [self.TOTAL_PURPOSE_LABEL]
 
     def _selected_purpose(self) -> tuple[str, str | None]:
         display_purpose = self.purpose_sel.value
@@ -154,10 +135,8 @@ class TourStopFrequencyPage(DashboardPage):
         display_purpose: str,
         direction: str,
     ) -> pn.viewable.Viewable:
-        stop_data = self.get_filtered_view(
-            "tour_stop_frequency",
-            (raw_purpose, direction),
-            factory=lambda: stop_frequency_chart_data(stop_list, raw_purpose, direction),
+        stop_data = self.query(
+            lambda: stop_frequency_chart_data(stop_list, raw_purpose, direction)
         )
         raw_values = STOP_FREQUENCY_VALUES[direction]
         label_values = self.config.ordered_labels("stop_frequency", raw_values)

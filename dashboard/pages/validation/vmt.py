@@ -144,11 +144,15 @@ def _total_wide_tod_vmt(
     if total_column and total_column in filtered.columns:
         return _sum_float_column(filtered, total_column)
 
-    available_columns = [column for column in value_columns if column in filtered.columns]
+    available_columns = [
+        column for column in value_columns if column in filtered.columns
+    ]
     if not available_columns:
         return 0.0
     value = filtered.select(
-        pl.sum_horizontal([pl.col(column).cast(pl.Float64) for column in available_columns])
+        pl.sum_horizontal(
+            [pl.col(column).cast(pl.Float64) for column in available_columns]
+        )
         .sum()
         .alias("vmt")
     ).item()
@@ -256,9 +260,9 @@ def _prefer_daily_rows_for_all_time_periods(
         return df
 
     daily_groups = daily_rows.select(group_cols).unique()
-    period_rows_without_daily_total = df.filter(
-        pl.col("time_period") != "Daily"
-    ).join(daily_groups, on=group_cols, how="anti")
+    period_rows_without_daily_total = df.filter(pl.col("time_period") != "Daily").join(
+        daily_groups, on=group_cols, how="anti"
+    )
     return pl.concat([daily_rows, period_rows_without_daily_total], how="vertical")
 
 
@@ -270,7 +274,9 @@ def _with_time_period_percent_of_daily(
         return chart_df
 
     daily_total = chart_df.filter(pl.col("category") == "Daily")["auto_vmt"].sum()
-    denominator = daily_total if daily_total and daily_total > 0 else chart_df["auto_vmt"].sum()
+    denominator = (
+        daily_total if daily_total and daily_total > 0 else chart_df["auto_vmt"].sum()
+    )
     if not denominator or denominator <= 0:
         return chart_df.with_columns(pl.lit(0.0).alias("auto_vmt_percent"))
 
@@ -287,7 +293,9 @@ def _with_value_percent_of_daily(chart_df: pl.DataFrame) -> pl.DataFrame:
     daily_total = chart_df.filter(
         pl.col("category") == EXTERNAL_COMMERCIAL_DAILY_PERIOD
     )["value"].sum()
-    denominator = daily_total if daily_total and daily_total > 0 else chart_df["value"].sum()
+    denominator = (
+        daily_total if daily_total and daily_total > 0 else chart_df["value"].sum()
+    )
     if not denominator or denominator <= 0:
         return chart_df.with_columns(pl.lit(0.0).alias("value_percent"))
 
@@ -509,31 +517,48 @@ def personal_auto_vmt_chart_data(
         if breakdown_col == "geography_id":
             chart_df = chart_df.sort("auto_vmt", descending=True).head(top_geographies)
         elif breakdown_col == "time_period":
-            chart_df = chart_df.with_columns(
-                pl.col("category")
-                .replace_strict(
-                    {value: index for index, value in enumerate(PERSONAL_AUTO_VMT_TIME_ORDER)},
-                    default=len(PERSONAL_AUTO_VMT_TIME_ORDER),
-                    return_dtype=pl.Int64,
+            chart_df = (
+                chart_df.with_columns(
+                    pl.col("category")
+                    .replace_strict(
+                        {
+                            value: index
+                            for index, value in enumerate(PERSONAL_AUTO_VMT_TIME_ORDER)
+                        },
+                        default=len(PERSONAL_AUTO_VMT_TIME_ORDER),
+                        return_dtype=pl.Int64,
+                    )
+                    .alias("_sort_order")
                 )
-                .alias("_sort_order")
-            ).sort("_sort_order", "category").drop("_sort_order")
+                .sort("_sort_order", "category")
+                .drop("_sort_order")
+            )
             chart_df = _with_time_period_percent_of_daily(chart_df)
         elif breakdown_col == "mode":
             mode_order = mode_order or PERSONAL_AUTO_VMT_MODE_ORDER
-            chart_df = chart_df.with_columns(
-                pl.col("category")
-                .replace_strict(
-                    {value: index for index, value in enumerate(mode_order)},
-                    default=len(mode_order),
-                    return_dtype=pl.Int64,
+            chart_df = (
+                chart_df.with_columns(
+                    pl.col("category")
+                    .replace_strict(
+                        {value: index for index, value in enumerate(mode_order)},
+                        default=len(mode_order),
+                        return_dtype=pl.Int64,
+                    )
+                    .alias("_sort_order")
                 )
-                .alias("_sort_order")
-            ).sort("_sort_order", "category").drop("_sort_order")
+                .sort("_sort_order", "category")
+                .drop("_sort_order")
+            )
         elif breakdown_col == "household_size":
-            chart_df = chart_df.with_columns(
-                pl.col("category").cast(pl.Float64, strict=False).alias("_sort_order")
-            ).sort("_sort_order", "category", nulls_last=True).drop("_sort_order")
+            chart_df = (
+                chart_df.with_columns(
+                    pl.col("category")
+                    .cast(pl.Float64, strict=False)
+                    .alias("_sort_order")
+                )
+                .sort("_sort_order", "category", nulls_last=True)
+                .drop("_sort_order")
+            )
         else:
             chart_df = chart_df.sort("category")
         out.append((label, chart_df))
@@ -604,15 +629,12 @@ def demo_commercial_vehicle_chart_data(
             variable_name="commercial_vehicle_type",
             value_name="value",
         ).rename({tod_col: "time_period"})
-        if (
-            breakdown != "Time Period"
-            and time_period not in ("All", EXTERNAL_COMMERCIAL_DAILY_PERIOD)
+        if breakdown != "Time Period" and time_period not in (
+            "All",
+            EXTERNAL_COMMERCIAL_DAILY_PERIOD,
         ):
             long_df = long_df.filter(pl.col("time_period") == time_period)
-        if (
-            breakdown != "Commercial Vehicle Type"
-            and commercial_vehicle_type != "All"
-        ):
+        if breakdown != "Commercial Vehicle Type" and commercial_vehicle_type != "All":
             long_df = long_df.filter(
                 pl.col("commercial_vehicle_type") == commercial_vehicle_type
             )
@@ -892,7 +914,11 @@ class VMTValidationPage(DashboardPage):
             }
         geography_options_display, self.personal_vmt_geo_raw_by_label = (
             geography_name_options_for_type(
-                str(self.personal_vmt_geo_type_raw_by_label.get(geography_type_options_display[0], ALL_GEOGRAPHY_TYPES_VALUE)),
+                str(
+                    self.personal_vmt_geo_type_raw_by_label.get(
+                        geography_type_options_display[0], ALL_GEOGRAPHY_TYPES_VALUE
+                    )
+                ),
                 personal_vmt,
                 config=self.config,
             )
@@ -1146,8 +1172,14 @@ class VMTValidationPage(DashboardPage):
             ),
             label="Time Period",
         )
-        self._personal_vmt_body = self.section(
-            "personal_auto_vmt_body",
+        comparison = self.feature("comparison")
+        personal_auto = self.feature("personal_auto")
+        non_motorized = self.feature("non_motorized")
+        commercial = self.feature("commercial")
+        external = self.feature("external")
+        bicycle = self.feature("bicycle")
+        self._personal_vmt_body = personal_auto.section(
+            "body",
             selectors=(
                 "personal_auto_vmt_breakdown",
                 "personal_auto_vmt_geography_type",
@@ -1159,8 +1191,8 @@ class VMTValidationPage(DashboardPage):
             ),
             render=self.render_personal_auto_vmt_section,
         )
-        self._non_motorized_vmt_body = self.section(
-            "non_motorized_vmt_body",
+        self._non_motorized_vmt_body = non_motorized.section(
+            "body",
             selectors=(
                 "non_motorized_vmt_breakdown",
                 "non_motorized_vmt_geography_type",
@@ -1172,8 +1204,8 @@ class VMTValidationPage(DashboardPage):
             ),
             render=self.render_non_motorized_vmt_section,
         )
-        self._body = self.section(
-            "commercial_vmt_body",
+        self._body = commercial.section(
+            "body",
             selectors=(
                 "demo_commercial_metric",
                 "demo_commercial_breakdown",
@@ -1182,8 +1214,8 @@ class VMTValidationPage(DashboardPage):
             ),
             render=self.render_commercial_vmt_section,
         )
-        self._external_vmt_body = self.section(
-            "external_vmt_body",
+        self._external_vmt_body = external.section(
+            "body",
             selectors=(
                 "external_travel_metric",
                 "external_travel_breakdown",
@@ -1192,12 +1224,12 @@ class VMTValidationPage(DashboardPage):
             ),
             render=self.render_external_vmt_section,
         )
-        self._bicycle_body = self.section(
-            "bicycle_vmt_body",
+        self._bicycle_body = bicycle.section(
+            "body",
             render=self.render_bicycle_section,
         )
-        self._vmt_overview_body = self.section(
-            "vmt_overview_body",
+        self._vmt_overview_body = comparison.section(
+            "body",
             render=self.render_vmt_overview_section,
         )
         return self.new_section(
@@ -1255,10 +1287,12 @@ class VMTValidationPage(DashboardPage):
             PERSONAL_AUTO_VMT_SUMMARY_ID,
             self.weighting_key,
         )
-        geography_type_options_display, self.personal_vmt_geo_type_raw_by_label = geography_type_options(
-            personal_vmt,
-            config=self.config,
-            include_all_types=True,
+        geography_type_options_display, self.personal_vmt_geo_type_raw_by_label = (
+            geography_type_options(
+                personal_vmt,
+                config=self.config,
+                include_all_types=True,
+            )
         )
         if not geography_type_options_display:
             geography_type_options_display = [ALL_GEOGRAPHY_TYPES_LABEL]
@@ -1266,8 +1300,13 @@ class VMTValidationPage(DashboardPage):
                 ALL_GEOGRAPHY_TYPES_LABEL: ALL_GEOGRAPHY_TYPES_VALUE
             }
         self.personal_vmt_geography_type_sel.options = geography_type_options_display
-        if self.personal_vmt_geography_type_sel.value not in geography_type_options_display:
-            self.personal_vmt_geography_type_sel.value = geography_type_options_display[0]
+        if (
+            self.personal_vmt_geography_type_sel.value
+            not in geography_type_options_display
+        ):
+            self.personal_vmt_geography_type_sel.value = geography_type_options_display[
+                0
+            ]
 
         breakdown = str(self.personal_vmt_breakdown_sel.value)
         self.personal_vmt_geography_type_sel.disabled = False
@@ -1355,9 +1394,7 @@ class VMTValidationPage(DashboardPage):
             include_all_types=True,
         )
         if not non_motorized_geography_type_options_display:
-            non_motorized_geography_type_options_display = [
-                ALL_GEOGRAPHY_TYPES_LABEL
-            ]
+            non_motorized_geography_type_options_display = [ALL_GEOGRAPHY_TYPES_LABEL]
             self.non_motorized_vmt_geo_type_raw_by_label = {
                 ALL_GEOGRAPHY_TYPES_LABEL: ALL_GEOGRAPHY_TYPES_VALUE
             }
@@ -1438,9 +1475,7 @@ class VMTValidationPage(DashboardPage):
             "income_segment",
             include_all=True,
         ) or ["All"]
-        self.non_motorized_vmt_income_segment_sel.options = (
-            non_motorized_income_options
-        )
+        self.non_motorized_vmt_income_segment_sel.options = non_motorized_income_options
         if (
             self.non_motorized_vmt_income_segment_sel.value
             not in non_motorized_income_options
@@ -1603,8 +1638,7 @@ class VMTValidationPage(DashboardPage):
         if (
             section_prefix is not None
             and selector_id == f"{section_prefix}_geography_type"
-            and selected_values.get(f"{section_prefix}_breakdown")
-            != "Home Geography"
+            and selected_values.get(f"{section_prefix}_breakdown") != "Home Geography"
         ):
             return ALL_GEOGRAPHY_TYPES_LABEL
         return value
@@ -1712,18 +1746,8 @@ class VMTValidationPage(DashboardPage):
             PERSONAL_AUTO_VMT_MODE_CATEGORY_ID,
             list(dict.fromkeys(mode_values)),
         )
-        chart_data = self.get_filtered_view(
-            "personal_auto_vmt",
-            (
-                breakdown,
-                geography_type,
-                geography_id,
-                time_period,
-                mode,
-                income_segment,
-                household_size,
-            ),
-            factory=lambda: personal_auto_vmt_chart_data(
+        chart_data = self.query(
+            lambda: personal_auto_vmt_chart_data(
                 personal_vmt,
                 breakdown=breakdown,
                 geography_type=geography_type,
@@ -1733,7 +1757,7 @@ class VMTValidationPage(DashboardPage):
                 income_segment=income_segment,
                 household_size=household_size,
                 mode_order=mode_order,
-            ),
+            )
         )
         if breakdown == "Mode":
             chart_data = label_category_data(
@@ -1773,7 +1797,9 @@ class VMTValidationPage(DashboardPage):
                 in {str(category) for category in category_values}
             ]
         else:
-            xaxis_categoryarray = list(dict.fromkeys(str(value) for value in category_values))
+            xaxis_categoryarray = list(
+                dict.fromkeys(str(value) for value in category_values)
+            )
         use_time_period_percent = self.as_percent and breakdown == "Time Period"
         chart = self.plot.bar(
             chart_data,
@@ -1822,18 +1848,8 @@ class VMTValidationPage(DashboardPage):
             PERSONAL_AUTO_VMT_MODE_CATEGORY_ID,
             list(dict.fromkeys(mode_values)),
         )
-        chart_data = self.get_filtered_view(
-            "non_motorized_vmt",
-            (
-                breakdown,
-                geography_type,
-                geography_id,
-                time_period,
-                mode,
-                income_segment,
-                household_size,
-            ),
-            factory=lambda: non_motorized_vmt_chart_data(
+        chart_data = self.query(
+            lambda: non_motorized_vmt_chart_data(
                 non_motorized_vmt,
                 breakdown=breakdown,
                 geography_type=geography_type,
@@ -1843,7 +1859,7 @@ class VMTValidationPage(DashboardPage):
                 income_segment=income_segment,
                 household_size=household_size,
                 mode_order=mode_order or NON_MOTORIZED_VMT_MODE_ORDER,
-            ),
+            )
         )
         if breakdown == "Mode":
             chart_data = label_category_data(
@@ -1964,23 +1980,15 @@ class VMTValidationPage(DashboardPage):
         breakdown = str(self.demo_commercial_breakdown_sel.value)
         time_period = str(self.demo_commercial_time_period_sel.value)
         commercial_vehicle_type = self.selected_demo_commercial_vehicle_type_raw()
-        chart_data = self.get_filtered_view(
-            "demo_commercial_vehicle",
-            (
-                self.weighting_key,
-                metric,
-                breakdown,
-                time_period,
-                commercial_vehicle_type,
-            ),
-            factory=lambda: demo_commercial_vehicle_chart_data(
+        chart_data = self.query(
+            lambda: demo_commercial_vehicle_chart_data(
                 data,
                 breakdown=breakdown,
                 time_period=time_period,
                 commercial_vehicle_type=commercial_vehicle_type,
                 tod_col="tod",
                 value_columns=EXTERNAL_COMMERCIAL_COLUMNS,
-            ),
+            )
         )
         if breakdown == "Commercial Vehicle Type":
             chart_data = label_category_data(
@@ -2037,23 +2045,15 @@ class VMTValidationPage(DashboardPage):
         breakdown = str(self.external_travel_breakdown_sel.value)
         time_period = str(self.external_travel_time_period_sel.value)
         trip_purpose = self.selected_external_travel_trip_purpose_raw()
-        chart_data = self.get_filtered_view(
-            "external_travel",
-            (
-                self.weighting_key,
-                metric,
-                breakdown,
-                time_period,
-                trip_purpose,
-            ),
-            factory=lambda: external_travel_chart_data(
+        chart_data = self.query(
+            lambda: external_travel_chart_data(
                 data,
                 breakdown=breakdown,
                 time_period=time_period,
                 trip_purpose=trip_purpose,
                 tod_col="tod",
                 value_columns=EXTERNAL_TRAVEL_COLUMNS,
-            ),
+            )
         )
         if breakdown == "Trip Purpose":
             chart_data = label_category_data(

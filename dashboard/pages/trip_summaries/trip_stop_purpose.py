@@ -26,6 +26,7 @@ def order_chart_data(
     if not ordered_values:
         return data_list
     order_index = {str(value): idx for idx, value in enumerate(ordered_values)}
+
     def order(frame: pl.DataFrame) -> pl.DataFrame:
         if column not in frame.columns:
             return frame
@@ -42,6 +43,7 @@ def order_chart_data(
             .sort("_category_order")
             .drop("_category_order")
         )
+
     return RunTables.from_runs(data_list).map(order)
 
 
@@ -50,6 +52,7 @@ def stop_purpose_chart_data(
     tour_purpose: str | None,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Build stop-purpose distributions for the selected tour purpose."""
+
     def shape(frame: pl.DataFrame) -> pl.DataFrame:
         filtered = frame.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
         if tour_purpose is None:
@@ -62,6 +65,7 @@ def stop_purpose_chart_data(
         else:
             filtered = filtered.filter(pl.col("tour_purpose") == tour_purpose)
         return filtered
+
     return RunTables.from_runs(data_list).map(shape)
 
 
@@ -70,11 +74,17 @@ def trip_purpose_chart_data(
     tour_purpose: str | None,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Build trip-purpose distributions for the selected tour purpose."""
+
     def shape(frame: pl.DataFrame) -> pl.DataFrame:
         filtered = frame.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
         if tour_purpose is None:
-            if "all_tour_purposes" in filtered["tour_purpose"].cast(pl.Utf8).unique().to_list():
-                filtered = filtered.filter(pl.col("tour_purpose") == "all_tour_purposes")
+            if (
+                "all_tour_purposes"
+                in filtered["tour_purpose"].cast(pl.Utf8).unique().to_list()
+            ):
+                filtered = filtered.filter(
+                    pl.col("tour_purpose") == "all_tour_purposes"
+                )
             else:
                 filtered = (
                     filtered.group_by("trip_purpose")
@@ -86,6 +96,7 @@ def trip_purpose_chart_data(
         else:
             filtered = filtered.filter(pl.col("tour_purpose") == tour_purpose)
         return filtered
+
     return RunTables.from_runs(data_list).map(shape)
 
 
@@ -122,32 +133,10 @@ class TripStopPurposePage(DashboardPage):
         return purpose_label
 
     def build_page(self) -> pn.viewable.Viewable:
-        purpose_opts, self._tour_purpose_to_raw = column_options(
-            self.data.summary(
-                "stop_destination_purpose_by_tour_purpose", "weighted"
-            )
-            or [],
+        self.tour_purpose_sel = self.select(
             "tour_purpose",
-            category_id="tour_purpose",
-            config=self.config,
-            state=self.state,
-            cache_key=(
-                "trip_stop_purpose",
-                "stop_destination_purpose_by_tour_purpose",
-                "tour_purpose",
-                "weighted",
-            ),
-            total_raw=None,
-            total_label=self.TOTAL_PURPOSE_LABEL,
-        )
-        self.tour_purpose_sel = self.selector(
-            "tour_purpose",
-            widget=pn.widgets.Select(
-                name="Tour Purpose",
-                options=purpose_opts or [self.TOTAL_PURPOSE_LABEL],
-                value=(purpose_opts or [self.TOTAL_PURPOSE_LABEL])[0],
-            ),
-            label="Tour Purpose",
+            "Tour Purpose",
+            options=self._purpose_options,
         )
         self._body = self.section(
             "trip_stop_purpose_body",
@@ -160,28 +149,19 @@ class TripStopPurposePage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def sync_controls(self) -> None:
-        summaries = self.data.summaries(*self.required_summary_ids)
-        if not all(summaries.values()):
-            return
+    def _purpose_options(self) -> list[str]:
         purpose_opts, self._tour_purpose_to_raw = column_options(
-            summaries["stop_destination_purpose_by_tour_purpose"],
+            self.data.summary(
+                "stop_destination_purpose_by_tour_purpose", self.weighting_key
+            )
+            or [],
             "tour_purpose",
             category_id="tour_purpose",
             config=self.config,
-            state=self.state,
-            cache_key=(
-                "trip_stop_purpose",
-                "stop_destination_purpose_by_tour_purpose",
-                "tour_purpose",
-                self.weighting_key,
-            ),
             total_raw=None,
             total_label=self.TOTAL_PURPOSE_LABEL,
         )
-        self.tour_purpose_sel.options = purpose_opts or [self.TOTAL_PURPOSE_LABEL]
-        if self.tour_purpose_sel.value not in self.tour_purpose_sel.options:
-            self.tour_purpose_sel.value = self.tour_purpose_sel.options[0]
+        return purpose_opts or [self.TOTAL_PURPOSE_LABEL]
 
     def _selected_purpose(self) -> tuple[str, str | None]:
         display_purpose = self.tour_purpose_sel.value
@@ -194,10 +174,8 @@ class TripStopPurposePage(DashboardPage):
         raw_tour_purpose: str | None,
         display_purpose: str,
     ) -> pn.viewable.Viewable:
-        chart_data = self.get_filtered_view(
-            "trip_purpose",
-            raw_tour_purpose,
-            factory=lambda: trip_purpose_chart_data(trip_purpose_list, raw_tour_purpose),
+        chart_data = self.query(
+            lambda: trip_purpose_chart_data(trip_purpose_list, raw_tour_purpose)
         )
         raw_values = ordered_category_values(
             nonempty(trip_purpose_list),
@@ -234,10 +212,8 @@ class TripStopPurposePage(DashboardPage):
         raw_tour_purpose: str | None,
         display_purpose: str,
     ) -> pn.viewable.Viewable:
-        chart_data = self.get_filtered_view(
-            "stop_destination_purpose",
-            raw_tour_purpose,
-            factory=lambda: stop_purpose_chart_data(stop_purpose_list, raw_tour_purpose),
+        chart_data = self.query(
+            lambda: stop_purpose_chart_data(stop_purpose_list, raw_tour_purpose)
         )
         raw_values = ordered_category_values(
             nonempty(stop_purpose_list),

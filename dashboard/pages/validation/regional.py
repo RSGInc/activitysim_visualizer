@@ -229,7 +229,12 @@ def flow_comparison_data(
 ) -> list[tuple[str, pl.DataFrame]]:
     """Align observed and modeled OD flows into comparison-ready long rows."""
     observed_runs = [
-        (label, flow_matrix_to_long(df, include_totals=include_totals, value_col="observed"))
+        (
+            label,
+            flow_matrix_to_long(
+                df, include_totals=include_totals, value_col="observed"
+            ),
+        )
         for label, df in nonempty(observed_data or [])
     ]
     modeled_runs = modeled_flow_long(
@@ -242,7 +247,9 @@ def flow_comparison_data(
 
     observed_by_label = {label: df for label, df in observed_runs}
     default_observed = observed_runs[0][1]
-    labels = [label for label, _ in modeled_runs] or [label for label, _ in observed_runs]
+    labels = [label for label, _ in modeled_runs] or [
+        label for label, _ in observed_runs
+    ]
     modeled_by_label = {label: df for label, df in modeled_runs}
     out: list[tuple[str, pl.DataFrame]] = []
     for label in labels:
@@ -295,14 +302,16 @@ def flow_comparison_data(
             .with_columns(
                 (pl.col("modeled") - pl.col("observed")).alias("difference"),
                 pl.when(pl.col("observed") != 0)
-                .then((pl.col("modeled") - pl.col("observed")) / pl.col("observed") * 100.0)
+                .then(
+                    (pl.col("modeled") - pl.col("observed"))
+                    / pl.col("observed")
+                    * 100.0
+                )
                 .otherwise(None)
                 .alias("percent_difference"),
             )
             .with_columns(
-                pl.col("percent_difference")
-                .abs()
-                .alias("absolute_percent_difference")
+                pl.col("percent_difference").abs().alias("absolute_percent_difference")
             )
         )
         out.append((label, comparison))
@@ -374,30 +383,19 @@ def flow_comparison_heatmap(
         ]
         if metric in {"Percent Difference", "Absolute Percent Difference"}:
             text = [
-                [
-                    "" if value is None else f"{float(value):,.1f}%"
-                    for value in row
-                ]
+                ["" if value is None else f"{float(value):,.1f}%" for value in row]
                 for row in z
             ]
         else:
             text = [
-                [
-                    "" if value is None else f"{float(value):,.0f}"
-                    for value in row
-                ]
+                ["" if value is None else f"{float(value):,.0f}" for value in row]
                 for row in z
             ]
         colorscale = (
-            "RdBu_r"
-            if metric in {"Difference", "Percent Difference"}
-            else "Blues"
+            "RdBu_r" if metric in {"Difference", "Percent Difference"} else "Blues"
         )
         z_values = [
-            abs(float(value))
-            for row in z
-            for value in row
-            if value is not None
+            abs(float(value)) for row in z for value in row if value is not None
         ]
         zmax = max(z_values) if z_values else None
         heatmap_kwargs = {
@@ -442,24 +440,15 @@ def flow_comparison_heatmap(
 )
 class RegionalValidationPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
-        flow_options = self._available_flow_options()
-        self.flow_matrix_sel = self.selector(
+        self.flow_matrix_sel = self.select(
             "flow_matrix",
-            widget=pn.widgets.Select(
-                name="Flow Matrix",
-                options=flow_options,
-                value=flow_options[0],
-            ),
-            label="Flow Matrix",
+            "Flow Matrix",
+            options=self._available_flow_options,
         )
-        self.comparison_metric_sel = self.selector(
+        self.comparison_metric_sel = self.select(
             "comparison_metric",
-            widget=pn.widgets.Select(
-                name="Comparison Metric",
-                options=FLOW_COMPARISON_OPTIONS,
-                value=FLOW_COMPARISON_OPTIONS[0],
-            ),
-            label="Comparison Metric",
+            "Comparison Metric",
+            options=FLOW_COMPARISON_OPTIONS,
         )
         self.include_totals_sel = self.selector(
             "include_totals",
@@ -502,14 +491,6 @@ class RegionalValidationPage(DashboardPage):
         ]
         return options or list(FLOW_OPTIONS)
 
-    def sync_controls(self) -> None:
-        options = self._available_flow_options()
-        self.flow_matrix_sel.options = options
-        if self.flow_matrix_sel.value not in options:
-            self.flow_matrix_sel.value = options[0]
-        if self.comparison_metric_sel.value not in FLOW_COMPARISON_OPTIONS:
-            self.comparison_metric_sel.value = FLOW_COMPARISON_OPTIONS[0]
-
     def render_flow_section(self) -> pn.viewable.Viewable:
         flow_label = str(self.flow_matrix_sel.value)
         flow_option = FLOW_OPTIONS[flow_label]
@@ -549,15 +530,13 @@ class RegionalValidationPage(DashboardPage):
                 ),
                 missing_items=["commuting_flows"],
             )
-        comparison_data = self.get_filtered_view(
-            "regional_flow_comparison",
-            (flow_label, metric, include_totals, geography_type),
-            factory=lambda: flow_comparison_data(
+        comparison_data = self.query(
+            lambda: flow_comparison_data(
                 observed_data,
                 modeled_data,
                 geography_type=geography_type,
                 include_totals=include_totals,
-            ),
+            )
         )
         return pn.Column(
             flow_comparison_heatmap(

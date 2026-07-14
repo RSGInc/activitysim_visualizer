@@ -7,15 +7,12 @@ import polars as pl
 
 from dashboard.rendering import control_row, control_row_spacer, selector_row
 from dashboard.helpers.category_helpers import (
-    complete_category_counts,
     label_category_data,
     nonempty,
 )
 from dashboard import DashboardPage, dashboard_page
 from dashboard.pages._joint_travel_data import (
-    HOUSEHOLD_SIZE_ALL_LABEL,
     JOINT_SIZE_VALUES,
-    PARTY_SIZE_ALL_LABEL,
     complete_joint_household_size_data,
     composition_by_party_size_data,
     household_participation_data,
@@ -43,30 +40,20 @@ from dashboard.pages._joint_travel_data import (
 )
 class JointTravelPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
-        party_opts = self._party_size_options()
-        hh_opts = self._household_size_options()
         self.hide_no_joint_tours = self.selector(
             "hide_no_joint_tours",
             widget=pn.widgets.Checkbox(name='Hide "No Joint Tours"', value=False),
             label='Hide "No Joint Tours"',
         )
-        self.party_size_sel = self.selector(
+        self.party_size_sel = self.select(
             "party_size",
-            widget=pn.widgets.Select(
-                name="Party Size",
-                options=party_opts,
-                value=party_opts[0],
-            ),
-            label="Party Size",
+            "Party Size",
+            options=self._party_size_options,
         )
-        self.hhsize_sel = self.selector(
+        self.hhsize_sel = self.select(
             "household_size",
-            widget=pn.widgets.Select(
-                name="Household Size",
-                options=hh_opts,
-                value=hh_opts[0],
-            ),
-            label="Household Size",
+            "Household Size",
+            options=self._household_size_options,
         )
         self._frequency_section = self.section(
             "joint_travel_frequency",
@@ -93,29 +80,16 @@ class JointTravelPage(DashboardPage):
     def _party_size_options(self) -> list[str]:
         data = self.data.summary(
             "joint_tour_composition_by_party_size",
-            "weighted",
+            self.weighting_key,
         )
         return party_size_options(data) if data is not None else ["All"]
 
     def _household_size_options(self) -> list[str]:
         data = self.data.summary(
             "household_jtp_by_household_size_and_jtf",
-            "weighted",
+            self.weighting_key,
         )
         return household_size_options(data) if data is not None else ["All"]
-
-    def sync_controls(self) -> None:
-        summaries = self.data.summaries(*self.required_summary_ids)
-        if not all(summaries.values()):
-            return
-        party_opts = party_size_options(summaries["joint_tour_composition_by_party_size"])
-        hh_opts = household_size_options(summaries["household_jtp_by_household_size_and_jtf"])
-        self.party_size_sel.options = party_opts
-        if self.party_size_sel.value not in party_opts:
-            self.party_size_sel.value = party_opts[0]
-        self.hhsize_sel.options = hh_opts
-        if self.hhsize_sel.value not in hh_opts:
-            self.hhsize_sel.value = hh_opts[0]
 
     def _summaries(self):
         return self.data.summaries(*self.required_summary_ids)
@@ -129,7 +103,9 @@ class JointTravelPage(DashboardPage):
             {
                 str(value)
                 for _, df in data_list
-                for value in (df[column].cast(pl.Utf8).to_list() if column in df.columns else [])
+                for value in (
+                    df[column].cast(pl.Utf8).to_list() if column in df.columns else []
+                )
             }
         )
 
@@ -167,15 +143,17 @@ class JointTravelPage(DashboardPage):
             [
                 str(value)
                 for _, df in nonempty(summaries["joint_tour_composition_by_party_size"])
-                for value in (df["tour_composition"].cast(pl.Utf8).to_list() if "tour_composition" in df.columns else [])
+                for value in (
+                    df["tour_composition"].cast(pl.Utf8).to_list()
+                    if "tour_composition" in df.columns
+                    else []
+                )
             ],
         )
-        comp_party_data = self.get_filtered_view(
-            "joint_tour_composition_by_party_size",
-            party_size,
-            factory=lambda: composition_by_party_size_data(
+        comp_party_data = self.query(
+            lambda: composition_by_party_size_data(
                 summaries["joint_tour_composition_by_party_size"], party_size
-            ),
+            )
         )
         return [
             pn.pane.Markdown("### Joint Tour Characteristics"),
@@ -210,20 +188,16 @@ class JointTravelPage(DashboardPage):
         if summaries is None:
             return []
         hhsize = self.hhsize_sel.value
-        person_participation = self.get_filtered_view(
-            "person_jtp_by_household_size",
-            self.as_percent,
-            factory=lambda: person_participation_data(
+        person_participation = self.query(
+            lambda: person_participation_data(
                 summaries["person_jtp_by_household_size"],
                 as_percent=self.as_percent,
-            ),
+            )
         )
-        household_participation = self.get_filtered_view(
-            "household_jtp_by_household_size_and_jtf",
-            hhsize,
-            factory=lambda: household_participation_data(
+        household_participation = self.query(
+            lambda: household_participation_data(
                 summaries["household_jtp_by_household_size_and_jtf"], hhsize
-            ),
+            )
         )
         household_size_values = joint_household_size_values(
             person_participation,
@@ -233,8 +207,12 @@ class JointTravelPage(DashboardPage):
             "jtf",
             [
                 str(value)
-                for _, df in nonempty(summaries["household_jtp_by_household_size_and_jtf"])
-                for value in (df["jtf"].cast(pl.Utf8).to_list() if "jtf" in df.columns else [])
+                for _, df in nonempty(
+                    summaries["household_jtp_by_household_size_and_jtf"]
+                )
+                for value in (
+                    df["jtf"].cast(pl.Utf8).to_list() if "jtf" in df.columns else []
+                )
             ],
         )
         return [
@@ -267,13 +245,11 @@ class JointTravelPage(DashboardPage):
 
     def render_joint_tour_frequency_chart(self, summary_data):
         """Render joint tour frequency by joint tour pattern."""
-        frequency_data = self.get_filtered_view(
-            "joint_tour_frequency",
-            bool(self.hide_no_joint_tours.value),
-            factory=lambda: joint_tour_frequency_data(
+        frequency_data = self.query(
+            lambda: joint_tour_frequency_data(
                 summary_data,
                 hide_no_joint_tours=bool(self.hide_no_joint_tours.value),
-            ),
+            )
         )
         return self.plot.bar(
             frequency_data,
@@ -286,7 +262,9 @@ class JointTravelPage(DashboardPage):
             share_y="household_count_percent",
         )
 
-    def render_household_size_chart(self, summary_data, household_size_values: list[str]):
+    def render_household_size_chart(
+        self, summary_data, household_size_values: list[str]
+    ):
         """Render joint tours by household size."""
         return self.plot.bar(
             summary_data,
@@ -346,7 +324,9 @@ class JointTravelPage(DashboardPage):
             title="People Taking Part in a Joint Tour by Household Size",
             x_title="Household Size",
             y_title=(
-                "Percent of People (%)" if self.as_percent else "People Taking Joint Tours"
+                "Percent of People (%)"
+                if self.as_percent
+                else "People Taking Joint Tours"
             ),
             value_mode="count",
             category_order=household_size_values,

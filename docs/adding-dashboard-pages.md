@@ -1,408 +1,199 @@
 # Adding Dashboard Pages
 
-This guide covers the new public dashboard page authoring API.
+Dashboard pages declare intent: which data they need, which choices a user can
+make, and how each visible section is rendered. Widget synchronization, query
+cache keys, diagnostics, and export metadata belong to the framework.
 
-Use it when the summary table you need already exists and you want to add or refactor a page under `dashboard/pages/`.
+If the required summary does not exist, start with
+[adding-summaries.md](adding-summaries.md).
 
-If the summary does not exist yet, start with [adding-summaries.md](adding-summaries.md).
+## The page model
 
-## Mental Model
+Every page module contains one `@dashboard_page` class. A normal page uses four
+author-facing objects:
 
-A dashboard page now has one source of truth for page-local interactivity:
+- `self.data` loads summary or prepared tables as `RunTables`;
+- `self.select(...)` declares a dropdown, including dynamic options;
+- `self.section(...)` declares an independently refreshed visible section; and
+- `self.plot` turns chart-ready tables into figures or Panel panes.
 
-1. register selectors once
-2. register sections once
-3. render section content from pure-ish render functions
-
-The framework takes care of:
-
-- widget watchers
-- stable section containers
-- rerendering only the affected sections when a selector changes
-- rerendering all sections when the global dashboard state changes
-- deriving export selector and export region metadata from those same registrations
-
-## Registration Objects
-
-Each page module declares one `DashboardPage` subclass with the
-`@dashboard_page(...)` decorator. Metadata and implementation therefore live at
-one declaration site.
-
-The decorator accepts the intentionally narrow page definition fields:
-
-- `page_id`
-- `title`
-- `order`
-- `group_id`
-- `default_enabled`
-- `prepared_data_mode`
-- `required_summary_ids`
-- `optional_summary_ids`
-- `required_prepared_tables`
-
-Grouped navigation is declared in a sibling `GROUP = DashboardGroupDefinition(...)` inside the package `__init__.py`.
-
-`DashboardGroupDefinition` now uses `default_page_id`, not `default_child_id`.
-
-There is no `child_id`.
-
-Use `required_summary_ids` for tables that must be present before the page can
-render its primary workflow. Use `optional_summary_ids` for add-on sections or
-demo/external summaries that should be retained when available but should not
-make ordinary dashboard/cache loading fail when missing.
-
-## Page Lifecycle
-
-Page authors subclass `DashboardPage`.
-
-The public lifecycle hooks are:
-
-- `build_page(self) -> pn.viewable.Viewable`
-- `sync_controls(self) -> None`
-- `on_global_state_changed(self) -> None`
-
-`build_page()` is required. It should:
-
-- create widgets
-- register selectors
-- register sections
-- return one stable root view
-- avoid heavy data reshaping or cross-run filtering work
-
-`sync_controls()` is optional. It runs before every refresh pass and is the right place to:
-
-- populate selector options from current data availability
-- reset invalid widget values to safe defaults
-- keep selector value/bootstrap logic out of `render_*()` methods
-
-`on_global_state_changed()` is optional. Use it for page-local cache invalidation when weighting mode, value mode, or available runs change.
-
-## Target Structure
-
-When adding or refactoring a page, aim for this shape:
-
-1. `build_page()`
-   - declare widgets
-   - register selectors
-   - register sections
-   - return the stable root layout
-
-2. `sync_controls()`
-   - compute selector options from current dashboard state
-   - keep selector defaults valid
-
-3. `render_*()` section methods
-   - one logical section per render method
-   - narrow control flow
-   - prefer pure helper functions for chart-ready reshaping
-
-4. shared helpers
-   - use `dashboard/helpers/` for logic that appears in multiple pages
-   - keep page-local helpers only for truly page-specific business rules
-
-As a rule of thumb:
-
-- `build_page()` should read like layout assembly
-- `sync_controls()` should read like selector synchronization
-- `render_*()` should read like "load data, handle missing state, render views"
-
-## Reference Pages
-
-Use the current pages below as implementation references when possible:
-
-- `dashboard/pages/overview.py`
-  - simplest summary-only page
-  - good reference for straightforward section rendering
-- `dashboard/pages/raw_trip_demo.py`
-  - smallest prepared-data page
-  - good reference for `self.data.prepared(...)`
-- `dashboard/pages/trip_summaries/trip_mode.py`
-  - good reference for one-selector, one-section chart pages
-- `dashboard/pages/long_term_choices/mandatory_location_choice.py`
-  - good reference for multi-section geography-driven pages
-  - also the main complexity target when refactoring shared geography helpers
-- `dashboard/pages/skim_summaries/trip_skims.py`
-  - strongest current example of selector sync plus independently refreshed sections
-- `dashboard/pages/skim_summaries/tour_skims.py`
-  - strongest current example of sectioned live distributions with non-exportable controls
-
-## Public Helpers
-
-The core authoring helpers are:
+The only required lifecycle method is `build_page()`. It declares selectors and
+sections once and returns a stable Panel layout.
 
 ```python
-self.selector(
-    selector_id,
-    widget=...,
-    label="...",
-    exportable=True,
-)
-
-self.section(
-    section_id,
-    selectors=("selector_a", "selector_b"),
-    export=True,
-    render=self.render_section_name,
-)
-
-self.section_view("section_id")
-self.mark_section_stale("section_id")
-```
-
-All page data access starts at `self.data`:
-
-- `self.data.summary(id, columns=...)` returns one `RunTables` query;
-- `self.data.summaries(*ids, columns=...)` returns queries keyed by id;
-- `self.data.prepared(table, columns=...)` returns the same query type for a
-  prepared table; and
-- `self.data.prepared_runs(...)` is reserved for specialized skim features that
-  need matrix-bearing `RunData` objects.
-
-An unavailable input is an empty `RunTables`, so use `if not data`. Structured
-per-run availability details remain attached as `data.issues` and are also used
-by `data_not_available_card(...)`. Pages should not access `DashboardState`
-tables directly.
-
-### Querying summary tables
-
-`self.data.summary(...)` returns `RunTables` for the normal "apply the same
-Polars operations to every run" path. It keeps run labels and availability
-details attached while supporting fluent filtering,
-transformation, grouping, selection, sorting, and joining:
-
-```python
-summary = self.data.summary(
-    "trips_by_mode_and_purpose",
-    columns=("purpose", "mode", "trip_count"),
-)
-if not summary:
-    return self.summary_only_unavailable_card()
-
-chart_data = (
-    summary
-    .with_columns(pl.col("purpose").cast(pl.Utf8))
-    .where(purpose=self.purpose_sel.value)
-    .group("mode", pl.col("trip_count").sum())
-    .sort("mode")
-)
-```
-
-Pass the resulting `RunTables` directly to `self.plot.bar(...)`,
-`self.plot.density(...)`, or `data_table(...)`; do not convert it back to raw
-tuple lists. Plot arguments are keyword-only and use `x`, `y`, `x_title`, and
-`y_title`. The default `value_mode="dashboard"` follows the page-wide
-Count/Share toggle.
-
-When two summary tables must be combined, query each and call `.join(...)`;
-tables are matched by run label automatically. Use `.requiring(...)` when an
-optional summary schema may omit columns, and `.drop_empty()` when a filter
-should remove runs with no matching rows. Full joins can pass `coalesce=True`
-to keep one join-key column. Use `.map(...)` only for a transformation that
-cannot be expressed by the standard query methods. This removes most page-local
-loops over `(run_label, dataframe)` pairs.
-
-For a page with many domain-specific queries, keep the page module focused on
-selectors, sections, and chart intent, and put those queries in a sibling
-`_<page>_data.py` module. `daily_travel/_escorted_tours_data.py` and
-`_joint_travel_data.py` are the reference examples.
-
-## Shared Helper Map
-
-When page logic starts repeating, prefer one of the existing helper modules before
-adding page-local utility functions:
-
-- `dashboard/helpers/category_helpers.py`
-  - selector option building
-  - config-ordered category values
-  - config-driven label columns
-  - category completion for charts and tables
-- `dashboard/helpers/geography_helpers.py`
-  - geography column normalization
-  - geography level and geography id selector domains
-  - geography-level and geography-id filtering
-  - all-geographies and all-within-level handling
-- `dashboard/helpers/person_type_helpers.py`
-  - person-type selector domains
-  - person-type filtering
-  - total-person-type rollups and weights
-- `dashboard/helpers/time_distance_helpers.py`
-  - time-bin labels and durations
-  - distance-bin sorting
-- `dashboard/helpers/comparison_helpers.py`
-  - percent-error formatting
-  - base-run percent-difference tables
-  - weighted average lookups for comparison tables
-- `dashboard/pages/skim_summaries/_shared.py`
-  - skim-page-specific shared logic that should stay local to skim pages
-
-If a transform is clearly reusable across unrelated pages, move it into
-`dashboard/helpers/`. If it only makes sense for one page family, keep it close
-to that family, as with the skim shared module or a page-local support module.
-
-## Minimal Example
-
-```python
-from __future__ import annotations
-
 import panel as pn
+import polars as pl
 
 from dashboard import DashboardPage, dashboard_page
-from dashboard.page_base import SectionContent
+from dashboard.rendering import selector_row
 
 
 @dashboard_page(
-    page_id="my_new_page",
-    title="My New Page",
+    page_id="trips_by_purpose",
+    title="Trips by Purpose",
     order=120,
-    required_summary_ids=("my_summary_table",),
+    required_summary_ids=("trips_by_mode_and_purpose",),
 )
-class MyNewPage(DashboardPage):
-    def build_page(self) -> pn.viewable.Viewable:
-        self.purpose_sel = self.select(
+class TripsByPurposePage(DashboardPage):
+    def build_page(self):
+        self.purpose = self.select(
             "purpose",
             "Purpose",
-            options=["Total"],
+            options=self.purpose_options,
+            default="first",
         )
-
-        summary_section = self.section(
-            "summary",
+        chart = self.section(
+            "mode_chart",
             selectors=("purpose",),
-            render=self.render_summary,
+            render=self.render_mode_chart,
         )
-
         return pn.Column(
-            pn.pane.Markdown("## My New Page"),
-            pn.Row(pn.pane.Markdown("**Purpose:**"), self.purpose_sel),
-            summary_section,
-            sizing_mode="stretch_width",
+            pn.pane.Markdown("## Trips by Purpose"),
+            selector_row(self.purpose),
+            chart,
         )
 
-    def sync_controls(self) -> None:
-        options = self._purpose_options()
-        self.purpose_sel.options = options
-        if self.purpose_sel.value not in options:
-            self.purpose_sel.value = options[0]
+    def trips(self):
+        return self.data.summary(
+            "trips_by_mode_and_purpose",
+            columns=("purpose", "mode", "trip_count"),
+        )
 
-    def render_summary(self) -> SectionContent:
-        summaries = self.data.summaries(*self.required_summary_ids)
-        if not all(summaries.values()):
-            return [
-                self.data_not_available_card(
-                    detail="This page depends on precomputed summaries.",
-                    missing_items=list(self.required_summary_ids),
-                )
-            ]
-        return [pn.pane.Markdown(f"Current purpose: {self.purpose_sel.value}")]
+    def purpose_options(self):
+        data = self.trips()
+        return data.values("purpose") if data else ["All"]
+
+    def render_mode_chart(self):
+        data = self.trips()
+        if not data:
+            return self.summary_only_unavailable_card()
+        chart_data = self.query(
+            lambda: data.where(purpose=self.purpose.value).group(
+                "mode", pl.col("trip_count").sum()
+            )
+        )
+        return self.plot.bar(
+            chart_data,
+            x="mode",
+            y="trip_count",
+            title="Trips by Mode",
+            x_title="Mode",
+            y_title="Trips",
+        )
 ```
 
-## Authoring Rules
+## Dynamic selectors
 
-Do:
-
-- create widgets in `build_page()`
-- use `select(...)` for dropdowns and register other interactive controls with `selector(...)`
-- register every refreshable content area with `section(...)`
-- return content from section render functions
-- keep expensive reshaping work behind `get_filtered_view(...)`
-- use only `self.data.summary(...)`, `self.data.summaries(...)`, and
-  `self.data.prepared(...)` for ordinary page data access
-- pass `RunTables` through query helpers and renderers without collecting it
-- add a concise module docstring that explains what the page shows
-- add short docstrings to helper functions when they encode a business rule that is not obvious from the function name
-
-Do not:
-
-- assign `section.objects = ...` directly from page code
-- declare page-local selector metadata in `@dashboard_page`
-- declare export regions in `@dashboard_page`
-- use `child_id`
-- put large data-transformation blocks inline in `build_page()`
-- let `render_*()` methods become catch-all implementations for the entire page
-
-## Refresh Semantics
-
-The runtime now refreshes at section granularity.
-
-Selector change:
-
-- only sections that depend on that selector rerender
-
-Global state change:
-
-- all sections rerender
-
-Sections declared with `selectors=()` only rerender on global refresh unless you explicitly call `mark_section_stale(...)`.
-
-## Grouped Pages
-
-Grouped pages are identified only by leaf `page_id`.
-
-Live config uses leaf page ids inside a group:
-
-```yaml
-dashboard:
-  live:
-    pages:
-      - overview
-      - tours:
-        - tour_summary
-        - tour_mode
-```
-
-The group package defines:
+Pass an option provider instead of manually implementing `sync_controls()`:
 
 ```python
-GROUP = DashboardGroupDefinition(
-    group_id="tours",
-    title="Tours",
-    order=30,
-    default_page_id="tour_summary",
+self.geography = self.select(
+    "geography",
+    "Geography",
+    options=self.available_geographies,
+    default="first",
 )
 ```
 
-## Export
+The provider is called before dependent sections render. The framework updates
+the widget and repairs a stale value. `default` may be:
 
-Export metadata is derived from runtime selector and section registration.
+- `"first"` (the default);
+- `"last"`; or
+- a callable receiving the current options and returning a value.
 
-That means:
+Use `self.selector(...)` only for a custom widget such as a checkbox or numeric
+input. Manual `sync_controls()` is reserved for controls with behavior beyond an
+option domain, such as a pair of linked numeric range controls.
 
-- registered selectors become export selector metadata
-- registered exportable sections become export regions
-- section selector dependencies define which selector combinations need pre-rendered variants
+## Querying and memoization
 
-Grouped export config uses leaf page ids:
+`RunTables` applies the same Polars operation to every run while retaining run
+labels and availability issues. It supports `where`, `with_columns`, `group`,
+`select`, `sort`, `join`, `map`, `requiring`, and `drop_empty`.
 
-```yaml
-dashboard:
-  export:
-    pages:
-      trip_summaries:
-        children:
-          trip_mode:
-            tour_purpose: all
+Pass `RunTables` directly to plots and tables. Avoid loops over
+`(run_label, dataframe)` pairs unless the calculation genuinely differs by run.
+
+Use `self.query(lambda: ...)` around a repeated or expensive chart-data
+transformation. Do not invent a cache name or repeat filter tuples. Cache
+identity is derived from:
+
+- page and global dashboard state;
+- the active section;
+- the section's declared selector dependencies;
+- the query callable and its captured scalar arguments.
+
+This makes the typical section read as lookup, query, render.
+
+## Large pages and features
+
+When a page contains several user-visible workflows, compose it from page-local
+features:
+
+```python
+comparison = self.feature("comparison")
+self.metric = comparison.select(
+    "metric", "Metric", options=["Count", "Share"]
+)
+comparison_view = comparison.section(
+    "body",
+    selectors=("metric",),
+    render=self.render_comparison,
+)
 ```
 
-## Checklist
+The feature namespaces its component ids (`comparison.metric` and
+`comparison.body`) and delegates lifecycle, diagnostics, and exporting to the
+parent page. It is composition, not another page type.
 
-1. Add or update the page module under `dashboard/pages/`.
-2. Add or update the class's `@dashboard_page(...)` metadata.
-3. If the page belongs to a group, set `group_id` in the decorator and keep the package `GROUP` aligned with `default_page_id`.
-4. Implement `build_page()`.
-5. Register selectors and sections.
-6. Keep selector option logic in `sync_controls()`.
-7. Keep section renderers short and move reusable transforms into shared helpers.
-8. Declare the summary/prepared-data contract in `@dashboard_page(...)`.
-9. Add or update tests covering selector refresh and missing-data behavior.
-10. If the page should export interactively, add an export-focused test slice too.
+Use one feature for one coherent user workflow. Current examples include:
 
-## Short Recipe
+- escorted tours: school escort, adult escort, direction, and distance;
+- VMT: comparison, personal auto, non-motorized, external, commercial, bicycle;
+- traffic: observed/model fit, facility summaries, link tables, screenlines;
+- mandatory location: geography comparison, flows, distance, remote work; and
+- skim pages: summary and live-distribution features.
 
-For most new pages, the fastest safe workflow is:
+Domain queries can live on the feature or beside it. A separate
+`_<page>_data.py` file is optional; use one only when it makes the feature easier
+to understand.
 
-1. Start from a nearby reference page with similar selectors and data shape.
-2. Keep `build_page()` limited to widget creation, selector registration, section registration, and layout.
-3. Move selector domain logic into `sync_controls()`.
-4. Keep each `render_*()` method focused on one section.
-5. Extract chart-ready reshaping into a small helper or shared helper module.
-6. Use `get_filtered_view(...)` around any repeated cross-run filtering or aggregation.
-7. Add one live refresh test and, if the page exports, one export-oriented test slice.
+## Missing data
+
+An unavailable input is an empty `RunTables`, so test it with `if not data`.
+Per-run details stay on `data.issues` and feed the standard unavailable cards.
+
+Useful helpers are:
+
+```python
+self.no_runs_message()
+self.summary_only_unavailable_card()
+self.data_not_available_card(detail="...", missing_items=["summary_id"])
+```
+
+Pages should not inspect diagnostic storage, dashboard caches, or raw summary
+tables on `DashboardState`.
+
+## Page metadata
+
+`@dashboard_page(...)` accepts:
+
+- `page_id`, `title`, `order`, and optional `group_id`;
+- `default_enabled`;
+- `required_summary_ids` and `optional_summary_ids`; and
+- `prepared_data_mode` and `required_prepared_tables`.
+
+Use required summaries for the primary workflow and optional summaries for
+independent add-on features. Grouped navigation is declared with
+`DashboardGroupDefinition` in the page package's `__init__.py`.
+
+## Contributor checklist
+
+- Declare each selector and its options once.
+- Declare selector dependencies on the section that uses them.
+- Keep sections short: load, handle unavailable data, query, render.
+- Use `self.query(...)`; never author cache keys.
+- Split unrelated workflows into `PageFeature` objects.
+- Keep export behavior derived from the same selector and section declarations.
+- Add focused query/figure tests before an end-to-end export test.

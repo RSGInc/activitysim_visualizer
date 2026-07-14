@@ -37,12 +37,12 @@ def tour_time_chart_data(
             filtered.select("time_bin", value_col)
             .sort("time_bin")
             .with_columns(
-                    pl.col("time_bin")
-                    .map_elements(
-                        lambda value: timebin_label(int(value), observed_max_timebin),
-                        return_dtype=pl.Utf8,
-                    )
-                    .alias("clock_time")
+                pl.col("time_bin")
+                .map_elements(
+                    lambda value: timebin_label(int(value), observed_max_timebin),
+                    return_dtype=pl.Utf8,
+                )
+                .alias("clock_time")
             )
         )
 
@@ -50,17 +50,19 @@ def tour_time_chart_data(
         filtered.select("time_bin", "duration_tour_count")
         .sort("time_bin")
         .with_columns(
-                    pl.col("time_bin")
-                    .map_elements(
-                        lambda value: timebin_duration_hours(
-                            int(value), observed_max_timebin
-                        ),
-                        return_dtype=pl.Float64,
-                    )
-                    .alias("duration_hours")
+            pl.col("time_bin")
+            .map_elements(
+                lambda value: timebin_duration_hours(int(value), observed_max_timebin),
+                return_dtype=pl.Float64,
+            )
+            .alias("duration_hours")
         )
     )
-    return clock_profile("departure_tour_count"), clock_profile("arrival_tour_count"), duration
+    return (
+        clock_profile("departure_tour_count"),
+        clock_profile("arrival_tour_count"),
+        duration,
+    )
 
 
 @dashboard_page(
@@ -74,14 +76,10 @@ class TourTimePage(DashboardPage):
     TOTAL_PURPOSE_LABEL = "All Tour Purposes"
 
     def build_page(self) -> pn.viewable.Viewable:
-        self.purpose_sel = self.selector(
+        self.purpose_sel = self.select(
             "tour_purpose",
-            widget=pn.widgets.Select(
-                name="Tour Purpose",
-                options=self._purpose_options(),
-                value=self._purpose_options()[0],
-            ),
-            label="Tour Purpose",
+            "Tour Purpose",
+            options=self._purpose_options,
         )
         self._body = self.section(
             "tour_time_body",
@@ -98,7 +96,7 @@ class TourTimePage(DashboardPage):
     def _purpose_options(self) -> list[str]:
         data = self.data.summary(
             "tour_time_of_day_by_tour_purpose",
-            "weighted",
+            self.weighting_key,
         )
         if data is None:
             self._purpose_to_raw = {self.TOTAL_PURPOSE_LABEL: "all_tour_purposes"}
@@ -108,40 +106,10 @@ class TourTimePage(DashboardPage):
             "tour_purpose",
             category_id="tour_purpose",
             config=self.config,
-            state=self.state,
-            cache_key=(
-                "tour_time",
-                "tour_time_of_day_by_tour_purpose",
-                "tour_purpose",
-                "weighted",
-            ),
             total_raw="all_tour_purposes",
             total_label=self.TOTAL_PURPOSE_LABEL,
         )
         return options or [self.TOTAL_PURPOSE_LABEL]
-
-    def sync_controls(self) -> None:
-        summaries = self.data.summaries(*self.required_summary_ids)
-        if not all(summaries.values()):
-            return
-        purpose_opts, self._purpose_to_raw = column_options(
-            summaries["tour_time_of_day_by_tour_purpose"],
-            "tour_purpose",
-            category_id="tour_purpose",
-            config=self.config,
-            state=self.state,
-            cache_key=(
-                "tour_time",
-                "tour_time_of_day_by_tour_purpose",
-                "tour_purpose",
-                self.weighting_key,
-            ),
-            total_raw="all_tour_purposes",
-            total_label=self.TOTAL_PURPOSE_LABEL,
-        )
-        self.purpose_sel.options = purpose_opts or [self.TOTAL_PURPOSE_LABEL]
-        if self.purpose_sel.value not in self.purpose_sel.options:
-            self.purpose_sel.value = self.purpose_sel.options[0]
 
     def _selected_purpose(self) -> tuple[str, str]:
         display_purpose = self.purpose_sel.value
@@ -155,10 +123,8 @@ class TourTimePage(DashboardPage):
         raw_purpose: str,
         display_purpose: str,
     ) -> tuple[pn.viewable.Viewable, pn.viewable.Viewable, pn.viewable.Viewable]:
-        dep_data, arr_data, dur_data = self.get_filtered_view(
-            "tour_time",
-            raw_purpose,
-            factory=lambda: tour_time_chart_data(tod_list, raw_purpose),
+        dep_data, arr_data, dur_data = self.query(
+            lambda: tour_time_chart_data(tod_list, raw_purpose)
         )
         return (
             self.plot.density(

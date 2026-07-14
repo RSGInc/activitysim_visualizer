@@ -3089,26 +3089,24 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
 
     assert list(page.direction_sel.options) == ["Both Directions", "Outbound"]
     assert page.view.objects
-    render_calls = {"static": 0, "directional": 0}
-    static_section = page._registered_sections["escorted_tours_static_body"]
-    directional_section = page._registered_sections["escorted_tours_directional_body"]
-    original_static_render = static_section.render
-    original_directional_render = directional_section.render
+    render_calls = {section_id: 0 for section_id in page._registered_sections}
+    for section_id, section in page._registered_sections.items():
+        original_render = section.render
 
-    def counted_static_render():
-        render_calls["static"] += 1
-        return original_static_render()
+        def counted_render(section_id=section_id, original_render=original_render):
+            render_calls[section_id] += 1
+            return original_render()
 
-    def counted_directional_render():
-        render_calls["directional"] += 1
-        return original_directional_render()
-
-    static_section.render = counted_static_render
-    directional_section.render = counted_directional_render
+        section.render = counted_render
     page.direction_sel.value = "Both Directions"
     page.refresh(force=False)
     assert page.view.objects
-    assert render_calls == {"static": 0, "directional": 1}
+    assert render_calls == {
+        "school_escort.body": 0,
+        "adult_escort.body": 0,
+        "direction.body": 1,
+        "distance.body": 1,
+    }
     student_titles = [
         str(plot.object.layout.title.text)
         for plot in _collect_plotly_panes(page.view)
@@ -3132,12 +3130,12 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
     schoolkids_titles = [
         str(plot.object.layout.title.text)
         for plot in _collect_plotly_panes(page.view)
-        if "Schoolkids Per Adult Chauffer Tour" in str(plot.object.layout.title.text)
+        if "Schoolkids Per Adult Chauffeur Tour" in str(plot.object.layout.title.text)
     ]
     assert sorted(schoolkids_titles) == [
-        "Schoolkids Per Adult Chauffer Tour - Both Directions",
-        "Schoolkids Per Adult Chauffer Tour - Inbound",
-        "Schoolkids Per Adult Chauffer Tour - Outbound",
+        "Schoolkids Per Adult Chauffeur Tour - Both Directions",
+        "Schoolkids Per Adult Chauffeur Tour - Inbound",
+        "Schoolkids Per Adult Chauffeur Tour - Outbound",
     ]
     stop_titles = [
         str(plot.object.layout.title.text)
@@ -3161,7 +3159,7 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
         plot
         for plot in _collect_plotly_panes(page.view)
         if str(plot.object.layout.title.text)
-        == "Schoolkids Per Adult Chauffer Tour - Outbound"
+        == "Schoolkids Per Adult Chauffeur Tour - Outbound"
     )
     assert list(schoolkids_plot.object.layout.xaxis.categoryarray) == ["1", "2", "6+"]
     assert list(schoolkids_plot.object.data[0].y) == [1.5, 2.0, 4.0]
@@ -3179,7 +3177,7 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
         plot
         for plot in _collect_plotly_panes(page.view)
         if str(plot.object.layout.title.text)
-        == "Chauffer Tour Distance Distribution - Both Directions"
+        == "Chauffeur Tour Distance Distribution - Both Directions"
     )
     assert page.escort_distance_range.current_range() == (0.0, 40.0)
     assert list(distance_plot.object.layout.xaxis.range) == [0.0, 40.0]
@@ -3194,7 +3192,7 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
         plot
         for plot in _collect_plotly_panes(page.view)
         if str(plot.object.layout.title.text)
-        == "Chauffer Tour Distance Distribution - Both Directions"
+        == "Chauffeur Tour Distance Distribution - Both Directions"
     )
     assert list(ranged_distance_plot.object.layout.xaxis.range) == [10.0, 20.0]
     page.escort_distance_range.reset()
@@ -3203,14 +3201,14 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
         plot
         for plot in _collect_plotly_panes(page.view)
         if str(plot.object.layout.title.text)
-        == "Chauffer Tour Distance Distribution - Both Directions"
+        == "Chauffeur Tour Distance Distribution - Both Directions"
     )
     assert list(reset_distance_plot.object.layout.xaxis.range) == [0.0, 40.0]
     page.escort_distance_range.min_widget.value = 20.0
     page.escort_distance_range.max_widget.value = "10"
     page.refresh(force=True)
     assert any(
-        card.title == "Chauffer Distance Data Not Available"
+        card.title == "Chauffeur Distance Data Not Available"
         for card in _collect_cards(page.view)
     )
 
@@ -3272,9 +3270,9 @@ def test_escorted_tours_page_renders_core_charts_when_optional_summaries_missing
     titles = [
         str(plot.object.layout.title.text) for plot in _collect_plotly_panes(page.view)
     ]
-    assert "Chauffer Tours by Person Type - Both Directions" in titles
-    assert "Chauffer Tour Distance Distribution - Both Directions" in titles
-    assert "Chauffer Trip Distance Distribution - Both Directions" in titles
+    assert "Chauffeur Tours by Person Type - Both Directions" in titles
+    assert "Chauffeur Tour Distance Distribution - Both Directions" in titles
+    assert "Chauffeur Trip Distance Distribution - Both Directions" in titles
     assert "Adult Escort Stops Before Dropoff - Outbound" in titles
     assert "Adult Escort Trip Stop Frequency - Both Directions" not in titles
     assert all("Schoolkids Per Escorted Tour" not in title for title in titles)

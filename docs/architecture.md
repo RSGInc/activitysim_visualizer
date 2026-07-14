@@ -22,7 +22,7 @@ workflow code sees it. Removed and unknown keys fail with a focused error.
 | Processor prepare step | Read raw ActivitySim outputs, materialize canonical prepared columns, and manage prepared-table cache I/O | `processor/models.py`, `processor/prepare/*` |
 | Summary generation | Declare builders and compute weighted/unweighted tables | `processor/summarize/contracts.py`, `processor/summarize/catalog.py`, `processor/summarize/summaries/*.py` |
 | Summary cache I/O | Inspect, write, and load cache manifests and CSVs | `processor/summarize/cache.py`, `processor/summarize/cache_storage.py` |
-| Dashboard registry and state | Discover pages, validate page contracts, hold live state and cached filtered views | `dashboard/page_registry.py`, `dashboard/page_definitions.py`, `dashboard/state.py`, `dashboard/page_base.py` |
+| Dashboard page runtime | Discover pages, validate contracts, refresh declared features, and memoize section queries | `dashboard/page_registry.py`, `dashboard/page_definitions.py`, `dashboard/page_lifecycle.py`, `dashboard/page_declarations.py` |
 | Rendering | Build context-bound Plotly figures and the live or exported view | `dashboard/rendering/`, `dashboard/app.py`, `dashboard/export/` |
 
 ## End-to-End Flow
@@ -113,21 +113,25 @@ Dashboard pages are registered with `@dashboard_page(...)` on the page class in
 and the summary/prepared-data contract through `required_summary_ids`,
 `optional_summary_ids`, `prepared_data_mode`, and `required_prepared_tables`.
 
-The public page authoring API lives on `dashboard.page_base.DashboardPage`.
+`dashboard.page_base` is the small public facade. Lifecycle, declarations,
+diagnostics, feature composition, data access, and grouped navigation live in
+separate implementation modules.
 
 Page authors are expected to:
 
-- implement `build_page()` to create widgets and stable layout once
-- optionally implement `sync_controls()` to reconcile selector options and values
-- use `self.select(...)` for dropdowns and `self.selector(...)` for custom widgets
-- register refreshable/exportable regions with `self.section(...)`
-- return section content from section render functions
+- implement `build_page()` to declare selectors, features, sections, and layout
+- give selectors an option provider and default policy when their domain is dynamic
+- compose unrelated user-visible blocks with `self.feature(...)`
+- memoize chart-ready transformations with `self.query(...)`
+- keep section render methods to lookup/query/render
 
 The framework now owns:
 
 - widget watchers
 - section containers
 - section-aware refresh
+- selector option refresh and stale-value repair
+- query identity derived from page/global/section/selector state
 - stale tracking
 - export selector metadata
 - export region metadata
@@ -149,10 +153,10 @@ fluent query to every run while preserving run labels. Pages should prefer its
 `drop_empty`, and `map` operations over open-coded loops through
 run/dataframe pairs.
 
-The skim pages intentionally keep their own family-specific shared module at
-`dashboard/pages/skim_summaries/_shared.py`. That file is the reference pattern
-for shared logic that is reusable within one page family but not broad enough
-for `dashboard/helpers/`.
+The skim pages share their family-specific model/query service while exposing
+small summary and distribution features. This is the reference pattern for
+logic reusable within one page family but not broad enough for
+`dashboard/helpers/`.
 
 ## Repository Map
 
@@ -232,6 +236,11 @@ activitysim_visualizer/
 |   |   |-- types.py
 |   |   `-- assets/
 |   |-- page_base.py
+|   |-- page_declarations.py
+|   |-- page_diagnostics.py
+|   |-- page_features.py
+|   |-- page_lifecycle.py
+|   |-- page_navigation.py
 |   |-- page_definitions.py
 |   |-- page_registry.py
 |   |-- state.py

@@ -92,7 +92,8 @@ For export-aware pages:
 - register selectors with stable ids
 - register sections with stable ids
 - keep section render functions deterministic for a given widget state
-- reconcile widget options and defaults in `sync_controls()`
+- declare dynamic widget options/defaults on `select(...)`; the framework
+  reconciles them before each export state is rendered
 
 Do not add new export-only registries or duplicate selector metadata in `PAGE`.
 

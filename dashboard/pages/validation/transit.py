@@ -7,7 +7,11 @@ import polars as pl
 
 from dashboard.rendering import selector_row
 from dashboard.data_access import RunTables
-from dashboard.helpers.category_helpers import common_column_options, column_options, nonempty
+from dashboard.helpers.category_helpers import (
+    common_column_options,
+    column_options,
+    nonempty,
+)
 from dashboard import DashboardPage, dashboard_page
 
 
@@ -17,16 +21,21 @@ def filter_transit_data(
     access_mode: str | None = None,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Filter transit summaries and aggregate by operator for the chart-specific metric."""
+
     def prepare(frame: pl.DataFrame) -> pl.DataFrame:
         filtered = frame
         if "technology" in filtered.columns and technology != "All":
             filtered = filtered.with_columns(pl.col("technology").cast(pl.Utf8)).filter(
                 pl.col("technology") == technology
             )
-        if access_mode is not None and "access_mode" in filtered.columns and access_mode != "All":
-            filtered = filtered.with_columns(pl.col("access_mode").cast(pl.Utf8)).filter(
-                pl.col("access_mode") == access_mode
-            )
+        if (
+            access_mode is not None
+            and "access_mode" in filtered.columns
+            and access_mode != "All"
+        ):
+            filtered = filtered.with_columns(
+                pl.col("access_mode").cast(pl.Utf8)
+            ).filter(pl.col("access_mode") == access_mode)
         if {"operator", "boardings"}.issubset(filtered.columns):
             filtered = (
                 filtered.group_by("operator")
@@ -58,38 +67,15 @@ def filter_transit_data(
 )
 class TransitValidationPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
-        tech_opts, _ = common_column_options(
-            self.data.summary(
-                "transit_boardings_by_operator_and_technology", "weighted"
-            ),
-            self.data.summary("transit_transfer_rate", "weighted"),
-            column="technology",
-            total_raw="All",
-            total_label="All",
-        )
-        access_opts, _ = column_options(
-            self.data.summary("transit_transfer_rate", "weighted"),
-            "access_mode",
-            total_raw="All",
-            total_label="All",
-        )
-        self.technology_sel = self.selector(
+        self.technology_sel = self.select(
             "technology",
-            widget=pn.widgets.Select(
-                name="Transit Technology",
-                options=tech_opts or ["All"],
-                value=(tech_opts or ["All"])[0],
-            ),
-            label="Transit Technology",
+            "Transit Technology",
+            options=self._technology_options,
         )
-        self.access_mode_sel = self.selector(
+        self.access_mode_sel = self.select(
             "access_mode",
-            widget=pn.widgets.Select(
-                name="Access Mode",
-                options=access_opts or ["All"],
-                value=(access_opts or ["All"])[0],
-            ),
-            label="Access Mode",
+            "Access Mode",
+            options=self._access_mode_options,
         )
         self._boardings_body = self.section(
             "transit_boardings_body",
@@ -109,34 +95,26 @@ class TransitValidationPage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def sync_controls(self) -> None:
-        boarding_list = self.data.summary(
-            "transit_boardings_by_operator_and_technology",
-            self.weighting_key,
-        )
-        transfer_list = self.data.summary(
-            "transit_transfer_rate",
-            self.weighting_key,
-        )
-        tech_opts, _ = common_column_options(
-            boarding_list,
-            transfer_list,
+    def _technology_options(self) -> list[str]:
+        options, _ = common_column_options(
+            self.data.summary(
+                "transit_boardings_by_operator_and_technology", self.weighting_key
+            ),
+            self.data.summary("transit_transfer_rate", self.weighting_key),
             column="technology",
             total_raw="All",
             total_label="All",
         )
-        access_opts, _ = column_options(
-            transfer_list or [],
+        return options or ["All"]
+
+    def _access_mode_options(self) -> list[str]:
+        options, _ = column_options(
+            self.data.summary("transit_transfer_rate", self.weighting_key) or [],
             "access_mode",
             total_raw="All",
             total_label="All",
         )
-        self.technology_sel.options = tech_opts or ["All"]
-        if self.technology_sel.value not in self.technology_sel.options:
-            self.technology_sel.value = self.technology_sel.options[0]
-        self.access_mode_sel.options = access_opts or ["All"]
-        if self.access_mode_sel.value not in self.access_mode_sel.options:
-            self.access_mode_sel.value = self.access_mode_sel.options[0]
+        return options or ["All"]
 
     def _operator_values(
         self,
@@ -168,10 +146,8 @@ class TransitValidationPage(DashboardPage):
                 missing_items=["transit_boardings_by_operator_and_technology"],
             )
         technology = self.technology_sel.value
-        boarding_data = self.get_filtered_view(
-            "transit_boardings",
-            technology,
-            factory=lambda: filter_transit_data(boarding_list, technology),
+        boarding_data = self.query(
+            lambda: filter_transit_data(boarding_list, technology)
         )
         return self.plot.bar(
             boarding_data,
@@ -183,9 +159,7 @@ class TransitValidationPage(DashboardPage):
             category_order=operator_values,
         )
 
-    def render_transfer_chart(
-        self, operator_values: list[str]
-    ) -> pn.viewable.Viewable:
+    def render_transfer_chart(self, operator_values: list[str]) -> pn.viewable.Viewable:
         transfer_list = self.data.summary(
             "transit_transfer_rate",
             self.weighting_key,
@@ -197,10 +171,8 @@ class TransitValidationPage(DashboardPage):
             )
         technology = self.technology_sel.value
         access_mode = self.access_mode_sel.value
-        transfer_data = self.get_filtered_view(
-            "transit_transfer_rate",
-            (technology, access_mode),
-            factory=lambda: filter_transit_data(transfer_list, technology, access_mode),
+        transfer_data = self.query(
+            lambda: filter_transit_data(transfer_list, technology, access_mode)
         )
         return self.plot.bar(
             transfer_data,

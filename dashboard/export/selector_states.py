@@ -8,7 +8,6 @@ from typing import Any, Iterator
 import panel as pn
 
 from dashboard.export.serializer import variant_key
-from dashboard.export.traversal import selector_widget
 from dashboard.export.types import SelectorMetadataPayload
 from dashboard.page_definitions import DashboardPageDefinition
 from runtime.config import ExportSelectorRequest
@@ -160,6 +159,9 @@ def resolve_export_section_states(
 
 
 def sync_page_controls(page: Any) -> None:
+    sync_declared = getattr(page, "_sync_declared_selectors", None)
+    if callable(sync_declared):
+        sync_declared()
     sync_controls = getattr(page, "sync_controls", None)
     if callable(sync_controls):
         sync_controls()

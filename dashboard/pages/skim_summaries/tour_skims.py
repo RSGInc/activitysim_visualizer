@@ -22,6 +22,7 @@ from dashboard.pages.skim_summaries._shared import (
     tour_component_base_options,
     tour_mode_options,
 )
+
 TOP_SELECTOR_ROW_STYLESHEET = """
 :host(.tour-skim-top-selector) {
   max-width: 240px;
@@ -56,7 +57,9 @@ class TourSkimsPage(DashboardPage):
 
     def build_page(self) -> pn.viewable.Viewable:
         """Build the summary shell and the live directional distribution controls."""
-        tour_stats = self.data.summary_series(TOUR_STATS_SUMMARY_ID, weighting="weighted")
+        tour_stats = self.data.summary_series(
+            TOUR_STATS_SUMMARY_ID, weighting="weighted"
+        )
         family_options = skim_family_options(
             self.config,
             tour_stats,
@@ -173,13 +176,15 @@ class TourSkimsPage(DashboardPage):
             lambda event: self._reset_distribution_range("inbound")
         )
 
-        self._summary_section = self.section(
-            "tour_skim_summary_section",
+        summary = self.feature("summary")
+        distribution = self.feature("distribution")
+        self._summary_section = summary.section(
+            "body",
             selectors=("tour_skim_family", "tour_skim_scenario", "tour_skim_direction"),
             render=self.render_summary_section,
         )
-        self._distribution_section = self.section(
-            "tour_skim_distribution_section",
+        self._distribution_section = distribution.section(
+            "body",
             selectors=(
                 "tour_skim_scenario",
                 "tour_distribution_component",
@@ -343,12 +348,8 @@ class TourSkimsPage(DashboardPage):
                 title="Data Not Available",
             )
 
-        stats_data = self.get_filtered_view(
-            "tour_skim_family_stats",
-            family,
-            self._tour_skim_scenario_value(),
-            direction,
-            factory=lambda: family_stats_table(
+        stats_data = self.query(
+            lambda: family_stats_table(
                 self.config,
                 tour_stats,
                 family=family,
@@ -356,7 +357,7 @@ class TourSkimsPage(DashboardPage):
                 target_table="tours",
                 direction=direction,
                 skim_scenario=self._tour_skim_scenario_value(),
-            ),
+            )
         )
         if not any(not df.is_empty() for _, df in stats_data):
             return self.data_not_available_card(
@@ -395,15 +396,8 @@ class TourSkimsPage(DashboardPage):
                 title=f"{title} Data Not Available",
             )
 
-        distribution_data = self.get_filtered_view(
-            f"tour_skim_distribution_{direction}",
-            component,
-            mode,
-            self.weighting_key,
-            self._tour_skim_scenario_value(),
-            x_range[0],
-            x_range[1],
-            factory=lambda: distribution_bins(
+        distribution_data = self.query(
+            lambda: distribution_bins(
                 self._tour_prepared_runs(),
                 table_name="tours",
                 mode_column="tour_mode",
@@ -411,7 +405,7 @@ class TourSkimsPage(DashboardPage):
                 component=component,
                 x_range=x_range,
                 skim_scenario=self._tour_skim_scenario_value(),
-            ),
+            )
         )
         if not any(not df.is_empty() for _, df in distribution_data):
             return self.data_not_available_card(
@@ -439,9 +433,13 @@ class TourSkimsPage(DashboardPage):
             return [self.no_runs_message()]
 
         return [
-            control_row(self.outbound_min_sel, self.outbound_max_sel, self.outbound_reset_btn),
+            control_row(
+                self.outbound_min_sel, self.outbound_max_sel, self.outbound_reset_btn
+            ),
             self.render_directional_distribution_chart("outbound"),
-            control_row(self.inbound_min_sel, self.inbound_max_sel, self.inbound_reset_btn),
+            control_row(
+                self.inbound_min_sel, self.inbound_max_sel, self.inbound_reset_btn
+            ),
             self.render_directional_distribution_chart("inbound"),
         ]
 

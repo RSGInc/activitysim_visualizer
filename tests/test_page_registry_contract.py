@@ -91,17 +91,17 @@ def test_representative_export_pages_keep_expected_runtime_sections(
         "overview": [("overview_kpis", ()), ("overview_demographics", ())],
         "daily_activity_pattern": [("activity_pattern_body", ("person_type",))],
         "escorted_tours": [
-            ("escorted_tours_static_body", ()),
-            ("escorted_tours_directional_body", ("direction",)),
+            ("school_escort.body", ()),
+            ("adult_escort.body", ()),
+            ("direction.body", ("direction.value",)),
+            ("distance.body", ("direction.value",)),
         ],
-        "trip_mode": [
-            ("trip_summary_mode_body", ("tour_purpose", "hide_drive_alone"))
-        ],
+        "trip_mode": [("trip_summary_mode_body", ("tour_purpose", "hide_drive_alone"))],
         "mandatory_location_choice": [
-            ("remote_work", ("geography_level", "geography")),
-            ("distance_distribution", ("geography_level", "geography")),
-            ("worker_geography", ("geography_level", "geography")),
-            ("mandatory_distance_table", ("geography_level", "geography")),
+            ("remote_work.body", ("geography_level", "geography")),
+            ("distance.distribution", ("geography_level", "geography")),
+            ("flows.body", ("geography_level", "geography")),
+            ("geography_comparison.body", ("geography_level", "geography")),
         ],
     }
 

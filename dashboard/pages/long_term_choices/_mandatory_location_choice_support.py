@@ -39,9 +39,13 @@ def adapt_external_workplace(
     data_list: list[tuple[str, pl.DataFrame]] | None,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Normalize workplace summaries onto the page's chart-ready schema."""
+
     def normalize(frame: pl.DataFrame) -> pl.DataFrame:
         normalized = frame
-        if DEFAULT_GEO_COL in normalized.columns and "workplace_location" not in normalized.columns:
+        if (
+            DEFAULT_GEO_COL in normalized.columns
+            and "workplace_location" not in normalized.columns
+        ):
             normalized = normalized.with_columns(
                 pl.col(DEFAULT_GEO_COL).alias("workplace_location")
             )
@@ -57,16 +61,13 @@ def adapt_commuting_flows(
     data_list: list[tuple[str, pl.DataFrame]] | None,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Normalize commuting-flow geography column names used by this page."""
-    return (
-        RunTables.from_runs(data_list)
-        .map(
-            lambda frame: rename_present(
-                frame,
-                {
-                    "origin_geography_type": "origin_geography_level",
-                    "destination_geography_type": "destination_geography_level",
-                },
-            )
+    return RunTables.from_runs(data_list).map(
+        lambda frame: rename_present(
+            frame,
+            {
+                "origin_geography_type": "origin_geography_level",
+                "destination_geography_type": "destination_geography_level",
+            },
         )
     )
 
@@ -113,6 +114,7 @@ def work_from_home_chart_data(
         geography_level = AGGREGATE_GEOGRAPHY_LEVEL
     if is_all_geographies(geography):
         geography = AGGREGATE_GEOGRAPHY_LEVEL
+
     def prepare(frame: pl.DataFrame) -> pl.DataFrame:
         return (
             frame.with_columns(
@@ -121,9 +123,11 @@ def work_from_home_chart_data(
             )
             .filter(pl.col(DEFAULT_GEO_LEVEL_COL) == geography_level)
             .pipe(
-                lambda frame: frame
-                if geography in {ALL_WITHIN_LEVEL_VALUE, "Total", "All"}
-                else frame.filter(pl.col(DEFAULT_GEO_COL) == geography)
+                lambda frame: (
+                    frame
+                    if geography in {ALL_WITHIN_LEVEL_VALUE, "Total", "All"}
+                    else frame.filter(pl.col(DEFAULT_GEO_COL) == geography)
+                )
             )
             .with_columns(
                 pl.when(pl.col("worker_count") > 0)
@@ -141,6 +145,7 @@ def work_from_home_chart_data(
             )
             .sort("geography_label")
         )
+
     return RunTables.from_runs(wfh_list).map(prepare)
 
 
@@ -153,8 +158,9 @@ def distance_distribution_chart_data(
         .requiring("person_count", "distance_bin")
         .map(
             lambda frame: cap_numeric_category_frame(
-                frame.group_by("distance_bin")
-                .agg(person_count=pl.col("person_count").sum()),
+                frame.group_by("distance_bin").agg(
+                    person_count=pl.col("person_count").sum()
+                ),
                 category="distance_bin",
                 cap_value=40,
                 value_cols=("person_count",),
@@ -177,16 +183,16 @@ def telecommute_chart_data(
         {"telecommute_frequency": telecommute_values},
         schema={"telecommute_frequency": pl.Utf8},
     )
+
     def complete(frame: pl.DataFrame) -> pl.DataFrame:
         aggregated = (
             frame.with_columns(pl.col("telecommute_frequency").cast(pl.Utf8))
             .group_by("telecommute_frequency")
             .agg(person_count=pl.col("person_count").sum())
         )
-        return (
-            scaffold.join(aggregated, on="telecommute_frequency", how="left")
-            .with_columns(pl.col("person_count").fill_null(0.0).cast(pl.Float64))
-        )
+        return scaffold.join(
+            aggregated, on="telecommute_frequency", how="left"
+        ).with_columns(pl.col("person_count").fill_null(0.0).cast(pl.Float64))
 
     completed = (
         RunTables.from_runs(data_list)

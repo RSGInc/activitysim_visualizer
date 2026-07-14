@@ -52,12 +52,10 @@ def tour_distance_chart_data(
         .with_columns(pl.col("tour_purpose").cast(pl.Utf8))
         .where(tour_purpose=purpose)
         .select(
-                    pl.col("distance_bin").cast(pl.Utf8),
-                    pl.col("tour_count"),
+            pl.col("distance_bin").cast(pl.Utf8),
+            pl.col("tour_count"),
         )
-        .with_columns(
-                    distance_sort_expr("distance_bin").alias("_sort_distance")
-        )
+        .with_columns(distance_sort_expr("distance_bin").alias("_sort_distance"))
         .sort("_sort_distance")
         .map(lambda frame: frame.drop("_sort_distance"))
     )
@@ -166,32 +164,20 @@ class TourDistancePage(DashboardPage):
         self._geography_raw_by_label: dict[str, str | None] = {
             ALL_WITHIN_LEVEL_VALUE: ALL_WITHIN_LEVEL_VALUE
         }
-        self.tour_purpose_sel = self.selector(
+        self.tour_purpose_sel = self.select(
             "tour_purpose",
-            widget=pn.widgets.Select(
-                name="Tour Purpose",
-                options=[self.TOTAL_PURPOSE_LABEL],
-                value=self.TOTAL_PURPOSE_LABEL,
-            ),
-            label="Tour Purpose",
+            "Tour Purpose",
+            options=self._purpose_options,
         )
-        self.geo_level_sel = self.selector(
+        self.geo_level_sel = self.select(
             "geography_level",
-            widget=pn.widgets.Select(
-                name=GEOGRAPHY_TYPE_SELECTOR_LABEL,
-                options=[ALL_GEOGRAPHY_TYPES_LABEL],
-                value=ALL_GEOGRAPHY_TYPES_LABEL,
-            ),
-            label=GEOGRAPHY_TYPE_SELECTOR_LABEL,
+            GEOGRAPHY_TYPE_SELECTOR_LABEL,
+            options=self._geography_level_options,
         )
-        self.geography_sel = self.selector(
+        self.geography_sel = self.select(
             "geography",
-            widget=pn.widgets.Select(
-                name=GEOGRAPHY_NAME_SELECTOR_LABEL,
-                options=[ALL_WITHIN_LEVEL_VALUE],
-                value=ALL_WITHIN_LEVEL_VALUE,
-            ),
-            label=GEOGRAPHY_NAME_SELECTOR_LABEL,
+            GEOGRAPHY_NAME_SELECTOR_LABEL,
+            options=self._geography_options,
         )
         self.tour_distance_range = DistanceRangeControls.create(
             self,
@@ -219,13 +205,10 @@ class TourDistancePage(DashboardPage):
         """Return the required summary bundle for this page."""
         return self.data.summaries(*self.required_summary_ids)
 
-    def sync_controls(self) -> None:
-        """Recompute selector domains from the current summary tables."""
+    def _distance_sources(self):
         summaries = self._summaries()
-        if summaries is None:
-            return
-
-        distance_summary = summaries["tour_distance_by_tour_purpose"]
+        if not summaries:
+            return None, None, None
         nonmandatory_average = normalize_geography_data(
             summaries["average_nonmandatory_tour_distance_by_purpose_and_geography"]
         )
@@ -233,50 +216,49 @@ class TourDistancePage(DashboardPage):
             summaries["average_mandatory_tour_distance_by_purpose_and_geography"]
         )
 
-        tour_purpose_options, self._tour_purpose_to_raw = column_options(
-            distance_summary,
+        return (
+            summaries["tour_distance_by_tour_purpose"],
+            nonmandatory_average,
+            mandatory_average,
+        )
+
+    def _purpose_options(self) -> list[str]:
+        distance_summary, _, _ = self._distance_sources()
+        options, self._tour_purpose_to_raw = column_options(
+            distance_summary or [],
             "tour_purpose",
             category_id="tour_purpose",
             config=self.config,
-            state=self.state,
-            cache_key=(
-                "tour_distance",
-                "tour_distance_by_tour_purpose",
-                "tour_purpose",
-                self.weighting_key,
-            ),
             total_raw="all_tour_purposes",
             total_label=self.TOTAL_PURPOSE_LABEL,
         )
-        geography_type_options_list, self._geo_level_raw_by_label = geography_type_options(
+        return options or [self.TOTAL_PURPOSE_LABEL]
+
+    def _geography_level_options(self) -> list[str]:
+        _, nonmandatory_average, mandatory_average = self._distance_sources()
+        options, self._geo_level_raw_by_label = geography_type_options(
             nonmandatory_average or None,
             mandatory_average or None,
             config=self.config,
             include_all_types=True,
         )
+        return options or [ALL_GEOGRAPHY_TYPES_LABEL]
 
-        for widget, options in (
-            (self.tour_purpose_sel, tour_purpose_options or [self.TOTAL_PURPOSE_LABEL]),
-            (self.geo_level_sel, geography_type_options_list or [ALL_GEOGRAPHY_TYPES_LABEL]),
-        ):
-            widget.options = options
-            if widget.value not in options:
-                widget.value = options[0]
-
+    def _geography_options(self) -> list[str]:
+        _, nonmandatory_average, mandatory_average = self._distance_sources()
         geography_type = self.selected_geography_level_raw()
-        geography_options, self._geography_raw_by_label = geography_name_options_for_type(
+        options, self._geography_raw_by_label = geography_name_options_for_type(
             geography_type,
             nonmandatory_average or None,
             mandatory_average or None,
             config=self.config,
         )
-        self.geography_sel.name = geography_name_selector_label(
-            geography_type,
-            config=self.config,
-        )
-        self.geography_sel.options = geography_options
-        if self.geography_sel.value not in geography_options:
-            self.geography_sel.value = geography_options[0]
+        if getattr(self, "geography_sel", None) is not None:
+            self.geography_sel.name = geography_name_selector_label(
+                geography_type,
+                config=self.config,
+            )
+        return options or [ALL_WITHIN_LEVEL_VALUE]
 
     def selected_geography_level_raw(self) -> str:
         """Return the raw geography type selected in the display selector."""
@@ -303,13 +285,11 @@ class TourDistancePage(DashboardPage):
         raw_purpose = self._tour_purpose_to_raw.get(
             selected_purpose, "all_tour_purposes"
         )
-        distance_data = self.get_filtered_view(
-            "tour_distance",
-            raw_purpose,
-            factory=lambda: tour_distance_chart_data(
+        distance_data = self.query(
+            lambda: tour_distance_chart_data(
                 summaries["tour_distance_by_tour_purpose"],
                 str(raw_purpose),
-            ),
+            )
         )
         observed_bounds = distance_axis_bounds(distance_data)
         bounds = (0.0, 40.0) if observed_bounds is not None else None
@@ -332,7 +312,9 @@ class TourDistancePage(DashboardPage):
             pn.pane.Markdown("### Tour Distance Distribution"),
             selector_row(self.tour_purpose_sel),
             self.tour_distance_range.row(),
-            self.render_distance_chart(distance_data, selected_purpose, x_range=x_range),
+            self.render_distance_chart(
+                distance_data, selected_purpose, x_range=x_range
+            ),
         ]
 
     def render_distance_chart(
@@ -368,16 +350,14 @@ class TourDistancePage(DashboardPage):
         )
         geo_level = self.selected_geography_level_raw()
         geography = self.selected_geography_raw()
-        comparison_tables = self.get_filtered_view(
-            "average_nonmandatory_tour_distance",
-            (geo_level, geography),
-            factory=lambda: average_distance_comparison_table(
+        comparison_tables = self.query(
+            lambda: average_distance_comparison_table(
                 nonmandatory_average,
                 geo_level,
                 geography,
                 "All",
                 config=self.config,
-            ),
+            )
         )
         return [
             pn.pane.Markdown("### Average Non-Mandatory Tour Distance vs Base Run"),

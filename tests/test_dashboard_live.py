@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib
-import logging
 import pkgutil
 from pathlib import Path
 import sys
@@ -55,7 +54,6 @@ from dashboard.pages.validation.vmt import (
     demo_commercial_vehicle_chart_data,
     external_travel_chart_data,
     external_travel_filter_options,
-    non_motorized_vmt_chart_data,
     personal_auto_vmt_chart_data,
     wide_tod_chart_data,
 )
@@ -2367,7 +2365,6 @@ def test_build_dashboard_switches_tabs_and_refreshes_only_the_active_page(
     config = _write_config(tmp_path)
     template = build_dashboard([], config, summary_runs=[_full_summary_run()])
     state = template._dashboard_state
-    pages = template._dashboard_pages
     tabs = template.main[0]
 
     assert state.active_tab == 0
@@ -2517,7 +2514,7 @@ def test_build_dashboard_preserves_individual_choices_person_type_across_tab_swi
     assert individual_choices_page.person_type_sel.value == "worker"
 
 
-def test_dashboard_page_cache_helpers_reuse_summary_and_filtered_view_results(
+def test_dashboard_page_cache_helpers_reuse_summary_and_query_results(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -2542,24 +2539,20 @@ def test_dashboard_page_cache_helpers_reuse_summary_and_filtered_view_results(
         summary_runs=[probe_summary_run],
         weighting_modes=config.weighting_modes,
     )
-    call_counts = {"filtered_view": 0}
+    call_counts = {"query": 0}
 
     class CacheProbePage(DashboardPage):
         def __init__(self) -> None:
             super().__init__(state, config)
             self.view = pn.Column()
 
-        def _filtered_view_factory(self) -> dict[str, str]:
-            call_counts["filtered_view"] += 1
-            return {"kind": "filtered_view"}
+        def _query_factory(self) -> dict[str, str]:
+            call_counts["query"] += 1
+            return {"kind": "query"}
 
         def _refresh(self) -> None:
             self.summary_value = self.data.summary("probe_summary")
-            self.filtered_view_value = self.get_filtered_view(
-                "probe_view",
-                "default",
-                factory=self._filtered_view_factory,
-            )
+            self.query_value = self.query(self._query_factory)
 
     page = CacheProbePage()
 
@@ -2568,10 +2561,10 @@ def test_dashboard_page_cache_helpers_reuse_summary_and_filtered_view_results(
     page.mark_stale()
     page.refresh_if_needed()
 
-    assert call_counts == {"filtered_view": 1}
+    assert call_counts == {"query": 1}
     assert page.summary_value[0][1]["value"][0] == "summary"
-    assert page.filtered_view_value == {"kind": "filtered_view"}
-    assert state.cache_stats["filtered_view"] == {"hits": 2, "misses": 1}
+    assert page.query_value == {"kind": "query"}
+    assert state.cache_stats["page_query"] == {"hits": 2, "misses": 1}
 
 
 def test_skim_pages_render_selector_controls_and_independent_sections(

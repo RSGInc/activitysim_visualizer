@@ -68,33 +68,10 @@ class TripStopTimePage(DashboardPage):
     TOTAL_PURPOSE_LABEL = "All Tour Purposes"
 
     def build_page(self) -> pn.viewable.Viewable:
-        purpose_opts, self._purpose_to_raw = column_options(
-            self.data.summary("trip_departure_time_by_purpose", "weighted")
-            or [],
+        self.tour_purpose_sel = self.select(
             "tour_purpose",
-            category_id="tour_purpose",
-            config=self.config,
-            state=self.state,
-            cache_key=(
-                "trip_stop_time",
-                "trip_departure_time_by_purpose",
-                "tour_purpose",
-                "weighted",
-            ),
-            total_raw="all_tour_purposes",
-            total_label=self.TOTAL_PURPOSE_LABEL,
-        )
-        if not purpose_opts:
-            purpose_opts = [self.TOTAL_PURPOSE_LABEL]
-            self._purpose_to_raw = {self.TOTAL_PURPOSE_LABEL: "all_tour_purposes"}
-        self.tour_purpose_sel = self.selector(
-            "tour_purpose",
-            widget=pn.widgets.Select(
-                name="Tour Purpose",
-                options=purpose_opts,
-                value=purpose_opts[0],
-            ),
-            label="Tour Purpose",
+            "Tour Purpose",
+            options=self._purpose_options,
         )
         self._body = self.section(
             "trip_stop_time_body",
@@ -108,28 +85,20 @@ class TripStopTimePage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def sync_controls(self) -> None:
-        summaries = self.data.summaries(*self.required_summary_ids)
-        if not all(summaries.values()):
-            return
+    def _purpose_options(self) -> list[str]:
         purpose_opts, self._purpose_to_raw = column_options(
-            summaries["trip_departure_time_by_purpose"],
+            self.data.summary("trip_departure_time_by_purpose", self.weighting_key)
+            or [],
             "tour_purpose",
             category_id="tour_purpose",
             config=self.config,
-            state=self.state,
-            cache_key=(
-                "trip_stop_time",
-                "trip_departure_time_by_purpose",
-                "tour_purpose",
-                self.weighting_key,
-            ),
             total_raw="all_tour_purposes",
             total_label=self.TOTAL_PURPOSE_LABEL,
         )
-        self.tour_purpose_sel.options = purpose_opts or [self.TOTAL_PURPOSE_LABEL]
-        if self.tour_purpose_sel.value not in self.tour_purpose_sel.options:
-            self.tour_purpose_sel.value = self.tour_purpose_sel.options[0]
+        if not purpose_opts:
+            purpose_opts = [self.TOTAL_PURPOSE_LABEL]
+            self._purpose_to_raw = {self.TOTAL_PURPOSE_LABEL: "all_tour_purposes"}
+        return purpose_opts
 
     def _selected_purpose(self) -> tuple[str, str]:
         display_purpose = self.tour_purpose_sel.value
@@ -142,16 +111,12 @@ class TripStopTimePage(DashboardPage):
         *,
         raw_purpose: str,
         display_purpose: str,
-        cache_key: str,
         title: str,
         y_col: str,
         yaxis_title: str,
     ) -> pn.viewable.Viewable:
-        trip_data, stop_data = self.get_filtered_view(
-            "trip_stop_departure_time",
-            raw_purpose,
-            tuple(label for label, _ in data_list),
-            factory=lambda: trip_stop_time_chart_data(data_list, raw_purpose),
+        trip_data, stop_data = self.query(
+            lambda: trip_stop_time_chart_data(data_list, raw_purpose)
         )
         chart_data = trip_data if y_col == "departure_trip_count" else stop_data
         return self.plot.density(
@@ -177,7 +142,6 @@ class TripStopTimePage(DashboardPage):
                 tod_list,
                 raw_purpose=raw_purpose,
                 display_purpose=display_purpose,
-                cache_key="trip_departure",
                 title="Trip Departure Time Distribution",
                 y_col="departure_trip_count",
                 yaxis_title="Trips",
@@ -186,7 +150,6 @@ class TripStopTimePage(DashboardPage):
                 tod_list,
                 raw_purpose=raw_purpose,
                 display_purpose=display_purpose,
-                cache_key="stop_departure",
                 title="Stop Departure Time Distribution",
                 y_col="departure_stop_count",
                 yaxis_title="Stops",

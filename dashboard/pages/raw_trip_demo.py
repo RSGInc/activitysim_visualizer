@@ -80,12 +80,7 @@ class RawTripDemoPage(DashboardPage):
                 ),
             ]
 
-        trip_mode_list = self.get_filtered_view(
-            "raw_trip_demo_trip_modes",
-            self.weighting_key,
-            tuple(label for label, _ in trip_tables),
-            factory=lambda: trip_mode_distribution(trip_tables),
-        )
+        trip_mode_list = self.query(lambda: trip_mode_distribution(trip_tables))
         return [
             pn.pane.Markdown("## Prepared Trip Demo"),
             pn.pane.Markdown(

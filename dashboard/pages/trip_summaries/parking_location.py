@@ -16,6 +16,7 @@ PARKING_CAPACITY_COLUMNS = (
     "PARKING_SPACES",
 )
 
+
 def _parking_capacity_col(land_use: pl.DataFrame) -> str | None:
     for column in PARKING_CAPACITY_COLUMNS:
         if column in land_use.columns:
@@ -44,15 +45,12 @@ def parking_scatter_data(
             )
         )
 
-    parking_counts = (
-        RunTables.from_runs(parking_summary)
-        .map(
-            lambda frame: frame.filter(
-                pl.col("geography_type").cast(pl.Utf8) == "maz"
-            ).select(
-                pl.col("geography_id").cast(pl.Utf8),
-                pl.col("trip_count").cast(pl.Float64),
-            )
+    parking_counts = RunTables.from_runs(parking_summary).map(
+        lambda frame: frame.filter(
+            pl.col("geography_type").cast(pl.Utf8) == "maz"
+        ).select(
+            pl.col("geography_id").cast(pl.Utf8),
+            pl.col("trip_count").cast(pl.Float64),
         )
     )
     return (
@@ -118,16 +116,11 @@ class ParkingLocationPage(DashboardPage):
                 missing.append("land_use")
             return [self.data_not_available_card(detail=detail, missing_items=missing)]
 
-        scatter_data = self.get_filtered_view(
-            "parking_location_scatter",
-            tuple(
-                label
-                for label, _ in parking_tables
-            ),
-            factory=lambda: parking_scatter_data(
+        scatter_data = self.query(
+            lambda: parking_scatter_data(
                 parking_tables,
                 land_use_tables,
-            ),
+            )
         )
         if not scatter_data:
             return [

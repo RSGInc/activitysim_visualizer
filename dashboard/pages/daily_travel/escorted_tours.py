@@ -86,6 +86,7 @@ DISTANCE_DESCRIPTION = (
     "directions."
 )
 
+
 @dashboard_page(
     page_id="escorted_tours",
     title="Escorted Tours",
@@ -98,15 +99,15 @@ class EscortedToursPage(DashboardPage):
 
     def build_page(self) -> pn.viewable.Viewable:
         """Build the page shell with one direction selector and two stable sections."""
-        direction_opts = self._direction_options()
-        self.direction_sel = self.selector(
-            "direction",
-            widget=pn.widgets.Select(
-                name="Direction",
-                options=direction_opts,
-                value=default_direction_option(direction_opts),
-            ),
-            label="Direction",
+        school_escort = self.feature("school_escort")
+        adult_escort = self.feature("adult_escort")
+        direction = self.feature("direction")
+        distance = self.feature("distance")
+        self.direction_sel = direction.select(
+            "value",
+            "Direction",
+            options=self._direction_options,
+            default=lambda options: default_direction_option(list(options)),
         )
         self.escort_distance_range = DistanceRangeControls.create(
             self,
@@ -114,18 +115,33 @@ class EscortedToursPage(DashboardPage):
             max_options=capped_distance_max_options(),
             reset_label="Reset distance range",
         )
-        self._static_body = self.section(
-            "escorted_tours_static_body",
-            render=self.render_static_body_section,
+        self._school_escort_body = school_escort.section(
+            "body",
+            render=self.render_school_escort_feature,
         )
-        self._directional_body = self.section(
-            "escorted_tours_directional_body",
-            selectors=("direction", *self.escort_distance_range.selector_ids),
-            render=self.render_directional_body_section,
+        self._adult_escort_body = adult_escort.section(
+            "body",
+            render=self.render_adult_escort_feature,
+        )
+        self._direction_body = direction.section(
+            "body",
+            selectors=("value",),
+            render=self.render_direction_feature,
+        )
+        self._distance_body = distance.section(
+            "body",
+            selectors=(
+                "direction.value",
+                *self.escort_distance_range.selector_ids,
+            ),
+            render=self.render_distance_feature,
         )
         return self.new_section(
             pn.pane.Markdown("## Escorted Tours"),
-            self.new_section(self._static_body, self._directional_body),
+            self._school_escort_body,
+            self._adult_escort_body,
+            self._direction_body,
+            self._distance_body,
             sizing_mode="stretch_width",
         )
 
@@ -139,18 +155,6 @@ class EscortedToursPage(DashboardPage):
             return ["Both Directions"]
         return direction_options(data)
 
-    def sync_controls(self) -> None:
-        """Keep the direction selector aligned with currently available summaries."""
-        summaries = self.data.summaries(*CORE_SUMMARY_IDS)
-        if not all(summaries.values()):
-            return
-        options = direction_options(
-            summaries["school_escorted_tours_by_escort_type_and_direction"]
-        )
-        self.direction_sel.options = options
-        if self.direction_sel.value not in options:
-            self.direction_sel.value = default_direction_option(options)
-
     def _load_page_summaries(self):
         """Load core summaries plus optional add-on summaries used by static sections."""
         summaries = self.data.summaries(*CORE_SUMMARY_IDS)
@@ -159,29 +163,31 @@ class EscortedToursPage(DashboardPage):
         optional_summaries = self.data.summaries(*OPTIONAL_SUMMARY_IDS, required=False)
         return {**summaries, **optional_summaries}
 
-    def render_static_body_section(self):
-        """Render the sections that do not depend on the live direction selector."""
+    def _feature_summaries(self):
         if not self.state.run_labels:
-            return [self.no_runs_message()]
-
+            return None, [self.no_runs_message()]
         summaries = self._load_page_summaries()
         if summaries is None:
-            return [self.summary_only_unavailable_card(summary_ids=CORE_SUMMARY_IDS)]
+            return None, [
+                self.summary_only_unavailable_card(summary_ids=CORE_SUMMARY_IDS)
+            ]
+        return summaries, None
 
-        stop_values = stop_count_category_values(
-            summaries["adult_escort_event_stop_distribution"]
-        )
+    def render_school_escort_feature(self):
+        """Render school status, household, and schoolkids views as one feature."""
+        summaries, unavailable = self._feature_summaries()
+        if unavailable is not None:
+            return unavailable
         student_count_values = student_count_category_values(
             summaries["student_households_by_student_count"] or []
         )
-
-        body_objects: list[pn.viewable.Viewable] = []
-        body_objects.extend(
+        body: list[pn.viewable.Viewable] = []
+        body.extend(
             self.render_student_school_escort_section(
                 summaries["student_school_escort_status_by_direction"]
             )
         )
-        body_objects.extend(
+        body.extend(
             self.render_household_school_escort_section(
                 summaries["student_households_by_student_count"],
                 summaries[
@@ -190,7 +196,7 @@ class EscortedToursPage(DashboardPage):
                 student_count_values,
             )
         )
-        body_objects.extend(
+        body.extend(
             self.render_schoolkids_per_escorted_tour_section(
                 summaries[
                     "schoolkids_per_escorted_tour_by_student_count_and_direction"
@@ -198,13 +204,91 @@ class EscortedToursPage(DashboardPage):
                 student_count_values,
             )
         )
-        body_objects.extend(
-            self.render_chauffeur_stop_distribution_section(
-                summaries["adult_escort_event_stop_distribution"],
-                stop_values,
-            )
+        return body
+
+    def render_adult_escort_feature(self):
+        """Render the adult chauffeur stop-distribution feature."""
+        summaries, unavailable = self._feature_summaries()
+        if unavailable is not None:
+            return unavailable
+        return self.render_chauffeur_stop_distribution_section(
+            summaries["adult_escort_event_stop_distribution"],
+            stop_count_category_values(
+                summaries["adult_escort_event_stop_distribution"]
+            ),
         )
-        return [pn.Column(*body_objects)]
+
+    def render_direction_feature(self):
+        """Render the direction-dependent adult chauffeur profile."""
+        summaries, unavailable = self._feature_summaries()
+        if unavailable is not None:
+            return unavailable
+        direction_label = str(self.direction_sel.value)
+        raw_direction = adult_raw_direction(direction_label)
+        return [
+            pn.pane.Markdown("## Adult Chauffeur Tours and Trips"),
+            selector_row(self.direction_sel),
+            pn.pane.Markdown("### Chauffeur Person Type Distribution"),
+            pn.pane.Markdown(PERSON_TYPE_DESCRIPTION),
+            self.render_person_type_chart(
+                summaries["adult_escorted_tours_by_person_type_and_direction"],
+                raw_direction,
+                direction_label,
+            ),
+        ]
+
+    def render_distance_feature(self):
+        """Render adult chauffeur tour/trip distance controls and charts."""
+        summaries, unavailable = self._feature_summaries()
+        if unavailable is not None:
+            return unavailable
+        direction_label = str(self.direction_sel.value)
+        raw_direction = adult_raw_direction(direction_label)
+        tour_distance_data = self.escort_distance_data(
+            summaries["adult_escorted_tour_distance_distribution_by_direction"],
+            raw_direction,
+            y="tour_count",
+        )
+        trip_distance_data = self.escort_distance_data(
+            summaries["adult_escorted_trip_distance_distribution_by_direction"],
+            raw_direction,
+            y="trip_count",
+        )
+        observed_bounds = distance_axis_bounds(
+            [*tour_distance_data, *trip_distance_data]
+        )
+        bounds = (0.0, 40.0) if observed_bounds is not None else None
+        self.escort_distance_range.sync((raw_direction, self.weighting_key), bounds)
+        x_range = self.escort_distance_range.current_range()
+        if bounds is not None and x_range is None:
+            charts = self.data_not_available_card(
+                detail="Chauffeur distance controls require finite values with min less than max.",
+                title="Chauffeur Distance Data Not Available",
+            )
+        else:
+            charts = pn.Row(
+                self.render_distance_chart(
+                    tour_distance_data,
+                    direction_label,
+                    title_prefix="Chauffeur Tour Distance Distribution",
+                    yaxis_title="Chauffeur Tours",
+                    x_range=x_range,
+                ),
+                self.render_distance_chart(
+                    trip_distance_data,
+                    direction_label,
+                    title_prefix="Chauffeur Trip Distance Distribution",
+                    yaxis_title="Chauffeur Trips",
+                    x_range=x_range,
+                ),
+                sizing_mode="stretch_width",
+            )
+        return [
+            pn.pane.Markdown("### Chauffeur Tour and Trip Distance Distributions"),
+            pn.pane.Markdown(DISTANCE_DESCRIPTION),
+            self.escort_distance_range.row(),
+            charts,
+        ]
 
     def render_student_school_escort_section(self, summary_data):
         """Render outbound, inbound, and both-direction student escort status charts."""
@@ -233,15 +317,13 @@ class EscortedToursPage(DashboardPage):
             ("inbound", "Inbound"),
             ("both", "Both Directions"),
         ):
-            chart_data = self.get_filtered_view(
-                "student_school_escort_status",
-                direction,
-                factory=lambda direction=direction: complete_category_counts(
+            chart_data = self.query(
+                lambda direction=direction: complete_category_counts(
                     student_school_escort_chart_data(summary_data, direction),
                     category="escort_type",
                     category_values=escort_order,
                     value_cols=("tour_count", "pct"),
-                ),
+                )
             )
             charts.append(
                 self.plot.bar(
@@ -304,10 +386,8 @@ class EscortedToursPage(DashboardPage):
             ("inbound", "Inbound"),
             ("both", "Both Directions"),
         ):
-            chart_data = self.get_filtered_view(
-                "household_school_escort_status",
-                direction,
-                factory=lambda direction=direction: complete_category_counts(
+            chart_data = self.query(
+                lambda direction=direction: complete_category_counts(
                     [
                         (
                             run_label,
@@ -326,7 +406,7 @@ class EscortedToursPage(DashboardPage):
                     category="student_count",
                     category_values=student_count_values,
                     value_cols=("household_count", "pct"),
-                ),
+                )
             )
             charts.append(
                 self.plot.bar(
@@ -384,10 +464,8 @@ class EscortedToursPage(DashboardPage):
             ("inbound", "Inbound"),
             ("both", "Both Directions"),
         ):
-            chart_data = self.get_filtered_view(
-                "schoolkids_per_escorted_tour",
-                direction,
-                factory=lambda direction=direction: complete_category_counts(
+            chart_data = self.query(
+                lambda direction=direction: complete_category_counts(
                     [
                         (
                             run_label,
@@ -405,16 +483,16 @@ class EscortedToursPage(DashboardPage):
                     category="student_count",
                     category_values=student_count_values,
                     value_cols=("avg_schoolkids_per_tour", "tour_count"),
-                ),
+                )
             )
             charts.append(
                 self.plot.bar(
                     chart_data,
                     x="student_count",
                     y="avg_schoolkids_per_tour",
-                    title=f"Schoolkids Per Adult Chauffer Tour - {label}",
+                    title=f"Schoolkids Per Adult Chauffeur Tour - {label}",
                     x_title="Students in Household",
-                    y_title="Average Schoolkids per Adult Chauffer Tour",
+                    y_title="Average Schoolkids per Adult Chauffeur Tour",
                     value_mode="count",
                     category_order=student_count_values,
                 )
@@ -451,15 +529,13 @@ class EscortedToursPage(DashboardPage):
         stop_values: list[str],
     ) -> pn.viewable.Viewable:
         """Render one chauffeur stop-distribution chart."""
-        chart_data = self.get_filtered_view(
-            "adult_escort_event_stop_distribution",
-            segment,
-            factory=lambda: complete_category_counts(
+        chart_data = self.query(
+            lambda: complete_category_counts(
                 adult_escort_event_stop_chart_data(summary_data, segment),
                 category="stop_count",
                 category_values=stop_values,
                 value_cols=("tour_count",),
-            ),
+            )
         )
         return self.plot.bar(
             chart_data,
@@ -496,81 +572,6 @@ class EscortedToursPage(DashboardPage):
             pn.Row(*charts, sizing_mode="stretch_width"),
         ]
 
-    def render_directional_body_section(self):
-        """Render the charts that depend on the selected escort direction."""
-        if not self.state.run_labels:
-            return []
-
-        summaries = self._load_page_summaries()
-        if summaries is None:
-            return []
-
-        direction_label = str(self.direction_sel.value)
-        raw_direction = adult_raw_direction(direction_label)
-        tour_distance_data = self.escort_distance_data(
-            summaries["adult_escorted_tour_distance_distribution_by_direction"],
-            raw_direction,
-            cache_key="adult_escorted_tour_distance_distribution_by_direction",
-            y="tour_count",
-        )
-        trip_distance_data = self.escort_distance_data(
-            summaries["adult_escorted_trip_distance_distribution_by_direction"],
-            raw_direction,
-            cache_key="adult_escorted_trip_distance_distribution_by_direction",
-            y="trip_count",
-        )
-        observed_bounds = distance_axis_bounds([*tour_distance_data, *trip_distance_data])
-        bounds = (0.0, 40.0) if observed_bounds is not None else None
-        self.escort_distance_range.sync(
-            (raw_direction, self.weighting_key),
-            bounds,
-        )
-        x_range = self.escort_distance_range.current_range()
-        distance_controls = self.escort_distance_range.row()
-        if bounds is not None and x_range is None:
-            distance_charts = self.data_not_available_card(
-                detail="Chauffer distance controls require finite values with min less than max.",
-                title="Chauffer Distance Data Not Available",
-            )
-        else:
-            distance_charts = pn.Row(
-                self.render_distance_chart(
-                    tour_distance_data,
-                    direction_label,
-                    title_prefix="Chauffer Tour Distance Distribution",
-                    yaxis_title="Chauffer Tours",
-                    x_range=x_range,
-                ),
-                self.render_distance_chart(
-                    trip_distance_data,
-                    direction_label,
-                    title_prefix="Chauffer Trip Distance Distribution",
-                    yaxis_title="Chauffer Trips",
-                    x_range=x_range,
-                ),
-                sizing_mode="stretch_width",
-            )
-        return [
-            pn.Column(
-                pn.pane.Markdown("## Adult Chauffer Tours and Trips"),
-                selector_row(self.direction_sel),
-                pn.pane.Markdown("### Chauffer Person Type Distribution"),
-                pn.pane.Markdown(PERSON_TYPE_DESCRIPTION),
-                pn.Row(
-                    self.render_person_type_chart(
-                        summaries["adult_escorted_tours_by_person_type_and_direction"],
-                        raw_direction,
-                        direction_label,
-                    ),
-                    sizing_mode="stretch_width",
-                ),
-                pn.pane.Markdown("### Chauffer Tour and Trip Distance Distributions"),
-                pn.pane.Markdown(DISTANCE_DESCRIPTION),
-                distance_controls,
-                distance_charts,
-            )
-        ]
-
     def render_person_type_chart(
         self,
         summary_data,
@@ -584,15 +585,13 @@ class EscortedToursPage(DashboardPage):
             category_id="person_type",
             config=self.config,
         )
-        chart_data = self.get_filtered_view(
-            "adult_escorted_tours_by_person_type_and_direction",
-            raw_direction,
-            factory=lambda: complete_category_counts(
+        chart_data = self.query(
+            lambda: complete_category_counts(
                 escort_person_type_chart_data(summary_data, raw_direction),
                 category="person_type",
                 category_values=person_type_values,
                 value_cols=("tour_count",),
-            ),
+            )
         )
         return self.plot.bar(
             label_category_data(
@@ -604,9 +603,9 @@ class EscortedToursPage(DashboardPage):
             ),
             x="person_type_label",
             y="tour_count",
-            title=f"Chauffer Tours by Person Type - {direction_label}",
+            title=f"Chauffeur Tours by Person Type - {direction_label}",
             x_title="Person Type",
-            y_title="Chauffer Tours",
+            y_title="Chauffeur Tours",
             category_order=self.config.ordered_labels(
                 "person_type", person_type_values
             ),
@@ -617,18 +616,15 @@ class EscortedToursPage(DashboardPage):
         summary_data,
         raw_direction: str,
         *,
-        cache_key: str,
         y: str,
     ) -> list[tuple[str, pl.DataFrame]]:
         """Return one chart-ready escort distance distribution."""
-        return self.get_filtered_view(
-            cache_key,
-            raw_direction,
-            factory=lambda: escort_distance_chart_data(
+        return self.query(
+            lambda: escort_distance_chart_data(
                 summary_data,
                 raw_direction,
                 y_col=y,
-            ),
+            )
         )
 
     def render_distance_chart(

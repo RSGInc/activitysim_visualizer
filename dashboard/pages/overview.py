@@ -123,9 +123,9 @@ class OverviewPage(DashboardPage):
     def _kpi_result(self):
         """Resolve the summary inputs required for the KPI cards and comparison table."""
         return self.data.summaries(
-                "population_totals",
-                "auto_vmt_totals",
-                columns={
+            "population_totals",
+            "auto_vmt_totals",
+            columns={
                 "population_totals": (
                     "person_count",
                     "household_count",
@@ -133,7 +133,7 @@ class OverviewPage(DashboardPage):
                     "trip_count",
                     "stop_count",
                 ),
-                "auto_vmt_totals": ("auto_vmt",)
+                "auto_vmt_totals": ("auto_vmt",),
             },
         )
 
@@ -147,9 +147,9 @@ class OverviewPage(DashboardPage):
             self.data.summary(
                 "household_size_distribution",
                 columns=(
-                        "household_size",
-                        "household_count",
-                    ),
+                    "household_size",
+                    "household_count",
+                ),
             ),
         )
 
@@ -192,9 +192,7 @@ class OverviewPage(DashboardPage):
         """Render the person type distribution chart when its summary is available."""
         return (
             self.plot.bar(
-                person_type_chart_data(
-                    ptype_result
-                ),
+                person_type_chart_data(ptype_result),
                 x="person_type_label",
                 y="person_count",
                 title="Person Type Distribution",
@@ -212,9 +210,7 @@ class OverviewPage(DashboardPage):
         """Render the household size distribution chart when its summary is available."""
         return (
             self.plot.bar(
-                hh_size_chart_data(
-                    hhsize_result
-                ),
+                hh_size_chart_data(hhsize_result),
                 x="household_size",
                 y="household_count",
                 title="Household Size Distribution",
@@ -240,11 +236,7 @@ class OverviewPage(DashboardPage):
         if all(kpi_result.values()):
             totals_list = kpi_result["population_totals"]
             vmt_list = kpi_result["auto_vmt_totals"]
-            pct_df = self.get_filtered_view(
-                "overview_pct",
-                tuple(label for label, _ in totals_list),
-                factory=lambda: percent_difference_table(totals_list, vmt_list),
-            )
+            pct_df = self.query(lambda: percent_difference_table(totals_list, vmt_list))
             vmt_box = self.plot.kpi(
                 label="VMT",
                 values=[
@@ -294,7 +286,9 @@ class OverviewPage(DashboardPage):
             objects.append(
                 self.data_not_available_card(
                     detail="Overview KPIs require the population totals and auto VMT summary tables.",
-                    missing_items=[key for key, value in kpi_result.items() if not value],
+                    missing_items=[
+                        key for key, value in kpi_result.items() if not value
+                    ],
                 )
             )
         return objects

@@ -28,6 +28,7 @@ def filter_student_type(
     student_type: str,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Filter school-shadow-pricing summaries to one exact student type."""
+
     def prepare(frame: pl.DataFrame) -> pl.DataFrame:
         filtered = frame
         if "student_type" in filtered.columns:
@@ -138,12 +139,12 @@ class ShadowPricingPage(DashboardPage):
         self.geo_level_sel = self.select(
             "geography_level",
             GEOGRAPHY_TYPE_SELECTOR_LABEL,
-            options=[ALL_GEOGRAPHY_TYPES_LABEL],
+            options=self._geography_options,
         )
         self.student_type_sel = self.select(
             "student_type",
             "Student Type",
-            options=["All"],
+            options=self._student_options,
         )
         self._workplace_plot_section = self.section(
             "workplace_plot",
@@ -173,19 +174,21 @@ class ShadowPricingPage(DashboardPage):
             self.new_section(self._school_plot_section, self._school_table_section),
         )
 
-    def sync_controls(self) -> None:
-        """Refresh summary state and reconcile selector domains."""
+    def _refresh_data(self) -> None:
         self._current_data = self._collect_data()
+
+    def _geography_options(self) -> list[str]:
+        """Return geography levels and refresh their raw mapping."""
+        self._refresh_data()
         geo_opts = self._current_data["geo_opts"]
         self._geo_level_raw_by_label = self._current_data["geo_raw_by_label"]
-        self.geo_level_sel.options = geo_opts
-        if self.geo_level_sel.value not in geo_opts:
-            self.geo_level_sel.value = geo_opts[0]
+        return geo_opts
 
-        student_opts = self._current_data["student_opts"]
-        self.student_type_sel.options = student_opts
-        if self.student_type_sel.value not in student_opts:
-            self.student_type_sel.value = student_opts[0]
+    def _student_options(self) -> list[str]:
+        """Return student types from the current shadow-pricing summaries."""
+        if not self._current_data:
+            self._refresh_data()
+        return self._current_data["student_opts"]
 
     def selected_geography_level_raw(self) -> str:
         """Return the raw geography type selected in the display selector."""
@@ -214,10 +217,14 @@ class ShadowPricingPage(DashboardPage):
             self.data.summary("school_shadow_pricing_residuals", required=False)
         )
         workplace_hist = normalize_geography_data(
-            self.data.summary("workplace_shadow_pricing_residual_histogram", required=False)
+            self.data.summary(
+                "workplace_shadow_pricing_residual_histogram", required=False
+            )
         )
         school_hist = normalize_geography_data(
-            self.data.summary("school_shadow_pricing_residual_histogram", required=False)
+            self.data.summary(
+                "school_shadow_pricing_residual_histogram", required=False
+            )
         )
         geo_opts, geo_raw_by_label = geography_type_options(
             workplace_hist or school_hist or workplace_summary or school_summary,
@@ -263,10 +270,8 @@ class ShadowPricingPage(DashboardPage):
                 self._all_geographies_distribution_card(subject="Workplace"),
             ]
 
-        workplace_data = self.get_filtered_view(
-            "shadow_pricing_workplace_hist",
-            geo_level,
-            factory=lambda: filter_geography_level(workplace_hist, geo_level),
+        workplace_data = self.query(
+            lambda: filter_geography_level(workplace_hist, geo_level)
         )
         if not any("bin_start" in df.columns for _, df in workplace_data):
             return [
@@ -304,10 +309,8 @@ class ShadowPricingPage(DashboardPage):
             ]
 
         geo_level = self.selected_geography_level_raw()
-        workplace_data = self.get_filtered_view(
-            "shadow_pricing_workplace",
-            geo_level,
-            factory=lambda: filter_geography_level(workplace_summary, geo_level),
+        workplace_data = self.query(
+            lambda: filter_geography_level(workplace_summary, geo_level)
         )
         return [
             data_table(
@@ -362,13 +365,11 @@ class ShadowPricingPage(DashboardPage):
                 self._all_geographies_distribution_card(subject="School"),
             ]
 
-        school_data = self.get_filtered_view(
-            "shadow_pricing_school_hist",
-            (geo_level, student_type),
-            factory=lambda: filter_student_type(
+        school_data = self.query(
+            lambda: filter_student_type(
                 filter_geography_level(school_hist, geo_level),
                 student_type,
-            ),
+            )
         )
         if not any("bin_start" in df.columns for _, df in school_data):
             return [
@@ -407,13 +408,11 @@ class ShadowPricingPage(DashboardPage):
 
         geo_level = self.selected_geography_level_raw()
         student_type = str(self.student_type_sel.value)
-        school_data = self.get_filtered_view(
-            "shadow_pricing_school",
-            (geo_level, student_type),
-            factory=lambda: filter_student_type(
+        school_data = self.query(
+            lambda: filter_student_type(
                 filter_geography_level(school_summary, geo_level),
                 student_type,
-            ),
+            )
         )
         return [
             data_table(
