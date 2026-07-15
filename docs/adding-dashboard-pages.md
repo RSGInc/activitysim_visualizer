@@ -159,6 +159,76 @@ Domain queries can live on the feature or beside it. A separate
 `_<page>_data.py` file is optional; use one only when it makes the feature easier
 to understand.
 
+### Large-page implementation mixins
+
+When one page controller contains several independently understandable kinds of
+behavior, its public module may remain a small registered-page facade while a
+private `_<page>/` package owns the implementation. The current large-page
+convention is:
+
+```text
+pages/example.py
+pages/_example/
+  __init__.py
+  contracts.py
+  transforms.py
+  composition.py
+  selector_domains.py
+  features.py
+```
+
+Not every page needs every module. Use only the boundaries that correspond to
+real responsibilities:
+
+- `contracts.py` owns stable summary ids, category ids, option values, and
+  ordering constants;
+- `transforms.py` owns pure dataframe-to-dataframe calculations;
+- `composition.py` owns selector, feature, section, and layout declaration;
+- `selector_domains.py` owns dynamic option providers and display-to-raw value
+  mappings; and
+- `features.py` owns lookup/query/render methods grouped by user-visible
+  workflow.
+
+The public page class assembles these responsibilities with implementation
+mixins:
+
+```python
+@dashboard_page(page_id="example", title="Example", group_id="group")
+class ExamplePage(
+    ExampleCompositionMixin,
+    ExampleSelectorDomainsMixin,
+    ExampleFeatureMixin,
+    DashboardPage,
+):
+    pass
+```
+
+A mixin contributes methods to the final page class through Python multiple
+inheritance. It is not a standalone page and should not be instantiated. Every
+mixin method receives the same `self`, which is the final `ExamplePage`
+instance. Python resolves methods from left to right through the declared base
+classes, followed by `DashboardPage`.
+
+Keep this use of mixins deliberately narrow:
+
+- do not define `__init__` in an implementation mixin;
+- give each mixin one coherent responsibility;
+- do not define the same method in multiple mixins;
+- make cross-mixin calls obvious from method names and module boundaries;
+- keep pure functions out of mixins when they do not need page state; and
+- preserve page, selector, section, and export ids when moving existing code.
+
+Mixins and `PageFeature` solve different problems. Mixins organize Python source
+and make a large controller navigable. `PageFeature` namespaces live selectors
+and sections and participates in lifecycle and export behavior. A decomposed page
+will often use both, but a mixin must never replace feature registration.
+
+Prefer a single page class when it remains easy to navigate. Introduce this
+layout because the page has stable composition, domain, transformation, and
+rendering boundaries—not because it crossed an arbitrary line-count threshold.
+Examples are the VMT, traffic validation, mandatory location choice, escorted
+tours, and tour mode pages.
+
 ## Missing data
 
 An unavailable input is an empty `RunTables`, so test it with `if not data`.

@@ -132,6 +132,12 @@ Page authors are expected to:
 - memoize chart-ready transformations with `self.query(...)`
 - keep section render methods to lookup/query/render
 
+Large controllers may keep their registered page module as a compatibility
+facade and compose page-local implementation mixins from a private `_<page>/`
+package. This convention, its constraints, and its distinction from
+`PageFeature` are documented in
+[Large-page implementation mixins](adding-dashboard-pages.md#large-page-implementation-mixins).
+
 The framework now owns:
 
 - widget watchers

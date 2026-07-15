@@ -20,6 +20,10 @@ from dashboard.pages.skim_summaries._shared import (
     skim_family_options,
     skim_summary_precision_overrides,
 )
+from dashboard.pages.skim_summaries._page_controls import (
+    repair_selector_options,
+    sync_auto_range_state,
+)
 
 TOP_SELECTOR_ROW_STYLESHEET = """
 :host(.trip-skim-top-selector) {
@@ -190,21 +194,15 @@ class TripSkimsPage(DashboardPage):
             mode_column="trip_mode",
             target_table="trips",
         )
-        self.trip_family_sel.options = trip_family_options
-        if self.trip_family_sel.value not in trip_family_options:
-            self.trip_family_sel.value = trip_family_options[0]
+        repair_selector_options(self.trip_family_sel, trip_family_options)
 
         trip_scenario_options = ["Chosen Mode"]
         if skim_scenario_available(trip_stats, ALL_RECORDS_SCENARIO):
             trip_scenario_options.append("All Trips")
-        self.trip_scenario_sel.options = trip_scenario_options
-        if self.trip_scenario_sel.value not in trip_scenario_options:
-            self.trip_scenario_sel.value = trip_scenario_options[0]
+        repair_selector_options(self.trip_scenario_sel, trip_scenario_options)
 
         trip_component_options = component_options(trip_stats)
-        self.trip_component_sel.options = trip_component_options
-        if self.trip_component_sel.value not in trip_component_options:
-            self.trip_component_sel.value = trip_component_options[0]
+        repair_selector_options(self.trip_component_sel, trip_component_options)
 
         trip_mode_options = mode_options(
             trip_stats,
@@ -212,9 +210,7 @@ class TripSkimsPage(DashboardPage):
             component=self.trip_component_sel.value,
             skim_scenario=self._trip_skim_scenario_value(),
         )
-        self.trip_mode_sel.options = trip_mode_options
-        if self.trip_mode_sel.value not in trip_mode_options:
-            self.trip_mode_sel.value = trip_mode_options[0]
+        repair_selector_options(self.trip_mode_sel, trip_mode_options)
 
         self._sync_distribution_range_controls()
 
@@ -234,34 +230,20 @@ class TripSkimsPage(DashboardPage):
             component=self.trip_component_sel.value,
             skim_scenario=self._trip_skim_scenario_value(),
         )
-        target_range = bounds
-        if target_range is None:
-            self._page_state["trip_distribution_range_context"] = context_key
-            self._page_state["trip_distribution_auto_range"] = None
-            return
-
-        last_context = self._page_state.get("trip_distribution_range_context")
-        last_auto_range = self._page_state.get("trip_distribution_auto_range")
         current_range = resolve_distribution_range(
             self.trip_min_sel.value,
             self.trip_max_sel.value,
         )
-        should_reset = (
-            last_context != context_key
-            or last_auto_range is None
-            or current_range is None
-            or (
-                current_range is not None
-                and last_auto_range is not None
-                and tuple(current_range) == tuple(last_auto_range)
-            )
+        target_range = sync_auto_range_state(
+            self._page_state,
+            state_prefix="trip_distribution",
+            context_key=context_key,
+            bounds=bounds,
+            current_range=current_range,
         )
-        if should_reset:
+        if target_range is not None:
             self.trip_min_sel.value = float(target_range[0])
             self.trip_max_sel.value = float(target_range[1])
-
-        self._page_state["trip_distribution_range_context"] = context_key
-        self._page_state["trip_distribution_auto_range"] = tuple(target_range)
 
     def _reset_distribution_range(self) -> None:
         """Restore the current trip distribution x-range to its full observed extent."""

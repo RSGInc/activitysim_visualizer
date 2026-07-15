@@ -22,6 +22,10 @@ from dashboard.pages.skim_summaries._shared import (
     tour_component_base_options,
     tour_mode_options,
 )
+from dashboard.pages.skim_summaries._page_controls import (
+    repair_selector_options,
+    sync_auto_range_state,
+)
 
 TOP_SELECTOR_ROW_STYLESHEET = """
 :host(.tour-skim-top-selector) {
@@ -239,26 +243,18 @@ class TourSkimsPage(DashboardPage):
             mode_column="tour_mode",
             target_table="tours",
         )
-        self.tour_family_sel.options = family_options
-        if self.tour_family_sel.value not in family_options:
-            self.tour_family_sel.value = family_options[0]
+        repair_selector_options(self.tour_family_sel, family_options)
 
         scenario_options = ["Chosen Mode"]
         if skim_scenario_available(tour_stats, ALL_RECORDS_SCENARIO):
             scenario_options.append("All Tours")
-        self.tour_scenario_sel.options = scenario_options
-        if self.tour_scenario_sel.value not in scenario_options:
-            self.tour_scenario_sel.value = scenario_options[0]
+        repair_selector_options(self.tour_scenario_sel, scenario_options)
 
         direction_options = skim_direction_options(tour_stats)
-        self.tour_direction_sel.options = direction_options
-        if self.tour_direction_sel.value not in direction_options:
-            self.tour_direction_sel.value = direction_options[0]
+        repair_selector_options(self.tour_direction_sel, direction_options)
 
         component_base_options = tour_component_base_options(tour_stats)
-        self.tour_component_sel.options = component_base_options
-        if self.tour_component_sel.value not in component_base_options:
-            self.tour_component_sel.value = component_base_options[0]
+        repair_selector_options(self.tour_component_sel, component_base_options)
 
         mode_options = tour_mode_options(
             tour_stats,
@@ -266,9 +262,7 @@ class TourSkimsPage(DashboardPage):
             component_base=self.tour_component_sel.value,
             skim_scenario=self._tour_skim_scenario_value(),
         )
-        self.tour_mode_sel.options = mode_options
-        if self.tour_mode_sel.value not in mode_options:
-            self.tour_mode_sel.value = mode_options[0]
+        repair_selector_options(self.tour_mode_sel, mode_options)
 
         self._sync_distribution_range_controls("outbound")
         self._sync_distribution_range_controls("inbound")
@@ -284,9 +278,6 @@ class TourSkimsPage(DashboardPage):
         component = self._directional_component(direction)
         context_key = (component, self.tour_mode_sel.value, self.weighting_key)
         context_key = (*context_key, self._tour_skim_scenario_value())
-        state_key = f"{direction}_distribution_range_context"
-        auto_key = f"{direction}_distribution_auto_range"
-
         bounds = distribution_data_bounds(
             self._tour_prepared_runs(),
             table_name="tours",
@@ -295,30 +286,17 @@ class TourSkimsPage(DashboardPage):
             component=component,
             skim_scenario=self._tour_skim_scenario_value(),
         )
-        if bounds is None:
-            self._page_state[state_key] = context_key
-            self._page_state[auto_key] = None
-            return
-
-        last_context = self._page_state.get(state_key)
-        last_auto_range = self._page_state.get(auto_key)
         current_range = resolve_distribution_range(min_widget.value, max_widget.value)
-        should_reset = (
-            last_context != context_key
-            or last_auto_range is None
-            or current_range is None
-            or (
-                current_range is not None
-                and last_auto_range is not None
-                and tuple(current_range) == tuple(last_auto_range)
-            )
+        target_range = sync_auto_range_state(
+            self._page_state,
+            state_prefix=f"{direction}_distribution",
+            context_key=context_key,
+            bounds=bounds,
+            current_range=current_range,
         )
-        if should_reset:
-            min_widget.value = float(bounds[0])
-            max_widget.value = float(bounds[1])
-
-        self._page_state[state_key] = context_key
-        self._page_state[auto_key] = tuple(bounds)
+        if target_range is not None:
+            min_widget.value = float(target_range[0])
+            max_widget.value = float(target_range[1])
 
     def _reset_distribution_range(self, direction: str) -> None:
         """Restore one directional distribution x-range to its full observed extent."""
