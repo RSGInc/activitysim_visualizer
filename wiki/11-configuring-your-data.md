@@ -121,6 +121,26 @@ runs:
 Otherwise prepare uses a configured sample-rate column when available, then
 falls back to `1.0`.
 
+If the same output tables contain an additional set of weights, add a named
+column mode instead of duplicating the run or writing Python:
+
+```yaml
+weighting:
+  modes:
+    calibrated:
+      label: Calibrated
+      columns:
+        households: calibrated_hh_weight
+        persons: calibrated_person_weight
+        trips: calibrated_trip_weight
+
+summarize:
+  weighting_modes: [weighted, unweighted, calibrated]
+```
+
+The named sources are validated and propagated to tours, days, vehicles, and
+skimjoin sidecars as appropriate. See [43 - Weighting And Hosting Extensions](43-weighting-hosting-extensions.md#worked-example-add-a-weighting-mode) for the exact rules.
+
 ## Zones
 
 TAZ-only model:

@@ -123,13 +123,47 @@ runs:
 | `prepare` | mapping | Built-in prepare defaults | Prepare | Prepared table format, validation, distance skims, VOT bins, and auto sufficiency. |
 | `skimjoin` | mapping | disabled unless `pipeline.steps` includes `skimjoin` | Prepare, Summary | Optional wiring to a separate standalone skimjoin config. |
 | `segment` | mapping | disabled | Summary, Presentation | Optional segmented summaries and dashboard segment controls. |
+| `weighting` | mapping | `{}` | Summary, Presentation | Declarative named weighting modes backed by prepared source columns. |
 | `summarize` | mapping | weighted and unweighted summaries | Summary | Summary weighting, purpose grouping, geography, and PNR mode behavior. |
 | `dashboard` | mapping | live dashboard defaults | Presentation | Dashboard title, page selection, MAZ geography toggle, and export settings. |
 | `display` | mapping | built-in labels and colors | Presentation | Dashboard labels, category order, and run colors. |
-| `extensions` | mapping | `{}` | Summary, Presentation | Importable weighting extension modules and their settings. Extension code is trusted. |
+| `extensions` | mapping | `{}` | Summary, Presentation | Advanced importable weighting calculation modules and their settings. Extension code is trusted. |
 | `modes` | mapping | `{}` | Presentation | Optional mode ordering used when `display.labels.mode` is absent. |
 
+## `weighting`
+
+`weighting.modes` defines named alternatives by pointing at columns already
+present in prepared household, person, or trip tables.
+
+| Field | Type | Default | Impact | Notes |
+|---|---|---|---|---|
+| `modes` | mapping | `{}` | Summary, Presentation | Mode ID to a definition containing optional `label` and required non-empty `columns`. |
+| `modes.<id>.label` | string | title-cased mode ID | Presentation | Unique dashboard/export label. |
+| `modes.<id>.columns.households` | string | none | Summary | Household source column; propagates to dependent tables unless overridden. |
+| `modes.<id>.columns.persons` | string | none | Summary | Person source column; propagates to trips, tours, and days unless overridden. |
+| `modes.<id>.columns.trips` | string | none | Summary | Trip source column; tour weight becomes the mean selected trip weight by `tour_id`. |
+
+```yaml
+weighting:
+  modes:
+    calibrated:
+      label: Calibrated
+      columns:
+        households: calibrated_hh_weight
+        persons: calibrated_person_weight
+        trips: calibrated_trip_weight
+
+summarize:
+  weighting_modes: [weighted, unweighted, calibrated]
+```
+
+Each definition needs at least one supported source table. Named columns are
+validated against every prepared run. See the [weighting cookbook](43-weighting-hosting-extensions.md#worked-example-add-a-weighting-mode).
+
 ## `extensions`
+
+This is the advanced path for calculations that cannot be represented by
+`weighting.modes` column selection.
 
 | Field | Type | Default | Impact | Notes |
 |---|---|---|---|---|
@@ -144,7 +178,7 @@ extensions:
       multiplier: 1.0
 ```
 
-See the complete [weighting plugin cookbook](43-weighting-hosting-extensions.md#worked-example-add-a-weighting-mode).
+See [Advanced: Custom Weight Calculations](43-weighting-hosting-extensions.md#advanced-custom-weight-calculations).
 
 ## `pipeline`
 
@@ -176,9 +210,9 @@ it becomes the display name and helps cache/debug output remain understandable.
 | `prepared_table_map` | mapping | none | Prepare, Summary | Explicit `.parquet` or `.csv` canonical prepared tables. Skips raw prepare for that run. |
 | `summary_table_map` | mapping | none | Summary, Presentation | Registered summary IDs mapped to dashboard-ready `.parquet` or `.csv` files. May be used alone or override generated summaries. |
 | `skimjoin` | mapping | inherits global `skimjoin` | Prepare | Per-run skimjoin `config_path`, `skim_files`, and `network_los_file` overrides. |
-| `hh_weight_col` | string | none | Prepare, Summary | Explicit household weight source column. |
-| `person_weight_col` | string | none | Prepare, Summary | Explicit person weight source column. |
-| `trip_weight_col` | string | none | Prepare, Summary | Explicit trip weight source column. |
+| `hh_weight_col` | string | none | Prepare, Summary | Household source for the run's primary `weighted` mode. |
+| `person_weight_col` | string | none | Prepare, Summary | Person source for the run's primary `weighted` mode. |
+| `trip_weight_col` | string | none | Prepare, Summary | Trip source for the run's primary `weighted` mode. |
 
 Allowed `file_map` and `prepared_table_map` table ids are:
 
@@ -474,7 +508,7 @@ segment:
 
 | Field | Type | Default | Allowed values | Impact | Notes |
 |---|---|---|---|---|---|
-| `weighting_modes` | list of strings | `[weighted, unweighted]` | registered mode IDs | Summary, Presentation | Summary variants to build in the listed order. Empty lists use definitions with `default_enabled=True`. |
+| `weighting_modes` | list of strings | `[weighted, unweighted]` | built-in, declarative, or registered custom mode IDs | Summary, Presentation | Summary variants to build in the listed order. Empty lists use definitions with `default_enabled=True`. |
 | `failure_policy` | string | `record` | `record`, `error` | Summary | Record failed summaries as diagnostics or stop on the first builder exception. |
 | `category_normalization` | mapping | `{}` plus escort defaults | category definitions | Summary | Canonical summary-value normalization and regrouping; affects cache identity. |
 | `pnr_tour_modes` | list of strings | `[PNR_TRANSIT]` | any mode names | Summary | Modes treated as park-and-ride tours. Must resolve to at least one mode. |

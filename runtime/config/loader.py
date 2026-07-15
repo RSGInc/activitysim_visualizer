@@ -40,6 +40,7 @@ from .sections_dashboard import parse_dashboard_export
 from .sections_prepare import parse_prepare
 from .signatures import digest_payload
 from runtime.weighting import (
+    column_weighting_mode_definitions,
     load_weighting_mode_extensions,
     normalize_weighting_modes,
     weighting_mode_definitions,
@@ -66,6 +67,11 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         )
     )
     load_weighting_mode_extensions(extension_modules)
+    weighting_cfg = mapping(raw.get("weighting"), field_name="weighting")
+    configured_weighting_definitions = column_weighting_mode_definitions(
+        weighting_cfg.get("modes"),
+        field_name="weighting.modes",
+    )
     pipeline = parse_pipeline(raw.get("pipeline"))
     dashboard_cfg = mapping(raw.get("dashboard"), field_name="dashboard")
     dashboard_live_cfg = mapping(dashboard_cfg.get("live"), field_name="dashboard.live")
@@ -142,10 +148,12 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
     weighting_modes = normalize_weighting_modes(
         summarize_cfg.get("weighting_modes"),
         field_name="summarize.weighting_modes",
+        additional_definitions=configured_weighting_definitions,
     )
     selected_weighting_definitions = weighting_mode_definitions(
         weighting_modes,
         field_name="summarize.weighting_modes",
+        additional_definitions=configured_weighting_definitions,
     )
 
     summary_failure_policy = str(

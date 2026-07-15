@@ -15,9 +15,19 @@ pipeline:
   dashboard_mode: live # live | export | host
   overwrite: false
 
-# Optional trusted weighting extensions. Each importable module defines
-# register_weighting_modes(registry); settings are available on Config and are
-# included in summary cache identity.
+# Optional named alternatives backed by columns retained in prepared tables.
+# weighting:
+#   modes:
+#     calibrated:
+#       label: Calibrated
+#       columns:
+#         households: calibrated_hh_weight
+#         persons: calibrated_person_weight
+#         trips: calibrated_trip_weight
+
+# Advanced trusted calculations only. Each importable module defines
+# register_weighting_modes(registry); settings are available on Config and enter
+# summary cache identity.
 # extensions:
 #   modules: [my_project.weighting]
 #   settings:

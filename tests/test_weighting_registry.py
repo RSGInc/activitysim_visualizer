@@ -40,6 +40,101 @@ def _run() -> RunData:
     )
 
 
+def _column_weight_run() -> RunData:
+    return RunData(
+        label="Column weights",
+        run_dir="C:/runs/columns",
+        skim_file=None,
+        hh=pl.DataFrame(
+            {
+                "household_id": [1, 2],
+                "finalweight": [2.0, 2.0],
+                "calibrated_hh": [10.0, 20.0],
+            }
+        ),
+        per=pl.DataFrame(
+            {
+                "person_id": [11, 12, 21],
+                "household_id": [1, 1, 2],
+                "finalweight": [2.0, 2.0, 2.0],
+                "calibrated_person": [1.5, 2.5, 3.5],
+            }
+        ),
+        day=pl.DataFrame(
+            {
+                "person_id": [11, 21],
+                "finalweight": [2.0, 2.0],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [101, 102],
+                "person_id": [11, 21],
+                "finalweight": [2.0, 2.0],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "trip_id": [1001, 1002, 1003],
+                "tour_id": [101, 101, 102],
+                "person_id": [11, 11, 21],
+                "finalweight": [2.0, 2.0, 2.0],
+                "calibrated_trip": [4.0, 6.0, 8.0],
+                "stops": [0, 1, 0],
+            }
+        ),
+        vehicles=pl.DataFrame(
+            {
+                "vehicle_id": [1, 2],
+                "household_id": [1, 2],
+                "finalweight": [2.0, 2.0],
+            }
+        ),
+        trip_hypothetical_skims=pl.DataFrame(
+            {
+                "trip_id": [1001, 1003],
+                "finalweight": [2.0, 2.0],
+            }
+        ),
+        tour_hypothetical_skims=pl.DataFrame(
+            {
+                "tour_id": [101, 102],
+                "finalweight": [2.0, 2.0],
+            }
+        ),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+    )
+
+
+def _column_mode_config(tmp_path: Path, *, trip_column: str = "calibrated_trip") -> Config:
+    config_path = tmp_path / f"column-mode-{trip_column}.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "weighting:",
+                "  modes:",
+                "    calibrated:",
+                "      label: Calibrated Weights",
+                "      columns:",
+                "        households: calibrated_hh",
+                "        persons: calibrated_person",
+                f"        trips: {trip_column}",
+                "summarize:",
+                "  weighting_modes: [weighted, unweighted, calibrated]",
+                "dashboard:",
+                "  export:",
+                "    dashboard:",
+                "      weighting: all",
+                "runs: []",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return Config.from_yaml(config_path)
+
+
 def _install_tripled_module(monkeypatch: pytest.MonkeyPatch) -> str:
     module_name = "test_project_weighting_extension"
     module = types.ModuleType(module_name)
@@ -291,3 +386,103 @@ def test_registered_mode_reports_missing_required_columns() -> None:
         match="requires columns on 'hh': calibrated_weight",
     ):
         definition.apply(_run(), None)
+
+
+def test_declarative_column_mode_propagates_to_dependent_tables_and_sidecars(
+    tmp_path: Path,
+) -> None:
+    config = _column_mode_config(tmp_path)
+
+    assert config.weighting_modes == ["weighted", "unweighted", "calibrated"]
+    assert config.weighting_mode_label("calibrated") == "Calibrated Weights"
+    assert config.export_html.panel_weighting_values() == [
+        "Weighted",
+        "Unweighted",
+        "Calibrated Weights",
+    ]
+
+    weighted = config.weighting_mode_definition("calibrated").apply(
+        _column_weight_run(),
+        config,
+    )
+
+    assert weighted.hh["finalweight"].to_list() == [10.0, 20.0]
+    assert weighted.per["finalweight"].to_list() == [1.5, 2.5, 3.5]
+    assert weighted.trips["finalweight"].to_list() == [4.0, 6.0, 8.0]
+    assert weighted.tours["finalweight"].to_list() == [5.0, 8.0]
+    assert weighted.day["finalweight"].to_list() == [1.5, 3.5]
+    assert weighted.vehicles["finalweight"].to_list() == [10.0, 20.0]
+    assert weighted.trip_hypothetical_skims["finalweight"].to_list() == [4.0, 8.0]
+    assert weighted.tour_hypothetical_skims["finalweight"].to_list() == [5.0, 8.0]
+    assert weighted.hh["calibrated_hh"].to_list() == [10.0, 20.0]
+
+    summaries = build_mode_summaries(
+        _column_weight_run(),
+        config,
+        summary_ids=["population_totals"],
+    )
+    assert summaries["weighted"]["population_totals"]["person_count"][0] == 6.0
+    assert summaries["calibrated"]["population_totals"]["person_count"][0] == 7.5
+
+    cache_dir = write_summary_run_cache(
+        create_summary_run(
+            label="Column weights",
+            run_key="column-weights",
+            summaries_by_mode=summaries,
+        ),
+        config,
+        output_root=tmp_path / "declarative_summary_cache",
+    )
+    loaded = load_summary_run_cache(
+        cache_dir,
+        config,
+        expected_modes=config.weighting_modes,
+        expected_summary_ids=["population_totals"],
+        expected_summary_config_digest=config.summary_config_digest,
+    )
+    assert list(loaded.summaries_by_mode) == [
+        "weighted",
+        "unweighted",
+        "calibrated",
+    ]
+
+
+def test_declarative_column_mode_validates_columns_and_enters_cache_identity(
+    tmp_path: Path,
+) -> None:
+    config = _column_mode_config(tmp_path)
+    definition = config.weighting_mode_definition("calibrated")
+
+    run = _column_weight_run()
+    run.trips = run.trips.drop("calibrated_trip")
+    with pytest.raises(
+        ValueError,
+        match="requires columns on 'trips': calibrated_trip",
+    ):
+        definition.apply(run, config)
+
+    changed = _column_mode_config(tmp_path, trip_column="recalibrated_trip")
+    assert (
+        config.summary_signature_payload()["weighting_modes"]
+        != changed.summary_signature_payload()["weighting_modes"]
+    )
+
+
+def test_declarative_column_mode_rejects_unknown_table_name(tmp_path: Path) -> None:
+    config_path = tmp_path / "invalid-column-mode.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "weighting:",
+                "  modes:",
+                "    calibrated:",
+                "      columns:",
+                "        tours: calibrated_tour",
+                "runs: []",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Supported names: households, persons, trips"):
+        Config.from_yaml(config_path)

@@ -344,8 +344,9 @@ These are the sections most people need to touch:
 | `dashboard.export` | Export-only output path, page selection, and selector-state controls |
 | `display.run_colors` | Plot colors by run |
 | `display.labels` | Presentation-only labels and ordering for dashboard/export |
-| `extensions` | Importable weighting plugins and their summary-affecting settings |
-| `summarize.weighting_modes` | Ordered registered weighting-mode IDs to build; built-ins are `weighted` and `unweighted` |
+| `weighting.modes` | Named weighting alternatives backed by household, person, and/or trip columns |
+| `extensions` | Advanced importable weighting calculations and their summary-affecting settings |
+| `summarize.weighting_modes` | Ordered built-in, declarative, or custom weighting-mode IDs to build |
 | `summarize.failure_policy` | `record` keeps failed summaries visible as diagnostics; `error` stops immediately on a builder exception |
 | `summarize.geography` | Optional configured district/county/zone mappings |
 | `summarize.pnr_tour_modes` | Which tour modes count as park-and-ride in summary builders |
@@ -359,6 +360,7 @@ Weighting rules:
 - If a run sets `hh_weight_col`, `person_weight_col`, or `trip_weight_col`, those are used.
 - Otherwise, if a `sample_rate` column is available, weights are derived from it.
 - Otherwise, weights default to `1`.
+- `weighting.modes` can select additional prepared household, person, and trip columns as named alternatives without replacing the primary `weighted` mode.
 
 Geography summary notes:
 

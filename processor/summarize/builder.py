@@ -143,7 +143,10 @@ def _runs_by_weighting_mode(
     config: Config,
     weighting_modes: list[str] | None,
 ) -> dict[str, RunData]:
-    modes = normalize_weighting_modes(weighting_modes or config.weighting_modes)
+    modes = normalize_weighting_modes(
+        weighting_modes or config.weighting_modes,
+        additional_definitions=config.weighting_mode_definitions,
+    )
     configured_definitions = {
         definition.mode_id: definition
         for definition in config.weighting_mode_definitions

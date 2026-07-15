@@ -429,10 +429,12 @@ def _validated_mode_and_summary_ids(
     expected_summary_ids: list[str] | None,
 ) -> tuple[list[str], list[str]]:
     resolved_expected_modes = normalize_weighting_modes(
-        expected_modes or config.weighting_modes
+        expected_modes or config.weighting_modes,
+        additional_definitions=config.weighting_mode_definitions,
     )
     manifest_modes = normalize_weighting_modes(
-        [str(mode) for mode in manifest.get("weighting_modes", [])]
+        [str(mode) for mode in manifest.get("weighting_modes", [])],
+        additional_definitions=config.weighting_mode_definitions,
     )
     missing_modes = [
         mode for mode in resolved_expected_modes if mode not in manifest_modes

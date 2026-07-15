@@ -1,22 +1,94 @@
 # 43 - Weighting And Hosting Extensions
 
-Weighting and hosting both cross major runtime boundaries. Weighting modes are
-registered extensions; hosting remains a deliberately limited extension point.
+Weighting and hosting both cross major runtime boundaries. Ordinary alternative
+weights are configuration-driven. A Python registry remains available for
+calculations that cannot be expressed as column selection, while hosting remains
+a deliberately limited extension point.
 
 ## Worked Example: Add A Weighting Mode
 
-The built-in modes are `weighted` and `unweighted`. Each registered mode
-produces a complete set of summary tables, its own cache directory, a dashboard
-selector state, and export states. The same transform is applied lazily when a
-live page requests prepared data in that mode.
+The built-in modes are `weighted` and `unweighted`. A named column mode adds
+another complete set of summary tables, cache entries, dashboard selector state,
+and export states without requiring Python code.
 
-Suppose prepared tables gain a `calibrated_weight` column and the application
-needs a third `calibrated` mode that uses it as `finalweight`.
+Suppose ActivitySim writes `calibrated_hh_weight`, `calibrated_person_weight`,
+and `calibrated_trip_weight` alongside its ordinary weights.
 
-## 1. Create An Importable Extension Module
+### 1. Define The Named Column Mode
 
-Create a module in an installed package or another location on `PYTHONPATH`,
-for example `my_project/weighting.py`:
+Add the mode under `weighting.modes`, then select its ID under
+`summarize.weighting_modes`:
+
+```yaml
+weighting:
+  modes:
+    calibrated:
+      label: Calibrated
+      columns:
+        households: calibrated_hh_weight
+        persons: calibrated_person_weight
+        trips: calibrated_trip_weight
+
+summarize:
+  weighting_modes: [weighted, unweighted, calibrated]
+```
+
+`label` is optional; an omitted label is generated from the mode ID. At least one
+column must be configured. Supported source tables are `households`, `persons`,
+and `trips`.
+
+This differs from the three weight fields on a run. `hh_weight_col`,
+`person_weight_col`, and `trip_weight_col` choose the one primary `weighted`
+definition during prepare. `weighting.modes` preserves that primary definition
+and adds named alternatives that can be compared in one dashboard.
+
+### 2. Understand Propagation
+
+The configured source columns replace `finalweight` on their respective
+prepared tables. Related tables then receive consistent weights:
+
+- a household source propagates to persons, trips, tours, days, and vehicles
+  unless a more specific source is configured;
+- a person source propagates to trips, tours, and days;
+- a trip source propagates to tours as the mean selected trip weight for each
+  `tour_id`; and
+- trip and tour hypothetical-skim sidecars inherit the selected trip and tour
+  weights.
+
+You can configure only the levels that differ. For example, a mode containing
+only `trips` changes trips and tours while leaving household, person, day, and
+vehicle weights at their primary prepared values.
+
+Source columns are validated on every prepared run before summaries begin. A
+misspelling therefore produces an error naming the missing table and column
+instead of silently reverting to another weight. Raw ActivitySim columns are
+normally retained by prepare. When using `prepared_table_map`, include the named
+source columns in those prepared files.
+
+### 3. Cache, Dashboard, And Outside-Summary Behavior
+
+The mode ID, selected source columns, and column-mode implementation version are
+part of summary cache identity. Changing a source column invalidates incompatible
+summary caches. The configured label is used by live and exported dashboard
+selectors.
+
+Declarative column modes reject mode-independent `summary_table_map` inputs.
+An already aggregated outside table does not contain enough information to
+recalculate another weighting mode. Use generated summaries for these modes or
+provide the outside data through a custom workflow that makes its weighting
+semantics explicit.
+
+## Advanced: Custom Weight Calculations
+
+Use a Python weighting module only when selecting columns is insufficient; for
+example, when weights must be capped, scaled, joined from a control table, or
+calculated from several prepared columns.
+
+### 1. Create An Importable Extension Module
+
+This example adds a capped form of the primary prepared weights. Create
+`my_project/weighting.py` in an installed package or another location on
+`PYTHONPATH`:
 
 ```python
 import polars as pl
@@ -25,48 +97,44 @@ from processor.models import map_run_data_tables
 from runtime.weighting import WeightingModeDefinition, WeightingModeRegistry
 
 
-def use_calibrated_weights(run, config):
-    multiplier = float(
-        config.extension_settings.get("calibrated", {}).get("multiplier", 1.0)
+def cap_weights(run, config):
+    maximum = float(
+        config.extension_settings.get("capped", {}).get("maximum", 10.0)
     )
 
-    def replace_weight(_table_name, table: pl.DataFrame) -> pl.DataFrame:
-        return (
-            table.with_columns(
-                (pl.col("calibrated_weight").cast(pl.Float64) * multiplier)
-                .alias("finalweight")
-            )
-            if "calibrated_weight" in table.columns
-            else table
+    def cap(_table_name, table: pl.DataFrame) -> pl.DataFrame:
+        if "finalweight" not in table.columns:
+            return table
+        return table.with_columns(
+            pl.col("finalweight").cast(pl.Float64).clip(upper_bound=maximum)
         )
 
-    return map_run_data_tables(run, replace_weight)
+    return map_run_data_tables(run, cap)
 
 
 def register_weighting_modes(registry: WeightingModeRegistry) -> None:
     registry.register(
         WeightingModeDefinition(
-            mode_id="calibrated",
-            label="Calibrated",
-            transform=use_calibrated_weights,
+            mode_id="capped",
+            label="Capped",
+            transform=cap_weights,
             version="1",
             required_columns={
-                "hh": ("calibrated_weight",),
-                "per": ("calibrated_weight",),
-                "tours": ("calibrated_weight",),
-                "trips": ("calibrated_weight",),
+                "hh": ("finalweight",),
+                "per": ("finalweight",),
+                "tours": ("finalweight",),
+                "trips": ("finalweight",),
             },
             external_summary_policy="reject",
         )
     )
 ```
 
-`map_run_data_tables()` copies the complete `RunData` container, transforms
-every DataFrame table, and preserves availability metadata, diagnostics,
-skimjoin artifacts, skims, and sidecars. The transform should return a
-`RunData`; it must not mutate its input.
+`map_run_data_tables()` copies the complete `RunData`, transforms each DataFrame
+table, and preserves availability metadata, diagnostics, skims, and skimjoin
+artifacts. A transform must return a new `RunData` and must not mutate its input.
 
-The definition fields are:
+The registration fields are:
 
 | Field | Meaning |
 |---|---|
@@ -78,7 +146,7 @@ The definition fields are:
 | `external_summary_policy` | `copy` permits mode-independent `summary_table_map` data; `reject` fails instead of silently mislabeling it. |
 | `default_enabled` | Whether omission/empty `summarize.weighting_modes` includes the mode. Custom modes should normally leave this `false`. |
 
-## 2. Load And Configure The Extension
+### 2. Load And Configure The Extension
 
 Use `extensions.modules` for a project-local/importable module and keep plugin
 settings under `extensions.settings`:
@@ -88,11 +156,11 @@ extensions:
   modules:
     - my_project.weighting
   settings:
-    calibrated:
-      multiplier: 1.0
+    capped:
+      maximum: 10.0
 
 summarize:
-  weighting_modes: [weighted, unweighted, calibrated]
+  weighting_modes: [weighted, unweighted, capped]
 ```
 
 Module imports are executable code, so configuration containing extensions is
@@ -104,16 +172,17 @@ Python entry point instead:
 
 ```toml
 [project.entry-points."activitysim_visualizer.weighting_modes"]
-calibrated = "my_project.weighting:register_weighting_modes"
+capped = "my_project.weighting:register_weighting_modes"
 ```
 
 Use either the installed entry point or `extensions.modules`, not both for the
 same definition. Duplicate IDs and labels fail during config loading.
 
-## 3. Runtime Behavior
+### 3. Runtime Behavior
 
-The registry is the single source for config validation, summary transforms,
-prepared-data transforms, display labels, and cache compatibility:
+The weighting definition contract is the single source for config validation,
+summary transforms, prepared-data transforms, display labels, and cache
+compatibility:
 
 - config preserves the requested mode order and rejects unknown IDs;
 - the summary workflow applies each registered transform before running builders;
@@ -133,7 +202,7 @@ prepared = self.data.prepared("trips")
 weighted = self.data.prepared("trips", weighting_mode="weighted")
 ```
 
-## 4. Outside Summary Tables
+### 4. Outside Summary Tables
 
 Built-in `weighted` and `unweighted` definitions explicitly use
 `external_summary_policy="copy"`, preserving current behavior. A custom mode
@@ -143,17 +212,17 @@ the runtime cannot prove that an already-aggregated file represents that mode.
 Set the custom definition to `copy` only when the outside table is genuinely
 mode-independent. Per-mode outside file maps are not currently supported.
 
-## 5. Test The Whole Mode
+### 5. Test The Whole Mode
 
 At minimum, prove:
 
 - config accepts, orders, deduplicates, and rejects mode names correctly;
 - both module and installed-entry-point discovery use the registration contract;
 - the transform replaces weights on every relevant prepared table;
-- a known summary produces expected calibrated values;
+- a known summary produces expected custom-weight values;
 - cache write/load retains all modes;
 - dashboard state selects the correct summary and prepared runs;
-- export enumerates configured calibrated states; and
+- export enumerates configured custom states; and
 - outside summary behavior is explicit.
 
 Useful suites:

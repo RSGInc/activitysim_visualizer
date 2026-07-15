@@ -24,6 +24,7 @@ CANONICAL_TOP_LEVEL_KEYS = {
     "segment",
     "skimjoin",
     "summarize",
+    "weighting",
     "zones",
 }
 
@@ -110,6 +111,13 @@ def validate_canonical_config(raw: Mapping[str, object]) -> None:
         allowed={"modules", "settings"},
     )
     _mapping(extensions.get("settings"), field_name="extensions.settings")
+
+    weighting = _mapping(raw.get("weighting"), field_name="weighting")
+    _reject_unknown_keys(
+        weighting,
+        field_name="weighting",
+        allowed={"modes"},
+    )
 
     dashboard = _mapping(raw.get("dashboard"), field_name="dashboard")
     _reject_unknown_keys(
