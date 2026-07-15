@@ -37,18 +37,18 @@ The live dashboard is assembled in
 - registered page instances
 - grouped navigation tabs
 
-Run live mode with:
-
-```bash
-python run.py --config local_config.yaml --dashboard
-```
-
-or configure:
+Configure live mode:
 
 ```yaml
 pipeline:
   steps: [summarize, dashboard]
   dashboard_mode: live
+```
+
+Then run the normal config command:
+
+```bash
+uv run activitysim-viz --config local_config.yaml
 ```
 
 ## HTML Export
@@ -57,13 +57,20 @@ HTML export uses the same page registry, but serializes supported page content
 into one self-contained HTML document. Export only includes states and selector
 variants generated at export time.
 
-Run:
+Configure `pipeline.dashboard_mode: export` and an output path:
 
-```bash
-python run.py --config local_config.yaml --export-html exports\dashboard.html
+```yaml
+pipeline:
+  steps: [summarize, dashboard]
+  dashboard_mode: export
+
+dashboard:
+  export:
+    output_path: exports/dashboard.html
 ```
 
-For details, read [34 - HTML Export](34-html-export.md).
+The same normal config command then writes the export. For details, read
+[34 - HTML Export](34-html-export.md).
 
 ## Dashboard State
 

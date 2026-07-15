@@ -22,7 +22,7 @@ You only need three short chapters for normal use:
 
 1. [Get a dashboard running](10-getting-started.md).
 2. [Choose raw, prepared, or summary inputs](11-configuring-your-data.md).
-3. [Run, refresh, or export](12-running-workflows.md).
+3. [Configure a live, export, or processor workflow](12-running-workflows.md).
 
 Use [Troubleshooting](90-troubleshooting.md) when something is missing. The
 [Configuration Reference](13-configuration-reference.md) is there when you need

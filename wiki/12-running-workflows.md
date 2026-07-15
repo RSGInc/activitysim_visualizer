@@ -1,13 +1,14 @@
 # 12 - Running Workflows
 
-For normal use, run one command:
+The normal user experience is config-driven. Keep one launch command:
 
 ```bash
 uv run activitysim-viz --config local_config.yaml
 ```
 
-With the default settings, the visualizer builds or reuses summaries and opens
-the live dashboard.
+The config decides which work runs, where artifacts are stored, and whether the
+result is a live dashboard or an HTML file. Command-line flags are intended for
+development and one-off diagnostics, not normal operation.
 
 ## The Three Main Steps
 
@@ -21,27 +22,74 @@ prepare -> summarize -> dashboard
 
 Skimjoin runs inside prepare when selected. Segmentation runs with summarize.
 
-## Common Commands
+## Configure A Live Workflow
 
-| Goal | Command |
-|---|---|
-| Run the configured workflow | `uv run activitysim-viz --config local_config.yaml` |
-| Prepare only | `uv run activitysim-viz --config local_config.yaml --prepare-only` |
-| Build/reuse summaries and exit | `uv run activitysim-viz --config local_config.yaml --summarize` |
-| Open from existing summary caches | `uv run activitysim-viz --config local_config.yaml --from-csvs` |
-| Export standalone HTML | `uv run activitysim-viz --config local_config.yaml --export-html exports/dashboard.html` |
-| Use another live port | `uv run activitysim-viz --config local_config.yaml --dashboard --port 5010` |
+```yaml
+root: artifacts
 
-`--from-csvs` means visualizer cache directories with manifests. For loose CSV
-or Parquet files, use `runs[*].summary_table_map` instead.
+pipeline:
+  steps: [prepare, summarize, dashboard]
+  dashboard_mode: live
+  overwrite: false
 
-## Configure The Default Workflow
+dashboard:
+  title: Regional Model Comparison
+  live:
+    pages:
+      - overview
+      - long_term_choices
+      - daily_travel
+      - tour_summaries
+      - trip_summaries
+```
+
+This builds missing or stale artifacts, reuses valid caches, and starts the
+dashboard. `dashboard.live.pages` controls which page groups are available.
+
+## Configure An HTML Export
+
+```yaml
+root: artifacts
+
+pipeline:
+  steps: [prepare, summarize, dashboard]
+  dashboard_mode: export
+  overwrite: false
+
+dashboard:
+  export:
+    output_path: exports/dashboard.html
+```
+
+The configured output is `artifacts/exports/dashboard.html`: relative export
+paths resolve below `root`. Use an absolute path when the file must be written
+elsewhere. Page and selector choices are covered in
+[HTML Export](34-html-export.md).
+
+## Configure A Processor-Only Workflow
+
+Build prepared tables and summaries without opening or exporting a dashboard:
 
 ```yaml
 pipeline:
-  steps: [summarize, dashboard]
-  dashboard_mode: live
+  steps: [prepare, summarize]
+  dashboard_mode: none
+  overwrite: false
 ```
+
+Other focused workflows use the same fields:
+
+| Goal | `pipeline.steps` | `dashboard_mode` |
+|---|---|---|
+| Prepare tables only | `[prepare]` | `none` |
+| Build or reuse summaries only | `[summarize]` | `none` |
+| Open a live dashboard from existing caches | `[dashboard]` | `live` |
+| Export HTML from existing caches | `[dashboard]` | `export` |
+
+For loose dashboard-ready CSV or Parquet inputs, configure
+`runs[*].summary_table_map`; do not treat them as cache directories.
+
+## Pipeline Rules
 
 Available logical steps are `prepare`, `skimjoin`, `segment`, `summarize`, and
 `dashboard`. Dashboard must be last. `skimjoin` requires `prepare`; `segment`
@@ -54,48 +102,41 @@ Dashboard modes:
 - `none`: no dashboard; and
 - `host`: reserved extension point that currently falls back to live mode.
 
-## Caches
+## Artifact And Cache Paths
 
-Prepared caches sit beside the configured `root`; summary caches live under
-`root`. Each run has a manifest describing its inputs and config identity.
+Prepared and summary caches live under the configured `root`. Each run has a
+manifest describing its inputs and config identity.
 
-Valid caches are reused automatically. Refresh only when you need to force a
-rebuild:
+Set `root` once for the workflow:
 
-| Changed | Command |
-|---|---|
-| Raw files or prepare behavior | `--refresh-caches` |
-| Summary logic only | `--refresh-summary-cache` |
-| Prepared data only | `--refresh-prepared-cache` |
-| Dashboard labels/colors/pages only | No refresh normally needed |
-
-Example:
-
-```bash
-uv run activitysim-viz --config local_config.yaml --refresh-caches
+```yaml
+root: D:\activitysim_visualizer\regional_comparison
 ```
 
-## Export
+Relative paths in `dashboard.export.output_path` resolve below this directory.
+Input paths follow the path rules documented in
+[Configuration Reference](13-configuration-reference.md#reading-this-reference).
 
-One-off output path:
-
-```bash
-uv run activitysim-viz --config local_config.yaml --export-html exports/dashboard.html
-```
-
-Or configure it:
+Valid caches are reused automatically. To deliberately rebuild every cache
+used by the configured steps, temporarily set:
 
 ```yaml
 pipeline:
-  steps: [summarize, dashboard]
-  dashboard_mode: export
-
-dashboard:
-  export:
-    output_path: exports/dashboard.html
+  steps: [prepare, summarize, dashboard]
+  dashboard_mode: live
+  overwrite: true
 ```
 
-For page and selector choices, read [HTML Export](34-html-export.md).
+Return `overwrite` to `false` after the forced rebuild. Presentation-only
+changes such as labels, colors, or enabled pages normally do not require cache
+rebuilding.
+
+## CLI Overrides
+
+CLI step, refresh, export-path, and port flags remain available for developers
+and troubleshooting. They override the configured workflow for that one
+invocation. Users should normally change the YAML and continue running the same
+command so the intended workflow remains reproducible.
 
 ## Related Chapters
 

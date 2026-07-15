@@ -26,23 +26,32 @@ Use live mode when you need:
 - exploratory pages that are not export-ready
 - development/debugging feedback
 
-## Export Command
+## Export Configuration
 
-```bash
-python run.py --config local_config.yaml --export-html exports\dashboard.html
-```
-
-You can also configure:
+Keep the workflow and output path in the main config:
 
 ```yaml
+root: artifacts
+
 pipeline:
   steps: [summarize, dashboard]
   dashboard_mode: export
 
 dashboard:
   export:
-    output_path: exports\dashboard.html
+    output_path: exports/dashboard.html
 ```
+
+Run the same command used for every configured workflow:
+
+```bash
+uv run activitysim-viz --config local_config.yaml
+```
+
+This writes `artifacts/exports/dashboard.html`. Relative export paths resolve
+below `root`; an absolute path writes elsewhere. Change
+`pipeline.dashboard_mode` back to `live` when the same config should serve the
+dashboard instead.
 
 ## Supported Runtime Behavior
 
