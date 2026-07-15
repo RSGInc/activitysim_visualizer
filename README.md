@@ -62,7 +62,11 @@ The main shared page-helper modules live under `dashboard/helpers/`:
 - `time_distance_helpers.py`
 - `comparison_helpers.py`
 
-If you are adding or refactoring a page, start with [docs/adding-dashboard-pages.md](docs/adding-dashboard-pages.md). For the broader runtime picture, see [docs/architecture.md](docs/architecture.md).
+If you are adding or refactoring a page, start with the
+[dashboard page recipes](wiki/33-dashboard-page-recipes.md) and
+[figures/widgets guide](wiki/32-figures-and-widgets.md). The deeper refactor
+conventions remain in the archived
+[dashboard-page contributor note](docs/adding-dashboard-pages.md).
 
 ## Config Setup
 
@@ -567,28 +571,32 @@ activitysim_visualizer/
 
 ## Documentation
 
-User and contributor documentation lives under [`docs/`](docs/):
+The main user and contributor documentation lives in the
+[`wiki/`](wiki/00-home.md) chapter set. Start with:
 
-- [`docs/architecture.md`](docs/architecture.md)
-- [`docs/summary-workflow.md`](docs/summary-workflow.md)
-- [`docs/adding-summaries.md`](docs/adding-summaries.md)
-- [`docs/adding-dashboard-pages.md`](docs/adding-dashboard-pages.md)
-- [`docs/plotting-summary-tables.md`](docs/plotting-summary-tables.md)
-- [`docs/export_html_contributor_guide.md`](docs/export_html_contributor_guide.md)
-- [`docs/testing.md`](docs/testing.md)
-- [`docs/remaining-blind-spots-remediation.md`](docs/remaining-blind-spots-remediation.md)
+- [Getting Started](wiki/10-getting-started.md)
+- [Configuration Reference](wiki/13-configuration-reference.md)
+- [Output Processor](wiki/20-output-processor.md)
+- [Output Visualizer](wiki/30-output-visualizer.md)
+- [Developer Workflows](wiki/40-developer-workflows.md)
+- [Troubleshooting](wiki/90-troubleshooting.md)
+
+The [`docs/`](docs/README.md) directory is retained for ADRs, implementation
+plans, and detailed historical contributor notes that have not become wiki
+chapters.
 
 ## Documentation Maintenance Checklist
 
 When behavior changes, update docs in the same change:
 
-- New config key or config behavior: update this README and `docs/architecture.md`.
-- New summary contract or registration pattern: update `docs/adding-summaries.md` and `docs/summary-workflow.md`.
-- New page, selector, or plotting behavior: update `docs/adding-dashboard-pages.md` or `docs/plotting-summary-tables.md`.
-- New export payload/runtime behavior: update the export schema and contributor guide.
-- Architecture or runtime-flow changes: update `docs/architecture.md`.
+- New config key or config behavior: update chapters 11 and 13.
+- New summary declaration or contract: update chapter 23 and regenerate catalogs.
+- New page, selector, or plotting behavior: update chapters 31 through 33 and regenerate catalogs.
+- New export payload/runtime behavior: update chapter 34.
+- Architecture or runtime-flow changes: update chapters 12, 20, and 30 as applicable.
 
 ## Tests
 
-See [`docs/testing.md`](docs/testing.md) for the complete suite, the fast
-development loop, and the exhaustive offline-export test boundary.
+See [Developer Workflows](wiki/40-developer-workflows.md) for the normal test
+loop. The archived [testing reference](docs/testing.md) retains the exhaustive
+suite and offline-export boundary.
