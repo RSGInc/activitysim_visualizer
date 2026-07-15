@@ -1185,18 +1185,6 @@ def _segmented_run_data(label: str, run_dir: str) -> RunData:
         skim_zone_map=None,
     )
 
-    result = runtime_workflows.run_prepare_workflow(
-        config=config,
-        prepared_root=prepared_root,
-        run_entries=config.runs,
-        prefer_cache=True,
-        write_cache=True,
-    )
-
-    assert [label for label, _ in result.runs] == ["Run A"]
-    assert result.run_keys == ["run-a"]
-
-
 def test_run_prepare_workflow_rebuilds_and_writes_prepared_cache_on_cache_miss(
     tmp_path: Path,
     monkeypatch,

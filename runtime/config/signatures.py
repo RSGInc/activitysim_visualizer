@@ -128,6 +128,7 @@ def prepare_signature_payload(config: Config) -> dict[str, Any]:
             "create_hypothetical_skim_tables": (
                 config.skimjoin.create_hypothetical_skim_tables
             ),
+            "failure_policy": config.skimjoin.failure_policy,
         },
         "prepare": {
             "auto_sufficiency": {
@@ -221,6 +222,7 @@ def summary_signature_payload(config: Config) -> dict[str, Any]:
         ]
     return {
         "weighting_modes": list(config.weighting_modes),
+        "failure_policy": config.summary_failure_policy,
         "files": {key: config.files[key] for key in sorted(config.files)},
         "columns": prepare_signature_payload(config)["columns"],
         "summary_categories": category_specs_payload(config.summary_categories),
@@ -265,6 +267,7 @@ def summary_signature_payload(config: Config) -> dict[str, Any]:
             "create_hypothetical_skim_tables": (
                 config.skimjoin.create_hypothetical_skim_tables
             ),
+            "failure_policy": config.skimjoin.failure_policy,
         },
         "prepare": {
             "vot_bins": prepare_signature_payload(config)["prepare"]["vot_bins"],

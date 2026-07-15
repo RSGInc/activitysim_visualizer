@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 import logging
 import sys
-from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -22,7 +21,7 @@ from test_export_html import _extract_payload, _full_summary_run, _write_config
 
 
 def _workspace_tmp_dir(label: str) -> Path:
-    path = Path("tmp_export_test_artifacts") / f"{label}_{uuid4().hex}"
+    path = Path(".pytest_tmp") / "export_helpers" / label
     path.mkdir(parents=True, exist_ok=True)
     return path
 

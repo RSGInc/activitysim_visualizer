@@ -226,3 +226,14 @@ tmp*/
 *.json
 
 plans/
+
+# Local runtime and diagnostic artifacts
+/artifacts/
+/artifacts_2/
+/logs/
+/.manual_logging_test/
+/codex_tmp_check/
+/configs/artifacts/
+/configs/artifacts_2/
+/pytest-output.txt
+/test

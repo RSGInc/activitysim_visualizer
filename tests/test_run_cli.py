@@ -1711,7 +1711,7 @@ def test_main_dashboard_only_exits_with_friendly_message_for_stale_summary_cache
             "    pages:",
             "      - overview",
         "runs:",
-        f"  - dir: \"{str(run_dir).replace('\\', '/')}\"",
+        f"  - dir: \"{run_dir.as_posix()}\"",
         "    label: \"Run A\"",
     ]
     (tmp_path / "config.yaml").write_text(

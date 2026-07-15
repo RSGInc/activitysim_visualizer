@@ -52,6 +52,7 @@ def load_resolved_skimjoin_settings(
     skim_files_override: tuple[str, ...] = (),
     network_los_file_override: str | None = None,
     create_hypothetical_skim_tables: bool = False,
+    failure_policy: str = "record",
     context_label: str,
 ) -> SkimjoinSettings:
     from .signatures import digest_payload
@@ -100,6 +101,7 @@ def load_resolved_skimjoin_settings(
         resolved_skim_files=tuple(skim_files),
         resolved_network_los_file=(None if project is None else project.network_los_file),
         create_hypothetical_skim_tables=bool(create_hypothetical_skim_tables),
+        failure_policy=failure_policy,
     )
 
 
@@ -200,6 +202,11 @@ def normalize_skimjoin_settings(
         raise ValueError(
             f"{field_name}.create_hypothetical_skim_tables must be true or false when provided."
         )
+    failure_policy = str(raw_value.get("failure_policy", "record")).strip().lower()
+    if failure_policy not in {"record", "error"}:
+        raise ValueError(
+            f"{field_name}.failure_policy must be either 'record' or 'error'."
+        )
     config_path_raw = (
         defaults.get("config_path")
         if defaults is not None and "config_path" in defaults
@@ -248,6 +255,7 @@ def normalize_skimjoin_settings(
             enabled=False,
             config_path=resolved_config_path,
             create_hypothetical_skim_tables=create_hypothetical_skim_tables,
+            failure_policy=failure_policy,
         )
 
     if resolved_config_path is None:
@@ -255,12 +263,14 @@ def normalize_skimjoin_settings(
             enabled=True,
             config_path=None,
             create_hypothetical_skim_tables=create_hypothetical_skim_tables,
+            failure_policy=failure_policy,
         )
     return load_resolved_skimjoin_settings(
         config_path=resolved_config_path,
         skim_files_override=skim_files,
         network_los_file_override=network_los_file,
         create_hypothetical_skim_tables=create_hypothetical_skim_tables,
+        failure_policy=failure_policy,
         context_label="global",
     )
 
@@ -317,5 +327,6 @@ def resolve_run_skimjoin_settings(config: Config, run_entry: dict[str, Any]) -> 
         skim_files_override=overrides.skim_files,
         network_los_file_override=overrides.network_los_file,
         create_hypothetical_skim_tables=create_hypothetical_skim_tables,
+        failure_policy=config.skimjoin.failure_policy,
         context_label=f"run '{run_label}'",
     )

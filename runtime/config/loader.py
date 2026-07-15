@@ -142,6 +142,14 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
     if not weighting_modes:
         weighting_modes = ["weighted", "unweighted"]
 
+    summary_failure_policy = str(
+        summarize_cfg.get("failure_policy", "record")
+    ).strip().lower()
+    if summary_failure_policy not in {"record", "error"}:
+        raise ValueError(
+            "summarize.failure_policy must be either 'record' or 'error'."
+        )
+
     export_html = parse_dashboard_export(
         dashboard_cfg.get("export"),
         pipeline=pipeline,
@@ -249,6 +257,7 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         density_hover_mode=density_hover_mode,
         summary_root=str(summary_root),
         weighting_modes=weighting_modes,
+        summary_failure_policy=summary_failure_policy,
         export_html=export_html,
         skimjoin=skimjoin,
         **prepare.config_fields,

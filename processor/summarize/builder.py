@@ -77,6 +77,8 @@ def _build_one(
     summary_id: str,
     run: RunData,
     config: Config,
+    *,
+    raise_on_error: bool = False,
 ) -> tuple[pl.DataFrame, dict[str, object]]:
     spec = _summary_spec(summary_id)
     missing_inputs = missing_summary_inputs(spec.builder, run)
@@ -95,7 +97,9 @@ def _build_one(
     try:
         table = spec.builder(run, config)
     except Exception as exc:
-        LOGGER.warning("Summary %r failed for run %r: %s", summary_id, run.label, exc)
+        if raise_on_error:
+            raise
+        LOGGER.exception("Summary %r failed for run %r", summary_id, run.label)
         return _empty_summary(summary_id), {"state": "failed", "detail": str(exc)}
     return table, {"state": "empty" if table.is_empty() else "available"}
 
@@ -116,12 +120,19 @@ def build_summaries_with_metadata(
     run: RunData,
     config: Config,
     summary_ids: list[str] | None = None,
+    *,
+    raise_on_error: bool = False,
 ) -> tuple[dict[str, pl.DataFrame], dict[str, dict[str, object]]]:
     """Build requested tables while recording unavailable and failed inputs."""
     tables: dict[str, pl.DataFrame] = {}
     metadata: dict[str, dict[str, object]] = {}
     for summary_id in _summary_ids(summary_ids):
-        table, table_metadata = _build_one(summary_id, run, config)
+        table, table_metadata = _build_one(
+            summary_id,
+            run,
+            config,
+            raise_on_error=raise_on_error,
+        )
         tables[summary_id] = table
         metadata[summary_id] = table_metadata
     return tables, metadata
@@ -158,6 +169,8 @@ def build_mode_summaries_with_metadata(
     config: Config,
     weighting_modes: list[str] | None = None,
     summary_ids: list[str] | None = None,
+    *,
+    raise_on_error: bool = False,
 ) -> tuple[
     dict[str, dict[str, pl.DataFrame]],
     dict[str, dict[str, dict[str, object]]],
@@ -165,7 +178,12 @@ def build_mode_summaries_with_metadata(
     tables_by_mode: dict[str, dict[str, pl.DataFrame]] = {}
     metadata_by_mode: dict[str, dict[str, dict[str, object]]] = {}
     for mode, mode_run in _runs_by_weighting_mode(run, config, weighting_modes).items():
-        tables, metadata = build_summaries_with_metadata(mode_run, config, summary_ids)
+        tables, metadata = build_summaries_with_metadata(
+            mode_run,
+            config,
+            summary_ids,
+            raise_on_error=raise_on_error,
+        )
         tables_by_mode[mode] = tables
         metadata_by_mode[mode] = metadata
     return tables_by_mode, metadata_by_mode

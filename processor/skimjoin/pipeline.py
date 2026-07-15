@@ -45,6 +45,9 @@ def apply_skimjoin(rd: RunData, config: Config) -> RunData:
             annotate_tours_fn=annotate_tours,
         )
     except Exception as exc:
+        if config.skimjoin.failure_policy == "error":
+            raise
+        LOGGER.exception("[skimjoin] Enrichment failed for %r", rd.label)
         return _package_failed_skimjoin(rd, config, exc)
     return _package_applied_skimjoin(rd, config, result)
 

@@ -54,7 +54,7 @@ def _write_main_config(
         "zones:",
         f"  use_maz: {'true' if use_maz else 'false'}",
         "runs:",
-        f'  - dir: "{str(run_dir).replace("\\", "/")}"',
+        f'  - dir: "{run_dir.as_posix()}"',
         '    label: "Run A"',
     ]
     if run_skimjoin_lines:
@@ -488,7 +488,7 @@ def test_run_level_skim_files_override_config_level_project_skim_files(
         skimjoin_enabled=True,
         run_skimjoin_lines=[
             "skim_files:",
-            f'  - "{str(override_skim_path.resolve()).replace("\\", "/")}"',
+            f'  - "{override_skim_path.resolve().as_posix()}"',
         ],
     )
 
@@ -855,11 +855,11 @@ def test_prepare_workflow_supports_two_runs_with_different_skimjoin_config_files
                 "zones:",
                 "  use_maz: false",
                 "runs:",
-                f'  - dir: "{str(run_a_dir).replace("\\", "/")}"',
+                f'  - dir: "{run_a_dir.as_posix()}"',
                 '    label: "Run A"',
                 "    skimjoin:",
                 "      config_path: skimjoin_a.yaml",
-                f'  - dir: "{str(run_b_dir).replace("\\", "/")}"',
+                f'  - dir: "{run_b_dir.as_posix()}"',
                 '    label: "Run B"',
                 "    skimjoin:",
                 "      config_path: skimjoin_b.yaml",
@@ -921,16 +921,16 @@ def test_prepare_workflow_supports_two_runs_sharing_one_skimjoin_config_with_dif
                 "zones:",
                 "  use_maz: false",
                 "runs:",
-                f'  - dir: "{str(run_a_dir).replace("\\", "/")}"',
+                f'  - dir: "{run_a_dir.as_posix()}"',
                 '    label: "Run A"',
                 "    skimjoin:",
                 "      skim_files:",
-                f'        - "{str(skim_a.resolve()).replace("\\", "/")}"',
-                f'  - dir: "{str(run_b_dir).replace("\\", "/")}"',
+                f'        - "{skim_a.resolve().as_posix()}"',
+                f'  - dir: "{run_b_dir.as_posix()}"',
                 '    label: "Run B"',
                 "    skimjoin:",
                 "      skim_files:",
-                f'        - "{str(skim_b.resolve()).replace("\\", "/")}"',
+                f'        - "{skim_b.resolve().as_posix()}"',
                 "skimjoin:",
                 "  defaults:",
                 "    config_path: skimjoin.yaml",
@@ -2930,6 +2930,38 @@ def test_apply_skimjoin_records_failure_and_keeps_base_tables_when_annotation_ra
     assert result.skimjoin_reports["failure_report"]["stage"].to_list() == [
         "integrated_skimjoin"
     ]
+
+
+def test_apply_skimjoin_can_fail_fast_when_annotation_raises(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    _write_omx(skim_path)
+    _write_skimjoin_config(tmp_path, skim_file=skim_path)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "pipeline:",
+                "  steps: [prepare, skimjoin]",
+                "skimjoin:",
+                "  failure_policy: error",
+                "  defaults:",
+                "    config_path: skimjoin.yaml",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = Config.from_yaml(config_path)
+
+    def _boom(*args, **kwargs):
+        raise ValueError("annotation exploded")
+
+    monkeypatch.setattr("processor.skimjoin.pipeline.annotate_trips", _boom)
+
+    with pytest.raises(ValueError, match="annotation exploded"):
+        apply_skimjoin(_skimjoin_ready_run_data(), config)
 
 
 def test_apply_skimjoin_disabled_resets_manifest_and_reports(tmp_path: Path) -> None:

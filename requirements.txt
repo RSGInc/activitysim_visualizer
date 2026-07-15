@@ -1,9 +1,3 @@
-h5py
-numpy
-pandas
-panel
-plotly
-polars
-pydantic
-pyarrow
-PyYAML
+# Compatibility entry point for pip-based environments. Project dependencies
+# are owned by pyproject.toml so this file cannot drift independently.
+-e .

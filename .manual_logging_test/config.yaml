@@ -1,9 +1,0 @@
-name: "Test"
-dashboard_title: "Test"
-runs: []
-dashboard_pages:
-  - overview
-outputs:
-  summary_root: summary_cache
-  weighting_modes:
-    - weighted

@@ -145,6 +145,7 @@ class SkimjoinSettings:
     resolved_skim_files: tuple[str, ...] = ()
     resolved_network_los_file: str | None = None
     create_hypothetical_skim_tables: bool = False
+    failure_policy: Literal["record", "error"] = "record"
 
 
 @dataclass(frozen=True)
@@ -436,6 +437,7 @@ class Config:
     mode_groups: Optional[dict[str, list[str]]]
     pnr_tour_modes: list[str]
     runs: list[dict]
+    summary_failure_policy: Literal["record", "error"] = "record"
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "Config":

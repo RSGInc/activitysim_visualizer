@@ -44,6 +44,42 @@ def _write_config(tmp_path: Path, lines: list[str]) -> Config:
     return Config.from_yaml(config_path)
 
 
+def test_summary_failure_policy_defaults_to_record_and_accepts_error(
+    tmp_path: Path,
+) -> None:
+    default_config = _write_config(tmp_path / "default", [])
+    strict_config = _write_config(
+        tmp_path / "strict",
+        ["summarize:", "  failure_policy: error"],
+    )
+
+    assert default_config.summary_failure_policy == "record"
+    assert strict_config.summary_failure_policy == "error"
+
+
+def test_summary_failure_policy_rejects_unknown_values(tmp_path: Path) -> None:
+    with pytest.raises(
+        ValueError,
+        match="summarize.failure_policy must be either 'record' or 'error'",
+    ):
+        _write_config(
+            tmp_path,
+            ["summarize:", "  failure_policy: keep-going"],
+        )
+
+
+def test_skimjoin_failure_policy_is_normalized_without_enabling_skimjoin(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        ["skimjoin:", "  failure_policy: error"],
+    )
+
+    assert config.skimjoin.enabled is False
+    assert config.skimjoin.failure_policy == "error"
+
+
 def test_new_config_layout_normalizes_to_existing_runtime_fields(tmp_path: Path) -> None:
     skim_path = tmp_path / "override.omx"
     network_los_path = tmp_path / "network_los.yaml"

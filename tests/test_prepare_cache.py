@@ -469,10 +469,10 @@ def test_config_accepts_custom_prepared_table_map_and_csv_prepare_output(
             "runs:",
             '  - label: "Prepared Run"',
             "    prepared_table_map:",
-            f"      households: {str(custom_dir / 'households.parquet').replace('\\', '/')}",
-            f"      persons: {str(custom_dir / 'persons.csv').replace('\\', '/')}",
-            f"      day: {str(custom_dir / 'day.csv').replace('\\', '/')}",
-            f"      vehicles: {str(custom_dir / 'vehicles.parquet').replace('\\', '/')}",
+            f"      households: {(custom_dir / 'households.parquet').as_posix()}",
+            f"      persons: {(custom_dir / 'persons.csv').as_posix()}",
+            f"      day: {(custom_dir / 'day.csv').as_posix()}",
+            f"      vehicles: {(custom_dir / 'vehicles.parquet').as_posix()}",
         ],
     )
 

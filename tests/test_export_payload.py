@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
-from uuid import uuid4
 
 import pytest
 
@@ -37,7 +36,7 @@ from test_export_html import (
 
 
 def _workspace_tmp_dir(label: str) -> Path:
-    path = Path("tmp_export_test_artifacts") / f"{label}_{uuid4().hex}"
+    path = Path(".pytest_tmp") / "export_helpers" / label
     path.mkdir(parents=True, exist_ok=True)
     return path
 

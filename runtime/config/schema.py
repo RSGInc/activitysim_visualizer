@@ -163,6 +163,7 @@ def validate_canonical_config(raw: Mapping[str, object]) -> None:
         field_name="summarize",
         allowed={
             "weighting_modes",
+            "failure_policy",
             "geography",
             "category_normalization",
             "group_joint_tour_purposes",
@@ -203,6 +204,7 @@ def validate_canonical_config(raw: Mapping[str, object]) -> None:
             "config_path",
             "distance_skim",
             "enabled",
+            "failure_policy",
         },
     )
     _reject_keys(

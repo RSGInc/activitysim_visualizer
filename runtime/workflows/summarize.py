@@ -113,12 +113,22 @@ def _build_summary_tables_for_run(
 ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, dict[str, object]]]]:
     """Build summary tables and metadata for one prepared run."""
     requested_summary_ids = list(summary_builder.DEFAULT_SUMMARY_IDS)
+    strict_kwargs = (
+        {"raise_on_error": True}
+        if config.summary_failure_policy == "error"
+        else {}
+    )
     if summary_ids is None or list(summary_ids) == requested_summary_ids:
-        return summary_builder.build_mode_summaries_with_metadata(prepared_run, config)
+        return summary_builder.build_mode_summaries_with_metadata(
+            prepared_run,
+            config,
+            **strict_kwargs,
+        )
     return summary_builder.build_mode_summaries_with_metadata(
         prepared_run,
         config,
         summary_ids=summary_ids,
+        **strict_kwargs,
     )
 
 

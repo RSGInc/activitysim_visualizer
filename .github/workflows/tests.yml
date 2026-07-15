@@ -9,6 +9,10 @@ on:
 jobs:
   pytest-fast:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
 
     steps:
       - name: Check out repo
@@ -17,16 +21,20 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
 
-      - name: Sync dependencies
-        run: uv sync
+      - name: Sync locked dependencies
+        run: uv sync --locked --group dev
+
+      - name: Run correctness lint
+        if: matrix.python-version == '3.12'
+        run: uv run ruff check .
 
       - name: Run fast tests
-        run: uv run --with pytest pytest --basetemp .pytest_tmp -m "not full_export"
+        run: uv run pytest --basetemp .pytest_tmp -m "not full_export"
 
   pytest-full-export:
     runs-on: windows-latest
@@ -43,8 +51,8 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v4
 
-      - name: Sync dependencies
-        run: uv sync
+      - name: Sync locked dependencies
+        run: uv sync --locked --group dev
 
       - name: Run exhaustive export tests
-        run: uv run --with pytest pytest --basetemp .pytest_tmp -m full_export
+        run: uv run pytest --basetemp .pytest_tmp -m full_export

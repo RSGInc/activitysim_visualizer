@@ -109,6 +109,9 @@ declaration defines:
 `processor.summarize.catalog` imports the owning domain modules explicitly,
 collects those declarations deterministically, and rejects duplicate ids.
 Successful builder results are validated for exact columns, order, and dtypes.
+Unexpected builder exceptions follow `summarize.failure_policy`: `record` keeps
+typed failure metadata for an interactive dashboard, while `error` is the
+fail-fast setting for validation and batch workflows.
 
 ### `DashboardPageDefinition` and `DashboardPage`
 

@@ -1145,6 +1145,28 @@ def test_build_summaries_with_metadata_marks_missing_inputs_unavailable(
     assert "missing required columns" in metadata["probe_unavailable"]["detail"]
 
 
+def test_build_summaries_with_metadata_can_fail_fast_on_builder_errors(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config = _write_config(tmp_path)
+
+    @summary(id="probe_failure", schema={"value": pl.Float64})
+    def failing_summary(rd: RunData, config: Config) -> pl.DataFrame:
+        raise RuntimeError("summary probe failed")
+
+    spec = failing_summary.summary_definition
+    monkeypatch.setattr(summary_builder_module, "DEFAULT_SUMMARY_IDS", ["probe_failure"])
+    monkeypatch.setitem(SUMMARY_BY_ID, "probe_failure", spec)
+
+    with pytest.raises(RuntimeError, match="summary probe failed"):
+        build_summaries_with_metadata(
+            _destination_raw_run(),
+            config,
+            raise_on_error=True,
+        )
+
+
 def test_summary_cache_round_trip_preserves_summary_states_and_diagnostics(
     tmp_path: Path,
 ) -> None:

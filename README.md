@@ -15,16 +15,17 @@ Install dependencies with `uv`:
 uv sync --locked
 ```
 
+Notebook tooling is optional; install it only when working with the repository's
+notebooks:
+
+```bash
+uv sync --locked --group notebooks
+```
+
 If `uv sync` fails because of a hardlink issue, retry with:
 
 ```bash
 uv sync --locked --link-mode=copy
-```
-
-Activate the environment:
-
-```bash
-.\.venv\Scripts\activate
 ```
 
 Create a project-specific config:
@@ -36,10 +37,10 @@ Copy-Item config.yaml local_config.yaml
 Edit `local_config.yaml`, then run the app with that config:
 
 ```bash
-python run.py --config local_config.yaml
+uv run activitysim-viz --config local_config.yaml
 ```
 
-By default, `python run.py` follows `pipeline.steps` from the loaded config when no explicit step flags are supplied. The shipped example config defaults to `summarize` + `dashboard`, so a normal run will reuse summary caches when possible, rebuild them when needed, and then start the live dashboard on [http://localhost:5006](http://localhost:5006).
+By default, `activitysim-viz` follows `pipeline.steps` from the loaded config when no explicit step flags are supplied. The shipped example config defaults to `summarize` + `dashboard`, so a normal run will reuse summary caches when possible, rebuild them when needed, and then start the live dashboard on [http://localhost:5006](http://localhost:5006).
 
 ## Dashboard Pages
 
@@ -61,7 +62,7 @@ The main shared page-helper modules live under `dashboard/helpers/`:
 - `time_distance_helpers.py`
 - `comparison_helpers.py`
 
-If you are adding or refactoring a page, start with [wiki/33-dashboard-page-recipes.md](wiki/33-dashboard-page-recipes.md). For the broader runtime picture, see [wiki/12-running-workflows.md](wiki/12-running-workflows.md).
+If you are adding or refactoring a page, start with [docs/adding-dashboard-pages.md](docs/adding-dashboard-pages.md). For the broader runtime picture, see [docs/architecture.md](docs/architecture.md).
 
 ## Config Setup
 
@@ -233,6 +234,7 @@ Skimjoin override rules:
 - `runs[*].skimjoin.config_path` overrides global `skimjoin.config_path`.
 - `runs[*].skimjoin.skim_files` overrides the selected skimjoin config's `project.skim_files`.
 - `runs[*].skimjoin.network_los_file` overrides the selected skimjoin config's `project.network_los_file`.
+- `skimjoin.failure_policy` defaults to `record`; use `error` when skimjoin failures must stop a validation or batch run.
 - If a run omits `runs[*].skimjoin`, it uses the global skimjoin settings exactly as before.
 
 Recommended rule of thumb:
@@ -338,6 +340,7 @@ These are the sections most people need to touch:
 | `display.run_colors` | Plot colors by run |
 | `display.labels` | Presentation-only labels and ordering for dashboard/export |
 | `summarize.weighting_modes` | Which cache variants to build: `weighted`, `unweighted`, or both |
+| `summarize.failure_policy` | `record` keeps failed summaries visible as diagnostics; `error` stops immediately on a builder exception |
 | `summarize.geography` | Optional configured district/county/zone mappings |
 | `summarize.pnr_tour_modes` | Which tour modes count as park-and-ride in summary builders |
 | `summarize.group_*_tour_purposes` | Summary-time purpose regrouping switches |
@@ -562,31 +565,28 @@ activitysim_visualizer/
 `-- tests/
 ```
 
-## Wiki
+## Documentation
 
-User and contributor documentation lives under [`wiki/`](wiki/):
+User and contributor documentation lives under [`docs/`](docs/):
 
-- [`wiki/00-home.md`](wiki/00-home.md)
-- [`wiki/10-getting-started.md`](wiki/10-getting-started.md)
-- [`wiki/11-configuring-your-data.md`](wiki/11-configuring-your-data.md)
-- [`wiki/12-running-workflows.md`](wiki/12-running-workflows.md)
-- [`wiki/20-output-processor.md`](wiki/20-output-processor.md)
-- [`wiki/30-output-visualizer.md`](wiki/30-output-visualizer.md)
-- [`wiki/40-developer-workflows.md`](wiki/40-developer-workflows.md)
-- [`wiki/90-troubleshooting.md`](wiki/90-troubleshooting.md)
-
-If you are running or configuring the tool, start with `wiki/10-getting-started.md`.
-If you are changing the codebase, start with `wiki/40-developer-workflows.md`.
+- [`docs/architecture.md`](docs/architecture.md)
+- [`docs/summary-workflow.md`](docs/summary-workflow.md)
+- [`docs/adding-summaries.md`](docs/adding-summaries.md)
+- [`docs/adding-dashboard-pages.md`](docs/adding-dashboard-pages.md)
+- [`docs/plotting-summary-tables.md`](docs/plotting-summary-tables.md)
+- [`docs/export_html_contributor_guide.md`](docs/export_html_contributor_guide.md)
+- [`docs/testing.md`](docs/testing.md)
+- [`docs/remaining-blind-spots-remediation.md`](docs/remaining-blind-spots-remediation.md)
 
 ## Documentation Maintenance Checklist
 
 When behavior changes, update docs in the same change:
 
-- New config key or config behavior: update this README and affected wiki chapters.
-- New summary contract or registration pattern: update `wiki/23-summary-functions.md` and regenerate catalogs.
-- New page, selector, or export behavior: update `wiki/31-dashboard-pages.md`, `wiki/32-figures-and-widgets.md`, or `wiki/33-dashboard-page-recipes.md`.
-- New export payload/runtime behavior: update `wiki/34-html-export.md`.
-- Architecture or runtime-flow changes: update `wiki/12-running-workflows.md`, `wiki/20-output-processor.md`, or `wiki/30-output-visualizer.md`.
+- New config key or config behavior: update this README and `docs/architecture.md`.
+- New summary contract or registration pattern: update `docs/adding-summaries.md` and `docs/summary-workflow.md`.
+- New page, selector, or plotting behavior: update `docs/adding-dashboard-pages.md` or `docs/plotting-summary-tables.md`.
+- New export payload/runtime behavior: update the export schema and contributor guide.
+- Architecture or runtime-flow changes: update `docs/architecture.md`.
 
 ## Tests
 
