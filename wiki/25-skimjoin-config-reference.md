@@ -537,7 +537,7 @@ Policies:
 
 ## Related Chapters
 
-- [11 - Configuring Your Data](11-configuring-your-data.md#per-run-skimjoin-overrides)
+- [13 - Configuration Reference](13-configuration-reference.md#skimjoin)
 - [13 - Configuration Reference](13-configuration-reference.md#skimjoin)
 - [22 - Skimjoin](22-skimjoin.md)
 - [90 - Troubleshooting](90-troubleshooting.md)

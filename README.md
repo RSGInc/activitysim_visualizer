@@ -579,6 +579,9 @@ The main user and contributor documentation lives in the
 - [Output Processor](wiki/20-output-processor.md)
 - [Output Visualizer](wiki/30-output-visualizer.md)
 - [Developer Workflows](wiki/40-developer-workflows.md)
+- [Data Extension Cookbook](wiki/41-data-extension-cookbook.md)
+- [Config, Columns, and Labels](wiki/42-config-column-label-cookbook.md)
+- [Weighting and Hosting Extensions](wiki/43-weighting-hosting-extensions.md)
 - [Troubleshooting](wiki/90-troubleshooting.md)
 
 The [`docs/`](docs/README.md) directory is retained for ADRs, implementation

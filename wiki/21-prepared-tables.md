@@ -77,6 +77,9 @@ or page.
 
 ## Adding A Prepared Column
 
+For an end-to-end worked example, see
+[Add A Column To An Existing Prepared Table](41-data-extension-cookbook.md#worked-example-add-a-column-to-an-existing-prepared-table).
+
 Use this path when many summaries/pages need the same derived field or when the
 field is part of canonical model-output normalization.
 
@@ -120,8 +123,12 @@ runs:
 
 This path assumes the supplied tables already match the prepared contract.
 
+Adding a new prepared table type is a larger change covering config, `RunData`,
+reader, availability, cache IO, pruning, and possibly segmentation. Follow the
+[complete worked example](41-data-extension-cookbook.md#worked-example-add-a-prepared-table).
+
 ## Related Chapters
 
-- [11 - Configuring Your Data](11-configuring-your-data.md#using-pre-prepared-tables)
+- [11 - Configuring Your Data](11-configuring-your-data.md#already-prepared-tables)
 - [23 - Summary Functions](23-summary-functions.md)
 - [31 - Dashboard Pages](31-dashboard-pages.md)

@@ -108,6 +108,9 @@ python run.py --config local_config.yaml --summarize --write-csvs
 boundary. Dashboard pages load registered summaries through `self.data`; they
 do not open cache CSVs directly.
 
+To register a new dashboard-ready table produced outside the visualizer, use
+the [outside summary table recipe](41-data-extension-cookbook.md#worked-example-add-an-outside-summary-table).
+
 ## Segmentation
 
 Segmentation runs inside the summarize workflow and builds the same declarations

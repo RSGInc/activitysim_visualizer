@@ -1,35 +1,15 @@
 # 11 - Configuring Your Data
 
-The config file tells the visualizer where model outputs live, how to normalize
-them, and which workflow to run. The canonical example is
-[`config.yaml`](../config.yaml).
+Most users only need to choose an input type and name their runs. Use one of the
+three patterns below.
 
-For full field-by-field options, defaults, allowed values, path behavior, and
-cache impact, see [13 - Configuration Reference](13-configuration-reference.md).
+## Raw ActivitySim Output
 
-## Top-Level Sections
-
-| Section | Purpose |
-|---|---|
-| `root` | Base artifact directory for caches and exports. |
-| `pipeline` | Default steps, dashboard mode, and overwrite behavior. |
-| `runs` | Model runs, labels, and per-run overrides. |
-| `files` | Default raw ActivitySim output filenames. |
-| `fallback_files` | Shared explicit files used when optional run-local files are missing. |
-| `zones` | MAZ/TAZ behavior and land-use zone columns. |
-| `columns` | Column aliases for outputs that do not use expected names. |
-| `prepare` | Prepared output format, validation, distance skim, VOT bins. |
-| `skimjoin` | Optional skim enrichment defaults. |
-| `segment` | Optional segment definitions and dashboard visibility. |
-| `summarize` | Weighting modes and summary options. |
-| `dashboard` | Title, page selection, live/export behavior. |
-| `display` | Labels, category order, and run colors. |
-
-## Raw ActivitySim Runs
-
-Use `runs[*].dir` for folders containing raw ActivitySim output files:
+Use this when you have normal ActivitySim output folders:
 
 ```yaml
+root: artifacts
+
 runs:
   - dir: C:\models\base\output
     label: Base
@@ -37,13 +17,11 @@ runs:
     label: Build
 ```
 
-Labels become dashboard run names. Keep them stable: cache keys and comparison
-tables are easier to understand when labels do not change casually.
+The label is what appears in the dashboard.
 
-## File Names
+### File Names
 
-`files` maps logical table names to raw output file stems. The reader tries
-`.parquet` first, then `.csv`, unless you specify an extension.
+The default files are:
 
 ```yaml
 files:
@@ -55,7 +33,8 @@ files:
   land_use: final_land_use
 ```
 
-If one run uses different names, override only that run:
+A bare name accepts either `.parquet` or `.csv`. Override one unusual run with
+`file_map`:
 
 ```yaml
 runs:
@@ -64,71 +43,87 @@ runs:
   - dir: C:\models\build\output
     label: Build
     file_map:
-      households: household
-      persons: person
-      tours: tour
-      trips: trip_linked
+      trips: linked_trips
+      persons: final_people.csv
 ```
 
-## Using Pre-Prepared Tables
+### Column Names
 
-Use `prepared_table_map` when a run should skip raw prepare and load canonical
-prepared tables directly:
+If a model uses different column names, list the candidates in preferred order:
+
+```yaml
+columns:
+  household_id: [household_id, hh_id]
+  tour_purpose: [primary_purpose, tour_type, purpose]
+  trip_mode: mode
+```
+
+Prepare converts the selected source to the visualizer's canonical column. See
+chapter 13 for the [complete column list](13-configuration-reference.md#columns).
+
+## Already-Prepared Tables
+
+Use `prepared_table_map` for canonical tables that were prepared, skimjoined,
+or filtered elsewhere:
 
 ```yaml
 runs:
-  - label: Filtered Prepared Run
+  - label: Filtered Run
     prepared_table_map:
-      households: C:\prepared\households.parquet
-      persons: C:\prepared\persons.parquet
-      tours: C:\prepared\tours.parquet
-      trips: C:\prepared\trips.parquet
-      joint_tour_participants: C:\prepared\joint_tour_participants.parquet
-      land_use: C:\prepared\land_use.parquet
+      households: prepared/households.parquet
+      persons: prepared/persons.parquet
+      tours: prepared/tours.parquet
+      trips: prepared/trips.parquet
+      land_use: prepared/land_use.parquet
 ```
 
-Use this for tables that already follow the prepared table contract. If you need
-skimjoin-derived columns in this path, include them in the supplied prepared
-tables; the raw prepare path is skipped for that run.
+Paths must end in `.csv` or `.parquet` and are relative to the config file.
+These tables must already use the canonical prepared columns expected by
+summaries. Raw prepare and integrated skimjoin are skipped for this run.
 
-## Using Dashboard-Ready Summary Tables
+## Dashboard-Ready Summary Tables
 
-Use `summary_table_map` for loose `.csv` or `.parquet` tables that already use a
-registered summary's canonical schema:
+Use `summary_table_map` when another process has already produced registered
+summary tables:
 
 ```yaml
 runs:
   - label: External Validation
     summary_table_map:
-      population_totals: summaries\population_totals.csv
-      traffic_count_comparisons: summaries\traffic_counts.parquet
+      population_totals: summaries/population_totals.csv
+      traffic_count_comparisons: summaries/traffic_counts.parquet
 ```
 
-Keys are registered summary IDs from the [summary catalog](24-summary-catalog.md).
-Mapped tables override the same generated summaries. If raw or prepared inputs
-also exist, the workflow can still build unmapped summaries. A run containing
-only `summary_table_map` is valid for dashboard-ready external inputs.
+Keys must appear in the [Summary Catalog](24-summary-catalog.md). Files must
+match the registered columns exactly. A run may contain only outside summaries,
+or they may override selected summaries generated from raw/prepared data.
 
 ## Weights
 
-The processor creates `finalweight` during prepare. Most summaries aggregate
-`finalweight`, and the summary workflow can build both weighted and unweighted
-outputs.
-
-Common options:
+The normal modes are configured with:
 
 ```yaml
 summarize:
   weighting_modes: [weighted, unweighted]
 ```
 
-If no explicit run weight column and no sample rate are available, weights fall
-back to `1.0`. If model outputs use custom weight columns, set the appropriate
-run-level `hh_weight_col`, `person_weight_col`, and `trip_weight_col` fields.
+If a run has explicit weight columns:
 
-## Zones And Geography
+```yaml
+runs:
+  - dir: C:\models\base\output
+    label: Base
+    hh_weight_col: household_weight
+    person_weight_col: person_weight
+    trip_weight_col: trip_weight
+```
 
-For TAZ-only models:
+Otherwise prepare uses a configured sample-rate column when available, then
+falls back to `1.0`.
+
+## Zones
+
+TAZ-only model:
 
 ```yaml
 zones:
@@ -137,104 +132,26 @@ zones:
   taz_col: TAZ
 ```
 
-For MAZ/TAZ models:
+MAZ/TAZ model:
 
 ```yaml
 zones:
   use_maz: true
   maz_col: [MAZ, zone_id]
-  taz_col: TAZ
+  taz_col: [TAZ, taz]
 ```
 
-Custom geography aggregations live under `summarize.geography`:
+## Optional Features
 
-```yaml
-summarize:
-  geography:
-    enabled: true
-    aggregations:
-      district:
-        source_zone_system: maz
-        file: C:\lookups\land_use.csv
-        zone_id_col: MAZ
-        geography_col: DISTRICT
-```
+- For skim enrichment, read [Skimjoin](22-skimjoin.md).
+- For custom geography aggregation, read the
+  [`summarize.geography` reference](13-configuration-reference.md#summarize).
+- For segmentation, read the
+  [`segment` reference](13-configuration-reference.md#segment).
+- For every accepted key and default, use the
+  [Configuration Reference](13-configuration-reference.md).
 
-## Per-Run Skimjoin Overrides
+## Next
 
-Use global defaults when all runs share lookup logic:
-
-```yaml
-skimjoin:
-  defaults:
-    config_path: configs\skimjoin_default.yaml
-    skim_files:
-      - C:\skims\*.omx
-    network_los_file: C:\skims\network_los.yaml
-```
-
-Override individual runs when skim files, period definitions, or lookup logic
-differ:
-
-```yaml
-runs:
-  - dir: C:\models\base\output
-    label: Base
-    skimjoin:
-      config_path: configs\skimjoin_base.yaml
-      skim_files:
-        - C:\base_skims\*.omx
-      network_los_file: C:\base_skims\network_los.yaml
-```
-
-## Config Recipes
-
-### Dashboard From Existing Summary Caches
-
-```yaml
-pipeline:
-  steps: [dashboard]
-  dashboard_mode: live
-```
-
-Run:
-
-```bash
-python run.py --config local_config.yaml --from-csvs
-```
-
-### Export-Only Workflow
-
-```yaml
-pipeline:
-  steps: [summarize, dashboard]
-  dashboard_mode: export
-
-dashboard:
-  export:
-    output_path: exports\dashboard.html
-```
-
-### Prepared Tables With No Raw Run Directory
-
-```yaml
-pipeline:
-  steps: [summarize, dashboard]
-
-runs:
-  - label: Scenario A
-    prepared_table_map:
-      households: C:\scenario_a\households.parquet
-      persons: C:\scenario_a\persons.parquet
-      tours: C:\scenario_a\tours.parquet
-      trips: C:\scenario_a\trips.parquet
-      land_use: C:\scenario_a\land_use.parquet
-```
-
-## Related Chapters
-
-- [12 - Running Workflows](12-running-workflows.md)
-- [13 - Configuration Reference](13-configuration-reference.md)
-- [21 - Prepared Tables](21-prepared-tables.md)
-- [24 - Summary Catalog](24-summary-catalog.md)
-- [22 - Skimjoin](22-skimjoin.md)
+- [Run workflows and manage caches](12-running-workflows.md)
+- [Troubleshoot missing data](90-troubleshooting.md)

@@ -16,17 +16,25 @@ ActivitySim outputs
   -> live dashboard or standalone HTML export
 ```
 
-## Start Here
+## I Am Using The Visualizer
+
+You only need three short chapters for normal use:
+
+1. [Get a dashboard running](10-getting-started.md).
+2. [Choose raw, prepared, or summary inputs](11-configuring-your-data.md).
+3. [Run, refresh, or export](12-running-workflows.md).
+
+Use [Troubleshooting](90-troubleshooting.md) when something is missing. The
+[Configuration Reference](13-configuration-reference.md) is there when you need
+an exact field or default; it is not required reading.
+
+## I Am Extending The Visualizer
 
 | If you want to... | Read |
 |---|---|
-| Run the visualizer for the first time | [10 - Getting Started](10-getting-started.md) |
-| Point the tool at your own raw outputs | [11 - Configuring Your Data](11-configuring-your-data.md) |
 | Find every main config field and option | [13 - Configuration Reference](13-configuration-reference.md) |
-| Use already prepared tables | [11 - Configuring Your Data](11-configuring-your-data.md#using-pre-prepared-tables) |
-| Understand prepare, summarize, dashboard, and caches | [12 - Running Workflows](12-running-workflows.md) |
 | Understand the Output Processor | [20 - Output Processor](20-output-processor.md) |
-| Add a prepared column | [21 - Prepared Tables](21-prepared-tables.md#adding-a-prepared-column) |
+| Add a prepared column | [41 - Data Extension Cookbook](41-data-extension-cookbook.md#worked-example-add-a-column-to-an-existing-prepared-table) |
 | Add or debug skimjoin outputs | [22 - Skimjoin](22-skimjoin.md) |
 | Find every skimjoin config field and lookup option | [25 - Skimjoin Config Reference](25-skimjoin-config-reference.md) |
 | Add a summary function | [23 - Summary Functions](23-summary-functions.md#adding-a-summary-function) |
@@ -34,6 +42,9 @@ ActivitySim outputs
 | Understand the Output Visualizer | [30 - Output Visualizer](30-output-visualizer.md) |
 | Add a dashboard page | [33 - Dashboard Page Recipes](33-dashboard-page-recipes.md) |
 | Add a figure or widget | [32 - Figures and Widgets](32-figures-and-widgets.md) |
+| Add an outside summary, prepared column, or prepared table | [41 - Data Extension Cookbook](41-data-extension-cookbook.md) |
+| Add a config item, column alias, or label mapping | [42 - Config, Columns, and Labels](42-config-column-label-cookbook.md) |
+| Add a weighting mode or hosting adapter | [43 - Weighting and Hosting Extensions](43-weighting-hosting-extensions.md) |
 | Debug an empty page, bad cache, or export mismatch | [90 - Troubleshooting](90-troubleshooting.md) |
 
 ## Chapters
@@ -65,6 +76,9 @@ ActivitySim outputs
 ### Developer Reference
 
 - [40 - Developer Workflows](40-developer-workflows.md)
+- [41 - Data Extension Cookbook](41-data-extension-cookbook.md)
+- [42 - Config, Columns, and Labels](42-config-column-label-cookbook.md)
+- [43 - Weighting and Hosting Extensions](43-weighting-hosting-extensions.md)
 - [90 - Troubleshooting](90-troubleshooting.md)
 - [99 - Glossary](99-glossary.md)
 

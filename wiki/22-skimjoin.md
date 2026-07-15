@@ -97,7 +97,7 @@ Common causes:
 
 ## Related Chapters
 
-- [11 - Configuring Your Data](11-configuring-your-data.md#per-run-skimjoin-overrides)
+- [13 - Configuration Reference](13-configuration-reference.md#skimjoin)
 - [25 - Skimjoin Config Reference](25-skimjoin-config-reference.md)
 - [23 - Summary Functions](23-summary-functions.md)
 - [90 - Troubleshooting](90-troubleshooting.md)

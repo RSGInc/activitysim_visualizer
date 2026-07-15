@@ -44,6 +44,11 @@ activitysim_visualizer/
 | New figure or table on existing page | [32 - Figures and Widgets](32-figures-and-widgets.md) |
 | New dashboard page | [33 - Dashboard Page Recipes](33-dashboard-page-recipes.md) |
 | New export node/runtime behavior | [34 - HTML Export](34-html-export.md#changing-export-runtime-behavior) |
+| New outside summary table | [41 - Data Extension Cookbook](41-data-extension-cookbook.md#worked-example-add-an-outside-summary-table) |
+| New prepared column or table | [41 - Data Extension Cookbook](41-data-extension-cookbook.md) |
+| New config key or source-column alias | [42 - Config, Columns, and Labels](42-config-column-label-cookbook.md) |
+| New dashboard label mapping | [42 - Config, Columns, and Labels](42-config-column-label-cookbook.md#worked-example-add-a-label-mapping-and-use-it-on-a-page) |
+| New weighting mode or host | [43 - Weighting and Hosting Extensions](43-weighting-hosting-extensions.md) |
 
 ## Testing Guidance
 
@@ -94,6 +99,7 @@ When behavior changes, update docs in the same change:
 | Dashboard page API | `31-dashboard-pages.md`, `32-figures-and-widgets.md`, `33-dashboard-page-recipes.md` |
 | Export payload/runtime | `34-html-export.md` |
 | User-visible failure mode | `90-troubleshooting.md` |
+| Cross-cutting extension recipe | `41-data-extension-cookbook.md`, `42-config-column-label-cookbook.md`, or `43-weighting-hosting-extensions.md` |
 
 ## Review Checklist
 

@@ -1,64 +1,33 @@
 # 10 - Getting Started
 
-This chapter gets a new machine from clone to dashboard. It assumes you already
-have ActivitySim output files or prepared tables to visualize.
+This is the shortest path from a clone to a local dashboard.
 
-## Install
+## 1. Install
 
-Install dependencies with `uv`:
+From the repository root:
 
 ```bash
 uv sync --locked
 ```
 
-If Windows reports a hardlink problem, retry with copy mode:
+If Windows reports a hardlink problem:
 
 ```bash
 uv sync --locked --link-mode=copy
 ```
 
-Activate the virtual environment if you want to run commands directly:
+## 2. Create A Small Config
 
-```powershell
-.\.venv\Scripts\activate
-```
-
-## Create A Local Config
-
-Start from the example config:
-
-```powershell
-Copy-Item config.yaml local_config.yaml
-```
-
-Edit `local_config.yaml`:
-
-1. Set `root` to a local artifact folder.
-2. Add one or more entries under `runs`.
-3. Confirm `files` matches your ActivitySim output names.
-4. Set `zones.use_maz` and the MAZ/TAZ columns correctly.
-5. Set `pipeline.steps` and `pipeline.dashboard_mode`.
-
-The smallest useful raw-output run looks like this:
+Create `local_config.yaml`:
 
 ```yaml
 root: artifacts
 
-pipeline:
-  steps: [prepare, summarize, dashboard]
-  dashboard_mode: live
-
 runs:
-  - dir: C:\path\to\activitysim\output
+  - dir: C:\models\base\output
     label: Base
-
-files:
-  households: final_households
-  persons: final_persons
-  tours: final_tours
-  trips: final_trips
-  joint_tour_participants: final_joint_tour_participants
-  land_use: final_land_use
+  - dir: C:\models\build\output
+    label: Build
 
 zones:
   use_maz: false
@@ -66,41 +35,52 @@ zones:
   taz_col: TAZ
 ```
 
-## First Run
+Change the two `dir` values to real ActivitySim output folders. The default
+input names are `final_households`, `final_persons`, `final_tours`,
+`final_trips`, `final_joint_tour_participants`, and `final_land_use`; each may be
+CSV or Parquet.
 
-Run the configured pipeline:
+If your files have different names, read
+[File Names](11-configuring-your-data.md#raw-activitysim-output).
+
+## 3. Run
 
 ```bash
-python run.py --config local_config.yaml
+uv run activitysim-viz --config local_config.yaml
 ```
 
-With `dashboard_mode: live`, the app serves a local dashboard on the configured
-port, defaulting to `http://localhost:5006`.
+The first run prepares data, builds summaries, and starts the dashboard at
+[http://localhost:5006](http://localhost:5006). Later runs reuse valid caches.
 
-With `dashboard_mode: export`, the app writes an HTML file and exits.
+Stop the server with `Ctrl+C`.
 
-## Common First Commands
+## Two Other Useful Commands
 
-| Goal | Command |
-|---|---|
-| Build prepared caches only | `python run.py --config local_config.yaml --prepare-only` |
-| Build or reuse summaries | `python run.py --config local_config.yaml --summarize` |
-| Build summaries and open dashboard | `python run.py --config local_config.yaml --summarize --dashboard` |
-| Open dashboard from existing summary caches | `python run.py --config local_config.yaml --from-csvs` |
-| Export a standalone dashboard | `python run.py --config local_config.yaml --export-html exports/dashboard.html` |
-| Rebuild both cache layers | `python run.py --config local_config.yaml --refresh-caches` |
+Build summaries without opening the dashboard:
 
-## What Gets Created
+```bash
+uv run activitysim-viz --config local_config.yaml --summarize
+```
 
-The first successful processor run creates:
+Create a standalone HTML dashboard:
 
-- prepared caches: canonical per-run tables used by summaries and prepared-data pages
-- summary caches: dashboard-ready CSV tables under each run and weighting mode
-- logs and diagnostics
-- optional export HTML when export mode is selected
+```bash
+uv run activitysim-viz --config local_config.yaml --export-html exports/dashboard.html
+```
 
-## Next Steps
+## If The First Run Fails
 
-- For raw/prepared input options, read [11 - Configuring Your Data](11-configuring-your-data.md).
-- For cache and CLI behavior, read [12 - Running Workflows](12-running-workflows.md).
-- For dashboard pages and exports, read [30 - Output Visualizer](30-output-visualizer.md).
+Check these first:
+
+1. each `runs[*].dir` exists;
+2. the expected tables are present as `.csv` or `.parquet`;
+3. `zones.use_maz`, `maz_col`, and `taz_col` match the model; and
+4. the log names the missing file or column.
+
+Then use [Troubleshooting](90-troubleshooting.md).
+
+## Next
+
+- [Choose an input type](11-configuring-your-data.md)
+- [Run, refresh, or export](12-running-workflows.md)
+- [Use the dashboard](30-output-visualizer.md)
