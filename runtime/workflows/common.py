@@ -26,9 +26,6 @@ LOGGER = get_logger("main")
 def load_runtime_config(config_path: str | Path) -> Config:
     """Load config and normalize the shared runtime settings."""
     config = Config.from_yaml(config_path)
-    config.weighting_modes = summary_types.normalize_weighting_modes(
-        config.weighting_modes
-    )
     from processor.summarize.external import validate_summary_table_map_ids
 
     for index, entry in enumerate(config.runs):

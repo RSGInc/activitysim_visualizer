@@ -221,7 +221,11 @@ def summary_signature_payload(config: Config) -> dict[str, Any]:
             for definition in config.segmentation.definitions
         ]
     return {
-        "weighting_modes": list(config.weighting_modes),
+        "weighting_modes": [
+            definition.signature_payload()
+            for definition in config.weighting_mode_definitions
+        ],
+        "extension_settings": config.extension_settings,
         "failure_policy": config.summary_failure_policy,
         "files": {key: config.files[key] for key in sorted(config.files)},
         "columns": prepare_signature_payload(config)["columns"],
@@ -297,6 +301,10 @@ def presentation_signature_payload(config: Config) -> dict[str, Any]:
         "missing_data_display": config.missing_data_display,
         "bar_hover_mode": config.bar_hover_mode,
         "density_hover_mode": config.density_hover_mode,
+        "weighting_modes": [
+            {"mode_id": definition.mode_id, "label": definition.label}
+            for definition in config.weighting_mode_definitions
+        ],
         "segmentation": {
             "enabled": config.segmentation.enabled,
             "dashboard": {

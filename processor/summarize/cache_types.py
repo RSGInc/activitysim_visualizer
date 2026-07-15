@@ -6,9 +6,8 @@ from dataclasses import dataclass, field
 
 import polars as pl
 
-from processor.models import RunData, SkimjoinArtifacts, TableAvailabilityMetadata
-
-SUPPORTED_WEIGHTING_MODES = ("weighted", "unweighted")
+from processor.models import RunData
+from runtime.weighting import WEIGHTING_MODES, normalize_weighting_modes
 
 
 class SummaryCacheError(RuntimeError):
@@ -41,62 +40,9 @@ class SummaryRun:
     manifest: dict[str, object] | None = None
 
 
-def normalize_weighting_modes(modes: list[str] | None) -> list[str]:
-    """Validate, normalize, and deduplicate weighting mode names."""
-    if not modes:
-        modes = list(SUPPORTED_WEIGHTING_MODES)
-    normalized: list[str] = []
-    seen: set[str] = set()
-    for raw_mode in modes:
-        mode = str(raw_mode).strip().lower()
-        if mode not in SUPPORTED_WEIGHTING_MODES:
-            raise ValueError(
-                f"Unsupported weighting mode {raw_mode!r}. Supported modes: {SUPPORTED_WEIGHTING_MODES}"
-            )
-        if mode not in seen:
-            normalized.append(mode)
-            seen.add(mode)
-    return normalized
-
-
 def strip_weights(rd: RunData) -> RunData:
     """Return a copy of ``RunData`` with all ``finalweight`` values reset to 1.0."""
-
-    def _reset(df: pl.DataFrame) -> pl.DataFrame:
-        if "finalweight" in df.columns:
-            return df.with_columns(pl.lit(1.0).alias("finalweight"))
-        return df
-
-    return RunData(
-        label=rd.label,
-        run_dir=rd.run_dir,
-        skim_file=rd.skim_file,
-        hh=_reset(rd.hh),
-        per=_reset(rd.per),
-        day=_reset(rd.day),
-        tours=_reset(rd.tours),
-        trips=_reset(rd.trips),
-        vehicles=_reset(rd.vehicles),
-        trip_hypothetical_skims=_reset(rd.trip_hypothetical_skims),
-        tour_hypothetical_skims=_reset(rd.tour_hypothetical_skims),
-        joint_participants=rd.joint_participants,
-        land_use=rd.land_use,
-        skim_matrix=rd.skim_matrix,
-        skim_zone_map=rd.skim_zone_map,
-        hh_weight_col=None,
-        person_weight_col=None,
-        trip_weight_col=None,
-        table_availability_metadata=TableAvailabilityMetadata(
-            states=dict(rd.table_availability_metadata.states),
-            diagnostics=dict(rd.table_availability_metadata.diagnostics),
-        ),
-        skimjoin_artifacts=SkimjoinArtifacts(
-            manifest=dict(rd.skimjoin_artifacts.manifest),
-            reports=dict(rd.skimjoin_artifacts.reports),
-        ),
-        skimjoin_manifest=dict(rd.skimjoin_manifest),
-        skimjoin_reports=dict(rd.skimjoin_reports),
-    )
+    return WEIGHTING_MODES.get("unweighted").apply(rd, None)
 
 
 def create_summary_run(
@@ -144,7 +90,6 @@ def create_summary_run(
 
 
 __all__ = [
-    "SUPPORTED_WEIGHTING_MODES",
     "SummaryCacheError",
     "SummaryRun",
     "create_summary_run",

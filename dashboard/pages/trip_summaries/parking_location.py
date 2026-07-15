@@ -102,7 +102,7 @@ class ParkingLocationPage(DashboardPage):
         land_use_tables = self.data.prepared(
             "land_use",
             columns=("MAZ",),
-            weighted=self.weighting_key == "weighted",
+            weighting_mode=self.weighting_key,
         )
         if not parking_tables or not land_use_tables:
             detail = (

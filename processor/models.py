@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Collection, Literal, Optional
+from typing import Any, Callable, Collection, Literal, Optional
 
 import numpy as np
 import polars as pl
@@ -119,6 +119,60 @@ class RunData:
             )
             self.skimjoin_manifest = dict(self.skimjoin_artifacts.manifest)
             self.skimjoin_reports = dict(self.skimjoin_artifacts.reports)
+
+
+def map_run_data_tables(
+    run: RunData,
+    transform: Callable[[str, pl.DataFrame], pl.DataFrame],
+    *,
+    clear_weight_columns: bool = False,
+) -> RunData:
+    """Copy a run while applying one transform to every DataFrame table."""
+
+    def mapped(table_name: str, frame: pl.DataFrame) -> pl.DataFrame:
+        result = transform(table_name, frame)
+        if not isinstance(result, pl.DataFrame):
+            raise TypeError(
+                f"RunData table transform for {table_name!r} returned "
+                f"{type(result).__name__}; expected polars.DataFrame."
+            )
+        return result
+
+    return RunData(
+        label=run.label,
+        run_dir=run.run_dir,
+        skim_file=run.skim_file,
+        hh=mapped("hh", run.hh),
+        per=mapped("per", run.per),
+        day=mapped("day", run.day),
+        tours=mapped("tours", run.tours),
+        trips=mapped("trips", run.trips),
+        vehicles=mapped("vehicles", run.vehicles),
+        trip_hypothetical_skims=mapped(
+            "trip_hypothetical_skims", run.trip_hypothetical_skims
+        ),
+        tour_hypothetical_skims=mapped(
+            "tour_hypothetical_skims", run.tour_hypothetical_skims
+        ),
+        joint_participants=mapped("joint_participants", run.joint_participants),
+        land_use=mapped("land_use", run.land_use),
+        skim_matrix=run.skim_matrix,
+        skim_zone_map=run.skim_zone_map,
+        hh_weight_col=None if clear_weight_columns else run.hh_weight_col,
+        person_weight_col=None if clear_weight_columns else run.person_weight_col,
+        trip_weight_col=None if clear_weight_columns else run.trip_weight_col,
+        table_availability_metadata=TableAvailabilityMetadata(
+            states=dict(run.table_availability_metadata.states),
+            diagnostics=dict(run.table_availability_metadata.diagnostics),
+        ),
+        prepare_diagnostics=dict(run.prepare_diagnostics),
+        skimjoin_artifacts=SkimjoinArtifacts(
+            manifest=dict(run.skimjoin_artifacts.manifest),
+            reports=dict(run.skimjoin_artifacts.reports),
+        ),
+        skimjoin_manifest=dict(run.skimjoin_manifest),
+        skimjoin_reports=dict(run.skimjoin_reports),
+    )
 
 
 def prune_prepared_run(

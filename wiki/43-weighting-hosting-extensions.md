@@ -1,147 +1,154 @@
 # 43 - Weighting And Hosting Extensions
 
-Weighting and hosting both cross major runtime boundaries. This chapter shows
-the extension seams and the places where current behavior is deliberately
-limited.
+Weighting and hosting both cross major runtime boundaries. Weighting modes are
+registered extensions; hosting remains a deliberately limited extension point.
 
 ## Worked Example: Add A Weighting Mode
 
-The current modes are `weighted` and `unweighted`. They are not just labels:
-each mode produces a complete set of summary tables, its own cache directory,
-dashboard state, and export states.
+The built-in modes are `weighted` and `unweighted`. Each registered mode
+produces a complete set of summary tables, its own cache directory, a dashboard
+selector state, and export states. The same transform is applied lazily when a
+live page requests prepared data in that mode.
 
 Suppose prepared tables gain a `calibrated_weight` column and the application
 needs a third `calibrated` mode that uses it as `finalweight`.
 
-## 1. Centralize The Mode And Transformation
+## 1. Create An Importable Extension Module
 
-`processor/summarize/cache_types.py` currently owns
-`SUPPORTED_WEIGHTING_MODES` and `strip_weights()`. Add the mode and a transformer:
+Create a module in an installed package or another location on `PYTHONPATH`,
+for example `my_project/weighting.py`:
 
 ```python
-SUPPORTED_WEIGHTING_MODES = ("weighted", "unweighted", "calibrated")
+import polars as pl
+
+from processor.models import map_run_data_tables
+from runtime.weighting import WeightingModeDefinition, WeightingModeRegistry
 
 
-def use_calibrated_weights(run: RunData) -> RunData:
-    def replace_weight(table: pl.DataFrame) -> pl.DataFrame:
-        if "calibrated_weight" not in table.columns:
-            return table
-        return table.with_columns(
-            pl.col("calibrated_weight")
-            .cast(pl.Float64)
-            .alias("finalweight")
+def use_calibrated_weights(run, config):
+    multiplier = float(
+        config.extension_settings.get("calibrated", {}).get("multiplier", 1.0)
+    )
+
+    def replace_weight(_table_name, table: pl.DataFrame) -> pl.DataFrame:
+        return (
+            table.with_columns(
+                (pl.col("calibrated_weight").cast(pl.Float64) * multiplier)
+                .alias("finalweight")
+            )
+            if "calibrated_weight" in table.columns
+            else table
         )
 
-    return replace_run_tables(run, replace_weight)
+    return map_run_data_tables(run, replace_weight)
+
+
+def register_weighting_modes(registry: WeightingModeRegistry) -> None:
+    registry.register(
+        WeightingModeDefinition(
+            mode_id="calibrated",
+            label="Calibrated",
+            transform=use_calibrated_weights,
+            version="1",
+            required_columns={
+                "hh": ("calibrated_weight",),
+                "per": ("calibrated_weight",),
+                "tours": ("calibrated_weight",),
+                "trips": ("calibrated_weight",),
+            },
+            external_summary_policy="reject",
+        )
+    )
 ```
 
-The repository currently uses an explicit `RunData(...)` copy in
-`strip_weights()`. Before adding more modes, extract that copy into a tested
-helper such as `replace_run_tables()` so every prepared table, availability
-record, skimjoin artifact, and sidecar is preserved consistently.
+`map_run_data_tables()` copies the complete `RunData` container, transforms
+every DataFrame table, and preserves availability metadata, diagnostics,
+skimjoin artifacts, skims, and sidecars. The transform should return a
+`RunData`; it must not mutate its input.
 
-In `processor/summarize/builder.py`, replace the hard-coded two-mode dictionary
-with one transform per mode:
+The definition fields are:
 
-```python
-WEIGHTING_TRANSFORMS = {
-    "weighted": lambda run: run,
-    "unweighted": strip_weights,
-    "calibrated": use_calibrated_weights,
-}
+| Field | Meaning |
+|---|---|
+| `mode_id` | Stable lowercase config/cache ID. |
+| `label` | Unique dashboard/export label. |
+| `transform` | Callable receiving `(RunData, Config)` and returning `RunData`. |
+| `version` | Cache-facing implementation version. Change it when results can change. |
+| `required_columns` | Prepared columns validated before the transform runs. |
+| `external_summary_policy` | `copy` permits mode-independent `summary_table_map` data; `reject` fails instead of silently mislabeling it. |
+| `default_enabled` | Whether omission/empty `summarize.weighting_modes` includes the mode. Custom modes should normally leave this `false`. |
 
+## 2. Load And Configure The Extension
 
-def _runs_by_weighting_mode(run, config, weighting_modes):
-    modes = normalize_weighting_modes(weighting_modes or config.weighting_modes)
-    return {mode: WEIGHTING_TRANSFORMS[mode](run) for mode in modes}
-```
-
-Fail early if required calibrated columns are unavailable. Silently falling
-back to ordinary weights would create plausible but incorrect results.
-
-## 2. Remove Duplicate Config Validation
-
-`runtime/config/loader.py` currently has its own literal set containing
-`weighted` and `unweighted`. Make it call the shared
-`normalize_weighting_modes()` or import `SUPPORTED_WEIGHTING_MODES`; otherwise
-the YAML parser will reject a mode that the summary layer supports.
-
-The config can then select:
+Use `extensions.modules` for a project-local/importable module and keep plugin
+settings under `extensions.settings`:
 
 ```yaml
+extensions:
+  modules:
+    - my_project.weighting
+  settings:
+    calibrated:
+      multiplier: 1.0
+
 summarize:
   weighting_modes: [weighted, unweighted, calibrated]
 ```
 
-`summary_signature_payload()` already includes the configured mode list, so the
-summary cache identity changes. Cache manifests and storage are mostly
-mode-generic, but tests must prove the new directory and manifest entries are
-read and written.
+Module imports are executable code, so configuration containing extensions is
+trusted configuration. Extension settings and each selected definition's
+version, requirements, and outside-summary policy enter summary cache identity.
 
-## 3. Update Prepared-Data Dashboard Access
+An installed package can advertise the same registration function with a
+Python entry point instead:
 
-Summary-backed pages are already mostly generic:
+```toml
+[project.entry-points."activitysim_visualizer.weighting_modes"]
+calibrated = "my_project.weighting:register_weighting_modes"
+```
 
-- `SummaryRun.summaries_by_mode` is keyed by mode string;
-- `DashboardState` builds selector labels from configured modes; and
-- export selection uses configured modes.
+Use either the installed entry point or `extensions.modules`, not both for the
+same definition. Duplicate IDs and labels fail during config loading.
 
-Prepared-data access is still binary. `DashboardPreparedRunProvider` caches
-weighted and unweighted runs, and several pages ask for
-`weighted=(self.weighting_key == "weighted")`.
+## 3. Runtime Behavior
 
-Change that API to accept a mode key:
+The registry is the single source for config validation, summary transforms,
+prepared-data transforms, display labels, and cache compatibility:
+
+- config preserves the requested mode order and rejects unknown IDs;
+- the summary workflow applies each registered transform before running builders;
+- cache directories and manifests use `mode_id`, while plugin `version` enters
+  the summary config digest;
+- dashboard/export selectors use `label` without deriving text from the ID;
+- `PageData.prepared()` and `prepared_runs()` apply the selected mode lazily and
+  cache the result for the dashboard session; and
+- required source columns fail before a transform can silently fall back.
+
+Ordinary pages do not branch on particular modes:
 
 ```python
-@dataclass
-class DashboardPreparedRunProvider:
-    runs_by_mode: dict[str, list[tuple[str, RunData]]]
+prepared = self.data.prepared("trips")
 
-    def get_runs_if_loaded(self, *, weighting_mode: str):
-        if not self.is_loaded:
-            return None
-        return list(self.runs_by_mode[weighting_mode])
+# Only specialized code that deliberately requests another mode supplies it:
+weighted = self.data.prepared("trips", weighting_mode="weighted")
 ```
 
-Or lazily build modes through the same transform registry used by summaries.
-Update:
+## 4. Outside Summary Tables
 
-- `DashboardState.get_prepared_runs_if_loaded()`;
-- `PageData.prepared*` accessors;
-- skim summary pages and parking location; and
-- tests for every prepared-data page under the new mode.
+Built-in `weighted` and `unweighted` definitions explicitly use
+`external_summary_policy="copy"`, preserving current behavior. A custom mode
+defaults to `reject`: a run using `summary_table_map` then fails clearly because
+the runtime cannot prove that an already-aggregated file represents that mode.
 
-Do not map every non-`weighted` mode to unweighted. That is the current binary
-assumption and would make `calibrated` wrong.
-
-## 4. Decide How Outside Summaries Behave
-
-`summary_table_map` currently copies one already-aggregated outside table into
-every configured weighting mode. That is appropriate only when the outside
-table is mode-independent.
-
-If calibrated outside tables differ, extend the config contract explicitly,
-for example:
-
-```yaml
-runs:
-  - label: External
-    summary_table_map_by_weighting:
-      weighted:
-        regional_emissions: inputs/emissions_weighted.csv
-      calibrated:
-        regional_emissions: inputs/emissions_calibrated.csv
-```
-
-That would require schema normalization, file identity, loading, overlay, and
-cache-manifest tests. Do not infer filenames or silently reuse one table when
-the semantics differ.
+Set the custom definition to `copy` only when the outside table is genuinely
+mode-independent. Per-mode outside file maps are not currently supported.
 
 ## 5. Test The Whole Mode
 
 At minimum, prove:
 
 - config accepts, orders, deduplicates, and rejects mode names correctly;
+- both module and installed-entry-point discovery use the registration contract;
 - the transform replaces weights on every relevant prepared table;
 - a known summary produces expected calibrated values;
 - cache write/load retains all modes;
@@ -152,6 +159,7 @@ At minimum, prove:
 Useful suites:
 
 ```bash
+uv run --with pytest pytest --basetemp .pytest_tmp tests/test_weighting_registry.py
 uv run --with pytest pytest --basetemp .pytest_tmp tests/test_config_refactor_phase1.py tests/test_summary_cache.py
 uv run --with pytest pytest --basetemp .pytest_tmp tests/test_dashboard_live.py tests/test_export_payload.py
 ```

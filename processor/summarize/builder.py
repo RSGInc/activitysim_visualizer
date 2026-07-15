@@ -10,7 +10,7 @@ import polars as pl
 
 from runtime.logging import get_logger
 from processor.models import RunData
-from processor.summarize.cache_types import normalize_weighting_modes, strip_weights
+from runtime.weighting import WEIGHTING_MODES, normalize_weighting_modes
 from processor.summarize.contracts import missing_summary_inputs
 from processor.summarize.catalog import (
     DEFAULT_SUMMARY_IDS,
@@ -144,10 +144,17 @@ def _runs_by_weighting_mode(
     weighting_modes: list[str] | None,
 ) -> dict[str, RunData]:
     modes = normalize_weighting_modes(weighting_modes or config.weighting_modes)
-    runs = {"weighted": run}
-    if "unweighted" in modes:
-        runs["unweighted"] = strip_weights(run)
-    return {mode: runs[mode] for mode in modes}
+    configured_definitions = {
+        definition.mode_id: definition
+        for definition in config.weighting_mode_definitions
+    }
+    runs: dict[str, RunData] = {}
+    for mode in modes:
+        definition = configured_definitions.get(mode)
+        if definition is None:
+            definition = WEIGHTING_MODES.get(mode)
+        runs[mode] = definition.apply(run, config)
+    return runs
 
 
 def build_mode_summaries(

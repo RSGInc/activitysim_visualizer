@@ -11,6 +11,7 @@ CANONICAL_TOP_LEVEL_KEYS = {
     "columns",
     "dashboard",
     "display",
+    "extensions",
     "fallback_files",
     "files",
     "log_level",
@@ -101,6 +102,14 @@ def validate_canonical_config(raw: Mapping[str, object]) -> None:
             "Unknown top-level config keys: "
             + ", ".join(repr(key) for key in unknown)
         )
+
+    extensions = _mapping(raw.get("extensions"), field_name="extensions")
+    _reject_unknown_keys(
+        extensions,
+        field_name="extensions",
+        allowed={"modules", "settings"},
+    )
+    _mapping(extensions.get("settings"), field_name="extensions.settings")
 
     dashboard = _mapping(raw.get("dashboard"), field_name="dashboard")
     _reject_unknown_keys(

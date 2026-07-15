@@ -39,6 +39,11 @@ from .sections import mapping, parse_columns, parse_pipeline, parse_zones
 from .sections_dashboard import parse_dashboard_export
 from .sections_prepare import parse_prepare
 from .signatures import digest_payload
+from runtime.weighting import (
+    load_weighting_mode_extensions,
+    normalize_weighting_modes,
+    weighting_mode_definitions,
+)
 
 ConfigT = TypeVar("ConfigT", bound=Config)
 
@@ -49,6 +54,18 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
     if not isinstance(raw, dict):
         raise ValueError("config file must parse to a mapping.")
     validate_canonical_config(raw)
+    extensions_cfg = mapping(raw.get("extensions"), field_name="extensions")
+    extension_modules = normalize_string_list(
+        extensions_cfg.get("modules"),
+        field_name="extensions.modules",
+    )
+    extension_settings = dict(
+        mapping(
+            extensions_cfg.get("settings"),
+            field_name="extensions.settings",
+        )
+    )
+    load_weighting_mode_extensions(extension_modules)
     pipeline = parse_pipeline(raw.get("pipeline"))
     dashboard_cfg = mapping(raw.get("dashboard"), field_name="dashboard")
     dashboard_live_cfg = mapping(dashboard_cfg.get("live"), field_name="dashboard.live")
@@ -122,25 +139,14 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
     if not summary_root.is_absolute():
         summary_root = (config_path.parent / summary_root).resolve()
 
-    weighting_modes_cfg = summarize_cfg.get(
-        "weighting_modes", ["weighted", "unweighted"]
+    weighting_modes = normalize_weighting_modes(
+        summarize_cfg.get("weighting_modes"),
+        field_name="summarize.weighting_modes",
     )
-    raw_weighting_modes = [str(mode).strip().lower() for mode in weighting_modes_cfg]
-    supported_weighting_modes = {"weighted", "unweighted"}
-    invalid_weighting_modes = [
-        mode for mode in raw_weighting_modes if mode and mode not in supported_weighting_modes
-    ]
-    if invalid_weighting_modes:
-        raise ValueError(
-            "Unsupported summarize.weighting_modes values: "
-            + ", ".join(repr(mode) for mode in invalid_weighting_modes)
-        )
-    weighting_modes: list[str] = []
-    for mode in raw_weighting_modes:
-        if mode and mode not in weighting_modes:
-            weighting_modes.append(mode)
-    if not weighting_modes:
-        weighting_modes = ["weighted", "unweighted"]
+    selected_weighting_definitions = weighting_mode_definitions(
+        weighting_modes,
+        field_name="summarize.weighting_modes",
+    )
 
     summary_failure_policy = str(
         summarize_cfg.get("failure_policy", "record")
@@ -156,6 +162,10 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         segmentation=segmentation,
         summary_root=summary_root,
         weighting_modes=weighting_modes,
+        weighting_labels={
+            definition.mode_id: definition.label
+            for definition in selected_weighting_definitions
+        },
     )
 
     dashboard_title = dashboard_cfg.get("title", "ActivitySim Visualizer")
@@ -257,6 +267,9 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         density_hover_mode=density_hover_mode,
         summary_root=str(summary_root),
         weighting_modes=weighting_modes,
+        weighting_mode_definitions=selected_weighting_definitions,
+        extension_modules=tuple(extension_modules),
+        extension_settings=extension_settings,
         summary_failure_policy=summary_failure_policy,
         export_html=export_html,
         skimjoin=skimjoin,

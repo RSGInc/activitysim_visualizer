@@ -101,6 +101,17 @@ def load_summary_table_map(
 ) -> SummaryRun:
     """Load one run's mapped summary files into a full-segment ``SummaryRun``."""
     validate_summary_table_map_ids(summary_table_map)
+    rejected_modes = [
+        definition.mode_id
+        for definition in config.weighting_mode_definitions
+        if definition.external_summary_policy == "reject"
+    ]
+    if rejected_modes:
+        raise ValueError(
+            "summary_table_map cannot be copied into weighting modes that reject "
+            "mode-independent outside summaries: "
+            + ", ".join(repr(mode) for mode in rejected_modes)
+        )
     tables: dict[str, pl.DataFrame] = {}
     metadata: dict[str, dict[str, object]] = {}
     for summary_id, path in sorted(summary_table_map.items()):

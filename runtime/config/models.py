@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, TYPE_CHECKING
 
 import polars as pl
 
 from .common import normalize_run_selector_key
+
+if TYPE_CHECKING:
+    from runtime.weighting import WeightingModeDefinition
 
 
 @dataclass(frozen=True)
@@ -49,6 +52,7 @@ class ExportDashboardSettings:
     """Resolved dashboard-level controls for HTML export."""
 
     weighting: list[str] = field(default_factory=lambda: ["weighted"])
+    weighting_labels: dict[str, str] = field(default_factory=dict)
     values: list[str] = field(default_factory=lambda: ["percent"])
     segmentation_type: str | None = None
     segmentation_visibility: Literal[
@@ -56,7 +60,7 @@ class ExportDashboardSettings:
     ] | None = None
 
     def panel_weighting_values(self) -> list[str]:
-        return [mode.title() for mode in self.weighting]
+        return [self.weighting_labels.get(mode, mode.title()) for mode in self.weighting]
 
     def panel_value_values(self) -> list[str]:
         labels = {"percent": "Percent", "count": "Count"}
@@ -352,6 +356,9 @@ class Config:
     density_hover_mode: Literal["closest", "all"]
     summary_root: str
     weighting_modes: list[str]
+    weighting_mode_definitions: tuple["WeightingModeDefinition", ...]
+    extension_modules: tuple[str, ...]
+    extension_settings: dict[str, Any]
     export_html: ExportHTMLSettings
     skimjoin: SkimjoinSettings
     prepare_vot_bins: PrepareVotBinsSettings
@@ -462,6 +469,18 @@ class Config:
 
     def run_color(self, idx: int) -> str:
         return self.run_colors[idx % len(self.run_colors)]
+
+    def weighting_mode_definition(self, mode_id: str) -> "WeightingModeDefinition":
+        normalized = str(mode_id).strip().lower()
+        for definition in self.weighting_mode_definitions:
+            if definition.mode_id == normalized:
+                return definition
+        raise ValueError(
+            f"Weighting mode {mode_id!r} is not enabled for this configuration."
+        )
+
+    def weighting_mode_label(self, mode_id: str) -> str:
+        return self.weighting_mode_definition(mode_id).label
 
     def skimjoin_step_enabled(self) -> bool:
         """Return whether the active pipeline includes integrated skimjoin."""

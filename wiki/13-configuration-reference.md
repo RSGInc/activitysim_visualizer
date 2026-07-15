@@ -126,7 +126,25 @@ runs:
 | `summarize` | mapping | weighted and unweighted summaries | Summary | Summary weighting, purpose grouping, geography, and PNR mode behavior. |
 | `dashboard` | mapping | live dashboard defaults | Presentation | Dashboard title, page selection, MAZ geography toggle, and export settings. |
 | `display` | mapping | built-in labels and colors | Presentation | Dashboard labels, category order, and run colors. |
+| `extensions` | mapping | `{}` | Summary, Presentation | Importable weighting extension modules and their settings. Extension code is trusted. |
 | `modes` | mapping | `{}` | Presentation | Optional mode ordering used when `display.labels.mode` is absent. |
+
+## `extensions`
+
+| Field | Type | Default | Impact | Notes |
+|---|---|---|---|---|
+| `modules` | list of strings | `[]` | Summary | Importable modules that define `register_weighting_modes(registry)`. Installed weighting entry points are discovered separately. |
+| `settings` | mapping | `{}` | Summary | Arbitrary YAML settings available to transforms as `config.extension_settings`. Included in summary cache identity. |
+
+```yaml
+extensions:
+  modules: [my_project.weighting]
+  settings:
+    calibrated:
+      multiplier: 1.0
+```
+
+See the complete [weighting plugin cookbook](43-weighting-hosting-extensions.md#worked-example-add-a-weighting-mode).
 
 ## `pipeline`
 
@@ -456,7 +474,7 @@ segment:
 
 | Field | Type | Default | Allowed values | Impact | Notes |
 |---|---|---|---|---|---|
-| `weighting_modes` | list of strings | `[weighted, unweighted]` | `weighted`, `unweighted` | Summary, Presentation | Summary variants to build. Empty lists fall back to both. |
+| `weighting_modes` | list of strings | `[weighted, unweighted]` | registered mode IDs | Summary, Presentation | Summary variants to build in the listed order. Empty lists use definitions with `default_enabled=True`. |
 | `failure_policy` | string | `record` | `record`, `error` | Summary | Record failed summaries as diagnostics or stop on the first builder exception. |
 | `category_normalization` | mapping | `{}` plus escort defaults | category definitions | Summary | Canonical summary-value normalization and regrouping; affects cache identity. |
 | `pnr_tour_modes` | list of strings | `[PNR_TRANSIT]` | any mode names | Summary | Modes treated as park-and-ride tours. Must resolve to at least one mode. |

@@ -223,7 +223,7 @@ class TourSkimsPage(DashboardPage):
 
     def _tour_prepared_runs(self):
         """Return prepared runs in the weighting mode expected by live distributions."""
-        return self.data.prepared_runs(weighted=(self.weighting_key == "weighted"))
+        return self.data.prepared_runs(weighting_mode=self.weighting_key)
 
     def _tour_skim_scenario_value(self) -> str:
         return (

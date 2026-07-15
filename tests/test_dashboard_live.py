@@ -2271,7 +2271,9 @@ def test_build_dashboard_loads_prepared_runs_for_optional_default_pages_when_ava
     )
 
     assert template._dashboard_state.prepared_run_availability == "loaded"
-    weighted_runs = template._dashboard_state.get_prepared_runs_if_loaded(weighted=True)
+    weighted_runs = template._dashboard_state.get_prepared_runs_if_loaded(
+        weighting_mode="weighted"
+    )
 
     assert weighted_runs is not None
     assert weighted_runs[0][0] == "Base"
@@ -2316,7 +2318,7 @@ def test_dashboard_state_exposes_summary_first_accessors(tmp_path: Path) -> None
     assert state.has_summary_table_set("missing_summary", "weighted") is False
     assert totals[0][0] == "Base"
     assert totals[0][1]["person_count"][0] == 100.0
-    assert state.get_prepared_runs_if_loaded(weighted=True) is None
+    assert state.get_prepared_runs_if_loaded(weighting_mode="weighted") is None
     assert state.prepared_run_availability == "not_requested"
 
 
@@ -2346,8 +2348,12 @@ def test_dashboard_state_prepared_run_provider_supports_loaded_and_unavailable_m
         prepared_run_provider=DashboardPreparedRunProvider.unavailable(),
     )
 
-    weighted_runs = loaded_state.get_prepared_runs_if_loaded(weighted=True)
-    unweighted_runs = loaded_state.get_prepared_runs_if_loaded(weighted=False)
+    weighted_runs = loaded_state.get_prepared_runs_if_loaded(
+        weighting_mode="weighted"
+    )
+    unweighted_runs = loaded_state.get_prepared_runs_if_loaded(
+        weighting_mode="unweighted"
+    )
 
     assert loaded_state.prepared_run_availability == "loaded"
     assert weighted_runs is not None
@@ -2356,7 +2362,10 @@ def test_dashboard_state_prepared_run_provider_supports_loaded_and_unavailable_m
     assert unweighted_runs is not None
     assert unweighted_runs[0][1].hh["finalweight"][0] == 1.0
     assert unavailable_state.prepared_run_availability == "unavailable"
-    assert unavailable_state.get_prepared_runs_if_loaded(weighted=True) is None
+    assert (
+        unavailable_state.get_prepared_runs_if_loaded(weighting_mode="weighted")
+        is None
+    )
 
 
 def test_build_dashboard_switches_tabs_and_refreshes_only_the_active_page(

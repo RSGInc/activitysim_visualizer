@@ -94,6 +94,7 @@ segment: ...
 dashboard: ...
 display: ...
 skimjoin: ...
+extensions: ...
 ```
 
 Removed keys such as `processor.*`, `summaries.*`, `visualizer.*`, top-level
@@ -343,7 +344,8 @@ These are the sections most people need to touch:
 | `dashboard.export` | Export-only output path, page selection, and selector-state controls |
 | `display.run_colors` | Plot colors by run |
 | `display.labels` | Presentation-only labels and ordering for dashboard/export |
-| `summarize.weighting_modes` | Which cache variants to build: `weighted`, `unweighted`, or both |
+| `extensions` | Importable weighting plugins and their summary-affecting settings |
+| `summarize.weighting_modes` | Ordered registered weighting-mode IDs to build; built-ins are `weighted` and `unweighted` |
 | `summarize.failure_policy` | `record` keeps failed summaries visible as diagnostics; `error` stops immediately on a builder exception |
 | `summarize.geography` | Optional configured district/county/zone mappings |
 | `summarize.pnr_tour_modes` | Which tour modes count as park-and-ride in summary builders |

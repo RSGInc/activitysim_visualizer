@@ -27,6 +27,7 @@ def parse_dashboard_export(
     segmentation: SegmentationSettings,
     summary_root: Path,
     weighting_modes: list[str],
+    weighting_labels: dict[str, str] | None = None,
 ) -> ExportHTMLSettings:
     """Parse ``dashboard.export`` after pipeline and segmentation resolution."""
     export = mapping(raw_value, field_name="dashboard.export")
@@ -51,6 +52,7 @@ def parse_dashboard_export(
                 default=weighting_modes,
                 allowed=weighting_modes,
             ),
+            weighting_labels=dict(weighting_labels or {}),
             values=normalize_export_html_selection(
                 dashboard.get("values"),
                 field_name="dashboard.export.dashboard.values",

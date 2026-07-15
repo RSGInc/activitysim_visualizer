@@ -24,6 +24,8 @@ class ExportBuildContext:
         return DashboardState(
             summary_runs=self.summary_runs,
             weighting_modes=self.config.weighting_modes,
+            weighting_definitions=self.config.weighting_mode_definitions,
+            config=self.config,
             prepared_run_provider=self.prepared_run_provider,
             dashboard_segmentation_type=self.config.export_html.dashboard.segmentation_type,
             default_segmentation_visibility=(

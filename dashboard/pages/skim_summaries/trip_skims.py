@@ -174,7 +174,7 @@ class TripSkimsPage(DashboardPage):
 
     def _trip_prepared_runs(self):
         """Return prepared runs in the weighting mode expected by distribution charts."""
-        return self.data.prepared_runs(weighted=(self.weighting_key == "weighted"))
+        return self.data.prepared_runs(weighting_mode=self.weighting_key)
 
     def _trip_skim_scenario_value(self) -> str:
         return (

@@ -609,12 +609,20 @@ def build_prepared_run_provider_for_page_definitions(
     page_definitions: (
         list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
     ),
+    *,
+    config: Config | None = None,
 ) -> DashboardPreparedRunProvider:
     prepared_mode = data_requirements_for_pages(page_definitions).prepared_data_mode
     if prepared_mode == "none":
         return DashboardPreparedRunProvider.not_requested()
     if runs:
-        return DashboardPreparedRunProvider.loaded(runs)
+        provider = DashboardPreparedRunProvider.loaded(runs)
+        if config is not None:
+            provider.configure_weighting_modes(
+                config.weighting_mode_definitions,
+                config=config,
+            )
+        return provider
     return DashboardPreparedRunProvider.unavailable()
 
 
@@ -625,6 +633,7 @@ def build_dashboard_prepared_run_provider(
     return build_prepared_run_provider_for_page_definitions(
         runs,
         resolve_live_page_definitions(config),
+        config=config,
     )
 
 

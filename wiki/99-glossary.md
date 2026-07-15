@@ -26,7 +26,7 @@
 | Summary cache | Per-run, per-weighting-mode CSV summary tables consumed by dashboard pages. |
 | Summary contract | Builder metadata defining output schema and required inputs. |
 | TAZ | Traffic analysis zone. |
-| Weighting mode | Dashboard/cache mode such as weighted or unweighted. |
+| Weighting mode | Versioned registered transform that presents prepared `finalweight` values to summary builders and prepared-data pages under one cache/dashboard mode ID. |
 
 ## How The Terms Connect
 

@@ -15,6 +15,15 @@ pipeline:
   dashboard_mode: live # live | export | host
   overwrite: false
 
+# Optional trusted weighting extensions. Each importable module defines
+# register_weighting_modes(registry); settings are available on Config and are
+# included in summary cache identity.
+# extensions:
+#   modules: [my_project.weighting]
+#   settings:
+#     calibrated:
+#       multiplier: 1.0
+
 # ---------------------------------------------------------------------------
 # ActivitySim output file names
 # Use stems (no extension) for automatic format detection.

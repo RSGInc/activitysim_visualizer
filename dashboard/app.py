@@ -38,6 +38,8 @@ def build_dashboard(
     state = DashboardState(
         summary_runs=summary_runs,
         weighting_modes=config.weighting_modes,
+        weighting_definitions=config.weighting_mode_definitions,
+        config=config,
         prepared_run_provider=prepared_run_provider,
         dashboard_segmentation_type=config.segmentation.dashboard.segmentation_type,
         default_segmentation_visibility=config.segmentation.dashboard.visibility,

@@ -8,10 +8,12 @@ from typing import Any, Callable, Iterable, Iterator, Literal, TYPE_CHECKING
 import polars as pl
 
 from processor.models import RunData
-from processor.summarize.cache_types import SummaryRun, strip_weights
+from processor.summarize.cache_types import SummaryRun
 
 if TYPE_CHECKING:
     from dashboard.state import DashboardState
+    from runtime.config import Config
+    from runtime.weighting import WeightingModeDefinition
 
 PreparedRunAvailability = Literal["loaded", "unavailable", "not_requested"]
 VisualizationAvailability = Literal[
@@ -277,12 +279,12 @@ class PageData:
         table_name: str,
         *,
         columns: Iterable[str] = (),
-        weighted: bool | None = None,
+        weighting_mode: str | None = None,
     ) -> RunTables:
         """Resolve one prepared table without exposing RunData to ordinary pages."""
         selection = self._state.inspect_prepared_table(
             table_name,
-            weighted=weighted,
+            weighting_mode=weighting_mode or self._weighting_key(),
             required_columns=tuple(columns),
         )
         self._record_selection(table_name, selection)
@@ -301,10 +303,12 @@ class PageData:
     def prepared_runs(
         self,
         *,
-        weighted: bool | None = None,
+        weighting_mode: str | None = None,
     ) -> list[tuple[str, RunData]] | None:
         """Escape hatch for skim features that require matrices on RunData."""
-        runs = self._state.get_prepared_runs_if_loaded(weighted=weighted)
+        runs = self._state.get_prepared_runs_if_loaded(
+            weighting_mode=weighting_mode or self._weighting_key()
+        )
         if runs is None:
             self._warn_missing_prepared()
         return runs
@@ -407,11 +411,15 @@ class DashboardPreparedRunProvider:
     """Prepared-run access for dashboard pages that need disaggregate data."""
 
     availability: PreparedRunAvailability
-    weighted_runs: list[tuple[str, RunData]] = field(default_factory=list)
-    _unweighted_runs: list[tuple[str, RunData]] | None = field(
-        default=None,
+    base_runs: list[tuple[str, RunData]] = field(default_factory=list)
+    _definitions: dict[str, "WeightingModeDefinition"] = field(
+        default_factory=dict,
         init=False,
         repr=False,
+    )
+    _config: "Config | None" = field(default=None, init=False, repr=False)
+    _runs_by_mode: dict[str, list[tuple[str, RunData]]] = field(
+        default_factory=dict, init=False, repr=False
     )
 
     @classmethod
@@ -419,7 +427,7 @@ class DashboardPreparedRunProvider:
         cls,
         runs: list[tuple[str, RunData]] | None,
     ) -> "DashboardPreparedRunProvider":
-        return cls("loaded", weighted_runs=list(runs or []))
+        return cls("loaded", base_runs=list(runs or []))
 
     @classmethod
     def unavailable(cls) -> "DashboardPreparedRunProvider":
@@ -436,19 +444,38 @@ class DashboardPreparedRunProvider:
     def labels(self) -> list[str]:
         if not self.is_loaded:
             return []
-        return [label for label, _ in self.weighted_runs]
+        return [label for label, _ in self.base_runs]
+
+    def configure_weighting_modes(
+        self,
+        definitions: Iterable["WeightingModeDefinition"],
+        *,
+        config: "Config | None" = None,
+    ) -> None:
+        """Bind the immutable mode definitions selected for this dashboard."""
+        self._definitions = {
+            definition.mode_id: definition for definition in definitions
+        }
+        self._config = config
+        self._runs_by_mode.clear()
 
     def get_runs_if_loaded(
         self,
         *,
-        weighted: bool = True,
+        weighting_mode: str,
     ) -> list[tuple[str, RunData]] | None:
         if not self.is_loaded:
             return None
-        if weighted:
-            return list(self.weighted_runs)
-        if self._unweighted_runs is None:
-            self._unweighted_runs = [
-                (label, strip_weights(rd)) for label, rd in self.weighted_runs
+        mode_id = str(weighting_mode).strip().lower()
+        try:
+            definition = self._definitions[mode_id]
+        except KeyError as exc:
+            raise ValueError(
+                f"Prepared dashboard data does not have weighting mode {mode_id!r}."
+            ) from exc
+        if mode_id not in self._runs_by_mode:
+            self._runs_by_mode[mode_id] = [
+                (label, definition.apply(run, self._config))
+                for label, run in self.base_runs
             ]
-        return list(self._unweighted_runs)
+        return list(self._runs_by_mode[mode_id])
