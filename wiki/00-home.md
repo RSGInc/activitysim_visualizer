@@ -22,11 +22,13 @@ ActivitySim outputs
 |---|---|
 | Run the visualizer for the first time | [10 - Getting Started](10-getting-started.md) |
 | Point the tool at your own raw outputs | [11 - Configuring Your Data](11-configuring-your-data.md) |
+| Find every main config field and option | [13 - Configuration Reference](13-configuration-reference.md) |
 | Use already prepared tables | [11 - Configuring Your Data](11-configuring-your-data.md#using-pre-prepared-tables) |
 | Understand prepare, summarize, dashboard, and caches | [12 - Running Workflows](12-running-workflows.md) |
 | Understand the Output Processor | [20 - Output Processor](20-output-processor.md) |
 | Add a prepared column | [21 - Prepared Tables](21-prepared-tables.md#adding-a-prepared-column) |
 | Add or debug skimjoin outputs | [22 - Skimjoin](22-skimjoin.md) |
+| Find every skimjoin config field and lookup option | [25 - Skimjoin Config Reference](25-skimjoin-config-reference.md) |
 | Add a summary function | [23 - Summary Functions](23-summary-functions.md#adding-a-summary-function) |
 | Find every registered summary table | [24 - Summary Catalog](24-summary-catalog.md) |
 | Understand the Output Visualizer | [30 - Output Visualizer](30-output-visualizer.md) |
@@ -41,6 +43,7 @@ ActivitySim outputs
 - [10 - Getting Started](10-getting-started.md)
 - [11 - Configuring Your Data](11-configuring-your-data.md)
 - [12 - Running Workflows](12-running-workflows.md)
+- [13 - Configuration Reference](13-configuration-reference.md)
 
 ### Output Processor
 
@@ -49,6 +52,7 @@ ActivitySim outputs
 - [22 - Skimjoin](22-skimjoin.md)
 - [23 - Summary Functions](23-summary-functions.md)
 - [24 - Summary Catalog](24-summary-catalog.md)
+- [25 - Skimjoin Config Reference](25-skimjoin-config-reference.md)
 
 ### Output Visualizer
 

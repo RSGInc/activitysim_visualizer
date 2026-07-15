@@ -4,6 +4,9 @@ The config file tells the visualizer where model outputs live, how to normalize
 them, and which workflow to run. The canonical example is
 [`config.yaml`](../config.yaml).
 
+For full field-by-field options, defaults, allowed values, path behavior, and
+cache impact, see [13 - Configuration Reference](13-configuration-reference.md).
+
 ## Top-Level Sections
 
 | Section | Purpose |
@@ -213,6 +216,7 @@ runs:
 ## Related Chapters
 
 - [12 - Running Workflows](12-running-workflows.md)
+- [13 - Configuration Reference](13-configuration-reference.md)
 - [21 - Prepared Tables](21-prepared-tables.md)
 - [22 - Skimjoin](22-skimjoin.md)
 

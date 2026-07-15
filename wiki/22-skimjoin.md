@@ -7,6 +7,10 @@ Use skimjoin when summaries or dashboard pages need values from OMX skims or
 sidecar lookup files, such as time, cost, distance, walk access, or composed
 tour-level attributes.
 
+For full field-by-field skimjoin config options, lookup-rule grammar, defaults,
+and examples, see
+[25 - Skimjoin Config Reference](25-skimjoin-config-reference.md).
+
 ## Runtime Placement
 
 ```text
@@ -89,6 +93,7 @@ Common causes:
 ## Related Chapters
 
 - [11 - Configuring Your Data](11-configuring-your-data.md#per-run-skimjoin-overrides)
+- [25 - Skimjoin Config Reference](25-skimjoin-config-reference.md)
 - [23 - Summary Functions](23-summary-functions.md)
 - [90 - Troubleshooting](90-troubleshooting.md)
 
