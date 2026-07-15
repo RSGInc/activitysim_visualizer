@@ -44,6 +44,10 @@ Per-run overrides in the main visualizer config can change selected skim files,
 
 ## Adding A Skim Output
 
+Start with the [Basic OD Lookup](25-skimjoin-config-reference.md#basic-od-lookup)
+for a complete mode rule, then add dimensions, fallbacks, or tour aggregation
+only when the new output requires them.
+
 Checklist:
 
 1. Confirm the prepared trips/tours contain the source columns needed for lookup.

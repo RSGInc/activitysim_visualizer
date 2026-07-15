@@ -8,7 +8,8 @@ Use this chapter when a run, cache, page, or export is not behaving as expected.
 2. Check the selected pipeline steps and dashboard mode in logs.
 3. Check whether the issue appears in prepare, summarize, dashboard, or export.
 4. Inspect cache manifests for the affected run.
-5. Run the narrowest refresh command that matches the failure.
+5. If cache reuse is suspect, temporarily set `pipeline.overwrite: true` for
+   the affected configured steps.
 
 ## Symptoms
 
@@ -21,11 +22,21 @@ Use this chapter when a run, cache, page, or export is not behaving as expected.
 | Geography options missing | Geography disabled, land-use columns missing, aggregation config wrong | `zones`, `summarize.geography` |
 | Skim pages empty | Skimjoin disabled, no skim outputs, missing lookup rules | skimjoin manifest and reports |
 | Export differs from live | Widget/section not registered, selector values omitted, unsupported node | page selector/section registrations |
-| Dashboard-only run fails | Summary cache missing or prepared-data page needs prepared cache | `--from-csvs`, page prepared-data mode |
+| Dashboard-only run fails | Summary cache missing or prepared-data page needs prepared cache | `pipeline.steps`, page prepared-data mode |
 
 ## Cache Problems
 
-Use targeted refresh flags:
+For a reproducible full rebuild, configure the steps and overwrite policy:
+
+```yaml
+pipeline:
+  steps: [prepare, summarize, dashboard]
+  dashboard_mode: live
+  overwrite: true
+```
+
+Return `overwrite` to `false` after the rebuild. Developers can use targeted
+one-off refresh flags while diagnosing a specific cache layer:
 
 ```bash
 python run.py --config local_config.yaml --refresh-prepared-cache
@@ -47,6 +58,25 @@ Find the page in [31 - Dashboard Pages](31-dashboard-pages.md) and check:
 
 Then find each summary in [24 - Summary Catalog](24-summary-catalog.md) and
 check the required input tables/columns.
+
+### Worked Triage: A Page Says Data Is Unavailable
+
+Suppose Trip Mode opens but shows the standard unavailable card:
+
+1. Find `trip_mode` in chapter 31. It requires
+   `trip_mode_by_tour_purpose_and_tour_mode`.
+2. Find that ID in chapter 24. Note its required prepared table and columns.
+3. Open the affected run's summary manifest. If the summary is `unavailable`,
+   read its recorded reason before rebuilding anything.
+4. If a required prepared column is missing, inspect the prepared manifest and
+   the canonical column settings in `columns`.
+5. If the contract recently changed, rebuild the configured summarize step
+   with `pipeline.overwrite: true`.
+6. If the summary is present and valid, confirm the page's `columns=` request
+   matches the cached schema and that the selected weighting mode exists.
+
+This sequence moves backward through the declared contracts. It avoids trying
+random cache refreshes when the real issue is an input or schema mismatch.
 
 ## Skimjoin Problems
 

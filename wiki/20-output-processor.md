@@ -77,6 +77,25 @@ The processor also carries diagnostic state. A table or summary can be:
 This is intentional. The dashboard can show partial results instead of failing
 the entire workflow when one optional table or summary is unavailable.
 
+### Example: Follow One Metric
+
+For a chart of trips by mode, the processor path is:
+
+```text
+final_trips.csv
+  -> prepare canonicalizes trip_mode and finalweight
+  -> RunData.trips
+  -> trips_by_mode summary groups and weights rows
+  -> registered summary cache
+  -> page reads the table through self.data.summary(...)
+```
+
+Each boundary has one owner. Prepare resolves source filenames and aliases;
+the summary defines the aggregate; the cache validates the persisted contract;
+the page handles presentation. This separation is why a page should not open a
+raw file or reproduce a weighted aggregation. Chapter 44 works through this
+example in code.
+
 ## Extension Checklist
 
 When adding new processor-visible behavior:
@@ -94,4 +113,5 @@ When adding new processor-visible behavior:
 - [21 - Prepared Tables](21-prepared-tables.md)
 - [22 - Skimjoin](22-skimjoin.md)
 - [23 - Summary Functions](23-summary-functions.md)
+- [44 - Summary Function Cookbook](44-summary-function-cookbook.md)
 - [40 - Developer Workflows](40-developer-workflows.md)

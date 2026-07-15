@@ -582,6 +582,8 @@ The main user and contributor documentation lives in the
 - [Data Extension Cookbook](wiki/41-data-extension-cookbook.md)
 - [Config, Columns, and Labels](wiki/42-config-column-label-cookbook.md)
 - [Weighting and Hosting Extensions](wiki/43-weighting-hosting-extensions.md)
+- [Summary Function Cookbook](wiki/44-summary-function-cookbook.md)
+- [Dashboard Extension Cookbook](wiki/45-dashboard-extension-cookbook.md)
 - [Troubleshooting](wiki/90-troubleshooting.md)
 
 The [`docs/`](docs/README.md) directory is retained for ADRs, implementation

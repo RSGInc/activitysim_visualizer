@@ -27,3 +27,12 @@
 | Summary contract | Builder metadata defining output schema and required inputs. |
 | TAZ | Traffic analysis zone. |
 | Weighting mode | Dashboard/cache mode such as weighted or unweighted. |
+
+## How The Terms Connect
+
+For a run labeled `Build`, raw `final_trips.csv` is normalized into the
+prepared `trips` table. A summary builder aggregates its canonical
+`finalweight` column and writes a registered summary under the run key's
+weighted and unweighted cache directories. A dashboard page declares that
+summary ID, reads it through `self.data`, and lets registered selectors refresh
+its sections. Export serializes those same declared page states into HTML.

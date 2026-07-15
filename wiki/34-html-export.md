@@ -82,6 +82,9 @@ That means:
 - pages must register selectors and sections through the page API
 - live-only callbacks do not automatically work in export
 
+For a concrete selector/section declaration that works in both modes, see the
+[Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md#add-a-dynamic-selector).
+
 ## Important Files
 
 | File | Role |
@@ -123,3 +126,4 @@ Checklist:
 - [30 - Output Visualizer](30-output-visualizer.md)
 - [32 - Figures and Widgets](32-figures-and-widgets.md)
 - [90 - Troubleshooting](90-troubleshooting.md)
+- [45 - Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md)

@@ -37,11 +37,11 @@ an exact field or default; it is not required reading.
 | Add a prepared column | [41 - Data Extension Cookbook](41-data-extension-cookbook.md#worked-example-add-a-column-to-an-existing-prepared-table) |
 | Add or debug skimjoin outputs | [22 - Skimjoin](22-skimjoin.md) |
 | Find every skimjoin config field and lookup option | [25 - Skimjoin Config Reference](25-skimjoin-config-reference.md) |
-| Add a summary function | [23 - Summary Functions](23-summary-functions.md#adding-a-summary-function) |
+| Add a summary function | [44 - Summary Function Cookbook](44-summary-function-cookbook.md) |
 | Find every registered summary table | [24 - Summary Catalog](24-summary-catalog.md) |
 | Understand the Output Visualizer | [30 - Output Visualizer](30-output-visualizer.md) |
-| Add a dashboard page | [33 - Dashboard Page Recipes](33-dashboard-page-recipes.md) |
-| Add a figure or widget | [32 - Figures and Widgets](32-figures-and-widgets.md) |
+| Add a dashboard page or page group | [45 - Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md) |
+| Add a figure, table, selector, or widget | [45 - Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md) |
 | Add an outside summary, prepared column, or prepared table | [41 - Data Extension Cookbook](41-data-extension-cookbook.md) |
 | Add a config item, column alias, or label mapping | [42 - Config, Columns, and Labels](42-config-column-label-cookbook.md) |
 | Add a weighting mode or hosting adapter | [43 - Weighting and Hosting Extensions](43-weighting-hosting-extensions.md) |
@@ -79,6 +79,8 @@ an exact field or default; it is not required reading.
 - [41 - Data Extension Cookbook](41-data-extension-cookbook.md)
 - [42 - Config, Columns, and Labels](42-config-column-label-cookbook.md)
 - [43 - Weighting and Hosting Extensions](43-weighting-hosting-extensions.md)
+- [44 - Summary Function Cookbook](44-summary-function-cookbook.md)
+- [45 - Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md)
 - [90 - Troubleshooting](90-troubleshooting.md)
 - [99 - Glossary](99-glossary.md)
 

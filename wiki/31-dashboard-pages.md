@@ -41,6 +41,18 @@ Use a plain group ID for its default children, `default` or `all`, or a list of
 specific child IDs. `dashboard.export.pages` can further select pages and
 selector states without changing the live page set.
 
+For example, enable only two trip-summary children:
+
+```yaml
+dashboard:
+  live:
+    pages:
+      - overview
+      - trip_summaries:
+          - trip_mode
+          - trip_stop_distance
+```
+
 ## Prepared-Data Pages
 
 Most pages are summary-backed. A prepared-data page declares
@@ -108,3 +120,4 @@ Total registered pages: **27**
 - [30 - Output Visualizer](30-output-visualizer.md)
 - [32 - Figures and Widgets](32-figures-and-widgets.md)
 - [33 - Dashboard Page Recipes](33-dashboard-page-recipes.md)
+- [45 - Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md)

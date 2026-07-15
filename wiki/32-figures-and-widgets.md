@@ -26,6 +26,10 @@ that work.
 
 ## Data And Figures
 
+For end-to-end examples of an ordinary chart, a Plotly customization, a new
+shared figure type, a custom widget, and a table, use the
+[Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md).
+
 Load the narrowest useful data selection through `self.data.summary(...)` or
 `self.data.summaries(...)`. `RunTables` applies the same Polars operation across
 runs while retaining labels and availability issues; it supports operations
@@ -118,3 +122,4 @@ export time.
 - [31 - Dashboard Pages](31-dashboard-pages.md)
 - [33 - Dashboard Page Recipes](33-dashboard-page-recipes.md)
 - [34 - HTML Export](34-html-export.md)
+- [45 - Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md)

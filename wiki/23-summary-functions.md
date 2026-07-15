@@ -80,6 +80,9 @@ unweighted builds.
 
 ## Adding A Summary Function
 
+For a complete calculation, contract test, catalog, and page-wiring example,
+follow the [Summary Function Cookbook](44-summary-function-cookbook.md).
+
 1. Put the builder in the domain module that owns the calculation.
 2. Decorate it with `@summary(...)` and declare identity, ordered schema, and
    mechanical prerequisites.
@@ -129,3 +132,4 @@ after summary declarations change.
 - [20 - Output Processor](20-output-processor.md)
 - [21 - Prepared Tables](21-prepared-tables.md)
 - [31 - Dashboard Pages](31-dashboard-pages.md)
+- [44 - Summary Function Cookbook](44-summary-function-cookbook.md)

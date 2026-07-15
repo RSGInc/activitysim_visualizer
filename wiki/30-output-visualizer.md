@@ -87,6 +87,9 @@ duplicating cache or run-selection logic.
 
 ## Extension Path
 
+The [Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md) shows
+complete page, page-group, selector, widget, table, and figure examples.
+
 When adding visual output:
 
 1. Confirm the summary table or prepared table exists.
@@ -104,3 +107,4 @@ When adding visual output:
 - [32 - Figures and Widgets](32-figures-and-widgets.md)
 - [33 - Dashboard Page Recipes](33-dashboard-page-recipes.md)
 - [34 - HTML Export](34-html-export.md)
+- [45 - Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md)

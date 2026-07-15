@@ -9,6 +9,7 @@ module contains one class decorated with `@dashboard_page(...)`.
 import panel as pn
 
 from dashboard import DashboardPage, dashboard_page
+from dashboard.rendering import data_table
 
 
 @dashboard_page(
@@ -26,7 +27,7 @@ class MySummaryPage(DashboardPage):
         data = self.data.summary("my_summary_table")
         if not data:
             return self.summary_only_unavailable_card()
-        return self.plot.table(data)
+        return data_table(data, title="My Summary")
 ```
 
 Use `required_summary_ids` for the page's primary workflow and
@@ -37,6 +38,10 @@ Use `required_summary_ids` for the page's primary workflow and
 Declare the option provider, selector, dependency, and render method:
 
 ```python
+from dashboard.helpers.category_helpers import column_options
+from dashboard.rendering import selector_row
+
+
 def build_page(self):
     self.purpose = self.select(
         "purpose", "Purpose", options=self.purpose_options
@@ -45,10 +50,38 @@ def build_page(self):
         "chart", selectors=("purpose",), render=self.render_chart
     )
     return pn.Column(selector_row(self.purpose), chart)
+
+
+def purpose_options(self):
+    data = self.data.summary("my_summary_table")
+    options, self._purpose_by_label = column_options(
+        data.to_list(),
+        "purpose",
+        category_id="tour_purpose",
+        config=self.config,
+    )
+    return options
+
+
+def render_chart(self):
+    data = self.data.summary(
+        "my_summary_table",
+        columns=("purpose", "category", "count"),
+    )
+    if not data:
+        return self.summary_only_unavailable_card()
+    raw_purpose = self._purpose_by_label[self.purpose.value]
+    return self.plot.bar(
+        data.where(purpose=raw_purpose),
+        x="category",
+        y="count",
+        title=f"Results For {self.purpose.value}",
+    )
 ```
 
 The framework refreshes options and dependent sections. Use
-`self.selector(...)` only for a genuinely custom widget.
+`self.selector(...)` only for a genuinely custom widget. Keep the label-to-raw
+mapping so display labels do not leak into data filters.
 
 ## Recipe 3: Multi-Workflow Page
 
@@ -88,6 +121,9 @@ the current required/optional patterns.
 
 ## Adding A New Page Group
 
+For a complete file layout, config example, discovery explanation, and tests,
+see [Add A New Page Group](45-dashboard-extension-cookbook.md#add-a-new-page-group).
+
 Create a package under `dashboard/pages/` and define `GROUP` in `__init__.py`:
 
 ```python
@@ -122,3 +158,4 @@ requirements.
 - [31 - Dashboard Pages](31-dashboard-pages.md)
 - [32 - Figures and Widgets](32-figures-and-widgets.md)
 - [34 - HTML Export](34-html-export.md)
+- [45 - Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md)
