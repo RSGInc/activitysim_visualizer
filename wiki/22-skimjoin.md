@@ -11,6 +11,17 @@ For full field-by-field skimjoin config options, lookup-rule grammar, defaults,
 and examples, see
 [25 - Skimjoin Config Reference](25-skimjoin-config-reference.md).
 
+Two YAML files participate in integrated use:
+
+- the **main visualizer config** enables the stage with `pipeline.steps` and
+  points at files through `skimjoin.defaults` or per-run overrides; and
+- the **standalone skimjoin config** defines `project`, `activitysim`,
+  dimensions, mode/component lookup rules, fallbacks, and tour aggregation.
+
+Paths in the first file resolve from the main config; paths owned by the second
+resolve from the standalone skimjoin config. Supplying a config path alone does
+not enable the stage—`pipeline.steps` must contain `prepare` and `skimjoin`.
+
 ## Runtime Placement
 
 ```text

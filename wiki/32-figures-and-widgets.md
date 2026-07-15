@@ -10,6 +10,13 @@ metadata.
 Every page subclasses `DashboardPage` and implements `build_page()`. That method
 declares selectors and sections once and returns a stable Panel layout.
 
+`DashboardPage.__init__()` calls `build_page()` after it creates `self.data`,
+page state, and the component registries. Ordinary pages should therefore not
+define their own `__init__`. If specialized initialization is unavoidable, it
+must call `super().__init__(state, config)`, and attributes used by
+`build_page()` must exist before that call. In practice, put declarations in
+`build_page()` and keep implementation mixins free of `__init__` methods.
+
 The main author-facing objects are:
 
 - `self.data` for summary and prepared `RunTables`
@@ -36,6 +43,18 @@ runs while retaining labels and availability issues; it supports operations
 such as `where`, `with_columns`, `group`, `select`, `sort`, `join`, `map`,
 `requiring`, and `drop_empty`.
 
+A `RunTables` value is truthy when at least one run has a non-empty compatible
+table. Runs with a missing table, schema mismatch, failure, or empty input are
+excluded from iteration and described in `data.issues`; consequently,
+`data.partial` means there are both usable and excluded runs. Fluent operations
+preserve those issues. Filtering can make a frame empty without removing it, so
+call `.drop_empty()` when downstream code should ignore those runs.
+
+The `columns=` argument to `summary()` and `prepared()` is a compatibility
+check: a run missing any named column is excluded with a schema diagnostic. It
+does **not** project the returned frames. Use `.select(...)` when a transform
+needs a narrower schema.
+
 Pass `RunTables` to `self.plot` methods where possible. Shared rendering lives
 under `dashboard/rendering/`, including figures, tables, layout, and plotter
 logic. Cross-page domain helpers live under `dashboard/helpers/`.
@@ -49,9 +68,9 @@ def render_mode_chart(self):
     if not data:
         return self.summary_only_unavailable_card()
     chart_data = self.query(
-        lambda: data.where(tour_purpose=self.purpose.value).group(
-            "trip_mode", pl.col("trip_count").sum()
-        )
+        lambda: data.where(tour_purpose=self.purpose.value)
+        .group("trip_mode", pl.col("trip_count").sum())
+        .drop_empty()
     )
     return self.plot.bar(chart_data, x="trip_mode", y="trip_count")
 ```
@@ -85,6 +104,10 @@ chart = self.section(
     render=self.render_mode_chart,
 )
 ```
+
+A section renderer may return one Panel `Viewable`, or a list/tuple of
+`Viewable` objects. It should not mutate the stable section container itself;
+the lifecycle replaces that container's contents after each render.
 
 For a large page, use `self.feature("comparison")` to namespace a coherent
 workflow. Feature component IDs become `comparison.metric`, `comparison.body`,

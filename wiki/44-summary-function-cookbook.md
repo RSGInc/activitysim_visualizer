@@ -205,8 +205,8 @@ cache does not satisfy the view.
 Run:
 
 ```bash
-python scripts/generate_wiki_catalogs.py
-pytest tests/test_summary_declarations.py tests/test_page_registry_contract.py
+uv run python scripts/generate_wiki_catalogs.py
+uv run --with pytest pytest --basetemp .pytest_tmp tests/test_summary_declarations.py tests/test_page_registry_contract.py
 ```
 
 Confirm the new ID appears in chapter 24 and, once wired to a page, in the page

@@ -96,5 +96,5 @@ Regenerate them after changing summary declarations/contracts, dashboard page
 definitions, or page data requirements:
 
 ```bash
-python scripts/generate_wiki_catalogs.py
+uv run python scripts/generate_wiki_catalogs.py
 ```

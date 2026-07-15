@@ -7,7 +7,8 @@ Use this chapter when a run, cache, page, or export is not behaving as expected.
 1. Confirm the config path you ran.
 2. Check the selected pipeline steps and dashboard mode in logs.
 3. Check whether the issue appears in prepare, summarize, dashboard, or export.
-4. Inspect cache manifests for the affected run.
+4. Inspect `<root>/<run-key>/manifest.json` for the affected run (see the
+   [cache layout](12-running-workflows.md#artifact-and-cache-paths)).
 5. If cache reuse is suspect, temporarily set `pipeline.overwrite: true` for
    the affected configured steps.
 
@@ -16,7 +17,7 @@ Use this chapter when a run, cache, page, or export is not behaving as expected.
 | Symptom | Likely causes | First checks |
 |---|---|---|
 | Run missing from dashboard | Missing summary cache, label mismatch, config run omitted | `runs`, cache directories, log run keys |
-| Summary cache rebuilds unexpectedly | Input fingerprint changed, config digest changed, summary contract changed | summary `manifest.json` |
+| Summary cache rebuilds unexpectedly | Input fingerprint changed, config digest changed, summary contract changed | the run manifest's summary-cache entries |
 | Page says data unavailable | Required summary missing, optional raw input absent, prepared column missing | page catalog and summary catalog |
 | Counts look wrong | Weighting mode, sample rate, explicit weight columns | `summarize.weighting_modes`, prepared `finalweight` |
 | Geography options missing | Geography disabled, land-use columns missing, aggregation config wrong | `zones`, `summarize.geography` |
@@ -39,9 +40,9 @@ Return `overwrite` to `false` after the rebuild. Developers can use targeted
 one-off refresh flags while diagnosing a specific cache layer:
 
 ```bash
-python run.py --config local_config.yaml --refresh-prepared-cache
-python run.py --config local_config.yaml --refresh-summary-cache
-python run.py --config local_config.yaml --refresh-caches
+uv run activitysim-viz --config local_config.yaml --refresh-prepared-cache
+uv run activitysim-viz --config local_config.yaml --refresh-summary-cache
+uv run activitysim-viz --config local_config.yaml --refresh-caches
 ```
 
 If only dashboard presentation changed, a refresh usually should not be needed.
@@ -66,10 +67,11 @@ Suppose Trip Mode opens but shows the standard unavailable card:
 1. Find `trip_mode` in chapter 31. It requires
    `trip_mode_by_tour_purpose_and_tour_mode`.
 2. Find that ID in chapter 24. Note its required prepared table and columns.
-3. Open the affected run's summary manifest. If the summary is `unavailable`,
-   read its recorded reason before rebuilding anything.
-4. If a required prepared column is missing, inspect the prepared manifest and
-   the canonical column settings in `columns`.
+3. Open `<root>/<run-key>/manifest.json` and inspect the summary entry. If the
+   summary is `unavailable`, read its recorded reason before rebuilding
+   anything.
+4. If a required prepared column is missing, inspect the same manifest's
+   prepared-cache entry and the canonical column settings in `columns`.
 5. If the contract recently changed, rebuild the configured summarize step
    with `pipeline.overwrite: true`.
 6. If the summary is present and valid, confirm the page's `columns=` request

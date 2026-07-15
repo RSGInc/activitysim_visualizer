@@ -112,12 +112,41 @@ Declare prepared-data requirements in the decorator:
     required_prepared_tables=("trips",),
     default_enabled=False,
 )
+class RawTripDemoPage(DashboardPage):
+    def build_page(self):
+        body = self.section(
+            "trip_table",
+            export_data_mode="required",
+            render=self.render_trip_table,
+        )
+        return pn.Column(pn.pane.Markdown("## Raw Trips"), body)
+
+    def render_trip_table(self):
+        data = self.data.prepared(
+            "trips",
+            columns=("trip_id", "trip_mode"),
+        )
+        if not data:
+            return self.data_not_available_card(
+                detail="This page requires disaggregate prepared trip records.",
+                missing_items=["trips"],
+            )
+        return data_table(
+            data.select("trip_id", "trip_mode"),
+            title="Raw Trips",
+        )
 ```
 
 Load prepared data through `self.data`, handle an unavailable selection with a
 standard card, and keep disaggregate use limited. Prefer summaries for repeated
 aggregate views. `raw_trip_demo.py`, the skim pages, and parking location show
 the current required/optional patterns.
+
+Mark every section that reads prepared data with
+`export_data_mode="optional"` or `"required"`. Standalone export does not load
+prepared tables and skips those sections. If the page also has a summary-backed
+view that should export, place it in a separate section whose
+`export_data_mode` remains `"none"`.
 
 ## Adding A New Page Group
 
@@ -151,7 +180,7 @@ requirements.
 - Missing data produces a standard, useful diagnostic card.
 - Live and export behavior derive from the same component declarations.
 - Focused page-authoring and figure tests pass.
-- `python scripts/generate_wiki_catalogs.py` leaves catalogs current.
+- `uv run python scripts/generate_wiki_catalogs.py` leaves catalogs current.
 
 ## Related Chapters
 

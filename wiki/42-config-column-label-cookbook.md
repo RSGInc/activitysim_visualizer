@@ -98,6 +98,12 @@ on the owning page.
 Update `config.yaml` and chapter 13. Add tests for the default, explicit value,
 wrong type, signature ownership, and visible consumer behavior:
 
+The snippets below use illustrative module-local helpers named
+`_write_config()` and `_raw_run()`. They are not repository-wide pytest
+fixtures: define the minimal helper in the owning test module, or adapt that
+module's existing config/run factory. Likewise, `extra_lines` and
+`column_lines` are example helper arguments rather than public config APIs.
+
 ```python
 def test_show_zero_categories_is_presentation_only(tmp_path):
     config = _write_config(

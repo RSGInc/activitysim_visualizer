@@ -20,8 +20,17 @@ Important fields:
 | `optional_summary_ids` | Independent add-on summaries that may be absent. |
 | `required_prepared_tables` | Prepared tables required by the page. |
 
-The runtime uses these declarations to load only the data needed by enabled
-pages.
+These declarations control dashboard cache loading, pruning, availability
+diagnostics, and prepared-table loading. They do **not** select which generated
+summaries the summarize workflow builds; ordinary summarize runs build every
+`build_by_default=True` declaration.
+
+`required_summary_ids` marks the page's primary data. If no run has a usable
+required table, `self.data.summary(...)` records a required-data warning and the
+page should render a standard unavailable card. `optional_summary_ids` declares
+an independent add-on: its absence should hide or replace only that feature.
+Neither declaration crashes the whole dashboard, and both can be partially
+available when some runs are usable and others are excluded.
 
 ## Enabling Pages
 
@@ -37,9 +46,22 @@ dashboard:
       - tour_summaries
 ```
 
-Use a plain group ID for its default children, `default` or `all`, or a list of
-specific child IDs. `dashboard.export.pages` can further select pages and
-selector states without changing the live page set.
+Group selection modes are:
+
+| Config entry | Selected children |
+|---|---|
+| `trip_summaries` | Default-enabled children, or the group's fallback child when none are default-enabled. |
+| `trip_summaries: default` | Same default-child behavior, stated explicitly. |
+| `trip_summaries: all` | Every registered child, including children with `default_enabled=False`. |
+| `trip_summaries: [trip_mode, trip_stop_distance]` | Exactly the listed children in that order. |
+
+When `dashboard.live.pages` is omitted, standalone pages and groups must be
+default-enabled, and grouped children must also be default-enabled. A group's
+`default_page_id` selects the initially visible tab/fallback; it does not by
+itself enable every child.
+
+`dashboard.export.pages` can only narrow the resolved live page set and choose
+selector states/parts. It cannot add a page omitted from `dashboard.live.pages`.
 
 For example, enable only two trip-summary children:
 
@@ -59,13 +81,27 @@ Most pages are summary-backed. A prepared-data page declares
 `prepared_data_mode` and `required_prepared_tables`. Use prepared data only when
 the page truly needs disaggregate records.
 
+Current runtime behavior is:
+
+| Mode | Live dashboard behavior |
+|---|---|
+| `none` | Prepared caches are not requested for the page. `required_prepared_tables` must be empty. |
+| `optional` | Prepared caches are requested, but the page's primary summary-backed workflow should remain useful when they are unavailable. |
+| `required` | Prepared caches are requested and the page should present an unavailable state when they cannot be loaded. |
+
+Both `optional` and `required` trigger loading; the distinction communicates
+feature criticality and contributes to the strongest requirement across enabled
+pages. Page render code remains responsible for the fallback. Standalone HTML
+export does not load prepared tables; see chapter 34 for section-level export
+rules.
+
 ## Generated Page Catalog
 
 The catalog below is generated from the dashboard page registry. Regenerate it
 with:
 
 ```bash
-python scripts/generate_wiki_catalogs.py
+uv run python scripts/generate_wiki_catalogs.py
 ```
 
 <!-- GENERATED:DASHBOARD-PAGE-CATALOG START -->

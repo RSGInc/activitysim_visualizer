@@ -53,6 +53,11 @@ below `root`; an absolute path writes elsewhere. Change
 `pipeline.dashboard_mode` back to `live` when the same config should serve the
 dashboard instead.
 
+Export begins with the pages resolved by `dashboard.live.pages`. The
+`dashboard.export.pages`, `exclude_pages`, and `exclude_groups` settings may
+narrow that set, configure selector states, or disable parts; they cannot add a
+page that live configuration omitted.
+
 ## Supported Runtime Behavior
 
 The export runtime supports a deliberately small set of rendered objects:
@@ -82,8 +87,37 @@ That means:
 - pages must register selectors and sections through the page API
 - live-only callbacks do not automatically work in export
 
+Selector and part names are author-defined IDs, not widget labels or section
+titles. Find selector IDs in a page's `self.select(...)` and
+`self.selector(...)` calls, and part IDs in `self.section(...)` calls. Feature
+IDs prefix their components (for example, `comparison.metric` and
+`comparison.body`). The page/group IDs are listed in the generated catalog in
+chapter 31, and chapter 13 contains a complete override example. Invalid page,
+selector, part, or selector-value entries fail or produce a targeted warning
+rather than being silently guessed.
+
 For a concrete selector/section declaration that works in both modes, see the
 [Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md#add-a-dynamic-selector).
+
+## Prepared Data Is A Live-Only Boundary
+
+The export workflow loads summary caches but does not load prepared runs. A
+section that reads prepared data must declare that boundary:
+
+```python
+trip_table = self.section(
+    "trip_table",
+    export_data_mode="required",
+    render=self.render_trip_table,
+)
+```
+
+During HTML export, any section whose `export_data_mode` is `optional` or
+`required` is skipped. The distinction still documents whether the feature is
+optional or essential in live mode. Summary-only sections use the default
+`export_data_mode="none"` and remain eligible for export. Split mixed pages
+into separate prepared-backed and summary-backed sections so the latter can be
+exported safely.
 
 ## Important Files
 
@@ -108,7 +142,7 @@ Checklist:
 2. Update serializer or payload builder.
 3. Update JavaScript runtime source.
 4. Rebuild `assets/export_runtime.js` with
-   `python dashboard/export/build_export_runtime.py`.
+   `uv run python dashboard/export/build_export_runtime.py`.
 5. Add/update fixture, contract, and smoke tests.
 6. Bump `EXPORT_SCHEMA_VERSION` if older payloads are no longer safe.
 7. Update this wiki chapter if user-visible behavior changed.

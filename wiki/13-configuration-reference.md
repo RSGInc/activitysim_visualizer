@@ -10,9 +10,17 @@ keys fail validation and, where possible, name their canonical replacement.
 
 ## Reading This Reference
 
-Paths are resolved relative to the config file unless they are absolute. File
-stems in `files` and `runs[*].file_map` are different: they are resolved inside
-each run output directory and may omit `.parquet` or `.csv`.
+Path resolution depends on the field:
+
+| Field family | Relative to | Notes |
+|---|---|---|
+| `root` | main config directory | Becomes an absolute artifact/cache root during config loading. |
+| `runs[*].dir` | main config directory | Raw ActivitySim output directory. |
+| `files.*`, `runs[*].file_map.*` | the resolved run directory | File stems may omit `.parquet` or `.csv`; Parquet is tried before CSV. |
+| `fallback_files.*`, `prepared_table_map.*`, `summary_table_map.*` | main config directory | Values must include `.parquet` or `.csv`. |
+| main-config skim, lookup, and skimjoin override paths | main config directory | Includes `prepare.distance_skim.file`, segmentation CSVs, and `skimjoin.defaults.*`. |
+| paths inside the standalone skimjoin config | standalone skimjoin config directory | See chapter 25. |
+| `dashboard.export.output_path` | resolved `root` | Absolute output paths remain absolute. |
 
 Cache impact uses these labels:
 
@@ -113,7 +121,7 @@ runs:
 | `zones` | mapping | MAZ/TAZ defaults | Prepare, Summary | Zone-system behavior and land-use zone aliases. |
 | `columns` | mapping | Built-in column aliases | Prepare, Summary | Source column aliases for non-standard ActivitySim outputs. |
 | `prepare` | mapping | Built-in prepare defaults | Prepare | Prepared table format, validation, distance skims, VOT bins, and auto sufficiency. |
-| `skimjoin` | mapping | disabled unless defaults/config path imply enabled | Prepare, Summary | Optional skim enrichment wiring. |
+| `skimjoin` | mapping | disabled unless `pipeline.steps` includes `skimjoin` | Prepare, Summary | Optional wiring to a separate standalone skimjoin config. |
 | `segment` | mapping | disabled | Summary, Presentation | Optional segmented summaries and dashboard segment controls. |
 | `summarize` | mapping | weighted and unweighted summaries | Summary | Summary weighting, purpose grouping, geography, and PNR mode behavior. |
 | `dashboard` | mapping | live dashboard defaults | Presentation | Dashboard title, page selection, MAZ geography toggle, and export settings. |
@@ -127,8 +135,8 @@ runs:
 | Field | Type | Default | Allowed values | Impact | Notes |
 |---|---|---|---|---|---|
 | `steps` | non-empty list of strings | `[summarize, dashboard]` | `prepare`, `skimjoin`, `segment`, `summarize`, `dashboard` | Runtime | Steps must be lowercase, unique, and valid. `skimjoin` requires `prepare`; `segment` requires `summarize`; `dashboard` must be last when present. |
-| `dashboard_mode` | string | `live` | `none`, `live`, `export`, `host` | Runtime, Presentation | Controls what the dashboard step does. |
-| `overwrite` | boolean | `false` | `true`, `false` | Runtime | Allows workflows to replace existing artifacts when supported. |
+| `dashboard_mode` | string | `live` | `none`, `live`, `export`, `host` | Runtime, Presentation | Controls what the dashboard step does. `host` is reserved and currently warns, then falls back to the ordinary live server; it does not publish an application. |
+| `overwrite` | boolean | `false` | `true`, `false` | Runtime | Bypasses reusable prepared/summary caches for configured processor steps and writes rebuilt artifacts. Return it to `false` after a forced rebuild. |
 
 ```yaml
 pipeline:
@@ -144,7 +152,7 @@ it becomes the display name and helps cache/debug output remain understandable.
 
 | Field | Type | Default | Impact | Notes |
 |---|---|---|---|---|
-| `dir` | path string | none | Prepare | Raw ActivitySim output folder. Required unless the run uses `prepared_table_map`. |
+| `dir` | path string | none | Prepare | Raw ActivitySim output folder. Required unless the run is supplied by `prepared_table_map`, by `summary_table_map` alone, or both. |
 | `label` | string | folder name or `run` fallback | Summary, Presentation | Dashboard and cache-facing run name. Keep stable across reruns. |
 | `file_map` | mapping | inherits top-level `files` | Prepare | Per-run raw file stem overrides. Cannot be combined with `prepared_table_map`. |
 | `prepared_table_map` | mapping | none | Prepare, Summary | Explicit `.parquet` or `.csv` canonical prepared tables. Skips raw prepare for that run. |
@@ -164,6 +172,22 @@ resolved relative to the config file.
 
 `summary_table_map` uses registered IDs from the summary catalog. Its paths must
 also end in `.parquet` or `.csv` and are resolved relative to the config file.
+
+### Run Labels And Run Keys
+
+`label` is the dashboard name. Its filesystem-safe lowercase slug is the run
+key used by cache directories, manifests, and settings such as
+`prepare.vot_bins.mappings`:
+
+| Label | Run key |
+|---|---|
+| `Base` | `base` |
+| `Build Scenario` | `build-scenario` |
+| `2026 / Toll Test` | `2026-toll-test` |
+
+If normalized labels collide, every colliding key receives an ordered numeric
+suffix (`build-1`, `build-2`). Keep labels unique and stable: changing their
+order can change those suffixes and therefore cache/mapping identity.
 
 ```yaml
 runs:
@@ -342,6 +366,17 @@ skimjoin config file. See
 [25 - Skimjoin Config Reference](25-skimjoin-config-reference.md) for the
 lookup-rule schema.
 
+```text
+main visualizer config
+  pipeline.steps: enables the integrated skimjoin stage
+  skimjoin.defaults: selects the standalone config and optional path overrides
+    -> standalone skimjoin config
+       project/activitysim/defaults/modes: defines the actual lookup rules
+```
+
+Merely providing `skimjoin.defaults.config_path` does not run skimjoin;
+`pipeline.steps` must also contain both `prepare` and `skimjoin`.
+
 | Field | Type | Default | Impact | Notes |
 |---|---|---|---|---|
 | `defaults.config_path` | path string | none | Prepare, Summary | Shared skimjoin config path. |
@@ -490,6 +525,16 @@ Export page overrides are keyed by page id or by nested group/page id. Selector
 keys depend on the page. Selector values may be `default`, `all`, a single
 string, or a list of strings. `parts.*.enabled` can hide named export parts.
 
+Export starts from `dashboard.live.pages`, so it can narrow the live page set
+but cannot add a page that live configuration did not select. Find valid IDs in:
+
+- page and group IDs: the generated catalog in chapter 31;
+- selector IDs: `self.select(...)` and `self.selector(...)` calls on the page;
+- part IDs: `self.section(...)` calls, including feature-prefixed IDs such as
+  `comparison.body`; and
+- current runtime expectations: `tests/test_page_registry_contract.py` and
+  export payload tests.
+
 ```yaml
 dashboard:
   export:
@@ -559,7 +604,7 @@ Impact: Summary.
 |---|---|---|---|---|
 | `label` | string | required | Prepare, Summary | Display label for the student type. |
 | `land_use_columns` | string or list | `[]` | Prepare, Summary | Land-use columns used for this student type. |
-| `person` | mapping | optional for one or two entries | Prepare, Summary | Person-side selector. Required for custom multi-school segmentation with more than two entries unless the type clearly defaults to university. |
+| `person` | mapping | optional | Prepare, Summary | Person-side selector. See the exact default and multi-entry rules below. |
 | `person.is_university` | boolean | none | Prepare, Summary | Match university flag. |
 | `person.school_segment` | scalar or list | none | Prepare, Summary | Match school segment values. |
 | `person.SCHG` | scalar or list | none | Prepare, Summary | Match `SCHG` values. |
@@ -574,6 +619,39 @@ prepare:
         school_segment: [K12]
     - label: University
       land_use_columns: [UNIV_ENROLL]
+      person:
+        is_university: true
+```
+
+Matching rules are deterministic:
+
+1. When `prepare.student_types` is empty, prepare infers `School` from available
+   `ENROLLGRADEKto8`/`ENROLLGRADE9to12` columns and `University` from
+   `COLLEGEENROLL`.
+2. When a configured entry omits `person`, labels or land-use column names
+   containing `univ` or `college` match `is_university`; other entries match
+   `is_student` and exclude university students.
+3. With more than two configured entries, every non-university-defaulting entry
+   must provide `person`; otherwise config validation fails.
+4. A `person` mapping combines all supplied conditions with AND. Scalar and
+   list values are both accepted for `school_segment`, `SCHG`, and `pstudent`.
+5. If multiple entries match one person, the first configured entry wins.
+
+For example, three school levels must select their person rows explicitly:
+
+```yaml
+prepare:
+  student_types:
+    - label: Elementary
+      land_use_columns: [ELEM_ENROLL]
+      person:
+        SCHG: [1, 2]
+    - label: High School
+      land_use_columns: [HIGH_ENROLL]
+      person:
+        SCHG: [3]
+    - label: University
+      land_use_columns: [COLLEGEENROLL]
       person:
         is_university: true
 ```

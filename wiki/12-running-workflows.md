@@ -22,6 +22,19 @@ prepare -> summarize -> dashboard
 
 Skimjoin runs inside prepare when selected. Segmentation runs with summarize.
 
+These are requested workflow boundaries, not isolated commands. In particular,
+`summarize` must have prepared data: it reuses a valid prepared cache or builds
+prepared data from the configured raw/prepared inputs when the cache is missing
+or stale. Adding `prepare` explicitly runs and persists that boundary first;
+the summarize boundary then reuses the in-memory or cached result rather than
+preparing a second time.
+
+| Requested step | What it guarantees | Prerequisites resolved automatically |
+|---|---|---|
+| `prepare` | Prepared tables are loaded/built and cached. | Raw files or `prepared_table_map`. |
+| `summarize` | Default registered summaries are loaded/built and cached. | Prepared data is loaded/built as needed. |
+| `dashboard` | Existing summary caches are loaded and displayed/exported. | No summaries are built; required caches must exist or come from `summary_table_map`. |
+
 ## Configure A Live Workflow
 
 ```yaml
@@ -82,7 +95,7 @@ Other focused workflows use the same fields:
 | Goal | `pipeline.steps` | `dashboard_mode` |
 |---|---|---|
 | Prepare tables only | `[prepare]` | `none` |
-| Build or reuse summaries only | `[summarize]` | `none` |
+| Build or reuse summaries, preparing on cache miss | `[summarize]` | `none` |
 | Open a live dashboard from existing caches | `[dashboard]` | `live` |
 | Export HTML from existing caches | `[dashboard]` | `export` |
 
@@ -95,12 +108,18 @@ Available logical steps are `prepare`, `skimjoin`, `segment`, `summarize`, and
 `dashboard`. Dashboard must be last. `skimjoin` requires `prepare`; `segment`
 requires `summarize`.
 
+The default when `pipeline.steps` is omitted is `[summarize, dashboard]`.
+That default still prepares raw inputs when a valid prepared cache is not
+available. Include `prepare` explicitly when prepared-cache creation is itself
+an intended, visible stage or when `skimjoin` is enabled.
+
 Dashboard modes:
 
 - `live`: local Panel server;
 - `export`: standalone HTML;
 - `none`: no dashboard; and
-- `host`: reserved extension point that currently falls back to live mode.
+- `host`: reserved extension point that currently logs a warning and executes
+  the normal live server; it does not publish to a hosting provider.
 
 ## Artifact And Cache Paths
 
@@ -112,6 +131,34 @@ Set `root` once for the workflow:
 ```yaml
 root: D:\activitysim_visualizer\regional_comparison
 ```
+
+For two runs labeled `Base` and `Build`, the normal layout is:
+
+```text
+regional_comparison/
+  base/
+    manifest.json
+    prepared_tables/
+      households.parquet
+      persons.parquet
+      tours.parquet
+      trips.parquet
+      ...
+    summary_tables/
+      weighted/
+        <summary>.csv
+      unweighted/
+        <summary>.csv
+  build/
+    manifest.json
+    prepared_tables/
+    summary_tables/
+```
+
+The run-key directory is a filesystem-safe lowercase slug of the run label.
+For example, `Build Scenario` becomes `build-scenario`. Colliding labels receive
+ordered suffixes such as `build-1` and `build-2`; avoid duplicate labels because
+reordering them changes which run receives each suffix.
 
 Relative paths in `dashboard.export.output_path` resolve below this directory.
 Input paths follow the path rules documented in

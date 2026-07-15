@@ -77,6 +77,13 @@ The processor also carries diagnostic state. A table or summary can be:
 This is intentional. The dashboard can show partial results instead of failing
 the entire workflow when one optional table or summary is unavailable.
 
+“Empty” and “unavailable” are different contracts. Empty means the input and
+calculation were valid but produced zero rows. Unavailable means a prerequisite
+table/column was absent or a declared operation could not run. Failed means an
+exception was recorded under the configured failure policy. Preserve the
+availability metadata when copying `RunData`; checking only
+`DataFrame.is_empty()` loses that distinction.
+
 ### Example: Follow One Metric
 
 For a chart of trips by mode, the processor path is:

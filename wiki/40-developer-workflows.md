@@ -40,16 +40,15 @@ activitysim_visualizer/
 | New raw-output normalization | [21 - Prepared Tables](21-prepared-tables.md) |
 | New prepared column | [21 - Prepared Tables](21-prepared-tables.md#adding-a-prepared-column) |
 | New skim-derived output | [22 - Skimjoin](22-skimjoin.md#adding-a-skim-output) |
-| New summary table | [23 - Summary Functions](23-summary-functions.md#adding-a-summary-function) |
+| New generated summary function/table | [44 - Summary Function Cookbook](44-summary-function-cookbook.md) |
 | New figure or table on existing page | [32 - Figures and Widgets](32-figures-and-widgets.md) |
 | New dashboard page | [33 - Dashboard Page Recipes](33-dashboard-page-recipes.md) |
 | New export node/runtime behavior | [34 - HTML Export](34-html-export.md#changing-export-runtime-behavior) |
-| New outside summary table | [41 - Data Extension Cookbook](41-data-extension-cookbook.md#worked-example-add-an-outside-summary-table) |
+| New externally produced summary table/file | [41 - Data Extension Cookbook](41-data-extension-cookbook.md#worked-example-add-an-outside-summary-table) |
 | New prepared column or table | [41 - Data Extension Cookbook](41-data-extension-cookbook.md) |
 | New config key or source-column alias | [42 - Config, Columns, and Labels](42-config-column-label-cookbook.md) |
 | New dashboard label mapping | [42 - Config, Columns, and Labels](42-config-column-label-cookbook.md#worked-example-add-a-label-mapping-and-use-it-on-a-page) |
 | New weighting mode or host | [43 - Weighting and Hosting Extensions](43-weighting-hosting-extensions.md) |
-| New generated summary function | [44 - Summary Function Cookbook](44-summary-function-cookbook.md) |
 | New page, page group, widget, table, or figure | [45 - Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md) |
 
 ## Testing Guidance
@@ -82,7 +81,7 @@ Regenerate catalogs after changing:
 Command:
 
 ```bash
-python scripts/generate_wiki_catalogs.py
+uv run python scripts/generate_wiki_catalogs.py
 ```
 
 Generated sections are marked with comments. Do not edit inside generated

@@ -47,17 +47,21 @@ with domain boundaries in `processor/prepare/enrichment/domains.py`.
 
 Runtime table names are defined in `processor.models.PreparedTableName`:
 
-| Name | Meaning |
-|---|---|
-| `hh` | Households. |
-| `per` | Persons. |
-| `day` | Day table when available. |
-| `tours` | Tours. |
-| `trips` | Trips. |
-| `vehicles` | Vehicles when available. |
-| `joint_participants` | Joint tour participants. |
-| `land_use` | Land use and geography lookup data. |
-| `skim` | Optional skim matrix support. |
+| Config/file table ID | `RunData`/summary-contract name | Meaning |
+|---|---|---|
+| `households` | `hh` | Households. |
+| `persons` | `per` | Persons. |
+| `day` | `day` | Day table when available. |
+| `tours` | `tours` | Tours. |
+| `trips` | `trips` | Trips. |
+| `vehicles` | `vehicles` | Vehicles when available. |
+| `joint_tour_participants` | `joint_participants` | Joint tour participants. |
+| `land_use` | `land_use` | Land use and geography lookup data. |
+| no file-map ID | `skim` | Optional `skim_matrix` support exposed as a special prepared requirement. |
+
+Use config/file IDs in `files`, `file_map`, and `prepared_table_map`. Use the
+runtime names in `RunData` access and `@summary(required_columns=...)`; for
+example, `run.per` and `required_columns={"per": ("person_type",)}`.
 
 ## Common Prepared Fields
 
@@ -74,6 +78,11 @@ rely on:
 
 Use the prepared field when it exists rather than probing raw names in a summary
 or page.
+
+This list is orientation, not a guarantee that every table has every field.
+For a specific summary, the generated catalog in chapter 24 is the authoritative
+list of required prepared columns. At runtime, `@summary` prerequisites and
+prepared-table availability metadata determine whether a calculation can run.
 
 ## Adding A Prepared Column
 

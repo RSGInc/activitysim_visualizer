@@ -213,6 +213,60 @@ For an area chart:
 4. validate required columns with the same clear errors as other builders; and
 5. test the Plotly figure before testing Panel wrapping.
 
+Here is a complete minimal builder for `dashboard/rendering/figures.py`. It
+uses the existing internal helpers because it lives beside the other builders:
+
+```python
+def area_figure(
+    context: RenderContext,
+    data: ChartTables,
+    *,
+    x: str,
+    y: str,
+    title: str = "",
+    x_title: str = "",
+    y_title: str = "Count",
+    value_mode: ChartValueMode = "dashboard",
+    height: int = 350,
+) -> go.Figure:
+    _require_columns(data, "area", x, y)
+    share = _share_mode(context, value_mode)
+    figure = go.Figure()
+
+    for index, (label, frame) in enumerate(data):
+        values = np.asarray(frame[y].to_list(), dtype=float)
+        if share and values.sum() > 0:
+            values = values / values.sum() * 100.0
+        figure.add_trace(
+            go.Scatter(
+                name=str(label),
+                x=frame[x].to_list(),
+                y=values.tolist(),
+                mode="lines",
+                fill="tozeroy",
+                line=dict(
+                    color=context.color(str(label), index),
+                    width=2,
+                ),
+            )
+        )
+
+    _layout(
+        figure,
+        title=title,
+        x_title=x_title,
+        y_title=_y_title(y_title, share),
+        height=height,
+    )
+    return figure
+```
+
+`ChartTables`, `ChartValueMode`, `go`, and `np` are already used by that
+module. The explicit `value_mode` keeps `"dashboard"`, forced count, and forced
+share behavior consistent with the existing figure types. `_require_columns`
+provides a run-specific error, while `RenderContext.color()` preserves the
+configured run-color mapping.
+
 The adapter shape is:
 
 ```python
@@ -239,6 +293,21 @@ def test_area_figure_uses_run_labels_and_colors():
     assert figure.data[0].name == "Base"
     assert list(figure.data[0].x) == [1, 2]
     assert figure.data[0].fill == "tozeroy"
+    assert figure.data[0].line.color == RenderContext().color("Base", 0)
+
+
+def test_area_figure_honors_dashboard_share_mode():
+    data = [("Base", pl.DataFrame({"period": [1, 2], "trips": [1.0, 3.0]}))]
+
+    figure = Plotter(RenderContext(value_mode="share")).figure.area(
+        data,
+        x="period",
+        y="trips",
+        y_title="Trips",
+    )
+
+    assert list(figure.data[0].y) == [25.0, 75.0]
+    assert figure.layout.yaxis.title.text == "Percent of Trips (%)"
 ```
 
 ## Add A Table
@@ -326,9 +395,9 @@ IDs, requirements, and export protocol support.
 Run at least:
 
 ```bash
-python scripts/generate_wiki_catalogs.py
-pytest tests/test_page_authoring.py tests/test_page_registry_contract.py
-pytest tests/test_figure_builders.py tests/test_export_payload.py
+uv run python scripts/generate_wiki_catalogs.py
+uv run --with pytest pytest --basetemp .pytest_tmp tests/test_page_authoring.py tests/test_page_registry_contract.py
+uv run --with pytest pytest --basetemp .pytest_tmp tests/test_figure_builders.py tests/test_export_payload.py
 ```
 
 ## Review Checklist

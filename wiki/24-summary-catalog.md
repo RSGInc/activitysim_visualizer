@@ -6,7 +6,7 @@ This page is generated from the `@summary(...)` declarations collected by
 Regenerate it with:
 
 ```bash
-python scripts/generate_wiki_catalogs.py
+uv run python scripts/generate_wiki_catalogs.py
 ```
 
 <!-- GENERATED:SUMMARY-CATALOG START -->

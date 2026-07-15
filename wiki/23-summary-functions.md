@@ -72,6 +72,13 @@ Successful builders must return exactly the declared columns, in the declared
 order and with the declared dtypes. Missing declared inputs are handled before
 the builder runs and produce its typed empty result.
 
+Use `required_tables` only when the presence of an entire table or `skim` is
+enough to express the prerequisite. Use `required_columns` for ordinary table
+dependencies; it also implies that the named runtime table must exist. Table
+names here are `RunData` names (`hh`, `per`, `tours`, `trips`,
+`joint_participants`, `land_use`), not config IDs such as `households` or
+`persons`.
+
 ## Weighting
 
 Builders aggregate `finalweight`; they do not branch on weighting mode. The
@@ -93,23 +100,34 @@ follow the [Summary Function Cookbook](44-summary-function-cookbook.md).
    declared prerequisites cannot express.
 7. Add focused calculation and contract tests.
 8. Add the summary ID to a page's required or optional summaries when needed.
-9. Run `python scripts/generate_wiki_catalogs.py`.
+9. Run `uv run python scripts/generate_wiki_catalogs.py`.
 
-The catalog import rejects duplicate IDs. `build_by_default=False` registers an
-external or optional summary without adding it to an ordinary full build.
+The catalog import rejects duplicate IDs. Ordinary summarize workflows build
+every declaration with `build_by_default=True`; enabled page requirements do
+not narrow or expand that build set. `build_by_default=False` registers a
+contract without adding it to ordinary generated builds. In the current public
+workflow this is the external-table pattern: provide the table through
+`summary_table_map`. Merely listing a non-default ID in a page declaration does
+not cause its builder to run.
 
 ## Summary CSV Boundary
 
-Summary caches are the dashboard input. Calibration-friendly CSVs can also be
-written with:
+Summary caches are the dashboard input and their registered tables are already
+stored as CSV files under each run and weighting mode. Normal summarize runs
+write missing or stale cache tables unless `--skip-summary-cache-write` is used.
+
+For a developer diagnostic, this command bypasses reusable summary caches,
+rebuilds the configured summaries, and forces the cache CSVs/manifests to be
+written:
 
 ```bash
-python run.py --config local_config.yaml --summarize --write-csvs
+uv run activitysim-viz --config local_config.yaml --summarize --write-csvs
 ```
 
-`processor.summarize.csv_export.write_summary_csvs()` is the narrow CSV writer
-boundary. Dashboard pages load registered summaries through `self.data`; they
-do not open cache CSVs directly.
+It does not create a second export format or a separate calibration directory.
+`processor.summarize.csv_export.write_summary_csvs()` is the shared low-level
+writer used by cache storage. Dashboard pages load registered summaries through
+`self.data`; they do not open those CSVs directly.
 
 To register a new dashboard-ready table produced outside the visualizer, use
 the [outside summary table recipe](41-data-extension-cookbook.md#worked-example-add-an-outside-summary-table).

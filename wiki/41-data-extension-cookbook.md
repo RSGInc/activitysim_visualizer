@@ -133,8 +133,8 @@ def test_external_emissions_loads(tmp_path, config):
 Run:
 
 ```bash
-pytest tests/test_summary_declarations.py tests/test_runtime_workflows.py
-python scripts/generate_wiki_catalogs.py
+uv run --with pytest pytest --basetemp .pytest_tmp tests/test_summary_declarations.py tests/test_runtime_workflows.py
+uv run python scripts/generate_wiki_catalogs.py
 ```
 
 ## Worked Example: Add A Column To An Existing Prepared Table
@@ -309,8 +309,8 @@ At minimum, cover:
 Useful suites:
 
 ```bash
-pytest tests/test_processor_prepare.py tests/test_prepare_cache.py
-pytest tests/test_runtime_workflows.py tests/test_page_registry_contract.py
+uv run --with pytest pytest --basetemp .pytest_tmp tests/test_processor_prepare.py tests/test_prepare_cache.py
+uv run --with pytest pytest --basetemp .pytest_tmp tests/test_runtime_workflows.py tests/test_page_registry_contract.py
 ```
 
 ## Completion Checklist

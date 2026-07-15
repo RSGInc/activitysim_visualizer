@@ -152,8 +152,8 @@ At minimum, prove:
 Useful suites:
 
 ```bash
-pytest tests/test_config_refactor_phase1.py tests/test_summary_cache.py
-pytest tests/test_dashboard_live.py tests/test_export_payload.py
+uv run --with pytest pytest --basetemp .pytest_tmp tests/test_config_refactor_phase1.py tests/test_summary_cache.py
+uv run --with pytest pytest --basetemp .pytest_tmp tests/test_dashboard_live.py tests/test_export_payload.py
 ```
 
 ## Worked Example: Connect A Hosting Script

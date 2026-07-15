@@ -17,7 +17,7 @@
 | Prepared table | Normalized table used by summaries and prepared-data pages. |
 | `prepared_table_map` | Config mapping that supplies canonical prepared tables directly and skips raw prepare. |
 | Run | One ActivitySim scenario/output set shown in the dashboard. |
-| Run key | Stable cache-facing identifier derived from a run entry. |
+| Run key | Cache-directory identifier made by slugifying a run label, such as `Build 2035` to `build-2035`; duplicate normalized labels receive order-dependent `-1`, `-2`, and later suffixes. |
 | Segment | Configured slice of prepared data summarized separately. |
 | Selector | Registered page-local widget that can refresh sections and participate in export. |
 | Skim | Matrix or lookup data used to attach level-of-service values to trips/tours. |
