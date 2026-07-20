@@ -453,10 +453,38 @@ def test_external_traffic_helpers_filter_period_and_facility_type(
             "Total Observed Count": 400.0,
             "Total Modeled Count": 440.0,
             "% Difference": "10.00%",
-            "RMSE": 22.360679774997898,
+            "% RMSE": pytest.approx(10.0),
             "R^2": 0.875,
         }
     ]
+
+
+def test_demo_facility_comparison_percent_rmse_is_null_for_zero_observed(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+
+    facility_comparison = demo_facility_comparison_table(
+        [
+            (
+                "Run",
+                pl.DataFrame(
+                    {
+                        "id": [1, 2],
+                        "facility_type": ["4", "4"],
+                        "observed_volume": [0.0, 100.0],
+                        "modeled_volume": [10.0, 110.0],
+                    }
+                ),
+            )
+        ],
+        None,
+        period="Day",
+        facility_type="4",
+        config=config,
+    )
+
+    assert facility_comparison[0][1]["% RMSE"].to_list() == [None]
 
 
 def test_demo_count_fit_line_helper_builds_plot_data() -> None:

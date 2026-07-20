@@ -5203,7 +5203,7 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
         "Total Observed Count",
         "Total Modeled Count",
         "% Difference",
-        "RMSE",
+        "% RMSE",
         "R^2",
     ]
     assert facility_table.to_dict("records") == [
@@ -5213,7 +5213,7 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
             "Total Observed Count": "200",
             "Total Modeled Count": "210",
             "% Difference": "5.00%",
-            "RMSE": "10",
+            "% RMSE": "5",
             "R^2": None,
         },
         {
@@ -5222,14 +5222,14 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
             "Total Observed Count": "100",
             "Total Modeled Count": "110",
             "% Difference": "10.00%",
-            "RMSE": "10",
+            "% RMSE": "10",
             "R^2": None,
         },
     ]
     assert facility_tables[0]._configuration == {
         "columns": [
             {"field": "n", "sorter": "number"},
-            {"field": "RMSE", "sorter": "number"},
+            {"field": "% RMSE", "sorter": "number"},
             {"field": "R^2", "sorter": "number"},
         ]
     }

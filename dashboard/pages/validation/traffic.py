@@ -339,9 +339,17 @@ def demo_facility_comparison_table(
                 if "id" in facility_points.columns
                 else facility_points.height
             )
-            differences = [model - observe for observe, model in zip(observed, modeled)]
-            rmse = math.sqrt(
-                sum(difference**2 for difference in differences) / len(differences)
+            percent_rmse = (
+                None
+                if any(observe == 0.0 for observe in observed)
+                else math.sqrt(
+                    sum(
+                        ((observe - model) / observe) ** 2
+                        for observe, model in zip(observed, modeled)
+                    )
+                    / len(observed)
+                )
+                * 100.0
             )
             percent_value = (
                 None
@@ -361,7 +369,7 @@ def demo_facility_comparison_table(
                     "Total Observed Count": total_observed,
                     "Total Modeled Count": total_modeled,
                     "% Difference": percent_difference,
-                    "RMSE": rmse,
+                    "% RMSE": percent_rmse,
                     "R^2": r_squared_lookup.get(raw_facility_type)
                     if raw_facility_type in r_squared_lookup
                     else _r_squared_from_points(facility_points),
@@ -768,8 +776,12 @@ class TrafficValidationPage(DashboardPage):
             data_table(
                 facility_comparison,
                 title="Count Location Summary by Facility Type",
-                numeric_precision_by_column={"RMSE": 3, "R^2": 3},
-                column_sorters={"n": "number", "RMSE": "number", "R^2": "number"},
+                numeric_precision_by_column={"% RMSE": 3, "R^2": 3},
+                column_sorters={
+                    "n": "number",
+                    "% RMSE": "number",
+                    "R^2": "number",
+                },
             )
         ]
 
