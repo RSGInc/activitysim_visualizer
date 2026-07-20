@@ -107,8 +107,10 @@ class OverviewPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Overview"),
-            self._kpi_section,
-            self._demographics_section,
+            pn.pane.Markdown("### Key Performance Indicators"),
+            self.noted_section("overview.kpis", self._kpi_section),
+            pn.pane.Markdown("### Demographic Distributions"),
+            self.noted_section("overview.demographics", self._demographics_section),
         )
 
     def _kpi_result(self):
@@ -231,9 +233,7 @@ class OverviewPage(DashboardPage):
         if not self.state.run_labels:
             return [self.no_runs_message()]
 
-        objects: list[pn.viewable.Viewable] = [
-            pn.pane.Markdown("### Key Performance Indicators")
-        ]
+        objects: list[pn.viewable.Viewable] = []
         kpi_result = self._kpi_result()
         if kpi_result.has_usable_runs:
             totals_list = kpi_result.usable_by_input["population_totals"]
@@ -304,7 +304,6 @@ class OverviewPage(DashboardPage):
 
         ptype_result, hhsize_result = self._demographic_results()
         return [
-            pn.pane.Markdown("### Demographic Distributions"),
             pn.Row(
                 self.render_person_type_chart(ptype_result),
                 self.render_household_size_chart(hhsize_result),

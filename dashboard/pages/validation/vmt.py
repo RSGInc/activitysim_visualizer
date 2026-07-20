@@ -1186,8 +1186,10 @@ class VMTValidationPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## VMT Validation"),
-            self._vmt_overview_body,
+            pn.pane.Markdown("### VMT Overview"),
+            self.noted_section("vmt.overview", self._vmt_overview_body),
             pn.pane.Markdown("### Personal Auto VMT"),
+            self.section_note("vmt.personal_auto", self._personal_vmt_body),
             selector_row(
                 self.personal_vmt_breakdown_sel,
                 self.personal_vmt_geography_type_sel,
@@ -1201,6 +1203,7 @@ class VMTValidationPage(DashboardPage):
             ),
             self._personal_vmt_body,
             pn.pane.Markdown("### Non-Motorized VMT"),
+            self.section_note("vmt.non_motorized", self._non_motorized_vmt_body),
             selector_row(
                 self.non_motorized_vmt_breakdown_sel,
                 self.non_motorized_vmt_geography_type_sel,
@@ -1214,6 +1217,7 @@ class VMTValidationPage(DashboardPage):
             ),
             self._non_motorized_vmt_body,
             pn.pane.Markdown("### External VMT and Travel"),
+            self.section_note("vmt.external_travel", self._external_vmt_body),
             selector_row(
                 self.external_travel_metric_sel,
                 self.external_travel_breakdown_sel,
@@ -1222,6 +1226,7 @@ class VMTValidationPage(DashboardPage):
             ),
             self._external_vmt_body,
             pn.pane.Markdown("### Commercial VMT and Travel"),
+            self.section_note("vmt.commercial_travel", self._body),
             selector_row(
                 self.demo_commercial_metric_sel,
                 self.demo_commercial_breakdown_sel,
@@ -1230,7 +1235,7 @@ class VMTValidationPage(DashboardPage):
             ),
             self._body,
             pn.pane.Markdown("### Bicycle VMT"),
-            self._bicycle_body,
+            self.noted_section("vmt.bicycle", self._bicycle_body),
             sizing_mode="stretch_width",
         )
 

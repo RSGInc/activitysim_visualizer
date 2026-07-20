@@ -323,6 +323,77 @@ body {
   font-size: 13px;
 }
 
+.calculation-note-block {
+  margin: 4px 0 12px;
+}
+
+.calculation-note-summary {
+  margin: 0 0 6px;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.calculation-note {
+  margin: 0;
+  border: 1px solid #dbe3ec;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #334155;
+  overflow: hidden;
+}
+
+.calculation-note summary {
+  padding: 9px 12px;
+  cursor: pointer;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 650;
+  user-select: none;
+}
+
+.calculation-note summary:hover {
+  background: #f1f5f9;
+}
+
+.calculation-note[open] summary {
+  border-bottom: 1px solid #dbe3ec;
+}
+
+.calculation-note-content {
+  padding: 10px 14px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.calculation-note-content p {
+  margin: 0 0 8px;
+}
+
+.calculation-note-content p:last-child,
+.calculation-note-content ul:last-child {
+  margin-bottom: 0;
+}
+
+.calculation-note-formula code {
+  white-space: normal;
+}
+
+.calculation-note-section {
+  margin-top: 8px;
+}
+
+.calculation-note-section ul {
+  margin: 3px 0 0;
+  padding-left: 20px;
+}
+
+@media print {
+  .calculation-note:not([open]) > .calculation-note-content {
+    display: block;
+  }
+}
+
 .table-wrap {
   max-height: 520px;
   overflow-x: auto;

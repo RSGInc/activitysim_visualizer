@@ -103,6 +103,7 @@ class TourTimePage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Tour Time"),
+            self.section_note("tour_time.distributions", self._body),
             selector_row(self.purpose_sel),
             self._body,
             sizing_mode="stretch_width",

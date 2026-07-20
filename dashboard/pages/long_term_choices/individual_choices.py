@@ -77,6 +77,7 @@ class IndividualChoicesPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Individual Choices"),
+            self.section_note("individual_choices.summary", self._body),
             selector_row(self.person_type_sel),
             self._body,
             sizing_mode="stretch_width",

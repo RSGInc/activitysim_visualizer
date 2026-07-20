@@ -465,6 +465,7 @@ class RegionalValidationPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Regional Validation"),
+            self.section_note("regional_validation.flows", self._body),
             selector_row(
                 self.flow_matrix_sel,
                 self.comparison_metric_sel,

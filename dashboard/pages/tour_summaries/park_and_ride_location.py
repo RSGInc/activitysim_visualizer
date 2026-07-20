@@ -66,8 +66,10 @@ class ParkAndRideLocationPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Park-and-Ride Location"),
-            self._plot_section,
-            self._table_section,
+            pn.pane.Markdown("### Residual Distribution"),
+            self.noted_section("park_and_ride.residual_plot", self._plot_section),
+            pn.pane.Markdown("### Residual Details"),
+            self.noted_section("park_and_ride.residual_table", self._table_section),
             sizing_mode="stretch_width",
         )
 

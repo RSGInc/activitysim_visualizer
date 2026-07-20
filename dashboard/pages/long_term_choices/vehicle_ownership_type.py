@@ -123,8 +123,14 @@ class VehicleOwnershipTypePage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Vehicle Ownership and Type"),
-            self._ownership_section,
-            self._vehicle_mix_section,
+            pn.pane.Markdown("### Household Vehicle Ownership"),
+            self.noted_section(
+                "vehicle_ownership.ownership", self._ownership_section
+            ),
+            pn.pane.Markdown("### Vehicle Characteristics"),
+            self.noted_section(
+                "vehicle_ownership.vehicle_mix", self._vehicle_mix_section
+            ),
             sizing_mode="stretch_width",
         )
 

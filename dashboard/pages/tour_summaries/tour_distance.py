@@ -205,8 +205,12 @@ class TourDistancePage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Tour Distance"),
-            self._distance_section,
-            self._average_section,
+            pn.pane.Markdown("### Tour Distance Distribution"),
+            self.noted_section(
+                "tour_distance.distribution", self._distance_section
+            ),
+            pn.pane.Markdown("### Average Tour Distance vs Base Run"),
+            self.noted_section("tour_distance.averages", self._average_section),
         )
 
     def _summaries(self) -> dict[str, object] | None:
@@ -314,7 +318,6 @@ class TourDistancePage(DashboardPage):
         x_range = self.tour_distance_range.current_range()
         if bounds is not None and x_range is None:
             return [
-                pn.pane.Markdown("### Tour Distance Distribution"),
                 selector_row(self.tour_purpose_sel),
                 self.tour_distance_range.row(),
                 self.data_not_available_card(
@@ -323,7 +326,6 @@ class TourDistancePage(DashboardPage):
                 ),
             ]
         return [
-            pn.pane.Markdown("### Tour Distance Distribution"),
             selector_row(self.tour_purpose_sel),
             self.tour_distance_range.row(),
             self.render_distance_chart(distance_data, selected_purpose, x_range=x_range),
@@ -376,7 +378,6 @@ class TourDistancePage(DashboardPage):
             ),
         )
         return [
-            pn.pane.Markdown("### Average Non-Mandatory Tour Distance vs Base Run"),
             selector_row(self.geo_level_sel, self.geography_sel),
             self.render_average_distance_table(comparison_tables),
         ]

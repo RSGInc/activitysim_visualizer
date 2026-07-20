@@ -143,6 +143,7 @@ class TripModePage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Trip Mode"),
+            self.section_note("trip_mode.distributions", self._body),
             selector_row(self.tour_purpose_sel, self.hide_drive_alone),
             self._body,
             sizing_mode="stretch_width",

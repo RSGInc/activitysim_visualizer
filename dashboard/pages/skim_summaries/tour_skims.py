@@ -189,6 +189,7 @@ class TourSkimsPage(DashboardPage):
 
         content = [
             pn.pane.Markdown("## Tour Skims"),
+            self.section_note("tour_skims.summary_table", self._summary_section),
             self._top_selector_row(),
             self._summary_section,
         ]
@@ -196,6 +197,9 @@ class TourSkimsPage(DashboardPage):
             content.extend(
                 [
                     pn.pane.Markdown("### Live Tour Distributions"),
+                    self.section_note(
+                        "tour_skims.distributions", self._distribution_section
+                    ),
                     control_row(self.tour_component_sel, self.tour_mode_sel),
                     self._distribution_section,
                 ]

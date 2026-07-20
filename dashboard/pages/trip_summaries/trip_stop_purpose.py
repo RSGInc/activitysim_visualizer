@@ -154,7 +154,7 @@ class TripStopPurposePage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Trip and Stop Purpose"),
-            self._body,
+            self.noted_section("trip_stop_purpose.distributions", self._body),
             sizing_mode="stretch_width",
         )
 

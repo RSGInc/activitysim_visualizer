@@ -249,9 +249,16 @@ class JointTravelPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Joint Travel"),
-            self._frequency_section,
-            self._joint_tour_detail_section,
-            self._participation_section,
+            pn.pane.Markdown("### Joint Tour Frequency"),
+            self.noted_section("joint_travel.frequency", self._frequency_section),
+            pn.pane.Markdown("### Joint Tour Characteristics"),
+            self.noted_section(
+                "joint_travel.details", self._joint_tour_detail_section
+            ),
+            pn.pane.Markdown("### Joint Tour Participation"),
+            self.noted_section(
+                "joint_travel.participation", self._participation_section
+            ),
         )
 
     def _party_size_options(self) -> list[str]:
@@ -304,7 +311,6 @@ class JointTravelPage(DashboardPage):
         if summaries is None:
             return [self.summary_only_unavailable_card()]
         return [
-            pn.pane.Markdown("### Joint Tour Frequency"),
             selector_row(self.hide_no_joint_tours, height=48),
             self.render_joint_tour_frequency_chart(summaries["jtf_distribution"]),
         ]
@@ -351,7 +357,6 @@ class JointTravelPage(DashboardPage):
             ),
         )
         return [
-            pn.pane.Markdown("### Joint Tour Characteristics"),
             pn.Column(
                 selector_row(self.party_size_sel),
                 pn.Row(
@@ -411,7 +416,6 @@ class JointTravelPage(DashboardPage):
             ],
         )
         return [
-            pn.pane.Markdown("### Joint Tour Participation"),
             pn.Column(
                 pn.Row(
                     pn.Column(control_row_spacer()),

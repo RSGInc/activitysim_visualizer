@@ -41,6 +41,21 @@ def serialize_viewable(
     region_nodes_by_id = region_nodes_by_id or {}
     hidden_widget_ids = hidden_widget_ids or set()
     hidden_view_ids = hidden_view_ids or set()
+
+    def _is_hidden_view(viewable: Any) -> bool:
+        if id(viewable) in hidden_view_ids:
+            return True
+        note_target_id = getattr(viewable, "_calculation_note_target_id", None)
+        if note_target_id in hidden_view_ids:
+            return True
+        css_classes = set(getattr(viewable, "css_classes", []) or [])
+        if "calculation-note-section" not in css_classes:
+            return False
+        return any(
+            id(child) in hidden_view_ids
+            for child in getattr(viewable, "objects", [])
+        )
+
     if id(obj) in region_nodes_by_id:
         return region_nodes_by_id[id(obj)]
 
@@ -66,7 +81,7 @@ def serialize_viewable(
                 hidden_view_ids=hidden_view_ids,
             )
             for child in obj.objects
-            if id(child) not in hidden_view_ids
+            if not _is_hidden_view(child)
             and not (
                 isinstance(child, pn.widgets.Widget) and id(child) in hidden_widget_ids
             )
@@ -87,7 +102,7 @@ def serialize_viewable(
                 hidden_view_ids=hidden_view_ids,
             )
             for child in obj.objects
-            if id(child) not in hidden_view_ids
+            if not _is_hidden_view(child)
             and not (
                 isinstance(child, pn.widgets.Widget) and id(child) in hidden_widget_ids
             )
@@ -111,7 +126,7 @@ def serialize_viewable(
                 hidden_view_ids=hidden_view_ids,
             )
             for child in obj.objects
-            if id(child) not in hidden_view_ids
+            if not _is_hidden_view(child)
             and not (
                 isinstance(child, pn.widgets.Widget) and id(child) in hidden_widget_ids
             )
@@ -140,7 +155,7 @@ def serialize_viewable(
                     ),
                 }
                 for title, child in iter_tabs(obj)
-                if id(child) not in hidden_view_ids
+                if not _is_hidden_view(child)
             ],
         }
     if isinstance(obj, pn.pane.Plotly):

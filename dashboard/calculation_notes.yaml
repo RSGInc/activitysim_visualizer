@@ -1,0 +1,628 @@
+# Central registry for calculation notes shown in both the live dashboard and
+# standalone HTML exports. Each note requires a summary; formula and named
+# detail sections are optional. Page code should reference notes by stable id.
+methods:
+  totals: >-
+    The summary function sums the applicable final weights across all prepared
+    records, producing one total per run and metric. In unweighted mode it uses
+    record counts; the dashboard performs the base-run comparison afterward.
+  grouped_counts: >-
+    The summary function starts with prepared model records, drops records that
+    lack a required grouping value, groups the remaining records by the listed
+    categories, and sums finalweight. In unweighted mode it counts records
+    instead. The dashboard then filters, labels, and compares those grouped rows.
+  rates_and_averages: >-
+    The summary function creates a weighted numerator and denominator for every
+    group, then divides the two. This preserves the correct result when groups
+    are combined; the dashboard does not average already-calculated percentages.
+  counts_and_rates: >-
+    The summary functions first create weighted category totals. For a rate or
+    average they also retain the matching weighted denominator, so combined
+    groups are recomputed from totals rather than by averaging displayed rates.
+  binned_values: >-
+    The summary function calculates or reads one numeric value per record,
+    removes unusable values, assigns the remaining values to fixed bins, and
+    sums finalweight in each bin. Unweighted mode counts records in each bin.
+  descriptive_statistics: >-
+    The summary function removes missing or non-finite values, then calculates
+    valid-record count, missing and zero shares, minimum, maximum, mean, median,
+    and standard deviation for each configured skim family and component.
+  aligned_comparison: >-
+    The summary function aligns modeled and comparison values on their shared
+    geography or validation key before calculating totals, differences, ratios,
+    or residuals. Unmatched or invalid keys are retained or excluded according
+    to that summary's validation rules.
+  vmt: >-
+    The summary function calculates VMT at the trip or network-link level, applies
+    the applicable expansion weight and occupancy adjustment, then groups and
+    sums the resulting VMT by the requested geography and travel attributes.
+  direct_records: >-
+    This view uses a prepared record table instead of a pre-aggregated summary.
+    It applies the displayed filters to those records and performs the grouping,
+    binning, or descriptive calculation when the view is rendered.
+  supplied_validation: >-
+    The summary function standardizes a configured validation table into the
+    dashboard's run, category, and value fields. The dashboard displays and
+    filters those supplied totals rather than reconstructing them from trips.
+notes:
+  overview.kpis:
+    method: totals
+    sources: [population_totals, auto_vmt_totals]
+    summary: KPI cards show run-level population and travel totals; the table compares every run with the first loaded run.
+    formula: percent difference = (comparison run − base run) ÷ base run × 100
+    details:
+      Source data:
+        - Person, household, tour, trip, and stop totals come from the population totals summary.
+        - Auto VMT comes from the auto VMT totals summary.
+      Important details:
+        - The first loaded run is the base run and therefore has a zero percent difference.
+        - Weighting follows the dashboard Weighting control.
+
+  overview.demographics:
+    sources: [person_type_distribution, household_size_distribution]
+    summary: The charts compare person counts by person type and household counts by household size across runs.
+    details:
+      Aggregation:
+        - Counts are read from the person-type and household-size distribution summaries.
+        - Household sizes of five or more are combined into a 5+ category for display.
+      Display:
+        - Count mode shows weighted or unweighted totals; Percent mode divides each category by its run total.
+
+  raw_trip_demo.trip_modes:
+    method: direct_records
+    sources: [prepared trips table]
+    summary: Prepared trip records are grouped by trip mode to produce one trip-mode distribution for each run.
+    formula: mode total = sum of final trip weights, or row count when finalweight is unavailable
+    details:
+      Source data:
+        - This page reads the prepared trips table directly rather than a precomputed summary.
+      Filters and display:
+        - Trips with a missing trip mode are excluded and the remaining mode categories are sorted for display.
+
+  joint_travel.frequency:
+    sources: [jtf_distribution]
+    summary: Household counts are grouped by joint-tour-frequency pattern.
+    details:
+      Aggregation:
+        - The joint-tour-frequency summary supplies the household count for each pattern.
+        - Percent mode divides each pattern count by all household-pattern counts in the run.
+      Filters:
+        - Hide No Joint Tours removes that category after percentages have been calculated against the full household total.
+
+  joint_travel.details:
+    sources: [joint_tours_by_household_size, joint_tour_party_size_distribution, joint_tour_composition_by_party_size]
+    summary: These charts describe joint tours by household size, party size, and composition for the selected party-size slice.
+    details:
+      Aggregation:
+        - Joint-tour counts are grouped independently by household size and party size.
+        - Composition counts are filtered to the selected party size and then grouped by composition category.
+      Display:
+        - Missing size categories are completed with zeros so runs use the same category axis.
+        - Percent mode normalizes each displayed distribution within a run.
+
+  joint_travel.participation:
+    sources: [household_jtp_by_household_size_and_jtf, person_jtp_by_household_size]
+    summary: Participation charts compare household joint-tour patterns and person participation across household sizes.
+    details:
+      Aggregation:
+        - Household participation is filtered to the selected household size and grouped by joint-tour-frequency category.
+        - Person participation is grouped by household size using the prepared person participation totals.
+      Display:
+        - Percent mode uses the applicable household or person total as the denominator for each run.
+
+  individual_choices.summary:
+    sources: [license_holding_status_distribution, bicycle_comfort_level_distribution, transit_pass_ownership_by_person_type, transit_subsidy_by_person_type]
+    summary: The four charts show license holding, bicycle comfort, transit-pass ownership, and transit-subsidy status for the selected person type.
+    details:
+      Aggregation:
+        - Each chart filters its prepared summary to the selected person type and groups person counts by the displayed choice category.
+        - Selecting all person types sums category counts across person types.
+      Display:
+        - Missing configured categories are shown as zero so runs remain comparable.
+        - Percent mode divides each category by the applicable person total.
+
+  vehicle_ownership.ownership:
+    sources: [auto_ownership_distribution, autonomous_vehicle_ownership_totals]
+    summary: This section combines household auto-ownership counts with the total number of autonomous vehicles owned.
+    details:
+      Aggregation:
+        - Auto ownership is filtered to the selected household size and grouped by household vehicle count.
+        - The autonomous-vehicle KPI sums the autonomous vehicle ownership total for each run.
+      Display:
+        - Percent mode normalizes the auto-ownership distribution within the selected household-size group.
+
+  vehicle_ownership.vehicle_mix:
+    sources: [vehicle_age_distribution, vehicle_fuel_type_distribution, vehicle_body_type_distribution]
+    summary: Vehicle records are grouped separately by vehicle age, fuel type, and body type.
+    details:
+      Aggregation:
+        - Each chart uses its corresponding vehicle distribution summary and sums vehicle counts by category.
+      Display:
+        - Configured category labels and ordering are applied consistently across runs.
+        - Percent mode divides each category by all vehicles represented in that chart and run.
+
+  mandatory_location.remote_work:
+    method: counts_and_rates
+    sources: [work_from_home_rate_by_geography, telecommute_frequency_distribution]
+    summary: The charts compare work-from-home rates and telecommute-frequency distributions for the selected geography.
+    formula: work-from-home percent = work-from-home workers ÷ all workers × 100
+    details:
+      Aggregation:
+        - Geography filters are applied before worker counts and telecommute categories are displayed.
+        - Telecommute values represent workers who do not work from home, grouped by frequency.
+      Display:
+        - Geography names and telecommute categories use configured labels and ordering.
+
+  mandatory_location.distance_distributions:
+    method: binned_values
+    sources: [work_location_distance_distribution_by_geography, school_location_distance_distribution_by_geography, university_location_distance_distribution_by_geography]
+    summary: Work, school, and university distance summaries are filtered to the selected home geography and displayed as distance-bin distributions.
+    details:
+      Aggregation:
+        - Each chart uses its purpose-specific mandatory location distance summary.
+        - Counts in matching distance bins are summed after applying the geography filter.
+      Filters and display:
+        - The distance-range controls limit the bins shown without changing the underlying summary totals.
+        - Percent mode normalizes the displayed purpose distribution within each run.
+
+  mandatory_location.worker_geography:
+    method: counts_and_rates
+    sources: [internal_external_worker_by_geography, external_worker_workplace_locations]
+    summary: The table compares internal and external workers, while the chart shows where external workers are assigned workplaces.
+    formula: external worker percent = external workers ÷ (internal workers + external workers) × 100
+    details:
+      Aggregation:
+        - Worker counts are filtered to the selected home geography for the internal/external table.
+        - External workplace counts are grouped by workplace location for the chart.
+      Display:
+        - Percent mode normalizes the external workplace categories within each run.
+
+  mandatory_location.distance_table:
+    method: rates_and_averages
+    sources: [average_mandatory_tour_distance_by_purpose_and_geography]
+    summary: Average mandatory-tour distances are compared across runs for the selected geography and tour purpose.
+    formula: percent difference = (comparison average − base-run average) ÷ base-run average × 100
+    details:
+      Aggregation:
+        - Mandatory average-distance rows are filtered by geography and arranged by tour purpose.
+      Important details:
+        - The first loaded run supplies the base average for each row.
+
+  shadow_pricing.workplace_plot:
+    method: aligned_comparison
+    sources: [workplace_shadow_pricing_residual_histogram]
+    summary: The workplace histogram shows how modeled employment differs from the shadow-pricing target across geographies.
+    formula: residual = modeled employment − target employment
+    details:
+      Aggregation:
+        - Geography residuals are filtered to the selected geography level and counted in residual bins.
+      Important details:
+        - A residual of zero indicates an exact match; positive values are modeled overages and negative values are shortages.
+
+  shadow_pricing.workplace_table:
+    method: aligned_comparison
+    sources: [workplace_shadow_pricing_residuals]
+    summary: The table lists target employment, modeled employment, and their residual for each geography at the selected level.
+    formula: residual = modeled employment − target employment
+    details:
+      Display:
+        - Friendly geography identifiers and names are added when configured.
+        - MAZ rows can be suppressed by the dashboard geography settings.
+
+  shadow_pricing.school_plot:
+    method: aligned_comparison
+    sources: [school_shadow_pricing_residual_histogram]
+    summary: The school histogram shows how modeled enrollment differs from the target for the selected student type and geography level.
+    formula: residual = modeled enrollment − target enrollment
+    details:
+      Aggregation:
+        - Residuals are filtered by student type and geography level, then counted in residual bins.
+      Important details:
+        - A residual of zero indicates an exact match; positive values are modeled overages and negative values are shortages.
+
+  shadow_pricing.school_table:
+    method: aligned_comparison
+    sources: [school_shadow_pricing_residuals]
+    summary: The table lists target enrollment, modeled enrollment, and their residual by geography for the selected student type.
+    formula: residual = modeled enrollment − target enrollment
+    details:
+      Filters and display:
+        - Student type and geography-level filters are applied before display.
+        - Friendly geography identifiers and names are added when configured.
+
+  daily_activity_pattern.summary:
+    method: counts_and_rates
+    sources: [daily_activity_pattern_by_person_type, mandatory_tour_frequency_by_person_type, nonmandatory_tour_frequency_by_person_type, tour_rates_by_person_type_and_tour_purpose, trip_rates_by_person_type_and_trip_purpose]
+    summary: These charts summarize daily activity pattern, mandatory and non-mandatory tour frequency, and daily tour and trip rates for the selected person type.
+    formula: tour or trip rate = weighted tours or trips for a purpose ÷ weighted person-days
+    details:
+      Aggregation:
+        - Distribution charts group person counts by the applicable activity or frequency category.
+        - Rate charts aggregate purpose totals and divide by the matching person-type population.
+      Display:
+        - Selecting all person types recomputes totals using the person-type population weights.
+        - Percent mode applies to distributions; rate charts remain rates per person-day.
+
+  escorted_tours.static:
+    method: counts_and_rates
+    sources: [student_school_escort_status_by_direction, student_households_by_student_count, households_with_school_escorting_by_student_count_and_direction, schoolkids_per_escorted_tour_by_student_count_and_direction, adult_escort_event_stop_distribution]
+    summary: These charts describe escort status, escorting households, students per escorted tour, and chauffeur stop counts without using the page direction selector.
+    details:
+      Aggregation:
+        - Student escort status is grouped by escort type for outbound, inbound, and both directions.
+        - Household escort rates divide escorting households by all student households for each student-count category.
+        - Students-per-tour values are averages from escorted-tour totals; chauffeur tour legs are grouped by stop-count category and segment.
+      Display:
+        - Configured escort, student-count, and stop-count category order is applied across runs.
+
+  escorted_tours.directional:
+    method: binned_values
+    sources: [adult_escorted_tours_by_person_type_and_direction, adult_escorted_tour_distance_distribution_by_direction, adult_escorted_trip_distance_distribution_by_direction]
+    summary: The directional charts compare chauffeur tours by person type and chauffeur tour and trip distance for the selected escort direction.
+    details:
+      Aggregation:
+        - Chauffeur tour counts are filtered by direction and grouped by chauffeur person type.
+        - Tour and trip distances are filtered by direction and summed into distance bins.
+      Filters and display:
+        - Distance-range controls limit the bins shown.
+        - Percent mode normalizes each displayed distribution within a run.
+
+  tour_purpose.distributions:
+    sources: [tour_category_distribution, tour_purpose_distribution]
+    summary: Tours are grouped separately by broad tour category and detailed tour purpose.
+    details:
+      Aggregation:
+        - Tour counts come from the tour-category and tour-purpose distribution summaries.
+      Display:
+        - Configured category labels and ordering are applied across runs.
+        - Percent mode divides each category by all tours in its distribution.
+
+  tour_mode.distribution:
+    sources: [tour_mode_by_tour_purpose_and_auto_sufficiency]
+    summary: Tour counts are filtered by purpose and grouped by tour mode for each auto-sufficiency segment.
+    details:
+      Aggregation:
+        - Zero-auto, auto-deficient, and auto-sufficient tour counts are taken from separate columns and shown as coordinated views.
+      Filters and display:
+        - Hide Drive Alone removes the configured drive-alone modes from the displayed categories.
+        - Percent mode normalizes tour modes within each auto-sufficiency segment and run.
+
+  tour_mode.allocated_vehicles:
+    sources: [allocated_vehicle_age_by_occupancy, allocated_vehicle_fuel_type_by_occupancy, allocated_vehicle_body_type_by_occupancy]
+    summary: Vehicles allocated to tours are filtered by occupancy and grouped by age, fuel type, and body type.
+    details:
+      Aggregation:
+        - Each chart sums allocated vehicle counts within its characteristic categories for the selected occupancy.
+      Display:
+        - Configured category labels and ordering are used across runs.
+        - Percent mode divides each characteristic category by all allocated vehicles in that chart.
+
+  tour_time.distributions:
+    method: binned_values
+    sources: [tour_time_of_day_by_tour_purpose]
+    summary: Tour start, end, and duration counts are filtered by tour purpose and displayed in time bins.
+    details:
+      Aggregation:
+        - Departure and arrival tours are grouped by clock-time bin; duration tours are grouped by duration bin.
+      Display:
+        - Clock-time bins use a 3:00 a.m. day boundary for ordering.
+        - Percent mode normalizes each of the three distributions independently within a run.
+
+  tour_distance.distribution:
+    method: binned_values
+    sources: [tour_distance_by_tour_purpose]
+    summary: Tours are filtered by purpose and counted in tour-distance bins.
+    details:
+      Aggregation:
+        - Weighted or unweighted tour counts are summed within each distance bin.
+      Filters and display:
+        - Distance-range controls limit the bins shown without recomputing the source summary.
+        - Percent mode divides each displayed bin by the tour total for the selected purpose.
+
+  tour_distance.averages:
+    method: rates_and_averages
+    sources: [average_mandatory_tour_distance_by_purpose_and_geography, average_nonmandatory_tour_distance_by_purpose_and_geography]
+    summary: The tables compare average mandatory and non-mandatory tour distance by purpose for the selected geography.
+    formula: percent difference = (comparison average − base-run average) ÷ base-run average × 100
+    details:
+      Aggregation:
+        - Average-distance summaries are filtered to the selected geography level and geography.
+      Important details:
+        - The first loaded run supplies the base average for each tour-purpose row.
+
+  tour_stop_frequency.distributions:
+    sources: [tour_stop_frequency_by_tour_purpose, atwork_subtour_frequency_distribution]
+    summary: Tours are grouped by outbound and inbound stop frequency for the selected purpose; at-work subtours are grouped separately by subtour frequency.
+    details:
+      Aggregation:
+        - Direction-specific tour counts are filtered by tour purpose and grouped by stop-frequency category.
+        - At-work subtour counts use the dedicated at-work frequency summary.
+      Display:
+        - Percent mode normalizes each distribution independently within a run.
+
+  internal_external_tours.tables:
+    sources: [internal_external_nonmandatory_tour_frequency_by_home_geography, external_nonmandatory_tour_locations]
+    summary: The tables compare non-mandatory tour frequency by internal/external status and list external tour locations for the selected geography level.
+    details:
+      Aggregation:
+        - Tour-frequency rows are grouped by home geography and internal/external classification.
+        - External-location rows report the prepared external destinations and associated tour totals.
+      Display:
+        - Friendly geography identifiers and names are inserted when configured.
+
+  park_and_ride.residual_plot:
+    method: aligned_comparison
+    sources: [park_and_ride_location_residual_histogram]
+    summary: The histogram shows the distribution of modeled park-and-ride tour demand minus lot capacity across geographies.
+    formula: residual = modeled park-and-ride tours − park-and-ride capacity
+    details:
+      Aggregation:
+        - Residuals are filtered to the selected geography level and counted in residual bins.
+      Important details:
+        - Positive residuals indicate demand above capacity; negative residuals indicate unused capacity.
+
+  park_and_ride.residual_table:
+    method: aligned_comparison
+    sources: [park_and_ride_location_residuals]
+    summary: The table lists park-and-ride capacity, modeled tour demand, and the resulting residual by geography.
+    formula: residual = modeled park-and-ride tours − park-and-ride capacity
+    details:
+      Filters and display:
+        - Rows are filtered to the selected geography level and augmented with configured geography names.
+        - MAZ rows can be suppressed by the dashboard geography settings.
+
+  trip_stop_purpose.distributions:
+    sources: [trip_purpose_distribution, stop_destination_purpose_by_tour_purpose]
+    summary: The charts compare trip purposes and stop-destination purposes, optionally within a selected tour-purpose segment.
+    details:
+      Aggregation:
+        - Trip counts are grouped by trip purpose and stop counts are grouped by stop destination purpose.
+        - Selecting a tour purpose filters both source summaries before grouping.
+      Display:
+        - Percent mode normalizes the trip and stop distributions independently within a run.
+
+  trip_mode.distributions:
+    sources: [trip_mode_by_tour_purpose_and_tour_mode]
+    summary: Trips are filtered by tour purpose and grouped by trip mode, with additional charts available for each tour-mode segment.
+    details:
+      Aggregation:
+        - The overall chart sums trip counts across tour modes; segment charts retain the selected tour-mode grouping.
+      Filters and display:
+        - Hide Auto Modes removes configured auto trip-mode categories after filtering.
+        - Percent mode divides each trip mode by the applicable trip total within its chart.
+
+  trip_stop_time.distributions:
+    method: binned_values
+    sources: [trip_departure_time_by_purpose]
+    summary: Trip and stop departures are filtered by tour purpose and counted in clock-time bins.
+    details:
+      Aggregation:
+        - Trip departures and intermediate-stop departures use separate count columns from the same time-of-day summary.
+      Display:
+        - Clock time is ordered from 3:00 a.m. through the following early morning.
+        - Percent mode normalizes trip and stop departure distributions independently.
+
+  trip_stop_distance.distributions:
+    method: binned_values
+    sources: [trip_distance_by_purpose, stop_out_of_direction_distance_by_tour_purpose]
+    summary: The charts count trips by trip distance and stops by out-of-direction distance for the selected tour purpose.
+    details:
+      Aggregation:
+        - Weighted or unweighted counts are summed within the distance bins supplied by each summary.
+      Filters and display:
+        - Distance-range controls limit the bins shown for both charts.
+        - Percent mode normalizes the trip and stop distributions independently.
+
+  parking_location.comparison:
+    method: aligned_comparison
+    sources: [parking_locations, prepared land_use table]
+    summary: Parking capacity from prepared land use is joined to modeled parked-trip totals by MAZ; the same joined rows feed the scatter plot and table.
+    details:
+      Aggregation:
+        - Parking spaces are summed by MAZ and joined to modeled parking-location trip counts.
+        - Missing capacity or trip totals after the full join are filled with zero.
+      Display:
+        - The scatter plot compares capacity with trips parked; the table exposes the underlying joined values.
+
+  trip_skims.summary_table:
+    method: descriptive_statistics
+    sources: [trip_skim_family_stats]
+    summary: The table reports descriptive statistics for the selected trip skim family and scenario.
+    details:
+      Aggregation:
+        - Prepared skim statistics provide the valid count, missing share, zero share, minimum, maximum, mean, median, and standard deviation for each component and mode.
+      Filters:
+        - Family and scenario selectors choose the skim components and whether chosen-mode or all-record values are summarized.
+
+  trip_skims.distribution:
+    method: direct_records
+    sources: [prepared trip skim columns]
+    summary: Prepared trip skim values are filtered by scenario, component, mode, and value range, then grouped into a distribution.
+    details:
+      Aggregation:
+        - Values are binned and each bin is summed using trip weights when weighted mode is active, otherwise record counts.
+      Filters and display:
+        - The minimum and maximum controls restrict included values; Reset restores the available range.
+
+  tour_skims.summary_table:
+    method: descriptive_statistics
+    sources: [tour_skim_family_stats]
+    summary: The table reports descriptive statistics for the selected tour skim family, direction, and scenario.
+    details:
+      Aggregation:
+        - Prepared skim statistics provide the valid count, missing share, zero share, minimum, maximum, mean, median, and standard deviation for each component and mode.
+      Filters:
+        - Family, direction, and scenario selectors choose the displayed summary slice.
+
+  tour_skims.distributions:
+    method: direct_records
+    sources: [prepared tour skim columns]
+    summary: Prepared tour skim values are filtered separately for outbound and inbound direction, then grouped into distributions.
+    details:
+      Aggregation:
+        - Values are binned and each bin is summed using tour weights when weighted mode is active, otherwise record counts.
+      Filters and display:
+        - Scenario, component, mode, and direction-specific range controls determine the included records and values.
+
+  regional_validation.flows:
+    method: supplied_validation
+    sources: [county_flows_validation_summary, county_flows_joja_validation_summary, commuting_flows]
+    summary: Observed and modeled origin-destination flow matrices are aligned by geography pair and displayed beside a comparison matrix.
+    details:
+      Aggregation:
+        - Observed flows come from the selected validation matrix; modeled commuters come from the commuting-flows summary.
+        - Duplicate origin-destination pairs are summed before the two matrices are joined.
+      Comparison:
+        - The selected metric is computed cell by cell from aligned observed and modeled values.
+        - Include Totals adds origin, destination, and grand-total cells to the matrices.
+
+  transit_validation.boardings:
+    method: supplied_validation
+    sources: [transit_boardings_by_operator_and_technology]
+    summary: Transit boardings are filtered by technology and grouped by operator.
+    details:
+      Aggregation:
+        - Boardings for matching operator and technology rows are summed within each run.
+      Display:
+        - Operator categories are aligned across runs and displayed using the summary labels.
+        - Percent mode divides each operator by total boardings in the selected technology slice.
+
+  transit_validation.transfer_rate:
+    method: supplied_validation
+    sources: [transit_transfer_rate]
+    summary: Transfer rate is shown as average boardings per linked transit trip by operator for the selected technology and access mode.
+    formula: transfer rate = transit boardings ÷ linked transit trips
+    details:
+      Filters:
+        - Technology and access-mode filters are applied before operator values are displayed.
+      Important details:
+        - A value of 1.0 represents no transfer on average; values above 1.0 reflect additional boardings per linked trip.
+
+  traffic.facility_summary:
+    method: aligned_comparison
+    sources: [count_location_counts_validation_summary, count_location_volumes_validation_summary, count_location_scatter_validation_summary, count_location_fit_validation_summary]
+    summary: The table summarizes daily count-location validation statistics by facility type.
+    details:
+      Aggregation:
+        - Daily observed and modeled volumes are paired by count location and grouped by facility type.
+        - The table reports location count, percent RMSE, and R-squared using the prepared fit summary when available.
+      Important details:
+        - This overview always uses unfiltered daily totals; the controls below apply to other traffic charts.
+
+  traffic.count_locations:
+    method: aligned_comparison
+    sources: [count_location_counts_validation_summary, count_location_volumes_validation_summary, count_location_scatter_validation_summary, count_location_fit_validation_summary]
+    summary: The scatter plot pairs observed traffic counts with modeled count-location volumes for the selected period and facility type.
+    details:
+      Aggregation:
+        - Observed and modeled values are joined by count-location identifier after applying the selected filters.
+        - A one-to-one reference line is always shown; a fitted regression line is added when fit coefficients are available.
+      Display:
+        - Each point is one validated count location.
+
+  traffic.link_volume:
+    method: supplied_validation
+    sources: [link_validation_summary]
+    summary: Modeled link volume is summed by facility type for the selected time period.
+    formula: facility-type volume = sum of selected-period volume across links in that facility type
+    details:
+      Aggregation:
+        - AM, MD, PM, or daily volume is selected from the corresponding link-volume column before grouping.
+      Display:
+        - Facility-type codes are displayed using configured category labels and ordering.
+
+  traffic.top_count_locations:
+    method: aligned_comparison
+    sources: [count_location_counts_validation_summary, count_location_volumes_validation_summary]
+    summary: The table lists the count locations with the highest modeled volume for the selected period.
+    details:
+      Aggregation:
+        - Observed counts and modeled volumes are joined by count-location identifier.
+        - Rows are sorted by modeled volume in descending order and limited to the selected Top N value.
+      Display:
+        - Location and facility metadata are retained when available.
+
+  traffic.screenlines:
+    method: aligned_comparison
+    sources: [screenline_flow_comparisons]
+    summary: The scatter plot compares observed and modeled screenline flows.
+    details:
+      Aggregation:
+        - Flow records are grouped by screenline, direction, and count period before observed and modeled volumes are paired.
+      Display:
+        - Each point represents one comparable screenline-direction-period record.
+
+  vmt.overview:
+    method: vmt
+    sources: [auto_vmt_by_home_geography_income_hhsize_time_period, non_motorized_vmt_by_home_geography_income_hhsize_time_period, external_vmt_validation_summary, commercial_vehicle_vmt_validation_summary]
+    summary: The table compares total VMT and share of combined VMT for personal auto, non-motorized, external, and commercial travel.
+    formula: category share = category VMT ÷ sum of all available VMT categories × 100
+    details:
+      Aggregation:
+        - Each category total is summed from its prepared VMT summary for the current run and weighting mode.
+      Important details:
+        - Categories whose summaries are unavailable contribute zero to the displayed total.
+
+  vmt.personal_auto:
+    method: vmt
+    sources: [auto_vmt_by_home_geography_income_hhsize_time_period]
+    summary: Personal auto VMT estimates vehicle miles traveled by weighted auto trips and allocates shared-ride travel across vehicle occupants.
+    formula: trip distance × final trip weight ÷ vehicle occupancy
+    details:
+      Included records:
+        - Trips with a usable auto distance and final trip weight.
+        - Auto modes are reported separately when mode information is available.
+      Grouping and filters:
+        - Results are grouped by the selected home geography, income segment, household size, time period, or mode.
+        - When geography is the breakdown, the chart shows the 25 geographies with the highest VMT.
+      Important details:
+        - Vehicle occupancy uses the number of tour participants when available and otherwise defaults to one.
+        - Daily summary rows are preferred when all time periods are selected.
+
+  vmt.non_motorized:
+    method: vmt
+    sources: [non_motorized_vmt_by_home_geography_income_hhsize_time_period]
+    summary: Non-motorized miles traveled are weighted trip miles for walk, bicycle, and e-bike trips.
+    formula: trip distance × final trip weight
+    details:
+      Included records:
+        - Walk, bicycle, and e-bike trips with a usable distance and final trip weight.
+      Grouping and filters:
+        - Results are grouped by the selected home geography, income segment, household size, time period, or mode.
+        - When geography is the breakdown, the chart shows the 25 geographies with the highest mileage.
+      Important details:
+        - The distance source recorded in the prepared summary is used; this may be a trip distance or a configured skim distance.
+
+  vmt.external_travel:
+    method: vmt
+    sources: [external_trip_validation_summary, external_vmt_validation_summary]
+    summary: The chart filters the prepared external-travel summary and compares either trips or VMT by time period or trip purpose.
+    details:
+      Aggregation:
+        - Values for the selected metric are summed into the displayed time-period or trip-purpose categories.
+        - Selecting a specific time period or purpose filters the other dimension before aggregation.
+      Important details:
+        - VMT and trip totals come from separate prepared validation summaries.
+        - Percent display shows each displayed category as a share of the applicable total.
+
+  vmt.commercial_travel:
+    method: vmt
+    sources: [commercial_vehicle_validation_summary, commercial_vehicle_vmt_validation_summary]
+    summary: The chart filters the prepared commercial-vehicle summary and compares either trips or VMT by time period or vehicle type.
+    details:
+      Aggregation:
+        - Values are summed across the commercial-vehicle columns into the displayed time-period or vehicle-type categories.
+        - Selecting a specific time period or vehicle type filters the other dimension before aggregation.
+      Important details:
+        - VMT and trip totals come from separate prepared validation summaries.
+        - Percent display shows each displayed category as a share of the applicable total.
+
+  vmt.bicycle:
+    method: vmt
+    sources: [bicycle_vmt_by_facility_type]
+    summary: Bicycle VMT is read from the prepared bicycle-facility summary and displayed by facility type.
+    details:
+      Aggregation:
+        - Bicycle VMT is grouped by the facility type supplied in the summary.
+      Important details:
+        - Percent display uses the percentage values supplied with the prepared summary.

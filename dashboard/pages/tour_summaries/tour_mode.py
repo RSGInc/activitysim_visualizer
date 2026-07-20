@@ -209,9 +209,14 @@ class TourModePage(DashboardPage):
         return self.new_section(
             pn.pane.Markdown("## Tour Mode"),
             pn.pane.Markdown(auto_sufficiency_definitions_markdown(self.config)),
+            pn.pane.Markdown("### Tour Mode Distribution"),
+            self.section_note("tour_mode.distribution", self._mode_section),
             selector_row(self.purpose_sel, self.hide_drive_alone),
             self._mode_section,
-            self._vehicle_section,
+            pn.pane.Markdown("### Allocated Vehicle Characteristics"),
+            self.noted_section(
+                "tour_mode.allocated_vehicles", self._vehicle_section
+            ),
         )
 
     def _initial_purpose_options(self) -> list[str]:
@@ -315,7 +320,6 @@ class TourModePage(DashboardPage):
         raw_purpose = self._purpose_to_raw.get(selected_purpose, "all_tour_purposes")
         if mode_summary is None:
             return [
-                pn.pane.Markdown("### Tour Mode"),
                 self.data_not_available_card(
                     detail="The tour mode summary is unavailable.",
                     missing_items=["tour_mode_by_tour_purpose_and_auto_sufficiency"],
@@ -346,7 +350,6 @@ class TourModePage(DashboardPage):
                 value for value in mode_values if value not in hidden_mode_values
             ]
         return [
-            pn.pane.Markdown("### Tour Mode"),
             *[
                 self.render_tour_mode_chart(
                     mode_summary,
@@ -408,7 +411,6 @@ class TourModePage(DashboardPage):
         summaries = self._summaries()
         occupancy = str(self.occupancy_sel.value)
         return [
-            pn.pane.Markdown("### Allocated Vehicle Characteristics"),
             selector_row(self.occupancy_sel),
             pn.Row(
                 self.render_vehicle_age_chart(

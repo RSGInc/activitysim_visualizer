@@ -109,6 +109,7 @@ class TripStopTimePage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Trip and Stop Time"),
+            self.section_note("trip_stop_time.distributions", self._body),
             selector_row(self.tour_purpose_sel),
             self._body,
             sizing_mode="stretch_width",

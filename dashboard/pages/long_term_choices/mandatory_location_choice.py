@@ -113,9 +113,26 @@ class MandatoryLocationChoicePage(DashboardPage):
         return self.new_section(
             pn.pane.Markdown("## Mandatory Location Choice"),
             selector_row(self.geo_level_sel, self.geography_sel),
+            pn.pane.Markdown("### Work from Home and Telecommuting"),
+            self.section_note(
+                "mandatory_location.remote_work", self._remote_work_section
+            ),
             self._remote_work_section,
+            pn.pane.Markdown("### Mandatory Location Distance Distributions"),
+            self.section_note(
+                "mandatory_location.distance_distributions", self._distance_section
+            ),
             self._distance_section,
+            pn.pane.Markdown("### Internal and External Worker Geography"),
+            self.section_note(
+                "mandatory_location.worker_geography", self._worker_section
+            ),
             self._worker_section,
+            pn.pane.Markdown("### Average Mandatory Tour Distance"),
+            self.section_note(
+                "mandatory_location.distance_table",
+                self._mandatory_distance_table_section,
+            ),
             self._mandatory_distance_table_section,
         )
 

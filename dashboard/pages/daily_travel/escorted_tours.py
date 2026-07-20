@@ -351,7 +351,14 @@ class EscortedToursPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Escorted Tours"),
-            self.new_section(self._static_body, self._directional_body),
+            self.new_section(
+                pn.pane.Markdown("### Escorting Status and Household Characteristics"),
+                self.noted_section("escorted_tours.static", self._static_body),
+                pn.pane.Markdown("### Directional Chauffeur Tours"),
+                self.noted_section(
+                    "escorted_tours.directional", self._directional_body
+                ),
+            ),
             sizing_mode="stretch_width",
         )
 

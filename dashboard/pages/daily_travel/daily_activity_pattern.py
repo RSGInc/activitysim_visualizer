@@ -52,6 +52,7 @@ class DailyActivityPatternPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Daily Activity Pattern"),
+            self.section_note("daily_activity_pattern.summary", self._body),
             selector_row(self.person_type_sel),
             self._body,
             sizing_mode="stretch_width",

@@ -76,7 +76,7 @@ class ParkingLocationPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Parking Location"),
-            self._body,
+            self.noted_section("parking_location.comparison", self._body),
             sizing_mode="stretch_width",
         )
 

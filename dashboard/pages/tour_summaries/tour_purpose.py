@@ -59,7 +59,7 @@ class TourPurposePage(DashboardPage):
         self._body = self.section("tour_purpose_body", render=self.render_body)
         return self.new_section(
             pn.pane.Markdown("## Tour Purpose"),
-            self._body,
+            self.noted_section("tour_purpose.distributions", self._body),
             sizing_mode="stretch_width",
         )
 

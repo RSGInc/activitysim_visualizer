@@ -106,7 +106,8 @@ class TourStopFrequencyPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Tour Stop Frequency"),
-            self._body,
+            pn.pane.Markdown("### Tour and At-Work Sub-Tour Frequency"),
+            self.noted_section("tour_stop_frequency.distributions", self._body),
             sizing_mode="stretch_width",
         )
 

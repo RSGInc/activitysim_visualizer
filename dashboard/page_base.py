@@ -340,6 +340,44 @@ class DashboardPage:
         kwargs.setdefault("sizing_mode", "stretch_width")
         return pn.Column(*objects, **kwargs)
 
+    def section_note(self, note_id: str, section: pn.Column) -> pn.pane.HTML:
+        """Build a static note associated with one registered page section."""
+        registered = next(
+            (
+                item
+                for item in self._registered_sections.values()
+                if item.container is section
+            ),
+            None,
+        )
+        if registered is None:
+            raise ValueError(
+                f"Dashboard page {self.name!r} cannot annotate an unregistered section."
+            )
+        from dashboard.calculation_notes import calculation_note
+
+        note = calculation_note(note_id)
+        note._calculation_note_target_id = id(section)
+        note._calculation_note_section_id = registered.section_id
+        return note
+
+    def noted_section(self, note_id: str, section: pn.Column) -> pn.Column:
+        """Pair a static calculation note with a selector-driven section.
+
+        The note intentionally remains outside the registered section container.
+        HTML export can then serialize it once while rendering the section itself
+        as a selector-driven region with any number of state variants.
+        """
+        note = self.section_note(note_id, section)
+        wrapper = self.new_section(
+            note,
+            section,
+            css_classes=["calculation-note-section"],
+        )
+        wrapper._calculation_note_id = note_id
+        wrapper._calculation_note_section_id = note._calculation_note_section_id
+        return wrapper
+
     @property
     def as_percent(self) -> bool:
         """Return whether the current display mode should show percentages."""
