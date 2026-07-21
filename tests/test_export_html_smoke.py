@@ -131,6 +131,10 @@ def test_export_runtime_assets_are_loaded_from_source_files() -> None:
     assert ".export-shell" in css
     assert ".export-error-panel" in css
     assert ".export-table-sort" in css
+    assert ".calculation-note-summary" in css
+    assert "color: inherit;" in css
+    assert ".calculation-note-content .calculation-note-formula" in css
+    assert "margin-top: 8px;" in css
     assert "function validatePayloadSchema(candidate)" in runtime_js
     assert "function renderPlot(node, context)" in runtime_js
     assert "function renderTable(node)" in runtime_js

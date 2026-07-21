@@ -210,13 +210,10 @@ class TourModePage(DashboardPage):
             pn.pane.Markdown("## Tour Mode"),
             pn.pane.Markdown(auto_sufficiency_definitions_markdown(self.config)),
             pn.pane.Markdown("### Tour Mode Distribution"),
-            self.section_note("tour_mode.distribution", self._mode_section),
             selector_row(self.purpose_sel, self.hide_drive_alone),
             self._mode_section,
             pn.pane.Markdown("### Allocated Vehicle Characteristics"),
-            self.noted_section(
-                "tour_mode.allocated_vehicles", self._vehicle_section
-            ),
+            self._vehicle_section,
         )
 
     def _initial_purpose_options(self) -> list[str]:
@@ -351,13 +348,16 @@ class TourModePage(DashboardPage):
             ]
         return [
             *[
-                self.render_tour_mode_chart(
-                    mode_summary,
-                    str(raw_purpose),
-                    selected_purpose,
-                    auto_sufficiency,
-                    mode_values,
-                    hidden_mode_values,
+                self.noted_view(
+                    "tour_mode.mode",
+                    self.render_tour_mode_chart(
+                        mode_summary,
+                        str(raw_purpose),
+                        selected_purpose,
+                        auto_sufficiency,
+                        mode_values,
+                        hidden_mode_values,
+                    ),
                 )
                 for auto_sufficiency in AUTO_SUFFICIENCY_LEVELS
             ],
@@ -413,17 +413,26 @@ class TourModePage(DashboardPage):
         return [
             selector_row(self.occupancy_sel),
             pn.Row(
-                self.render_vehicle_age_chart(
-                    summaries["allocated_vehicle_age_by_occupancy"],
-                    occupancy,
+                self.noted_view(
+                    "tour_mode.vehicle_age",
+                    self.render_vehicle_age_chart(
+                        summaries["allocated_vehicle_age_by_occupancy"],
+                        occupancy,
+                    ),
                 ),
-                self.render_vehicle_fuel_chart(
-                    summaries["allocated_vehicle_fuel_type_by_occupancy"],
-                    occupancy,
+                self.noted_view(
+                    "tour_mode.vehicle_fuel",
+                    self.render_vehicle_fuel_chart(
+                        summaries["allocated_vehicle_fuel_type_by_occupancy"],
+                        occupancy,
+                    ),
                 ),
-                self.render_vehicle_body_chart(
-                    summaries["allocated_vehicle_body_type_by_occupancy"],
-                    occupancy,
+                self.noted_view(
+                    "tour_mode.vehicle_body",
+                    self.render_vehicle_body_chart(
+                        summaries["allocated_vehicle_body_type_by_occupancy"],
+                        occupancy,
+                    ),
                 ),
             ),
         ]

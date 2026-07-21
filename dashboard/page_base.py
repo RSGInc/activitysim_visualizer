@@ -340,6 +340,11 @@ class DashboardPage:
         kwargs.setdefault("sizing_mode", "stretch_width")
         return pn.Column(*objects, **kwargs)
 
+    @property
+    def notes_enabled(self) -> bool:
+        """Return whether explanatory calculation notes should be displayed."""
+        return bool(getattr(getattr(self, "config", None), "include_notes", True))
+
     def section_note(self, note_id: str, section: pn.Column) -> pn.pane.HTML:
         """Build a static note associated with one registered page section."""
         registered = next(
@@ -354,28 +359,53 @@ class DashboardPage:
             raise ValueError(
                 f"Dashboard page {self.name!r} cannot annotate an unregistered section."
             )
+        if not self.notes_enabled:
+            return pn.pane.HTML("", sizing_mode="stretch_width", margin=0)
         from dashboard.calculation_notes import calculation_note
 
         note = calculation_note(note_id)
         note._calculation_note_target_id = id(section)
         note._calculation_note_section_id = registered.section_id
+        section._calculation_note_id = note_id
         return note
 
     def noted_section(self, note_id: str, section: pn.Column) -> pn.Column:
         """Pair a static calculation note with a selector-driven section.
 
-        The note intentionally remains outside the registered section container.
+        The note intentionally remains below and outside the registered section container.
         HTML export can then serialize it once while rendering the section itself
         as a selector-driven region with any number of state variants.
         """
+        if not self.notes_enabled:
+            return section
         note = self.section_note(note_id, section)
         wrapper = self.new_section(
-            note,
             section,
+            note,
             css_classes=["calculation-note-section"],
         )
         wrapper._calculation_note_id = note_id
         wrapper._calculation_note_section_id = note._calculation_note_section_id
+        return wrapper
+
+    def noted_view(
+        self,
+        note_id: str,
+        view: pn.viewable.Viewable,
+    ) -> pn.viewable.Viewable:
+        """Place one calculation note immediately below one plot or table."""
+        if not self.notes_enabled:
+            return view
+        from dashboard.calculation_notes import calculation_note
+
+        note = calculation_note(note_id)
+        note._calculation_note_target_id = id(view)
+        wrapper = self.new_section(
+            view,
+            note,
+            css_classes=["calculation-note-view"],
+        )
+        wrapper._calculation_note_id = note_id
         return wrapper
 
     @property

@@ -19,8 +19,8 @@ CALCULATION_NOTE_STYLESHEET = """
   margin: 4px 0 12px;
 }
 .calculation-note-summary {
-  margin: 0 0 6px;
-  color: #64748b;
+  margin: 3px 0 0;
+  color: inherit;
   font-size: 13px;
   line-height: 1.45;
 }
@@ -58,6 +58,9 @@ CALCULATION_NOTE_STYLESHEET = """
 .calculation-note-content ul:last-child {
   margin-bottom: 0;
 }
+.calculation-note-content .calculation-note-formula {
+  margin-top: 8px;
+}
 .calculation-note-formula code {
   white-space: normal;
 }
@@ -67,6 +70,12 @@ CALCULATION_NOTE_STYLESHEET = """
 .calculation-note-section ul {
   margin: 3px 0 0;
   padding-left: 20px;
+}
+.calculation-note-section p {
+  margin: 3px 0 0;
+}
+.calculation-note-view {
+  margin-top: 6px;
 }
 """
 
@@ -81,7 +90,9 @@ class CalculationNote:
     formula: str | None
     details: tuple[tuple[str, tuple[str, ...]], ...]
     method_explanation: str | None = None
+    method_text: str | None = None
     sources: tuple[str, ...] = ()
+    source_filters: tuple[str, ...] = ()
 
 
 def _nonempty_text(value: object, *, field: str) -> str:
@@ -97,7 +108,16 @@ def _parse_note(
 ) -> CalculationNote:
     if not isinstance(raw_note, dict):
         raise ValueError(f"Calculation note {note_id!r} must be a mapping.")
-    allowed_fields = {"label", "summary", "formula", "details", "method", "sources"}
+    allowed_fields = {
+        "label",
+        "summary",
+        "formula",
+        "details",
+        "method",
+        "method_text",
+        "sources",
+        "source_filters",
+    }
     unexpected = sorted(set(raw_note) - allowed_fields)
     if unexpected:
         raise ValueError(
@@ -106,7 +126,7 @@ def _parse_note(
         )
 
     label = _nonempty_text(
-        raw_note.get("label", "How this is calculated"),
+        raw_note.get("label", "Notes"),
         field=f"{note_id!r}.label",
     )
     summary = _nonempty_text(
@@ -129,6 +149,13 @@ def _parse_note(
             f"{method_name!r}."
         ) from exc
 
+    raw_method_text = raw_note.get("method_text")
+    method_text = (
+        None
+        if raw_method_text is None
+        else _nonempty_text(raw_method_text, field=f"{note_id!r}.method_text")
+    )
+
     raw_sources = raw_note.get("sources", [])
     if not isinstance(raw_sources, list) or not raw_sources:
         raise ValueError(
@@ -137,6 +164,16 @@ def _parse_note(
     sources = tuple(
         _nonempty_text(source, field=f"{note_id!r}.sources item")
         for source in raw_sources
+    )
+
+    raw_source_filters = raw_note.get("source_filters", [])
+    if not isinstance(raw_source_filters, list):
+        raise ValueError(
+            f"Calculation note {note_id!r}.source_filters must be a list."
+        )
+    source_filters = tuple(
+        _nonempty_text(item, field=f"{note_id!r}.source_filters item")
+        for item in raw_source_filters
     )
 
     raw_details = raw_note.get("details", {})
@@ -165,7 +202,9 @@ def _parse_note(
         formula=formula,
         details=tuple(details),
         method_explanation=method_explanation,
+        method_text=method_text,
         sources=sources,
+        source_filters=source_filters,
     )
 
 
@@ -218,29 +257,34 @@ def render_calculation_note_html(note: CalculationNote) -> str:
     sections = [
         "<div class='calculation-note-block' "
         f"data-calculation-note-id='{html.escape(note.note_id, quote=True)}'>",
-        f"<p class='calculation-note-summary'>{html.escape(note.summary)}</p>",
         "<details class='calculation-note' "
         f"data-calculation-note-id='{html.escape(note.note_id, quote=True)}'>",
         f"<summary>{html.escape(note.label)}</summary>",
         "<div class='calculation-note-content'>",
+        "<div class='calculation-note-section'>"
+        "<strong>Summary:</strong>"
+        f"<p class='calculation-note-summary'>{html.escape(note.summary)}</p>"
+        "</div>",
     ]
+    if note.method_text:
+        sections.append(
+            "<div class='calculation-note-section'>"
+            "<strong>Method:</strong>"
+            f"<p>{html.escape(note.method_text)}</p>"
+            "</div>"
+        )
     if note.formula:
         sections.append(
             "<p class='calculation-note-formula'><strong>Formula:</strong> "
             f"<code>{html.escape(note.formula)}</code></p>"
         )
-    if note.method_explanation:
-        sections.append(
-            "<div class='calculation-note-section'>"
-            "<strong>How the summary is prepared:</strong>"
-            f"<ul><li>{html.escape(note.method_explanation)}</li></ul>"
-            "</div>"
+    if note.source_filters:
+        rendered_items = "".join(
+            f"<li>{html.escape(item)}</li>" for item in note.source_filters
         )
-    for heading, items in note.details:
-        rendered_items = "".join(f"<li>{html.escape(item)}</li>" for item in items)
         sections.append(
             "<div class='calculation-note-section'>"
-            f"<strong>{html.escape(heading)}:</strong>"
+            "<strong>Summary filters / eligibility:</strong>"
             f"<ul>{rendered_items}</ul>"
             "</div>"
         )
@@ -250,7 +294,7 @@ def render_calculation_note_html(note: CalculationNote) -> str:
         )
         sections.append(
             "<div class='calculation-note-section'>"
-            "<strong>Prepared summaries used:</strong>"
+            "<strong>Summary Tables Used:</strong>"
             f"<ul>{rendered_sources}</ul>"
             "</div>"
         )

@@ -1189,7 +1189,6 @@ class VMTValidationPage(DashboardPage):
             pn.pane.Markdown("### VMT Overview"),
             self.noted_section("vmt.overview", self._vmt_overview_body),
             pn.pane.Markdown("### Personal Auto VMT"),
-            self.section_note("vmt.personal_auto", self._personal_vmt_body),
             selector_row(
                 self.personal_vmt_breakdown_sel,
                 self.personal_vmt_geography_type_sel,
@@ -1202,8 +1201,8 @@ class VMTValidationPage(DashboardPage):
                 self.personal_vmt_household_size_sel,
             ),
             self._personal_vmt_body,
+            self.section_note("vmt.personal_auto", self._personal_vmt_body),
             pn.pane.Markdown("### Non-Motorized VMT"),
-            self.section_note("vmt.non_motorized", self._non_motorized_vmt_body),
             selector_row(
                 self.non_motorized_vmt_breakdown_sel,
                 self.non_motorized_vmt_geography_type_sel,
@@ -1216,8 +1215,8 @@ class VMTValidationPage(DashboardPage):
                 self.non_motorized_vmt_household_size_sel,
             ),
             self._non_motorized_vmt_body,
+            self.section_note("vmt.non_motorized", self._non_motorized_vmt_body),
             pn.pane.Markdown("### External VMT and Travel"),
-            self.section_note("vmt.external_travel", self._external_vmt_body),
             selector_row(
                 self.external_travel_metric_sel,
                 self.external_travel_breakdown_sel,
@@ -1225,8 +1224,8 @@ class VMTValidationPage(DashboardPage):
                 self.external_travel_time_period_sel,
             ),
             self._external_vmt_body,
+            self.section_note("vmt.external_travel", self._external_vmt_body),
             pn.pane.Markdown("### Commercial VMT and Travel"),
-            self.section_note("vmt.commercial_travel", self._body),
             selector_row(
                 self.demo_commercial_metric_sel,
                 self.demo_commercial_breakdown_sel,
@@ -1234,6 +1233,7 @@ class VMTValidationPage(DashboardPage):
                 self.demo_commercial_time_period_sel,
             ),
             self._body,
+            self.section_note("vmt.commercial_travel", self._body),
             pn.pane.Markdown("### Bicycle VMT"),
             self.noted_section("vmt.bicycle", self._bicycle_body),
             sizing_mode="stretch_width",

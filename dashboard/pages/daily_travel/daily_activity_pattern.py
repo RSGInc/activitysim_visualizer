@@ -52,7 +52,6 @@ class DailyActivityPatternPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Daily Activity Pattern"),
-            self.section_note("daily_activity_pattern.summary", self._body),
             selector_row(self.person_type_sel),
             self._body,
             sizing_mode="stretch_width",
@@ -354,35 +353,50 @@ class DailyActivityPatternPage(DashboardPage):
             summaries["daily_activity_pattern_by_person_type"] or []
         )
         return [
+            self.noted_view(
+                "daily_activity.activity_pattern",
                 self.render_daily_activity_pattern_chart(
                     summaries,
                     display_person_type=display_person_type,
                     raw_person_type=raw_person_type,
-            ),
-            pn.Row(
-                self.render_mandatory_tour_frequency_chart(
-                    summaries,
-                    display_person_type=display_person_type,
-                    raw_person_type=raw_person_type,
-                ),
-                self.render_nonmandatory_tour_frequency_chart(
-                    summaries,
-                    display_person_type=display_person_type,
-                    raw_person_type=raw_person_type,
                 ),
             ),
             pn.Row(
-                self.render_tour_rate_chart(
-                    summaries,
-                    display_person_type=display_person_type,
-                    raw_person_type=raw_person_type,
-                    person_weights=person_weights,
+                self.noted_view(
+                    "daily_activity.mandatory_tour_frequency",
+                    self.render_mandatory_tour_frequency_chart(
+                        summaries,
+                        display_person_type=display_person_type,
+                        raw_person_type=raw_person_type,
+                    ),
                 ),
-                self.render_trip_rate_chart(
-                    summaries,
-                    display_person_type=display_person_type,
-                    raw_person_type=raw_person_type,
-                    person_weights=person_weights,
+                self.noted_view(
+                    "daily_activity.nonmandatory_tour_frequency",
+                    self.render_nonmandatory_tour_frequency_chart(
+                        summaries,
+                        display_person_type=display_person_type,
+                        raw_person_type=raw_person_type,
+                    ),
+                ),
+            ),
+            pn.Row(
+                self.noted_view(
+                    "daily_activity.tour_rate",
+                    self.render_tour_rate_chart(
+                        summaries,
+                        display_person_type=display_person_type,
+                        raw_person_type=raw_person_type,
+                        person_weights=person_weights,
+                    ),
+                ),
+                self.noted_view(
+                    "daily_activity.trip_rate",
+                    self.render_trip_rate_chart(
+                        summaries,
+                        display_person_type=display_person_type,
+                        raw_person_type=raw_person_type,
+                        person_weights=person_weights,
+                    ),
                 ),
             ),
         ]

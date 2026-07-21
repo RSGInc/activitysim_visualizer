@@ -154,7 +154,7 @@ class TripStopPurposePage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Trip and Stop Purpose"),
-            self.noted_section("trip_stop_purpose.distributions", self._body),
+            self._body,
             sizing_mode="stretch_width",
         )
 
@@ -284,15 +284,21 @@ class TripStopPurposePage(DashboardPage):
                     sizing_mode="stretch_width",
                 ),
                 pn.Row(
-                    self.render_trip_purpose_chart(
-                        summaries["trip_purpose_distribution"],
-                        raw_tour_purpose=raw_tour_purpose,
-                        display_purpose=display_purpose,
+                    self.noted_view(
+                        "trip_stop_purpose.trip_purpose",
+                        self.render_trip_purpose_chart(
+                            summaries["trip_purpose_distribution"],
+                            raw_tour_purpose=raw_tour_purpose,
+                            display_purpose=display_purpose,
+                        ),
                     ),
-                    self.render_stop_purpose_chart(
-                        summaries["stop_destination_purpose_by_tour_purpose"],
-                        raw_tour_purpose=raw_tour_purpose,
-                        display_purpose=display_purpose,
+                    self.noted_view(
+                        "trip_stop_purpose.stop_purpose",
+                        self.render_stop_purpose_chart(
+                            summaries["stop_destination_purpose_by_tour_purpose"],
+                            raw_tour_purpose=raw_tour_purpose,
+                            display_purpose=display_purpose,
+                        ),
                     ),
                     sizing_mode="stretch_width",
                 ),

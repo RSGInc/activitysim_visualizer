@@ -140,19 +140,19 @@ class TripSkimsPage(DashboardPage):
 
         content = [
             pn.pane.Markdown("## Trip Skims"),
-            self.section_note("trip_skims.summary_table", self._summary_section),
             self._top_selector_row(),
             self._summary_section,
+            self.section_note("trip_skims.summary_table", self._summary_section),
         ]
         if not self.state.export_mode:
             content.extend(
                 [
                     pn.pane.Markdown("### Live Trip Distributions"),
+                    control_row(self.trip_component_sel, self.trip_mode_sel),
+                    self._distribution_section,
                     self.section_note(
                         "trip_skims.distribution", self._distribution_section
                     ),
-                    control_row(self.trip_component_sel, self.trip_mode_sel),
-                    self._distribution_section,
                 ]
             )
         return self.new_section(*content)

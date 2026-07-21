@@ -94,11 +94,11 @@ class TransitValidationPage(DashboardPage):
         return self.new_section(
             pn.pane.Markdown("## Transit Validation"),
             pn.pane.Markdown("### Transit Boardings"),
+            selector_row(self.technology_sel, self.access_mode_sel),
+            self._boardings_body,
             self.section_note(
                 "transit_validation.boardings", self._boardings_body
             ),
-            selector_row(self.technology_sel, self.access_mode_sel),
-            self._boardings_body,
             pn.pane.Markdown("### Transfer Rate"),
             self.noted_section(
                 "transit_validation.transfer_rate", self._transfer_body

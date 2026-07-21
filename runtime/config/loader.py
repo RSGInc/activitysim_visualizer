@@ -788,6 +788,11 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
             field_name=dashboard_pages_field_name,
         )
     )
+    include_notes = dashboard_cfg.get(
+        "include_notes", dashboard_cfg.get("calculation_notes", True)
+    )
+    if not isinstance(include_notes, bool):
+        raise ValueError("dashboard.include_notes must be true or false when provided.")
 
     summary_root_raw = processor_cfg.get("root", summaries_cfg.get("root", "artifacts/summary_cache"))
     summary_root = Path(summary_root_raw)
@@ -1097,6 +1102,7 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         log_level=log_level,
         pipeline=pipeline,
         dashboard_pages=dashboard_pages,
+        include_notes=include_notes,
         enable_maz_geographies=enable_maz_geographies_raw,
         run_colors=run_colors,
         missing_data_display=missing_data_display,

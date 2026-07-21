@@ -103,7 +103,6 @@ class TourTimePage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Tour Time"),
-            self.section_note("tour_time.distributions", self._body),
             selector_row(self.purpose_sel),
             self._body,
             sizing_mode="stretch_width",
@@ -221,7 +220,11 @@ class TourTimePage(DashboardPage):
             raw_purpose=raw_purpose,
             display_purpose=display_purpose,
         )
-        return [departure_chart, arrival_chart, duration_chart]
+        return [
+            self.noted_view("tour_time.departure", departure_chart),
+            self.noted_view("tour_time.arrival", arrival_chart),
+            self.noted_view("tour_time.duration", duration_chart),
+        ]
 
 
 PAGE = DashboardPageDefinition(

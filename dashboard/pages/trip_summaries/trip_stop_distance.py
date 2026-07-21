@@ -109,7 +109,6 @@ class TripStopDistancePage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Trip and Stop Distance"),
-            self.section_note("trip_stop_distance.distributions", self._body),
             selector_row(self.tour_purpose_sel),
             self._body,
             sizing_mode="stretch_width",
@@ -232,30 +231,38 @@ class TripStopDistancePage(DashboardPage):
             ]
         return [
             self.trip_stop_distance_range.row(),
-            self.render_distance_chart(
-                summary_data=summaries["trip_distance_by_purpose"],
-                cache_key="trip_distance",
-                raw_purpose=raw_purpose,
-                display_purpose=display_purpose,
-                x_col="distance_bin",
-                y_col="trip_count",
-                title="Trip Distance Distribution",
-                xaxis_title="Distance (miles)",
-                yaxis_title="Trips",
-                x_range=x_range,
+            self.noted_view(
+                "trip_stop_distance.trip_distance",
+                self.render_distance_chart(
+                    summary_data=summaries["trip_distance_by_purpose"],
+                    cache_key="trip_distance",
+                    raw_purpose=raw_purpose,
+                    display_purpose=display_purpose,
+                    x_col="distance_bin",
+                    y_col="trip_count",
+                    title="Trip Distance Distribution",
+                    xaxis_title="Distance (miles)",
+                    yaxis_title="Trips",
+                    x_range=x_range,
+                ),
             ),
-            self.render_distance_chart(
-                summary_data=summaries["stop_out_of_direction_distance_by_tour_purpose"],
-                cache_key="stop_out_of_direction_distance",
-                raw_purpose=raw_purpose,
-                display_purpose=display_purpose,
-                x_col="distance_bin",
-                y_col="stop_count",
-                title="Stop Out-of-Direction Distance Distribution",
-                xaxis_title="Out-of-Direction Distance (miles)",
-                yaxis_title="Stops",
-                cap_at=40,
-                x_range=x_range,
+            self.noted_view(
+                "trip_stop_distance.out_of_direction",
+                self.render_distance_chart(
+                    summary_data=summaries[
+                        "stop_out_of_direction_distance_by_tour_purpose"
+                    ],
+                    cache_key="stop_out_of_direction_distance",
+                    raw_purpose=raw_purpose,
+                    display_purpose=display_purpose,
+                    x_col="distance_bin",
+                    y_col="stop_count",
+                    title="Stop Out-of-Direction Distance Distribution",
+                    xaxis_title="Out-of-Direction Distance (miles)",
+                    yaxis_title="Stops",
+                    cap_at=40,
+                    x_range=x_range,
+                ),
             ),
         ]
 

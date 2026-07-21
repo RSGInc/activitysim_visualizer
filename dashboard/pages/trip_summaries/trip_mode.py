@@ -143,7 +143,6 @@ class TripModePage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Trip Mode"),
-            self.section_note("trip_mode.distributions", self._body),
             selector_row(self.tour_purpose_sel, self.hide_drive_alone),
             self._body,
             sizing_mode="stretch_width",
@@ -292,16 +291,8 @@ class TripModePage(DashboardPage):
             tour_modes,
             hidden_trip_mode_values,
         ) = self._mode_axes(trip_mode_list)
-        overall_chart = self.render_mode_chart(
-            trip_mode_list,
-            raw_purpose=raw_purpose,
-            all_trip_mode_values=all_trip_mode_values,
-            trip_mode_values=trip_mode_values,
-            trip_mode_label_values=trip_mode_label_values,
-            hidden_trip_mode_values=hidden_trip_mode_values,
-            display_purpose=display_purpose,
-        )
-        grid_cards = [
+        overall_chart = self.noted_view(
+            "trip_mode.distributions",
             self.render_mode_chart(
                 trip_mode_list,
                 raw_purpose=raw_purpose,
@@ -310,7 +301,21 @@ class TripModePage(DashboardPage):
                 trip_mode_label_values=trip_mode_label_values,
                 hidden_trip_mode_values=hidden_trip_mode_values,
                 display_purpose=display_purpose,
-                tour_mode=tour_mode,
+            ),
+        )
+        grid_cards = [
+            self.noted_view(
+                "trip_mode.distributions",
+                self.render_mode_chart(
+                    trip_mode_list,
+                    raw_purpose=raw_purpose,
+                    all_trip_mode_values=all_trip_mode_values,
+                    trip_mode_values=trip_mode_values,
+                    trip_mode_label_values=trip_mode_label_values,
+                    hidden_trip_mode_values=hidden_trip_mode_values,
+                    display_purpose=display_purpose,
+                    tour_mode=tour_mode,
+                ),
             )
             for tour_mode in tour_modes
         ]

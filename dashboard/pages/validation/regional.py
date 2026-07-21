@@ -465,13 +465,13 @@ class RegionalValidationPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Regional Validation"),
-            self.section_note("regional_validation.flows", self._body),
             selector_row(
                 self.flow_matrix_sel,
                 self.comparison_metric_sel,
                 self.include_totals_sel,
             ),
             self._body,
+            self.section_note("regional_validation.flows", self._body),
             sizing_mode="stretch_width",
         )
 

@@ -340,6 +340,7 @@ def presentation_signature_payload(config: Config) -> dict[str, Any]:
             if config.dashboard_pages is not None
             else None
         ),
+        "include_notes": config.include_notes,
         "enable_maz_geographies": config.enable_maz_geographies,
         "run_colors": list(config.run_colors),
         "missing_data_display": config.missing_data_display,

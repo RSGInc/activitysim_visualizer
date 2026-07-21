@@ -353,11 +353,9 @@ class EscortedToursPage(DashboardPage):
             pn.pane.Markdown("## Escorted Tours"),
             self.new_section(
                 pn.pane.Markdown("### Escorting Status and Household Characteristics"),
-                self.noted_section("escorted_tours.static", self._static_body),
+                self._static_body,
                 pn.pane.Markdown("### Directional Chauffeur Tours"),
-                self.noted_section(
-                    "escorted_tours.directional", self._directional_body
-                ),
+                self._directional_body,
             ),
             sizing_mode="stretch_width",
         )
@@ -477,7 +475,9 @@ class EscortedToursPage(DashboardPage):
                 ),
             )
             charts.append(
-                bar_chart(
+                self.noted_view(
+                    "escorted_tours.student_status",
+                    bar_chart(
                     label_category_data(
                         chart_data,
                         source_col="escort_type",
@@ -492,7 +492,8 @@ class EscortedToursPage(DashboardPage):
                     yaxis_title="Student School Tours",
                     pct_col="pct",
                     as_percent=self.as_percent,
-                    xaxis_categoryarray=escort_labels,
+                        xaxis_categoryarray=escort_labels,
+                    ),
                 )
             )
         return charts
@@ -564,7 +565,9 @@ class EscortedToursPage(DashboardPage):
                 ),
             )
             charts.append(
-                bar_chart(
+                self.noted_view(
+                    "escorted_tours.households",
+                    bar_chart(
                     chart_data,
                     x_col="student_count",
                     y_col="pct" if self.as_percent else "household_count",
@@ -576,7 +579,8 @@ class EscortedToursPage(DashboardPage):
                         else "Number of Households with Students"
                     ),
                     as_percent=False,
-                    xaxis_categoryarray=student_count_values,
+                        xaxis_categoryarray=student_count_values,
+                    ),
                 )
             )
         return charts
@@ -643,7 +647,9 @@ class EscortedToursPage(DashboardPage):
                 ),
             )
             charts.append(
-                bar_chart(
+                self.noted_view(
+                    "escorted_tours.students_per_tour",
+                    bar_chart(
                     chart_data,
                     x_col="student_count",
                     y_col="avg_schoolkids_per_tour",
@@ -651,7 +657,8 @@ class EscortedToursPage(DashboardPage):
                     xaxis_title="Students in Household",
                     yaxis_title="Average Schoolkids per Adult Chauffer Tour",
                     as_percent=False,
-                    xaxis_categoryarray=student_count_values,
+                        xaxis_categoryarray=student_count_values,
+                    ),
                 )
             )
         return charts
@@ -663,11 +670,14 @@ class EscortedToursPage(DashboardPage):
     ):
         """Render the four chauffeur stop-distribution charts."""
         charts = [
-            self.render_chauffeur_stop_distribution_chart(
-                summary_data,
-                segment,
-                title,
-                stop_values,
+            self.noted_view(
+                "escorted_tours.chauffeur_stops",
+                self.render_chauffeur_stop_distribution_chart(
+                    summary_data,
+                    segment,
+                    title,
+                    stop_values,
+                ),
             )
             for segment, title in STOP_SEGMENT_LABELS.items()
         ]
@@ -771,19 +781,25 @@ class EscortedToursPage(DashboardPage):
             )
         else:
             distance_charts = pn.Row(
-                self.render_distance_chart(
-                    tour_distance_data,
-                    direction_label,
-                    title_prefix="Chauffer Tour Distance Distribution",
-                    yaxis_title="Chauffer Tours",
-                    x_range=x_range,
+                self.noted_view(
+                    "escorted_tours.tour_distance",
+                    self.render_distance_chart(
+                        tour_distance_data,
+                        direction_label,
+                        title_prefix="Chauffer Tour Distance Distribution",
+                        yaxis_title="Chauffer Tours",
+                        x_range=x_range,
+                    ),
                 ),
-                self.render_distance_chart(
-                    trip_distance_data,
-                    direction_label,
-                    title_prefix="Chauffer Trip Distance Distribution",
-                    yaxis_title="Chauffer Trips",
-                    x_range=x_range,
+                self.noted_view(
+                    "escorted_tours.trip_distance",
+                    self.render_distance_chart(
+                        trip_distance_data,
+                        direction_label,
+                        title_prefix="Chauffer Trip Distance Distribution",
+                        yaxis_title="Chauffer Trips",
+                        x_range=x_range,
+                    ),
                 ),
                 sizing_mode="stretch_width",
             )
@@ -794,10 +810,15 @@ class EscortedToursPage(DashboardPage):
                 pn.pane.Markdown("### Chauffer Person Type Distribution"),
                 pn.pane.Markdown(PERSON_TYPE_DESCRIPTION),
                 pn.Row(
-                    self.render_person_type_chart(
-                        summaries["adult_escorted_tours_by_person_type_and_direction"],
-                        raw_direction,
-                        direction_label,
+                    self.noted_view(
+                        "escorted_tours.chauffeur_person_type",
+                        self.render_person_type_chart(
+                            summaries[
+                                "adult_escorted_tours_by_person_type_and_direction"
+                            ],
+                            raw_direction,
+                            direction_label,
+                        ),
                     ),
                     sizing_mode="stretch_width",
                 ),

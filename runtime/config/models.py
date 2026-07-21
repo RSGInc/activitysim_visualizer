@@ -344,6 +344,7 @@ class Config:
     log_level: str
     pipeline: PipelineSettings
     dashboard_pages: list[DashboardPageConfigEntry] | None
+    include_notes: bool
     enable_maz_geographies: bool
     run_colors: list[str]
     missing_data_display: str

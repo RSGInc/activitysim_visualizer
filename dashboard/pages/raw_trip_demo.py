@@ -66,7 +66,6 @@ class RawTripDemoPage(DashboardPage):
         if not prepared_result.has_usable_runs:
             return [
                 pn.pane.Markdown("## Prepared Trip Demo"),
-                note,
                 self.unavailable_visualization(
                     prepared_result,
                     detail=(
@@ -74,6 +73,7 @@ class RawTripDemoPage(DashboardPage):
                         "records and does not render from summary tables."
                     ),
                 ),
+                note,
             ]
 
         prepared_runs = prepared_result.usable_by_input["trips"]
@@ -85,12 +85,12 @@ class RawTripDemoPage(DashboardPage):
         )
         return [
             pn.pane.Markdown("## Prepared Trip Demo"),
-            note,
             pn.pane.Markdown(
                 "This page demonstrates the opt-in prepared-data path by aggregating "
                 "trip records directly from the loaded prepared runs."
             ),
             self.render_trip_mode_chart(trip_mode_list),
+            note,
         ]
 
     def render_trip_mode_chart(

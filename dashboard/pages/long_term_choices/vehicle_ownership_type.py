@@ -124,13 +124,9 @@ class VehicleOwnershipTypePage(DashboardPage):
         return self.new_section(
             pn.pane.Markdown("## Vehicle Ownership and Type"),
             pn.pane.Markdown("### Household Vehicle Ownership"),
-            self.noted_section(
-                "vehicle_ownership.ownership", self._ownership_section
-            ),
+            self._ownership_section,
             pn.pane.Markdown("### Vehicle Characteristics"),
-            self.noted_section(
-                "vehicle_ownership.vehicle_mix", self._vehicle_mix_section
-            ),
+            self._vehicle_mix_section,
             sizing_mode="stretch_width",
         )
 
@@ -169,9 +165,19 @@ class VehicleOwnershipTypePage(DashboardPage):
         auto_ownership = summaries["auto_ownership_distribution"]
         av_ownership = summaries["autonomous_vehicle_ownership_totals"]
 
-        top_row.append(self.render_auto_ownership_chart(auto_ownership))
+        top_row.append(
+            self.noted_view(
+                "vehicle_ownership.auto_ownership",
+                self.render_auto_ownership_chart(auto_ownership),
+            )
+        )
 
-        top_row.append(self.render_autonomous_vehicle_kpi(av_ownership))
+        top_row.append(
+            self.noted_view(
+                "vehicle_ownership.autonomous_vehicle_kpi",
+                self.render_autonomous_vehicle_kpi(av_ownership),
+            )
+        )
 
         return [
             selector_row(self.hhsize_sel),
@@ -211,16 +217,24 @@ class VehicleOwnershipTypePage(DashboardPage):
             ),
         ]
 
+        note_ids = {
+            "vehicle_age_distribution": "vehicle_ownership.vehicle_age",
+            "vehicle_fuel_type_distribution": "vehicle_ownership.vehicle_fuel",
+            "vehicle_body_type_distribution": "vehicle_ownership.vehicle_body",
+        }
         for summary_id, canonical_col, legacy_col, title, xaxis_title in chart_specs:
             summary = summaries[summary_id]
             vehicle_views.append(
-                self.render_vehicle_attribute_chart(
-                    summary,
-                    summary_id=summary_id,
-                    canonical_col=canonical_col,
-                    legacy_col=legacy_col,
-                    title=title,
-                    xaxis_title=xaxis_title,
+                self.noted_view(
+                    note_ids[summary_id],
+                    self.render_vehicle_attribute_chart(
+                        summary,
+                        summary_id=summary_id,
+                        canonical_col=canonical_col,
+                        legacy_col=legacy_col,
+                        title=title,
+                        xaxis_title=xaxis_title,
+                    ),
                 )
             )
 

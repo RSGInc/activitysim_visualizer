@@ -59,7 +59,7 @@ class TourPurposePage(DashboardPage):
         self._body = self.section("tour_purpose_body", render=self.render_body)
         return self.new_section(
             pn.pane.Markdown("## Tour Purpose"),
-            self.noted_section("tour_purpose.distributions", self._body),
+            self._body,
             sizing_mode="stretch_width",
         )
 
@@ -75,23 +75,29 @@ class TourPurposePage(DashboardPage):
         purpose_data = nonempty(summaries["tour_purpose_distribution"])
         return [
             pn.Row(
-                render_distribution_chart(
-                    category_data,
-                    source_col="tour_category",
-                    category_id="tour_category",
-                    title="Tour Category",
-                    xaxis_title="Tour Category",
-                    config=self.config,
-                    as_percent=self.as_percent,
+                self.noted_view(
+                    "tour_purpose.category",
+                    render_distribution_chart(
+                        category_data,
+                        source_col="tour_category",
+                        category_id="tour_category",
+                        title="Tour Category",
+                        xaxis_title="Tour Category",
+                        config=self.config,
+                        as_percent=self.as_percent,
+                    ),
                 ),
-                render_distribution_chart(
-                    purpose_data,
-                    source_col="tour_purpose",
-                    category_id="tour_purpose",
-                    title="Tour Purpose",
-                    xaxis_title="Tour Purpose",
-                    config=self.config,
-                    as_percent=self.as_percent,
+                self.noted_view(
+                    "tour_purpose.purpose",
+                    render_distribution_chart(
+                        purpose_data,
+                        source_col="tour_purpose",
+                        category_id="tour_purpose",
+                        title="Tour Purpose",
+                        xaxis_title="Tour Purpose",
+                        config=self.config,
+                        as_percent=self.as_percent,
+                    ),
                 ),
                 sizing_mode="stretch_width",
             )

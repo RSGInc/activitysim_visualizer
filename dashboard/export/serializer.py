@@ -49,7 +49,9 @@ def serialize_viewable(
         if note_target_id in hidden_view_ids:
             return True
         css_classes = set(getattr(viewable, "css_classes", []) or [])
-        if "calculation-note-section" not in css_classes:
+        if not css_classes.intersection(
+            {"calculation-note-section", "calculation-note-view"}
+        ):
             return False
         return any(
             id(child) in hidden_view_ids
