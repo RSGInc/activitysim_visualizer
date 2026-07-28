@@ -29,8 +29,8 @@ def test_export_html_smoke_writes_single_self_contained_file() -> None:
         tmp_path,
         export_html_lines=[
             "dashboard:",
-            "  weighting: all",
-            "  values: all",
+            "  weighting: weighted",
+            "  values: percent",
         ],
     )
     out_path = tmp_path / "smoke" / "dashboard.html"
@@ -113,11 +113,22 @@ def test_export_html_smoke_embeds_versioned_payload_and_runtime() -> None:
             "available": True,
             "request_mode": "all",
             "requested_values": [],
-            "resolved_values": ["All", "eatout", "social"],
-            "default_value": "All",
-            "options": ["All", "eatout", "social"],
+            "resolved_values": ["All Tour Purposes", "eatout", "social"],
+            "default_value": "All Tour Purposes",
+            "options": ["All Tour Purposes", "eatout", "social"],
             "export_enabled": True,
-        }
+        },
+        {
+            "id": "hide_drive_alone",
+            "label": "Hide Auto Modes",
+            "available": True,
+            "request_mode": "all",
+            "requested_values": [],
+            "resolved_values": ["False", "True"],
+            "default_value": "False",
+            "options": ["False", "True"],
+            "export_enabled": True,
+        },
     ]
     assert payload["states"]["Weighted||Percent"]["trip_mode"]["kind"] == "page"
     assert "Unsupported export schema version." in html
@@ -153,8 +164,8 @@ def test_export_html_smoke_serializes_grouped_default_page_as_leaf_page_id() -> 
         tmp_path,
         export_html_lines=[
             "dashboard:",
-            "  weighting: all",
-            "  values: all",
+            "  weighting: weighted",
+            "  values: percent",
         ],
     )
     out_path = tmp_path / "smoke" / "grouped_dashboard.html"

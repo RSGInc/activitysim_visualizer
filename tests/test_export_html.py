@@ -1529,10 +1529,10 @@ def test_build_export_html_document_keeps_summary_safe_skims_content_and_hides_p
 ) -> None:
     config = _write_config(
         tmp_path,
-        dashboard_pages=["skims"],
+        dashboard_pages=["skim_summaries"],
         export_html_lines=[
             "pages:",
-            "  skims: {}",
+            "  skim_summaries: {}",
         ],
     )
 
@@ -1544,7 +1544,7 @@ def test_build_export_html_document_keeps_summary_safe_skims_content_and_hides_p
     )
 
     assert [(page["id"], page["title"]) for page in payload["pages"]] == [
-        ("skims", "Skim Summaries")
+        ("skim_summaries", "Skim Summaries")
     ]
     assert not any(
         node.get("selector_id") in {"trip_min", "trip_max", "tour_min", "tour_max"}
@@ -1566,14 +1566,14 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
         tmp_path,
         export_html_lines=[
             "dashboard:",
-            "  weighting: all",
-            "  values: all",
+            "  weighting: weighted",
+            "  values: percent",
             "pages:",
             "  daily_travel:",
             "    children:",
             "      daily_activity_pattern:",
                 "        person_type:",
-                "          - total",
+                "          - all",
                 "          - worker",
             "  tour_summaries:",
             "    children:",
@@ -2029,9 +2029,13 @@ def test_build_export_html_document_serializes_stop_frequency_four_chart_variant
         if node.get("kind") == "container"
         and node.get("layout") == "row"
         and {
-            child.get("figure", {}).get("layout", {}).get("title", {}).get("text")
+            descendant.get("figure", {})
+            .get("layout", {})
+            .get("title", {})
+            .get("text")
             for child in node.get("children", [])
-            if child.get("kind") == "plotly"
+            for descendant in _walk_nodes(child)
+            if descendant.get("kind") == "plotly"
         }
         == {
             "Tour Stop Frequency - Purpose: eatout, Direction: Outbound",

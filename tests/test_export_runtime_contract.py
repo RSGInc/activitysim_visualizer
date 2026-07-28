@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from dashboard.export.payload import (
     _selector_options,
+    _selector_values_for_current_state,
     resolve_export_section_states,
     temporary_widget_values,
 )
@@ -279,6 +280,26 @@ def _selector_meta(
         "options": values,
         "export_enabled": len(values) > 1,
     }
+
+
+def test_explicit_selector_values_use_the_resolved_option_labels() -> None:
+    widget = pn.widgets.Select(
+        options=["All Person Types", "worker"],
+        value="All Person Types",
+    )
+    selector_meta = _selector_meta(
+        ["All Person Types", "worker"],
+        default_value="All Person Types",
+        request_mode="explicit",
+    )
+    selector_meta["requested_values"] = ["all", "worker"]
+
+    assert _selector_values_for_current_state(
+        page_def=DashboardPageDefinition(page_id="probe", title="Probe"),
+        selector_id="person_type",
+        widget=widget,
+        selector_meta=selector_meta,
+    ) == ["All Person Types", "worker"]
 
 
 class _ExportPartProbe:

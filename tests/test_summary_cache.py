@@ -1265,13 +1265,13 @@ def test_tour_stop_frequency_live_page_uses_shared_summary_helpers(
         obj
         for obj in page.render_body()
         if isinstance(obj, pn.Row)
-        and sum(isinstance(child, pn.pane.Plotly) for child in obj.objects) == 2
+        and sum(len(_collect_plotly_panes(child)) for child in obj.objects) == 2
     ]
     assert len(directional_rows) == 1
     directional_titles = {
         str(plot.object.layout.title.text)
-        for plot in directional_rows[0].objects
-        if isinstance(plot, pn.pane.Plotly)
+        for child in directional_rows[0].objects
+        for plot in _collect_plotly_panes(child)
     }
     assert {
         "Tour Stop Frequency - Purpose: social, Direction: Outbound",
@@ -1394,7 +1394,7 @@ def test_trip_mode_selector_uses_union_across_runs_and_zero_fills_missing_modes(
     assert list(page.tour_purpose_sel.options) == ["All Tour Purposes", "eatout", "social"]
     page.tour_purpose_sel.value = "social"
     charts = page.render_body()
-    overall_chart = charts[0]
+    overall_chart = _collect_plotly_panes(charts[0])[0]
     traces = {trace.name: trace for trace in overall_chart.object.data}
 
     assert set(traces) == {"Base", "Build"}
@@ -1449,7 +1449,7 @@ def test_trip_mode_page_uses_configured_mode_labels_on_plot_axes(tmp_path: Path)
     page = TripModePage(state, config)
     page.refresh(force=True)
 
-    overall_chart = page.render_body()[0]
+    overall_chart = _collect_plotly_panes(page.render_body()[0])[0]
     trace = overall_chart.object.data[0]
 
     assert page.hide_drive_alone.value is False
@@ -1467,7 +1467,7 @@ def test_trip_mode_page_uses_configured_mode_labels_on_plot_axes(tmp_path: Path)
         "Drive Alone",
     ]
     page.hide_drive_alone.value = True
-    checked_chart = page.render_body()[0]
+    checked_chart = _collect_plotly_panes(page.render_body()[0])[0]
     checked_trace = checked_chart.object.data[0]
 
     assert list(checked_trace.x) == ["Walk"]
@@ -1537,7 +1537,7 @@ def test_daily_activity_pattern_page_uses_configured_mandatory_tour_labels_on_pl
     page = DailyActivityPatternPage(state, config)
     page.refresh(force=True)
 
-    mandatory_chart = page.render_body()[1].objects[0]
+    mandatory_chart = _collect_plotly_panes(page.render_body()[1])[0]
     trace = mandatory_chart.object.data[0]
 
     assert list(trace.x) == ["Work", "Work + School"]
@@ -2297,15 +2297,18 @@ def test_joint_travel_frequency_can_hide_no_joint_tours_without_renormalizing(
     page = JointTravelPage(state, config)
     page.refresh(force=True)
 
-    assert page._frequency_section.objects[0].object == "### Joint Tour Frequency"
-    assert page._frequency_section.objects[1].objects == [page.hide_no_joint_tours]
+    assert any(
+        isinstance(obj, pn.pane.Markdown) and obj.object == "### Joint Tour Frequency"
+        for obj in page.view.objects
+    )
+    assert page._frequency_section.objects[0].objects == [page.hide_no_joint_tours]
     frequency_plot = _collect_plotly_panes(page._frequency_section)[0]
     trace = frequency_plot.object.data[0]
     assert list(trace.x) == ["No Joint Tours", "One Joint Tour"]
     assert list(trace.y) == pytest.approx([62.5, 37.5])
 
     page.hide_no_joint_tours.value = True
-    checked_plot = page.render_frequency()[-1]
+    checked_plot = _collect_plotly_panes(page.render_frequency()[-1])[0]
     checked_trace = checked_plot.object.data[0]
 
     assert list(checked_trace.x) == ["One Joint Tour"]
@@ -2393,7 +2396,7 @@ def test_joint_travel_composition_plot_keeps_category_axis_when_party_size_filte
 
 
 def test_skims_group_lists_tour_skims_before_trip_skims() -> None:
-    definitions = page_definitions_for_group("skims")
+    definitions = page_definitions_for_group("skim_summaries")
 
     assert [definition.page_id for definition in definitions] == [
         "tour_skims",
@@ -2458,10 +2461,10 @@ def test_trip_walk_skims_use_explicit_walk_distance_and_time_labels(
 
     table = _collect_tabulators(page._summary_section)[0]
     assert table.value["skim_name"].tolist() == [
-        "MAZ Actual Walk Time",
-        "MAZ Network Walk Distance",
-        "TAZ Skim Walk Distance",
-        "Total Walk Access/Egress Time",
+        "MAZ Actual Walk Time (min)",
+        "MAZ Network Walk Distance (mi)",
+        "TAZ Skim Walk Distance (mi)",
+        "Total Walk Access/Egress Time (min)",
     ]
 
 
@@ -2546,7 +2549,7 @@ def test_tour_skims_page_uses_family_and_direction_selectors_for_summary_table(
     table = tables[0]
     assert list(table.value.columns[:2]) == ["skim_name", "tour_mode"]
     assert set(table.value["tour_mode"].tolist()) == {"SOV", "HOV2"}
-    assert set(table.value["skim_name"].tolist()) == {"Cost", "Time"}
+    assert set(table.value["skim_name"].tolist()) == {"Cost ($)", "Time (min)"}
     assert "Outbound" == page.tour_direction_sel.value
 
     page.tour_family_sel.value = "Transit Skims"
@@ -2554,7 +2557,7 @@ def test_tour_skims_page_uses_family_and_direction_selectors_for_summary_table(
     page.refresh(force=True)
     inbound_table = _collect_tabulators(page._summary_section)[0]
     assert set(inbound_table.value["tour_mode"].tolist()) == {"KNR_TRANSIT"}
-    assert "Transit In-Vehicle Time" in inbound_table.value["skim_name"].tolist()
+    assert "Transit In-Vehicle Time (min)" in inbound_table.value["skim_name"].tolist()
 
 
 def test_tour_purpose_labels_render_consistently_across_pages(tmp_path: Path) -> None:
@@ -2653,8 +2656,10 @@ def test_tour_purpose_labels_render_consistently_across_pages(tmp_path: Path) ->
             "average_nonmandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
                 {
                     "nonmandatory_tour_purpose": ["eatout", "social"],
-                    "geography_level": ["Region", "Region"],
+                    "geography_type": ["all_geographies", "all_geographies"],
+                    "geography_id": ["all_geographies", "all_geographies"],
                     "average_tour_distance": [4.2, 6.1],
+                    "tour_count": [1.0, 1.0],
                 }
             ),
         },
@@ -2696,7 +2701,7 @@ def test_tour_purpose_labels_render_consistently_across_pages(tmp_path: Path) ->
     assert not hasattr(tour_distance_page, "nonmandatory_purpose_sel")
     tabulators = _collect_tabulators(tour_distance_page._average_section)
     nonmandatory_table = tabulators[0].value
-    assert nonmandatory_table["nonmandatory_tour_purpose"].tolist() == [
+    assert nonmandatory_table["Non-Mandatory Tour Purpose"].tolist() == [
         "Eat Out",
         "Social Time",
     ]
@@ -3493,11 +3498,10 @@ def test_tour_summaries_tour_mode_page_renders_main_chart_without_vehicle_summar
     page.refresh(force=True)
 
     assert list(page.purpose_sel.options) == ["All Tour Purposes", "work"]
-    assert len(page._mode_section.objects) == 5
+    assert len(page._mode_section.objects) == 4
     chart_titles = [
-        obj.object.layout.title.text
-        for obj in page._mode_section.objects
-        if isinstance(obj, pn.pane.Plotly)
+        plot.object.layout.title.text
+        for plot in _collect_plotly_panes(page._mode_section)
     ]
     assert chart_titles == [
         "Tour Mode - All",
@@ -3505,11 +3509,7 @@ def test_tour_summaries_tour_mode_page_renders_main_chart_without_vehicle_summar
         "Tour Mode - Fewer Vehicles Than Drivers",
         "Tour Mode - At Least As Many Vehicles as Drivers",
     ]
-    vehicle_cards = [
-        obj
-        for obj in page._vehicle_section.objects[-1].objects
-        if isinstance(obj, pn.Card)
-    ]
+    vehicle_cards = _collect_cards(page._vehicle_section)
     assert len(vehicle_cards) == 3
 
 
@@ -3578,9 +3578,7 @@ def test_tour_summaries_tour_mode_page_uses_configured_mode_labels_on_plot_axes(
         "Walk",
     ]
     page.hide_drive_alone.value = True
-    checked_chart = next(
-        obj for obj in page.render_modes_section() if isinstance(obj, pn.pane.Plotly)
-    )
+    checked_chart = _collect_plotly_panes(pn.Column(*page.render_modes_section()))[0]
     checked_trace = checked_chart.object.data[0]
 
     assert list(checked_trace.x) == ["Walk"]
@@ -4102,14 +4100,14 @@ def test_shadow_pricing_page_uses_residual_histograms_and_filters_school_student
 
     workplace_plot = next(
         plot
-        for plot in _collect_plotly_panes(page._workplace_section)
+        for plot in _collect_plotly_panes(page._workplace_plot_section)
         if plot.object.layout.title.text == "Workplace Residual Distribution"
     )
     initial_x = [list(trace.x) for trace in workplace_plot.object.data]
 
     workplace_plot = next(
         plot
-        for plot in _collect_plotly_panes(page._workplace_section)
+        for plot in _collect_plotly_panes(page._workplace_plot_section)
         if plot.object.layout.title.text == "Workplace Residual Distribution"
     )
     district_x = [list(trace.x) for trace in workplace_plot.object.data]
@@ -4120,7 +4118,7 @@ def test_shadow_pricing_page_uses_residual_histograms_and_filters_school_student
 
     workplace_plot = next(
         plot
-        for plot in _collect_plotly_panes(page._workplace_section)
+        for plot in _collect_plotly_panes(page._workplace_plot_section)
         if plot.object.layout.title.text == "Workplace Residual Distribution"
     )
     assert workplace_plot.object.layout.xaxis.title.text == "Residual (Modeled - Target)"
@@ -4130,7 +4128,7 @@ def test_shadow_pricing_page_uses_residual_histograms_and_filters_school_student
     page.student_type_sel.value = "University"
     page.refresh(force=True)
 
-    school_tables = _collect_tabulators(page._school_section)
+    school_tables = _collect_tabulators(page._school_table_section)
     school_df = pl.from_pandas(school_tables[0].value)
     assert set(school_df["student_type"].to_list()) == {"University"}
     assert school_df["percent_error"].to_list()[0].endswith("%")
@@ -4199,7 +4197,7 @@ def test_shadow_pricing_school_all_student_type_uses_upstream_rollup_histogram(
 
     school_plot = next(
         plot
-        for plot in _collect_plotly_panes(page._school_section)
+        for plot in _collect_plotly_panes(page._school_plot_section)
         if plot.object.layout.title.text == "School Residual Distribution"
     )
     assert list(school_plot.object.data[0].x) == [-2.0, 0.0]
@@ -4336,8 +4334,8 @@ def test_shadow_pricing_all_geographies_shows_point_mass_cards_instead_of_plots(
     page = ShadowPricingPage(state, config)
     page.refresh(force=True)
 
-    workplace_cards = _collect_cards(page._workplace_section)
-    school_cards = _collect_cards(page._school_section)
+    workplace_cards = _collect_cards(page._workplace_plot_section)
+    school_cards = _collect_cards(page._school_plot_section)
     assert any(
         getattr(card, "title", "") == "Workplace Residual Distribution Unavailable"
         and "point mass" in str(card.objects[0].object)
@@ -4350,10 +4348,10 @@ def test_shadow_pricing_all_geographies_shows_point_mass_cards_instead_of_plots(
         for card in school_cards
         if getattr(card, "objects", None)
     )
-    assert _collect_plotly_panes(page._workplace_section) == []
-    assert _collect_plotly_panes(page._school_section) == []
-    assert _collect_tabulators(page._workplace_section) != []
-    assert _collect_tabulators(page._school_section) != []
+    assert _collect_plotly_panes(page._workplace_plot_section) == []
+    assert _collect_plotly_panes(page._school_plot_section) == []
+    assert _collect_tabulators(page._workplace_table_section) != []
+    assert _collect_tabulators(page._school_table_section) != []
 
 
 def test_park_and_ride_location_page_uses_residual_plot_and_table(
@@ -4829,7 +4827,7 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
         for plot in distance_plots
         if plot.object.layout.title.text == "Workplace Location Distance Distribution"
     )
-    assert list(work_distance_plot.object.data[0].x) == ["1", "2"]
+    assert list(work_distance_plot.object.data[0].x) == [1.0, 2.0]
     assert list(work_distance_plot.object.data[0].y) == pytest.approx(
         [66.66666666666666, 33.33333333333333]
     )
@@ -5052,11 +5050,16 @@ def test_traffic_validation_removes_direction_period_selectors_and_count_card(
     assert page.demo_top_period_sel.name == "Period"
     assert not hasattr(page, "direction_sel")
     assert not hasattr(page, "count_period_sel")
-    assert page.view.objects[2].object == "### Traffic Volume Summaries"
-    assert list(page.view.objects[3].objects) == [
-        page.demo_period_sel,
-        page.demo_facility_sel,
-    ]
+    assert any(
+        isinstance(obj, pn.pane.Markdown)
+        and obj.object == "### Traffic Volume Summaries"
+        for obj in page.view.objects
+    )
+    assert any(
+        isinstance(obj, pn.Row)
+        and list(obj.objects) == [page.demo_period_sel, page.demo_facility_sel]
+        for obj in page.view.objects
+    )
     sections = {section.section_id: section for section in page.registered_sections}
     assert sections["traffic_facility_summary_body"].selector_ids == ()
     assert sections["traffic_volume_body"].selector_ids == (
@@ -5233,16 +5236,21 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
             {"field": "R^2", "sorter": "number"},
         ]
     }
-    assert page.view.objects[6].object == "### Top Count Locations by Modeled Volume"
+    assert any(
+        isinstance(obj, pn.pane.Markdown)
+        and obj.object == "### Top Count Locations by Modeled Volume"
+        for obj in page.view.objects
+    )
     top_count_section = page._external_top_body
     assert (
         top_count_section.objects[0].object
         == "#### Observed vs Modeled Volumes - Day (Top 25 by Modeled Volume)"
     )
-    assert page.view.objects[7].objects == [
-        page.demo_top_period_sel,
-        page.demo_top_n_sel,
-    ]
+    assert any(
+        isinstance(obj, pn.Row)
+        and list(obj.objects) == [page.demo_top_period_sel, page.demo_top_n_sel]
+        for obj in page.view.objects
+    )
     plot_titles = [
         plot.object.layout.title.text
         for plot in _collect_plotly_panes(page._external_volume_body)

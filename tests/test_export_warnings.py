@@ -181,9 +181,9 @@ def test_export_logs_static_heavy_region_warning_with_disable_hint(
         for message in messages
     )
     assert any(
-        "overview is large because region body contributes about"
+        "overview is large because region overview_demographics contributes about"
         in message
-        and "visualizer.export_html.pages.overview.parts.body.enabled: false"
+        and "visualizer.export_html.pages.overview.parts.overview_demographics.enabled: false"
         in message
         for message in messages
     )
@@ -215,9 +215,9 @@ def test_export_logs_selector_expansion_warning_with_disable_hint(
 
     messages = [record.getMessage() for record in caplog.records]
     assert any(
-        "tour_mode expands region tour_mode_modes to 8 selector combinations"
+        "tour_mode expands region tour_mode_modes to 4 selector combinations"
         in message
-        and "selectors: tour_purpose, auto_sufficiency" in message
+        and "selectors: tour_purpose, hide_drive_alone" in message
         and "visualizer.export_html.pages.tour_summaries.tour_mode.parts.tour_mode_modes.enabled: false"
         in message
         for message in messages

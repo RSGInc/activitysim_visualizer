@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+import sys
 
 import panel as pn
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from dashboard.app import build_dashboard
 from dashboard.calculation_notes import (

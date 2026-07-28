@@ -609,10 +609,10 @@ def test_build_export_payload_skips_prepared_only_sections_but_keeps_summary_saf
     tmp_path = _workspace_tmp_dir("payload_skims_summary_safe")
     config = _write_config(
         tmp_path,
-        dashboard_pages=["skims"],
+        dashboard_pages=["skim_summaries"],
         export_html_lines=[
             "pages:",
-            "  skims: {}",
+            "  skim_summaries: {}",
         ],
     )
 
@@ -620,7 +620,7 @@ def test_build_export_payload_skips_prepared_only_sections_but_keeps_summary_saf
 
     assert payload["pages"] == [
         {
-            "id": "skims",
+            "id": "skim_summaries",
             "title": "Skim Summaries",
             "selectors": [],
             "children": [
@@ -637,6 +637,17 @@ def test_build_export_payload_skips_prepared_only_sections_but_keeps_summary_saf
                             "resolved_values": ["Walk Skims"],
                             "default_value": "Walk Skims",
                             "options": ["Walk Skims"],
+                            "export_enabled": False,
+                        },
+                        {
+                            "id": "tour_skim_scenario",
+                            "label": "Tour Skim Scenario",
+                            "available": True,
+                            "request_mode": "all",
+                            "requested_values": [],
+                            "resolved_values": ["Chosen Mode"],
+                            "default_value": "Chosen Mode",
+                            "options": ["Chosen Mode"],
                             "export_enabled": False,
                         },
                         {
@@ -668,7 +679,18 @@ def test_build_export_payload_skips_prepared_only_sections_but_keeps_summary_saf
                             "default_value": "Walk Skims",
                             "options": ["Walk Skims"],
                             "export_enabled": False,
-                        }
+                        },
+                        {
+                            "id": "trip_skim_scenario",
+                            "label": "Trip Skim Scenario",
+                            "available": True,
+                            "request_mode": "all",
+                            "requested_values": [],
+                            "resolved_values": ["Chosen Mode"],
+                            "default_value": "Chosen Mode",
+                            "options": ["Chosen Mode"],
+                            "export_enabled": False,
+                        },
                     ],
                     "children": [],
                     "default_page_id": None,

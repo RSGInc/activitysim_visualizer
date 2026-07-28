@@ -110,3 +110,5 @@ def shutdown_logging() -> None:
         app_logger.removeHandler(handler)
         if isinstance(handler, logging.FileHandler):
             handler.close()
+    app_logger.setLevel(logging.NOTSET)
+    app_logger.propagate = True

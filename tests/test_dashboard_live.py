@@ -1047,12 +1047,13 @@ def test_non_motorized_vmt_section_mirrors_personal_auto_controls(
         for obj in page.view.objects
         if isinstance(obj, pn.pane.Markdown)
     ]
-    assert markdown_titles[:3] == [
+    assert markdown_titles[:4] == [
         "## VMT Validation",
+        "### VMT Overview",
         "### Personal Auto VMT",
         "### Non-Motorized VMT",
     ]
-    assert markdown_titles[3] == "### External VMT and Travel"
+    assert markdown_titles[4] == "### External VMT and Travel"
     overview_tables = _collect_tabulators(page._vmt_overview_body)
     assert len(overview_tables) == 1
     assert overview_tables[0].value.to_dict("records") == [
@@ -2084,8 +2085,9 @@ def test_page_selectors_render_with_widget_label_instead_of_duplicate_markdown(
 
     selector_row = page.view.objects[1]
     assert isinstance(selector_row, pn.Row)
-    assert selector_row.objects == [page.tour_purpose_sel]
+    assert selector_row.objects == [page.tour_purpose_sel, page.hide_drive_alone]
     assert page.tour_purpose_sel.name == "Tour Purpose"
+    assert page.hide_drive_alone.name == "Hide Auto Modes"
     assert "page-selector-widget" in page.tour_purpose_sel.css_classes
     assert PAGE_SELECTOR_STYLESHEET in page.tour_purpose_sel.stylesheets
 
@@ -2230,12 +2232,20 @@ def test_build_dashboard_can_refresh_every_default_page_from_precomputed_summari
         for selector in leaf_pages["trip_stop_distance"].registered_selectors
     ] == [
         "tour_purpose",
+        "trip_stop_distance_min",
+        "trip_stop_distance_max",
     ]
     assert leaf_pages["daily_activity_pattern"].person_type_sel.options == [
         "All Person Types",
         "worker",
     ]
-    assert leaf_pages["joint_travel"].hhsize_sel.options == ["All", "2", "3"]
+    assert leaf_pages["joint_travel"].hhsize_sel.options == [
+        "All",
+        "2",
+        "3",
+        "4",
+        "5+",
+    ]
     assert leaf_pages["tour_time"].purpose_sel.options == ["All Tour Purposes", "work"]
     assert leaf_pages["tour_mode"].purpose_sel.options == ["All Tour Purposes", "work"]
     assert leaf_pages["tour_stop_frequency"].purpose_sel.options == [
