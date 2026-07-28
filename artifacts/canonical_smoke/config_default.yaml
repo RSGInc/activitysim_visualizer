@@ -1,6 +1,0 @@
-name: "Default Fallback Config"
-runs: []
-summaries:
-  root: summary_cache
-visualizer:
-  dashboard_title: "Default Fallback Dashboard"

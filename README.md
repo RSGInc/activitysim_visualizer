@@ -59,7 +59,7 @@ The main shared page-helper modules live under `dashboard/helpers/`:
 - `time_distance_helpers.py`
 - `comparison_helpers.py`
 
-If you are adding or refactoring a page, start with [wiki/33-dashboard-page-recipes.md](wiki/33-dashboard-page-recipes.md). For the broader runtime picture, see [wiki/12-running-workflows.md](wiki/12-running-workflows.md).
+If you are adding or refactoring a page, read [docs/adding-dashboard-pages.md](docs/adding-dashboard-pages.md) first. For the broader runtime picture, see [docs/architecture.md](docs/architecture.md).
 
 ## Config Setup
 
@@ -559,28 +559,26 @@ activitysim_visualizer/
 `-- tests/
 ```
 
-## Wiki
+## Contributor Docs
 
-User and contributor documentation lives under [`wiki/`](wiki/):
+Contributor-oriented docs live under [`docs/`](docs/):
 
-- [`wiki/00-home.md`](wiki/00-home.md)
-- [`wiki/10-getting-started.md`](wiki/10-getting-started.md)
-- [`wiki/11-configuring-your-data.md`](wiki/11-configuring-your-data.md)
-- [`wiki/12-running-workflows.md`](wiki/12-running-workflows.md)
-- [`wiki/20-output-processor.md`](wiki/20-output-processor.md)
-- [`wiki/30-output-visualizer.md`](wiki/30-output-visualizer.md)
-- [`wiki/40-developer-workflows.md`](wiki/40-developer-workflows.md)
-- [`wiki/90-troubleshooting.md`](wiki/90-troubleshooting.md)
+- [`docs/architecture.md`](docs/architecture.md)
+- [`docs/summary-workflow.md`](docs/summary-workflow.md)
+- [`docs/adding-summaries.md`](docs/adding-summaries.md)
+- [`docs/adding-dashboard-pages.md`](docs/adding-dashboard-pages.md)
+- [`docs/plotting-summary-tables.md`](docs/plotting-summary-tables.md)
+- [`docs/export_html_schema.md`](docs/export_html_schema.md)
+- [`docs/export_html_contributor_guide.md`](docs/export_html_contributor_guide.md)
 
-If you are running or configuring the tool, start with `wiki/10-getting-started.md`.
-If you are changing the codebase, start with `wiki/40-developer-workflows.md`.
+If you are new to the codebase, start with `docs/architecture.md`, then `docs/summary-workflow.md`.
 
 ## Documentation Maintenance Checklist
 
 When behavior changes, update docs in the same change:
 
-- New config key or config behavior: update this README and affected wiki chapters.
-- New summary contract or registration pattern: update `wiki/23-summary-functions.md` and regenerate catalogs.
-- New page, selector, or export behavior: update `wiki/31-dashboard-pages.md`, `wiki/32-figures-and-widgets.md`, or `wiki/33-dashboard-page-recipes.md`.
-- New export payload/runtime behavior: update `wiki/34-html-export.md`.
-- Architecture or runtime-flow changes: update `wiki/12-running-workflows.md`, `wiki/20-output-processor.md`, or `wiki/30-output-visualizer.md`.
+- New config key or config behavior: update this README and any affected workflow guide.
+- New summary contract or registration pattern: update `docs/adding-summaries.md`.
+- New page, selector, or export behavior: update `docs/adding-dashboard-pages.md`.
+- New export payload/runtime behavior: update `docs/export_html_schema.md` and `docs/export_html_contributor_guide.md`.
+- Architecture or runtime-flow changes: update `docs/architecture.md` or `docs/summary-workflow.md`.

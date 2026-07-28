@@ -226,3 +226,20 @@ tmp*/
 *.json
 
 plans/
+
+# Local dashboard/export and diagnostic artifacts
+/.manual_logging_test/
+/.posit/publish/
+/artifacts/alias_smoke/
+/artifacts/canonical_smoke/
+/artifacts/manual_logging_checks/
+/codex_tmp_check/
+/config_1.yaml
+/configs/artifacts*/
+/configs/scratch.py
+/configs/skimjoin_odot_series15.yaml
+/configs/will*.yaml
+/pytest-output.txt
+/raw_school_dropoff.ipynb
+/scratch.ipynb
+/test
