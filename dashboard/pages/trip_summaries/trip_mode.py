@@ -256,16 +256,8 @@ class TripModePage(DashboardPage):
             tour_modes,
             hidden_trip_mode_values,
         ) = self._mode_axes(trip_mode_list)
-        overall_chart = self.render_mode_chart(
-            trip_mode_list,
-            raw_purpose=raw_purpose,
-            all_trip_mode_values=all_trip_mode_values,
-            trip_mode_values=trip_mode_values,
-            trip_mode_label_values=trip_mode_label_values,
-            hidden_trip_mode_values=hidden_trip_mode_values,
-            display_purpose=display_purpose,
-        )
-        grid_cards = [
+        overall_chart = self.noted_view(
+            "trip_mode.distributions",
             self.render_mode_chart(
                 trip_mode_list,
                 raw_purpose=raw_purpose,
@@ -274,7 +266,21 @@ class TripModePage(DashboardPage):
                 trip_mode_label_values=trip_mode_label_values,
                 hidden_trip_mode_values=hidden_trip_mode_values,
                 display_purpose=display_purpose,
-                tour_mode=tour_mode,
+            ),
+        )
+        grid_cards = [
+            self.noted_view(
+                "trip_mode.distributions",
+                self.render_mode_chart(
+                    trip_mode_list,
+                    raw_purpose=raw_purpose,
+                    all_trip_mode_values=all_trip_mode_values,
+                    trip_mode_values=trip_mode_values,
+                    trip_mode_label_values=trip_mode_label_values,
+                    hidden_trip_mode_values=hidden_trip_mode_values,
+                    display_purpose=display_purpose,
+                    tour_mode=tour_mode,
+                ),
             )
             for tour_mode in tour_modes
         ]

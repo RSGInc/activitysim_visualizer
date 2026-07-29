@@ -340,6 +340,7 @@ These are the sections most people need to touch:
 | `prepare.validation.relationship_checks` | Whether cross-table prepared-key validation is disabled, warns, or errors |
 | `prepare.student_types` | Optional school/university enrollment definitions for shadow pricing pages |
 | `dashboard.title` | Title used in the live dashboard and HTML export |
+| `dashboard.include_notes` | Show per-plot and per-table calculation notes in the live dashboard and HTML export (default: `true`) |
 | `dashboard.live.pages` | Ordered list of live pages/groups to show |
 | `dashboard.export` | Export-only output path, page selection, and selector-state controls |
 | `display.run_colors` | Plot colors by run |
@@ -401,6 +402,8 @@ Grouped page ids support either the whole group or specific child pages. For exa
 
 ```yaml
 dashboard:
+  # Set to false to omit all per-plot and per-table calculation notes.
+  include_notes: true
   live:
     pages:
       - overview

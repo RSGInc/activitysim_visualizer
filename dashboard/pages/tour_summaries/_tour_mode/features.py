@@ -66,13 +66,16 @@ class TourModeFeatureMixin:
         return [
             pn.pane.Markdown("### Tour Mode"),
             *[
-                self.render_tour_mode_chart(
-                    mode_summary,
-                    str(raw_purpose),
-                    selected_purpose,
-                    auto_sufficiency,
-                    mode_values,
-                    hidden_mode_values,
+                self.noted_view(
+                    "tour_mode.mode",
+                    self.render_tour_mode_chart(
+                        mode_summary,
+                        str(raw_purpose),
+                        selected_purpose,
+                        auto_sufficiency,
+                        mode_values,
+                        hidden_mode_values,
+                    ),
                 )
                 for auto_sufficiency in AUTO_SUFFICIENCY_LEVELS
             ],
@@ -125,17 +128,26 @@ class TourModeFeatureMixin:
             pn.pane.Markdown("### Allocated Vehicle Characteristics"),
             selector_row(self.occupancy_sel),
             pn.Row(
-                self.render_vehicle_age_chart(
-                    summaries["allocated_vehicle_age_by_occupancy"],
-                    occupancy,
+                self.noted_view(
+                    "tour_mode.vehicle_age",
+                    self.render_vehicle_age_chart(
+                        summaries["allocated_vehicle_age_by_occupancy"],
+                        occupancy,
+                    ),
                 ),
-                self.render_vehicle_fuel_chart(
-                    summaries["allocated_vehicle_fuel_type_by_occupancy"],
-                    occupancy,
+                self.noted_view(
+                    "tour_mode.vehicle_fuel",
+                    self.render_vehicle_fuel_chart(
+                        summaries["allocated_vehicle_fuel_type_by_occupancy"],
+                        occupancy,
+                    ),
                 ),
-                self.render_vehicle_body_chart(
-                    summaries["allocated_vehicle_body_type_by_occupancy"],
-                    occupancy,
+                self.noted_view(
+                    "tour_mode.vehicle_body",
+                    self.render_vehicle_body_chart(
+                        summaries["allocated_vehicle_body_type_by_occupancy"],
+                        occupancy,
+                    ),
                 ),
             ),
         ]

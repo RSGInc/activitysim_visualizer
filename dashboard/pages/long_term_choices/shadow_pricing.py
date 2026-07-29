@@ -169,9 +169,25 @@ class ShadowPricingPage(DashboardPage):
         return self.new_section(
             pn.pane.Markdown("## Employment\\Enrollment Match By Geography"),
             self.new_section(
-                self._workplace_plot_section, self._workplace_table_section
+                pn.pane.Markdown("### Workplace Residual Distribution"),
+                self.noted_section(
+                    "shadow_pricing.workplace_plot", self._workplace_plot_section
+                ),
+                pn.pane.Markdown("### Workplace Residual Details"),
+                self.noted_section(
+                    "shadow_pricing.workplace_table", self._workplace_table_section
+                ),
             ),
-            self.new_section(self._school_plot_section, self._school_table_section),
+            self.new_section(
+                pn.pane.Markdown("### School Residual Distribution"),
+                self.noted_section(
+                    "shadow_pricing.school_plot", self._school_plot_section
+                ),
+                pn.pane.Markdown("### School Residual Details"),
+                self.noted_section(
+                    "shadow_pricing.school_table", self._school_table_section
+                ),
+            ),
         )
 
     def _refresh_data(self) -> None:

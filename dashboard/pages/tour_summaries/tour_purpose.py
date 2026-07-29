@@ -81,23 +81,29 @@ class TourPurposePage(DashboardPage):
         purpose_data = nonempty(summaries["tour_purpose_distribution"])
         return [
             pn.Row(
-                render_distribution_chart(
-                    category_data,
-                    source_col="tour_category",
-                    category_id="tour_category",
-                    title="Tour Category",
-                    xaxis_title="Tour Category",
-                    config=self.config,
-                    plot=self.plot,
+                self.noted_view(
+                    "tour_purpose.category",
+                    render_distribution_chart(
+                        category_data,
+                        source_col="tour_category",
+                        category_id="tour_category",
+                        title="Tour Category",
+                        xaxis_title="Tour Category",
+                        config=self.config,
+                        plot=self.plot,
+                    ),
                 ),
-                render_distribution_chart(
-                    purpose_data,
-                    source_col="tour_purpose",
-                    category_id="tour_purpose",
-                    title="Tour Purpose",
-                    xaxis_title="Tour Purpose",
-                    config=self.config,
-                    plot=self.plot,
+                self.noted_view(
+                    "tour_purpose.purpose",
+                    render_distribution_chart(
+                        purpose_data,
+                        source_col="tour_purpose",
+                        category_id="tour_purpose",
+                        title="Tour Purpose",
+                        xaxis_title="Tour Purpose",
+                        config=self.config,
+                        plot=self.plot,
+                    ),
                 ),
                 sizing_mode="stretch_width",
             )

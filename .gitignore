@@ -232,8 +232,15 @@ plans/
 /artifacts_2/
 /logs/
 /.manual_logging_test/
+/.posit/publish/
 /codex_tmp_check/
+/config_1.yaml
 /configs/artifacts/
 /configs/artifacts_2/
+/configs/scratch.py
+/configs/skimjoin_odot_series15.yaml
+/configs/will*.yaml
 /pytest-output.txt
+/raw_school_dropoff.ipynb
+/scratch.ipynb
 /test

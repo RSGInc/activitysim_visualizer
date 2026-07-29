@@ -80,18 +80,30 @@ class TrafficPageCompositionMixin:
         )
         return self.new_section(
             pn.pane.Markdown("## Traffic Validation"),
-            self._facility_summary_body,
+            self.noted_section(
+                "traffic.facility_summary",
+                self._facility_summary_body,
+            ),
             pn.pane.Markdown("### Traffic Volume Summaries"),
             selector_row(
                 self.demo_period_sel,
                 self.demo_facility_sel,
             ),
             self._external_volume_body,
+            self.section_note(
+                "traffic.count_locations",
+                self._external_volume_body,
+            ),
             self._link_volume_body,
+            self.section_note("traffic.link_volume", self._link_volume_body),
             pn.pane.Markdown("### Top Count Locations by Modeled Volume"),
             selector_row(self.demo_top_period_sel, self.demo_top_n_sel),
             self._external_top_body,
+            self.section_note(
+                "traffic.top_count_locations",
+                self._external_top_body,
+            ),
             pn.pane.Markdown("### Screenline Flow Summaries"),
-            self._screenline_body,
+            self.noted_section("traffic.screenlines", self._screenline_body),
             sizing_mode="stretch_width",
         )

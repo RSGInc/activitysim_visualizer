@@ -205,29 +205,35 @@ class TripStopDistancePage(DashboardPage):
             ]
         return [
             self.trip_stop_distance_range.row(),
-            self.render_distance_chart(
-                summary_data=summaries["trip_distance_by_purpose"],
-                raw_purpose=raw_purpose,
-                display_purpose=display_purpose,
-                x_col="distance_bin",
-                y_col="trip_count",
-                title="Trip Distance Distribution",
-                xaxis_title="Distance (miles)",
-                yaxis_title="Trips",
-                x_range=x_range,
+            self.noted_view(
+                "trip_stop_distance.trip_distance",
+                self.render_distance_chart(
+                    summary_data=summaries["trip_distance_by_purpose"],
+                    raw_purpose=raw_purpose,
+                    display_purpose=display_purpose,
+                    x_col="distance_bin",
+                    y_col="trip_count",
+                    title="Trip Distance Distribution",
+                    xaxis_title="Distance (miles)",
+                    yaxis_title="Trips",
+                    x_range=x_range,
+                ),
             ),
-            self.render_distance_chart(
-                summary_data=summaries[
-                    "stop_out_of_direction_distance_by_tour_purpose"
-                ],
-                raw_purpose=raw_purpose,
-                display_purpose=display_purpose,
-                x_col="distance_bin",
-                y_col="stop_count",
-                title="Stop Out-of-Direction Distance Distribution",
-                xaxis_title="Out-of-Direction Distance (miles)",
-                yaxis_title="Stops",
-                cap_at=40,
-                x_range=x_range,
+            self.noted_view(
+                "trip_stop_distance.out_of_direction",
+                self.render_distance_chart(
+                    summary_data=summaries[
+                        "stop_out_of_direction_distance_by_tour_purpose"
+                    ],
+                    raw_purpose=raw_purpose,
+                    display_purpose=display_purpose,
+                    x_col="distance_bin",
+                    y_col="stop_count",
+                    title="Stop Out-of-Direction Distance Distribution",
+                    xaxis_title="Out-of-Direction Distance (miles)",
+                    yaxis_title="Stops",
+                    cap_at=40,
+                    x_range=x_range,
+                ),
             ),
         ]

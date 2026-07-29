@@ -63,6 +63,7 @@ class RawTripDemoPage(DashboardPage):
         """Render the prepared-run trip mode demo or an unavailable placeholder."""
         if not self.state.run_labels:
             return [self.no_runs_message()]
+        note = self.section_note("raw_trip_demo.trip_modes", self._body)
 
         trip_tables = self.data.prepared(
             "trips",
@@ -78,6 +79,7 @@ class RawTripDemoPage(DashboardPage):
                     ),
                     missing_items=["trips"],
                 ),
+                note,
             ]
 
         trip_mode_list = self.query(lambda: trip_mode_distribution(trip_tables))
@@ -88,6 +90,7 @@ class RawTripDemoPage(DashboardPage):
                 "trip records directly from the loaded prepared runs."
             ),
             self.render_trip_mode_chart(trip_mode_list),
+            note,
         ]
 
     def render_trip_mode_chart(

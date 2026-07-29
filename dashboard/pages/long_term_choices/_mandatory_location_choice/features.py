@@ -46,12 +46,15 @@ class MandatoryLocationFeatureMixin:
                 )
             )
             worker_views.append(
-                data_table(
-                    [
-                        (label, self.render_internal_external_worker_table(df))
-                        for label, df in internal_external_table
-                    ],
-                    "Internal vs. External Workers",
+                self.noted_view(
+                    "mandatory_location.worker_status_table",
+                    data_table(
+                        [
+                            (label, self.render_internal_external_worker_table(df))
+                            for label, df in internal_external_table
+                        ],
+                        "Internal vs. External Workers",
+                    ),
                 )
             )
         else:
@@ -62,7 +65,12 @@ class MandatoryLocationFeatureMixin:
                 )
             )
 
-        worker_views.append(self.render_external_workplace_chart(geo_level, geography))
+        worker_views.append(
+            self.noted_view(
+                "mandatory_location.external_workplace",
+                self.render_external_workplace_chart(geo_level, geography),
+            )
+        )
         return worker_views
 
     def render_internal_external_worker_table(self, df: pl.DataFrame) -> pl.DataFrame:
@@ -176,18 +184,21 @@ class MandatoryLocationFeatureMixin:
                 "title": "Workplace Location Distance Distribution",
                 "yaxis_title": "Workplace Locations",
                 "summary_id": "work_location_distance_distribution_by_geography",
+                "note_id": "mandatory_location.work_distance",
             },
             {
                 "summary_data": self._current_data["school_distance"],
                 "title": "School Location Distance Distribution",
                 "yaxis_title": "School Locations",
                 "summary_id": "school_location_distance_distribution_by_geography",
+                "note_id": "mandatory_location.school_distance",
             },
             {
                 "summary_data": self._current_data["university_distance"],
                 "title": "University Location Distance Distribution",
                 "yaxis_title": "University Locations",
                 "summary_id": "university_location_distance_distribution_by_geography",
+                "note_id": "mandatory_location.university_distance",
             },
         ]
         prepared_charts = [
@@ -229,15 +240,18 @@ class MandatoryLocationFeatureMixin:
             self.mandatory_distance_range.row(),
             pn.Row(
                 *[
-                    self.render_distance_distribution_chart(
-                        geo_level,
-                        geography,
-                        summary_data=spec["summary_data"],
-                        title=spec["title"],
-                        yaxis_title=spec["yaxis_title"],
-                        summary_id=spec["summary_id"],
-                        distance_data=distance_data,
-                        x_range=x_range,
+                    self.noted_view(
+                        spec["note_id"],
+                        self.render_distance_distribution_chart(
+                            geo_level,
+                            geography,
+                            summary_data=spec["summary_data"],
+                            title=spec["title"],
+                            yaxis_title=spec["yaxis_title"],
+                            summary_id=spec["summary_id"],
+                            distance_data=distance_data,
+                            x_range=x_range,
+                        ),
                     )
                     for spec, distance_data in prepared_charts
                 ],
@@ -314,8 +328,14 @@ class MandatoryLocationFeatureMixin:
         return [
             pn.pane.Markdown("### Remote Work"),
             pn.Row(
-                self.render_work_from_home_chart(geo_level, geography),
-                self.render_telecommute_chart(geo_level, geography),
+                self.noted_view(
+                    "mandatory_location.work_from_home",
+                    self.render_work_from_home_chart(geo_level, geography),
+                ),
+                self.noted_view(
+                    "mandatory_location.telecommute",
+                    self.render_telecommute_chart(geo_level, geography),
+                ),
             ),
         ]
 
@@ -443,8 +463,11 @@ class MandatoryLocationFeatureMixin:
             ]
 
         return [
-            data_table(
-                comparison_tables,
-                "Average Mandatory Tour Distance vs Base Run",
+            self.noted_view(
+                "mandatory_location.average_distance",
+                data_table(
+                    comparison_tables,
+                    "Average Mandatory Tour Distance vs Base Run",
+                ),
             )
         ]

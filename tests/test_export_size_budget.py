@@ -13,9 +13,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 # small; the larger size drift comes from the repository's current export
 # payload/embedded dependency footprint rather than from a major new runtime
 # bundle.
-# Updated after declarative page features expanded the representative full export.
+# Updated after calculation notes were ported to declarative page features.
 # Keep the growth allowance separate so future changes still surface clearly.
-EXPORT_HTML_BASELINE_BYTES = 10_325_291
+EXPORT_HTML_BASELINE_BYTES = 11_502_295
 EXPORT_HTML_GROWTH_BUDGET_BYTES = 350_000
 
 @pytest.mark.full_export

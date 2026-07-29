@@ -206,6 +206,7 @@ class TourSkimsPage(DashboardPage):
             pn.pane.Markdown("## Tour Skims"),
             self._top_selector_row(),
             self._summary_section,
+            self.section_note("tour_skims.summary_table", self._summary_section),
         ]
         if not self.state.export_mode:
             content.extend(
@@ -414,11 +415,17 @@ class TourSkimsPage(DashboardPage):
             control_row(
                 self.outbound_min_sel, self.outbound_max_sel, self.outbound_reset_btn
             ),
-            self.render_directional_distribution_chart("outbound"),
+            self.noted_view(
+                "tour_skims.distributions",
+                self.render_directional_distribution_chart("outbound"),
+            ),
             control_row(
                 self.inbound_min_sel, self.inbound_max_sel, self.inbound_reset_btn
             ),
-            self.render_directional_distribution_chart("inbound"),
+            self.noted_view(
+                "tour_skims.distributions",
+                self.render_directional_distribution_chart("inbound"),
+            ),
         ]
 
     def _apply_top_selector_sizing(

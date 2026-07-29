@@ -116,7 +116,9 @@ class OverviewPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Overview"),
+            pn.pane.Markdown("### Key Performance Indicators"),
             self._kpi_section,
+            pn.pane.Markdown("### Demographic Distributions"),
             self._demographics_section,
         )
 
@@ -229,9 +231,7 @@ class OverviewPage(DashboardPage):
         if not self.state.run_labels:
             return [self.no_runs_message()]
 
-        objects: list[pn.viewable.Viewable] = [
-            pn.pane.Markdown("### Key Performance Indicators")
-        ]
+        objects: list[pn.viewable.Viewable] = []
         kpi_result = self._kpi_result()
         if all(kpi_result.values()):
             totals_list = kpi_result["population_totals"]
@@ -244,42 +244,49 @@ class OverviewPage(DashboardPage):
                     for run_label, tot_df in vmt_list
                 ],
             )
+            kpi_cards = pn.Column(
+                pn.Row(
+                    self._kpi_card(
+                        totals_list,
+                        metric="person_count",
+                        label="Population",
+                    ),
+                    self._kpi_card(
+                        totals_list,
+                        metric="household_count",
+                        label="Households",
+                    ),
+                    vmt_box,
+                    sizing_mode="stretch_width",
+                ),
+                pn.Row(
+                    self._kpi_card(
+                        totals_list,
+                        metric="tour_count",
+                        label="Tours",
+                    ),
+                    self._kpi_card(
+                        totals_list,
+                        metric="trip_count",
+                        label="Trips",
+                    ),
+                    self._kpi_card(
+                        totals_list,
+                        metric="stop_count",
+                        label="Stops",
+                    ),
+                    sizing_mode="stretch_width",
+                ),
+                sizing_mode="stretch_width",
+            )
             objects.extend(
                 [
-                    pn.Row(
-                        self._kpi_card(
-                            totals_list,
-                            metric="person_count",
-                            label="Population",
-                        ),
-                        self._kpi_card(
-                            totals_list,
-                            metric="household_count",
-                            label="Households",
-                        ),
-                        vmt_box,
-                        sizing_mode="stretch_width",
-                    ),
-                    pn.Row(
-                        self._kpi_card(
-                            totals_list,
-                            metric="tour_count",
-                            label="Tours",
-                        ),
-                        self._kpi_card(
-                            totals_list,
-                            metric="trip_count",
-                            label="Trips",
-                        ),
-                        self._kpi_card(
-                            totals_list,
-                            metric="stop_count",
-                            label="Stops",
-                        ),
-                        sizing_mode="stretch_width",
-                    ),
+                    self.noted_view("overview.kpis", kpi_cards),
                     pn.pane.Markdown("### Percent Difference vs Base Run"),
-                    self.render_percent_difference_table(pct_df),
+                    self.noted_view(
+                        "overview.percent_difference",
+                        self.render_percent_difference_table(pct_df),
+                    ),
                 ]
             )
         else:
@@ -300,9 +307,14 @@ class OverviewPage(DashboardPage):
 
         ptype_result, hhsize_result = self._demographic_results()
         return [
-            pn.pane.Markdown("### Demographic Distributions"),
             pn.Row(
-                self.render_person_type_chart(ptype_result),
-                self.render_household_size_chart(hhsize_result),
+                self.noted_view(
+                    "overview.person_type",
+                    self.render_person_type_chart(ptype_result),
+                ),
+                self.noted_view(
+                    "overview.household_size",
+                    self.render_household_size_chart(hhsize_result),
+                ),
             ),
         ]

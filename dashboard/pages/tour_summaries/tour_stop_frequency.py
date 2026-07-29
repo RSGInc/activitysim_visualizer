@@ -107,6 +107,7 @@ class TourStopFrequencyPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Tour Stop Frequency"),
+            pn.pane.Markdown("### Tour and At-Work Sub-Tour Frequency"),
             self._body,
             sizing_mode="stretch_width",
         )
@@ -197,23 +198,32 @@ class TourStopFrequencyPage(DashboardPage):
         stop_list = summaries["tour_stop_frequency_by_tour_purpose"]
         atwork_list = nonempty(summaries["atwork_subtour_frequency_distribution"])
         display_purpose, raw_purpose = self._selected_purpose()
-        both_chart = self.render_direction_chart(
-            stop_list,
-            raw_purpose=raw_purpose,
-            display_purpose=display_purpose,
-            direction="Both",
+        both_chart = self.noted_view(
+            "tour_stop_frequency.direction",
+            self.render_direction_chart(
+                stop_list,
+                raw_purpose=raw_purpose,
+                display_purpose=display_purpose,
+                direction="Both",
+            ),
         )
-        outbound_chart = self.render_direction_chart(
-            stop_list,
-            raw_purpose=raw_purpose,
-            display_purpose=display_purpose,
-            direction="Outbound",
+        outbound_chart = self.noted_view(
+            "tour_stop_frequency.direction",
+            self.render_direction_chart(
+                stop_list,
+                raw_purpose=raw_purpose,
+                display_purpose=display_purpose,
+                direction="Outbound",
+            ),
         )
-        inbound_chart = self.render_direction_chart(
-            stop_list,
-            raw_purpose=raw_purpose,
-            display_purpose=display_purpose,
-            direction="Inbound",
+        inbound_chart = self.noted_view(
+            "tour_stop_frequency.direction",
+            self.render_direction_chart(
+                stop_list,
+                raw_purpose=raw_purpose,
+                display_purpose=display_purpose,
+                direction="Inbound",
+            ),
         )
         directional_row = pn.Row(
             outbound_chart,
@@ -229,5 +239,8 @@ class TourStopFrequencyPage(DashboardPage):
             selector_row(self.purpose_sel),
             *charts,
             pn.pane.Markdown("### At-Work Sub-Tour Frequency"),
-            self.render_atwork_chart(atwork_list),
+            self.noted_view(
+                "tour_stop_frequency.atwork",
+                self.render_atwork_chart(atwork_list),
+            ),
         ]

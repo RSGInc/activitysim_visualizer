@@ -471,6 +471,7 @@ class RegionalValidationPage(DashboardPage):
                 self.include_totals_sel,
             ),
             self._body,
+            self.section_note("regional_validation.flows", self._body),
             sizing_mode="stretch_width",
         )
 

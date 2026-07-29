@@ -81,10 +81,13 @@ class EscortedToursFeatureMixin:
             selector_row(self.direction_sel),
             pn.pane.Markdown("### Chauffeur Person Type Distribution"),
             pn.pane.Markdown(PERSON_TYPE_DESCRIPTION),
-            self.render_person_type_chart(
-                summaries["adult_escorted_tours_by_person_type_and_direction"],
-                raw_direction,
-                direction_label,
+            self.noted_view(
+                "escorted_tours.chauffeur_person_type",
+                self.render_person_type_chart(
+                    summaries["adult_escorted_tours_by_person_type_and_direction"],
+                    raw_direction,
+                    direction_label,
+                ),
             ),
         ]
 
@@ -118,19 +121,25 @@ class EscortedToursFeatureMixin:
             )
         else:
             charts = pn.Row(
-                self.render_distance_chart(
-                    tour_distance_data,
-                    direction_label,
-                    title_prefix="Chauffeur Tour Distance Distribution",
-                    yaxis_title="Chauffeur Tours",
-                    x_range=x_range,
+                self.noted_view(
+                    "escorted_tours.tour_distance",
+                    self.render_distance_chart(
+                        tour_distance_data,
+                        direction_label,
+                        title_prefix="Chauffeur Tour Distance Distribution",
+                        yaxis_title="Chauffeur Tours",
+                        x_range=x_range,
+                    ),
                 ),
-                self.render_distance_chart(
-                    trip_distance_data,
-                    direction_label,
-                    title_prefix="Chauffeur Trip Distance Distribution",
-                    yaxis_title="Chauffeur Trips",
-                    x_range=x_range,
+                self.noted_view(
+                    "escorted_tours.trip_distance",
+                    self.render_distance_chart(
+                        trip_distance_data,
+                        direction_label,
+                        title_prefix="Chauffeur Trip Distance Distribution",
+                        yaxis_title="Chauffeur Trips",
+                        x_range=x_range,
+                    ),
                 ),
                 sizing_mode="stretch_width",
             )
@@ -177,20 +186,23 @@ class EscortedToursFeatureMixin:
                 )
             )
             charts.append(
-                self.plot.bar(
-                    label_category_data(
-                        chart_data,
-                        source_col="escort_type",
-                        category_id="escort",
-                        config=self.config,
-                        target_col="escort_type_label",
+                self.noted_view(
+                    "escorted_tours.student_status",
+                    self.plot.bar(
+                        label_category_data(
+                            chart_data,
+                            source_col="escort_type",
+                            category_id="escort",
+                            config=self.config,
+                            target_col="escort_type_label",
+                        ),
+                        x="escort_type_label",
+                        y="tour_count",
+                        title=f"Student School Escort Status - {label}",
+                        x_title="Escort Type",
+                        y_title="Student School Tours",
+                        category_order=escort_labels,
                     ),
-                    x="escort_type_label",
-                    y="tour_count",
-                    title=f"Student School Escort Status - {label}",
-                    x_title="Escort Type",
-                    y_title="Student School Tours",
-                    category_order=escort_labels,
                 )
             )
         return charts
@@ -260,19 +272,22 @@ class EscortedToursFeatureMixin:
                 )
             )
             charts.append(
-                self.plot.bar(
-                    chart_data,
-                    x="student_count",
-                    y="pct" if self.as_percent else "household_count",
-                    title=f"Households With School Escorting - {label}",
-                    x_title="Students in Household",
-                    y_title=(
-                        "Percent of Households with Students (%)"
-                        if self.as_percent
-                        else "Number of Households with Students"
+                self.noted_view(
+                    "escorted_tours.households",
+                    self.plot.bar(
+                        chart_data,
+                        x="student_count",
+                        y="pct" if self.as_percent else "household_count",
+                        title=f"Households With School Escorting - {label}",
+                        x_title="Students in Household",
+                        y_title=(
+                            "Percent of Households with Students (%)"
+                            if self.as_percent
+                            else "Number of Households with Students"
+                        ),
+                        value_mode="count",
+                        category_order=student_count_values,
                     ),
-                    value_mode="count",
-                    category_order=student_count_values,
                 )
             )
         return charts
@@ -337,15 +352,18 @@ class EscortedToursFeatureMixin:
                 )
             )
             charts.append(
-                self.plot.bar(
-                    chart_data,
-                    x="student_count",
-                    y="avg_schoolkids_per_tour",
-                    title=f"Schoolkids Per Adult Chauffeur Tour - {label}",
-                    x_title="Students in Household",
-                    y_title="Average Schoolkids per Adult Chauffeur Tour",
-                    value_mode="count",
-                    category_order=student_count_values,
+                self.noted_view(
+                    "escorted_tours.students_per_tour",
+                    self.plot.bar(
+                        chart_data,
+                        x="student_count",
+                        y="avg_schoolkids_per_tour",
+                        title=f"Schoolkids Per Adult Chauffeur Tour - {label}",
+                        x_title="Students in Household",
+                        y_title="Average Schoolkids per Adult Chauffeur Tour",
+                        value_mode="count",
+                        category_order=student_count_values,
+                    ),
                 )
             )
         return charts
@@ -357,11 +375,14 @@ class EscortedToursFeatureMixin:
     ):
         """Render the four chauffeur stop-distribution charts."""
         charts = [
-            self.render_chauffeur_stop_distribution_chart(
-                summary_data,
-                segment,
-                title,
-                stop_values,
+            self.noted_view(
+                "escorted_tours.chauffeur_stops",
+                self.render_chauffeur_stop_distribution_chart(
+                    summary_data,
+                    segment,
+                    title,
+                    stop_values,
+                ),
             )
             for segment, title in STOP_SEGMENT_LABELS.items()
         ]

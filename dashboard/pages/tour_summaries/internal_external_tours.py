@@ -148,8 +148,14 @@ class InternalExternalToursPage(DashboardPage):
         )
         return [
             pn.Row(
-                int_ext_widget,
-                external_locations_widget,
+                self.noted_view(
+                    "internal_external_tours.frequency_table",
+                    int_ext_widget,
+                ),
+                self.noted_view(
+                    "internal_external_tours.location_table",
+                    external_locations_widget,
+                ),
                 sizing_mode="stretch_width",
             )
         ]

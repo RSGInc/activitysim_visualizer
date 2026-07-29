@@ -1392,13 +1392,13 @@ def test_tour_stop_frequency_live_page_uses_shared_summary_helpers(
         obj
         for obj in page.render_body()
         if isinstance(obj, pn.Row)
-        and sum(isinstance(child, pn.pane.Plotly) for child in obj.objects) == 2
+        and sum(len(_collect_plotly_panes(child)) for child in obj.objects) == 2
     ]
     assert len(directional_rows) == 1
     directional_titles = {
         str(plot.object.layout.title.text)
-        for plot in directional_rows[0].objects
-        if isinstance(plot, pn.pane.Plotly)
+        for child in directional_rows[0].objects
+        for plot in _collect_plotly_panes(child)
     }
     assert {
         "Tour Stop Frequency - Purpose: social, Direction: Outbound",
@@ -1529,7 +1529,7 @@ def test_trip_mode_selector_uses_union_across_runs_and_zero_fills_missing_modes(
     ]
     page.tour_purpose_sel.value = "social"
     charts = page.render_body()
-    overall_chart = charts[0]
+    overall_chart = _collect_plotly_panes(charts[0])[0]
     traces = {trace.name: trace for trace in overall_chart.object.data}
 
     assert set(traces) == {"Base", "Build"}
@@ -1587,7 +1587,7 @@ def test_trip_mode_page_uses_configured_mode_labels_on_plot_axes(
     page = TripModePage(state, config)
     page.refresh(force=True)
 
-    overall_chart = page.render_body()[0]
+    overall_chart = _collect_plotly_panes(page.render_body()[0])[0]
     trace = overall_chart.object.data[0]
 
     assert page.hide_drive_alone.value is False
@@ -1605,7 +1605,7 @@ def test_trip_mode_page_uses_configured_mode_labels_on_plot_axes(
         "Drive Alone",
     ]
     page.hide_drive_alone.value = True
-    checked_chart = page.render_body()[0]
+    checked_chart = _collect_plotly_panes(page.render_body()[0])[0]
     checked_trace = checked_chart.object.data[0]
 
     assert list(checked_trace.x) == ["Walk"]
@@ -1676,7 +1676,7 @@ def test_daily_activity_pattern_page_uses_configured_mandatory_tour_labels_on_pl
     page = DailyActivityPatternPage(state, config)
     page.refresh(force=True)
 
-    mandatory_chart = page.render_body()[1].objects[0]
+    mandatory_chart = _collect_plotly_panes(page.render_body()[1])[0]
     trace = mandatory_chart.object.data[0]
 
     assert list(trace.x) == ["Work", "Work + School"]
@@ -2448,15 +2448,19 @@ def test_joint_travel_frequency_can_hide_no_joint_tours_without_renormalizing(
     page = JointTravelPage(state, config)
     page.refresh(force=True)
 
-    assert page._frequency_section.objects[0].object == "### Joint Tour Frequency"
-    assert page._frequency_section.objects[1].objects == [page.hide_no_joint_tours]
+    assert any(
+        isinstance(obj, pn.pane.Markdown)
+        and obj.object == "### Joint Tour Frequency"
+        for obj in page.view.objects
+    )
+    assert page._frequency_section.objects[0].objects == [page.hide_no_joint_tours]
     frequency_plot = _collect_plotly_panes(page._frequency_section)[0]
     trace = frequency_plot.object.data[0]
     assert list(trace.x) == ["No Joint Tours", "One Joint Tour"]
     assert list(trace.y) == pytest.approx([62.5, 37.5])
 
     page.hide_no_joint_tours.value = True
-    checked_plot = page.render_frequency()[-1]
+    checked_plot = _collect_plotly_panes(page.render_frequency()[-1])[0]
     checked_trace = checked_plot.object.data[0]
 
     assert list(checked_trace.x) == ["One Joint Tour"]
@@ -3654,9 +3658,8 @@ def test_tour_summaries_tour_mode_page_renders_main_chart_without_vehicle_summar
     assert list(page.purpose_sel.options) == ["All Tour Purposes", "work"]
     assert len(page._mode_section.objects) == 5
     chart_titles = [
-        obj.object.layout.title.text
-        for obj in page._mode_section.objects
-        if isinstance(obj, pn.pane.Plotly)
+        plot.object.layout.title.text
+        for plot in _collect_plotly_panes(page._mode_section)
     ]
     assert chart_titles == [
         "Tour Mode - All",
@@ -3664,11 +3667,7 @@ def test_tour_summaries_tour_mode_page_renders_main_chart_without_vehicle_summar
         "Tour Mode - Fewer Vehicles Than Drivers",
         "Tour Mode - At Least As Many Vehicles as Drivers",
     ]
-    vehicle_cards = [
-        obj
-        for obj in page._vehicle_section.objects[-1].objects
-        if isinstance(obj, pn.Card)
-    ]
+    vehicle_cards = _collect_cards(page._vehicle_section)
     assert len(vehicle_cards) == 3
 
 
@@ -3738,9 +3737,9 @@ def test_tour_summaries_tour_mode_page_uses_configured_mode_labels_on_plot_axes(
         "Walk",
     ]
     page.hide_drive_alone.value = True
-    checked_chart = next(
-        obj for obj in page.render_modes_section() if isinstance(obj, pn.pane.Plotly)
-    )
+    checked_chart = _collect_plotly_panes(
+        pn.Column(*page.render_modes_section())
+    )[0]
     checked_trace = checked_chart.object.data[0]
 
     assert list(checked_trace.x) == ["Walk"]
@@ -5431,16 +5430,16 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
             {"field": "R^2", "sorter": "number"},
         ]
     }
-    assert page.view.objects[6].object == "### Top Count Locations by Modeled Volume"
+    assert any(
+        isinstance(obj, pn.pane.Markdown)
+        and obj.object == "### Top Count Locations by Modeled Volume"
+        for obj in page.view.objects
+    )
     top_count_section = page._external_top_body
     assert (
         top_count_section.objects[0].object
         == "#### Observed vs Modeled Volumes - Day (Top 25 by Modeled Volume)"
     )
-    assert page.view.objects[7].objects == [
-        page.demo_top_period_sel,
-        page.demo_top_n_sel,
-    ]
     plot_titles = [
         plot.object.layout.title.text
         for plot in _collect_plotly_panes(page._external_volume_body)

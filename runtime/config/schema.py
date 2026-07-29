@@ -128,6 +128,7 @@ def validate_canonical_config(raw: Mapping[str, object]) -> None:
             "live",
             "export",
             "host",
+            "include_notes",
             "enable_maz_geographies",
             "pages",
         },

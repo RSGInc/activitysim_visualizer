@@ -1034,12 +1034,13 @@ def test_non_motorized_vmt_section_mirrors_personal_auto_controls(
     markdown_titles = [
         obj.object for obj in page.view.objects if isinstance(obj, pn.pane.Markdown)
     ]
-    assert markdown_titles[:3] == [
+    assert markdown_titles[:4] == [
         "## VMT Validation",
+        "### VMT Overview",
         "### Personal Auto VMT",
         "### Non-Motorized VMT",
     ]
-    assert markdown_titles[3] == "### External VMT and Travel"
+    assert markdown_titles[4] == "### External VMT and Travel"
     overview_tables = _collect_tabulators(page._vmt_overview_body)
     assert len(overview_tables) == 1
     assert overview_tables[0].value.to_dict("records") == [
@@ -3059,8 +3060,12 @@ def test_skim_pages_render_disaggregated_distribution_plots_when_prepared_runs_a
     tour_page = TourSkimsPage(state, config)
     tour_page.refresh(force=True)
 
-    outbound_plot = tour_page._distribution_section.objects[1]
-    inbound_plot = tour_page._distribution_section.objects[3]
+    outbound_note_view = tour_page._distribution_section.objects[1]
+    inbound_note_view = tour_page._distribution_section.objects[3]
+    assert "calculation-note-view" in outbound_note_view.css_classes
+    assert "calculation-note-view" in inbound_note_view.css_classes
+    outbound_plot = outbound_note_view.objects[0]
+    inbound_plot = inbound_note_view.objects[0]
 
     assert isinstance(outbound_plot, pn.pane.Plotly)
     assert isinstance(inbound_plot, pn.pane.Plotly)
@@ -3080,16 +3085,16 @@ def test_skim_pages_render_disaggregated_distribution_plots_when_prepared_runs_a
     tour_page.inbound_min_sel.value = 11.0
     tour_page.inbound_max_sel.value = 13.0
 
-    outbound_plot = tour_page._distribution_section.objects[1]
-    inbound_plot = tour_page._distribution_section.objects[3]
+    outbound_plot = tour_page._distribution_section.objects[1].objects[0]
+    inbound_plot = tour_page._distribution_section.objects[3].objects[0]
     assert tuple(outbound_plot.object.layout.xaxis.range) == pytest.approx((11.0, 13.0))
     assert tuple(inbound_plot.object.layout.xaxis.range) == pytest.approx((11.0, 13.0))
 
     tour_page.outbound_reset_btn.clicks = tour_page.outbound_reset_btn.clicks + 1
     tour_page.inbound_reset_btn.clicks = tour_page.inbound_reset_btn.clicks + 1
 
-    outbound_plot = tour_page._distribution_section.objects[1]
-    inbound_plot = tour_page._distribution_section.objects[3]
+    outbound_plot = tour_page._distribution_section.objects[1].objects[0]
+    inbound_plot = tour_page._distribution_section.objects[3].objects[0]
     assert tuple(outbound_plot.object.layout.xaxis.range) == pytest.approx(
         (10.0, 200.0)
     )
