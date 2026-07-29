@@ -21,6 +21,8 @@ defaults:
   origin: OTAZ
   destination: DTAZ
   output_prefix: skim_
+  missing_matrix_policy: error # error | warn | set_null
+  missing_od_policy: error # error | warn | set_null
   sentinel_values:
     - 9999
     - 999999
@@ -124,3 +126,13 @@ modes:
           matrix: "WTW_TIV__{PERIOD}"
           origin: OTAZ
           destination: pnr_taz
+
+# Optional trip-to-tour aggregation for outputs that should be accumulated from
+# joined trips instead of (or in addition to) direct tour lookups.
+# tour_aggregation:
+#   method: aggregate_trips
+#   aggregations:
+#     skim_auto_time: sum
+#     skim_auto_distance: sum
+#   directional_outputs:
+#     skim_auto_time: true

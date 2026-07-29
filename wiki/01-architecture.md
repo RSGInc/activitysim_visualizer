@@ -10,8 +10,8 @@ The codebase is organized around those jobs rather than around one monolithic ap
 
 The config surface is now intentionally split into top-level domains such as
 `pipeline`, `dashboard`, `display`, `summarize`, `segment`, and `skimjoin`.
-`runtime.config.load_config()` validates that canonical schema before any
-workflow code sees it. Removed and unknown keys fail with a focused error.
+`runtime.config.load_config_from_yaml()` validates that canonical schema before
+any workflow code sees it. Removed and unknown keys fail with a focused error.
 
 ## Main Subsystems
 

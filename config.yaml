@@ -7,12 +7,11 @@ log_level: INFO
 
 pipeline:
   steps:
-    - prepare
-    - skimjoin
-    - segment
     - summarize
     - dashboard
-  dashboard_mode: live # live | export | host
+  # Add `prepare`, `skimjoin`, or `segment` when those explicit stages are
+  # needed. Summarize automatically prepares data when no valid cache exists.
+  dashboard_mode: live # none | live | export | host
   overwrite: false
 
 # Optional named alternatives backed by columns retained in prepared tables.
@@ -68,7 +67,7 @@ runs:
   - dir: path\to\activitysim\output\run1
     label: Base
     # skimjoin:
-    #   config_path: configs/example_skimjoin.yaml
+    #   config_path: example_skimjoin_config.yaml
     #   skim_files:
     #     - C:\path\to\model_skims\*.omx
     #     - C:\path\to\model_skims\maz_stop_walk.csv
@@ -147,8 +146,10 @@ prepare:
 # Settings for the `skimjoin` step, to be used as defaults.
 # ---------------------------------------------------------------------------
 skimjoin:
+  failure_policy: record # record | error
+  create_hypothetical_skim_tables: false
   defaults:
-    config_path: configs/example_skimjoin.yaml
+    config_path: example_skimjoin_config.yaml
     skim_files:
       - C:\path\to\model_skims\*.omx
       - C:\path\to\model_skims\maz_stop_walk.csv
@@ -188,6 +189,7 @@ segment:
 # ---------------------------------------------------------------------------
 summarize:
   weighting_modes: [weighted, unweighted]
+  failure_policy: record # record | error
   pnr_tour_modes:
     - PNR_TRANSIT
   # Controls additional mapped geography aggregations only. Summaries may still
@@ -212,6 +214,7 @@ summarize:
 # ---------------------------------------------------------------------------
 dashboard:
   title: "ActivitySim Comparison Visualizer"
+  include_notes: true
   enable_maz_geographies: false
   live:
     pages:
@@ -245,6 +248,7 @@ dashboard:
   #   verify: true
 
 display:
+  missing_data_display: card # card | blank
   # bar_hover_mode: all # closest | all
   # density_hover_mode: all # closest | all
   labels:

@@ -241,5 +241,6 @@ plans/
 /configs/will*.yaml
 /pytest-output.txt
 /raw_school_dropoff.ipynb
+/prepared_table_filter_example.ipynb
 /scratch.ipynb
 /test
