@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 from processor.models import PreparedTableName, ProcessorWorkflowResult, RunData
 from processor.prepare.cache import load_prepared_run_cache, write_prepared_run_cache
 from processor.prepare.enrichment.pipeline import prepare_data

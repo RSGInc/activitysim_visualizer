@@ -16,6 +16,8 @@ TOUR_ECDF_SUMMARY_ID = "skimjoin_tour_component_ecdf"
 DEFAULT_BIN_COUNT = 500
 DIRECTION_SUFFIXES = ("_outbound", "_inbound")
 ALL_MODES = "All Modes"
+CHOSEN_MODE_SCENARIO = "chosen_mode"
+ALL_RECORDS_SCENARIO = "all_records"
 SKIM_FAMILY_ORDER = (
     "Auto Skims",
     "Transit Skims",
@@ -144,6 +146,8 @@ def component_display_name(
         "skim_walk_time_inbound": "Total Walk Access/Egress Time (min)",
         "skim_transit_tiv_outbound": "Transit In-Vehicle Time (min)",
         "skim_transit_tiv_inbound": "Transit In-Vehicle Time (min)",
+        "skim_bike_distance": "TAZ Skim Bike Distance (mi)",
+        "skim_bike_maz_distance": "MAZ Network Bike Distance (mi)",
     }
     if value in special_labels:
         return special_labels[value]
@@ -181,6 +185,27 @@ def nonempty_series(
         for label, series, df in (series_list or [])
         if df is not None and not df.is_empty()
     ]
+
+
+def skim_scenario_available(
+    data_list: list[tuple[str, DashboardSummarySeries, pl.DataFrame]] | None,
+    scenario: str,
+) -> bool:
+    for _, _, df in nonempty_series(data_list):
+        if "skim_scenario" not in df.columns:
+            if scenario == CHOSEN_MODE_SCENARIO:
+                return True
+            continue
+        values = (
+            df.select(pl.col("skim_scenario").cast(pl.Utf8))
+            .drop_nulls()
+            .unique()
+            .get_column("skim_scenario")
+            .to_list()
+        )
+        if scenario in values:
+            return True
+    return False
 
 
 def skim_family_for_mode(mode: str) -> str | None:
@@ -230,18 +255,38 @@ def _matching_run_entry(
     return None
 
 
+def _skimjoin_settings_for_series(
+    config: Config,
+    series: DashboardSummarySeries,
+):
+    run_entry = _matching_run_entry(config, series)
+    return (
+        resolve_run_skimjoin_settings(config, run_entry)
+        if run_entry is not None
+        else config.skimjoin
+    )
+
+
+def _ignored_modes_for_series(
+    config: Config,
+    series: DashboardSummarySeries,
+) -> set[str]:
+    skimjoin_settings = _skimjoin_settings_for_series(config, series)
+    normalized = getattr(skimjoin_settings, "normalized_config", None)
+    return {
+        str(mode)
+        for mode in getattr(normalized, "ignore_modes", ()) or ()
+        if str(mode) != ALL_MODES
+    }
+
+
 def _configured_outputs_by_mode(
     config: Config,
     series: DashboardSummarySeries,
     *,
     target_table: str,
 ) -> dict[str, set[str]]:
-    run_entry = _matching_run_entry(config, series)
-    skimjoin_settings = (
-        resolve_run_skimjoin_settings(config, run_entry)
-        if run_entry is not None
-        else config.skimjoin
-    )
+    skimjoin_settings = _skimjoin_settings_for_series(config, series)
     normalized = getattr(skimjoin_settings, "normalized_config", None)
     if normalized is None:
         return {}
@@ -267,10 +312,21 @@ def _skim_family_definitions(
             series,
             target_table=target_table,
         )
+        ignored_modes = _ignored_modes_for_series(config, series)
+        if ignored_modes:
+            configured_outputs = {
+                mode: outputs
+                for mode, outputs in configured_outputs.items()
+                if mode not in ignored_modes
+            }
         available_modes = _available_modes_from_data(
             [(label, series, df)],
             mode_column=mode_column,
         )
+        if ignored_modes:
+            available_modes = [
+                mode for mode in available_modes if mode not in ignored_modes
+            ]
         family_definitions: dict[str, dict[str, tuple[str, ...]]] = {}
         if configured_outputs and available_modes:
             all_modes = [
@@ -396,6 +452,7 @@ def family_stats_table(
     mode_column: str,
     target_table: str,
     direction: str | None = None,
+    skim_scenario: str = CHOSEN_MODE_SCENARIO,
 ) -> list[tuple[str, pl.DataFrame]]:
     family_definitions_by_label = _skim_family_definitions(
         config,
@@ -418,8 +475,14 @@ def family_stats_table(
         filtered = df.with_columns(
             pl.col("component").cast(pl.Utf8),
             pl.col(mode_column).cast(pl.Utf8),
+            (
+                pl.col("skim_scenario").cast(pl.Utf8)
+                if "skim_scenario" in df.columns
+                else pl.lit(CHOSEN_MODE_SCENARIO)
+            ).alias("__skim_scenario"),
         ).filter(
-            pl.col(mode_column).is_in(list(family_modes))
+            (pl.col("__skim_scenario") == skim_scenario)
+            & pl.col(mode_column).is_in(list(family_modes))
             & (pl.col(mode_column) != ALL_MODES)
         )
         if configured_outputs:
@@ -459,10 +522,15 @@ def mode_options(
     *,
     mode_column: str,
     component: str | None,
+    skim_scenario: str = CHOSEN_MODE_SCENARIO,
 ) -> list[str]:
     options: list[str] = []
     for _, df in nonempty(data_list):
         filtered = df
+        if "skim_scenario" in filtered.columns:
+            filtered = filtered.filter(
+                pl.col("skim_scenario").cast(pl.Utf8) == skim_scenario
+            )
         if (
             component
             and component != "No components available"
@@ -488,7 +556,9 @@ def mode_options(
                 options.append(value)
     if not options:
         return ["No modes available"]
-    return [ALL_MODES, *options]
+    if skim_scenario == CHOSEN_MODE_SCENARIO:
+        return [ALL_MODES, *options]
+    return options
 
 
 def tour_mode_options(
@@ -496,10 +566,15 @@ def tour_mode_options(
     *,
     mode_column: str,
     component_base: str | None,
+    skim_scenario: str = CHOSEN_MODE_SCENARIO,
 ) -> list[str]:
     options: list[str] = []
     for _, df in nonempty(data_list):
         filtered = df
+        if "skim_scenario" in filtered.columns:
+            filtered = filtered.filter(
+                pl.col("skim_scenario").cast(pl.Utf8) == skim_scenario
+            )
         if component_base and component_base != "No components available":
             outbound = directional_component_name(component_base, "outbound")
             inbound = directional_component_name(component_base, "inbound")
@@ -525,7 +600,9 @@ def tour_mode_options(
                 options.append(value)
     if not options:
         return ["No modes available"]
-    return [ALL_MODES, *options]
+    if skim_scenario == CHOSEN_MODE_SCENARIO:
+        return [ALL_MODES, *options]
+    return options
 
 
 def filter_stats(
@@ -556,28 +633,56 @@ def prepared_component_values(
     mode_column: str,
     mode_value: str,
     component: str,
+    skim_scenario: str = CHOSEN_MODE_SCENARIO,
 ) -> list[tuple[str, np.ndarray, np.ndarray]]:
     resolved: list[tuple[str, np.ndarray, np.ndarray]] = []
     for label, run in prepared_runs or []:
-        df = getattr(run, table_name)
-        if df is None or df.is_empty():
-            continue
-        required_columns = {mode_column, component}
-        if not required_columns.issubset(df.columns):
-            continue
-        filtered = df.with_columns(pl.col(mode_column).cast(pl.Utf8)).filter(
-            pl.col(component).is_not_null()
-        )
-        if mode_value != ALL_MODES:
-            filtered = filtered.filter(pl.col(mode_column) == mode_value)
-        filtered = filtered.select(
-            pl.col(component).cast(pl.Float64).alias(component),
-            (
-                pl.col("finalweight").cast(pl.Float64)
-                if "finalweight" in df.columns
-                else pl.lit(1.0)
-            ).alias("finalweight"),
-        )
+        if skim_scenario == ALL_RECORDS_SCENARIO:
+            sidecar_name = (
+                "trip_hypothetical_skims"
+                if table_name == "trips"
+                else "tour_hypothetical_skims"
+            )
+            df = getattr(run, sidecar_name)
+            if df is None or df.is_empty():
+                continue
+            required_columns = {
+                "hypothetical_mode",
+                "component",
+                "value",
+                "finalweight",
+            }
+            if not required_columns.issubset(df.columns):
+                continue
+            filtered = df.filter(pl.col("component").cast(pl.Utf8) == component)
+            if mode_value != ALL_MODES:
+                filtered = filtered.filter(
+                    pl.col("hypothetical_mode").cast(pl.Utf8) == mode_value
+                )
+            filtered = filtered.filter(pl.col("value").is_not_null()).select(
+                pl.col("value").cast(pl.Float64).alias(component),
+                pl.col("finalweight").cast(pl.Float64).alias("finalweight"),
+            )
+        else:
+            df = getattr(run, table_name)
+            if df is None or df.is_empty():
+                continue
+            required_columns = {mode_column, component}
+            if not required_columns.issubset(df.columns):
+                continue
+            filtered = df.with_columns(pl.col(mode_column).cast(pl.Utf8)).filter(
+                pl.col(component).is_not_null()
+            )
+            if mode_value != ALL_MODES:
+                filtered = filtered.filter(pl.col(mode_column) == mode_value)
+            filtered = filtered.select(
+                pl.col(component).cast(pl.Float64).alias(component),
+                (
+                    pl.col("finalweight").cast(pl.Float64)
+                    if "finalweight" in df.columns
+                    else pl.lit(1.0)
+                ).alias("finalweight"),
+            )
         if filtered.is_empty():
             continue
         values = filtered.get_column(component).to_numpy()
@@ -595,6 +700,7 @@ def distribution_bins(
     component: str,
     x_range: tuple[float, float] | None = None,
     bin_count: int = DEFAULT_BIN_COUNT,
+    skim_scenario: str = CHOSEN_MODE_SCENARIO,
 ) -> list[tuple[str, pl.DataFrame]]:
     value_sets = prepared_component_values(
         prepared_runs,
@@ -602,6 +708,7 @@ def distribution_bins(
         mode_column=mode_column,
         mode_value=mode_value,
         component=component,
+        skim_scenario=skim_scenario,
     )
     if not value_sets:
         return []
@@ -667,6 +774,7 @@ def distribution_data_bounds(
     mode_column: str,
     mode_value: str,
     component: str,
+    skim_scenario: str = CHOSEN_MODE_SCENARIO,
 ) -> tuple[float, float] | None:
     value_sets = prepared_component_values(
         prepared_runs,
@@ -674,6 +782,7 @@ def distribution_data_bounds(
         mode_column=mode_column,
         mode_value=mode_value,
         component=component,
+        skim_scenario=skim_scenario,
     )
     if not value_sets:
         return None

@@ -6,11 +6,21 @@ import panel as pn
 import polars as pl
 
 from dashboard.components import bar_chart, selector_row
-from dashboard.helpers.category_helpers import column_options, label_category_data, nonempty
+from dashboard.helpers.category_helpers import (
+    capped_numeric_category_expr,
+    column_options,
+    label_category_data,
+    nonempty,
+    numeric_like_sort_expr,
+)
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
-DIRECTION_OPTIONS = ["Both", "Outbound", "Inbound"]
+STOP_FREQUENCY_VALUES = {
+    "Both": ["0", "1", "2", "3", "4", "5", "6+"],
+    "Outbound": ["0", "1", "2", "3+"],
+    "Inbound": ["0", "1", "2", "3+"],
+}
 
 
 def stop_frequency_chart_data(
@@ -24,6 +34,7 @@ def stop_frequency_chart_data(
         "Outbound": "outbound_stop_count",
         "Inbound": "inbound_stop_count",
     }[direction]
+    cap_value = 6 if direction == "Both" else 3
     out = []
     for label, df in nonempty(data_list):
         filtered = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
@@ -31,23 +42,27 @@ def stop_frequency_chart_data(
             if "all_tour_purposes" in filtered["tour_purpose"].cast(pl.Utf8).unique().to_list():
                 filtered = filtered.filter(pl.col("tour_purpose") == "all_tour_purposes")
             else:
-                filtered = filtered.group_by(stop_col).agg(
+                filtered = filtered.with_columns(
+                    capped_numeric_category_expr(stop_col, cap_value)
+                ).group_by(stop_col).agg(
                     tour_count=pl.col("tour_count").sum()
                 )
                 filtered = (
                     filtered.with_columns(pl.col(stop_col).cast(pl.Utf8).alias("stop_frequency"))
                     .select("stop_frequency", "tour_count")
-                    .sort("stop_frequency")
+                    .sort(numeric_like_sort_expr("stop_frequency"))
                 )
                 out.append((label, filtered))
                 continue
         else:
             filtered = filtered.filter(pl.col("tour_purpose") == purpose)
-        filtered = filtered.group_by(stop_col).agg(tour_count=pl.col("tour_count").sum())
+        filtered = filtered.with_columns(
+            capped_numeric_category_expr(stop_col, cap_value)
+        ).group_by(stop_col).agg(tour_count=pl.col("tour_count").sum())
         filtered = (
             filtered.with_columns(pl.col(stop_col).cast(pl.Utf8).alias("stop_frequency"))
             .select("stop_frequency", "tour_count")
-            .sort("stop_frequency")
+            .sort(numeric_like_sort_expr("stop_frequency"))
         )
         out.append((label, filtered))
     return out
@@ -91,6 +106,7 @@ class TourStopFrequencyPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Tour Stop Frequency"),
+            pn.pane.Markdown("### Tour and At-Work Sub-Tour Frequency"),
             self._body,
             sizing_mode="stretch_width",
         )
@@ -135,19 +151,7 @@ class TourStopFrequencyPage(DashboardPage):
             (raw_purpose, direction),
             factory=lambda: stop_frequency_chart_data(stop_list, raw_purpose, direction),
         )
-        stop_col = {
-            "Both": "total_stop_count",
-            "Outbound": "outbound_stop_count",
-            "Inbound": "inbound_stop_count",
-        }[direction]
-        raw_values = sorted(
-            {
-                str(value)
-                for _, df in nonempty(stop_list)
-                for value in (df[stop_col].cast(pl.Utf8).to_list() if stop_col in df.columns else [])
-            },
-            key=lambda value: int(value) if value.isdigit() else 999,
-        )
+        raw_values = STOP_FREQUENCY_VALUES[direction]
         label_values = self.config.ordered_labels("stop_frequency", raw_values)
         return bar_chart(
             label_category_data(
@@ -210,21 +214,51 @@ class TourStopFrequencyPage(DashboardPage):
         stop_list = summaries["tour_stop_frequency_by_tour_purpose"]
         atwork_list = nonempty(summaries["atwork_subtour_frequency_distribution"])
         display_purpose, raw_purpose = self._selected_purpose()
-        charts = [
+        both_chart = self.noted_view(
+            "tour_stop_frequency.direction",
             self.render_direction_chart(
                 stop_list,
                 raw_purpose=raw_purpose,
                 display_purpose=display_purpose,
-                direction=direction,
-            )
-            for direction in DIRECTION_OPTIONS
+                direction="Both",
+            ),
+        )
+        outbound_chart = self.noted_view(
+            "tour_stop_frequency.direction",
+            self.render_direction_chart(
+                stop_list,
+                raw_purpose=raw_purpose,
+                display_purpose=display_purpose,
+                direction="Outbound",
+            ),
+        )
+        inbound_chart = self.noted_view(
+            "tour_stop_frequency.direction",
+            self.render_direction_chart(
+                stop_list,
+                raw_purpose=raw_purpose,
+                display_purpose=display_purpose,
+                direction="Inbound",
+            ),
+        )
+        directional_row = pn.Row(
+            outbound_chart,
+            inbound_chart,
+            sizing_mode="stretch_width",
+        )
+        charts = [
+            both_chart,
+            directional_row,
         ]
         return [
             pn.pane.Markdown("### Tour Stop Frequency"),
             selector_row(self.purpose_sel),
             *charts,
             pn.pane.Markdown("### At-Work Sub-Tour Frequency"),
-            self.render_atwork_chart(atwork_list),
+            self.noted_view(
+                "tour_stop_frequency.atwork",
+                self.render_atwork_chart(atwork_list),
+            ),
         ]
 
 

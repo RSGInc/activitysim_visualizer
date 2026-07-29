@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 from processor.cache_identity import build_run_fingerprint, build_run_keys
 from processor.models import (
     PreparedTableName,
@@ -27,6 +27,13 @@ def load_runtime_config(config_path: str | Path) -> Config:
     config.weighting_modes = summary_cache.normalize_weighting_modes(
         config.weighting_modes
     )
+    from processor.summarize.external import validate_summary_table_map_ids
+
+    for index, entry in enumerate(config.runs):
+        validate_summary_table_map_ids(
+            entry.get("summary_table_map") or None,
+            field_name=f"runs[{index}].summary_table_map",
+        )
     return config
 
 
@@ -83,8 +90,14 @@ def load_summary_runs_from_cache(
     cache_root: Path,
     explicit_cache_dirs: list[str] | None,
     run_entries: list[dict] | None,
+    required_summary_ids: list[str] | tuple[str, ...] | None = None,
 ) -> list[Any]:
     """Load validated summary caches for dashboard or export workflows."""
+    from processor.summarize.external import (
+        load_summary_table_map,
+        merge_summary_table_map_run,
+    )
+
     cache_dirs, run_entries_by_key = shared.summary_cache_dirs_for_load(
         cache_root=cache_root,
         explicit_cache_dirs=explicit_cache_dirs,
@@ -93,11 +106,40 @@ def load_summary_runs_from_cache(
         discover_cache_dirs_fn=summary_cache.discover_cache_dirs,
     )
 
-    if not cache_dirs:
+    required_summary_ids = (
+        list(summary_cache.requested_summary_ids(config))
+        if required_summary_ids is None
+        else list(required_summary_ids)
+    )
+    if not cache_dirs and not run_entries:
         raise ValueError("no summary cache directories were found to load.")
 
     summary_runs: list[Any] = []
-    for cache_dir in cache_dirs:
+    cache_dirs_by_key = {cache_dir.name: cache_dir for cache_dir in cache_dirs}
+    ordered_keys = (
+        [run_key for _, run_key in run_entries_with_keys(run_entries or [])]
+        if run_entries
+        else [cache_dir.name for cache_dir in cache_dirs]
+    )
+    for run_key in ordered_keys:
+        cache_dir = cache_dirs_by_key.get(run_key, cache_root / run_key)
+        entry = run_entries_by_key.get(run_key, {})
+        summary_table_map = entry.get("summary_table_map") or None
+        external_summary_run = None
+        if summary_table_map:
+            label = str(entry.get("label", Path(entry.get("dir", "")).name or run_key))
+            external_summary_run = load_summary_table_map(
+                summary_table_map=summary_table_map,
+                label=label,
+                run_key=run_key,
+                config=config,
+                source_run_dir=entry.get("dir") or None,
+            )
+        ids_for_cache = [
+            summary_id
+            for summary_id in required_summary_ids
+            if summary_id not in set(summary_table_map or {})
+        ]
         expectations = (
             shared.summary_cache_load_expectations(
                 cache_dir=cache_dir,
@@ -109,29 +151,44 @@ def load_summary_runs_from_cache(
             )
             or {}
         )
+        loaded_cache_runs: list[Any] = []
         try:
-            summary_runs.extend(
-                summary_cache.load_summary_run_bundle(
+            if ids_for_cache or not external_summary_run:
+                loaded_cache_runs = summary_cache.load_summary_run_bundle(
                     cache_dir,
                     config,
                     expected_modes=config.weighting_modes,
-                    expected_summary_ids=summary_cache.requested_summary_ids(config),
+                    expected_summary_ids=ids_for_cache or required_summary_ids,
                     expected_summary_config_digest=config.summary_config_digest,
-                    expected_run_fingerprint=expectations.get("expected_run_fingerprint"),
+                    expected_run_fingerprint=(
+                        None
+                        if external_summary_run is not None
+                        else expectations.get("expected_run_fingerprint")
+                    ),
                     expected_prepared_manifest_identity=expectations.get(
                         "expected_prepared_manifest_identity"
                     ),
                     expected_label=expectations.get("expected_label"),
                     expected_run_key=expectations.get("expected_run_key"),
                 )
-            )
         except summary_cache.SummaryCacheError as exc:
-            raise ValueError(
-                "dashboard-only run could not load cached summaries from "
-                f"{cache_dir} because the cache is stale or incompatible with the current "
-                "config. Run the pipeline with the summarize step enabled to refresh the "
-                f"cache. Details: {exc}"
-            ) from exc
+            if external_summary_run is not None:
+                LOGGER.warning(
+                    "Dashboard-only run could not load cached summaries from %s; continuing with user-supplied summary tables only. Details: %s",
+                    cache_dir,
+                    exc,
+                )
+                loaded_cache_runs = []
+            else:
+                raise ValueError(
+                    "dashboard-only run could not load cached summaries from "
+                    f"{cache_dir} because the cache is stale or incompatible with the current "
+                    "config. Run the pipeline with the summarize step enabled to refresh the "
+                    f"cache. Details: {exc}"
+                ) from exc
+        summary_runs.extend(
+            merge_summary_table_map_run(loaded_cache_runs, external_summary_run)
+        )
     return summary_runs
 
 

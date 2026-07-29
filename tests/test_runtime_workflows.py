@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from pathlib import Path
 import sys
 
@@ -20,7 +21,11 @@ from processor.prepare.cache import (
 )
 from runtime.config import Config
 from runtime.config.models import SkimjoinSettings
-from processor.summarize.contracts import summary_contract
+from processor.summarize.contracts import (
+    empty_summary_frame,
+    get_summary_contract,
+    summary_contract,
+)
 from processor.summarize import cache as summary_cache
 from processor.summarize.cache import (
     build_run_fingerprint,
@@ -72,8 +77,14 @@ def _write_config(
         if prepared_table_map:
             lines.append("    prepared_table_map:")
             for table_id, path in prepared_table_map.items():
-                normalized_path = str(path).replace("\\", "/")
+                normalized_path = str(Path(path).resolve()).replace("\\", "/")
                 lines.append(f'      {table_id}: "{normalized_path}"')
+        summary_table_map = run_entry.get("summary_table_map")
+        if summary_table_map:
+            lines.append("    summary_table_map:")
+            for summary_id, path in summary_table_map.items():
+                normalized_path = str(Path(path).resolve()).replace("\\", "/")
+                lines.append(f'      {summary_id}: "{normalized_path}"')
     if extra_lines:
         lines.extend(extra_lines)
     config_path.write_text("\n".join(lines), encoding="utf-8")
@@ -186,6 +197,39 @@ def _write_inconsistent_custom_prepared_tables(
     return paths
 
 
+def _write_summary_table(path: Path, value: float) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame(
+        {
+            "households": [value],
+            "population": [value],
+            "tours": [value],
+            "trips": [value],
+            "stops": [value],
+            "vehicle_trips": [value],
+            "vmt": [value],
+            "pmt": [value],
+            "employment": [value],
+        }
+    ).write_csv(path)
+    return str(path.resolve())
+
+
+def _write_auto_vmt_validation_summary(path: Path, value: float) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame(
+        {
+            "TOD": ["Daily"],
+            "SOV": [value],
+            "HOV2": [0.0],
+            "HOV3": [0.0],
+            "Truck": [0.0],
+            "Total": [value],
+        }
+    ).write_csv(path)
+    return str(path.resolve())
+
+
 def _prepared_identity(
     *,
     config: Config,
@@ -205,6 +249,835 @@ def _prepared_identity(
             trip_weight_col=None,
         ),
     )
+
+
+def test_load_runtime_config_rejects_unknown_summary_table_map_id(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "outside" / "unknown.csv"
+    _write_summary_table(summary_path, 1.0)
+    _write_config(
+        tmp_path,
+        runs=[
+            {
+                "label": "External",
+                "summary_table_map": {"unknown_summary": summary_path},
+            }
+        ],
+    )
+
+    with pytest.raises(ValueError, match="unsupported summary ids"):
+        runtime_workflows.load_runtime_config(tmp_path / "config.yaml")
+
+
+def test_load_runtime_config_rejects_old_demo_validation_summary_ids(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "outside" / "vmtSummary.csv"
+    _write_auto_vmt_validation_summary(summary_path, 1.0)
+    _write_config(
+        tmp_path,
+        runs=[
+            {
+                "label": "External",
+                "summary_table_map": {"demo_auto_vmt_summary": summary_path},
+            }
+        ],
+    )
+
+    with pytest.raises(ValueError, match="unsupported summary ids"):
+        runtime_workflows.load_runtime_config(tmp_path / "config.yaml")
+
+
+def test_non_default_summary_specs_remain_registered_but_not_default_built(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path, runs=[{"label": "External"}])
+
+    spec = summary_cache.SUMMARY_SPEC_BY_ID["auto_vmt_validation_summary"]
+
+    assert spec.build_by_default is False
+    assert (
+        summary_cache.SUMMARY_FILENAME_BY_ID["auto_vmt_validation_summary"]
+        == "auto_vmt_validation_summary.csv"
+    )
+    assert "auto_vmt_validation_summary" not in summary_cache.DEFAULT_SUMMARY_IDS
+    assert "auto_vmt_validation_summary" not in summary_cache.requested_summary_ids(
+        config
+    )
+
+
+def test_validation_scaffold_summaries_are_registered_with_empty_contracts(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path, runs=[{"label": "External"}])
+    expected_ids = {
+        "link_validation_summary",
+        "count_location_counts_validation_summary",
+        "count_location_volumes_validation_summary",
+        "count_location_scatter_validation_summary",
+        "count_location_fit_validation_summary",
+        "county_flows_validation_summary",
+        "county_flows_joja_validation_summary",
+        "commercial_vehicle_validation_summary",
+        "commercial_vehicle_vmt_validation_summary",
+        "external_trip_validation_summary",
+        "external_vmt_validation_summary",
+        "auto_vmt_validation_summary",
+        "work_from_home_validation_summary",
+    }
+
+    for summary_id in expected_ids:
+        spec = summary_cache.SUMMARY_SPEC_BY_ID[summary_id]
+        contract = get_summary_contract(spec.builder)
+
+        assert spec.build_by_default is False
+        assert contract is not None
+        assert empty_summary_frame(spec.builder).schema == dict(contract.schema)
+        assert summary_cache.SUMMARY_FILENAME_BY_ID[summary_id] == f"{summary_id}.csv"
+        assert summary_id not in summary_cache.DEFAULT_SUMMARY_IDS
+        assert summary_id not in summary_cache.requested_summary_ids(config)
+
+
+def test_run_summary_workflow_loads_summary_only_run_without_prepared_inputs(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "outside" / "totals.csv"
+    _write_summary_table(summary_path, 11.0)
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {
+                "label": "External",
+                "summary_table_map": {"totals": summary_path},
+            }
+        ],
+    )
+
+    result = runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=True,
+    )
+
+    assert result.prepared_runs == []
+    assert [run.label for run in result.summary_runs] == ["External"]
+    assert (
+        result.summary_runs[0].summaries_by_mode["weighted"]["totals"]["population"][0]
+        == 11.0
+    )
+    assert (
+        result.summary_runs[0].summaries_by_mode["unweighted"]["totals"]["population"][0]
+        == 11.0
+    )
+
+
+def test_summary_only_run_loads_non_default_summary_table_map_id(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "outside" / "vmtSummary.csv"
+    _write_auto_vmt_validation_summary(summary_path, 42.0)
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {
+                "label": "External",
+                "summary_table_map": {
+                    "auto_vmt_validation_summary": summary_path,
+                },
+            }
+        ],
+    )
+
+    result = runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=True,
+    )
+
+    weighted = result.summary_runs[0].summaries_by_mode["weighted"]
+    assert weighted["auto_vmt_validation_summary"].to_dicts() == [
+        {
+            "TOD": "Daily",
+            "SOV": 42.0,
+            "HOV2": 0.0,
+            "HOV3": 0.0,
+            "Truck": 0.0,
+            "Total": 42.0,
+        }
+    ]
+    assert not (
+        Path(config.summary_root)
+        / "external"
+        / "summary_tables"
+        / "weighted"
+        / "totals.csv"
+    ).exists()
+
+
+def test_summary_only_run_bypasses_skimjoin_when_pipeline_enables_it(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "outside" / "totals.csv"
+    _write_summary_table(summary_path, 41.0)
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {
+                "label": "External",
+                "summary_table_map": {"totals": summary_path},
+            }
+        ],
+        extra_lines=[
+            "pipeline:",
+            "  steps:",
+            "    - prepare",
+            "    - skimjoin",
+            "    - summarize",
+            "skimjoin:",
+            "  create_hypothetical_skim_tables: true",
+            "  defaults:",
+        ],
+    )
+
+    prepare_result = runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=True,
+        write_cache=True,
+        apply_skimjoin=True,
+    )
+    result = runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=True,
+        existing_result=prepare_result,
+        apply_skimjoin=True,
+    )
+
+    assert prepare_result.prepared_runs == []
+    assert [run.label for run in result.summary_runs] == ["External"]
+    assert (
+        result.summary_runs[0].summaries_by_mode["weighted"]["totals"]["population"][0]
+        == 41.0
+    )
+    loaded = runtime_workflows.load_summary_runs_from_cache(
+        config=config,
+        cache_root=Path(config.summary_root),
+        explicit_cache_dirs=None,
+        run_entries=config.runs,
+        required_summary_ids=("totals",),
+    )
+    assert loaded[0].summaries_by_mode["weighted"]["totals"]["population"][0] == 41.0
+
+
+def test_run_summary_workflow_overlays_summary_table_map_on_generated_summaries(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    summary_path = tmp_path / "outside" / "totals.csv"
+    _write_summary_table(summary_path, 99.0)
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {
+                "dir": str(run_dir),
+                "label": "Run A",
+                "summary_table_map": {"totals": summary_path},
+            }
+        ],
+    )
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals", "population_totals"])
+    monkeypatch.setattr(
+        summary_cache,
+        "build_mode_summaries_with_metadata",
+        lambda rd, config, summary_ids=None: (
+            {
+                "weighted": {
+                    summary_id: pl.DataFrame({"metric": [summary_id], "value": [1.0]})
+                    for summary_id in summary_ids
+                },
+                "unweighted": {
+                    summary_id: pl.DataFrame({"metric": [summary_id], "value": [2.0]})
+                    for summary_id in summary_ids
+                },
+            },
+            {
+                mode: {
+                    summary_id: {"state": "available"}
+                    for summary_id in summary_ids
+                }
+                for mode in ("weighted", "unweighted")
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        prepare_workflow,
+        "read_run",
+        lambda run_dir, config, label=None, **kwargs: _fake_run_data(
+            label or "Run A",
+            str(run_dir),
+        ),
+    )
+    monkeypatch.setattr(prepare_workflow, "prepare_data", lambda rd, config: rd)
+
+    result = runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=False,
+    )
+
+    weighted = result.summary_runs[0].summaries_by_mode["weighted"]
+    assert weighted["totals"]["population"][0] == 99.0
+    assert weighted["population_totals"].to_dicts() == [
+        {"metric": "population_totals", "value": 1.0}
+    ]
+
+
+def test_run_summary_workflow_reuses_all_existing_prepared_runs_when_cache_disabled(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_a_dir = tmp_path / "run_a"
+    run_b_dir = tmp_path / "run_b"
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {"dir": str(run_a_dir), "label": "Run A"},
+            {"dir": str(run_b_dir), "label": "Run B"},
+        ],
+    )
+    prepared_a = _fake_run_data("Run A", str(run_a_dir))
+    prepared_b = _fake_run_data("Run B", str(run_b_dir))
+    existing_result = ProcessorWorkflowResult(
+        prepared_runs=[("Run A", prepared_a), ("Run B", prepared_b)],
+        prepared_runs_by_key={
+            "run-a": ("Run A", prepared_a),
+            "run-b": ("Run B", prepared_b),
+        },
+        run_keys=["run-a", "run-b"],
+    )
+    summary_build_labels: list[str] = []
+
+    def fake_build_mode_summaries_with_metadata(rd, config, summary_ids=None):
+        summary_build_labels.append(rd.label)
+        requested = list(summary_ids or [])
+        return (
+            {
+                mode: {
+                    summary_id: pl.DataFrame({"run": [rd.label]})
+                    for summary_id in requested
+                }
+                for mode in config.weighting_modes
+            },
+            {
+                mode: {
+                    summary_id: {"state": "available"}
+                    for summary_id in requested
+                }
+                for mode in config.weighting_modes
+            },
+        )
+
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(
+        summary_cache,
+        "build_mode_summaries_with_metadata",
+        fake_build_mode_summaries_with_metadata,
+    )
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("existing prepared runs should be reused")
+        ),
+        prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("existing prepared runs should be reused")
+        ),
+    )
+
+    result = runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        prepared_prefer_cache=False,
+        write_cache=False,
+        existing_result=existing_result,
+    )
+
+    assert summary_build_labels == ["Run A", "Run B"]
+    assert result.prepared_runs_by_key["run-a"][1] is prepared_a
+    assert result.prepared_runs_by_key["run-b"][1] is prepared_b
+    assert result.run_keys == ["run-a", "run-b"]
+
+
+def test_prepare_then_summary_does_not_rerun_skimjoin_for_existing_prepared_runs(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_a_dir = tmp_path / "run_a"
+    run_b_dir = tmp_path / "run_b"
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {"dir": str(run_a_dir), "label": "Run A"},
+            {"dir": str(run_b_dir), "label": "Run B"},
+        ],
+        extra_lines=[
+            "pipeline:",
+            "  steps:",
+            "    - prepare",
+            "    - skimjoin",
+            "    - summarize",
+        ],
+    )
+    read_labels: list[str] = []
+    skimjoin_labels: list[str] = []
+
+    def fake_read_run(run_dir, config, label=None, **kwargs):
+        run_label = label or Path(run_dir).name
+        read_labels.append(run_label)
+        return _fake_run_data(run_label, str(run_dir))
+
+    def fake_apply_skimjoin(rd, config):
+        skimjoin_labels.append(rd.label)
+        return rd
+
+    def fake_build_mode_summaries_with_metadata(rd, config, summary_ids=None):
+        requested = list(summary_ids or [])
+        return (
+            {
+                mode: {
+                    summary_id: pl.DataFrame({"run": [rd.label]})
+                    for summary_id in requested
+                }
+                for mode in config.weighting_modes
+            },
+            {
+                mode: {
+                    summary_id: {"state": "available"}
+                    for summary_id in requested
+                }
+                for mode in config.weighting_modes
+            },
+        )
+
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(
+        summary_cache,
+        "build_mode_summaries_with_metadata",
+        fake_build_mode_summaries_with_metadata,
+    )
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=fake_read_run,
+        prepare_data=lambda rd, config: rd,
+    )
+    def fake_resolve_skimjoin(config, entry):
+        return SkimjoinSettings(
+            enabled=True,
+            config_path="mock_skimjoin.yaml",
+            config_digest="mock-digest",
+        )
+
+    monkeypatch.setattr(
+        "runtime.config.resolve_run_skimjoin_settings",
+        fake_resolve_skimjoin,
+    )
+    monkeypatch.setattr(
+        "runtime.config.normalize_prepare.resolve_run_skimjoin_settings",
+        fake_resolve_skimjoin,
+    )
+    monkeypatch.setattr(prepare_workflow, "apply_skimjoin", fake_apply_skimjoin)
+
+    prepare_result = runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=False,
+        apply_skimjoin=True,
+    )
+    runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        prepared_prefer_cache=False,
+        write_cache=False,
+        existing_result=prepare_result,
+        apply_skimjoin=True,
+    )
+
+    assert read_labels == ["Run A", "Run B"]
+    assert skimjoin_labels == ["Run A", "Run B"]
+
+
+def test_run_summary_workflow_does_not_build_non_default_registered_summaries(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+    )
+    build_calls: list[list[str] | None] = []
+
+    def fake_build_mode_summaries_with_metadata(rd, config, summary_ids=None):
+        build_calls.append(list(summary_ids) if summary_ids is not None else None)
+        requested = list(summary_ids or [])
+        return (
+            {
+                mode: {
+                    summary_id: pl.DataFrame({"value": [1.0]})
+                    for summary_id in requested
+                }
+                for mode in config.weighting_modes
+            },
+            {
+                mode: {
+                    summary_id: {"state": "available"}
+                    for summary_id in requested
+                }
+                for mode in config.weighting_modes
+            },
+        )
+
+    monkeypatch.setattr(
+        summary_cache,
+        "build_mode_summaries_with_metadata",
+        fake_build_mode_summaries_with_metadata,
+    )
+    monkeypatch.setattr(
+        prepare_workflow,
+        "read_run",
+        lambda run_dir, config, label=None, **kwargs: _fake_run_data(
+            label or "Run A",
+            str(run_dir),
+        ),
+    )
+    monkeypatch.setattr(prepare_workflow, "prepare_data", lambda rd, config: rd)
+
+    result = runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=True,
+    )
+
+    assert build_calls
+    assert all("auto_vmt_validation_summary" not in call for call in build_calls if call)
+    assert (
+        "auto_vmt_validation_summary"
+        not in result.summary_runs[0].summaries_by_mode["weighted"]
+    )
+    assert not (
+        Path(config.summary_root)
+        / "run-a"
+        / "summary_tables"
+        / "weighted"
+        / "auto_vmt_validation_summary.csv"
+    ).exists()
+
+
+def test_mixed_run_preserves_generated_defaults_and_overlays_non_default_summary(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    summary_path = tmp_path / "outside" / "vmtSummary.csv"
+    _write_auto_vmt_validation_summary(summary_path, 88.0)
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {
+                "dir": str(run_dir),
+                "label": "Run A",
+                "summary_table_map": {
+                    "auto_vmt_validation_summary": summary_path,
+                },
+            }
+        ],
+    )
+    monkeypatch.setattr(summary_cache, "DEFAULT_SUMMARY_IDS", ["totals"])
+    monkeypatch.setattr(
+        summary_cache,
+        "build_mode_summaries_with_metadata",
+        lambda rd, config, summary_ids=None: (
+            {
+                mode: {
+                    "totals": pl.DataFrame({"population": [1.0]}),
+                }
+                for mode in config.weighting_modes
+            },
+            {
+                mode: {"totals": {"state": "available"}}
+                for mode in config.weighting_modes
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        prepare_workflow,
+        "read_run",
+        lambda run_dir, config, label=None, **kwargs: _fake_run_data(
+            label or "Run A",
+            str(run_dir),
+        ),
+    )
+    monkeypatch.setattr(prepare_workflow, "prepare_data", lambda rd, config: rd)
+
+    result = runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=False,
+    )
+
+    weighted = result.summary_runs[0].summaries_by_mode["weighted"]
+    assert weighted["totals"].to_dicts() == [{"population": 1.0}]
+    assert weighted["auto_vmt_validation_summary"].to_dicts() == [
+        {
+            "TOD": "Daily",
+            "SOV": 88.0,
+            "HOV2": 0.0,
+            "HOV3": 0.0,
+            "Truck": 0.0,
+            "Total": 88.0,
+        }
+    ]
+
+
+def test_summary_table_map_file_identity_invalidates_summary_cache(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "outside" / "totals.csv"
+    _write_summary_table(summary_path, 11.0)
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {
+                "label": "External",
+                "summary_table_map": {"totals": summary_path},
+            }
+        ],
+    )
+    runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=True,
+    )
+    _write_summary_table(summary_path, 12.0)
+
+    result = runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=True,
+        write_cache=False,
+    )
+
+    assert (
+        result.summary_runs[0].summaries_by_mode["weighted"]["totals"]["population"][0]
+        == 12.0
+    )
+
+
+def test_dashboard_only_loads_summary_table_map_without_cache(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "outside" / "totals.csv"
+    _write_summary_table(summary_path, 21.0)
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {
+                "label": "External",
+                "summary_table_map": {"totals": summary_path},
+            }
+        ],
+    )
+
+    loaded = runtime_workflows.load_summary_runs_from_cache(
+        config=config,
+        cache_root=Path(config.summary_root),
+        explicit_cache_dirs=None,
+        run_entries=config.runs,
+        required_summary_ids=("totals",),
+    )
+
+    assert [run.label for run in loaded] == ["External"]
+    assert loaded[0].summaries_by_mode["weighted"]["totals"]["population"][0] == 21.0
+
+
+def test_dashboard_only_loads_non_default_summary_table_map_id(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "outside" / "vmtSummary.csv"
+    _write_auto_vmt_validation_summary(summary_path, 31.0)
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {
+                "label": "External",
+                "summary_table_map": {
+                    "auto_vmt_validation_summary": summary_path,
+                },
+            }
+        ],
+    )
+
+    loaded = runtime_workflows.load_summary_runs_from_cache(
+        config=config,
+        cache_root=Path(config.summary_root),
+        explicit_cache_dirs=None,
+        run_entries=config.runs,
+        required_summary_ids=("auto_vmt_validation_summary",),
+    )
+
+    assert [run.label for run in loaded] == ["External"]
+    loaded_table = loaded[0].summaries_by_mode["weighted"]["auto_vmt_validation_summary"]
+    assert loaded_table.to_dicts() == [
+        {
+            "TOD": "Daily",
+            "SOV": 31.0,
+            "HOV2": 0.0,
+            "HOV3": 0.0,
+            "Truck": 0.0,
+            "Total": 31.0,
+        }
+    ]
+
+
+def test_dashboard_only_respects_empty_required_summary_ids_for_optional_only_page(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "outside" / "vmtSummary.csv"
+    _write_auto_vmt_validation_summary(summary_path, 17.0)
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {
+                "label": "External",
+                "summary_table_map": {
+                    "auto_vmt_validation_summary": summary_path,
+                },
+            }
+        ],
+    )
+
+    loaded = runtime_workflows.load_summary_runs_from_cache(
+        config=config,
+        cache_root=Path(config.summary_root),
+        explicit_cache_dirs=None,
+        run_entries=config.runs,
+        required_summary_ids=(),
+    )
+
+    assert loaded[0].summaries_by_mode["weighted"]["auto_vmt_validation_summary"][
+        "SOV"
+    ][0] == 17.0
+
+
+def test_summary_table_map_contract_rejects_missing_external_columns(
+    tmp_path: Path,
+) -> None:
+    summary_path = tmp_path / "outside" / "vmtSummary.csv"
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame({"TOD": ["Daily"], "SOV": [1.0]}).write_csv(summary_path)
+    config = _write_config(
+        tmp_path,
+        runs=[
+            {
+                "label": "External",
+                "summary_table_map": {
+                    "auto_vmt_validation_summary": summary_path,
+                },
+            }
+        ],
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"summary_table_map\['auto_vmt_validation_summary'\] is missing required columns",
+    ):
+        runtime_workflows.run_summary_workflow(
+            config=config,
+            cache_root=Path(config.summary_root),
+            prepared_root=Path(config.summary_root),
+            run_entries=config.runs,
+            prefer_cache=False,
+            write_cache=False,
+        )
+
+
+def test_prune_summary_runs_keeps_optional_summary_ids_when_requested() -> None:
+    summary_run = create_summary_run(
+        label="External",
+        run_key="external",
+        summaries_by_mode={
+            "weighted": {
+                "totals": pl.DataFrame({"population": [1.0]}),
+                "auto_vmt_validation_summary": pl.DataFrame(
+                    {
+                        "TOD": ["Daily"],
+                        "SOV": [2.0],
+                        "HOV2": [0.0],
+                        "HOV3": [0.0],
+                        "Truck": [0.0],
+                        "Total": [2.0],
+                    }
+                ),
+            },
+            "unweighted": {
+                "totals": pl.DataFrame({"population": [1.0]}),
+                "auto_vmt_validation_summary": pl.DataFrame(
+                    {
+                        "TOD": ["Daily"],
+                        "SOV": [2.0],
+                        "HOV2": [0.0],
+                        "HOV3": [0.0],
+                        "Truck": [0.0],
+                        "Total": [2.0],
+                    }
+                ),
+            },
+        },
+    )
+
+    pruned = runtime_workflows.prune_summary_runs(
+        [summary_run],
+        ("totals", "auto_vmt_validation_summary"),
+    )
+
+    assert set(pruned[0].summaries_by_mode["weighted"]) == {
+        "totals",
+        "auto_vmt_validation_summary",
+    }
 
 
 def test_run_prepare_workflow_uses_cache_hit_without_raw_read_or_prepare_rebuild(
@@ -395,6 +1268,10 @@ def test_run_prepare_workflow_applies_integrated_skimjoin_when_enabled_for_effec
         config_path="skimjoin.yaml",
         config_digest="digest-123",
         normalized_config=object(),
+    )
+    config.pipeline = replace(
+        config.pipeline,
+        steps=("prepare", "skimjoin", "summarize", "dashboard"),
     )
     skimjoin_calls: list[str] = []
 
@@ -1505,11 +2382,17 @@ def test_resolve_effective_plan_drops_dashboard_when_config_dashboard_mode_is_no
 
 def test_resolve_dashboard_execution_mode_maps_host_to_live_with_warning(
     caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     execution_mode = cli_run.resolve_dashboard_execution_mode("host")
 
     assert execution_mode == "live"
-    assert "pipeline.dashboard_mode 'host' is not implemented yet; using live mode." in caplog.text
+    captured = capsys.readouterr()
+    combined_output = caplog.text + captured.err + captured.out
+    assert (
+        "pipeline.dashboard_mode 'host' is not implemented yet; using live mode."
+        in combined_output
+    )
 
 
 def test_resolve_effective_plan_preserves_logical_skimjoin_step_for_prepare_only_defaults(

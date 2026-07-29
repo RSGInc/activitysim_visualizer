@@ -7,8 +7,10 @@ import polars as pl
 
 from dashboard.components import bar_chart, selector_row
 from dashboard.helpers.category_helpers import (
+    add_percent_of_total,
     column_options,
     common_column_options,
+    category_label_matches,
     label_category_data,
     nonempty,
     ordered_category_values,
@@ -22,21 +24,40 @@ AUTO_SUFFICIENCY_LEVELS = [
     "Auto Deficient",
     "Auto Sufficient",
 ]
+AUTO_MODE_LABELS = ("Drive Alone", "Shared Ride 2", "Shared Ride 3+")
+
+
+def _auto_sufficiency_basis_terms(config) -> tuple[str, str]:
+    """Return explanatory and short display nouns for the configured basis."""
+    return {
+        "licensed_drivers": ("licensed drivers", "Drivers"),
+        "workers": ("workers", "Workers"),
+        "adults": ("adults", "Adults"),
+    }[config.prepare_auto_sufficiency.basis]
+
+
+def auto_sufficiency_display_label(auto_sufficiency: str, config) -> str:
+    """Return the dashboard-facing label for an auto-sufficiency slice."""
+    _, label_noun = _auto_sufficiency_basis_terms(config)
+    return {
+        "All": "All",
+        "Zero Auto": "Zero Auto",
+        "Auto Deficient": f"Fewer Vehicles Than {label_noun}",
+        "Auto Sufficient": f"At Least As Many Vehicles as {label_noun}",
+    }[auto_sufficiency]
 
 
 def auto_sufficiency_definitions_markdown(config) -> str:
     """Describe the configured household basis behind the auto sufficiency split."""
-    basis_noun = {
-        "licensed_drivers": "licensed drivers",
-        "workers": "workers",
-        "adults": "adults",
-    }[config.prepare_auto_sufficiency.basis]
+    basis_noun, _ = _auto_sufficiency_basis_terms(config)
+    deficient_label = auto_sufficiency_display_label("Auto Deficient", config)
+    sufficient_label = auto_sufficiency_display_label("Auto Sufficient", config)
     return f"""
     **Auto sufficiency definitions**
 
     - **Zero Auto**: household has no vehicles.
-    - **Auto Deficient**: household has fewer vehicles than {basis_noun}.
-    - **Auto Sufficient**: household has at least as many vehicles as {basis_noun}.
+    - **{deficient_label}**: household has fewer vehicles than {basis_noun}.
+    - **{sufficient_label}**: household has at least as many vehicles as {basis_noun}.
     """
 
 
@@ -83,10 +104,36 @@ def vehicle_attribute_data(
     return out
 
 
+def _filter_col(
+    data_list: list[tuple[str, pl.DataFrame]],
+    column: str,
+    value: str,
+) -> list[tuple[str, pl.DataFrame]]:
+    """Backward-compatible wrapper for older tests around vehicle filters."""
+    first_category_col = None
+    for _, df in nonempty(data_list):
+        candidates = [
+            candidate
+            for candidate in df.columns
+            if candidate not in {column, "vehicle_count"}
+        ]
+        if candidates:
+            first_category_col = candidates[0]
+            break
+    if first_category_col is None:
+        return nonempty(data_list)
+    return vehicle_attribute_data(
+        data_list,
+        value,
+        category_col=first_category_col,
+    )
+
+
 def tour_mode_chart_data(
     data_list: list[tuple[str, pl.DataFrame]],
     purpose: str,
     auto_sufficiency: str,
+    hidden_mode_values: set[str] | None = None,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Build one tour mode distribution for a selected purpose and sufficiency slice."""
     value_col = {
@@ -100,14 +147,20 @@ def tour_mode_chart_data(
         filtered = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8)).filter(
             pl.col("tour_purpose") == purpose
         )
-        out.append(
-            (
-                label,
-                filtered.select(pl.col("tour_mode"), pl.col(value_col).alias("tour_count")).sort(
-                    "tour_mode"
-                ),
+        chart_df = filtered.select(
+            pl.col("tour_mode"),
+            pl.col(value_col).alias("tour_count"),
+        ).sort("tour_mode")
+        chart_df = add_percent_of_total(
+            [(label, chart_df)],
+            value_col="tour_count",
+            percent_col="tour_count_percent",
+        )[0][1]
+        if hidden_mode_values:
+            chart_df = chart_df.with_columns(pl.col("tour_mode").cast(pl.Utf8)).filter(
+                ~pl.col("tour_mode").is_in(sorted(hidden_mode_values))
             )
-        )
+        out.append((label, chart_df))
     return out
 
 
@@ -129,6 +182,11 @@ class TourModePage(DashboardPage):
             ),
             label="Tour Purpose",
         )
+        self.hide_drive_alone = self.selector(
+            "hide_drive_alone",
+            widget=pn.widgets.Checkbox(name="Hide Auto Modes", value=False),
+            label="Hide Auto Modes",
+        )
         self.occupancy_sel = self.selector(
             "vehicle_occupancy",
             widget=pn.widgets.Select(
@@ -140,7 +198,7 @@ class TourModePage(DashboardPage):
         )
         self._mode_section = self.section(
             "tour_mode_modes",
-            selectors=("tour_purpose",),
+            selectors=("tour_purpose", "hide_drive_alone"),
             render=self.render_modes_section,
         )
         self._vehicle_section = self.section(
@@ -151,7 +209,10 @@ class TourModePage(DashboardPage):
         return self.new_section(
             pn.pane.Markdown("## Tour Mode"),
             pn.pane.Markdown(auto_sufficiency_definitions_markdown(self.config)),
+            pn.pane.Markdown("### Tour Mode Distribution"),
+            selector_row(self.purpose_sel, self.hide_drive_alone),
             self._mode_section,
+            pn.pane.Markdown("### Allocated Vehicle Characteristics"),
             self._vehicle_section,
         )
 
@@ -256,8 +317,6 @@ class TourModePage(DashboardPage):
         raw_purpose = self._purpose_to_raw.get(selected_purpose, "all_tour_purposes")
         if mode_summary is None:
             return [
-                pn.pane.Markdown("### Tour Mode"),
-                selector_row(self.purpose_sel),
                 self.data_not_available_card(
                     detail="The tour mode summary is unavailable.",
                     missing_items=["tour_mode_by_tour_purpose_and_auto_sufficiency"],
@@ -274,16 +333,31 @@ class TourModePage(DashboardPage):
             )
             if value != "all_tour_modes"
         ]
+        hidden_mode_values: set[str] = set()
+        if self.hide_drive_alone.value:
+            hidden_mode_values = {
+                value
+                for value in mode_values
+                if any(
+                    category_label_matches(self.config, "mode", value, label)
+                    for label in AUTO_MODE_LABELS
+                )
+            }
+            mode_values = [
+                value for value in mode_values if value not in hidden_mode_values
+            ]
         return [
-            pn.pane.Markdown("### Tour Mode"),
-            selector_row(self.purpose_sel),
             *[
-                self.render_tour_mode_chart(
-                    mode_summary,
-                    str(raw_purpose),
-                    selected_purpose,
-                    auto_sufficiency,
-                    mode_values,
+                self.noted_view(
+                    "tour_mode.mode",
+                    self.render_tour_mode_chart(
+                        mode_summary,
+                        str(raw_purpose),
+                        selected_purpose,
+                        auto_sufficiency,
+                        mode_values,
+                        hidden_mode_values,
+                    ),
                 )
                 for auto_sufficiency in AUTO_SUFFICIENCY_LEVELS
             ],
@@ -296,15 +370,17 @@ class TourModePage(DashboardPage):
         display_purpose: str,
         auto_sufficiency: str,
         mode_values: list[str],
+        hidden_mode_values: set[str],
     ) -> pn.viewable.Viewable:
         """Render one auto-sufficiency slice of the selected tour purpose."""
         mode_data = self.get_filtered_view(
             "tour_mode",
-            (raw_purpose, auto_sufficiency),
+            (raw_purpose, auto_sufficiency, tuple(mode_values)),
             factory=lambda: tour_mode_chart_data(
                 summary_data,
                 raw_purpose,
                 auto_sufficiency,
+                hidden_mode_values,
             ),
         )
         labeled = label_category_data(
@@ -318,10 +394,14 @@ class TourModePage(DashboardPage):
             labeled,
             "tour_mode_label",
             "tour_count",
-            f"Tour Mode - {auto_sufficiency}",
+            (
+                "Tour Mode - "
+                f"{auto_sufficiency_display_label(auto_sufficiency, self.config)}"
+            ),
             "Tour Mode",
             yaxis_title="Tours",
             pct_col="pct",
+            percent_y_col="tour_count_percent",
             as_percent=self.as_percent,
             xaxis_categoryarray=self.config.ordered_labels("mode", mode_values),
         )
@@ -331,20 +411,28 @@ class TourModePage(DashboardPage):
         summaries = self._summaries()
         occupancy = str(self.occupancy_sel.value)
         return [
-            pn.pane.Markdown("### Allocated Vehicle Characteristics"),
             selector_row(self.occupancy_sel),
             pn.Row(
-                self.render_vehicle_age_chart(
-                    summaries["allocated_vehicle_age_by_occupancy"],
-                    occupancy,
+                self.noted_view(
+                    "tour_mode.vehicle_age",
+                    self.render_vehicle_age_chart(
+                        summaries["allocated_vehicle_age_by_occupancy"],
+                        occupancy,
+                    ),
                 ),
-                self.render_vehicle_fuel_chart(
-                    summaries["allocated_vehicle_fuel_type_by_occupancy"],
-                    occupancy,
+                self.noted_view(
+                    "tour_mode.vehicle_fuel",
+                    self.render_vehicle_fuel_chart(
+                        summaries["allocated_vehicle_fuel_type_by_occupancy"],
+                        occupancy,
+                    ),
                 ),
-                self.render_vehicle_body_chart(
-                    summaries["allocated_vehicle_body_type_by_occupancy"],
-                    occupancy,
+                self.noted_view(
+                    "tour_mode.vehicle_body",
+                    self.render_vehicle_body_chart(
+                        summaries["allocated_vehicle_body_type_by_occupancy"],
+                        occupancy,
+                    ),
                 ),
             ),
         ]

@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from itertools import product
 import json
+from time import perf_counter
 from typing import Any
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 import panel as pn
 
 from dashboard.components import (
     build_run_legend_entries,
+    set_bar_hover_mode,
+    set_density_hover_mode,
     set_percent_mode,
     set_run_colors,
     set_run_label_order,
@@ -58,6 +60,13 @@ TOTAL_PAYLOAD_STRONG_WARNING_BYTES = 250 * 1024 * 1024
 PAGE_WARNING_BYTES = 10 * 1024 * 1024
 STATIC_REGION_WARNING_BYTES = 5 * 1024 * 1024
 SELECTOR_REGION_WARNING_BYTES = 1 * 1024 * 1024
+EXPORT_SECTION_VARIANT_WARNING_COUNT = 500
+EXPORT_REGION_PROGRESS_INTERVAL_SECONDS = 30.0
+EXPORT_REGION_PROGRESS_VARIANT_INTERVAL = 25
+VMT_EXPORT_DROPDOWN_NOTE = (
+    "Greyed-out dropdowns are unavailable in this HTML export. "
+    "Use the live dashboard to access all dropdowns."
+)
 
 
 class _RuntimeExportPart:
@@ -118,6 +127,8 @@ def _selector_available(selector_def: Any, page: Any, config: Config) -> bool:
 
 
 def _selector_options(widget: pn.widgets.Widget) -> list[str]:
+    if isinstance(widget, pn.widgets.Checkbox):
+        return ["False", "True"]
     raw_options = getattr(widget, "options", None)
     if raw_options is None:
         return []
@@ -125,16 +136,25 @@ def _selector_options(widget: pn.widgets.Widget) -> list[str]:
 
 
 def _selector_supports_option_enumeration(widget: pn.widgets.Widget) -> bool:
-    return hasattr(widget, "options")
+    return isinstance(widget, pn.widgets.Checkbox) or hasattr(widget, "options")
 
 
 def _page_export_parts(page: Any, page_def: DashboardPageDefinition) -> tuple[Any, ...]:
     runtime_sections = tuple(getattr(page, "registered_sections", ()))
     if runtime_sections:
+        exportable_selector_ids = {
+            _selector_id(selector_def)
+            for selector_def in _page_selector_defs(page, page_def)
+            if _selector_exportable(selector_def)
+        }
         return tuple(
             _RuntimeExportPart(
                 part_id=section.section_id,
-                selector_ids=section.selector_ids,
+                selector_ids=tuple(
+                    selector_id
+                    for selector_id in section.selector_ids
+                    if selector_id in exportable_selector_ids
+                ),
                 export_data_mode=section.export_data_mode,
                 view=section.container,
             )
@@ -179,6 +199,8 @@ def build_export_artifacts(
 ) -> tuple[ExportPayload, dict[str, Any]]:
     """Build export payload plus sidecar diagnostics."""
     set_run_colors(config.run_colors)
+    set_bar_hover_mode(config.bar_hover_mode)
+    set_density_hover_mode(config.density_hover_mode)
     validate_page_export_config(config)
     export_weight_values = config.export_html.panel_weighting_values()
     export_value_values = config.export_html.panel_value_values()
@@ -505,6 +527,7 @@ def serialize_dashboard_state(
             )
             for selector_def in selector_defs
         }
+        apply_selector_dependencies(page, selector_metadata_by_id)
         widget_metadata = build_widget_metadata(
             page_def,
             page,
@@ -640,9 +663,42 @@ def serialize_page_content(
             and part_def.view_for(page) is not None
         },
     )
+    content = _with_export_page_notes(page_def, content)
     if diagnostics_for_state is not None:
         diagnostics_for_state[page_def.page_id] = page_diagnostics
     return {"kind": "page", "content": content}
+
+
+def _with_export_page_notes(
+    page_def: DashboardPageDefinition,
+    content: dict[str, Any],
+) -> dict[str, Any]:
+    if page_def.page_id != "vmt":
+        return content
+    note_node = {
+        "kind": "html",
+        "html": (
+            "<p class='export-dropdown-note'>"
+            f"{VMT_EXPORT_DROPDOWN_NOTE}"
+            "</p>"
+        ),
+    }
+    if content.get("kind") == "container":
+        children = list(content.get("children", []))
+        insert_at = 1 if children else 0
+        return {
+            **content,
+            "children": [*children[:insert_at], note_node, *children[insert_at:]],
+            "child_count": len(children) + 1,
+        }
+    return {
+        "kind": "container",
+        "layout": "column",
+        "child_count": 2,
+        "children": [content, note_node],
+        "styles": {},
+        "css_classes": ["export-page-note-wrapper"],
+    }
 
 
 def build_widget_metadata(
@@ -660,6 +716,70 @@ def build_widget_metadata(
         if widget is not None:
             metadata[id(widget)] = (selector_id, selector_meta)
     return metadata
+
+
+def apply_selector_dependencies(
+    page: Any,
+    selector_metadata_by_id: dict[str, SelectorMetadataPayload],
+) -> None:
+    """Attach page-owned dependent-selector domains to export metadata."""
+    dependency_provider = getattr(page, "export_selector_dependencies", None)
+    if not callable(dependency_provider):
+        return
+
+    dependencies = dependency_provider() or {}
+    for selector_id, dependency in dependencies.items():
+        selector_meta = selector_metadata_by_id.get(str(selector_id))
+        parent_selector_id = str(dependency.get("parent_selector_id", ""))
+        parent_meta = selector_metadata_by_id.get(parent_selector_id)
+        if selector_meta is None or parent_meta is None:
+            continue
+
+        raw_options_by_parent = dependency.get("options_by_parent_value", {})
+        if not isinstance(raw_options_by_parent, dict):
+            continue
+        parent_values = [str(value) for value in parent_meta["resolved_values"]]
+        options_by_parent_value = {
+            parent_value: [
+                str(option)
+                for option in raw_options_by_parent.get(parent_value, [])
+            ]
+            for parent_value in parent_values
+        }
+        allowed_options: list[str] = []
+        for parent_value in parent_values:
+            for option in options_by_parent_value[parent_value]:
+                if option not in allowed_options:
+                    allowed_options.append(option)
+        if not allowed_options:
+            continue
+
+        original_resolved = {
+            str(value) for value in selector_meta["resolved_values"]
+        }
+        if selector_meta["request_mode"] == "all":
+            resolved_values = allowed_options
+        else:
+            resolved_values = [
+                option for option in allowed_options if option in original_resolved
+            ]
+        if not resolved_values:
+            resolved_values = [allowed_options[0]]
+
+        selector_meta["options"] = allowed_options
+        selector_meta["resolved_values"] = resolved_values
+        if str(selector_meta["default_value"]) not in allowed_options:
+            selector_meta["default_value"] = allowed_options[0]
+        selector_meta["export_enabled"] = bool(
+            selector_meta["available"] and len(resolved_values) > 1
+        )
+        selector_meta["parent_selector_id"] = parent_selector_id
+        selector_meta["options_by_parent_value"] = options_by_parent_value
+        selector_meta["disabled_parent_values"] = [
+            str(value)
+            for value in dependency.get("disabled_parent_values", [])
+            if str(value) in parent_values
+        ]
 
 
 def build_region_nodes(
@@ -701,27 +821,78 @@ def build_region_nodes(
     }
     region_nodes: dict[int, dict[str, Any]] = {}
     for part_def, part_view in resolved_parts:
+        region_start = perf_counter()
+        region_label = f"{page_def.page_id}.{part_def.part_id}"
         active_selector_ids = [
             selector_id
             for selector_id in part_def.selector_ids
             if selector_metadata_by_id.get(selector_id, {}).get("export_enabled")
         ]
+        LOGGER.info(
+            "Export region %s: start (%s).",
+            region_label,
+            (
+                "selectors: " + ", ".join(active_selector_ids)
+                if active_selector_ids
+                else "static/no exported selectors"
+            ),
+        )
         default_values = [
             selector_metadata_by_id[selector_id]["default_value"]
             for selector_id in active_selector_ids
         ]
         default_key = variant_key(default_values)
         variants: dict[str, Any] = {}
+        variant_aliases: dict[str, str] = {}
 
         if active_selector_ids:
-            selector_values = [
-                selector_metadata_by_id[selector_id]["resolved_values"]
+            state_specs, variant_aliases = resolve_export_section_states(
+                page,
+                page_def=page_def,
+                part_def=part_def,
+                active_selector_ids=active_selector_ids,
+                selector_widgets=selector_widgets,
+                selector_metadata_by_id=selector_metadata_by_id,
+            )
+            selector_counts = {
+                selector_id: len(selector_metadata_by_id[selector_id]["resolved_values"])
                 for selector_id in active_selector_ids
-            ]
-            for combination in product(*selector_values):
-                with temporary_widget_values(
+            }
+            raw_state_count = 1
+            for count in selector_counts.values():
+                raw_state_count *= count
+            diagnostics_key = f"export_region:{part_def.part_id}"
+            page_diagnostics[diagnostics_key] = {
+                "selector_ids": list(active_selector_ids),
+                "selector_counts": selector_counts,
+                "raw_state_count": raw_state_count,
+                "valid_state_count": len(state_specs),
+                "alias_count": len(variant_aliases),
+                "pruned_state_count": max(
+                    raw_state_count - len(state_specs) - len(variant_aliases),
+                    0,
+                ),
+            }
+            diagnostic_message = (
+                f"Export region {region_label}: "
+                f"{len(state_specs)} valid states from {raw_state_count} raw selector combinations "
+                f"({len(variant_aliases)} aliases, "
+                f"{max(raw_state_count - len(state_specs) - len(variant_aliases), 0)} pruned)."
+            )
+            if len(state_specs) > EXPORT_SECTION_VARIANT_WARNING_COUNT:
+                LOGGER.warning("Warning: " + diagnostic_message)
+            else:
+                LOGGER.info(diagnostic_message)
+            last_progress_log = perf_counter()
+            total_states = len(state_specs)
+            for state_index, state_spec in enumerate(state_specs, start=1):
+                state_values = [
+                    state_spec[selector_id] for selector_id in active_selector_ids
+                ]
+                state_key = variant_key(state_values)
+                with _suppress_page_selector_refresh(page), temporary_widget_values(
                     selector_widgets,
-                    dict(zip(active_selector_ids, combination)),
+                    state_spec,
                 ):
                     refreshed_part_view = _refresh_page_part_view(
                         page,
@@ -730,15 +901,31 @@ def build_region_nodes(
                         context_label="during variant serialization",
                     )
                     page_diagnostics[
-                        f"region:{part_def.part_id}:{variant_key(combination)}"
+                        f"region:{part_def.part_id}:{state_key}"
                     ] = _serialize_page_diagnostics(page)
-                    variants[variant_key(combination)] = serialize_viewable(
+                    variants[state_key] = serialize_viewable(
                         refreshed_part_view,
                         disable_widgets=False,
                         widget_metadata=widget_metadata,
                     )
+                now = perf_counter()
+                if (
+                    state_index == total_states
+                    or state_index % EXPORT_REGION_PROGRESS_VARIANT_INTERVAL == 0
+                    or now - last_progress_log >= EXPORT_REGION_PROGRESS_INTERVAL_SECONDS
+                ):
+                    LOGGER.info(
+                        "Export region %s: serialized %s/%s variants in %.1fs.",
+                        region_label,
+                        state_index,
+                        total_states,
+                        now - region_start,
+                    )
+                    last_progress_log = now
+        else:
+            LOGGER.info("Export region %s: static region, serializing default content.", region_label)
 
-        with temporary_widget_values(
+        with _suppress_page_selector_refresh(page), temporary_widget_values(
             selector_widgets,
             dict(zip(active_selector_ids, default_values)),
         ):
@@ -761,9 +948,222 @@ def build_region_nodes(
             "default_key": default_key,
             "default_content": default_content,
             "variants": variants,
+            "variant_aliases": variant_aliases,
         }
+        LOGGER.info(
+            "Export region %s: finished in %.1fs (variants: %s, aliases: %s).",
+            region_label,
+            perf_counter() - region_start,
+            len(variants),
+            len(variant_aliases),
+        )
 
     return region_nodes
+
+
+def resolve_export_section_states(
+    page: Any,
+    *,
+    page_def: DashboardPageDefinition,
+    part_def: Any,
+    active_selector_ids: list[str],
+    selector_widgets: dict[str, pn.widgets.Widget | None],
+    selector_metadata_by_id: dict[str, SelectorMetadataPayload],
+) -> tuple[list[dict[str, str]], dict[str, str]]:
+    """Return canonical export states and collapsed raw-state aliases."""
+    if not active_selector_ids:
+        return [], {}
+
+    states_by_key: dict[str, dict[str, str]] = {}
+    aliases: dict[str, str] = {}
+
+    def visit(
+        index: int,
+        canonical_values: dict[str, str],
+        raw_values: dict[str, str],
+    ) -> None:
+        with _suppress_page_selector_refresh(page), temporary_widget_values(
+            selector_widgets,
+            canonical_values,
+        ):
+            _sync_page_controls(page)
+            if index >= len(active_selector_ids):
+                effective_values = _effective_selector_values(
+                    active_selector_ids,
+                    selector_widgets,
+                )
+                state_key = variant_key(
+                    [effective_values[selector_id] for selector_id in active_selector_ids]
+                )
+                raw_key = variant_key(
+                    [
+                        raw_values.get(selector_id, effective_values[selector_id])
+                        for selector_id in active_selector_ids
+                    ]
+                )
+                states_by_key.setdefault(state_key, effective_values)
+                if raw_key != state_key:
+                    aliases[raw_key] = state_key
+                return
+
+            selector_id = active_selector_ids[index]
+            widget = selector_widgets.get(selector_id)
+            if widget is None:
+                return
+            ignored_selectors = _export_ignored_selectors(
+                page,
+                part_def.part_id,
+                canonical_values,
+            )
+            candidate_values = _selector_values_for_current_state(
+                page_def=page_def,
+                selector_id=selector_id,
+                widget=widget,
+                selector_meta=selector_metadata_by_id[selector_id],
+            )
+            if not candidate_values:
+                return
+            selector_is_collapsed = bool(getattr(widget, "disabled", False)) or (
+                selector_id in ignored_selectors
+            )
+            if selector_is_collapsed:
+                effective_value = str(widget.value)
+                for raw_value in candidate_values:
+                    canonical_value = _export_canonical_selector_value(
+                        page,
+                        part_def.part_id,
+                        selector_id,
+                        raw_value,
+                        canonical_values,
+                    )
+                    visit(
+                        index + 1,
+                        {
+                            **canonical_values,
+                            selector_id: (
+                                effective_value
+                                if canonical_value == raw_value
+                                else canonical_value
+                            ),
+                        },
+                        {**raw_values, selector_id: raw_value},
+                    )
+            else:
+                for raw_value in candidate_values:
+                    canonical_value = _export_canonical_selector_value(
+                        page,
+                        part_def.part_id,
+                        selector_id,
+                        raw_value,
+                        canonical_values,
+                    )
+                    visit(
+                        index + 1,
+                        {**canonical_values, selector_id: canonical_value},
+                        {**raw_values, selector_id: raw_value},
+                    )
+
+    visit(0, {}, {})
+    aliases = {
+        raw_key: canonical_key
+        for raw_key, canonical_key in aliases.items()
+        if canonical_key in states_by_key and raw_key != canonical_key
+    }
+    if not states_by_key:
+        raise ValueError(
+            f"Dashboard page {page_def.page_id!r} export region {part_def.part_id!r} "
+            "resolved to no valid selector states."
+        )
+    return list(states_by_key.values()), aliases
+
+
+def _sync_page_controls(page: Any) -> None:
+    sync_controls = getattr(page, "sync_controls", None)
+    if callable(sync_controls):
+        sync_controls()
+
+
+@contextmanager
+def _suppress_page_selector_refresh(page: Any):
+    if not hasattr(page, "_is_refreshing"):
+        yield
+        return
+    previous_is_refreshing = bool(getattr(page, "_is_refreshing"))
+    previous_queued_selector_ids = set(getattr(page, "_queued_selector_ids", set()))
+    page._is_refreshing = True
+    try:
+        yield
+    finally:
+        page._is_refreshing = previous_is_refreshing
+        if hasattr(page, "_queued_selector_ids"):
+            page._queued_selector_ids = previous_queued_selector_ids
+
+
+def _effective_selector_values(
+    active_selector_ids: list[str],
+    selector_widgets: dict[str, pn.widgets.Widget | None],
+) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for selector_id in active_selector_ids:
+        widget = selector_widgets.get(selector_id)
+        if widget is not None:
+            values[selector_id] = str(widget.value)
+    return values
+
+
+def _export_ignored_selectors(
+    page: Any,
+    section_id: str,
+    selected_values: dict[str, str],
+) -> set[str]:
+    ignored_selectors = getattr(page, "export_ignored_selectors", None)
+    if not callable(ignored_selectors):
+        return set()
+    return set(ignored_selectors(section_id, dict(selected_values)) or set())
+
+
+def _export_canonical_selector_value(
+    page: Any,
+    section_id: str,
+    selector_id: str,
+    value: str,
+    selected_values: dict[str, str],
+) -> str:
+    canonical_selector_value = getattr(page, "export_canonical_selector_value", None)
+    if not callable(canonical_selector_value):
+        return value
+    return str(
+        canonical_selector_value(
+            section_id,
+            selector_id,
+            str(value),
+            dict(selected_values),
+        )
+    )
+
+
+def _selector_values_for_current_state(
+    *,
+    page_def: DashboardPageDefinition,
+    selector_id: str,
+    widget: pn.widgets.Widget,
+    selector_meta: SelectorMetadataPayload,
+) -> list[str]:
+    options = _selector_options(widget)
+    default_value = str(widget.value)
+    request_mode = selector_meta["request_mode"]
+    if request_mode == "default":
+        return [default_value]
+    if request_mode == "all":
+        return options or [default_value]
+
+    option_lookup = {option.strip().lower(): option for option in options}
+    resolved: list[str] = []
+    for value in selector_meta["resolved_values"]:
+        option = option_lookup.get(str(value).strip().lower())
+        if option is not None and option not in resolved:
+            resolved.append(option)
+    return resolved
 
 
 def resolve_page_parts(
@@ -834,13 +1234,23 @@ def temporary_widget_values(
         for selector_id, value in values_by_selector_id.items():
             widget = selector_widgets.get(selector_id)
             if widget is not None:
-                widget.value = value
+                widget.value = _coerce_widget_value(widget, value)
         yield
     finally:
         for selector_id, original_value in original_values.items():
             widget = selector_widgets.get(selector_id)
             if widget is not None:
                 widget.value = original_value
+
+
+def _coerce_widget_value(widget: pn.widgets.Widget, value: Any) -> Any:
+    if isinstance(widget, pn.widgets.Checkbox) and isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized == "true":
+            return True
+        if normalized == "false":
+            return False
+    return value
 
 
 def _refresh_page_part_view(
@@ -1055,6 +1465,16 @@ def resolve_selector_values(
     invalid: list[str] = []
     for token in request.values:
         option = option_lookup.get(token)
+        if option is None and token == "all":
+            option = next(
+                (
+                    candidate
+                    for candidate in options
+                    if candidate.strip().lower() == "all"
+                    or candidate.strip().lower().startswith("all ")
+                ),
+                None,
+            )
         if option is None:
             invalid.append(token)
             continue
@@ -1064,6 +1484,8 @@ def resolve_selector_values(
         raise ValueError(
             f"Unsupported {field_name} values: "
             + ", ".join(repr(token) for token in invalid)
+            + ". Supported values: "
+            + ", ".join(repr(option) for option in options)
         )
     if not resolved:
         raise ValueError(f"{field_name} resolved to no values.")

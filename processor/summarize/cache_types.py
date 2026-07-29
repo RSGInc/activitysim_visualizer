@@ -77,6 +77,8 @@ def strip_weights(rd: RunData) -> RunData:
         tours=_reset(rd.tours),
         trips=_reset(rd.trips),
         vehicles=_reset(rd.vehicles),
+        trip_hypothetical_skims=_reset(rd.trip_hypothetical_skims),
+        tour_hypothetical_skims=_reset(rd.tour_hypothetical_skims),
         joint_participants=rd.joint_participants,
         land_use=rd.land_use,
         skim_matrix=rd.skim_matrix,

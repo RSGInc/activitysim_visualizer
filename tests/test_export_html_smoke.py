@@ -29,8 +29,8 @@ def test_export_html_smoke_writes_single_self_contained_file() -> None:
         tmp_path,
         export_html_lines=[
             "dashboard:",
-            "  weighting: all",
-            "  values: all",
+            "  weighting: weighted",
+            "  values: percent",
         ],
     )
     out_path = tmp_path / "smoke" / "dashboard.html"
@@ -52,6 +52,10 @@ def test_export_html_smoke_writes_single_self_contained_file() -> None:
     assert "activitysim-export-data" in html
     assert "Export payload JSON could not be parsed." in html
     assert "Plotly.react" in html
+    assert 'displayModeBar: "hover"' in html
+    assert "scale: 2" in html
+    assert 'name: "Download CSV"' in html
+    assert "modeBarButtonsToAdd: [makePlotCsvDownloadButton(figure)]" in html
     assert "Offline export failed to load" in html
     assert "This HTML export encountered a runtime rendering error." in html
     assert "Unknown export node kind encountered:" in html
@@ -109,11 +113,22 @@ def test_export_html_smoke_embeds_versioned_payload_and_runtime() -> None:
             "available": True,
             "request_mode": "all",
             "requested_values": [],
-            "resolved_values": ["All", "eatout", "social"],
-            "default_value": "All",
-            "options": ["All", "eatout", "social"],
+            "resolved_values": ["All Tour Purposes", "eatout", "social"],
+            "default_value": "All Tour Purposes",
+            "options": ["All Tour Purposes", "eatout", "social"],
             "export_enabled": True,
-        }
+        },
+        {
+            "id": "hide_drive_alone",
+            "label": "Hide Auto Modes",
+            "available": True,
+            "request_mode": "all",
+            "requested_values": [],
+            "resolved_values": ["False", "True"],
+            "default_value": "False",
+            "options": ["False", "True"],
+            "export_enabled": True,
+        },
     ]
     assert payload["states"]["Weighted||Percent"]["trip_mode"]["kind"] == "page"
     assert "Unsupported export schema version." in html
@@ -126,8 +141,14 @@ def test_export_runtime_assets_are_loaded_from_source_files() -> None:
 
     assert ".export-shell" in css
     assert ".export-error-panel" in css
+    assert ".export-table-sort" in css
+    assert ".calculation-note-summary" in css
+    assert "color: inherit;" in css
+    assert ".calculation-note-content .calculation-note-formula" in css
+    assert "margin-top: 8px;" in css
     assert "function validatePayloadSchema(candidate)" in runtime_js
     assert "function renderPlot(node, context)" in runtime_js
+    assert "function renderTable(node)" in runtime_js
     assert "function renderNode(node, context, actions, leafPageId)" in runtime_js
     assert "function renderRegion(node, context, actions, leafPageId)" in runtime_js
     assert "function getLeafPageId(currentPayload, currentState)" in runtime_js
@@ -143,8 +164,8 @@ def test_export_html_smoke_serializes_grouped_default_page_as_leaf_page_id() -> 
         tmp_path,
         export_html_lines=[
             "dashboard:",
-            "  weighting: all",
-            "  values: all",
+            "  weighting: weighted",
+            "  values: percent",
         ],
     )
     out_path = tmp_path / "smoke" / "grouped_dashboard.html"

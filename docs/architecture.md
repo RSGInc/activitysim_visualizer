@@ -99,7 +99,7 @@ Adding a summary is not complete until it is registered there.
 
 ### `DashboardPageDefinition` and `DashboardPage`
 
-Dashboard pages are registered through module-level `PAGE = DashboardPageDefinition(...)` objects in `dashboard/pages/`. `PAGE` is now intentionally narrow: it holds identity, navigation grouping, ordering, and the page's summary/prepared-data contract through `required_summary_ids`, `prepared_data_mode`, and, when needed, `required_prepared_tables`.
+Dashboard pages are registered through module-level `PAGE = DashboardPageDefinition(...)` objects in `dashboard/pages/`. `PAGE` is now intentionally narrow: it holds identity, navigation grouping, ordering, and the page's summary/prepared-data contract through `required_summary_ids`, `optional_summary_ids`, `prepared_data_mode`, and, when needed, `required_prepared_tables`.
 
 The public page authoring API lives on `dashboard.page_base.DashboardPage`.
 

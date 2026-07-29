@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+import shutil
 
 import polars as pl
 
@@ -19,6 +20,7 @@ from processor.cache_infra import (
 from processor.cache_identity import (
     build_run_fingerprint,
     build_run_keys,
+    file_identity,
     slugify,
 )
 from processor.models import RunData
@@ -31,8 +33,8 @@ from processor.prepare.availability import (
 from processor.prepare.writer import write_all
 from runtime.config import Config
 
-SCHEMA_VERSION = 8
-SUPPORTED_SCHEMA_VERSIONS = {2, 3, 4, 5, 6, 7, 8}
+SCHEMA_VERSION = 9
+SUPPORTED_SCHEMA_VERSIONS = {2, 3, 4, 5, 6, 7, 8, 9}
 SUPPORTED_FILE_FORMATS = ("parquet", "csv")
 PREPARED_TABLE_ATTRS: tuple[tuple[str, str, str], ...] = (
     ("hh", "households", "households"),
@@ -48,6 +50,10 @@ PREPARED_TABLE_ATTR_BY_ID: dict[str, tuple[str, str]] = {
     table_id: (attr_name, stem)
     for attr_name, table_id, stem in PREPARED_TABLE_ATTRS
 }
+SIDECAR_TABLE_ATTRS: tuple[tuple[str, str], ...] = (
+    ("trip_hypothetical_skims", "trip_hypothetical_skims"),
+    ("tour_hypothetical_skims", "tour_hypothetical_skims"),
+)
 
 
 class PreparedCacheError(RuntimeError):
@@ -87,22 +93,12 @@ def build_prepared_manifest_identity(
         normalized_table_map = dict(sorted((prepared_table_map or {}).items()))
         identity["prepared_table_map"] = normalized_table_map
         identity["prepared_table_fingerprints"] = {
-            table_id: _file_identity(path)
+            table_id: file_identity(path)
             for table_id, path in normalized_table_map.items()
         }
     else:
         identity["run_fingerprint"] = dict(run_fingerprint)
     return identity
-
-
-def _file_identity(path: str | Path) -> dict[str, object]:
-    resolved = Path(path).resolve()
-    stat = resolved.stat()
-    return {
-        "path": str(resolved),
-        "size": int(stat.st_size),
-        "mtime_ns": int(stat.st_mtime_ns),
-    }
 
 
 def _table_file_map(file_format: str) -> dict[str, str]:
@@ -111,11 +107,33 @@ def _table_file_map(file_format: str) -> dict[str, str]:
     }
 
 
+def _sidecar_file_map(file_format: str) -> dict[str, str]:
+    return {
+        attr_name: f"{stem}.{file_format}" for attr_name, stem in SIDECAR_TABLE_ATTRS
+    }
+
+
 def _manifest_table_map(manifest: dict[str, object]) -> dict[str, str]:
     return {
         str(table_id): str(filename)
         for table_id, filename in dict(manifest.get("table_files", {})).items()
     }
+
+
+def _skimjoin_resolved_network_los_file(
+    rd: RunData | None = None,
+    run_fingerprint: dict[str, object] | None = None,
+) -> str | None:
+    if rd is not None:
+        value = rd.skimjoin_manifest.get("skimjoin_resolved_network_los_file")
+        if value:
+            return str(value)
+    skimjoin = (run_fingerprint or {}).get("skimjoin")
+    if isinstance(skimjoin, dict):
+        value = skimjoin.get("resolved_network_los_file")
+        if value:
+            return str(value)
+    return None
 
 
 def _prepared_tables_dir(cache_dir: Path, manifest: dict[str, object] | None = None) -> Path:
@@ -129,6 +147,16 @@ def _prepared_tables_dir(cache_dir: Path, manifest: dict[str, object] | None = N
     if candidate.exists():
         return candidate
     return cache_dir
+
+
+def _sidecar_tables_dir(cache_dir: Path, manifest: dict[str, object] | None = None) -> Path:
+    if manifest is not None:
+        sidecar_root = str(manifest.get("sidecar_root", "")).strip()
+        if sidecar_root:
+            if cache_dir.name == sidecar_root:
+                return cache_dir
+            return cache_dir / sidecar_root
+    return _prepared_tables_dir(cache_dir, manifest)
 
 
 def _read_table_file(path: Path) -> pl.DataFrame:
@@ -180,6 +208,41 @@ def _write_skimjoin_outputs(cache_dir: Path, rd: RunData, config: Config) -> Non
                 write_table(skimjoin_dir / filename, table)
 
 
+def _write_sidecar_tables(
+    cache_dir: Path,
+    rd: RunData,
+    *,
+    file_format: str,
+) -> dict[str, str]:
+    sidecar_frames = {
+        attr_name: getattr(rd, attr_name)
+        for attr_name, _ in SIDECAR_TABLE_ATTRS
+        if isinstance(getattr(rd, attr_name), pl.DataFrame)
+        and not getattr(rd, attr_name).is_empty()
+    }
+    if not sidecar_frames:
+        return {}
+
+    sidecar_dir = cache_dir / "prepared_tables"
+    sidecar_dir.mkdir(parents=True, exist_ok=True)
+    filenames = _sidecar_file_map(file_format)
+    for attr_name, frame in sidecar_frames.items():
+        path = sidecar_dir / filenames[attr_name]
+        if file_format == "parquet":
+            frame.write_parquet(path)
+        elif file_format == "csv":
+            frame.write_csv(path)
+        else:
+            raise ValueError(f"Unsupported sidecar file format {file_format!r}.")
+    return {attr_name: filenames[attr_name] for attr_name in sidecar_frames}
+
+
+def _remove_legacy_prepared_cache_dir(output_root: Path, run_key: str) -> None:
+    legacy_dir = output_root / "prepared_cache" / run_key
+    if legacy_dir.exists():
+        shutil.rmtree(legacy_dir)
+
+
 def write_prepared_run_cache(
     rd: RunData,
     config: Config,
@@ -221,6 +284,7 @@ def write_prepared_run_cache(
             tables_to_write[stem] = table
 
     write_all(tables_to_write, cache_dir, file_format=file_format)
+    sidecar_files = _write_sidecar_tables(cache_dir.parent, rd, file_format=file_format)
     _write_skimjoin_outputs(cache_dir, rd, config)
 
     manifest = {
@@ -234,7 +298,9 @@ def write_prepared_run_cache(
         "prepare_config_digest": config.prepare_config_digest,
         "table_format": file_format,
         "table_root": "prepared_tables",
+        "sidecar_root": "prepared_tables",
         "table_files": _table_file_map(file_format),
+        "sidecar_files": sidecar_files,
         "table_states": {
             table_id: table_states.get(
                 table_id,
@@ -280,6 +346,10 @@ def write_prepared_run_cache(
         "prepare_diagnostics": dict(rd.prepare_diagnostics),
         "skimjoin_enabled": bool(rd.skimjoin_manifest.get("skimjoin_enabled", False)),
         "skimjoin_config_digest": rd.skimjoin_manifest.get("skimjoin_config_digest"),
+        "skimjoin_resolved_network_los_file": _skimjoin_resolved_network_los_file(
+            rd,
+            run_fingerprint,
+        ),
         "skimjoin_status": rd.skimjoin_manifest.get("skimjoin_status"),
         "skimjoin_applied_outputs": list(
             rd.skimjoin_manifest.get("skimjoin_applied_outputs", [])
@@ -299,8 +369,14 @@ def write_prepared_run_cache(
         "skimjoin_failure_detail": rd.skimjoin_manifest.get(
             "skimjoin_failure_detail"
         ),
+        "skimjoin_hypothetical_sidecars_enabled": bool(
+            config.skimjoin.create_hypothetical_skim_tables
+        ),
+        "skimjoin_trip_hypothetical_rows": int(rd.trip_hypothetical_skims.height),
+        "skimjoin_tour_hypothetical_rows": int(rd.tour_hypothetical_skims.height),
     }
     write_manifest(cache_dir, manifest)
+    _remove_legacy_prepared_cache_dir(output_root, run_key)
     return PreparedRunCacheEntry(
         label=rd.label,
         run_key=run_key,
@@ -399,6 +475,22 @@ def load_prepared_run_cache(
         } and is_empty_sentinel_frame(table):
             table = pl.DataFrame()
         loaded_tables[attr_name] = table
+    sidecar_tables: dict[str, pl.DataFrame] = {
+        attr_name: pl.DataFrame() for attr_name, _ in SIDECAR_TABLE_ATTRS
+    }
+    sidecar_files = {
+        str(attr_name): str(filename)
+        for attr_name, filename in dict(manifest.get("sidecar_files", {})).items()
+    }
+    sidecar_dir = _sidecar_tables_dir(cache_dir, manifest)
+    for attr_name, stem in SIDECAR_TABLE_ATTRS:
+        filename = sidecar_files.get(attr_name)
+        if not filename:
+            continue
+        path = sidecar_dir / filename
+        if not path.exists():
+            raise PreparedCacheError(f"Missing prepared sidecar file: {path}")
+        sidecar_tables[attr_name] = _read_table_file(path)
 
     return attach_table_availability(
         RunData(
@@ -411,6 +503,8 @@ def load_prepared_run_cache(
             tours=loaded_tables["tours"],
             trips=loaded_tables["trips"],
             vehicles=loaded_tables["vehicles"],
+            trip_hypothetical_skims=sidecar_tables["trip_hypothetical_skims"],
+            tour_hypothetical_skims=sidecar_tables["tour_hypothetical_skims"],
             joint_participants=loaded_tables["joint_participants"],
             land_use=loaded_tables["land_use"],
             skim_matrix=None,
@@ -422,6 +516,12 @@ def load_prepared_run_cache(
             skimjoin_manifest={
                 "skimjoin_enabled": bool(manifest.get("skimjoin_enabled", False)),
                 "skimjoin_config_digest": manifest.get("skimjoin_config_digest"),
+                "skimjoin_resolved_network_los_file": manifest.get(
+                    "skimjoin_resolved_network_los_file"
+                )
+                or _skimjoin_resolved_network_los_file(
+                    run_fingerprint=dict(manifest.get("run_fingerprint", {}))
+                ),
                 "skimjoin_status": manifest.get("skimjoin_status"),
                 "skimjoin_applied_outputs": list(
                     manifest.get("skimjoin_applied_outputs", [])
@@ -437,6 +537,15 @@ def load_prepared_run_cache(
                 ),
                 "skimjoin_fallback_outputs": list(
                     manifest.get("skimjoin_fallback_outputs", [])
+                ),
+                "skimjoin_hypothetical_sidecars_enabled": bool(
+                    manifest.get("skimjoin_hypothetical_sidecars_enabled", False)
+                ),
+                "skimjoin_trip_hypothetical_rows": int(
+                    manifest.get("skimjoin_trip_hypothetical_rows", 0)
+                ),
+                "skimjoin_tour_hypothetical_rows": int(
+                    manifest.get("skimjoin_tour_hypothetical_rows", 0)
                 ),
                 "skimjoin_failure_detail": manifest.get("skimjoin_failure_detail"),
             },

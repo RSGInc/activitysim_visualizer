@@ -286,7 +286,7 @@ def test_config_loads_separate_skimjoin_config_and_digest(tmp_path: Path) -> Non
 
     config = _write_main_config(tmp_path, skimjoin_enabled=True)
 
-    assert config.skimjoin.enabled is True
+    assert config.skimjoin_step_enabled() is True
     assert config.skimjoin.config_path == str((tmp_path / "skimjoin.yaml").resolve())
     assert config.skimjoin.config_digest
     assert "skimjoin_trip_component_stats" in summary_cache.requested_summary_ids(
@@ -321,7 +321,7 @@ def test_config_loads_integrated_skimjoin_without_activitysim_table_paths(
 
     config = _write_main_config(tmp_path, skimjoin_enabled=True)
 
-    assert config.skimjoin.enabled is True
+    assert config.skimjoin_step_enabled() is True
     assert config.skimjoin.normalized_config is not None
 
 
@@ -396,7 +396,7 @@ def test_config_allows_run_level_skimjoin_config_without_global_path(
         run_skimjoin_lines=[f"config_path: {run_config_path.name}"],
     )
 
-    assert config.skimjoin.enabled is True
+    assert config.skimjoin_step_enabled() is True
     assert config.skimjoin.config_path is None
     resolved = config_for_run(config, config.runs[0])
     assert resolved.skimjoin.config_path == str(run_config_path.resolve())
@@ -1503,6 +1503,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
 
     assert trip_stats.to_dicts() == [
         {
+            "skim_scenario": "chosen_mode",
             "trip_mode": "All Modes",
             "component": "skim_time",
             "n_total": 1.0,
@@ -1517,6 +1518,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "missing_share": 0.0,
         },
         {
+            "skim_scenario": "chosen_mode",
             "trip_mode": "SOV",
             "component": "skim_time",
             "n_total": 1.0,
@@ -1533,6 +1535,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
     ]
     assert tour_stats.to_dicts() == [
         {
+            "skim_scenario": "chosen_mode",
             "tour_mode": "All Modes",
             "component": "skim_time_inbound",
             "n_total": 1.0,
@@ -1547,6 +1550,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "missing_share": 0.0,
         },
         {
+            "skim_scenario": "chosen_mode",
             "tour_mode": "All Modes",
             "component": "skim_time_outbound",
             "n_total": 1.0,
@@ -1561,6 +1565,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "missing_share": 0.0,
         },
         {
+            "skim_scenario": "chosen_mode",
             "tour_mode": "SOV",
             "component": "skim_time_inbound",
             "n_total": 1.0,
@@ -1575,6 +1580,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "missing_share": 0.0,
         },
         {
+            "skim_scenario": "chosen_mode",
             "tour_mode": "SOV",
             "component": "skim_time_outbound",
             "n_total": 1.0,
@@ -2754,6 +2760,70 @@ def test_annotate_trips_nullifies_configured_keyed_csv_sentinel_values(tmp_path:
     assert missing["reason"].to_list() == ["sentinel_value"]
 
 
+def test_annotate_trips_uses_prepared_trip_period_dimension(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    _write_omx(skim_path, matrix_name="SOV_TIME__EA")
+    handle = omx.open_file(str(skim_path), "a")
+    handle["SOV_TIME__AM"] = np.array([[5.0, 6.0], [7.0, 8.0]])
+    handle.close()
+    (tmp_path / "skimjoin.yaml").write_text(
+        "\n".join(
+            [
+                "project:",
+                "  skim_files:",
+                f"    - {skim_path.name}",
+                "activitysim:",
+                "  trip_mode_column: trip_mode",
+                "  trip_id_column: trip_id",
+                "  tour_id_column: tour_id",
+                "  outbound_column: outbound",
+                "defaults:",
+                "  origin: OTAZ",
+                "  destination: DTAZ",
+                "zone_mapping:",
+                "  lookup_name: taz",
+                "dimensions:",
+                "  PERIOD:",
+                "    source_columns:",
+                "      trip_source_column: trip_period",
+                "      outbound_tour_source_column: start_period",
+                "      inbound_tour_source_column: first_inbound_trip_period",
+                "modes:",
+                "  SOV:",
+                "    time: SOV_TIME__{PERIOD}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1, 2],
+            "trip_mode": ["SOV", "SOV"],
+            "OTAZ": [101, 101],
+            "DTAZ": [102, 102],
+            "trip_period": ["EA", "AM"],
+        }
+    )
+    inventory = inventory_skim_files(normalized.skim_files)
+
+    annotated, lookup_summary, missing = annotate_trips(
+        trips,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+    )
+
+    assert annotated["trip_period"].to_list() == ["EA", "AM"]
+    assert annotated["skim_time"].to_list() == [2.0, 6.0]
+    assert lookup_summary.height == 2
+    assert missing.is_empty()
+
+
 def test_annotate_trips_handles_late_matrix_names_in_missing_report_without_schema_failure(
     tmp_path: Path,
 ) -> None:
@@ -2872,11 +2942,15 @@ def test_apply_skimjoin_disabled_resets_manifest_and_reports(tmp_path: Path) -> 
         "skimjoin_enabled": False,
         "skimjoin_status": "disabled",
         "skimjoin_config_digest": None,
+        "skimjoin_resolved_network_los_file": None,
         "skimjoin_applied_outputs": [],
         "skimjoin_skipped_rules": [],
         "skimjoin_warning_count": 0,
         "skimjoin_fallback_count": 0,
         "skimjoin_fallback_outputs": [],
+        "skimjoin_hypothetical_sidecars_enabled": False,
+        "skimjoin_trip_hypothetical_rows": 0,
+        "skimjoin_tour_hypothetical_rows": 0,
         "skimjoin_failure_detail": None,
     }
     assert result.skimjoin_reports == {}
@@ -3048,6 +3122,7 @@ def test_trip_skim_component_stats_follow_weighted_contract(tmp_path: Path) -> N
     ).to_dicts()[0]
 
     assert drive_time == {
+        "skim_scenario": "chosen_mode",
         "trip_mode": "DRIVE",
         "component": "skim_time",
         "n_total": 6.0,
@@ -3062,6 +3137,7 @@ def test_trip_skim_component_stats_follow_weighted_contract(tmp_path: Path) -> N
         "missing_share": 0.5,
     }
     assert drive_cost == {
+        "skim_scenario": "chosen_mode",
         "trip_mode": "DRIVE",
         "component": "skim_cost",
         "n_total": 6.0,
@@ -3076,6 +3152,7 @@ def test_trip_skim_component_stats_follow_weighted_contract(tmp_path: Path) -> N
         "missing_share": 0.0,
     }
     assert all_modes_time == {
+        "skim_scenario": "chosen_mode",
         "trip_mode": "All Modes",
         "component": "skim_time",
         "n_total": 8.0,
@@ -3223,12 +3300,9 @@ def test_tour_annotation_uses_directional_period_source_columns(
                 "dimensions:",
                 "  PERIOD:",
                 "    source_columns:",
-                "      trip_source_column: depart",
-                "      outbound_tour_source_column: start",
-                "      inbound_tour_source_column: first_inbound_trip_depart",
-                "    values:",
-                "      8: AM",
-                "      17: PM",
+                "      trip_source_column: trip_period",
+                "      outbound_tour_source_column: start_period",
+                "      inbound_tour_source_column: first_inbound_trip_period",
                 "defaults:",
                 "  origin: OTAZ",
                 "  destination: DTAZ",
@@ -3249,8 +3323,8 @@ def test_tour_annotation_uses_directional_period_source_columns(
             "tour_mode": ["SOV"],
             "origin": [1],
             "destination": [2],
-            "start": [8],
-            "first_inbound_trip_depart": [17],
+            "start_period": ["AM"],
+            "first_inbound_trip_period": ["PM"],
             "OTAZ": [1],
             "DTAZ": [2],
         }

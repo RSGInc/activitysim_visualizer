@@ -10,12 +10,14 @@ from __future__ import annotations
 import polars as pl
 
 from dashboard.helpers.category_helpers import (
+    cap_numeric_category_frame,
     label_category_data,
     nonempty,
     ordered_category_values,
 )
 from dashboard.helpers.comparison_helpers import (
-    build_base_run_percent_difference_table,
+    build_ab_comparison_row,
+    build_ab_comparison_table,
     weighted_average_lookup,
 )
 from dashboard.helpers.geography_helpers import (
@@ -160,9 +162,13 @@ def distance_distribution_chart_data(
         out.append(
             (
                 label,
-                df.group_by("distance_bin")
-                .agg(person_count=pl.col("person_count").sum())
-                .sort("distance_bin"),
+                cap_numeric_category_frame(
+                    df.group_by("distance_bin")
+                    .agg(person_count=pl.col("person_count").sum()),
+                    category_col="distance_bin",
+                    cap_value=40,
+                    value_cols=("person_count",),
+                ),
             )
         )
     return out
@@ -212,7 +218,7 @@ def mandatory_distance_comparison_table(
     geography: str,
     *,
     config: Config,
-) -> pl.DataFrame:
+) -> list[tuple[str, pl.DataFrame]]:
     """Compare average mandatory tour distances against the base run."""
     filtered = filter_geography(
         filter_geography_level(data_list, geography_level),
@@ -220,7 +226,7 @@ def mandatory_distance_comparison_table(
     )
     runs = nonempty(filtered)
     if not runs:
-        return pl.DataFrame()
+        return []
 
     purpose_values = ordered_category_values(
         runs,
@@ -229,29 +235,47 @@ def mandatory_distance_comparison_table(
         config=config,
     )
     if not purpose_values:
-        return pl.DataFrame()
+        return []
 
-    run_labels = [label for label, _ in runs]
-    base_run_label = run_labels[0]
-    row_values: dict[str, dict[str, float | None]] = {}
-    for raw_purpose in purpose_values:
-        display_purpose = config.label_value("tour_purpose", raw_purpose)
-        row_values[display_purpose] = {}
-        for run_label, run_df in runs:
-            lookup = weighted_average_lookup(
-                run_df,
-                category_col="mandatory_tour_purpose",
-                average_col="average_tour_distance",
-                weight_col="person_count",
-            )
-            row_values[display_purpose][run_label] = lookup.get(str(raw_purpose))
-
-    return build_base_run_percent_difference_table(
-        run_labels=run_labels,
-        base_run_label=base_run_label,
-        row_header="Mandatory Tour Purpose",
-        row_values=row_values,
+    _, base_run_df = runs[0]
+    base_lookup = weighted_average_lookup(
+        base_run_df,
+        category_col="mandatory_tour_purpose",
+        average_col="average_tour_distance",
+        weight_col="person_count",
     )
+    quantity_a_column = "Average Mandatory Tour Distance"
+    quantity_b_column = "Base Run Average Mandatory Tour Distance"
+    out: list[tuple[str, pl.DataFrame]] = []
+    for run_label, run_df in runs:
+        lookup = weighted_average_lookup(
+            run_df,
+            category_col="mandatory_tour_purpose",
+            average_col="average_tour_distance",
+            weight_col="person_count",
+        )
+        rows = []
+        for raw_purpose in purpose_values:
+            display_purpose = config.label_value("tour_purpose", raw_purpose)
+            rows.append(
+                build_ab_comparison_row(
+                    keys={"Mandatory Tour Purpose": display_purpose},
+                    quantity_a=lookup.get(str(raw_purpose)),
+                    quantity_b=base_lookup.get(str(raw_purpose)),
+                    quantity_a_column=quantity_a_column,
+                    quantity_b_column=quantity_b_column,
+                )
+            )
+
+        table = build_ab_comparison_table(
+            rows,
+            key_columns=["Mandatory Tour Purpose"],
+            quantity_a_column=quantity_a_column,
+            quantity_b_column=quantity_b_column,
+        )
+        if not table.is_empty():
+            out.append((run_label, table))
+    return out
 
 
 def selected_telecommute_values(

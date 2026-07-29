@@ -413,6 +413,29 @@
             "INVALID_SELECTOR_DEFAULT"
           );
         }
+        if (selector.parent_selector_id) {
+          const parentSelector = (pageDescriptor.selectors || []).find((candidate) => {
+            return candidate.id === selector.parent_selector_id;
+          });
+          if (!parentSelector) {
+            fail(
+              "Selector " + selector.id + " on page " + pageDescriptor.id + " references an unknown parent selector.",
+              null,
+              "INVALID_SELECTOR_PARENT"
+            );
+          }
+          for (const options of Object.values(selector.options_by_parent_value || {})) {
+            for (const option of options || []) {
+              if ((selector.options || []).indexOf(option) === -1) {
+                fail(
+                  "Dependent selector " + selector.id + " contains an option outside its exported domain.",
+                  null,
+                  "INVALID_DEPENDENT_SELECTOR_OPTION"
+                );
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -537,6 +560,19 @@
     for (const page of pageDescriptors || []) {
       if (page.id === pageId) {
         return page;
+      }
+    }
+    return null;
+  }
+
+  function findPageDescriptorById(pageDescriptors, pageId) {
+    for (const page of pageDescriptors || []) {
+      if (page.id === pageId) {
+        return page;
+      }
+      const childMatch = findPageDescriptorById(page.children || [], pageId);
+      if (childMatch) {
+        return childMatch;
       }
     }
     return null;
@@ -687,6 +723,33 @@
     const nextState = cloneState(currentState);
     const pageState = Object.assign({}, nextState.pageSelectors[pageId] || {});
     pageState[selectorId] = value;
+    if (
+      pageId === "vmt"
+      && selectorId === "personal_auto_vmt_breakdown"
+      && value !== "Home Geography"
+    ) {
+      pageState.personal_auto_vmt_geography_type = "All Geography Types";
+    }
+    if (
+      pageId === "vmt"
+      && selectorId === "non_motorized_vmt_breakdown"
+      && value !== "Home Geography"
+    ) {
+      pageState.non_motorized_vmt_geography_type = "All Geography Types";
+    }
+    const pageDescriptor = findPageDescriptorById(currentPayload.pages || [], pageId);
+    for (const selector of (pageDescriptor && pageDescriptor.selectors) || []) {
+      if (selector.parent_selector_id !== selectorId) {
+        continue;
+      }
+      const dependentOptions = (
+        selector.options_by_parent_value
+        && selector.options_by_parent_value[value]
+      ) || [];
+      if (dependentOptions.length) {
+        pageState[selector.id] = dependentOptions[0];
+      }
+    }
     nextState.pageSelectors[pageId] = pageState;
     return normalizeState(currentPayload, nextState);
   }
@@ -800,6 +863,121 @@
       registeredPlots.add(element);
     }
 
+    function isArrayLikeValue(value) {
+      return Array.isArray(value) || ArrayBuffer.isView(value);
+    }
+
+    function csvEscape(value) {
+      if (value === undefined || value === null) {
+        return "";
+      }
+      let stringValue = "";
+      if (typeof value === "object") {
+        try {
+          stringValue = JSON.stringify(value);
+        } catch (error) {
+          stringValue = String(value);
+        }
+      } else {
+        stringValue = String(value);
+      }
+      if (/[",\n]/.test(stringValue)) {
+        return '"' + stringValue.replace(/"/g, '""') + '"';
+      }
+      return stringValue;
+    }
+
+    function getTraceFieldLength(value) {
+      if (isArrayLikeValue(value)) {
+        return value.length;
+      }
+      if (value === undefined || value === null) {
+        return 0;
+      }
+      return 1;
+    }
+
+    function getTraceFieldValue(value, index) {
+      if (isArrayLikeValue(value)) {
+        return index < value.length ? value[index] : "";
+      }
+      if (index === 0 && value !== undefined && value !== null) {
+        return value;
+      }
+      return "";
+    }
+
+    function slugifyFilenameBase(value) {
+      const normalized = String(value || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      return normalized || "plot-data";
+    }
+
+    function resolvePlotCsvFilename(figure) {
+      const layout = figure && figure.layout ? figure.layout : {};
+      const titleValue = layout && layout.title;
+      const titleText = typeof titleValue === "string"
+        ? titleValue
+        : (titleValue && titleValue.text) || "";
+      const yaxis = layout && layout.yaxis ? layout.yaxis : {};
+      const yaxisTitle = yaxis && yaxis.title;
+      const yaxisTitleText = typeof yaxisTitle === "string"
+        ? yaxisTitle
+        : (yaxisTitle && yaxisTitle.text) || "";
+      const valueMode = /percent|\(%\)/i.test(String(yaxisTitleText))
+        ? "percent"
+        : "count";
+      return slugifyFilenameBase(titleText) + "-" + valueMode + ".csv";
+    }
+
+    function buildTraceCsvRows(gd) {
+      const rows = [["run_name", "x", "y"]];
+      const traces = gd && Array.isArray(gd.data) ? gd.data : [];
+      traces.forEach((trace, traceIndex) => {
+        const pointCount = Math.max(
+          getTraceFieldLength(trace && trace.x),
+          getTraceFieldLength(trace && trace.y)
+        );
+        const traceName = trace && trace.name ? trace.name : "trace_" + String(traceIndex + 1);
+        for (let pointIndex = 0; pointIndex < pointCount; pointIndex += 1) {
+          rows.push([
+            traceName,
+            getTraceFieldValue(trace && trace.x, pointIndex),
+            getTraceFieldValue(trace && trace.y, pointIndex),
+          ]);
+        }
+      });
+      return rows;
+    }
+
+    function downloadCsvRows(rows, filename) {
+      const csv = rows
+        .map((row) => row.map(csvEscape).join(","))
+        .join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.click();
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+      }, 0);
+    }
+
+    function makePlotCsvDownloadButton(figure) {
+      return {
+        name: "Download CSV",
+        title: "Download plot data as CSV",
+        icon: plotly && plotly.Icons ? plotly.Icons.disk : undefined,
+        click: function (gd) {
+          downloadCsvRows(buildTraceCsvRows(gd), resolvePlotCsvFilename(figure));
+        },
+      };
+    }
+
     /**
      * Render any plot containers that were added during the latest DOM paint.
      */
@@ -819,7 +997,11 @@
         Promise.resolve(
           plotly.react(div, figure.data || [], figure.layout || {}, {
             responsive: true,
-            displayModeBar: false,
+            displayModeBar: "hover",
+            toImageButtonOptions: {
+              scale: 2,
+            },
+            modeBarButtonsToAdd: [makePlotCsvDownloadButton(figure)],
           })
         ).catch((error) => {
           onRuntimeError("Plot rendering failed while loading this export.", error);
@@ -867,31 +1049,123 @@
    * Widget renderers for export payload nodes.
    */
 
-  function renderWidget(node, context, actions) {
+  function resolveWidgetOptions(node, context, leafPageId) {
+    if (!(node.parent_selector_id && leafPageId)) {
+      return node.options || [];
+    }
+    const pageSelectorState = getPageSelectorState(context.state, leafPageId);
+    const parentValue = pageSelectorState[node.parent_selector_id];
+    const dependentOptions = (
+      node.options_by_parent_value
+      && node.options_by_parent_value[parentValue]
+    );
+    return dependentOptions || node.options || [];
+  }
+
+  function resolveWidgetValue(node, context, leafPageId, effectiveOptions) {
+    if (!(node.export_enabled && node.selector_id && leafPageId)) {
+      return node.value;
+    }
+    const pageSelectorState = getPageSelectorState(context.state, leafPageId);
+    const runtimeValue = pageSelectorState[node.selector_id];
+    if (
+      runtimeValue !== undefined
+      && runtimeValue !== null
+      && effectiveOptions.indexOf(runtimeValue) !== -1
+    ) {
+      return runtimeValue;
+    }
+    return node.value;
+  }
+
+  function isVmtGeographyTypeUnavailable(node, context, leafPageId) {
+    if (leafPageId !== "vmt") {
+      return false;
+    }
+    const selectorPrefixes = {
+      personal_auto_vmt_geography_type: "personal_auto_vmt",
+      non_motorized_vmt_geography_type: "non_motorized_vmt",
+    };
+    const prefix = selectorPrefixes[node.selector_id];
+    if (!prefix) return false;
+    const pageSelectorState = getPageSelectorState(context.state, leafPageId);
+    return pageSelectorState[`${prefix}_breakdown`] !== "Home Geography";
+  }
+
+  function isWidgetDisabled(node, context, leafPageId) {
+    if (node.parent_selector_id && leafPageId) {
+      const pageSelectorState = getPageSelectorState(context.state, leafPageId);
+      const parentValue = pageSelectorState[node.parent_selector_id];
+      if ((node.disabled_parent_values || []).indexOf(parentValue) !== -1) {
+        return true;
+      }
+    }
+    return !!node.disabled || isVmtGeographyTypeUnavailable(node, context, leafPageId);
+  }
+
+  function selectorHasDependents(context, leafPageId, selectorId) {
+    const pageDescriptor = findPageDescriptorById(
+      context.payload.pages || [],
+      leafPageId
+    );
+    return !!(
+      pageDescriptor
+      && (pageDescriptor.selectors || []).some((selector) => {
+        return selector.parent_selector_id === selectorId;
+      })
+    );
+  }
+
+  function selectorChangeOptions(node, context, leafPageId) {
+    if (selectorHasDependents(context, leafPageId, node.selector_id)) {
+      return {};
+    }
+    if (
+      leafPageId === "vmt"
+      && (
+        node.selector_id === "personal_auto_vmt_breakdown"
+        || node.selector_id === "non_motorized_vmt_breakdown"
+      )
+    ) {
+      return {};
+    }
+    return { preferPartialRegionUpdate: true };
+  }
+
+  function renderWidget(node, context, actions, leafPageId) {
     const wrapper = el("div", { className: "widget-shell" }, [
       el("div", {
         className: "widget-label",
         text: node.name || "",
       }),
     ]);
+    const effectiveOptions = resolveWidgetOptions(node, context, leafPageId);
+    const effectiveValue = resolveWidgetValue(
+      node,
+      context,
+      leafPageId,
+      effectiveOptions
+    );
 
     if (node.widget_type === "select") {
       const select = document.createElement("select");
-      select.disabled = !!node.disabled;
-      for (const option of node.options || []) {
+      select.disabled = isWidgetDisabled(node, context, leafPageId);
+      for (const option of effectiveOptions) {
         const opt = document.createElement("option");
         opt.value = option;
         opt.textContent = option;
-        if (option === node.value) {
+        if (option === effectiveValue) {
           opt.selected = true;
         }
         select.appendChild(opt);
       }
       if (node.export_enabled && node.selector_id) {
         select.addEventListener("change", () => {
-          actions.setPageSelector(node.selector_id, select.value, {
-            preferPartialRegionUpdate: true,
-          });
+          actions.setPageSelector(
+            node.selector_id,
+            select.value,
+            selectorChangeOptions(node, context, leafPageId)
+          );
         });
       }
       wrapper.appendChild(select);
@@ -903,7 +1177,7 @@
         el("div", { className: "widget-radio-options" }, (node.options || []).map((option) => {
           return makeButton({
             label: option,
-            active: option === node.value,
+            active: option === effectiveValue,
             disabled: !!node.disabled,
             onClick: () => {
               if (node.export_enabled && node.selector_id) {
@@ -913,6 +1187,49 @@
             className: "widget-radio-option",
           });
         }))
+      );
+      return wrapper;
+    }
+
+    if (node.widget_type === "checkbox") {
+      const label = document.createElement("label");
+      label.className = "widget-checkbox";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.disabled = !!node.disabled;
+      checkbox.checked = effectiveValue === true || effectiveValue === "True";
+      checkbox.setAttribute("aria-label", node.name || "Checkbox");
+      checkbox.addEventListener("change", () => {
+        if (node.export_enabled && node.selector_id) {
+          actions.setPageSelector(node.selector_id, checkbox.checked ? "True" : "False", {
+            preferPartialRegionUpdate: true,
+          });
+        }
+      });
+      label.appendChild(checkbox);
+      wrapper.appendChild(label);
+      return wrapper;
+    }
+
+    if (node.widget_type === "float_input") {
+      const input = document.createElement("input");
+      input.type = "number";
+      input.value = effectiveValue ?? "";
+      if (node.step !== undefined && node.step !== null) {
+        input.step = String(node.step);
+      }
+      input.disabled = isWidgetDisabled(node, context, leafPageId);
+      wrapper.appendChild(input);
+      return wrapper;
+    }
+
+    if (node.widget_type === "button") {
+      wrapper.appendChild(
+        makeButton({
+          label: node.name || node.value || "",
+          disabled: true,
+          className: "widget-button",
+        })
       );
       return wrapper;
     }
@@ -931,28 +1248,131 @@
    */
   function renderTable(node) {
     const table = el("table", { className: "export-table" });
+    const columns = node.columns || [];
+    const rows = (node.rows || []).slice();
+    const sortState = {
+      column: null,
+      direction: "asc",
+    };
+
+    function parseSortableNumber(value) {
+      const text = value == null ? "" : String(value).trim();
+      if (!text) {
+        return null;
+      }
+      let candidate = text.replace(/,/g, "");
+      let sign = 1;
+      const parenthesized = candidate.match(/^\((.*)\)$/);
+      if (parenthesized) {
+        sign = -1;
+        candidate = parenthesized[1];
+      }
+      candidate = candidate.replace(/^\$/, "");
+      candidate = candidate.replace(/%$/, "");
+      if (!/^-?\d+(\.\d+)?$/.test(candidate)) {
+        return null;
+      }
+      return sign * Number(candidate);
+    }
+
+    function compareCellValues(leftValue, rightValue) {
+      const leftNumber = parseSortableNumber(leftValue);
+      const rightNumber = parseSortableNumber(rightValue);
+      if (leftNumber !== null && rightNumber !== null) {
+        return leftNumber - rightNumber;
+      }
+      return String(leftValue == null ? "" : leftValue).localeCompare(
+        String(rightValue == null ? "" : rightValue),
+        undefined,
+        { numeric: true, sensitivity: "base" }
+      );
+    }
+
+    function sortRows(column, direction) {
+      rows.sort((leftRow, rightRow) => {
+        const comparison = compareCellValues(leftRow[column], rightRow[column]);
+        if (comparison !== 0) {
+          return direction === "asc" ? comparison : -comparison;
+        }
+        return 0;
+      });
+    }
+
+    function updateHeaderState() {
+      for (const headerButton of table.querySelectorAll(".export-table-sort")) {
+        const isActive = headerButton.getAttribute("data-column") === sortState.column;
+        const direction = isActive ? sortState.direction : "none";
+        const indicator = headerButton.querySelector(".export-table-sort-indicator");
+        headerButton.setAttribute("aria-sort", direction);
+        if (indicator) {
+          indicator.textContent = (
+            direction === "asc"
+              ? "▲"
+              : direction === "desc"
+                ? "▼"
+                : "↕"
+          );
+        }
+      }
+    }
+
+    function renderBody() {
+      const tbody = document.createElement("tbody");
+      for (const row of rows) {
+        const tr = document.createElement("tr");
+        for (const column of columns) {
+          const value = row[column];
+          tr.appendChild(
+            el("td", {
+              text: value == null ? "" : String(value),
+            })
+          );
+        }
+        tbody.appendChild(tr);
+      }
+      const existing = table.querySelector("tbody");
+      if (existing) {
+        table.replaceChild(tbody, existing);
+      } else {
+        table.appendChild(tbody);
+      }
+    }
+
+    function toggleSort(column) {
+      if (sortState.column === column) {
+        sortState.direction = sortState.direction === "asc" ? "desc" : "asc";
+      } else {
+        sortState.column = column;
+        sortState.direction = "asc";
+      }
+      sortRows(column, sortState.direction);
+      renderBody();
+      updateHeaderState();
+    }
+
     const thead = document.createElement("thead");
     const headRow = document.createElement("tr");
-    for (const column of node.columns || []) {
-      headRow.appendChild(el("th", { text: column }));
+    for (const column of columns) {
+      const button = el("button", {
+        className: "export-table-sort",
+        attrs: {
+          type: "button",
+          "data-column": column,
+          "aria-sort": "none",
+        },
+      }, [
+        el("span", { className: "export-table-sort-label", text: column }),
+        el("span", { className: "export-table-sort-indicator", text: "↕" }),
+      ]);
+      button.addEventListener("click", () => {
+        toggleSort(column);
+      });
+      headRow.appendChild(el("th", {}, [button]));
     }
     thead.appendChild(headRow);
     table.appendChild(thead);
-
-    const tbody = document.createElement("tbody");
-    for (const row of node.rows || []) {
-      const tr = document.createElement("tr");
-      for (const column of node.columns || []) {
-        const value = row[column];
-        tr.appendChild(
-          el("td", {
-            text: value == null ? "" : String(value),
-          })
-        );
-      }
-      tbody.appendChild(tr);
-    }
-    table.appendChild(tbody);
+    renderBody();
+    updateHeaderState();
 
     return el("div", { className: "table-wrap" }, [table]);
   }
@@ -1080,6 +1500,14 @@
     if (node.variants && Object.prototype.hasOwnProperty.call(node.variants, variantLookupKey)) {
       return node.variants[variantLookupKey];
     }
+    if (
+      node.variant_aliases
+      && Object.prototype.hasOwnProperty.call(node.variant_aliases, variantLookupKey)
+      && node.variants
+      && Object.prototype.hasOwnProperty.call(node.variants, node.variant_aliases[variantLookupKey])
+    ) {
+      return node.variants[node.variant_aliases[variantLookupKey]];
+    }
     // Falling back to default_content is expected when Python intentionally
     // emitted a default snapshot for unmatched selector combinations. If that
     // was not intended, this usually indicates payload/schema drift.
@@ -1198,12 +1626,36 @@
   function renderContainer(node, context, actions, leafPageId) {
     const layoutClass = node.layout === "row" ? "container-row" : "container-column";
     const childCount = Number(node.child_count || (node.children || []).length || 0);
+    const cssClasses = Array.isArray(node.css_classes) ? node.css_classes.join(" ") : "";
+    const isFlexControlsRow = (
+      node.layout === "row"
+      && node.styles
+      && typeof node.styles === "object"
+      && (
+        Object.prototype.hasOwnProperty.call(node.styles, "flex-wrap")
+        || Object.prototype.hasOwnProperty.call(node.styles, "justify-content")
+      )
+    );
     const container = el("div", {
-      className: layoutClass + " child-count-" + String(childCount),
+      className:
+        layoutClass
+        + " child-count-" + String(childCount)
+        + (isFlexControlsRow ? " container-row--controls" : "")
+        + (cssClasses ? " " + cssClasses : ""),
     });
+    if (node.styles && typeof node.styles === "object") {
+      for (const [key, value] of Object.entries(node.styles)) {
+        if (value !== undefined && value !== null) {
+          container.style.setProperty(String(key), String(value));
+        }
+      }
+    }
     for (const child of node.children || []) {
       const wrapper = el("div", {
-        className: "container-item container-item--" + nodeRole(child),
+        className:
+          "container-item container-item--"
+          + nodeRole(child)
+          + (isFlexControlsRow ? " container-item--controls" : ""),
       }, [
         renderNode(child, context, actions, leafPageId),
       ]);

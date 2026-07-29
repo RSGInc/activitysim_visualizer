@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 import polars as pl
 
 from processor.prepare.enrichment.columns import _has_columns

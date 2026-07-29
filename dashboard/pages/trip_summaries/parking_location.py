@@ -131,8 +131,14 @@ class ParkingLocationPage(DashboardPage):
             ]
 
         return [
-            self.render_scatter_chart(scatter_data),
-            self.render_comparison_table(scatter_data),
+            self.noted_view(
+                "parking_location.scatter",
+                self.render_scatter_chart(scatter_data),
+            ),
+            self.noted_view(
+                "parking_location.table",
+                self.render_comparison_table(scatter_data),
+            ),
         ]
 
     def render_scatter_chart(

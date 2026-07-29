@@ -1,0 +1,9 @@
+h5py
+numpy
+pandas
+panel
+plotly
+polars
+pydantic
+pyarrow
+PyYAML

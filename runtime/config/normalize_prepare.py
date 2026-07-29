@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -17,7 +18,12 @@ from .constants import (
     OPTIONAL_PREPARED_TABLE_IDS,
     PREPARED_TABLE_MAP_KEYS,
 )
-from .models import Config, PrepareVotBinsSettings
+from .models import (
+    Config,
+    PrepareNonMotorizedDistanceSkimSettings,
+    PrepareTimePeriodsSettings,
+    PrepareVotBinsSettings,
+)
 from .normalize_skimjoin import normalize_run_skimjoin_overrides, resolve_run_skimjoin_settings
 
 
@@ -72,6 +78,109 @@ def normalize_prepare_vot_bins(
         output_column=output_column,
         fallback_value=fallback_value,
         mappings=mappings,
+    )
+
+
+def normalize_prepare_time_periods(
+    raw_value,
+    *,
+    field_name: str,
+    config_dir: Path,
+) -> PrepareTimePeriodsSettings:
+    if raw_value in (None, {}):
+        return PrepareTimePeriodsSettings()
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{field_name} must be a mapping when provided.")
+
+    network_los_raw = raw_value.get("network_los_file")
+    if not isinstance(network_los_raw, str) or not network_los_raw.strip():
+        raise ValueError(f"{field_name}.network_los_file must be a non-empty path string.")
+    network_los_path = Path(network_los_raw.strip()).expanduser()
+    if not network_los_path.is_absolute():
+        network_los_path = (config_dir / network_los_path).resolve()
+    else:
+        network_los_path = network_los_path.resolve()
+    if not network_los_path.exists():
+        raise ValueError(
+            f"{field_name}.network_los_file does not exist: {network_los_path}"
+        )
+    if not network_los_path.is_file():
+        raise ValueError(
+            f"{field_name}.network_los_file must point to a file: {network_los_path}"
+        )
+
+    def _column(name: str, default: str) -> str:
+        raw_column = raw_value.get(name, default)
+        if not isinstance(raw_column, str) or not raw_column.strip():
+            raise ValueError(f"{field_name}.{name} must be a non-empty string.")
+        return raw_column.strip()
+
+    return PrepareTimePeriodsSettings(
+        enabled=True,
+        network_los_file=str(network_los_path),
+        network_los_digest=hashlib.sha256(network_los_path.read_bytes()).hexdigest(),
+        trip_period_number_column=_column("trip_period_number_column", "depart"),
+        tour_start_period_number_column=_column(
+            "tour_start_period_number_column", "start"
+        ),
+        tour_end_period_number_column=_column("tour_end_period_number_column", "end"),
+    )
+
+
+def normalize_prepare_non_motorized_distance_skim(
+    raw_value,
+    *,
+    field_name: str,
+    config_dir: Path,
+) -> PrepareNonMotorizedDistanceSkimSettings:
+    if raw_value in (None, {}):
+        return PrepareNonMotorizedDistanceSkimSettings()
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{field_name} must be a mapping when provided.")
+
+    file_raw = raw_value.get("file")
+    if not isinstance(file_raw, str) or not file_raw.strip():
+        raise ValueError(f"{field_name}.file must be a non-empty path string.")
+    path = Path(file_raw.strip()).expanduser()
+    if not path.is_absolute():
+        path = (config_dir / path).resolve()
+    else:
+        path = path.resolve()
+    if not path.exists():
+        raise ValueError(f"{field_name}.file does not exist: {path}")
+    if not path.is_file():
+        raise ValueError(f"{field_name}.file must point to a file: {path}")
+
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        source_type = "csv"
+    elif suffix in {".omx", ".h5", ".hdf5"}:
+        source_type = "omx"
+    else:
+        raise ValueError(
+            f"{field_name}.file must end with '.csv', '.omx', '.h5', or '.hdf5'."
+        )
+
+    matrix_raw = raw_value.get("matrix")
+    matrix = None if matrix_raw is None else str(matrix_raw).strip()
+    if matrix == "":
+        matrix = None
+
+    if source_type == "omx" and matrix is None:
+        raise ValueError(f"{field_name}.matrix is required for OMX/HDF5 files.")
+
+    value_column = "DISTWALK"
+    if source_type == "csv" and matrix is not None:
+        prefix = f"{path.stem}__"
+        value_column = matrix[len(prefix) :] if matrix.startswith(prefix) else matrix
+
+    return PrepareNonMotorizedDistanceSkimSettings(
+        enabled=True,
+        file=str(path),
+        file_digest=hashlib.sha256(path.read_bytes()).hexdigest(),
+        matrix=matrix,
+        source_type=source_type,
+        value_column=value_column,
     )
 
 
@@ -216,6 +325,37 @@ def normalize_prepared_table_map(
     return normalized
 
 
+def normalize_summary_table_map(
+    raw_value,
+    *,
+    field_name: str,
+    config_dir: Path,
+) -> dict[str, str]:
+    if raw_value is None:
+        raw_value = {}
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{field_name} must be a mapping when provided.")
+
+    normalized: dict[str, str] = {}
+    for raw_key, raw_path in raw_value.items():
+        key = str(raw_key)
+        if not key.strip():
+            raise ValueError(f"{field_name} contains an empty summary id.")
+        if not isinstance(raw_path, str):
+            raise ValueError(f"{field_name}.{key} must be a non-empty path string.")
+        token = raw_path.strip()
+        if not token:
+            raise ValueError(f"{field_name}.{key} must be a non-empty path string.")
+        suffix = Path(token).suffix.lower()
+        if suffix not in {".parquet", ".csv"}:
+            raise ValueError(f"{field_name}.{key} must end with '.parquet' or '.csv'.")
+        resolved = Path(token).expanduser()
+        if not resolved.is_absolute():
+            resolved = (config_dir / resolved).resolve()
+        normalized[key] = str(resolved)
+    return normalized
+
+
 def normalize_runs(
     raw_value,
     *,
@@ -247,6 +387,12 @@ def normalize_runs(
                 raise ValueError(
                     f"{field_name}[{index}] cannot define both file_map and prepared_table_map."
                 )
+        if "summary_table_map" in raw_entry:
+            normalized_entry["summary_table_map"] = normalize_summary_table_map(
+                raw_entry.get("summary_table_map"),
+                field_name=f"{field_name}[{index}].summary_table_map",
+                config_dir=config_dir,
+            )
         if "skimjoin" in raw_entry:
             normalized_entry["skimjoin"] = normalize_run_skimjoin_overrides(
                 raw_entry.get("skimjoin"),

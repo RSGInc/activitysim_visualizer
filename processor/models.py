@@ -87,6 +87,8 @@ class RunData:
     trip_weight_col: Optional[str] = None
     day: pl.DataFrame = field(default_factory=pl.DataFrame)
     vehicles: pl.DataFrame = field(default_factory=pl.DataFrame)
+    trip_hypothetical_skims: pl.DataFrame = field(default_factory=pl.DataFrame)
+    tour_hypothetical_skims: pl.DataFrame = field(default_factory=pl.DataFrame)
     table_availability_metadata: TableAvailabilityMetadata = field(
         default_factory=TableAvailabilityMetadata
     )
@@ -125,6 +127,12 @@ def prune_prepared_run(
 ) -> RunData:
     """Return a copy of ``prepared_run`` that keeps only the requested tables."""
     keep = set(required_tables)
+    trip_sidecar = prepared_run.trip_hypothetical_skims
+    if "trips" not in keep:
+        trip_sidecar = pl.DataFrame()
+    tour_sidecar = prepared_run.tour_hypothetical_skims
+    if "tours" not in keep:
+        tour_sidecar = pl.DataFrame()
     return RunData(
         label=prepared_run.label,
         run_dir=prepared_run.run_dir,
@@ -135,6 +143,8 @@ def prune_prepared_run(
         tours=prepared_run.tours if "tours" in keep else pl.DataFrame(),
         trips=prepared_run.trips if "trips" in keep else pl.DataFrame(),
         vehicles=prepared_run.vehicles if "vehicles" in keep else pl.DataFrame(),
+        trip_hypothetical_skims=trip_sidecar,
+        tour_hypothetical_skims=tour_sidecar,
         joint_participants=(
             prepared_run.joint_participants
             if "joint_participants" in keep

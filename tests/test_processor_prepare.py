@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
+import numpy as np
 import polars as pl
 import pytest
 
@@ -24,6 +25,7 @@ from processor.prepare.reader import (
     resolve_skim_path as processor_resolve_skim_path,
 )
 from processor.summarize.cache_types import strip_weights
+from processor.summarize.contracts import missing_summary_inputs
 from processor.summarize.summaries import tour, trip
 from processor.summarize.summaries.long_term import (
     external_workplace_loc,
@@ -39,10 +41,14 @@ from processor.summarize.summaries.long_term import (
     vehicle_char_age,
     vehicle_char_body,
     vehicle_char_fuel,
+    wfh,
     work_tlfd,
     workplace_shadow_pricing_residual_histogram,
     workplace_shadow_pricing_residuals,
     workplace_vs_land_use_employment,
+)
+from processor.summarize.summaries.summary_helpers import (
+    _configured_geography_dimensions,
 )
 from processor.summarize.summaries.tour_geography import (
     avg_mand_tour_distance,
@@ -1005,6 +1011,151 @@ def test_processor_prepare_data_uses_zone_id_as_maz_fallback_for_trip_skim_dista
     assert prepared.trips["od_dist"].to_list() == [12.5]
 
 
+def test_processor_prepare_data_adds_non_motorized_distance_from_csv(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "maz_maz_walk.csv"
+    pl.DataFrame(
+        {
+            "OMAZ": [100, 200],
+            "DMAZ": [200, 100],
+            "DISTWALK": [0.5, 0.75],
+        }
+    ).write_csv(csv_path)
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "zones:",
+            "  use_maz: true",
+            "  maz_col: [MAZ, zone_id]",
+            "  taz_col: [TAZ]",
+            "prepare:",
+            "  non_motorized_distance_skim:",
+            "    file: maz_maz_walk.csv",
+            "    matrix: null",
+        ],
+    )
+    raw = _raw_run()
+    raw = ProcessorRunData(
+        label=raw.label,
+        run_dir=raw.run_dir,
+        skim_file=raw.skim_file,
+        hh=raw.hh,
+        per=raw.per,
+        tours=raw.tours,
+        trips=pl.DataFrame(
+            {
+                "trip_id": [1, 2, 3],
+                "tour_id": [1001, 1001, 1001],
+                "person_id": [101, 101, 101],
+                "household_id": [1, 1, 1],
+                "trip_mode": ["WALK", "BIKE", "WALK"],
+                "origin": [100, 200, 999],
+                "destination": [200, 100, 100],
+            }
+        ),
+        joint_participants=raw.joint_participants,
+        land_use=pl.DataFrame(
+            {
+                "zone_id": [100, 200, 999],
+                "TAZ": [1, 2, 3],
+                "EMPLOY_TOT": [7, 8, 9],
+            }
+        ),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    prepared = processor_prepare_data(raw, config)
+
+    assert prepared.trips["prepared_non_motorized_distance"].to_list() == [
+        0.5,
+        0.75,
+        None,
+    ]
+    diagnostics = prepared.prepare_diagnostics[
+        "trips.prepared_non_motorized_distance"
+    ]
+    assert diagnostics["source_type"] == "csv"
+    assert diagnostics["value_column"] == "DISTWALK"
+    assert diagnostics["unresolved"] == 1
+    assert diagnostics["eligible_non_motorized_unresolved"] == 1
+
+
+def test_processor_prepare_data_adds_non_motorized_distance_from_omx(
+    tmp_path: Path,
+) -> None:
+    import openmatrix as omx
+
+    omx_path = tmp_path / "walk.omx"
+    handle = omx.open_file(str(omx_path), "w")
+    handle["WLK_DIST"] = np.array([[0.0, 1.25], [1.5, 0.0]])
+    handle.close()
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "zones:",
+            "  use_maz: true",
+            "  maz_col: [MAZ, zone_id]",
+            "  taz_col: [TAZ]",
+            "prepare:",
+            "  non_motorized_distance_skim:",
+            "    file: walk.omx",
+            "    matrix: WLK_DIST",
+        ],
+    )
+    raw = _raw_run()
+    raw = ProcessorRunData(
+        label=raw.label,
+        run_dir=raw.run_dir,
+        skim_file=raw.skim_file,
+        hh=raw.hh,
+        per=raw.per,
+        tours=raw.tours,
+        trips=pl.DataFrame(
+            {
+                "trip_id": [1, 2],
+                "tour_id": [1001, 1001],
+                "person_id": [101, 101],
+                "household_id": [1, 1],
+                "trip_mode": ["WALK", "BIKE"],
+                "origin": [100, 200],
+                "destination": [200, 100],
+            }
+        ),
+        joint_participants=raw.joint_participants,
+        land_use=pl.DataFrame(
+            {
+                "zone_id": [100, 200],
+                "TAZ": [1, 2],
+                "EMPLOY_TOT": [7, 8],
+            }
+        ),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    prepared = processor_prepare_data(raw, config)
+
+    assert prepared.trips["prepared_non_motorized_distance"].to_list() == [
+        1.25,
+        1.5,
+    ]
+    diagnostics = prepared.prepare_diagnostics[
+        "trips.prepared_non_motorized_distance"
+    ]
+    assert diagnostics["source_type"] == "omx"
+    assert diagnostics["matrix"] == "WLK_DIST"
+
+
+def test_processor_prepare_data_leaves_non_motorized_distance_absent_without_config(
+    tmp_path: Path,
+) -> None:
+    prepared = processor_prepare_data(_raw_run(), _write_config(tmp_path))
+
+    assert "prepared_non_motorized_distance" not in prepared.trips.columns
+
+
 def test_processor_prepare_data_surfaces_null_distance_fields_without_usable_zone_mapping(
     tmp_path: Path,
 ) -> None:
@@ -1793,6 +1944,73 @@ def test_processor_prepare_adds_configured_geography_aggregation_columns(
     assert prepared.trips["destination_geo__district"].to_list() == ["South"]
 
 
+def test_processor_prepare_copies_native_home_geographies_to_persons(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    raw = _raw_run()
+    raw.hh = raw.hh.with_columns(
+        pl.lit("Household County").alias("home_county"),
+        pl.lit("Household MPO").alias("home_mpo"),
+    )
+    raw.per = raw.per.with_columns(pl.lit("Person County").alias("home_county"))
+
+    prepared = processor_prepare_data(raw, config)
+
+    assert prepared.hh["home_county"].to_list() == ["Household County"]
+    assert prepared.hh["home_mpo"].to_list() == ["Household MPO"]
+    assert prepared.per["home_county"].to_list() == ["Person County"]
+    assert prepared.per["home_mpo"].to_list() == ["Household MPO"]
+
+
+def test_summary_geography_dimensions_include_native_home_geographies(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "geography:",
+            "  enabled: true",
+            "  aggregations:",
+            "    county:",
+            "      source_zone_system: taz",
+            "      mapping:",
+            "        West: [10]",
+        ],
+    )
+    df = pl.DataFrame(
+        {
+            "home_zone_id": [10],
+            "home_taz": [10],
+            "home_county": ["A"],
+            "home_mpo": ["B"],
+            "home_geo__county": ["West"],
+            "work_geo__county": ["West"],
+        }
+    )
+
+    assert _configured_geography_dimensions(
+        df,
+        config=config,
+        base_type="maz",
+        base_col="home_zone_id",
+        role_prefix="home",
+    ) == [
+        ("maz", "home_zone_id"),
+        ("home_taz", "home_taz"),
+        ("home_county", "home_county"),
+        ("home_mpo", "home_mpo"),
+        ("county", "home_geo__county"),
+    ]
+    assert _configured_geography_dimensions(
+        df,
+        config=config,
+        base_type="work_taz",
+        base_col="work_taz",
+        role_prefix="work",
+    ) == [("county", "work_geo__county")]
+
+
 def test_processor_prepare_skips_geography_aggregation_columns_when_geography_disabled(
     tmp_path: Path,
 ) -> None:
@@ -2264,6 +2482,7 @@ def test_park_and_ride_location_residuals_roll_up_used_lots_only(
         land_use=pl.DataFrame(
             {
                 "MAZ": [1, 2, 3, 4, 5],
+                "TAZ": [100, 100, 200, 200, 200],
                 "PNR_CAP": [10.0, 20.0, 30.0, 40.0, 50.0],
                 "land_use_geo__district": ["North", "North", "South", "South", "South"],
             }
@@ -2334,6 +2553,16 @@ def test_park_and_ride_location_residuals_roll_up_used_lots_only(
         ]
     )
     assert (
+        summary.filter(pl.col("geography_type") == "taz")
+        .sort("geography_id")
+        .select(["geography_id", "pnr_tour_count", "pnr_lot_capacity"])
+        .to_dicts()
+        == [
+            {"geography_id": "100", "pnr_tour_count": 5.0, "pnr_lot_capacity": 30.0},
+            {"geography_id": "200", "pnr_tour_count": 45.0, "pnr_lot_capacity": 70.0},
+        ]
+    )
+    assert (
         summary.filter(pl.col("geography_type") == "all_geographies")
         .select(["geography_id", "pnr_tour_count", "pnr_lot_capacity"])
         .to_dicts()
@@ -2342,6 +2571,70 @@ def test_park_and_ride_location_residuals_roll_up_used_lots_only(
                 "geography_id": "all_geographies",
                 "pnr_tour_count": 50.0,
                 "pnr_lot_capacity": 100.0,
+            }
+        ]
+    )
+
+
+def test_park_and_ride_location_residuals_support_taz_only_inputs(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "columns:",
+            "  pnr_lot_capacity: [PNR_CAP]",
+            "modes:",
+            "  pnr_tour_modes: [PNR_TRANSIT]",
+        ],
+    )
+    prepared = ProcessorRunData(
+        label="Prepared",
+        run_dir="C:/runs/prepared",
+        skim_file=None,
+        hh=pl.DataFrame(),
+        per=pl.DataFrame(),
+        tours=pl.DataFrame(
+            {
+                "tour_mode": ["PNR_TRANSIT", "PNR_TRANSIT", "WALK"],
+                "pnr_taz": [10, 20, 20],
+                "finalweight": [2.0, 3.0, 99.0],
+            }
+        ),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(
+            {
+                "TAZ": [10, 20, 30],
+                "PNR_CAP": [12.0, 30.0, 40.0],
+            }
+        ),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    assert missing_summary_inputs(park_and_ride_location_residuals, prepared) == {}
+    summary = park_and_ride_location_residuals(prepared, config)
+
+    assert (
+        summary.filter(pl.col("geography_type") == "taz")
+        .sort("geography_id")
+        .select(["geography_id", "pnr_tour_count", "pnr_lot_capacity"])
+        .to_dicts()
+        == [
+            {"geography_id": "10", "pnr_tour_count": 2.0, "pnr_lot_capacity": 12.0},
+            {"geography_id": "20", "pnr_tour_count": 3.0, "pnr_lot_capacity": 30.0},
+        ]
+    )
+    assert (
+        summary.filter(pl.col("geography_type") == "all_geographies")
+        .select(["geography_id", "pnr_tour_count", "pnr_lot_capacity"])
+        .to_dicts()
+        == [
+            {
+                "geography_id": "all_geographies",
+                "pnr_tour_count": 5.0,
+                "pnr_lot_capacity": 42.0,
             }
         ]
     )
@@ -2598,7 +2891,7 @@ def test_mandatory_distance_summaries_include_configured_geography_levels(
                 "is_worker": [True, True, False],
                 "is_student": [False, True, True],
                 "person_type": ["1", "7", "3"],
-                "distance_to_work": [10.0, 20.0, None],
+                "distance_to_work": [0.5, 20.0, None],
                 "distance_to_school": [None, 5.0, 15.0],
                 "finalweight": [1.0, 2.0, 3.0],
             }
@@ -2619,8 +2912,16 @@ def test_mandatory_distance_summaries_include_configured_geography_levels(
     assert (
         work_distance.filter(
             (pl.col("geography_type") == "county")
+            & (pl.col("geography_id") == "West")
+            & (pl.col("distance_bin") == 0)
+        )["person_count"].to_list()
+        == [1.0]
+    )
+    assert (
+        work_distance.filter(
+            (pl.col("geography_type") == "county")
             & (pl.col("geography_id") == "East")
-            & (pl.col("distance_bin") == 21)
+            & (pl.col("distance_bin") == 20)
         )["person_count"].to_list()
         == [2.0]
     )
@@ -2628,7 +2929,7 @@ def test_mandatory_distance_summaries_include_configured_geography_levels(
         school_distance.filter(
             (pl.col("geography_type") == "county")
             & (pl.col("geography_id") == "East")
-            & (pl.col("distance_bin") == 6)
+            & (pl.col("distance_bin") == 5)
         )["person_count"].to_list()
         == [2.0]
     )
@@ -2636,7 +2937,7 @@ def test_mandatory_distance_summaries_include_configured_geography_levels(
         university_distance.filter(
             (pl.col("geography_type") == "county")
             & (pl.col("geography_id") == "East")
-            & (pl.col("distance_bin") == 16)
+            & (pl.col("distance_bin") == 15)
         )["person_count"].to_list()
         == [3.0]
     )
@@ -2678,7 +2979,7 @@ def test_mandatory_distance_summaries_include_configured_geography_levels(
             {
                 "mandatory_tour_purpose": "work",
                 "geography_id": "all_geographies",
-                "average_tour_distance": 16.666666666666668,
+                "average_tour_distance": 13.5,
                 "person_count": 3.0,
             },
         ]
@@ -2764,6 +3065,69 @@ def test_telecommute_summary_includes_configured_geography_levels(
                 "telecommute_frequency": "often",
                 "person_count": 2.0,
             },
+        ]
+    )
+
+
+def test_work_from_home_summary_includes_native_home_geographies(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    prepared = ProcessorRunData(
+        label="Prepared",
+        run_dir="C:/runs/prepared",
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1, 2], "finalweight": [1.0, 1.0]}),
+        per=pl.DataFrame(
+            {
+                "person_id": [101, 201],
+                "household_id": [1, 2],
+                "home_zone_id": [10, 20],
+                "home_county": ["North", "South"],
+                "home_mpo": ["Metro", "Metro"],
+                "is_worker": [True, True],
+                "work_from_home": [True, False],
+                "finalweight": [2.0, 3.0],
+            }
+        ),
+        tours=pl.DataFrame(),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    summary = wfh(prepared, config)
+
+    assert (
+        summary.filter(pl.col("geography_type") == "home_county")
+        .sort("geography_id")
+        .to_dicts()
+        == [
+            {
+                "geography_type": "home_county",
+                "geography_id": "North",
+                "worker_count": 2.0,
+                "work_from_home_worker_count": 2.0,
+            },
+            {
+                "geography_type": "home_county",
+                "geography_id": "South",
+                "worker_count": 3.0,
+                "work_from_home_worker_count": 0.0,
+            },
+        ]
+    )
+    assert (
+        summary.filter(pl.col("geography_type") == "home_mpo").to_dicts()
+        == [
+            {
+                "geography_type": "home_mpo",
+                "geography_id": "Metro",
+                "worker_count": 5.0,
+                "work_from_home_worker_count": 2.0,
+            }
         ]
     )
 
@@ -2871,19 +3235,20 @@ def test_student_type_config_supports_custom_person_segmentation(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "student_types:",
-            "  - label: Elementary/Middle School",
-            "    land_use_columns: [ENROLLGRADEKto8]",
-            "    person:",
-            "      school_segment: [1]",
-            "  - label: High School",
-            "    land_use_columns: [ENROLLGRADE9to12]",
-            "    person:",
-            "      SCHG: [2]",
-            "  - label: University",
-            "    land_use_columns: [COLLEGEENROLL]",
-            "    person:",
-            "      is_university: true",
+            "prepare:",
+            "  student_types:",
+            "    - label: Elementary/Middle School",
+            "      land_use_columns: [ENROLLGRADEKto8]",
+            "      person:",
+            "        school_segment: [1]",
+            "    - label: High School",
+            "      land_use_columns: [ENROLLGRADE9to12]",
+            "      person:",
+            "        SCHG: [2]",
+            "    - label: University",
+            "      land_use_columns: [COLLEGEENROLL]",
+            "      person:",
+            "        is_university: true",
         ],
     )
 
@@ -2909,6 +3274,27 @@ def test_student_type_config_supports_custom_person_segmentation(
         "Elementary/Middle School",
         "University",
     ]
+
+
+def test_prepare_student_types_override_legacy_top_level_student_types(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "student_types:",
+            "  - label: Legacy School",
+            "    land_use_columns: [ENROLLGRADEKto8]",
+            "prepare:",
+            "  student_types:",
+            "    - label: School",
+            "      land_use_columns: [ENROLLGRADEKto8]",
+            "    - label: University",
+            "      land_use_columns: [COLLEGEENROLL]",
+        ],
+    )
+
+    assert [entry.label for entry in config.student_types] == ["School", "University"]
 
 
 def test_student_type_config_supports_local_config_enrollment_columns(

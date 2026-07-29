@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 import polars as pl
 
 from processor.prepare.enrichment.autosuff import derive_household_autosuff_counts
@@ -20,6 +20,7 @@ from processor.prepare.enrichment.zones import (
 from runtime.config import Config
 
 LOGGER = get_logger("processor.prepare")
+NATIVE_HOME_GEOGRAPHY_COLUMNS = ("home_county", "home_mpo")
 
 
 def _add_configured_geographies(
@@ -43,6 +44,41 @@ def _add_configured_geographies(
             zone_context=zone_context,
         )
     return result
+
+
+def _copy_native_home_geographies_to_persons(state: _PrepareState) -> None:
+    """Copy household-native home geography columns onto persons when available."""
+    if not _has_columns(state.hh, "household_id") or not _has_columns(
+        state.per, "household_id"
+    ):
+        return
+    geography_columns = [
+        column for column in NATIVE_HOME_GEOGRAPHY_COLUMNS if column in state.hh.columns
+    ]
+    if not geography_columns:
+        return
+
+    temp_columns = {column: f"_hh_{column}" for column in geography_columns}
+    join_frame = state.hh.select(
+        [
+            "household_id",
+            *[
+                pl.col(column).alias(temp_column)
+                for column, temp_column in temp_columns.items()
+            ],
+        ]
+    )
+    state.per = state.per.join(join_frame, on="household_id", how="left")
+    exprs: list[pl.Expr] = []
+    for column, temp_column in temp_columns.items():
+        if column in state.per.columns:
+            exprs.append(
+                pl.coalesce([pl.col(column), pl.col(temp_column)]).alias(column)
+            )
+        else:
+            exprs.append(pl.col(temp_column).alias(column))
+    state.per = state.per.with_columns(exprs).drop(list(temp_columns.values()))
+
 
 def _derive_num_joint_tours(state: _PrepareState) -> None:
     if (
@@ -129,6 +165,7 @@ def _enrich_persons(
             on="household_id",
             how="left",
         )
+    _copy_native_home_geographies_to_persons(state)
 
     state.per = _to_taz(
         state.per,

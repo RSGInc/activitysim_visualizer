@@ -10,7 +10,7 @@ import sys
 import time
 from pathlib import Path
 
-from activitysim_viz_logging import configure_logging, get_logger, shutdown_logging
+from runtime.logging import configure_logging, get_logger, shutdown_logging
 from dashboard.page_registry import (
     export_data_requirements,
     live_data_requirements,
@@ -408,6 +408,25 @@ def main() -> None:
             apply_skimjoin="skimjoin" in plan.logical_steps,
             apply_segmentation="segment" in plan.logical_steps,
         )
+        dashboard_execution_mode = (
+            resolve_dashboard_execution_mode(plan.dashboard_mode)
+            if "dashboard" in steps
+            else "none"
+        )
+        export_html_path = _resolve_export_html_path(
+            args.export_html,
+            config,
+            dashboard_mode=dashboard_execution_mode,
+        )
+        dashboard_requirements = (
+            (
+                export_data_requirements(config)
+                if export_html_path is not None
+                else live_data_requirements(config)
+            )
+            if "dashboard" in steps
+            else None
+        )
         processor_result = None
         summary_runs = []
         required_run_keys: list[str] = []
@@ -439,11 +458,13 @@ def main() -> None:
             summary_runs = processor_result.summary_runs
             required_run_keys = list(processor_result.run_keys)
         elif "dashboard" in steps:
+            assert dashboard_requirements is not None
             summary_runs = runtime_workflows.load_summary_runs_from_cache(
                 config=effective_processor_config,
                 cache_root=cache_root,
                 explicit_cache_dirs=args.from_csvs,
                 run_entries=run_entries,
+                required_summary_ids=dashboard_requirements.required_summary_ids,
             )
             required_run_keys = [summary_run.run_key for summary_run in summary_runs]
 
@@ -456,23 +477,11 @@ def main() -> None:
             shutdown_logging()
             return
 
-        dashboard_execution_mode = resolve_dashboard_execution_mode(
-            plan.dashboard_mode
-        )
-        export_html_path = _resolve_export_html_path(
-            args.export_html,
-            config,
-            dashboard_mode=dashboard_execution_mode,
-        )
+        assert dashboard_requirements is not None
         prepared_runs = []
-        dashboard_requirements = (
-            export_data_requirements(config)
-            if export_html_path is not None
-            else live_data_requirements(config)
-        )
         processor_result = runtime_workflows.prune_processor_result(
             processor_result,
-            required_summary_ids=dashboard_requirements.required_summary_ids,
+            required_summary_ids=dashboard_requirements.summary_ids_for_pruning,
             required_prepared_tables=dashboard_requirements.required_prepared_tables,
         )
         if processor_result is not None:
@@ -480,7 +489,7 @@ def main() -> None:
         else:
             summary_runs = runtime_workflows.prune_summary_runs(
                 summary_runs,
-                dashboard_requirements.required_summary_ids,
+                dashboard_requirements.summary_ids_for_pruning,
             )
 
         requires_prepared_data = dashboard_requirements.prepared_data_mode != "none"

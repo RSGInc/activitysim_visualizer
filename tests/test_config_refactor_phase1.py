@@ -177,7 +177,7 @@ def test_new_config_layout_normalizes_to_existing_runtime_fields(tmp_path: Path)
     assert config.segmentation.dashboard.visibility == "segments_only"
     assert config.skim_file == str(skim_path.name)
     assert config.skim_matrix == "SOV_TIME__EA"
-    assert config.skimjoin.enabled is True
+    assert config.skimjoin_step_enabled() is True
     assert config.skimjoin.config_path == str(skimjoin_config_path.resolve())
     assert config.skimjoin.resolved_skim_files == (str(skim_path.resolve()),)
     assert config.skimjoin.resolved_network_los_file == str(network_los_path.resolve())

@@ -7,7 +7,7 @@ from functools import lru_cache
 import importlib
 import pkgutil
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 import dashboard.pages as dashboard_pages_package
 from dashboard import DashboardState
 from dashboard.data_access import DashboardPreparedRunProvider
@@ -214,9 +214,20 @@ def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
         )
 
     required_summary_ids = page_definition.required_summary_ids
+    optional_summary_ids = page_definition.optional_summary_ids
     if len(set(required_summary_ids)) != len(required_summary_ids):
         raise ValueError(
             f"Dashboard page {page_definition.page_id!r} declares duplicate required_summary_ids."
+        )
+    if len(set(optional_summary_ids)) != len(optional_summary_ids):
+        raise ValueError(
+            f"Dashboard page {page_definition.page_id!r} declares duplicate optional_summary_ids."
+        )
+    summary_id_overlap = sorted(set(required_summary_ids).intersection(optional_summary_ids))
+    if summary_id_overlap:
+        raise ValueError(
+            f"Dashboard page {page_definition.page_id!r} declares summary ids as both required and optional: "
+            + ", ".join(repr(summary_id) for summary_id in summary_id_overlap)
         )
     required_prepared_tables = page_definition.required_prepared_tables
     if len(set(required_prepared_tables)) != len(required_prepared_tables):
@@ -240,7 +251,7 @@ def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
         )
     unknown_summary_ids = [
         summary_id
-        for summary_id in required_summary_ids
+        for summary_id in (*required_summary_ids, *optional_summary_ids)
         if summary_id not in SUMMARY_SPEC_BY_ID
     ]
     if unknown_summary_ids:
@@ -631,8 +642,10 @@ def data_requirements_for_pages(
 ) -> DashboardDataRequirements:
     """Return the summary/prepared-table requirements for a page definition set."""
     required_summary_ids: list[str] = []
+    optional_summary_ids: list[str] = []
     required_prepared_tables: list[PreparedTableName] = []
     seen_summary_ids: set[str] = set()
+    seen_optional_summary_ids: set[str] = set()
     seen_prepared_tables: set[PreparedTableName] = set()
 
     for page_definition in page_definitions:
@@ -640,6 +653,11 @@ def data_requirements_for_pages(
             if summary_id not in seen_summary_ids:
                 required_summary_ids.append(summary_id)
                 seen_summary_ids.add(summary_id)
+        for summary_id in page_definition.optional_summary_ids:
+            if summary_id in seen_summary_ids or summary_id in seen_optional_summary_ids:
+                continue
+            optional_summary_ids.append(summary_id)
+            seen_optional_summary_ids.add(summary_id)
         for table_name in page_definition.required_prepared_tables:
             if table_name not in seen_prepared_tables:
                 required_prepared_tables.append(table_name)
@@ -648,6 +666,7 @@ def data_requirements_for_pages(
     return DashboardDataRequirements(
         prepared_data_mode=enabled_prepared_data_mode_for_pages(page_definitions),
         required_summary_ids=tuple(required_summary_ids),
+        optional_summary_ids=tuple(optional_summary_ids),
         required_prepared_tables=tuple(required_prepared_tables),
     )
 
@@ -669,6 +688,7 @@ def export_data_requirements(config: Config) -> DashboardDataRequirements:
     return DashboardDataRequirements(
         prepared_data_mode="none",
         required_summary_ids=requirements.required_summary_ids,
+        optional_summary_ids=requirements.optional_summary_ids,
         required_prepared_tables=(),
     )
 

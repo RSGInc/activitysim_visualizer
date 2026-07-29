@@ -7,54 +7,42 @@ import polars as pl
 
 from dashboard.components import bar_chart, control_row, control_row_spacer, selector_row
 from dashboard.helpers.category_helpers import (
-    column_options,
+    add_percent_of_total,
+    cap_numeric_category_data,
+    capped_numeric_category_expr,
     complete_category_counts,
     label_category_data,
+    numeric_like_sort_expr,
     nonempty,
 )
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 
 
+PARTY_SIZE_ALL_LABEL = "All Party Sizes"
+HOUSEHOLD_SIZE_ALL_LABEL = "All"
+JOINT_SIZE_VALUES = ["2", "3", "4", "5+"]
+
+
 def party_size_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
-    opts, _ = column_options(
-        data_list,
-        "party_size",
-        total_raw="All",
-        total_label="All",
-    )
-    return opts or ["All"]
+    if not nonempty(data_list):
+        return [PARTY_SIZE_ALL_LABEL]
+    return [PARTY_SIZE_ALL_LABEL, *JOINT_SIZE_VALUES]
 
 
 def household_size_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:
-    opts, _ = column_options(
-        data_list,
-        "household_size",
-        total_raw="All",
-        total_label="All",
-    )
-    return opts or ["All"]
+    if not nonempty(data_list):
+        return [HOUSEHOLD_SIZE_ALL_LABEL]
+    return [HOUSEHOLD_SIZE_ALL_LABEL, *JOINT_SIZE_VALUES]
 
 
 def joint_household_size_values(
     *data_lists: list[tuple[str, pl.DataFrame]],
 ) -> list[str]:
-    """Return every household size from 2 through the observed maximum, inclusive."""
-    values: set[int] = set()
-    for data_list in data_lists:
-        for _, df in nonempty(data_list):
-            if "household_size" not in df.columns:
-                continue
-            values.update(
-                value
-                for value in df.select(
-                    pl.col("household_size").cast(pl.Int64, strict=False)
-                ).to_series().to_list()
-                if value is not None and value >= 2
-            )
-    if not values:
-        return []
-    return [str(value) for value in range(2, max(values) + 1)]
+    """Return the capped household-size axis used by joint-travel charts."""
+    if any(nonempty(data_list) for data_list in data_lists):
+        return JOINT_SIZE_VALUES.copy()
+    return []
 
 
 def complete_joint_household_size_data(
@@ -67,9 +55,12 @@ def complete_joint_household_size_data(
     normalized = [
         (
             label,
-            df.with_columns(pl.col("household_size").cast(pl.Utf8))
-            .filter(pl.col("household_size") != "1")
-            .select("household_size", value_col),
+            cap_numeric_category_data(
+                [(label, df.filter(pl.col("household_size").cast(pl.Int64, strict=False) >= 2))],
+                category_col="household_size",
+                cap_value=5,
+                value_cols=(value_col,),
+            )[0][1].select("household_size", value_col),
         )
         for label, df in nonempty(data_list)
     ]
@@ -111,8 +102,8 @@ def composition_by_party_size_data(
     """Filter or aggregate joint-tour composition data by party size."""
     out = []
     for label, df in nonempty(data_list):
-        filtered = df.with_columns(pl.col("party_size").cast(pl.Utf8))
-        if party_size == "All":
+        filtered = df.with_columns(capped_numeric_category_expr("party_size", 5))
+        if party_size == PARTY_SIZE_ALL_LABEL:
             filtered = (
                 filtered.group_by("tour_composition")
                 .agg(joint_tour_count=pl.col("joint_tour_count").sum())
@@ -120,7 +111,13 @@ def composition_by_party_size_data(
                 .sort("tour_composition")
             )
         else:
-            filtered = filtered.filter(pl.col("party_size") == party_size)
+            filtered = (
+                filtered.filter(pl.col("party_size") == party_size)
+                .group_by("tour_composition")
+                .agg(joint_tour_count=pl.col("joint_tour_count").sum())
+                .with_columns(pl.col("tour_composition").cast(pl.Utf8))
+                .sort("tour_composition")
+            )
         out.append((label, ordered_composition(filtered)))
     return out
 
@@ -133,10 +130,10 @@ def household_participation_data(
     out = []
     for label, df in nonempty(data_list):
         filtered = df.with_columns(
-            pl.col("household_size").cast(pl.Utf8),
+            capped_numeric_category_expr("household_size", 5),
             pl.col("jtf").cast(pl.Utf8),
         )
-        if household_size == "All":
+        if household_size == HOUSEHOLD_SIZE_ALL_LABEL:
             filtered = (
                 filtered.group_by("jtf")
                 .agg(household_percent=pl.col("household_percent").mean())
@@ -144,7 +141,13 @@ def household_participation_data(
                 .sort("jtf")
             )
         else:
-            filtered = filtered.filter(pl.col("household_size") == household_size)
+            filtered = (
+                filtered.filter(pl.col("household_size") == household_size)
+                .group_by("jtf")
+                .agg(household_percent=pl.col("household_percent").mean())
+                .with_columns(pl.col("jtf").cast(pl.Utf8))
+                .sort("jtf")
+            )
         out.append((label, filtered))
     return out
 
@@ -157,7 +160,15 @@ def person_participation_data(
     """Return joint-tour person participation counts or rates by household size."""
     out = []
     for label, df in nonempty(data_list):
-        base = df.with_columns(pl.col("household_size").cast(pl.Utf8))
+        base = df.with_columns(capped_numeric_category_expr("household_size", 5))
+        base = (
+            base.group_by("household_size")
+            .agg(
+                pl.col("joint_tour_person_count").sum(),
+                pl.col("total_person_count").sum(),
+            )
+            .sort(numeric_like_sort_expr("household_size"))
+        )
         if as_percent:
             base = base.with_columns(
                 pl.when(pl.col("total_person_count") > 0)
@@ -171,10 +182,38 @@ def person_participation_data(
     return out
 
 
+def joint_tour_frequency_data(
+    data_list: list[tuple[str, pl.DataFrame]],
+    *,
+    hide_no_joint_tours: bool,
+) -> list[tuple[str, pl.DataFrame]]:
+    """Return joint-tour frequency rows, optionally excluding the no-tour bucket."""
+    out = []
+    for label, df in nonempty(data_list):
+        filtered = df.with_columns(pl.col("jtf_label").cast(pl.Utf8))
+        filtered = add_percent_of_total(
+            [(label, filtered)],
+            value_col="household_count",
+            percent_col="household_count_percent",
+        )[0][1]
+        if hide_no_joint_tours:
+            filtered = filtered.filter(
+                pl.col("jtf_label").str.strip_chars().str.to_lowercase()
+                != "no joint tours"
+            )
+        out.append((label, filtered))
+    return out
+
+
 class JointTravelPage(DashboardPage):
     def build_page(self) -> pn.viewable.Viewable:
         party_opts = self._party_size_options()
         hh_opts = self._household_size_options()
+        self.hide_no_joint_tours = self.selector(
+            "hide_no_joint_tours",
+            widget=pn.widgets.Checkbox(name='Hide "No Joint Tours"', value=False),
+            label='Hide "No Joint Tours"',
+        )
         self.party_size_sel = self.selector(
             "party_size",
             widget=pn.widgets.Select(
@@ -195,6 +234,7 @@ class JointTravelPage(DashboardPage):
         )
         self._frequency_section = self.section(
             "joint_travel_frequency",
+            selectors=("hide_no_joint_tours",),
             render=self.render_frequency,
         )
         self._joint_tour_detail_section = self.section(
@@ -209,8 +249,11 @@ class JointTravelPage(DashboardPage):
         )
         return self.new_section(
             pn.pane.Markdown("## Joint Travel"),
+            pn.pane.Markdown("### Joint Tour Frequency"),
             self._frequency_section,
+            pn.pane.Markdown("### Joint Tour Characteristics"),
             self._joint_tour_detail_section,
+            pn.pane.Markdown("### Joint Tour Participation"),
             self._participation_section,
         )
 
@@ -264,8 +307,11 @@ class JointTravelPage(DashboardPage):
         if summaries is None:
             return [self.summary_only_unavailable_card()]
         return [
-            pn.pane.Markdown("### Joint Tour Frequency"),
-            self.render_joint_tour_frequency_chart(summaries["jtf_distribution"]),
+            selector_row(self.hide_no_joint_tours, height=48),
+            self.noted_view(
+                "joint_travel.frequency",
+                self.render_joint_tour_frequency_chart(summaries["jtf_distribution"]),
+            ),
         ]
 
     def render_joint_tour_detail(self):
@@ -278,14 +324,22 @@ class JointTravelPage(DashboardPage):
             for label, df in nonempty(summaries["joint_tours_by_household_size"])
         ]
         party_size_data = [
-            (label, df.with_columns(pl.col("party_size").cast(pl.Utf8)))
+            (
+                label,
+                cap_numeric_category_data(
+                    [(label, df)],
+                    category_col="party_size",
+                    cap_value=5,
+                    value_cols=("joint_tour_count",),
+                )[0][1],
+            )
             for label, df in nonempty(summaries["joint_tour_party_size_distribution"])
         ]
         household_size_values = joint_household_size_values(
             joint_tours_hhsize_data,
             summaries["person_jtp_by_household_size"],
         )
-        party_size_values = self._values_for_column(party_size_data, "party_size")
+        party_size_values = JOINT_SIZE_VALUES.copy()
         composition_label_values = self.config.ordered_labels(
             "tour_composition",
             [
@@ -302,26 +356,34 @@ class JointTravelPage(DashboardPage):
             ),
         )
         return [
-            pn.pane.Markdown("### Joint Tour Characteristics"),
             pn.Column(
                 selector_row(self.party_size_sel),
                 pn.Row(
-                    self.render_household_size_chart(
-                        complete_joint_household_size_data(
-                            joint_tours_hhsize_data,
-                            value_col="joint_tour_hh_count",
-                            household_size_values=household_size_values,
+                    self.noted_view(
+                        "joint_travel.household_size",
+                        self.render_household_size_chart(
+                            complete_joint_household_size_data(
+                                joint_tours_hhsize_data,
+                                value_col="joint_tour_hh_count",
+                                household_size_values=household_size_values,
+                            ),
+                            household_size_values,
                         ),
-                        household_size_values,
                     ),
-                    self.render_party_size_chart(
-                        party_size_data,
-                        party_size_values,
+                    self.noted_view(
+                        "joint_travel.party_size",
+                        self.render_party_size_chart(
+                            party_size_data,
+                            party_size_values,
+                        ),
                     ),
-                    self.render_composition_chart(
-                        comp_party_data,
-                        composition_label_values,
-                        party_size,
+                    self.noted_view(
+                        "joint_travel.composition",
+                        self.render_composition_chart(
+                            comp_party_data,
+                            composition_label_values,
+                            party_size,
+                        ),
                     ),
                     sizing_mode="stretch_width",
                 ),
@@ -362,7 +424,6 @@ class JointTravelPage(DashboardPage):
             ],
         )
         return [
-            pn.pane.Markdown("### Joint Tour Participation"),
             pn.Column(
                 pn.Row(
                     pn.Column(control_row_spacer()),
@@ -370,18 +431,24 @@ class JointTravelPage(DashboardPage):
                     sizing_mode="stretch_width",
                 ),
                 pn.Row(
-                    self.render_person_participation_chart(
-                        complete_joint_household_size_data(
-                            person_participation,
-                            value_col="person_value",
-                            household_size_values=household_size_values,
+                    self.noted_view(
+                        "joint_travel.person_participation",
+                        self.render_person_participation_chart(
+                            complete_joint_household_size_data(
+                                person_participation,
+                                value_col="person_value",
+                                household_size_values=household_size_values,
+                            ),
+                            household_size_values,
                         ),
-                        household_size_values,
                     ),
-                    self.render_household_participation_chart(
-                        household_participation,
-                        jtf_values,
-                        hhsize,
+                    self.noted_view(
+                        "joint_travel.household_participation",
+                        self.render_household_participation_chart(
+                            household_participation,
+                            jtf_values,
+                            hhsize,
+                        ),
                     ),
                     sizing_mode="stretch_width",
                 ),
@@ -391,14 +458,23 @@ class JointTravelPage(DashboardPage):
 
     def render_joint_tour_frequency_chart(self, summary_data):
         """Render joint tour frequency by joint tour pattern."""
+        frequency_data = self.get_filtered_view(
+            "joint_tour_frequency",
+            bool(self.hide_no_joint_tours.value),
+            factory=lambda: joint_tour_frequency_data(
+                summary_data,
+                hide_no_joint_tours=bool(self.hide_no_joint_tours.value),
+            ),
+        )
         return bar_chart(
-            nonempty(summary_data),
+            frequency_data,
             x_col="jtf_label",
             y_col="household_count",
             title="Joint Tour Frequency by Joint Tour Pattern",
             xaxis_title="Joint Tour Pattern",
             yaxis_title="Households",
             height=450,
+            percent_y_col="household_count_percent",
             as_percent=self.as_percent,
         )
 

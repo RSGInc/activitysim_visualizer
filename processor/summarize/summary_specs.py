@@ -11,6 +11,7 @@ from runtime.config import Config
 from processor.summarize.summaries import (
     daily_travel,
     demographics,
+    validation_scaffolds,
     joint_travel,
     legacy,
     long_term,
@@ -26,6 +27,7 @@ class SummarySpec:
     summary_id: str
     filename: str
     builder: Callable[[RunData, Config], pl.DataFrame]
+    build_by_default: bool = True
 
 
 SUMMARY_SPECS: tuple[SummarySpec, ...] = (
@@ -440,6 +442,16 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
     ),
     SummarySpec("auto_vmt_totals", "auto_vmt_totals", validation.auto_vmt_totals),
     SummarySpec(
+        "auto_vmt_by_home_geography_income_hhsize_time_period",
+        "auto_vmt_by_home_geography_income_hhsize_time_period",
+        validation.auto_vmt_by_home_geography_income_hhsize_time_period,
+    ),
+    SummarySpec(
+        "non_motorized_vmt_by_home_geography_income_hhsize_time_period",
+        "non_motorized_vmt_by_home_geography_income_hhsize_time_period",
+        validation.non_motorized_vmt_by_home_geography_income_hhsize_time_period,
+    ),
+    SummarySpec(
         "commercial_vmt_totals",
         "commercial_vmt_totals",
         validation.commercial_vehicle_vmt,
@@ -448,6 +460,85 @@ SUMMARY_SPECS: tuple[SummarySpec, ...] = (
         "bicycle_vmt_by_facility_type",
         "bicycle_vmt_by_facility_type",
         validation.bicycle_vmt_by_facility,
+    ),
+    # VALIDATION SCAFFOLD SUMMARIES
+    SummarySpec(
+        "link_validation_summary",
+        "link_validation_summary",
+        validation_scaffolds.link_validation_summary,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "count_location_counts_validation_summary",
+        "count_location_counts_validation_summary",
+        validation_scaffolds.count_location_counts_validation_summary,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "count_location_volumes_validation_summary",
+        "count_location_volumes_validation_summary",
+        validation_scaffolds.count_location_volumes_validation_summary,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "count_location_scatter_validation_summary",
+        "count_location_scatter_validation_summary",
+        validation_scaffolds.count_location_scatter_validation_summary,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "count_location_fit_validation_summary",
+        "count_location_fit_validation_summary",
+        validation_scaffolds.count_location_fit_validation_summary,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "county_flows_validation_summary",
+        "county_flows_validation_summary",
+        validation_scaffolds.county_flows_validation_summary,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "county_flows_joja_validation_summary",
+        "county_flows_joja_validation_summary",
+        validation_scaffolds.county_flows_joja_validation_summary,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "commercial_vehicle_validation_summary",
+        "commercial_vehicle_validation_summary",
+        validation_scaffolds.commercial_vehicle_validation_summary,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "commercial_vehicle_vmt_validation_summary",
+        "commercial_vehicle_vmt_validation_summary",
+        validation_scaffolds.commercial_vehicle_vmt_validation_summary,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "external_trip_validation_summary",
+        "external_trip_validation_summary",
+        validation_scaffolds.external_trip_validation_summary,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "external_vmt_validation_summary",
+        "external_vmt_validation_summary",
+        validation_scaffolds.external_vmt_validation_summary,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "auto_vmt_validation_summary",
+        "auto_vmt_validation_summary",
+        validation_scaffolds.auto_vmt_validation_summary,
+        build_by_default=False,
+    ),
+    SummarySpec(
+        "work_from_home_validation_summary",
+        "work_from_home_validation_summary",
+        validation_scaffolds.work_from_home_validation_summary,
+        build_by_default=False,
     ),
     # TEMPORARY LEGACY SUMMARIES
     SummarySpec("geo_flows", "geoFlows", legacy.geo_flows),
@@ -474,4 +565,6 @@ SUMMARY_SPEC_BY_ID = {spec.summary_id: spec for spec in SUMMARY_SPECS}
 SUMMARY_FILENAME_BY_ID = {
     spec.summary_id: f"{spec.filename}.csv" for spec in SUMMARY_SPECS
 }
-DEFAULT_SUMMARY_IDS = [spec.summary_id for spec in SUMMARY_SPECS]
+DEFAULT_SUMMARY_IDS = [
+    spec.summary_id for spec in SUMMARY_SPECS if spec.build_by_default
+]

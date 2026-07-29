@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 
 LOGGER = get_logger("runtime.config")
 

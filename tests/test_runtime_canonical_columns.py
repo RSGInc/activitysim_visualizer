@@ -51,6 +51,21 @@ def _write_config(
     return Config.from_yaml(config_path)
 
 
+def _write_network_los(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(
+            [
+                "skim_time_periods:",
+                "  periods: [0, 6, 12, 24, 32, 42, 48]",
+                "  labels: [EA, AM, MD, PM, EV, EA]",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
 def _raw_run_with_alternate_columns() -> RunData:
     return RunData(
         label="Base",
@@ -689,6 +704,92 @@ def test_enable_maz_geographies_defaults_off_and_only_changes_presentation_diges
     assert config_a.presentation_config_digest != config_b.presentation_config_digest
 
 
+def test_density_hover_mode_defaults_to_closest_and_accepts_all(tmp_path: Path) -> None:
+    default_config = _write_config(tmp_path / "default")
+    all_hover_config = _write_config(
+        tmp_path / "all",
+        extra_lines=[
+            "display:",
+            "  density_hover_mode: all",
+        ],
+    )
+
+    assert default_config.density_hover_mode == "closest"
+    assert all_hover_config.density_hover_mode == "all"
+
+
+def test_bar_hover_mode_defaults_to_closest_and_accepts_all(tmp_path: Path) -> None:
+    default_config = _write_config(tmp_path / "default")
+    all_hover_config = _write_config(
+        tmp_path / "all",
+        extra_lines=[
+            "display:",
+            "  bar_hover_mode: all",
+        ],
+    )
+
+    assert default_config.bar_hover_mode == "closest"
+    assert all_hover_config.bar_hover_mode == "all"
+
+
+def test_density_hover_mode_only_changes_presentation_digest(tmp_path: Path) -> None:
+    config_a = _write_config(tmp_path / "a")
+    config_b = _write_config(
+        tmp_path / "b",
+        extra_lines=[
+            "display:",
+            "  density_hover_mode: all",
+        ],
+    )
+
+    assert config_a.prepare_config_digest == config_b.prepare_config_digest
+    assert config_a.summary_config_digest == config_b.summary_config_digest
+    assert config_a.presentation_config_digest != config_b.presentation_config_digest
+
+
+def test_bar_hover_mode_only_changes_presentation_digest(tmp_path: Path) -> None:
+    config_a = _write_config(tmp_path / "a")
+    config_b = _write_config(
+        tmp_path / "b",
+        extra_lines=[
+            "display:",
+            "  bar_hover_mode: all",
+        ],
+    )
+
+    assert config_a.prepare_config_digest == config_b.prepare_config_digest
+    assert config_a.summary_config_digest == config_b.summary_config_digest
+    assert config_a.presentation_config_digest != config_b.presentation_config_digest
+
+
+def test_config_rejects_invalid_bar_hover_mode(tmp_path: Path) -> None:
+    with pytest.raises(
+        ValueError,
+        match="display.bar_hover_mode must be either 'closest' or 'all'",
+    ):
+        _write_config(
+            tmp_path,
+            extra_lines=[
+                "display:",
+                "  bar_hover_mode: everything",
+            ],
+        )
+
+
+def test_config_rejects_invalid_density_hover_mode(tmp_path: Path) -> None:
+    with pytest.raises(
+        ValueError,
+        match="display.density_hover_mode must be either 'closest' or 'all'",
+    ):
+        _write_config(
+            tmp_path,
+            extra_lines=[
+                "display:",
+                "  density_hover_mode: everything",
+            ],
+        )
+
+
 def test_dashboard_labels_only_change_presentation_digest(
     tmp_path: Path,
 ) -> None:
@@ -724,25 +825,81 @@ def test_summary_categories_change_summary_digest_without_changing_presentation_
     config_a = _write_config(
         tmp_path / "a",
         extra_lines=[
-            "summary_categories:",
-            "  geography:",
-            "    mapping:",
-            "      1: Urban",
+            "summarize:",
+            "  category_normalization:",
+            "    geography:",
+            "      mapping:",
+            "        1: Urban",
         ],
     )
     config_b = _write_config(
         tmp_path / "b",
         extra_lines=[
-            "summary_categories:",
-            "  geography:",
-            "    mapping:",
-            "      1: Core",
+            "summarize:",
+            "  category_normalization:",
+            "    geography:",
+            "      mapping:",
+            "        1: Core",
         ],
     )
 
     assert config_a.prepare_config_digest == config_b.prepare_config_digest
     assert config_a.summary_config_digest != config_b.summary_config_digest
     assert config_a.presentation_config_digest == config_b.presentation_config_digest
+
+
+def test_summarize_category_normalization_overrides_legacy_summary_categories(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "summary_categories:",
+            "  geography:",
+            "    mapping:",
+            "      1: Legacy",
+            "summarize:",
+            "  category_normalization:",
+            "    geography:",
+            "      mapping:",
+            "        1: Canonical",
+        ],
+    )
+
+    assert config.normalize_summary_value("geography", 1) == "Canonical"
+
+
+def test_legacy_summary_categories_remain_supported(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "summary_categories:",
+            "  geography:",
+            "    mapping:",
+            "      1: Legacy",
+        ],
+    )
+
+    assert config.normalize_summary_value("geography", 1) == "Legacy"
+
+
+def test_summarize_summary_categories_alias_remains_supported(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "summarize:",
+            "  summary_categories:",
+            "    geography:",
+            "      mapping:",
+            "        1: Section Alias",
+        ],
+    )
+
+    assert config.normalize_summary_value("geography", 1) == "Section Alias"
 
 
 def test_typed_geography_summaries_include_configured_aggregation_levels(
@@ -832,6 +989,227 @@ def test_config_prepare_signature_changes_when_auto_sufficiency_basis_changes(
     assert config_a.prepare_config_digest != config_b.prepare_config_digest
     assert config_a.summary_config_digest == config_b.summary_config_digest
     assert config_a.presentation_config_digest == config_b.presentation_config_digest
+
+
+def test_config_loads_prepare_time_periods_and_includes_file_digest(
+    tmp_path: Path,
+) -> None:
+    network_los = _write_network_los(tmp_path / "network_los.yaml")
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  time_periods:",
+            "    network_los_file: network_los.yaml",
+            "    trip_period_number_column: depart",
+            "    tour_start_period_number_column: start",
+            "    tour_end_period_number_column: end",
+        ],
+    )
+
+    assert config.prepare_time_periods.enabled is True
+    assert config.prepare_time_periods.network_los_file == str(network_los.resolve())
+    assert config.prepare_time_periods.network_los_digest is not None
+    assert config.prepare_time_periods.trip_period_number_column == "depart"
+
+
+def test_config_prepare_signature_changes_when_time_period_config_changes(
+    tmp_path: Path,
+) -> None:
+    network_los_a = _write_network_los(tmp_path / "a" / "network_los.yaml")
+    network_los_b = _write_network_los(tmp_path / "b" / "network_los.yaml")
+    network_los_b.write_text(
+        "\n".join(
+            [
+                "skim_time_periods:",
+                "  periods: [0, 12, 24, 48]",
+                "  labels: [EA, MD, EV]",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config_a = _write_config(
+        tmp_path / "a",
+        extra_lines=[
+            "prepare:",
+            "  time_periods:",
+            f"    network_los_file: {network_los_a.name}",
+            "    trip_period_number_column: depart",
+        ],
+    )
+    config_b = _write_config(
+        tmp_path / "b",
+        extra_lines=[
+            "prepare:",
+            "  time_periods:",
+            f"    network_los_file: {network_los_b.name}",
+            "    trip_period_number_column: depart",
+        ],
+    )
+
+    assert config_a.prepare_config_digest != config_b.prepare_config_digest
+
+
+def test_config_loads_non_motorized_distance_skim_csv_defaults(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "maz_maz_walk.csv"
+    pl.DataFrame({"OMAZ": [1], "DMAZ": [2], "DISTWALK": [0.5]}).write_csv(csv_path)
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  non_motorized_distance_skim:",
+            "    file: maz_maz_walk.csv",
+            "    matrix: null",
+        ],
+    )
+
+    settings = config.prepare_non_motorized_distance_skim
+    assert settings.enabled is True
+    assert settings.file == str(csv_path.resolve())
+    assert settings.source_type == "csv"
+    assert settings.matrix is None
+    assert settings.value_column == "DISTWALK"
+    assert settings.file_digest is not None
+
+
+def test_config_loads_non_motorized_distance_skim_csv_inventory_matrix_name(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "maz_maz_walk.csv"
+    pl.DataFrame({"OMAZ": [1], "DMAZ": [2], "DISTWALK": [0.5]}).write_csv(csv_path)
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  non_motorized_distance_skim:",
+            "    file: maz_maz_walk.csv",
+            "    matrix: maz_maz_walk__DISTWALK",
+        ],
+    )
+
+    assert config.prepare_non_motorized_distance_skim.matrix == (
+        "maz_maz_walk__DISTWALK"
+    )
+    assert config.prepare_non_motorized_distance_skim.value_column == "DISTWALK"
+
+
+def test_config_non_motorized_distance_skim_omx_requires_matrix(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "walk.omx").write_bytes(b"placeholder")
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'name: "Invalid Non-Motorized Config"',
+                "prepare:",
+                "  non_motorized_distance_skim:",
+                "    file: walk.omx",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="prepare.non_motorized_distance_skim.matrix is required",
+    ):
+        Config.from_yaml(config_path)
+
+
+def test_config_prepare_signature_changes_when_non_motorized_skim_changes(
+    tmp_path: Path,
+) -> None:
+    csv_a = tmp_path / "a" / "maz_maz_walk.csv"
+    csv_b = tmp_path / "b" / "maz_maz_walk.csv"
+    csv_a.parent.mkdir(parents=True)
+    csv_b.parent.mkdir(parents=True)
+    pl.DataFrame({"OMAZ": [1], "DMAZ": [2], "DISTWALK": [0.5]}).write_csv(csv_a)
+    pl.DataFrame({"OMAZ": [1], "DMAZ": [2], "DISTWALK": [0.75]}).write_csv(csv_b)
+    config_a = _write_config(
+        tmp_path / "a",
+        extra_lines=[
+            "prepare:",
+            "  non_motorized_distance_skim:",
+            "    file: maz_maz_walk.csv",
+            "    matrix: null",
+        ],
+    )
+    config_b = _write_config(
+        tmp_path / "b",
+        extra_lines=[
+            "prepare:",
+            "  non_motorized_distance_skim:",
+            "    file: maz_maz_walk.csv",
+            "    matrix: null",
+        ],
+    )
+
+    assert config_a.prepare_config_digest != config_b.prepare_config_digest
+
+
+def test_config_rejects_missing_prepare_time_period_network_los(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'name: "Canonical Test Config"',
+                "runs: []",
+                "summaries:",
+                "  root: summary_cache",
+                "visualizer:",
+                '  dashboard_title: "Canonical Test Dashboard"',
+                "prepare:",
+                "  time_periods:",
+                "    network_los_file: missing_network_los.yaml",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="prepare.time_periods.network_los_file"):
+        Config.from_yaml(config_path)
+
+
+def test_config_loads_create_hypothetical_skim_tables(tmp_path: Path) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "skimjoin:",
+            "  create_hypothetical_skim_tables: true",
+        ],
+    )
+
+    assert config.skimjoin.create_hypothetical_skim_tables is True
+
+
+def test_config_rejects_renamed_hypothetical_sidecar_key(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'name: "Canonical Test Config"',
+                "runs: []",
+                "summaries:",
+                "  root: summary_cache",
+                "visualizer:",
+                '  dashboard_title: "Canonical Test Dashboard"',
+                "skimjoin:",
+                "  generate_hypothetical_sidecars: true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="create_hypothetical_skim_tables",
+    ):
+        Config.from_yaml(config_path)
 
 
 def test_config_presentation_signature_changes_when_log_level_changes(
@@ -1855,6 +2233,109 @@ def test_prepare_data_uses_default_fallbacks_for_purpose_timing_and_employment(
     assert prepared.trips["trip_purpose"].to_list() == ["shop", "home"]
     assert prepared.trips["depart_hour"].to_list() == [8, 9]
     assert prepared.land_use["EMPLOYMENT"].to_list() == [7, 8, 9]
+
+
+def test_prepare_data_derives_trip_and_tour_period_labels(
+    tmp_path: Path,
+) -> None:
+    _write_network_los(tmp_path / "network_los.yaml")
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  time_periods:",
+            "    network_los_file: network_los.yaml",
+            "    trip_period_number_column: depart",
+            "    tour_start_period_number_column: start",
+            "    tour_end_period_number_column: end",
+        ],
+    )
+    raw = RunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1], "home_zone_id": [10]}),
+        per=pl.DataFrame({"person_id": [101], "household_id": [1], "ptype": [1]}),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [1001],
+                "person_id": [101],
+                "household_id": [1],
+                "tour_mode": ["DRIVE"],
+                "start": [7],
+                "end": [33],
+                "origin": [10],
+                "destination": [20],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "trip_id": list(range(1, 9)),
+                "tour_id": [1001] * 8,
+                "person_id": [101] * 8,
+                "household_id": [1] * 8,
+                "trip_mode": ["DRIVEALONE"] * 8,
+                "depart": [1, 7, 13, 25, 33, 44, 49, None],
+                "outbound": [True, True, True, False, False, False, False, False],
+                "trip_num": list(range(1, 9)),
+                "origin": [10] * 8,
+                "destination": [20] * 8,
+            },
+            schema_overrides={"depart": pl.Int64},
+        ),
+        joint_participants=pl.DataFrame(
+            {"tour_id": [], "person_id": []},
+            schema={"tour_id": pl.Int64, "person_id": pl.Int64},
+        ),
+        land_use=pl.DataFrame({"zone_id": [10, 20], "TAZ": [10, 20]}),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    prepared = prepare_data(raw, config)
+
+    assert prepared.trips["trip_period"].to_list() == [
+        "EA",
+        "AM",
+        "MD",
+        "PM",
+        "EV",
+        "EA",
+        None,
+        None,
+    ]
+    assert prepared.tours["start_period"].to_list() == ["AM"]
+    assert prepared.tours["end_period"].to_list() == ["EV"]
+    assert prepared.tours["first_inbound_trip_period"].to_list() == ["PM"]
+    assert prepared.prepare_diagnostics["time_periods.trips.trip_period"][
+        "unresolved"
+    ] == 2
+
+
+def test_prepare_data_preserves_raw_trip_period_when_source_missing(
+    tmp_path: Path,
+) -> None:
+    _write_network_los(tmp_path / "network_los.yaml")
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  time_periods:",
+            "    network_los_file: network_los.yaml",
+            "    trip_period_number_column: missing_depart",
+        ],
+    )
+    raw = _raw_run_with_default_fallback_columns()
+    raw.trips = raw.trips.drop("depart").with_columns(
+        pl.Series("trip_period", ["AM", "PM"])
+    )
+
+    prepared = prepare_data(raw, config)
+
+    assert prepared.trips["trip_period"].to_list() == ["AM", "PM"]
+    assert prepared.prepare_diagnostics["time_periods.trips.trip_period"][
+        "status"
+    ] == "source_column_missing"
 
 
 def test_prepare_data_resolves_shared_alias_lists_independently_per_run(

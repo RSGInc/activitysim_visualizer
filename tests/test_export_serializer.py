@@ -54,7 +54,10 @@ def test_serialize_viewable_supports_plotly_and_table_nodes() -> None:
         disable_widgets=True,
     )
     table_payload = serialize_viewable(
-        pn.widgets.Tabulator(pd.DataFrame({"alpha": [1.2345], "beta": ["x"], "gamma": [2.0]})),
+        pn.widgets.Tabulator(
+            pd.DataFrame({"alpha": [1.2345], "beta": ["x"], "gamma": [2.0]}),
+            titles={"alpha": "Alpha Value", "gamma": "Gamma Value"},
+        ),
         disable_widgets=True,
     )
 
@@ -62,8 +65,8 @@ def test_serialize_viewable_supports_plotly_and_table_nodes() -> None:
     assert plot_payload["figure"]["data"][0]["type"] == "bar"
     assert table_payload == {
         "kind": "table",
-        "columns": ["alpha", "beta", "gamma"],
-        "rows": [{"alpha": "1.2", "beta": "x", "gamma": "2"}],
+        "columns": ["Alpha Value", "beta", "Gamma Value"],
+        "rows": [{"Alpha Value": "1.2", "beta": "x", "Gamma Value": "2"}],
     }
 
 
@@ -157,7 +160,7 @@ def test_serialize_viewable_dedents_indented_markdown_blocks() -> None:
             **Auto sufficiency definitions**
 
             - **Zero Auto**: household has no vehicles.
-            - **Auto Deficient**: household has fewer vehicles than licensed drivers.
+            - **Fewer Vehicles Than Drivers**: household has fewer vehicles than licensed drivers.
             """
         ),
         disable_widgets=True,

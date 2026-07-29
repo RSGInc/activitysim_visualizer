@@ -182,6 +182,7 @@ class TourTimePage(DashboardPage):
                 "Clock Time (start at 03:00)",
                 normalize=False,
                 yaxis_title="Tours",
+                hover_xaxis_title="Clock Time",
                 as_percent=self.as_percent,
             ),
             density_chart(
@@ -192,6 +193,7 @@ class TourTimePage(DashboardPage):
                 "Clock Time (start at 03:00)",
                 normalize=False,
                 yaxis_title="Tours",
+                hover_xaxis_title="Clock Time",
                 as_percent=self.as_percent,
             ),
             density_chart(
@@ -218,7 +220,11 @@ class TourTimePage(DashboardPage):
             raw_purpose=raw_purpose,
             display_purpose=display_purpose,
         )
-        return [departure_chart, arrival_chart, duration_chart]
+        return [
+            self.noted_view("tour_time.departure", departure_chart),
+            self.noted_view("tour_time.arrival", arrival_chart),
+            self.noted_view("tour_time.duration", duration_chart),
+        ]
 
 
 PAGE = DashboardPageDefinition(

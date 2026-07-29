@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -42,25 +43,7 @@ def validate_required_period_mappings(
     *,
     context_label: str,
 ) -> None:
-    period_requires_mapping = any(
-        "PERIOD" in getattr(rule, "dimensions_used", [])
-        for rule in [
-            *getattr(normalized_config, "trip_lookups", []),
-            *getattr(normalized_config, "tour_lookups", []),
-        ]
-    )
-    if not period_requires_mapping:
-        return
-
-    for rule in [*normalized_config.trip_lookups, *normalized_config.tour_lookups]:
-        if "PERIOD" not in rule.dimensions_used:
-            continue
-        period_dimension = rule.dimensions.get("PERIOD")
-        if period_dimension is None or period_dimension.values:
-            continue
-        raise ValueError(
-            f"{context_label} requires period mapping for skimjoin dimension 'PERIOD', but no usable network_los_file or explicit dimensions.PERIOD.values were provided."
-        )
+    return
 
 
 def load_resolved_skimjoin_settings(
@@ -68,6 +51,7 @@ def load_resolved_skimjoin_settings(
     config_path: str,
     skim_files_override: tuple[str, ...] = (),
     network_los_file_override: str | None = None,
+    create_hypothetical_skim_tables: bool = False,
     context_label: str,
 ) -> SkimjoinSettings:
     from .signatures import digest_payload
@@ -115,6 +99,7 @@ def load_resolved_skimjoin_settings(
         normalized_config=normalized_config,
         resolved_skim_files=tuple(skim_files),
         resolved_network_los_file=(None if project is None else project.network_los_file),
+        create_hypothetical_skim_tables=bool(create_hypothetical_skim_tables),
     )
 
 
@@ -128,6 +113,11 @@ def normalize_run_skimjoin_overrides(
         return RunSkimjoinOverrides()
     if not isinstance(raw_value, dict):
         raise ValueError(f"{field_name} must be a mapping when provided.")
+    if "generate_hypothetical_sidecars" in raw_value:
+        raise ValueError(
+            f"{field_name}.generate_hypothetical_sidecars was renamed to "
+            f"{field_name}.create_hypothetical_skim_tables."
+        )
 
     config_path = normalize_optional_path_string(
         raw_value.get("config_path"),
@@ -156,10 +146,18 @@ def normalize_run_skimjoin_overrides(
         field_name=f"{field_name}.network_los_file",
         config_dir=config_dir,
     )
+    create_hypothetical_skim_tables = raw_value.get("create_hypothetical_skim_tables")
+    if create_hypothetical_skim_tables is not None and not isinstance(
+        create_hypothetical_skim_tables, bool
+    ):
+        raise ValueError(
+            f"{field_name}.create_hypothetical_skim_tables must be true or false when provided."
+        )
     return RunSkimjoinOverrides(
         config_path=config_path,
         skim_files=skim_files,
         network_los_file=network_los_file,
+        create_hypothetical_skim_tables=create_hypothetical_skim_tables,
     )
 
 
@@ -174,6 +172,11 @@ def normalize_skimjoin_settings(
         return SkimjoinSettings(enabled=bool(default_enabled))
     if not isinstance(raw_value, dict):
         raise ValueError(f"{field_name} must be a mapping when provided.")
+    if "generate_hypothetical_sidecars" in raw_value:
+        raise ValueError(
+            f"{field_name}.generate_hypothetical_sidecars was renamed to "
+            f"{field_name}.create_hypothetical_skim_tables."
+        )
 
     defaults_raw = raw_value.get("defaults")
     defaults = None
@@ -189,6 +192,14 @@ def normalize_skimjoin_settings(
     enabled = raw_value.get("enabled", enabled_default)
     if not isinstance(enabled, bool):
         raise ValueError(f"{field_name}.enabled must be true or false when provided.")
+    create_hypothetical_skim_tables = raw_value.get(
+        "create_hypothetical_skim_tables",
+        False,
+    )
+    if not isinstance(create_hypothetical_skim_tables, bool):
+        raise ValueError(
+            f"{field_name}.create_hypothetical_skim_tables must be true or false when provided."
+        )
     config_path_raw = (
         defaults.get("config_path")
         if defaults is not None and "config_path" in defaults
@@ -233,21 +244,37 @@ def normalize_skimjoin_settings(
     )
 
     if not enabled:
-        return SkimjoinSettings(enabled=False, config_path=resolved_config_path)
+        return SkimjoinSettings(
+            enabled=False,
+            config_path=resolved_config_path,
+            create_hypothetical_skim_tables=create_hypothetical_skim_tables,
+        )
 
     if resolved_config_path is None:
-        return SkimjoinSettings(enabled=True, config_path=None)
+        return SkimjoinSettings(
+            enabled=True,
+            config_path=None,
+            create_hypothetical_skim_tables=create_hypothetical_skim_tables,
+        )
     return load_resolved_skimjoin_settings(
         config_path=resolved_config_path,
         skim_files_override=skim_files,
         network_los_file_override=network_los_file,
+        create_hypothetical_skim_tables=create_hypothetical_skim_tables,
         context_label="global",
     )
 
 
 def resolve_run_skimjoin_settings(config: Config, run_entry: dict[str, Any]) -> SkimjoinSettings:
-    if not config.skimjoin.enabled:
-        return config.skimjoin
+    if not config.skimjoin_step_enabled():
+        return replace(
+            config.skimjoin,
+            enabled=False,
+            config_digest=None,
+            normalized_config=None,
+            resolved_skim_files=(),
+            resolved_network_los_file=None,
+        )
 
     run_label = str(
         run_entry.get("label", Path(str(run_entry.get("dir", ""))).name or "run")
@@ -274,14 +301,21 @@ def resolve_run_skimjoin_settings(config: Config, run_entry: dict[str, Any]) -> 
         overrides.config_path is None
         and not overrides.skim_files
         and overrides.network_los_file is None
+        and overrides.create_hypothetical_skim_tables is None
         and config.skimjoin.config_path == effective_config_path
         and config.skimjoin.normalized_config is not None
     ):
         return config.skimjoin
 
+    create_hypothetical_skim_tables = (
+        config.skimjoin.create_hypothetical_skim_tables
+        if overrides.create_hypothetical_skim_tables is None
+        else overrides.create_hypothetical_skim_tables
+    )
     return load_resolved_skimjoin_settings(
         config_path=effective_config_path,
         skim_files_override=overrides.skim_files,
         network_los_file_override=overrides.network_los_file,
+        create_hypothetical_skim_tables=create_hypothetical_skim_tables,
         context_label=f"run '{run_label}'",
     )

@@ -81,15 +81,28 @@ class TransitValidationPage(DashboardPage):
             ),
             label="Access Mode",
         )
-        self._body = self.section(
-            "transit_body",
+        self._boardings_body = self.section(
+            "transit_boardings_body",
+            selectors=("technology",),
+            render=self.render_boardings_section,
+        )
+        self._transfer_body = self.section(
+            "transit_transfer_body",
             selectors=("technology", "access_mode"),
-            render=self.render_body,
+            render=self.render_transfer_section,
         )
         return self.new_section(
             pn.pane.Markdown("## Transit Validation"),
+            pn.pane.Markdown("### Transit Boardings"),
             selector_row(self.technology_sel, self.access_mode_sel),
-            self._body,
+            self._boardings_body,
+            self.section_note(
+                "transit_validation.boardings", self._boardings_body
+            ),
+            pn.pane.Markdown("### Transfer Rate"),
+            self.noted_section(
+                "transit_validation.transfer_rate", self._transfer_body
+            ),
             sizing_mode="stretch_width",
         )
 
@@ -199,7 +212,7 @@ class TransitValidationPage(DashboardPage):
             xaxis_categoryarray=operator_values,
         )
 
-    def render_body(self):
+    def render_boardings_section(self):
         if not self.state.run_labels:
             return [self.no_runs_message()]
         boarding_list = self.state.get_summary_table_set(
@@ -211,10 +224,21 @@ class TransitValidationPage(DashboardPage):
             self.weighting_key,
         )
         operator_values = self._operator_values(boarding_list, transfer_list)
-        return [
-            self.render_boardings_chart(operator_values),
-            self.render_transfer_chart(operator_values),
-        ]
+        return [self.render_boardings_chart(operator_values)]
+
+    def render_transfer_section(self):
+        if not self.state.run_labels:
+            return [self.no_runs_message()]
+        boarding_list = self.state.get_summary_table_set(
+            "transit_boardings_by_operator_and_technology",
+            self.weighting_key,
+        )
+        transfer_list = self.state.get_summary_table_set(
+            "transit_transfer_rate",
+            self.weighting_key,
+        )
+        operator_values = self._operator_values(boarding_list, transfer_list)
+        return [self.render_transfer_chart(operator_values)]
 
 
 PAGE = DashboardPageDefinition(

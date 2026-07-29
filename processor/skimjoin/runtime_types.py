@@ -13,6 +13,8 @@ class _RuntimeSkimjoinResult:
 
     annotated_trips: pl.DataFrame
     enriched_tours: pl.DataFrame
+    trip_hypothetical_skims: pl.DataFrame
+    tour_hypothetical_skims: pl.DataFrame
     lookup_summary: pl.DataFrame
     missing_lookup_report: pl.DataFrame
     fallback_lookup_report: pl.DataFrame

@@ -57,6 +57,7 @@ class RawTripDemoPage(DashboardPage):
         """Render the prepared-run trip mode demo or an unavailable placeholder."""
         if not self.state.run_labels:
             return [self.no_runs_message()]
+        note = self.section_note("raw_trip_demo.trip_modes", self._body)
 
         prepared_result = self.resolve_prepared_visualization(
             "raw_trip_demo_trip_modes",
@@ -72,6 +73,7 @@ class RawTripDemoPage(DashboardPage):
                         "records and does not render from summary tables."
                     ),
                 ),
+                note,
             ]
 
         prepared_runs = prepared_result.usable_by_input["trips"]
@@ -88,6 +90,7 @@ class RawTripDemoPage(DashboardPage):
                 "trip records directly from the loaded prepared runs."
             ),
             self.render_trip_mode_chart(trip_mode_list),
+            note,
         ]
 
     def render_trip_mode_chart(

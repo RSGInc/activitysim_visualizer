@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 from dashboard.page_registry import export_data_requirements, live_data_requirements
 from processor.models import RunData, prune_prepared_runs
 from runtime.config import Config
@@ -36,7 +36,7 @@ def run_dashboard_workflow(
     )
     summary_runs = prune_summary_runs(
         summary_runs,
-        requirements.required_summary_ids,
+        requirements.summary_ids_for_pruning,
     )
     prepared_runs = (
         prune_prepared_runs(prepared_runs, requirements.required_prepared_tables)

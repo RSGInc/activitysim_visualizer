@@ -706,7 +706,7 @@ def _park_and_ride_location_counts(
     rd: RunData,
     config: Config,
 ) -> pl.DataFrame | None:
-    required_tour_cols = {"tour_mode", "pnr_zone_id", "finalweight"}
+    required_tour_cols = {"tour_mode", "finalweight"}
     if not required_tour_cols.issubset(set(rd.tours.columns)):
         return None
 
@@ -719,25 +719,33 @@ def _park_and_ride_location_counts(
 
     join_key = None
     land_use_base_col = None
-    geography_base_col = None
     geography_base_type = None
     if "pnr_zone_id" in rd.tours.columns and "MAZ" in rd.land_use.columns:
         join_key = "pnr_zone_id"
         land_use_base_col = "MAZ"
-        geography_base_col = "MAZ"
         geography_base_type = "maz"
     elif "pnr_taz" in rd.tours.columns and "TAZ" in rd.land_use.columns:
         join_key = "pnr_taz"
         land_use_base_col = "TAZ"
-        geography_base_col = "TAZ"
         geography_base_type = "taz"
     if (
         join_key is None
         or land_use_base_col is None
-        or geography_base_col is None
         or geography_base_type is None
     ):
         return None
+
+    geography_dimensions: list[tuple[str, str]] = [(geography_base_type, land_use_base_col)]
+    if land_use_base_col == "MAZ" and "TAZ" in rd.land_use.columns:
+        geography_dimensions.append(("taz", "TAZ"))
+    seen_geography_cols = {column for _, column in geography_dimensions}
+    for geography_type, geography_col in _configured_land_use_geography_dimensions(
+        rd.land_use,
+        config=config,
+    ):
+        if geography_col not in seen_geography_cols:
+            geography_dimensions.append((geography_type, geography_col))
+            seen_geography_cols.add(geography_col)
 
     pnr_modes = {mode.lower() for mode in config.pnr_tour_modes}
     modeled = (
@@ -757,7 +765,7 @@ def _park_and_ride_location_counts(
     land_use_cols = [land_use_base_col, capacity_col]
     land_use_cols.extend(
         column
-        for _, column in _configured_land_use_geography_dimensions(rd.land_use, config=config)
+        for _, column in geography_dimensions
         if column not in land_use_cols
     )
     land_use_base = (
@@ -802,11 +810,8 @@ def _park_and_ride_location_counts(
         )
         .select("geography_type", "geography_id", "pnr_tour_count", "pnr_lot_capacity")
     ]
-    for geography_type, geography_col in _configured_land_use_geography_dimensions(
-        used_lots,
-        config=config,
-    ):
-        if geography_col == geography_base_col or geography_col not in used_lots.columns:
+    for geography_type, geography_col in geography_dimensions:
+        if geography_col == land_use_base_col or geography_col not in used_lots.columns:
             continue
         outputs.append(
             used_lots.filter(pl.col(geography_col).is_not_null())
@@ -1032,8 +1037,8 @@ def school_shadow_pricing_residual_histogram(
         "percent_error": pl.Float64,
     },
     required_columns={
-        "tours": ("tour_mode", "pnr_zone_id", "finalweight"),
-        "land_use": ("MAZ",),
+        "tours": ("tour_mode", "finalweight"),
+        "land_use": (),
     },
 )
 def park_and_ride_location_residuals(rd: RunData, config: Config) -> pl.DataFrame:
@@ -1062,8 +1067,8 @@ def park_and_ride_location_residuals(rd: RunData, config: Config) -> pl.DataFram
         "geography_count": pl.Float64,
     },
     required_columns={
-        "tours": ("tour_mode", "pnr_zone_id", "finalweight"),
-        "land_use": ("MAZ",),
+        "tours": ("tour_mode", "finalweight"),
+        "land_use": (),
     },
 )
 def park_and_ride_location_residual_histogram(

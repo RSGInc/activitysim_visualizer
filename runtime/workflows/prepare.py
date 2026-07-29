@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 from processor.cache_identity import build_run_fingerprint
 from processor.models import PreparedTableName, ProcessorWorkflowResult, RunData
 from processor.prepare.availability import (
@@ -342,8 +342,19 @@ def run_prepare_workflow(
         run_keys,
         run_fingerprints_by_key,
     ) = shared.init_processor_result(existing_result)
+    if existing_result is not None:
+        prepared_runs_by_key.update(existing_prepared_runs_by_key)
+        run_keys = list(existing_result.run_keys)
+        run_fingerprints_by_key.update(existing_result.run_fingerprints_by_key)
 
     for entry, run_key in run_entries_with_keys(run_entries):
+        if shared.is_summary_table_map_only_run(entry):
+            label = str(entry.get("label", run_key))
+            LOGGER.info(
+                "Skipping prepare for summary-table-map-only run: %r",
+                label,
+            )
+            continue
         metadata = _run_cache_metadata(entry=entry, run_key=run_key, config=config)
         prepared_loaded = _resolve_prepared_run(
             entry=entry,
@@ -353,12 +364,13 @@ def run_prepare_workflow(
             existing_prepared_runs_by_key=existing_prepared_runs_by_key,
             prefer_cache=prefer_cache,
             write_cache=write_cache,
-            run_skimjoin=bool(config.skimjoin.enabled),
+            run_skimjoin=config.skimjoin_step_enabled(),
         )
         if prepared_loaded is None:
             continue
         prepared_runs_by_key[run_key] = prepared_loaded
-        run_keys.append(run_key)
+        if run_key not in run_keys:
+            run_keys.append(run_key)
         run_fingerprints_by_key[run_key] = dict(metadata["run_fingerprint"])
 
     return ProcessorWorkflowResult(

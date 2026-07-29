@@ -151,14 +151,43 @@ def prepare_signature_payload(config: Config) -> dict[str, Any]:
         "geography": _geography_payload(config),
         "skim": {"matrix": config.skim_matrix},
         "skimjoin": {
-            "enabled": config.skimjoin.enabled,
+            "enabled": config.skimjoin_step_enabled(),
             "config_digest": config.skimjoin.config_digest,
+            "create_hypothetical_skim_tables": (
+                config.skimjoin.create_hypothetical_skim_tables
+            ),
         },
         "prepare": {
             "auto_sufficiency": {
                 "basis": config.prepare_auto_sufficiency.basis,
             },
             "output": {"file_format": config.prepare_output_file_format},
+            "time_periods": {
+                "enabled": config.prepare_time_periods.enabled,
+                "network_los_file": config.prepare_time_periods.network_los_file,
+                "network_los_digest": config.prepare_time_periods.network_los_digest,
+                "trip_period_number_column": (
+                    config.prepare_time_periods.trip_period_number_column
+                ),
+                "tour_start_period_number_column": (
+                    config.prepare_time_periods.tour_start_period_number_column
+                ),
+                "tour_end_period_number_column": (
+                    config.prepare_time_periods.tour_end_period_number_column
+                ),
+            },
+            "non_motorized_distance_skim": {
+                "enabled": config.prepare_non_motorized_distance_skim.enabled,
+                "file": config.prepare_non_motorized_distance_skim.file,
+                "file_digest": config.prepare_non_motorized_distance_skim.file_digest,
+                "matrix": config.prepare_non_motorized_distance_skim.matrix,
+                "source_type": (
+                    config.prepare_non_motorized_distance_skim.source_type
+                ),
+                "value_column": (
+                    config.prepare_non_motorized_distance_skim.value_column
+                ),
+            },
             "vot_bins": {
                 "enabled": config.prepare_vot_bins.enabled,
                 "source_column": config.prepare_vot_bins.source_column,
@@ -282,8 +311,11 @@ def summary_signature_payload(config: Config) -> dict[str, Any]:
             "pnr_tour_modes": list(config.pnr_tour_modes),
         },
         "skimjoin": {
-            "enabled": config.skimjoin.enabled,
+            "enabled": config.skimjoin_step_enabled(),
             "config_digest": config.skimjoin.config_digest,
+            "create_hypothetical_skim_tables": (
+                config.skimjoin.create_hypothetical_skim_tables
+            ),
         },
         "prepare": {
             "vot_bins": prepare_signature_payload(config)["prepare"]["vot_bins"],
@@ -308,9 +340,12 @@ def presentation_signature_payload(config: Config) -> dict[str, Any]:
             if config.dashboard_pages is not None
             else None
         ),
+        "include_notes": config.include_notes,
         "enable_maz_geographies": config.enable_maz_geographies,
         "run_colors": list(config.run_colors),
         "missing_data_display": config.missing_data_display,
+        "bar_hover_mode": config.bar_hover_mode,
+        "density_hover_mode": config.density_hover_mode,
         "segmentation": {
             "enabled": config.segmentation.enabled,
             "dashboard": {

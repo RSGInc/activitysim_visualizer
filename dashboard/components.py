@@ -22,10 +22,78 @@ _DEFAULT_RUN_COLORS = [
 RUN_COLORS = list(_DEFAULT_RUN_COLORS)
 RUN_LABEL_ORDER: list[str] = []
 _DISPLAY_PERCENT_MODE = False
+_BAR_HOVER_MODE = "closest"
+_DENSITY_HOVER_MODE = "closest"
 
 
 def _percent_mode(as_percent: bool | None) -> bool:
     return _DISPLAY_PERCENT_MODE if as_percent is None else bool(as_percent)
+
+
+def _finite_numeric_values(values: list[object]) -> list[float]:
+    numeric_values: list[float] = []
+    for value in values:
+        if value is None:
+            continue
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(numeric_value):
+            numeric_values.append(numeric_value)
+    return numeric_values
+
+
+def _percent_yaxis_title(yaxis_title: str) -> str:
+    return f"Percent of {yaxis_title} (%)"
+
+
+def _integer_count_yaxis(yaxis_title: str) -> bool:
+    title = str(yaxis_title or "").strip().lower()
+    return title in {"trips", "tours", "stops"}
+
+
+def _format_hover_y_value(
+    value: float,
+    *,
+    yaxis_title: str,
+    percent_mode: bool,
+) -> str:
+    if percent_mode:
+        return f"{value:,.2f}%"
+    if _integer_count_yaxis(yaxis_title):
+        return f"{value:,.0f}"
+    return f"{value:,.1f}"
+
+
+def _hover_yaxis_title(yaxis_title: str, *, percent_mode: bool) -> str:
+    return _percent_yaxis_title(yaxis_title) if percent_mode else yaxis_title
+
+
+def _point_hover_text(
+    label: str,
+    *,
+    xaxis_title: str,
+    x_col: str,
+    x_value: object,
+    yaxis_title: str,
+    y_col: str,
+    y_value: float,
+    percent_mode: bool,
+) -> str:
+    display_yaxis_title = _hover_yaxis_title(
+        yaxis_title or y_col,
+        percent_mode=percent_mode,
+    )
+    display_y = _format_hover_y_value(
+        float(y_value),
+        yaxis_title=yaxis_title,
+        percent_mode=percent_mode,
+    )
+    return (
+        f"{label}<br>{xaxis_title or x_col}: {x_value}"
+        f"<br>{display_yaxis_title}: {display_y}"
+    )
 
 
 def run_color(idx: int) -> str:
@@ -52,6 +120,32 @@ def set_run_label_order(labels: list[str] | None) -> None:
 def set_percent_mode(enabled: bool) -> None:
     global _DISPLAY_PERCENT_MODE
     _DISPLAY_PERCENT_MODE = bool(enabled)
+
+
+def _normalized_hover_mode(mode: str | None) -> str:
+    normalized = str(mode or "closest").strip().lower()
+    if normalized not in {"closest", "all"}:
+        normalized = "closest"
+    return normalized
+
+
+def set_bar_hover_mode(mode: str | None) -> None:
+    global _BAR_HOVER_MODE
+    _BAR_HOVER_MODE = _normalized_hover_mode(mode)
+
+
+def bar_hover_mode() -> str:
+    return _BAR_HOVER_MODE
+
+
+def set_density_hover_mode(mode: str | None) -> None:
+    global _DENSITY_HOVER_MODE
+    normalized = _normalized_hover_mode(mode)
+    _DENSITY_HOVER_MODE = normalized
+
+
+def density_hover_mode() -> str:
+    return _DENSITY_HOVER_MODE
 
 
 def build_run_legend_entries(run_labels: list[str]) -> list[dict[str, str]]:
@@ -119,9 +213,11 @@ def bar_chart(
     yaxis_title: str = "Count",
     barmode: str = "group",
     pct_col: str | None = None,
+    percent_y_col: str | None = None,
     height: int = 400,
     as_percent: bool | None = None,
     xaxis_categoryarray: list[object] | None = None,
+    showlegend: bool | None = None,
 ) -> pn.pane.Plotly:
     """
     Create a grouped bar chart comparing multiple runs.
@@ -135,6 +231,7 @@ def bar_chart(
         yaxis_title: y-axis label
         barmode: 'group' or 'stack'
         pct_col: optional column for percentage values (shown in hover)
+        percent_y_col: optional precomputed percent column to use in percent mode
         height: chart height in pixels
     """
     def _align_categories(
@@ -152,6 +249,13 @@ def bar_chart(
         fill_exprs = []
         if y_col in aligned.columns:
             fill_exprs.append(pl.col(y_col).fill_null(0.0).cast(pl.Float64).alias(y_col))
+        if percent_y_col is not None and percent_y_col in aligned.columns:
+            fill_exprs.append(
+                pl.col(percent_y_col)
+                .fill_null(0.0)
+                .cast(pl.Float64)
+                .alias(percent_y_col)
+            )
         return aligned.with_columns(fill_exprs) if fill_exprs else aligned
 
     fig = go.Figure()
@@ -167,13 +271,27 @@ def bar_chart(
         for value in x:
             if value not in category_order:
                 category_order.append(value)
-        y = np.array(df[y_col].to_list(), dtype=float)
-        if percent_mode and y.sum() > 0:
+        use_precomputed_percent = (
+            percent_mode
+            and percent_y_col is not None
+            and percent_y_col in df.columns
+        )
+        y_source_col = percent_y_col if use_precomputed_percent else y_col
+        y = np.array(df[y_source_col].to_list(), dtype=float)
+        if percent_mode and not use_precomputed_percent and y.sum() > 0:
             y = y / y.sum() * 100.0
         y_list = y.tolist()
-        yy_title = f"Percent of {yaxis_title} (%)" if percent_mode else yaxis_title
         hover = [
-            f"{label}<br>{xaxis_title or x_col}: {xi}<br>{yy_title}: {yi:,.1f}"
+            _point_hover_text(
+                label,
+                xaxis_title=xaxis_title,
+                x_col=x_col,
+                x_value=xi,
+                yaxis_title=yaxis_title,
+                y_col=y_col,
+                y_value=yi,
+                percent_mode=percent_mode,
+            )
             for xi, yi in zip(x, y_list)
         ]
         fig.add_trace(
@@ -190,10 +308,14 @@ def bar_chart(
         fig,
         title,
         xaxis_title,
-        f"Percent of {yaxis_title} (%)" if percent_mode else yaxis_title,
+        _hover_yaxis_title(yaxis_title, percent_mode=percent_mode),
         height,
         barmode=barmode,
     )
+    if bar_hover_mode() == "all":
+        fig.update_layout(hovermode="x unified")
+    if showlegend is not None:
+        fig.update_layout(showlegend=showlegend)
     final_category_order = xaxis_categoryarray or category_order
     if final_category_order:
         fig.update_xaxes(
@@ -237,10 +359,35 @@ def line_chart(
         fig,
         title,
         xaxis_title,
-        f"Percent of {yaxis_title} (%)" if percent_mode else yaxis_title,
+        _hover_yaxis_title(yaxis_title, percent_mode=percent_mode),
         height,
     )
     return pn.pane.Plotly(fig, sizing_mode="stretch_width")
+
+
+def _clock_hour_tick_labels(values: list[object]) -> tuple[list[str], list[str]] | None:
+    """Return top-of-hour tick values/text when x values look like clock labels."""
+    unique_values = list(dict.fromkeys(str(value) for value in values))
+    if not unique_values:
+        return None
+
+    parsed: list[tuple[str, int, int]] = []
+    for value in unique_values:
+        parts = value.split(":")
+        if len(parts) != 2:
+            return None
+        hour, minute = parts
+        if not (hour.isdigit() and minute.isdigit()):
+            return None
+        hour_int = int(hour)
+        minute_int = int(minute)
+        if hour_int > 23 or minute_int not in {0, 30}:
+            return None
+        parsed.append((value, hour_int, minute_int))
+
+    tickvals = [value for value, _, minute in parsed if minute == 0]
+    ticktext = [f"{hour}:00" for _, hour, minute in parsed if minute == 0]
+    return (tickvals, ticktext) if tickvals else None
 
 
 def density_chart(
@@ -257,6 +404,7 @@ def density_chart(
     xaxis_categoryarray: list[object] | None = None,
     xaxis_tickvals: list[object] | None = None,
     xaxis_ticktext: list[str] | None = None,
+    hover_xaxis_title: str | None = None,
 ) -> pn.pane.Plotly:
     """
     Create an overlaid density/histogram line chart.
@@ -264,19 +412,36 @@ def density_chart(
     """
     fig = go.Figure()
     percent_mode = _percent_mode(as_percent)
+    observed_x_values: list[object] = []
     for i, (label, df) in enumerate(data_list):
         if df is None or len(df) == 0:
             continue
         color = run_color_for_label(label, i)
         x = df[x_col].to_list()
+        observed_x_values.extend(x)
         y = np.array(df[y_col].to_list(), dtype=float)
-        if (percent_mode or normalize) and y.sum() > 0:
+        density_percent_mode = percent_mode or normalize
+        if density_percent_mode and y.sum() > 0:
             y = y / y.sum() * 100
+        y_list = y.tolist()
+        hover = [
+            _point_hover_text(
+                label,
+                xaxis_title=hover_xaxis_title or xaxis_title,
+                x_col=x_col,
+                x_value=xi,
+                yaxis_title=yaxis_title,
+                y_col=y_col,
+                y_value=yi,
+                percent_mode=density_percent_mode,
+            )
+            for xi, yi in zip(x, y_list)
+        ]
         fig.add_trace(
             go.Scatter(
                 name=label,
                 x=x,
-                y=y.tolist(),
+                y=y_list,
                 mode="lines",
                 line=dict(color=color, width=2),
                 fill="tozeroy",
@@ -285,15 +450,19 @@ def density_chart(
                     if "rgb" in color
                     else None
                 ),
+                hovertemplate="%{customdata}<extra></extra>",
+                customdata=hover,
             )
         )
     _layout(
         fig,
         title,
         xaxis_title,
-        f"Percent of {yaxis_title} (%)" if (percent_mode or normalize) else yaxis_title,
+        _hover_yaxis_title(yaxis_title, percent_mode=percent_mode or normalize),
         height,
     )
+    if density_hover_mode() == "all":
+        fig.update_layout(hovermode="x unified")
     if xaxis_range is not None:
         fig.update_xaxes(range=[float(xaxis_range[0]), float(xaxis_range[1])])
     if xaxis_categoryarray is not None:
@@ -307,6 +476,13 @@ def density_chart(
         if xaxis_ticktext is not None:
             tick_kwargs["ticktext"] = xaxis_ticktext
         fig.update_xaxes(**tick_kwargs)
+    elif clock_ticks := _clock_hour_tick_labels(observed_x_values):
+        tickvals, ticktext = clock_ticks
+        fig.update_xaxes(
+            tickmode="array",
+            tickvals=tickvals,
+            ticktext=ticktext,
+        )
     return pn.pane.Plotly(fig, sizing_mode="stretch_width")
 
 
@@ -320,9 +496,14 @@ def scatter_chart(
     yaxis_title: str = "",
     height: int = 400,
     drop_zero_y: bool = False,
+    fit_overlays: list[tuple[str, pl.DataFrame]] | None = None,
+    fit_annotation_col: str = "annotation",
+    one_to_one_line: bool = False,
 ) -> pn.pane.Plotly:
     """Create a scatterplot comparing multiple runs."""
     fig = go.Figure()
+    label_indices = {label: i for i, (label, _) in enumerate(data_list)}
+    axis_values: list[float] = []
 
     for i, (label, df) in enumerate(data_list):
         if df is None or len(df) == 0:
@@ -335,6 +516,8 @@ def scatter_chart(
 
         x = df[x_col].to_list()
         y = df[y_col].to_list()
+        if one_to_one_line:
+            axis_values.extend(_finite_numeric_values([*x, *y]))
 
         hover = [
             f"{label}<br>{xaxis_title or x_col}: {xi:,.1f}<br>{yaxis_title or y_col}: {yi:,.1f}"
@@ -354,6 +537,61 @@ def scatter_chart(
                 ),
                 hovertemplate="%{customdata}<extra></extra>",
                 customdata=hover,
+            )
+        )
+
+    for i, (label, df) in enumerate(fit_overlays or []):
+        if df is None or len(df) == 0:
+            continue
+        if x_col not in df.columns or y_col not in df.columns:
+            continue
+        fit_x = df[x_col].to_list()
+        fit_y = df[y_col].to_list()
+        if one_to_one_line:
+            axis_values.extend(_finite_numeric_values([*fit_x, *fit_y]))
+        color = run_color_for_label(label, label_indices.get(label, i))
+        fig.add_trace(
+            go.Scatter(
+                name=f"{label} fit",
+                x=fit_x,
+                y=fit_y,
+                mode="lines",
+                line=dict(color=color, width=2),
+                hovertemplate=f"{label} fit<extra></extra>",
+            )
+        )
+        if fit_annotation_col in df.columns:
+            annotation = str(df[fit_annotation_col][0] or "").strip()
+            if annotation:
+                fig.add_annotation(
+                    text=annotation,
+                    xref="paper",
+                    yref="paper",
+                    x=0.02,
+                    y=max(0.05, 0.98 - 0.12 * i),
+                    xanchor="left",
+                    yanchor="top",
+                    showarrow=False,
+                    align="left",
+                    font=dict(color=color, size=12),
+                    bgcolor="rgba(255,255,255,0.75)",
+                    bordercolor=color,
+                    borderwidth=1,
+                )
+
+    if one_to_one_line:
+        max_value = max([value for value in axis_values if value >= 0.0], default=1.0)
+        if max_value <= 0.0:
+            max_value = 1.0
+        fig.add_trace(
+            go.Scatter(
+                name="1:1 line",
+                x=[0.0, max_value],
+                y=[0.0, max_value],
+                mode="lines",
+                line=dict(color="#BDBDBD", width=1.5, dash="dash"),
+                hoverinfo="skip",
+                showlegend=False,
             )
         )
 
@@ -483,12 +721,112 @@ def format_numeric_frame_for_display(
     return df.with_columns(exprs) if exprs else df
 
 
+def drop_index_columns_for_display(df: pl.DataFrame) -> pl.DataFrame:
+    """Remove dataframe-index artifacts before rendering dashboard tables."""
+    index_columns = [
+        column
+        for column in df.columns
+        if column == "index" or column.startswith("__index_level_")
+    ]
+    return df.drop(index_columns) if index_columns else df
+
+
+_COLUMN_NAME_OVERRIDES = {
+    "% Diff": "% Diff",
+    "FACTYPE": "Facility Type",
+    "From_Node": "From Node",
+    "To_Node": "To Node",
+}
+
+_COLUMN_WORD_OVERRIDES = {
+    "aadt": "AADT",
+    "am": "AM",
+    "av": "AV",
+    "avg": "Average",
+    "brt": "BRT",
+    "cvm": "CVM",
+    "da": "DA",
+    "dest": "Destination",
+    "hh": "Household",
+    "hov": "HOV",
+    "hov2": "HOV2",
+    "hov3": "HOV3",
+    "id": "ID",
+    "ids": "IDs",
+    "lrt": "LRT",
+    "maz": "MAZ",
+    "md": "MD",
+    "mgra": "MGRA",
+    "n": "Number",
+    "nonmandatory": "Non-Mandatory",
+    "num": "Number",
+    "orig": "Origin",
+    "pm": "PM",
+    "pmt": "PMT",
+    "pct": "Percent",
+    "rmse": "RMSE",
+    "sov": "SOV",
+    "tap": "TAP",
+    "taz": "TAZ",
+    "tnc": "TNC",
+    "tod": "Time of Day",
+    "vmt": "VMT",
+    "vol": "Volume",
+}
+
+_LOWERCASE_COLUMN_WORDS = {"and", "of"}
+
+
+def _humanize_column_token(token: str) -> str:
+    normalized = token.strip()
+    if not normalized:
+        return ""
+    lookup_key = normalized.lower()
+    if lookup_key in _COLUMN_WORD_OVERRIDES:
+        return _COLUMN_WORD_OVERRIDES[lookup_key]
+    if lookup_key in _LOWERCASE_COLUMN_WORDS:
+        return lookup_key
+    if normalized.isupper() and len(normalized) > 1:
+        return normalized
+    return normalized[:1].upper() + normalized[1:].lower()
+
+
+def humanize_column_header(column: object) -> str:
+    """Return a dashboard-friendly display label for a dataframe column."""
+    column_name = str(column)
+    if column_name in _COLUMN_NAME_OVERRIDES:
+        return _COLUMN_NAME_OVERRIDES[column_name]
+    if " " in column_name and "_" not in column_name:
+        return column_name
+    normalized = column_name.replace("-", "_").replace(" ", "_")
+    tokens = [token for token in normalized.split("_") if token]
+    if not tokens:
+        return column_name
+    title = " ".join(_humanize_column_token(token) for token in tokens)
+    return title.replace("Non Mandatory", "Non-Mandatory")
+
+
+def column_titles_for_display(columns: list[object] | tuple[object, ...]) -> dict[str, str]:
+    """Build unique, human-readable Tabulator titles for dataframe columns."""
+    titles: dict[str, str] = {}
+    used_titles: dict[str, int] = {}
+    for column in columns:
+        display_title = humanize_column_header(column)
+        count = used_titles.get(display_title, 0) + 1
+        used_titles[display_title] = count
+        if count > 1:
+            display_title = f"{display_title} ({count})"
+        titles[str(column)] = display_title
+    return titles
+
+
 def data_table(
     data_list: list[tuple[str, pl.DataFrame]],
     title: str = "",
     height: int = 300,
     numeric_precision: int | None = 2,
     numeric_precision_by_column: dict[str, int] | None = None,
+    column_sorters: dict[str, str] | None = None,
 ) -> pn.viewable.Viewable:
     """
     Display a data table. If multiple runs, show side by side.
@@ -497,7 +835,7 @@ def data_table(
     for label, df in data_list:
         if df is not None and len(df) > 0:
             display_df = format_numeric_frame_for_display(
-                df,
+                drop_index_columns_for_display(df),
                 numeric_precision=numeric_precision,
                 numeric_precision_by_column=numeric_precision_by_column,
             )
@@ -509,6 +847,19 @@ def data_table(
                         height=height,
                         sizing_mode="stretch_width",
                         theme="simple",
+                        titles=column_titles_for_display(display_df.columns),
+                        show_index=False,
+                        configuration=(
+                            {
+                                "columns": [
+                                    {"field": str(column), "sorter": sorter}
+                                    for column, sorter in column_sorters.items()
+                                    if str(column) in display_df.columns
+                                ]
+                            }
+                            if column_sorters
+                            else {}
+                        ),
                     ),
                 )
             )

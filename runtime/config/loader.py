@@ -47,7 +47,9 @@ from .normalize_geography import normalize_geography_aggregations
 from .normalize_prepare import (
     normalize_fallback_file_mapping,
     normalize_file_mapping,
+    normalize_prepare_non_motorized_distance_skim,
     normalize_prepare_relationship_checks,
+    normalize_prepare_time_periods,
     normalize_prepare_vot_bins,
     normalize_prepared_output_file_format,
     normalize_runs,
@@ -347,6 +349,12 @@ def _compatibility_normalize_raw_config(
         )
         visualizer_cfg["run_colors"] = display_cfg["run_colors"]
 
+    if "density_hover_mode" in display_cfg:
+        visualizer_cfg["density_hover_mode"] = display_cfg["density_hover_mode"]
+
+    if "bar_hover_mode" in display_cfg:
+        visualizer_cfg["bar_hover_mode"] = display_cfg["bar_hover_mode"]
+
     if visualizer_cfg:
         normalized["visualizer"] = visualizer_cfg
 
@@ -369,6 +377,47 @@ def _compatibility_normalize_raw_config(
             collector=legacy_warnings,
         )
         normalized["geography"] = summarize_cfg["geography"]
+
+    if "category_normalization" in summarize_cfg:
+        warn_ignored_legacy_key(
+            mapping=raw,
+            key="summary_categories",
+            legacy_field_name="summary_categories",
+            replacement_field_name="summarize.category_normalization",
+            collector=legacy_warnings,
+        )
+        warn_ignored_legacy_key(
+            mapping=summarize_cfg,
+            key="summary_categories",
+            legacy_field_name="summarize.summary_categories",
+            replacement_field_name="summarize.category_normalization",
+            collector=legacy_warnings,
+        )
+        normalized["summary_categories"] = summarize_cfg["category_normalization"]
+    elif "summary_categories" in summarize_cfg:
+        warn_supported_legacy_key(
+            mapping=summarize_cfg,
+            key="summary_categories",
+            legacy_field_name="summarize.summary_categories",
+            replacement_field_name="summarize.category_normalization",
+            collector=legacy_warnings,
+        )
+        warn_ignored_legacy_key(
+            mapping=raw,
+            key="summary_categories",
+            legacy_field_name="summary_categories",
+            replacement_field_name="summarize.category_normalization",
+            collector=legacy_warnings,
+        )
+        normalized["summary_categories"] = summarize_cfg["summary_categories"]
+    else:
+        warn_supported_legacy_key(
+            mapping=raw,
+            key="summary_categories",
+            legacy_field_name="summary_categories",
+            replacement_field_name="summarize.category_normalization",
+            collector=legacy_warnings,
+        )
 
     for key in (
         "group_joint_tour_purposes",
@@ -492,6 +541,24 @@ def _compatibility_normalize_raw_config(
         )
         prepare_cfg["distance_skim"] = legacy_distance_skim
 
+    if "student_types" in prepare_cfg:
+        warn_ignored_legacy_key(
+            mapping=raw,
+            key="student_types",
+            legacy_field_name="student_types",
+            replacement_field_name="prepare.student_types",
+            collector=legacy_warnings,
+        )
+        normalized["student_types"] = prepare_cfg["student_types"]
+    else:
+        warn_supported_legacy_key(
+            mapping=raw,
+            key="student_types",
+            legacy_field_name="student_types",
+            replacement_field_name="prepare.student_types",
+            collector=legacy_warnings,
+        )
+
     if prepare_cfg:
         normalized["prepare"] = prepare_cfg
 
@@ -598,6 +665,16 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
     prepare_vot_bins = normalize_prepare_vot_bins(
         prepare_cfg.get("vot_bins"),
         field_name="prepare.vot_bins",
+    )
+    prepare_time_periods = normalize_prepare_time_periods(
+        prepare_cfg.get("time_periods"),
+        field_name="prepare.time_periods",
+        config_dir=config_path.parent,
+    )
+    prepare_non_motorized_distance_skim = normalize_prepare_non_motorized_distance_skim(
+        prepare_cfg.get("non_motorized_distance_skim"),
+        field_name="prepare.non_motorized_distance_skim",
+        config_dir=config_path.parent,
     )
     auto_sufficiency_basis_raw = prepare_cfg.get("auto_sufficiency_basis")
     if auto_sufficiency_basis_raw is None:
@@ -711,6 +788,11 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
             field_name=dashboard_pages_field_name,
         )
     )
+    include_notes = dashboard_cfg.get(
+        "include_notes", dashboard_cfg.get("calculation_notes", True)
+    )
+    if not isinstance(include_notes, bool):
+        raise ValueError("dashboard.include_notes must be true or false when provided.")
 
     summary_root_raw = processor_cfg.get("root", summaries_cfg.get("root", "artifacts/summary_cache"))
     summary_root = Path(summary_root_raw)
@@ -863,6 +945,16 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
     missing_data_display = str(visualizer_cfg.get("missing_data_display", "card")).strip().lower()
     if missing_data_display not in {"card", "blank"}:
         raise ValueError("visualizer.missing_data_display must be either 'card' or 'blank'.")
+    bar_hover_mode = str(visualizer_cfg.get("bar_hover_mode", "closest")).strip().lower()
+    if bar_hover_mode not in {"closest", "all"}:
+        raise ValueError("display.bar_hover_mode must be either 'closest' or 'all'.")
+    density_hover_mode = str(
+        visualizer_cfg.get("density_hover_mode", "closest")
+    ).strip().lower()
+    if density_hover_mode not in {"closest", "all"}:
+        raise ValueError(
+            "display.density_hover_mode must be either 'closest' or 'all'."
+        )
     enable_maz_geographies_raw = visualizer_cfg.get("enable_maz_geographies", False)
     if not isinstance(enable_maz_geographies_raw, bool):
         raise ValueError(
@@ -877,9 +969,18 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         raw.get("transit_subsidies"),
         field_name="transit_subsidies",
     )
+    if "category_normalization" in summarize_cfg:
+        summary_category_raw = summarize_cfg.get("category_normalization")
+        summary_category_field_name = "summarize.category_normalization"
+    elif "summary_categories" in summarize_cfg:
+        summary_category_raw = summarize_cfg.get("summary_categories")
+        summary_category_field_name = "summarize.summary_categories"
+    else:
+        summary_category_raw = raw.get("summary_categories")
+        summary_category_field_name = "summary_categories"
     summary_categories = normalize_categories(
-        raw.get("summary_categories"),
-        field_name="summary_categories",
+        summary_category_raw,
+        field_name=summary_category_field_name,
     )
     dashboard_labels = normalize_categories(
         raw.get("dashboard_labels"),
@@ -973,9 +1074,15 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         )
         else True
     )
+    if "student_types" in prepare_cfg:
+        student_types_raw = prepare_cfg.get("student_types")
+        student_types_field_name = "prepare.student_types"
+    else:
+        student_types_raw = raw.get("student_types")
+        student_types_field_name = "student_types"
     student_types = normalize_student_types(
-        raw.get("student_types"),
-        field_name="student_types",
+        student_types_raw,
+        field_name=student_types_field_name,
     )
 
     pnr_tour_modes_field_name = (
@@ -995,15 +1102,20 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         log_level=log_level,
         pipeline=pipeline,
         dashboard_pages=dashboard_pages,
+        include_notes=include_notes,
         enable_maz_geographies=enable_maz_geographies_raw,
         run_colors=run_colors,
         missing_data_display=missing_data_display,
+        bar_hover_mode=bar_hover_mode,
+        density_hover_mode=density_hover_mode,
         summary_root=str(summary_root),
         weighting_modes=weighting_modes,
         export_html=export_html,
         skimjoin=skimjoin,
         prepare_vot_bins=prepare_vot_bins,
         prepare_auto_sufficiency=prepare_auto_sufficiency,
+        prepare_time_periods=prepare_time_periods,
+        prepare_non_motorized_distance_skim=prepare_non_motorized_distance_skim,
         prepare_output_file_format=prepare_output_file_format,
         prepare_relationship_checks=prepare_relationship_checks,
         files=files,

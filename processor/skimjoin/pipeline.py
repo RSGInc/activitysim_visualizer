@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 import polars as pl
 
 from processor.models import RunData, SkimjoinArtifacts
@@ -27,7 +27,7 @@ LOGGER = get_logger("processor.skimjoin")
 
 def apply_skimjoin(rd: RunData, config: Config) -> RunData:
     """Apply optional skim enrichment to prepared trips and tours."""
-    if not config.skimjoin.enabled:
+    if not config.skimjoin_step_enabled():
         return _package_disabled_skimjoin(rd)
 
     LOGGER.info("[skimjoin] Starting skim enrichment for '%s'", rd.label)
@@ -40,6 +40,7 @@ def apply_skimjoin(rd: RunData, config: Config) -> RunData:
         result = _run_integrated_skimjoin(
             rd=rd,
             normalized=normalized,
+            create_hypothetical_skim_tables=config.skimjoin.create_hypothetical_skim_tables,
             annotate_trips_fn=annotate_trips,
             annotate_tours_fn=annotate_tours,
         )
@@ -49,6 +50,8 @@ def apply_skimjoin(rd: RunData, config: Config) -> RunData:
 
 
 def _package_disabled_skimjoin(rd: RunData) -> RunData:
+    rd.trip_hypothetical_skims = pl.DataFrame()
+    rd.tour_hypothetical_skims = pl.DataFrame()
     manifest = _skimjoin_manifest(
         enabled=False,
         status="disabled",
@@ -65,11 +68,14 @@ def _package_disabled_skimjoin(rd: RunData) -> RunData:
 
 
 def _package_failed_skimjoin(rd: RunData, config: Config, exc: Exception) -> RunData:
+    rd.trip_hypothetical_skims = pl.DataFrame()
+    rd.tour_hypothetical_skims = pl.DataFrame()
     failure_detail = f"{type(exc).__name__}: {exc}"
     manifest = _skimjoin_manifest(
         enabled=True,
         status="failed",
         config_digest=config.skimjoin.config_digest,
+        resolved_network_los_file=config.skimjoin.resolved_network_los_file,
         fallback_count=0,
         fallback_outputs=[],
         failure_detail=failure_detail,
@@ -119,15 +125,21 @@ def _package_applied_skimjoin(rd: RunData, config: Config, result: object) -> Ru
 
     rd.trips = result.annotated_trips
     rd.tours = result.enriched_tours
+    rd.trip_hypothetical_skims = result.trip_hypothetical_skims
+    rd.tour_hypothetical_skims = result.tour_hypothetical_skims
     manifest = _skimjoin_manifest(
         enabled=True,
         status=status,
         config_digest=config.skimjoin.config_digest,
+        resolved_network_los_file=config.skimjoin.resolved_network_los_file,
         applied_outputs=applied_outputs,
         skipped_rules=skipped_rules.to_dicts(),
         warning_count=int(result.missing_lookup_report.height),
         fallback_count=int(result.fallback_lookup_report.height),
         fallback_outputs=fallback_outputs,
+        hypothetical_sidecars_enabled=config.skimjoin.create_hypothetical_skim_tables,
+        trip_hypothetical_rows=int(result.trip_hypothetical_skims.height),
+        tour_hypothetical_rows=int(result.tour_hypothetical_skims.height),
     )
     reports = {
         "skim_lookup_summary": result.lookup_summary,

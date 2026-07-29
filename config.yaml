@@ -141,7 +141,7 @@ skimjoin:
 # ---------------------------------------------------------------------------
 segment:
   dashboard:
-    segmentation_type: person_sex
+    segmentation_type: signup_platform
     visibility: segments_only   # full_only | segments_only | full_and_segments
   definitions:
     signup_platform:
@@ -171,8 +171,13 @@ summarize:
   weighting_modes: [weighted, unweighted]
   pnr_tour_modes:
     - PNR_TRANSIT
+  # Controls additional mapped geography aggregations only. Summaries may still
+  # emit all_geographies totals, and native prepared home geographies such as
+  # home_taz, home_county, and home_mpo can appear when those columns exist.
   geography:
     enabled: false
+    # Configured mappings create columns such as home_geo__district,
+    # work_geo__county, or land_use_geo__district.
     # landuse_col: COUNTY
     # mapping:
     #   1: County 1
@@ -214,6 +219,8 @@ dashboard:
     #           enabled: false
 
 display:
+  # bar_hover_mode: all # closest | all
+  # density_hover_mode: all # closest | all
   labels:
     person_type:
       mapping:

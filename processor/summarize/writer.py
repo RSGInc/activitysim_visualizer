@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 import polars as pl
 
 LOGGER = get_logger("processor.summarize.writer")

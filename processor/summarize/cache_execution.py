@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import polars as pl
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 from processor.models import RunData
 from processor.summarize.cache_types import normalize_weighting_modes, strip_weights
 from processor.summarize.contracts import empty_summary_frame, missing_summary_inputs

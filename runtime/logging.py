@@ -12,6 +12,33 @@ if TYPE_CHECKING:
 
 LOGGER_NAMESPACE = "activitysim_viz"
 DEFAULT_LOG_FILENAME = "activitysim_visualizer.log"
+_BOKEH_DROPPING_PATCH_WARNING_PREFIX = (
+    "Dropping a patch because it contains a previously known reference"
+)
+
+
+class _DropKnownBokehPatchWarningFilter(logging.Filter):
+    """Suppress noisy Bokeh patch races emitted through the root logger."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not str(record.getMessage()).startswith(
+            _BOKEH_DROPPING_PATCH_WARNING_PREFIX
+        )
+
+
+_BOKEH_PATCH_WARNING_FILTER = _DropKnownBokehPatchWarningFilter()
+
+
+def _install_root_warning_filters() -> None:
+    root_logger = logging.getLogger()
+    if _BOKEH_PATCH_WARNING_FILTER not in root_logger.filters:
+        root_logger.addFilter(_BOKEH_PATCH_WARNING_FILTER)
+
+
+def _remove_root_warning_filters() -> None:
+    root_logger = logging.getLogger()
+    if _BOKEH_PATCH_WARNING_FILTER in root_logger.filters:
+        root_logger.removeFilter(_BOKEH_PATCH_WARNING_FILTER)
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -36,6 +63,8 @@ def configure_logging(
     log_path: str | Path | None = None,
 ) -> Path:
     """Configure console and file logging for the application namespace."""
+    _install_root_warning_filters()
+
     resolved_log_path = (
         Path(log_path) if log_path is not None else default_log_path(config)
     )
@@ -74,8 +103,12 @@ def configure_logging(
 
 def shutdown_logging() -> None:
     """Detach and close application logging handlers."""
+    _remove_root_warning_filters()
+
     app_logger = logging.getLogger(LOGGER_NAMESPACE)
     for handler in list(app_logger.handlers):
         app_logger.removeHandler(handler)
         if isinstance(handler, logging.FileHandler):
             handler.close()
+    app_logger.setLevel(logging.NOTSET)
+    app_logger.propagate = True

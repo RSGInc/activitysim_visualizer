@@ -15,7 +15,7 @@ from test_export_html import _full_summary_run, _write_config
 # small; the larger size drift comes from the repository's current export
 # payload/embedded dependency footprint rather than from a major new runtime
 # bundle.
-EXPORT_HTML_BASELINE_BYTES = 8_833_840
+EXPORT_HTML_BASELINE_BYTES = 10_386_931
 EXPORT_HTML_GROWTH_BUDGET_BYTES = 350_000
 
 

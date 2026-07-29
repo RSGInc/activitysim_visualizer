@@ -168,6 +168,7 @@ class TripStopTimePage(DashboardPage):
             xaxis_title="Clock Time (start at 03:00)",
             normalize=False,
             yaxis_title=yaxis_title,
+            hover_xaxis_title="Clock Time",
             as_percent=self.as_percent,
         )
 
@@ -180,23 +181,29 @@ class TripStopTimePage(DashboardPage):
         display_purpose, raw_purpose = self._selected_purpose()
         tod_list = summaries["trip_departure_time_by_purpose"]
         return [
-            self.render_time_chart(
-                tod_list,
-                raw_purpose=raw_purpose,
-                display_purpose=display_purpose,
-                cache_key="trip_departure",
-                title="Trip Departure Time Distribution",
-                y_col="departure_trip_count",
-                yaxis_title="Trips",
+            self.noted_view(
+                "trip_stop_time.trips",
+                self.render_time_chart(
+                    tod_list,
+                    raw_purpose=raw_purpose,
+                    display_purpose=display_purpose,
+                    cache_key="trip_departure",
+                    title="Trip Departure Time Distribution",
+                    y_col="departure_trip_count",
+                    yaxis_title="Trips",
+                ),
             ),
-            self.render_time_chart(
-                tod_list,
-                raw_purpose=raw_purpose,
-                display_purpose=display_purpose,
-                cache_key="stop_departure",
-                title="Stop Departure Time Distribution",
-                y_col="departure_stop_count",
-                yaxis_title="Stops",
+            self.noted_view(
+                "trip_stop_time.stops",
+                self.render_time_chart(
+                    tod_list,
+                    raw_purpose=raw_purpose,
+                    display_purpose=display_purpose,
+                    cache_key="stop_departure",
+                    title="Stop Departure Time Distribution",
+                    y_col="departure_stop_count",
+                    yaxis_title="Stops",
+                ),
             ),
         ]
 

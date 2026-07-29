@@ -74,8 +74,14 @@ def _write_cli_config(
 
 
 def _simple_summary_run(label: str, run_key: str) -> object:
-    weighted = {"totals": pl.DataFrame({"population": [100.0]})}
-    unweighted = {"totals": pl.DataFrame({"population": [50.0]})}
+    weighted = {
+        summary_id: pl.DataFrame({"value": [100.0]})
+        for summary_id in summary_cache.DEFAULT_SUMMARY_IDS
+    }
+    unweighted = {
+        summary_id: pl.DataFrame({"value": [50.0]})
+        for summary_id in summary_cache.DEFAULT_SUMMARY_IDS
+    }
     return create_summary_run(
         label=label,
         run_key=run_key,

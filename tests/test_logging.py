@@ -11,7 +11,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from activitysim_viz_logging import configure_logging, get_logger, shutdown_logging
+from runtime.logging import configure_logging, get_logger, shutdown_logging
 from dashboard.app import build_dashboard
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
@@ -96,4 +96,26 @@ def test_prepared_data_placeholder_warning_is_written_to_log_file(
     _flush_logger_handlers()
 
     assert "requires prepared run data" in log_path.read_text(encoding="utf-8")
+    shutdown_logging()
+
+
+def test_configure_logging_suppresses_known_bokeh_patch_warning(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = _write_config(tmp_path)
+    configure_logging(config)
+
+    noisy_message = (
+        "Dropping a patch because it contains a previously known reference "
+        "(id='p1854'). Most of the time this is harmless and usually a result "
+        "of updating a model on one side of a communications channel while it "
+        "was being removed on the other end."
+    )
+    with caplog.at_level(logging.WARNING):
+        logging.warning(noisy_message)
+        logging.warning("a different root warning")
+
+    assert noisy_message not in caplog.text
+    assert "a different root warning" in caplog.text
     shutdown_logging()

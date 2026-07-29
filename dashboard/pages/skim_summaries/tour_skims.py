@@ -8,6 +8,8 @@ from dashboard.components import control_row, data_table, density_chart
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import DashboardPageDefinition
 from dashboard.pages.skim_summaries._shared import (
+    ALL_RECORDS_SCENARIO,
+    CHOSEN_MODE_SCENARIO,
     TOUR_STATS_SUMMARY_ID,
     directional_component_name,
     distribution_bins,
@@ -16,10 +18,29 @@ from dashboard.pages.skim_summaries._shared import (
     resolve_distribution_range,
     skim_direction_options,
     skim_family_options,
+    skim_scenario_available,
     skim_summary_precision_overrides,
     tour_component_base_options,
     tour_mode_options,
 )
+
+TOP_SELECTOR_ROW_STYLESHEET = """
+:host(.tour-skim-top-selector) {
+  max-width: 240px;
+}
+
+:host(.tour-skim-top-selector-export) {
+  max-width: 190px;
+}
+
+:host(.tour-skim-direction-selector) {
+  max-width: 140px;
+}
+
+:host(.tour-skim-direction-selector-export) {
+  max-width: 110px;
+}
+"""
 
 
 class TourSkimsPage(DashboardPage):
@@ -41,6 +62,9 @@ class TourSkimsPage(DashboardPage):
         initial_direction = direction_options[0]
         component_base_options = tour_component_base_options(tour_stats)
         initial_component_base = component_base_options[0]
+        scenario_options = ["Chosen Mode"]
+        if skim_scenario_available(tour_stats, ALL_RECORDS_SCENARIO):
+            scenario_options.append("All Tours")
 
         self.tour_family_sel = self.selector(
             "tour_skim_family",
@@ -51,6 +75,15 @@ class TourSkimsPage(DashboardPage):
             ),
             label="Tour Skim Family",
         )
+        self.tour_scenario_sel = self.selector(
+            "tour_skim_scenario",
+            widget=pn.widgets.Select(
+                name="Tour Skim Scenario",
+                options=scenario_options,
+                value=scenario_options[0],
+            ),
+            label="Tour Skim Scenario",
+        )
         self.tour_direction_sel = self.selector(
             "tour_skim_direction",
             widget=pn.widgets.Select(
@@ -59,6 +92,12 @@ class TourSkimsPage(DashboardPage):
                 value=initial_direction,
             ),
             label="Direction",
+        )
+        self._apply_top_selector_sizing(self.tour_family_sel)
+        self._apply_top_selector_sizing(self.tour_scenario_sel)
+        self._apply_top_selector_sizing(
+            self.tour_direction_sel,
+            css_class="tour-skim-direction-selector",
         )
         self.tour_component_sel = self.selector(
             "tour_distribution_component",
@@ -78,6 +117,7 @@ class TourSkimsPage(DashboardPage):
                     tour_stats,
                     mode_column="tour_mode",
                     component_base=initial_component_base,
+                    skim_scenario=self._tour_skim_scenario_value(),
                 ),
             ),
             label="Tour Distribution Mode",
@@ -129,12 +169,13 @@ class TourSkimsPage(DashboardPage):
 
         self._summary_section = self.section(
             "tour_skim_summary_section",
-            selectors=("tour_skim_family", "tour_skim_direction"),
+            selectors=("tour_skim_family", "tour_skim_scenario", "tour_skim_direction"),
             render=self.render_summary_section,
         )
         self._distribution_section = self.section(
             "tour_skim_distribution_section",
             selectors=(
+                "tour_skim_scenario",
                 "tour_distribution_component",
                 "tour_distribution_mode",
                 "outbound_min",
@@ -148,8 +189,9 @@ class TourSkimsPage(DashboardPage):
 
         content = [
             pn.pane.Markdown("## Tour Skims"),
-            control_row(self.tour_family_sel, self.tour_direction_sel),
+            self._top_selector_row(),
             self._summary_section,
+            self.section_note("tour_skims.summary_table", self._summary_section),
         ]
         if not self.state.export_mode:
             content.extend(
@@ -172,6 +214,14 @@ class TourSkimsPage(DashboardPage):
         """Return prepared runs in the weighting mode expected by live distributions."""
         return self.get_prepared_runs(weighted=(self.weighting_key == "weighted"))
 
+    def _tour_skim_scenario_value(self) -> str:
+        return (
+            ALL_RECORDS_SCENARIO
+            if getattr(self, "tour_scenario_sel", None) is not None
+            and self.tour_scenario_sel.value == "All Tours"
+            else CHOSEN_MODE_SCENARIO
+        )
+
     def sync_controls(self) -> None:
         """Keep family, direction, component, mode, and x-range controls aligned."""
         tour_stats = self._tour_summaries()
@@ -185,6 +235,13 @@ class TourSkimsPage(DashboardPage):
         self.tour_family_sel.options = family_options
         if self.tour_family_sel.value not in family_options:
             self.tour_family_sel.value = family_options[0]
+
+        scenario_options = ["Chosen Mode"]
+        if skim_scenario_available(tour_stats, ALL_RECORDS_SCENARIO):
+            scenario_options.append("All Tours")
+        self.tour_scenario_sel.options = scenario_options
+        if self.tour_scenario_sel.value not in scenario_options:
+            self.tour_scenario_sel.value = scenario_options[0]
 
         direction_options = skim_direction_options(tour_stats)
         self.tour_direction_sel.options = direction_options
@@ -200,6 +257,7 @@ class TourSkimsPage(DashboardPage):
             tour_stats,
             mode_column="tour_mode",
             component_base=self.tour_component_sel.value,
+            skim_scenario=self._tour_skim_scenario_value(),
         )
         self.tour_mode_sel.options = mode_options
         if self.tour_mode_sel.value not in mode_options:
@@ -218,6 +276,7 @@ class TourSkimsPage(DashboardPage):
         max_widget = getattr(self, f"{direction}_max_sel")
         component = self._directional_component(direction)
         context_key = (component, self.tour_mode_sel.value, self.weighting_key)
+        context_key = (*context_key, self._tour_skim_scenario_value())
         state_key = f"{direction}_distribution_range_context"
         auto_key = f"{direction}_distribution_auto_range"
 
@@ -227,6 +286,7 @@ class TourSkimsPage(DashboardPage):
             mode_column="tour_mode",
             mode_value=self.tour_mode_sel.value,
             component=component,
+            skim_scenario=self._tour_skim_scenario_value(),
         )
         if bounds is None:
             self._page_state[state_key] = context_key
@@ -284,6 +344,7 @@ class TourSkimsPage(DashboardPage):
         stats_data = self.get_filtered_view(
             "tour_skim_family_stats",
             family,
+            self._tour_skim_scenario_value(),
             direction,
             factory=lambda: family_stats_table(
                 self.config,
@@ -292,6 +353,7 @@ class TourSkimsPage(DashboardPage):
                 mode_column="tour_mode",
                 target_table="tours",
                 direction=direction,
+                skim_scenario=self._tour_skim_scenario_value(),
             ),
         )
         if not any(not df.is_empty() for _, df in stats_data):
@@ -336,6 +398,7 @@ class TourSkimsPage(DashboardPage):
             component,
             mode,
             self.weighting_key,
+            self._tour_skim_scenario_value(),
             x_range[0],
             x_range[1],
             factory=lambda: distribution_bins(
@@ -345,6 +408,7 @@ class TourSkimsPage(DashboardPage):
                 mode_value=mode,
                 component=component,
                 x_range=x_range,
+                skim_scenario=self._tour_skim_scenario_value(),
             ),
         )
         if not any(not df.is_empty() for _, df in distribution_data):
@@ -376,10 +440,51 @@ class TourSkimsPage(DashboardPage):
 
         return [
             control_row(self.outbound_min_sel, self.outbound_max_sel, self.outbound_reset_btn),
-            self.render_directional_distribution_chart("outbound"),
+            self.noted_view(
+                "tour_skims.distributions",
+                self.render_directional_distribution_chart("outbound"),
+            ),
             control_row(self.inbound_min_sel, self.inbound_max_sel, self.inbound_reset_btn),
-            self.render_directional_distribution_chart("inbound"),
+            self.noted_view(
+                "tour_skims.distributions",
+                self.render_directional_distribution_chart("inbound"),
+            ),
         ]
+
+    def _apply_top_selector_sizing(
+        self,
+        widget: pn.widgets.Widget,
+        *,
+        css_class: str = "tour-skim-top-selector",
+    ) -> None:
+        css_classes = list(getattr(widget, "css_classes", []) or [])
+        if css_class not in css_classes:
+            css_classes.append(css_class)
+        export_class = f"{css_class}-export"
+        if self.state.export_mode and export_class not in css_classes:
+            css_classes.append(export_class)
+        widget.css_classes = css_classes
+        stylesheets = list(getattr(widget, "stylesheets", []) or [])
+        if TOP_SELECTOR_ROW_STYLESHEET not in stylesheets:
+            stylesheets.append(TOP_SELECTOR_ROW_STYLESHEET)
+        widget.stylesheets = stylesheets
+
+    def _top_selector_row(self) -> pn.Row:
+        gap = "4px" if self.state.export_mode else "6px"
+        return pn.Row(
+            self.tour_family_sel,
+            self.tour_scenario_sel,
+            self.tour_direction_sel,
+            sizing_mode="stretch_width",
+            min_height=72,
+            margin=(0, 0, 8, 0),
+            styles={
+                "justify-content": "flex-start",
+                "align-items": "flex-start",
+                "flex-wrap": "nowrap",
+                "column-gap": gap,
+            },
+        )
 
 
 PAGE = DashboardPageDefinition(

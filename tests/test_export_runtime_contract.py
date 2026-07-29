@@ -9,9 +9,16 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from dashboard.export.payload import temporary_widget_values
+from dashboard.export.payload import (
+    _selector_options,
+    _selector_values_for_current_state,
+    resolve_export_section_states,
+    temporary_widget_values,
+)
 from dashboard.export.runtime_assets import build_export_html_shell, load_export_runtime_js
+from dashboard.export.serializer import serialize_viewable
 from dashboard.export.types import EXPORT_SCHEMA_VERSION
+from dashboard.page_definitions import DashboardPageDefinition
 from test_export_html import _full_summary_run, _write_config
 from dashboard.export.html import build_export_html_document
 
@@ -130,6 +137,64 @@ def test_runtime_asset_contains_explicit_context_action_and_region_helpers() -> 
     assert "function makeButton(config)" in runtime_js
     assert "function buildRegionVariantKey(selectorValues)" in runtime_js
     assert "const PLOT_RESIZE_RETRY_DELAYS_MS = [60, 180, 320];" in runtime_js
+    assert 'displayModeBar: "hover"' in runtime_js
+    assert "scale: 2" in runtime_js
+    assert 'name: "Download CSV"' in runtime_js
+    assert 'title: "Download plot data as CSV"' in runtime_js
+    assert "modeBarButtonsToAdd: [makePlotCsvDownloadButton(figure)]" in runtime_js
+
+
+def test_runtime_asset_contains_plot_csv_export_helpers() -> None:
+    runtime_js = load_export_runtime_js()
+
+    assert "function csvEscape(value)" in runtime_js
+    assert "function slugifyFilenameBase(value)" in runtime_js
+    assert "function resolvePlotCsvFilename(figure)" in runtime_js
+    assert "function buildTraceCsvRows(gd)" in runtime_js
+    assert '"run_name"' in runtime_js
+    assert '"x"' in runtime_js
+    assert '"y"' in runtime_js
+    assert '"trace_index"' not in runtime_js
+    assert '"customdata"' not in runtime_js
+    assert '"-" + valueMode + ".csv"' in runtime_js
+    assert 'return normalized || "plot-data";' in runtime_js
+
+
+def test_runtime_asset_restores_export_selector_widgets_from_runtime_state() -> None:
+    runtime_js = load_export_runtime_js()
+
+    assert (
+        "function resolveWidgetValue(node, context, leafPageId, effectiveOptions)"
+        in runtime_js
+    )
+    assert "const pageSelectorState = getPageSelectorState(context.state, leafPageId);" in runtime_js
+    assert "const effectiveOptions = resolveWidgetOptions(node, context, leafPageId);" in runtime_js
+    assert "const effectiveValue = resolveWidgetValue(" in runtime_js
+    assert 'node.widget_type === "checkbox"' in runtime_js
+    assert 'node.widget_type === "float_input"' in runtime_js
+    assert 'node.widget_type === "button"' in runtime_js
+    assert 'checkbox.checked ? "True" : "False"' in runtime_js
+    assert 'pageId === "vmt"' in runtime_js
+    assert 'selectorId === "personal_auto_vmt_breakdown"' in runtime_js
+    assert (
+        'pageState.personal_auto_vmt_geography_type = "All Geography Types"'
+        in runtime_js
+    )
+    assert "isVmtGeographyTypeUnavailable" in runtime_js
+    assert "function resolveWidgetOptions(node, context, leafPageId)" in runtime_js
+    assert "function selectorHasDependents(context, leafPageId, selectorId)" in runtime_js
+    assert "selector.parent_selector_id !== selectorId" in runtime_js
+    assert "pageState[selector.id] = dependentOptions[0]" in runtime_js
+
+
+def test_runtime_asset_contains_sortable_export_table_helpers() -> None:
+    runtime_js = load_export_runtime_js()
+
+    assert "function parseSortableNumber(value)" in runtime_js
+    assert "function compareCellValues(leftValue, rightValue)" in runtime_js
+    assert "function toggleSort(column)" in runtime_js
+    assert 'className: "export-table-sort"' in runtime_js
+    assert 'className: "export-table-sort-indicator"' in runtime_js
 
 
 def test_generated_export_html_contains_no_raw_nan_or_infinity(tmp_path: Path) -> None:
@@ -196,3 +261,194 @@ def test_temporary_widget_values_restores_original_values_after_exception() -> N
             raise RuntimeError("boom")
 
     assert widgets["tour_purpose"].value == "All"
+
+
+def _selector_meta(
+    values: list[str],
+    *,
+    default_value: str,
+    request_mode: str = "all",
+) -> dict:
+    return {
+        "id": "selector",
+        "label": "Selector",
+        "available": True,
+        "request_mode": request_mode,
+        "requested_values": [],
+        "resolved_values": values,
+        "default_value": default_value,
+        "options": values,
+        "export_enabled": len(values) > 1,
+    }
+
+
+def test_explicit_selector_values_use_the_resolved_option_labels() -> None:
+    widget = pn.widgets.Select(
+        options=["All Person Types", "worker"],
+        value="All Person Types",
+    )
+    selector_meta = _selector_meta(
+        ["All Person Types", "worker"],
+        default_value="All Person Types",
+        request_mode="explicit",
+    )
+    selector_meta["requested_values"] = ["all", "worker"]
+
+    assert _selector_values_for_current_state(
+        page_def=DashboardPageDefinition(page_id="probe", title="Probe"),
+        selector_id="person_type",
+        widget=widget,
+        selector_meta=selector_meta,
+    ) == ["All Person Types", "worker"]
+
+
+class _ExportPartProbe:
+    part_id = "probe_region"
+
+
+def test_checkbox_selector_exports_string_options_and_sets_boolean_values() -> None:
+    checkbox = pn.widgets.Checkbox(name="Include Totals", value=False)
+
+    assert _selector_options(checkbox) == ["False", "True"]
+    node = serialize_viewable(
+        checkbox,
+        disable_widgets=False,
+        widget_metadata={
+            id(checkbox): (
+                "include_totals",
+                {
+                    "label": "Include Totals",
+                    "export_enabled": True,
+                    "resolved_values": ["False", "True"],
+                },
+            )
+        },
+    )
+    assert node["widget_type"] == "checkbox"
+    assert node["value"] == "False"
+    assert node["options"] == ["False", "True"]
+    assert node["selector_id"] == "include_totals"
+    assert node["export_enabled"] is True
+    with temporary_widget_values({"include_totals": checkbox}, {"include_totals": "True"}):
+        assert checkbox.value is True
+
+    assert checkbox.value is False
+
+
+def test_export_section_state_resolver_discovers_dependent_child_options() -> None:
+    class ProbePage:
+        def __init__(self) -> None:
+            self.parent = pn.widgets.Select(options=["A", "B"], value="A")
+            self.child = pn.widgets.Select(options=["a1", "a2"], value="a1")
+
+        def sync_controls(self) -> None:
+            self.child.options = (
+                ["a1", "a2"] if self.parent.value == "A" else ["b1"]
+            )
+            if self.child.value not in self.child.options:
+                self.child.value = self.child.options[0]
+
+    page = ProbePage()
+
+    states, aliases = resolve_export_section_states(
+        page,
+        page_def=DashboardPageDefinition(page_id="probe", title="Probe"),
+        part_def=_ExportPartProbe(),
+        active_selector_ids=["parent", "child"],
+        selector_widgets={"parent": page.parent, "child": page.child},
+        selector_metadata_by_id={
+            "parent": _selector_meta(["A", "B"], default_value="A"),
+            "child": _selector_meta(["a1", "a2"], default_value="a1"),
+        },
+    )
+
+    assert states == [
+        {"parent": "A", "child": "a1"},
+        {"parent": "A", "child": "a2"},
+        {"parent": "B", "child": "b1"},
+    ]
+    assert aliases == {}
+
+
+def test_export_section_state_resolver_collapses_disabled_selector_values() -> None:
+    class ProbePage:
+        def __init__(self) -> None:
+            self.mode = pn.widgets.Select(options=["By Segment", "Filtered"], value="By Segment")
+            self.segment = pn.widgets.Select(options=["All", "Low", "High"], value="All")
+
+        def sync_controls(self) -> None:
+            self.segment.disabled = self.mode.value == "By Segment"
+            if self.segment.disabled:
+                self.segment.value = "All"
+
+    page = ProbePage()
+
+    states, aliases = resolve_export_section_states(
+        page,
+        page_def=DashboardPageDefinition(page_id="probe", title="Probe"),
+        part_def=_ExportPartProbe(),
+        active_selector_ids=["mode", "segment"],
+        selector_widgets={"mode": page.mode, "segment": page.segment},
+        selector_metadata_by_id={
+            "mode": _selector_meta(["By Segment", "Filtered"], default_value="By Segment"),
+            "segment": _selector_meta(["All", "Low", "High"], default_value="All"),
+        },
+    )
+
+    assert states == [
+        {"mode": "By Segment", "segment": "All"},
+        {"mode": "Filtered", "segment": "All"},
+        {"mode": "Filtered", "segment": "Low"},
+        {"mode": "Filtered", "segment": "High"},
+    ]
+    assert aliases['["By Segment","Low"]'] == '["By Segment","All"]'
+    assert aliases['["By Segment","High"]'] == '["By Segment","All"]'
+
+
+def test_export_section_state_resolver_aliases_canonical_mapped_values() -> None:
+    class ProbePage:
+        def __init__(self) -> None:
+            self.parent = pn.widgets.Select(options=["A", "B"], value="A")
+            self.child = pn.widgets.Select(options=["All", "a1", "b1"], value="All")
+
+        def sync_controls(self) -> None:
+            self.child.options = ["All", "a1", "b1"]
+
+        def export_canonical_selector_value(
+            self,
+            section_id: str,
+            selector_id: str,
+            value: str,
+            selected_values: dict[str, str],
+        ) -> str:
+            if selector_id != "child":
+                return value
+            valid_by_parent = {"A": {"All", "a1"}, "B": {"All", "b1"}}
+            if value in valid_by_parent[selected_values["parent"]]:
+                return value
+            return "All"
+
+    page = ProbePage()
+
+    states, aliases = resolve_export_section_states(
+        page,
+        page_def=DashboardPageDefinition(page_id="probe", title="Probe"),
+        part_def=_ExportPartProbe(),
+        active_selector_ids=["parent", "child"],
+        selector_widgets={"parent": page.parent, "child": page.child},
+        selector_metadata_by_id={
+            "parent": _selector_meta(["A", "B"], default_value="A"),
+            "child": _selector_meta(["All", "a1", "b1"], default_value="All"),
+        },
+    )
+
+    assert states == [
+        {"parent": "A", "child": "All"},
+        {"parent": "A", "child": "a1"},
+        {"parent": "B", "child": "All"},
+        {"parent": "B", "child": "b1"},
+    ]
+    assert aliases == {
+        '["A","b1"]': '["A","All"]',
+        '["B","a1"]': '["B","All"]',
+    }

@@ -39,12 +39,36 @@
   function renderContainer(node, context, actions, leafPageId) {
     const layoutClass = node.layout === "row" ? "container-row" : "container-column";
     const childCount = Number(node.child_count || (node.children || []).length || 0);
+    const cssClasses = Array.isArray(node.css_classes) ? node.css_classes.join(" ") : "";
+    const isFlexControlsRow = (
+      node.layout === "row"
+      && node.styles
+      && typeof node.styles === "object"
+      && (
+        Object.prototype.hasOwnProperty.call(node.styles, "flex-wrap")
+        || Object.prototype.hasOwnProperty.call(node.styles, "justify-content")
+      )
+    );
     const container = el("div", {
-      className: layoutClass + " child-count-" + String(childCount),
+      className:
+        layoutClass
+        + " child-count-" + String(childCount)
+        + (isFlexControlsRow ? " container-row--controls" : "")
+        + (cssClasses ? " " + cssClasses : ""),
     });
+    if (node.styles && typeof node.styles === "object") {
+      for (const [key, value] of Object.entries(node.styles)) {
+        if (value !== undefined && value !== null) {
+          container.style.setProperty(String(key), String(value));
+        }
+      }
+    }
     for (const child of node.children || []) {
       const wrapper = el("div", {
-        className: "container-item container-item--" + nodeRole(child),
+        className:
+          "container-item container-item--"
+          + nodeRole(child)
+          + (isFlexControlsRow ? " container-item--controls" : ""),
       }, [
         renderNode(child, context, actions, leafPageId),
       ]);

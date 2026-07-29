@@ -144,6 +144,7 @@ class SkimjoinSettings:
     normalized_config: Any | None = None
     resolved_skim_files: tuple[str, ...] = ()
     resolved_network_los_file: str | None = None
+    create_hypothetical_skim_tables: bool = False
 
 
 @dataclass(frozen=True)
@@ -153,6 +154,7 @@ class RunSkimjoinOverrides:
     config_path: str | None = None
     skim_files: tuple[str, ...] = ()
     network_los_file: str | None = None
+    create_hypothetical_skim_tables: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -174,6 +176,30 @@ class PrepareAutoSufficiencySettings:
     """Configurable household comparison basis for AUTOSUFF derivation."""
 
     basis: Literal["licensed_drivers", "workers", "adults"] = "licensed_drivers"
+
+
+@dataclass(frozen=True)
+class PrepareTimePeriodsSettings:
+    """Optional prepared trip/tour period-label derivation."""
+
+    enabled: bool = False
+    network_los_file: str | None = None
+    network_los_digest: str | None = None
+    trip_period_number_column: str = "depart"
+    tour_start_period_number_column: str = "start"
+    tour_end_period_number_column: str = "end"
+
+
+@dataclass(frozen=True)
+class PrepareNonMotorizedDistanceSkimSettings:
+    """Optional non-motorized distance lookup applied during prepare."""
+
+    enabled: bool = False
+    file: str | None = None
+    file_digest: str | None = None
+    matrix: str | None = None
+    source_type: Literal["csv", "omx"] | None = None
+    value_column: str = "DISTWALK"
 
 
 @dataclass(frozen=True)
@@ -318,15 +344,20 @@ class Config:
     log_level: str
     pipeline: PipelineSettings
     dashboard_pages: list[DashboardPageConfigEntry] | None
+    include_notes: bool
     enable_maz_geographies: bool
     run_colors: list[str]
     missing_data_display: str
+    bar_hover_mode: Literal["closest", "all"]
+    density_hover_mode: Literal["closest", "all"]
     summary_root: str
     weighting_modes: list[str]
     export_html: ExportHTMLSettings
     skimjoin: SkimjoinSettings
     prepare_vot_bins: PrepareVotBinsSettings
     prepare_auto_sufficiency: PrepareAutoSufficiencySettings
+    prepare_time_periods: PrepareTimePeriodsSettings
+    prepare_non_motorized_distance_skim: PrepareNonMotorizedDistanceSkimSettings
     prepare_output_file_format: str
     prepare_relationship_checks: str
     files: dict[str, str]
@@ -433,6 +464,10 @@ class Config:
 
     def run_color(self, idx: int) -> str:
         return self.run_colors[idx % len(self.run_colors)]
+
+    def skimjoin_step_enabled(self) -> bool:
+        """Return whether the active pipeline includes integrated skimjoin."""
+        return self.pipeline.has_step("skimjoin")
 
     @property
     def categories(self) -> dict[str, CategorySpec]:

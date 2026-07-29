@@ -351,13 +351,25 @@ class IndividualChoicesPage(DashboardPage):
         display_person_type, raw_person_type = self._selected_person_type()
         return [
             pn.Row(
-                self.render_license_chart(display_person_type, raw_person_type),
-                self.render_bike_chart(display_person_type, raw_person_type),
+                self.noted_view(
+                    "individual_choices.license",
+                    self.render_license_chart(display_person_type, raw_person_type),
+                ),
+                self.noted_view(
+                    "individual_choices.bicycle_comfort",
+                    self.render_bike_chart(display_person_type, raw_person_type),
+                ),
                 sizing_mode="stretch_width",
             ),
             pn.Row(
-                self.render_pass_chart(display_person_type, raw_person_type),
-                self.render_subsidy_chart(display_person_type, raw_person_type),
+                self.noted_view(
+                    "individual_choices.transit_pass",
+                    self.render_pass_chart(display_person_type, raw_person_type),
+                ),
+                self.noted_view(
+                    "individual_choices.transit_subsidy",
+                    self.render_subsidy_chart(display_person_type, raw_person_type),
+                ),
                 sizing_mode="stretch_width",
             ),
         ]

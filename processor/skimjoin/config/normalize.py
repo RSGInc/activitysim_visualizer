@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from processor.skimjoin.config.network_los import load_network_los_period_mapping
+from processor.time_periods import load_network_los_period_mapping
 from processor.skimjoin.config.schema import (
     ActivitySimConfig,
     DimensionConfig,
