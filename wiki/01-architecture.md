@@ -1,4 +1,4 @@
-# Architecture Overview
+# 01 - Architecture
 
 `activitysim_visualizer` has three main jobs:
 
@@ -77,7 +77,8 @@ Treat it as the contract for:
 The schema accepts `account`, `app_id`, `title`, and `verify`, but the current
 runtime deliberately does not store or act on them.
 
-If a new feature adds a config key or changes config behavior, the README and any relevant docs in this folder should be updated in the same change.
+If a new feature adds a config key or changes config behavior, update the README
+and the relevant wiki chapters in the same change.
 
 `Config.pipeline` is the canonical home for workflow defaults. Today the
 logical step names are:
@@ -136,7 +137,7 @@ Large controllers may keep their registered page module as a compatibility
 facade and compose page-local implementation mixins from a private `_<page>/`
 package. This convention, its constraints, and its distinction from
 `PageFeature` are documented in
-[Large-page implementation mixins](adding-dashboard-pages.md#large-page-implementation-mixins).
+[Figures And Widgets](32-figures-and-widgets.md#sections-and-features).
 
 The framework now owns:
 
@@ -257,7 +258,12 @@ activitysim_visualizer/
 
 ## What to Read First
 
-- Start with [summary-workflow.md](summary-workflow.md) if you need to understand cache generation, cache loading, and prepared-run usage.
-- Read [adding-summaries.md](adding-summaries.md) before changing anything under `processor/summarize/`.
-- Read [adding-dashboard-pages.md](adding-dashboard-pages.md) before adding a dashboard page or page-local export selector.
-- Read [export_html_schema.md](export_html_schema.md) and [export_html_contributor_guide.md](export_html_contributor_guide.md) before changing the offline export contract.
+- Start with [Running Workflows](12-running-workflows.md) to understand cache
+  generation, cache loading, and prepared-run usage.
+- Read the [Summary Function Cookbook](44-summary-function-cookbook.md) before
+  changing anything under `processor/summarize/`.
+- Read the [Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md)
+  before adding a page, selector, figure, or table.
+- Read [HTML Export](34-html-export.md) and the
+  [HTML Export Schema](36-html-export-schema.md) before changing the offline
+  export contract.

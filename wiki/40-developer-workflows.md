@@ -44,6 +44,7 @@ activitysim_visualizer/
 | New figure or table on existing page | [32 - Figures and Widgets](32-figures-and-widgets.md) |
 | New dashboard page | [33 - Dashboard Page Recipes](33-dashboard-page-recipes.md) |
 | New export node/runtime behavior | [34 - HTML Export](34-html-export.md#changing-export-runtime-behavior) |
+| Plotting API or count/share behavior | [35 - Plotting Reference](35-plotting-reference.md) |
 | New externally produced summary table/file | [41 - Data Extension Cookbook](41-data-extension-cookbook.md#worked-example-add-an-outside-summary-table) |
 | New prepared column or table | [41 - Data Extension Cookbook](41-data-extension-cookbook.md) |
 | New config key or source-column alias | [42 - Config, Columns, and Labels](42-config-column-label-cookbook.md) |
@@ -68,6 +69,8 @@ uv run --with pytest pytest --basetemp .pytest_tmp
 ```
 
 Run narrower tests while iterating when possible.
+The [Testing](46-testing.md) chapter documents the fast/full marker split and
+the required release-boundary commands.
 
 ## Generated Wiki Catalogs
 
@@ -99,6 +102,7 @@ When behavior changes, update docs in the same change:
 | Summary contract or registration | `23-summary-functions.md`, then regenerate catalogs |
 | Dashboard page API | `31-dashboard-pages.md`, `32-figures-and-widgets.md`, `33-dashboard-page-recipes.md` |
 | Export payload/runtime | `34-html-export.md` |
+| Export payload schema | `36-html-export-schema.md` |
 | User-visible failure mode | `90-troubleshooting.md` |
 | Cross-cutting extension recipe | `41-data-extension-cookbook.md` through `45-dashboard-extension-cookbook.md` |
 
@@ -110,3 +114,5 @@ When behavior changes, update docs in the same change:
 - Summary/page requirements are declared where the runtime can see them.
 - Tests cover the behavior rather than only the implementation detail.
 - Generated wiki catalogs are current.
+- The fast suite passes, and the `full_export` boundary passes when the change
+  affects pages, plotting, summaries, or export.

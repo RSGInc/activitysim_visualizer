@@ -36,6 +36,8 @@ that work.
 For end-to-end examples of an ordinary chart, a Plotly customization, a new
 shared figure type, a custom widget, and a table, use the
 [Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md).
+For the complete chart-method, count/share, table, and figure-testing API, see
+the [Plotting Reference](35-plotting-reference.md).
 
 Load the narrowest useful data selection through `self.data.summary(...)` or
 `self.data.summaries(...)`. `RunTables` applies the same Polars operation across
@@ -120,6 +122,59 @@ organizes live components. A refactored page commonly uses both. Keep mixins
 focused, do not give them `__init__` methods, keep pure transforms as functions,
 and preserve page/component IDs during source-only refactors.
 
+### Large-Page Implementation Mixins
+
+Keep the registered page module as the public facade and add only the private
+modules that correspond to real responsibilities:
+
+```text
+pages/example.py
+pages/_example/
+  __init__.py
+  contracts.py
+  transforms.py
+  composition.py
+  selector_domains.py
+  features.py
+```
+
+- `contracts.py` owns stable summary, category, option, and ordering IDs.
+- `transforms.py` owns pure dataframe-to-dataframe calculations.
+- `composition.py` owns selector, feature, section, and layout declaration.
+- `selector_domains.py` owns dynamic options and display-to-raw mappings.
+- `features.py` owns lookup/query/render methods grouped by visible workflow.
+
+The public class may assemble those responsibilities with multiple inheritance:
+
+```python
+@dashboard_page(page_id="example", title="Example", group_id="group")
+class ExamplePage(
+    ExampleCompositionMixin,
+    ExampleSelectorDomainsMixin,
+    ExampleFeatureMixin,
+    DashboardPage,
+):
+    pass
+```
+
+Every mixin method receives the final `ExamplePage` instance. Python resolves
+methods left to right through the declared bases and then `DashboardPage`.
+Mixins are not standalone pages and must not be instantiated.
+
+Keep this pattern narrow:
+
+- do not define `__init__` in an implementation mixin
+- give each mixin one coherent responsibility
+- do not define the same method in multiple mixins
+- make cross-mixin calls clear from names and module boundaries
+- keep stateless pure functions outside mixins
+- preserve page, selector, section, and export IDs during source-only refactors
+
+Mixins organize Python source; `PageFeature` organizes registered live
+components. One does not replace the other. Prefer one page class until stable
+composition, domain, transformation, and rendering boundaries make the split
+easier to understand.
+
 ## Shared Helpers
 
 Check these before adding page-local utilities:
@@ -145,4 +200,5 @@ export time.
 - [31 - Dashboard Pages](31-dashboard-pages.md)
 - [33 - Dashboard Page Recipes](33-dashboard-page-recipes.md)
 - [34 - HTML Export](34-html-export.md)
+- [35 - Plotting Reference](35-plotting-reference.md)
 - [45 - Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md)

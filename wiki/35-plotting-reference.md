@@ -1,4 +1,4 @@
-# Plotting Summary Tables
+# 35 - Plotting Reference
 
 Dashboard pages use one plotting surface: `self.plot`. It accepts the same
 `RunTables` object returned by `self.data`, applies the session's run colors and
@@ -155,3 +155,9 @@ pytest tests/test_figure_builders.py
 
 Page query behavior belongs in `tests/test_page_authoring.py`; the complete
 HTML export suite is a separate release-boundary check.
+
+## Related Chapters
+
+- [32 - Figures And Widgets](32-figures-and-widgets.md)
+- [45 - Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md)
+- [46 - Testing](46-testing.md)

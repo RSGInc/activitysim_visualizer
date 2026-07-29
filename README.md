@@ -64,9 +64,9 @@ The main shared page-helper modules live under `dashboard/helpers/`:
 
 If you are adding or refactoring a page, start with the
 [dashboard page recipes](wiki/33-dashboard-page-recipes.md) and
-[figures/widgets guide](wiki/32-figures-and-widgets.md). The deeper refactor
-conventions remain in the archived
-[dashboard-page contributor note](docs/adding-dashboard-pages.md).
+[figures/widgets guide](wiki/32-figures-and-widgets.md). The
+[dashboard extension cookbook](wiki/45-dashboard-extension-cookbook.md) covers
+the complete contributor path.
 
 ## Config Setup
 
@@ -582,6 +582,7 @@ The main user and contributor documentation lives in the
 [`wiki/`](wiki/00-home.md) chapter set. Start with:
 
 - [Getting Started](wiki/10-getting-started.md)
+- [Architecture](wiki/01-architecture.md)
 - [Configuration Reference](wiki/13-configuration-reference.md)
 - [Output Processor](wiki/20-output-processor.md)
 - [Output Visualizer](wiki/30-output-visualizer.md)
@@ -591,11 +592,11 @@ The main user and contributor documentation lives in the
 - [Weighting and Hosting Extensions](wiki/43-weighting-hosting-extensions.md)
 - [Summary Function Cookbook](wiki/44-summary-function-cookbook.md)
 - [Dashboard Extension Cookbook](wiki/45-dashboard-extension-cookbook.md)
+- [Testing](wiki/46-testing.md)
 - [Troubleshooting](wiki/90-troubleshooting.md)
 
-The [`docs/`](docs/README.md) directory is retained for ADRs, implementation
-plans, and detailed historical contributor notes that have not become wiki
-chapters.
+The wiki is the sole documentation source. Add or revise a wiki chapter instead
+of creating a parallel documentation tree.
 
 ## Documentation Maintenance Checklist
 
@@ -610,5 +611,5 @@ When behavior changes, update docs in the same change:
 ## Tests
 
 See [Developer Workflows](wiki/40-developer-workflows.md) for the normal test
-loop. The archived [testing reference](docs/testing.md) retains the exhaustive
-suite and offline-export boundary.
+loop and [Testing](wiki/46-testing.md) for the fast/full split and
+offline-export boundary.

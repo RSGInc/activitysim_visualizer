@@ -99,6 +99,40 @@ rather than being silently guessed.
 For a concrete selector/section declaration that works in both modes, see the
 [Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md#add-a-dynamic-selector).
 
+## Page Authoring Contract
+
+Export metadata comes from the same page registration graph used by the live
+dashboard:
+
+- `@dashboard_page(...)` owns page identity, grouping, order, and data
+  requirements.
+- `build_page()` creates stable widgets, sections, features, and layout.
+- `self.select(...)` registers ordinary dropdowns and their option/default
+  policy.
+- `self.selector(...)` registers custom widgets.
+- `self.section(...)` defines refresh and export-region boundaries.
+
+Keep section renderers deterministic for a given selector state. Set
+`export=False` on a section that should remain static in the exported shell,
+and `exportable=False` on a selector that should remain live-only. Do not add a
+second export-only registry or duplicate selector metadata on the page
+definition.
+
+Grouped export configuration addresses children by their leaf `page_id`:
+
+```yaml
+dashboard:
+  export:
+    pages:
+      trip_summaries:
+        children:
+          trip_mode:
+            tour_purpose: all
+```
+
+Validation rejects unknown page, group, selector, and part IDs against this
+shared runtime graph.
+
 ## Prepared Data Is A Live-Only Boundary
 
 The export workflow loads summary caches but does not load prepared runs. A
@@ -146,6 +180,8 @@ Checklist:
 5. Add/update fixture, contract, and smoke tests.
 6. Bump `EXPORT_SCHEMA_VERSION` if older payloads are no longer safe.
 7. Update this wiki chapter if user-visible behavior changed.
+8. Update the [HTML Export Schema](36-html-export-schema.md) when the payload
+   contract changed.
 
 ## Debugging Exports
 
@@ -161,3 +197,4 @@ Checklist:
 - [32 - Figures and Widgets](32-figures-and-widgets.md)
 - [90 - Troubleshooting](90-troubleshooting.md)
 - [45 - Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md)
+- [36 - HTML Export Schema](36-html-export-schema.md)

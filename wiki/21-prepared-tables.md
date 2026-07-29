@@ -84,6 +84,27 @@ For a specific summary, the generated catalog in chapter 24 is the authoritative
 list of required prepared columns. At runtime, `@summary` prerequisites and
 prepared-table availability metadata determine whether a calculation can run.
 
+## Inspecting An Exact Prepared Schema
+
+There is intentionally no repository-wide dump of every column from one sample
+prepared cache. Raw model extensions and optional inputs make such a snapshot
+model-specific and quickly stale.
+
+For the cache you are actually using:
+
+1. Read the run's `manifest.json` to find the prepared-table files and recorded
+   availability state.
+2. Inspect the Parquet or CSV schema for the relevant table.
+3. Use `processor.models.RunData` names at runtime and the file/config names in
+   [Prepared Table Names](#prepared-table-names).
+4. Use the generated [Summary Catalog](24-summary-catalog.md) to find the exact
+   prepared columns required by each registered summary.
+
+Stable additions belong in the owning prepare enrichment module and should be
+covered by a prepare test. A row count or a column found only in one regional
+model output is evidence about that dataset, not part of the visualizer's
+portable contract.
+
 ## Adding A Prepared Column
 
 For an end-to-end worked example, see
@@ -141,3 +162,4 @@ reader, availability, cache IO, pruning, and possibly segmentation. Follow the
 - [11 - Configuring Your Data](11-configuring-your-data.md#already-prepared-tables)
 - [23 - Summary Functions](23-summary-functions.md)
 - [31 - Dashboard Pages](31-dashboard-pages.md)
+- [01 - Architecture](01-architecture.md)

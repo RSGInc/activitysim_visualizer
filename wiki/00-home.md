@@ -16,6 +16,9 @@ ActivitySim outputs
   -> live dashboard or standalone HTML export
 ```
 
+For the subsystem boundaries and complete repository map, see
+[01 - Architecture](01-architecture.md).
+
 ## I Am Using The Visualizer
 
 You only need three short chapters for normal use:
@@ -51,6 +54,7 @@ an exact field or default; it is not required reading.
 
 ### User Guides
 
+- [01 - Architecture](01-architecture.md)
 - [10 - Getting Started](10-getting-started.md)
 - [11 - Configuring Your Data](11-configuring-your-data.md)
 - [12 - Running Workflows](12-running-workflows.md)
@@ -81,6 +85,7 @@ an exact field or default; it is not required reading.
 - [43 - Weighting and Hosting Extensions](43-weighting-hosting-extensions.md)
 - [44 - Summary Function Cookbook](44-summary-function-cookbook.md)
 - [45 - Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md)
+- [46 - Testing](46-testing.md)
 - [90 - Troubleshooting](90-troubleshooting.md)
 - [99 - Glossary](99-glossary.md)
 

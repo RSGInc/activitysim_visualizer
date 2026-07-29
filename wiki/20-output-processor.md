@@ -62,6 +62,13 @@ prepared contract rather than raw model-specific table layouts.
 | Summaries | [23 - Summary Functions](23-summary-functions.md) | Build dashboard-ready tables. |
 | Summary catalog | [24 - Summary Catalog](24-summary-catalog.md) | Inspect registered summary outputs. |
 
+The former static prepared-cache schema document recorded one
+`estimation-output` dataset, including its row counts and model-specific
+columns. It was not a portable runtime contract and became stale as inputs
+changed. Use [Prepared Table Names and Fields](21-prepared-tables.md) for the
+stable contract and inspect the manifest and table schema of the actual cache
+when exact model-specific columns are needed.
+
 ## Where Processor Output Goes
 
 Prepared caches are reusable canonical data. Summary caches are smaller,
