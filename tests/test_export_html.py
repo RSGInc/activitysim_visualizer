@@ -1875,6 +1875,10 @@ def test_mandatory_location_export_filters_dependent_names_to_exported_types(
         geography_name["options_by_parent_value"]
     )
 
+    regions = _region_nodes(page_node)
+    assert regions
+    assert all(not region["variant_aliases"] for region in regions.values())
+
 
 def test_build_export_html_document_warns_and_falls_back_when_long_term_geography_is_unavailable(
     tmp_path: Path,

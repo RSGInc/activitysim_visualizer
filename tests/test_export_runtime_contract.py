@@ -15,6 +15,7 @@ from dashboard.export.selector_states import (
     selector_values_for_current_state,
     scoped_widget_values,
 )
+from dashboard.export.page_serializer import _refresh_page_part_view
 from dashboard.export.runtime_assets import build_export_html_shell, load_export_runtime_js
 from dashboard.export.serializer import serialize_viewable
 from dashboard.export.types import EXPORT_SCHEMA_VERSION
@@ -54,6 +55,70 @@ def test_explicit_selector_enumeration_uses_resolved_display_values() -> None:
         widget=widget,
         selector_metadata=metadata,
     ) == ["All Person Types", "worker"]
+
+
+def test_dependent_selector_enumeration_uses_only_current_parent_options() -> None:
+    widget = pn.widgets.Select(
+        options=["All", "Alpha County", "Regional MPO", "101", "102"],
+        value="All",
+    )
+    metadata = {
+        "request_mode": "all",
+        "requested_values": [],
+        "resolved_values": ["All", "Alpha County", "Regional MPO"],
+        "parent_selector_id": "geography_level",
+        "options_by_parent_value": {
+            "All Geography Types": ["All"],
+            "County": ["All", "Alpha County"],
+            "MPO": ["All", "Regional MPO"],
+        },
+    }
+
+    assert selector_values_for_current_state(
+        selector_id="geography",
+        widget=widget,
+        selector_metadata=metadata,
+        selected_values={"geography_level": "County"},
+    ) == ["All", "Alpha County"]
+
+
+def test_export_part_refresh_targets_only_the_current_registered_section() -> None:
+    view = pn.Column()
+
+    class ProbePage:
+        def __init__(self) -> None:
+            self.cleared = 0
+            self.stale_sections: list[str] = []
+            self.refresh_forces: list[bool] = []
+
+        def clear_query_cache(self) -> None:
+            self.cleared += 1
+
+        def mark_section_stale(self, section_id: str) -> None:
+            self.stale_sections.append(section_id)
+
+        def refresh(self, force: bool = False) -> None:
+            self.refresh_forces.append(force)
+
+    page = ProbePage()
+    part = type(
+        "Part",
+        (),
+        {"part_id": "distance.distribution", "view_for": lambda self, page: view},
+    )()
+
+    assert (
+        _refresh_page_part_view(
+            page,
+            part,
+            page_id="mandatory_location_choice",
+            context_label="during test",
+        )
+        is view
+    )
+    assert page.cleared == 1
+    assert page.stale_sections == ["distance.distribution"]
+    assert page.refresh_forces == [False]
 
 
 def _load_fixture(name: str) -> dict:

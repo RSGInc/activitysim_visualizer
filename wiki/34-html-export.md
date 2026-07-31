@@ -54,8 +54,9 @@ below `root`; an absolute path writes elsewhere. Change
 dashboard instead.
 
 Export begins with the pages resolved by `dashboard.live.pages`. The
-`dashboard.export.pages`, `exclude_pages`, and `exclude_groups` settings may
-narrow that set, configure selector states, or disable parts; they cannot add a
+`dashboard.export.pages` mapping modifies matching page selectors and parts; it
+does not select the included page set. Use a page override with `enabled: false`,
+`exclude_pages`, or `exclude_groups` to narrow the live set. Export cannot add a
 page that live configuration omitted.
 
 ## Supported Runtime Behavior

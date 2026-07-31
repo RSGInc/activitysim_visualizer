@@ -577,8 +577,11 @@ Export page overrides are keyed by page id or by nested group/page id. Selector
 keys depend on the page. Selector values may be `default`, `all`, a single
 string, or a list of strings. `parts.*.enabled` can hide named export parts.
 
-Export starts from `dashboard.live.pages`, so it can narrow the live page set
-but cannot add a page that live configuration did not select. Find valid IDs in:
+Export inherits the page set resolved by `dashboard.live.pages`.
+`dashboard.export.pages` is an override mapping, not an allow-list: mentioning
+one page does not remove the others. A page override with `enabled: false`, or
+`exclude_pages` / `exclude_groups`, can narrow the inherited set. Export cannot
+add a page that live configuration did not select. Find valid IDs in:
 
 - page and group IDs: the generated catalog in chapter 31;
 - selector IDs: `self.select(...)` and `self.selector(...)` calls on the page;

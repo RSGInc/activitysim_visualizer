@@ -425,7 +425,8 @@ Notes:
 - A plain group id like `tour_summaries` behaves like the group's default selection.
 - `raw_trip_demo` is disabled by default and requests prepared trip tables, so keep it out unless you explicitly want that behavior.
 
-For HTML export, you can further narrow the exported page set and selector states:
+For HTML export, start with the live page set and override selector states or
+parts as needed:
 
 ```yaml
 dashboard:
@@ -449,9 +450,12 @@ dashboard:
 Rules worth remembering:
 
 - If `dashboard.live.pages` is omitted, the app uses its built-in default page set.
-- If `dashboard.export.pages` is omitted, export mirrors the live page set.
+- Export always starts from the live page set. Entries under
+  `dashboard.export.pages` modify matching pages; they are not an allow-list.
 - Export selector requests accept `default`, `all`, or a list of explicit values.
-- `dashboard.export.exclude_pages` and `exclude_groups` remove pages from export without changing the live dashboard.
+- Set a page override's `enabled` to `false`, or use
+  `dashboard.export.exclude_pages` / `exclude_groups`, to remove pages from
+  export without changing the live dashboard.
 
 ## Run Modes
 

@@ -330,10 +330,14 @@ def _refresh_page_part_view(
     page_id: str,
     context_label: str,
 ) -> pn.viewable.Viewable:
-    """Refresh one page and resolve the current export-part subtree."""
+    """Refresh one export section and resolve its current subtree."""
     if hasattr(page, "clear_query_cache"):
         page.clear_query_cache()
-    page.refresh(force=True)
+    if hasattr(page, "mark_section_stale"):
+        page.mark_section_stale(part_def.part_id)
+        page.refresh(force=False)
+    else:
+        page.refresh(force=True)
     refreshed_part_view = part_def.view_for(page)
     if refreshed_part_view is None:
         raise ValueError(

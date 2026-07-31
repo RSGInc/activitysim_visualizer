@@ -60,8 +60,10 @@ default-enabled, and grouped children must also be default-enabled. A group's
 `default_page_id` selects the initially visible tab/fallback; it does not by
 itself enable every child.
 
-`dashboard.export.pages` can only narrow the resolved live page set and choose
-selector states/parts. It cannot add a page omitted from `dashboard.live.pages`.
+`dashboard.export.pages` modifies matching pages in the resolved live page set;
+it is not an allow-list. Unmentioned live pages keep their default export
+behavior. Use `enabled: false`, `exclude_pages`, or `exclude_groups` to narrow
+the export. Export cannot add a page omitted from `dashboard.live.pages`.
 
 For example, enable only two trip-summary children:
 

@@ -637,8 +637,8 @@ def validate_page_export_config(config: Config) -> None:
     for page_id, override in config.export_html.pages.items():
         page_def = _page_definition_for_export_override(page_id)
         if page_def is None:
-            # A group-level empty mapping selects all of that group's live
-            # children and has no leaf selectors or parts to validate.
+            # A group-level empty mapping is a valid no-op override and has no
+            # leaf selectors or parts to validate.
             continue
         page = _build_validation_page(page_def, config)
         selector_defs = traversal.page_selectors(page)

@@ -227,6 +227,7 @@ dashboard:
       - validation
   export:
     output_path: exports/dashboard.html
+    # `pages` overrides matching live pages; it is not an inclusion list.
     # dashboard:
     #   weighting: [unweighted]
     # pages:

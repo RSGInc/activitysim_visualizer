@@ -189,6 +189,7 @@ def resolve_export_section_states(
                 selector_id=selector_id,
                 widget=widget,
                 selector_metadata=selector_metadata_by_id[selector_id],
+                selected_values=canonical_values,
             )
             if not candidates:
                 return
@@ -324,8 +325,15 @@ def selector_values_for_current_state(
     selector_id: str,
     widget: pn.widgets.Widget,
     selector_metadata: SelectorMetadataPayload,
+    selected_values: dict[str, str] | None = None,
 ) -> list[str]:
     options = selector_options(widget)
+    parent_selector_id = selector_metadata.get("parent_selector_id")
+    if parent_selector_id and selected_values is not None:
+        parent_value = selected_values.get(parent_selector_id)
+        options_by_parent = selector_metadata.get("options_by_parent_value", {})
+        if parent_value in options_by_parent:
+            options = list(options_by_parent[parent_value])
     default_value = str(widget.value)
     request_mode = selector_metadata["request_mode"]
     if request_mode == "default":

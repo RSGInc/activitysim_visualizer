@@ -496,22 +496,9 @@ def resolve_export_page_definitions(config: Config) -> list[DashboardPageDefinit
     ):
         return resolved_pages
     export_pages: list[DashboardPageDefinition] = []
-    configured_pages = set(config.export_html.pages)
     excluded_groups = set(config.export_html.exclude_groups)
     excluded_pages = set(config.export_html.exclude_pages)
     for page_definition in resolved_pages:
-        if config.export_html.pages_configured:
-            qualified_page_id = (
-                f"{page_definition.group_id}.{page_definition.page_id}"
-                if page_definition.group_id
-                else page_definition.page_id
-            )
-            if not (
-                page_definition.page_id in configured_pages
-                or page_definition.group_id in configured_pages
-                or qualified_page_id in configured_pages
-            ):
-                continue
         if page_definition.group_id and page_definition.group_id in excluded_groups:
             continue
         if page_definition.page_id in excluded_pages:
