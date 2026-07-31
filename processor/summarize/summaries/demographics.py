@@ -20,6 +20,7 @@ def hh_size(rd: RunData, config: Config | None = None) -> pl.DataFrame:
         rd.hh.group_by("HHSIZE")
         .agg(household_count=pl.col("finalweight").sum())
         .rename({"HHSIZE": "household_size"})
+        .with_columns(pl.col("household_size").cast(pl.Int64))
         .sort("household_size")
     )
 
@@ -54,6 +55,7 @@ def person_type(rd: RunData, config: Config) -> pl.DataFrame:
             )
             .alias("person_type_label")
         )
+        .select("person_type", "person_type_label", "person_count")
         .sort("person_type")
     )
 

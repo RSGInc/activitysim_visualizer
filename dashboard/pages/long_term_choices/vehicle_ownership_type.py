@@ -133,7 +133,7 @@ class VehicleOwnershipTypePage(DashboardPage):
             return [self.no_runs_message()]
 
         summaries = self._optional_summaries()
-        if not any(summary is not None for summary in summaries.values()):
+        if not any(summaries.values()):
             return [self._summary_only_unavailable()]
 
         top_row: list[pn.viewable.Viewable] = []
@@ -164,9 +164,6 @@ class VehicleOwnershipTypePage(DashboardPage):
             return []
 
         summaries = self._optional_summaries()
-        if not any(summary is not None for summary in summaries.values()):
-            return []
-
         vehicle_views: list[pn.viewable.Viewable] = []
         chart_specs = [
             (
@@ -213,7 +210,7 @@ class VehicleOwnershipTypePage(DashboardPage):
 
     def render_auto_ownership_chart(self, summary_data):
         """Render household auto ownership or an unavailable card."""
-        if summary_data is None:
+        if not summary_data:
             return self.data_not_available_card(
                 detail="The auto ownership summary is unavailable.",
                 missing_items=["auto_ownership_distribution"],
@@ -233,7 +230,7 @@ class VehicleOwnershipTypePage(DashboardPage):
 
     def render_autonomous_vehicle_kpi(self, summary_data):
         """Render the autonomous vehicle ownership KPI or an unavailable state."""
-        if summary_data is None:
+        if not summary_data:
             return self.data_not_available_card(
                 detail="The autonomous vehicle ownership summary is unavailable.",
                 missing_items=["autonomous_vehicle_ownership_totals"],
@@ -260,7 +257,7 @@ class VehicleOwnershipTypePage(DashboardPage):
         xaxis_title: str,
     ):
         """Render one vehicle attribute distribution chart or its unavailable state."""
-        if summary_data is None:
+        if not summary_data:
             return self.data_not_available_card(
                 detail=f"The {title.lower()} summary is unavailable.",
                 missing_items=[summary_id],

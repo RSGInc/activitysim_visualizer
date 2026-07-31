@@ -1156,6 +1156,23 @@ def free_parking(rd: RunData, config: Config) -> pl.DataFrame:
     if not required.issubset(set(rd.per.columns)):
         return free_parking.empty()
 
+    free_parking_dtype = rd.per.schema["free_parking_at_work"]
+    if free_parking_dtype == pl.Boolean:
+        free_parking_expr = pl.col("free_parking_at_work")
+    elif free_parking_dtype.is_numeric():
+        # Estimation survey inputs use the model alternative codes 0/1/2;
+        # ActivitySim's free-parking alternative is 2. Model outputs already
+        # contain a Boolean and take the branch above.
+        free_parking_expr = pl.col("free_parking_at_work") == 2
+    else:
+        free_parking_expr = (
+            pl.col("free_parking_at_work")
+            .cast(pl.Utf8)
+            .str.strip_chars()
+            .str.to_lowercase()
+            .is_in(["true", "yes", "y", "2"])
+        )
+
     def aggregate_counts(
         df: pl.DataFrame,
         geography_type: str,
@@ -1190,15 +1207,19 @@ def free_parking(rd: RunData, config: Config) -> pl.DataFrame:
             )
         )
 
-    base = rd.per.filter(
-        _worker_filter_expr()
-        & pl.col("workplace_zone_id").is_not_null()
-        & pl.col("free_parking_at_work").is_not_null()
-    ).select(
-        "workplace_zone_id",
-        "free_parking_at_work",
-        "finalweight",
-        *_configured_geography_columns(rd.per, config=config, role_prefix="work"),
+    base = (
+        rd.per.filter(
+            _worker_filter_expr()
+            & pl.col("workplace_zone_id").is_not_null()
+            & pl.col("free_parking_at_work").is_not_null()
+        )
+        .with_columns(free_parking_expr.alias("free_parking_at_work"))
+        .select(
+            "workplace_zone_id",
+            "free_parking_at_work",
+            "finalweight",
+            *_configured_geography_columns(rd.per, config=config, role_prefix="work"),
+        )
     )
     if base.is_empty():
         return free_parking.empty()

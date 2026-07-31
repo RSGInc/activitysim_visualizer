@@ -36,7 +36,13 @@ class Plotter:
         self.figure = FigureBuilder(context)
 
     @staticmethod
-    def panel(figure) -> pn.pane.Plotly:
+    def panel(figure, *, aspect_ratio: float | None = None) -> pn.pane.Plotly:
+        if aspect_ratio is not None:
+            return pn.pane.Plotly(
+                figure,
+                sizing_mode="scale_width",
+                aspect_ratio=aspect_ratio,
+            )
         return pn.pane.Plotly(figure, sizing_mode="stretch_width")
 
     def bar(self, data, **kwargs) -> pn.pane.Plotly:
@@ -48,8 +54,17 @@ class Plotter:
     def density(self, data, **kwargs) -> pn.pane.Plotly:
         return self.panel(self.figure.density(data, **kwargs))
 
-    def scatter(self, data, **kwargs) -> pn.pane.Plotly:
-        return self.panel(self.figure.scatter(data, **kwargs))
+    def scatter(
+        self,
+        data,
+        *,
+        panel_aspect_ratio: float | None = None,
+        **kwargs,
+    ) -> pn.pane.Plotly:
+        return self.panel(
+            self.figure.scatter(data, **kwargs),
+            aspect_ratio=panel_aspect_ratio,
+        )
 
     def kpi(self, label: str, values, **kwargs):
         return kpi_box(self.context, label, values, **kwargs)

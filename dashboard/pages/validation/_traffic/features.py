@@ -162,9 +162,10 @@ class TrafficFeatureMixin:
                     y_title="Modeled Volume",
                     fit_overlays=fit_data,
                     one_to_one=True,
+                    panel_aspect_ratio=1.0,
                 )
             )
-        elif count_list is not None and volume_list is not None:
+        elif count_list and volume_list:
             scatter_data = self.query(
                 lambda: demo_count_scatter_data_from_sources(
                     count_list,
@@ -182,6 +183,7 @@ class TrafficFeatureMixin:
                     x_title="Observed Count",
                     y_title="Modeled Volume",
                     one_to_one=True,
+                    panel_aspect_ratio=1.0,
                 )
             )
         else:

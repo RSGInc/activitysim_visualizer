@@ -2320,6 +2320,19 @@ def test_prepare_data_prefers_non_numeric_purpose_alias_when_multiple_candidates
     assert prepared.tours["tour_purpose"].to_list() == ["eatout"]
 
 
+def test_prepare_data_falls_back_from_configured_numeric_purpose_to_tour_type(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        column_lines=["tour_purpose: primary_purpose"],
+    )
+
+    prepared = prepare_data(_raw_run_with_default_fallback_columns(), config)
+
+    assert prepared.tours["tour_purpose"].to_list() == ["eatout"]
+
+
 def test_prepare_data_overwrites_numeric_raw_tour_purpose_with_readable_alias(
     tmp_path: Path,
 ) -> None:
@@ -2525,6 +2538,7 @@ def test_summaries_return_empty_tables_when_canonical_columns_are_missing(
     assert trip_distributions.stop_ood_distance(prepared, config).is_empty()
     assert tour_profiles.stop_freq(prepared, config).is_empty()
     assert tour_profiles.tour_tod(prepared, config).is_empty()
+
 def test_prepare_data_skips_fragile_joins_when_dependency_keys_are_missing(
     tmp_path: Path,
 ) -> None:

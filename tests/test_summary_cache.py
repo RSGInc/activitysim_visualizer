@@ -5464,6 +5464,8 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
     assert reference_line.line.color == "#BDBDBD"
     assert reference_line.line.dash == "dash"
     assert reference_line.showlegend is False
+    assert count_plot.sizing_mode == "scale_width"
+    assert count_plot.aspect_ratio == 1.0
     assert list(bar_plot.object.data[0].x) == [
         "Minor Arterial",
         "Principal Arterial",
@@ -5985,3 +5987,35 @@ def test_vehicle_ownership_type_live_page_uses_shared_summary_helpers(
     )
     assert list(filtered_plot.object.data[0].x) == ["4+"]
     assert list(filtered_plot.object.data[0].y) == [18.0]
+
+
+def test_vehicle_ownership_type_renders_cards_for_empty_attribute_summaries(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "auto_ownership_distribution": pl.DataFrame(
+                {
+                    "household_vehicle_count": [1],
+                    "household_count": [12.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = VehicleOwnershipTypePage(state, config)
+    page.refresh(force=True)
+
+    assert not _collect_plotly_panes(page._vehicle_mix_section)
+    cards = _collect_cards(page._vehicle_mix_section)
+    assert len(cards) == 3
+    card_text = "\n".join(str(card.objects[0].object) for card in cards if card.objects)
+    assert "vehicle_age_distribution" in card_text
+    assert "vehicle_fuel_type_distribution" in card_text
+    assert "vehicle_body_type_distribution" in card_text
