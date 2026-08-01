@@ -168,6 +168,7 @@ def test_build_export_payload_defaults_to_live_segmentation_filter() -> None:
     tmp_path = _workspace_tmp_dir("payload_segmentation_fallback")
     config = _write_config(
         tmp_path,
+        dashboard_pages=[{"daily_travel": ["daily_activity_pattern"]}],
         export_html_lines=[
             "pages:",
             "  daily_travel:",
@@ -218,6 +219,7 @@ def test_build_export_payload_honors_export_segmentation_overrides() -> None:
     tmp_path = _workspace_tmp_dir("payload_segmentation_override")
     config = _write_config(
         tmp_path,
+        dashboard_pages=[{"daily_travel": ["daily_activity_pattern"]}],
         export_html_lines=[
             "dashboard:",
             "  segmentation_type: person_sex",
@@ -271,6 +273,7 @@ def test_build_export_payload_supports_export_full_only_segmentation() -> None:
     tmp_path = _workspace_tmp_dir("payload_segmentation_full_only")
     config = _write_config(
         tmp_path,
+        dashboard_pages=[{"daily_travel": ["daily_activity_pattern"]}],
         export_html_lines=[
             "dashboard:",
             "  segmentation_type: signup_platform",
@@ -369,6 +372,7 @@ def test_build_export_payload_serializes_representative_page_region_structure(
     tmp_path = _workspace_tmp_dir("payload_variants")
     config = _write_config(
         tmp_path,
+        dashboard_pages=[{"trip_summaries": ["trip_mode"]}],
         export_html_lines=[
             "pages:",
             "  trip_summaries:",
@@ -591,6 +595,7 @@ def test_build_export_payload_disables_shadow_pricing_table_parts() -> None:
     tmp_path = _workspace_tmp_dir("payload_shadow_parts")
     config = _write_config(
         tmp_path,
+        dashboard_pages=[{"long_term_choices": ["shadow_pricing"]}],
         export_html_lines=[
             "pages:",
             "  long_term_choices:",

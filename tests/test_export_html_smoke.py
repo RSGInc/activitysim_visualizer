@@ -72,7 +72,7 @@ def test_export_html_smoke_embeds_versioned_payload_and_runtime() -> None:
     tmp_path = _workspace_tmp_dir("html_smoke_payload")
     config = _write_config(
         tmp_path,
-        dashboard_pages=["trip_summaries"],
+        dashboard_pages=[{"trip_summaries": ["trip_mode"]}],
         export_html_lines=[
             "pages:",
             "  trip_summaries:",

@@ -1341,7 +1341,7 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     )
 
 
-def test_build_export_html_document_respects_configured_dashboard_page_subset_and_order(
+def test_build_export_html_document_applies_overrides_without_narrowing_live_pages(
     tmp_path: Path,
 ) -> None:
     config = _write_config(
@@ -1366,13 +1366,19 @@ def test_build_export_html_document_respects_configured_dashboard_page_subset_an
         ("overview", "Overview"),
         ("trip_summaries", "Trip Summaries"),
     ]
-    assert payload["pages"][1]["default_page_id"] == "trip_mode"
+    assert payload["pages"][1]["default_page_id"] == "trip_stop_purpose"
     assert [(child["id"], child["title"]) for child in payload["pages"][1]["children"]] == [
+        ("trip_stop_purpose", "Trip and Stop Purpose"),
         ("trip_mode", "Trip Mode"),
+        ("trip_stop_time", "Trip and Stop Time"),
+        ("trip_stop_distance", "Trip and Stop Distance"),
     ]
     assert list(payload["states"]["Weighted||Percent"]) == [
         "overview",
+        "trip_stop_purpose",
         "trip_mode",
+        "trip_stop_time",
+        "trip_stop_distance",
     ]
 
 
@@ -1481,6 +1487,11 @@ def test_build_export_html_document_validates_page_selector_requests_against_reg
 ) -> None:
     config = _write_config(
         tmp_path,
+        dashboard_pages=[
+            {"daily_travel": ["daily_activity_pattern"]},
+            {"tour_summaries": ["tour_time", "tour_stop_frequency", "tour_mode"]},
+            {"trip_summaries": ["trip_mode", "trip_stop_time"]},
+        ],
         export_html_lines=[
             "dashboard:",
             "  weighting: weighted",
@@ -1620,6 +1631,7 @@ def test_build_export_html_document_keeps_grouped_tour_mode_chart_when_mode_grou
 ) -> None:
     config = _write_config(
         tmp_path,
+        dashboard_pages=[{"tour_summaries": ["tour_mode"]}],
         modes_lines=[
             "groups:",
             "  Auto:",
@@ -1675,7 +1687,7 @@ def test_build_export_html_document_serializes_vehicle_occupancy_variants_for_to
 ) -> None:
     config = _write_config(
         tmp_path,
-        dashboard_pages=["tour_summaries"],
+        dashboard_pages=[{"tour_summaries": ["tour_mode"]}],
         export_html_lines=[
             "pages:",
             "  tour_mode:",
@@ -1719,6 +1731,7 @@ def test_build_export_html_document_serializes_long_term_geography_variants(
 ) -> None:
     config = _write_config(
         tmp_path,
+        dashboard_pages=[{"long_term_choices": ["mandatory_location_choice"]}],
         geography_lines=[
             "enabled: true",
             "landuse_col: COUNTY",
@@ -1885,6 +1898,7 @@ def test_build_export_html_document_warns_and_falls_back_when_long_term_geograph
 ) -> None:
     config = _write_config(
         tmp_path,
+        dashboard_pages=[{"long_term_choices": ["shadow_pricing"]}],
         export_html_lines=[
             "pages:",
             "  long_term_choices:",
@@ -1912,6 +1926,7 @@ def test_build_export_html_document_serializes_stop_frequency_four_chart_variant
 ) -> None:
     config = _write_config(
         tmp_path,
+        dashboard_pages=[{"tour_summaries": ["tour_stop_frequency"]}],
         export_html_lines=[
             "pages:",
             "  tour_stop_frequency:",
@@ -2102,6 +2117,7 @@ def test_build_export_html_document_serializes_joint_tours_hh_size_variants(
 ) -> None:
     config = _write_config(
         tmp_path,
+        dashboard_pages=[{"daily_travel": ["daily_activity_pattern"]}],
         export_html_lines=[
             "pages:",
             "  daily_travel:",

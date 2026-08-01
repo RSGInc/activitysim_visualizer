@@ -30,6 +30,7 @@ def test_export_logs_selector_unavailable_warning_once_and_falls_back(caplog: py
     tmp_path = _workspace_tmp_dir("warning_unavailable")
     config = _write_config(
         tmp_path,
+        dashboard_pages=[{"long_term_choices": ["shadow_pricing"]}],
         export_html_lines=[
             "dashboard:",
             "  weighting: all",
@@ -196,7 +197,7 @@ def test_export_logs_selector_expansion_warning_with_disable_hint(
     tmp_path = _workspace_tmp_dir("warning_selector_region")
     config = _write_config(
         tmp_path,
-        dashboard_pages=["tour_summaries"],
+        dashboard_pages=[{"tour_summaries": ["tour_mode"]}],
         export_html_lines=[
             "pages:",
             "  tour_summaries:",
