@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _dashboard_expectations import EXPECTED_DEFAULT_LEAF_PAGES, EXPECTED_DEFAULT_PAGES
 from dashboard.export.html import (
     ExportBuildError,
+    _iter_script_safe_payload_json,
     build_export_html_document,
     write_export_html_document,
 )
@@ -2352,6 +2353,53 @@ def test_export_html_save_writes_single_client_side_html_file(tmp_path: Path) ->
     assert "Weighted||Percent" in diagnostics["states"]
 
 
+def test_export_html_save_streams_without_building_full_payload_or_document(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=["overview"],
+        export_html_lines=["pages:", "  overview: {}"],
+    )
+    out_path = tmp_path / "dashboard.html"
+
+    def fail_in_memory_build(*args, **kwargs):
+        raise AssertionError("production writer used an in-memory export representation")
+
+    monkeypatch.setattr(
+        "dashboard.export.html._serialize_export_payload_json",
+        fail_in_memory_build,
+    )
+    monkeypatch.setattr(
+        "dashboard.export.html._build_export_html_shell_document",
+        fail_in_memory_build,
+    )
+
+    write_export_html_document(out_path, [], config, summary_runs=[_full_summary_run()])
+
+    payload = _extract_payload(out_path.read_text(encoding="utf-8"))
+    assert payload["title"] == config.dashboard_title
+    assert payload["states"]["Weighted||Percent"]["overview"]
+
+
+def test_streamed_payload_escapes_script_end_token_across_encoder_chunks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def chunked_iterencode(self, payload):
+        del self, payload
+        return iter(['{"html": "<', '/script>"}'])
+
+    monkeypatch.setattr(json.JSONEncoder, "iterencode", chunked_iterencode)
+
+    payload_json = "".join(
+        _iter_script_safe_payload_json({"html": "</script>"})
+    )
+
+    assert payload_json == '{"html": "<\\/script>"}'
+    assert json.loads(payload_json) == {"html": "</script>"}
+
+
 def test_export_html_config_supports_missing_data_display(tmp_path: Path) -> None:
     config = _write_config(
         tmp_path,
@@ -2406,18 +2454,21 @@ def test_export_html_save_fails_fast_without_final_files_when_html_write_fails(
     )
     out_path = tmp_path / "dashboard.html"
 
-    def fail_html_temp_write(path: Path, contents: str) -> None:
-        if "dashboard.html" in path.name and path.suffix == ".tmp":
-            raise OSError("disk full")
-        path.write_text(contents, encoding="utf-8")
+    def fail_html_temp_write(path: Path, **kwargs) -> None:
+        path.write_text("partial", encoding="utf-8")
+        raise OSError("disk full")
 
-    monkeypatch.setattr("dashboard.export.html._write_text_file", fail_html_temp_write)
+    monkeypatch.setattr(
+        "dashboard.export.html._write_streamed_export_html",
+        fail_html_temp_write,
+    )
 
     with pytest.raises(ExportBuildError, match="write HTML atomically"):
         write_export_html_document(out_path, [], config, summary_runs=[_full_summary_run()])
 
     assert not out_path.exists()
     assert not (tmp_path / "dashboard.diagnostics.json").exists()
+    assert not list(tmp_path.glob(".*.tmp"))
 
 
 def test_export_html_save_rejects_malformed_assembled_html_before_finalizing(
@@ -2432,8 +2483,8 @@ def test_export_html_save_rejects_malformed_assembled_html_before_finalizing(
     out_path = tmp_path / "dashboard.html"
 
     monkeypatch.setattr(
-        "dashboard.export.html.build_export_html_shell",
-        lambda **kwargs: "<html><body>broken export</body></html>",
+        "dashboard.export.html.build_export_html_shell_parts",
+        lambda **kwargs: ("<html><body>broken export", "</body></html>"),
     )
 
     with pytest.raises(ExportBuildError, match="validate assembled HTML"):

@@ -15,7 +15,7 @@ from dashboard.export.protocols import validate_export_page
 from dashboard.export.serializer import (
     json_default,
     page_definition_for_page,
-    sanitize_export_payload,
+    sanitize_export_payload_in_place,
 )
 from dashboard.export import page_serializer, selector_states, traversal
 from dashboard.export.types import (
@@ -303,7 +303,7 @@ def emit_export_size_warnings(size_analysis: dict[str, Any] | None) -> None:
 
 
 def _estimate_json_bytes(value: Any) -> int:
-    sanitized = sanitize_export_payload(value)
+    sanitized = sanitize_export_payload_in_place(value)
     return len(
         json.dumps(
             sanitized,

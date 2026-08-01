@@ -390,6 +390,41 @@ def sanitize_export_payload(value: Any) -> Any:
     return value
 
 
+def sanitize_export_payload_in_place(value: Any) -> Any:
+    """Replace JSON-unsafe values while retaining existing containers.
+
+    Export payloads are transient and can be very large. Mutating their
+    dictionaries and lists avoids constructing a second complete object graph
+    immediately before JSON serialization.
+    """
+
+    if isinstance(value, dict):
+        for key, item in value.items():
+            value[key] = sanitize_export_payload_in_place(item)
+        return value
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            value[index] = sanitize_export_payload_in_place(item)
+        return value
+    if isinstance(value, tuple):
+        return [sanitize_export_payload_in_place(item) for item in value]
+    if isinstance(value, np.integer):
+        return int(value)
+    if isinstance(value, np.floating):
+        if np.isnan(value) or np.isinf(value):
+            return None
+        return float(value)
+    if isinstance(value, float):
+        if np.isnan(value) or np.isinf(value):
+            return None
+        return value
+    if isinstance(value, pd.Timestamp):
+        return value.isoformat()
+    if pd.isna(value):
+        return None
+    return value
+
+
 def json_default(value: Any) -> Any:
     """Serialize pandas/numpy scalars that standard ``json`` cannot handle."""
     if isinstance(value, np.integer):

@@ -11,7 +11,12 @@ import panel as pn
 import plotly.graph_objects as go
 import numpy as np
 
-from dashboard.export.serializer import sanitize_export_payload, serialize_viewable, variant_key
+from dashboard.export.serializer import (
+    sanitize_export_payload,
+    sanitize_export_payload_in_place,
+    serialize_viewable,
+    variant_key,
+)
 from dashboard.pages.tour_summaries.tour_mode import (
     auto_sufficiency_definitions_markdown,
 )
@@ -232,4 +237,25 @@ def test_sanitize_export_payload_removes_nan_and_infinity() -> None:
         "numpy_nan": None,
         "numpy_inf": None,
         "nested": [1.0, 2.5, None],
+    }
+
+
+def test_sanitize_export_payload_in_place_retains_existing_containers() -> None:
+    nested = [1.0, np.float64(2.5), float("nan")]
+    payload = {
+        "nan_float": float("nan"),
+        "numpy_inf": np.float64("inf"),
+        "nested": nested,
+        "tuple": (np.int64(3), float("inf")),
+    }
+
+    sanitized = sanitize_export_payload_in_place(payload)
+
+    assert sanitized is payload
+    assert sanitized["nested"] is nested
+    assert sanitized == {
+        "nan_float": None,
+        "numpy_inf": None,
+        "nested": [1.0, 2.5, None],
+        "tuple": [3, None],
     }
