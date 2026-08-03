@@ -5,19 +5,19 @@ from __future__ import annotations
 import polars as pl
 
 from processor.models import RunData
-from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize.contracts import summary
 from processor.summarize.summaries.summary_helpers import (
-    _aggregate_counts_across_geographies,
-    _aggregate_counts_by_geography,
+    aggregate_counts_across_geographies,
     _configured_geography_columns,
     _configured_geography_dimensions,
-    _aggregate_weighted_average_across_geographies,
+    aggregate_weighted_average_across_geographies,
     _summary_purpose_column,
 )
 from runtime.config import Config
 
 
-@summary_contract(
+@summary(
+    id="average_mandatory_tour_distance_by_purpose_and_geography",
     schema={
         "mandatory_tour_purpose": pl.Utf8,
         "geography_type": pl.Utf8,
@@ -33,7 +33,12 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     workers = (
         rd.per.filter(
             (pl.col("workplace_zone_id") > 0)
-            & (pl.col("is_worker").cast(pl.Utf8).str.to_lowercase().is_in(["true", "1"]))
+            & (
+                pl.col("is_worker")
+                .cast(pl.Utf8)
+                .str.to_lowercase()
+                .is_in(["true", "1"])
+            )
         )
         if "is_worker" in rd.per.columns
         else rd.per.head(0)
@@ -43,7 +48,12 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
         univ_s = (
             rd.per.filter(
                 (pl.col("school_zone_id") > 0)
-                & (pl.col("is_student").cast(pl.Utf8).str.to_lowercase().is_in(["true", "1"]))
+                & (
+                    pl.col("is_student")
+                    .cast(pl.Utf8)
+                    .str.to_lowercase()
+                    .is_in(["true", "1"])
+                )
                 & (pl.col(ptype_col).cast(pl.Utf8) == "3")
             )
             if "is_student" in rd.per.columns
@@ -52,7 +62,12 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
         schl_s = (
             rd.per.filter(
                 (pl.col("school_zone_id") > 0)
-                & (pl.col("is_student").cast(pl.Utf8).str.to_lowercase().is_in(["true", "1"]))
+                & (
+                    pl.col("is_student")
+                    .cast(pl.Utf8)
+                    .str.to_lowercase()
+                    .is_in(["true", "1"])
+                )
                 & (pl.col(ptype_col).cast(pl.Utf8).cast(pl.Int32, strict=False) >= 6)
             )
             if "is_student" in rd.per.columns
@@ -62,7 +77,9 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
         univ_s = rd.per.head(0)
         schl_s = rd.per.head(0)
 
-    def _avg_by_geo(persons: pl.DataFrame, purpose_name: str, dist_col: str) -> pl.DataFrame:
+    def _avg_by_geo(
+        persons: pl.DataFrame, purpose_name: str, dist_col: str
+    ) -> pl.DataFrame:
         if dist_col not in persons.columns or len(persons) == 0:
             return pl.DataFrame(
                 schema={
@@ -94,7 +111,7 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
                 }
             )
         outputs = [
-            _aggregate_weighted_average_across_geographies(
+            aggregate_weighted_average_across_geographies(
                 base,
                 geography_dimensions=_configured_geography_dimensions(
                     base,
@@ -154,7 +171,8 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     ).sort(["mandatory_tour_purpose", "geography_type", "geography_id"])
 
 
-@summary_contract(
+@summary(
+    id="average_nonmandatory_tour_distance_by_purpose_and_geography",
     schema={
         "nonmandatory_tour_purpose": pl.Utf8,
         "geography_type": pl.Utf8,
@@ -185,7 +203,7 @@ def avg_non_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     if not person_required.issubset(set(rd.per.columns)) or not tour_required.issubset(
         set(rd.tours.columns)
     ):
-        return empty_summary_frame(avg_non_mand_tour_distance)
+        return avg_non_mand_tour_distance.empty()
 
     tours = rd.tours.filter(
         (pl.col("tour_category").cast(pl.Utf8).str.to_lowercase() == "non_mandatory")
@@ -196,7 +214,7 @@ def avg_non_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     )
     purpose_col = _summary_purpose_column(rd.tours)
     if not purpose_col:
-        return empty_summary_frame(avg_non_mand_tour_distance)
+        return avg_non_mand_tour_distance.empty()
     base = (
         tours.with_columns(pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"))
         .join(
@@ -226,10 +244,10 @@ def avg_non_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
         )
     )
     if base.is_empty():
-        return empty_summary_frame(avg_non_mand_tour_distance)
+        return avg_non_mand_tour_distance.empty()
 
     outputs = [
-        _aggregate_weighted_average_across_geographies(
+        aggregate_weighted_average_across_geographies(
             base,
             geography_dimensions=_configured_geography_dimensions(
                 base,
@@ -274,22 +292,28 @@ def avg_non_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
             )
         ),
     ]
-    return pl.concat(outputs, how="vertical").with_columns(
-        pl.col("nonmandatory_tour_purpose").cast(pl.Utf8),
-        pl.col("geography_type").cast(pl.Utf8),
-        pl.col("geography_id").cast(pl.Utf8),
-        pl.col("average_tour_distance").cast(pl.Float64),
-        pl.col("tour_count").cast(pl.Float64),
-    ).select(
-        "nonmandatory_tour_purpose",
-        "geography_type",
-        "geography_id",
-        "average_tour_distance",
-        "tour_count",
-    ).sort(["nonmandatory_tour_purpose", "geography_type", "geography_id"])
+    return (
+        pl.concat(outputs, how="vertical")
+        .with_columns(
+            pl.col("nonmandatory_tour_purpose").cast(pl.Utf8),
+            pl.col("geography_type").cast(pl.Utf8),
+            pl.col("geography_id").cast(pl.Utf8),
+            pl.col("average_tour_distance").cast(pl.Float64),
+            pl.col("tour_count").cast(pl.Float64),
+        )
+        .select(
+            "nonmandatory_tour_purpose",
+            "geography_type",
+            "geography_id",
+            "average_tour_distance",
+            "tour_count",
+        )
+        .sort(["nonmandatory_tour_purpose", "geography_type", "geography_id"])
+    )
 
 
-@summary_contract(
+@summary(
+    id="internal_external_nonmandatory_tour_frequency_by_home_geography",
     schema={
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
@@ -304,12 +328,17 @@ def avg_non_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
 def int_vs_ext_non_mand_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
     person_required = {"person_id", "home_zone_id"}
     tour_required = {"person_id", "tour_category", "is_external_tour", "finalweight"}
-    if not person_required.issubset(set(rd.per.columns)) or not tour_required.issubset(set(rd.tours.columns)):
-        return empty_summary_frame(int_vs_ext_non_mand_tour_freq)
+    if not person_required.issubset(set(rd.per.columns)) or not tour_required.issubset(
+        set(rd.tours.columns)
+    ):
+        return int_vs_ext_non_mand_tour_freq.empty()
 
     base = (
         rd.tours.filter(
-            (pl.col("tour_category").cast(pl.Utf8).str.to_lowercase() == "non_mandatory")
+            (
+                pl.col("tour_category").cast(pl.Utf8).str.to_lowercase()
+                == "non_mandatory"
+            )
             & pl.col("person_id").is_not_null()
             & pl.col("is_external_tour").is_not_null()
         )
@@ -335,7 +364,7 @@ def int_vs_ext_non_mand_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
         )
     )
     if base.is_empty():
-        return empty_summary_frame(int_vs_ext_non_mand_tour_freq)
+        return int_vs_ext_non_mand_tour_freq.empty()
 
     geography_dimensions = _configured_geography_dimensions(
         base,
@@ -411,7 +440,8 @@ def int_vs_ext_non_mand_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="external_nonmandatory_tour_locations",
     schema={
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
@@ -429,7 +459,7 @@ def ext_non_mand_tour_loc(rd: RunData, config: Config) -> pl.DataFrame:
         "finalweight",
     }
     if not required.issubset(set(rd.tours.columns)):
-        return empty_summary_frame(ext_non_mand_tour_loc)
+        return ext_non_mand_tour_loc.empty()
 
     base = rd.tours.filter(
         (pl.col("tour_category").cast(pl.Utf8).str.to_lowercase() == "non_mandatory")
@@ -438,13 +468,15 @@ def ext_non_mand_tour_loc(rd: RunData, config: Config) -> pl.DataFrame:
     ).select(
         "destination",
         "finalweight",
-        *_configured_geography_columns(rd.tours, config=config, role_prefix="destination"),
+        *_configured_geography_columns(
+            rd.tours, config=config, role_prefix="destination"
+        ),
     )
     if base.is_empty():
-        return empty_summary_frame(ext_non_mand_tour_loc)
+        return ext_non_mand_tour_loc.empty()
 
     outputs = [
-        _aggregate_counts_across_geographies(
+        aggregate_counts_across_geographies(
             base,
             geography_dimensions=_configured_geography_dimensions(
                 base,

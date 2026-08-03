@@ -6,7 +6,6 @@ requires-python = ">=3.10"
 dependencies = [
     "h5py",
     "numpy",
-    "jupyter",
     "pandas",
     "panel",
     "plotly",
@@ -15,21 +14,41 @@ dependencies = [
     "pyarrow",
     "openmatrix",
     "pyyaml",
-    "shiny",
-    "shinywidgets",
 ]
 
 [project.scripts]
 activitysim-viz = "run:main"
-activitysim-viz-freeze-panel = "quarto_visualizer.freeze_panel:main"
-activitysim-viz-validate-parity = "quarto_visualizer.validate_parity:main"
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+]
+notebooks = [
+    "jupyter",
+]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.uv]
-package = false
+[tool.hatch.build.targets.wheel]
+include = [
+    "/dashboard",
+    "/processor",
+    "/runtime",
+    "/run.py",
+    "/config.yaml",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "full_export: exhaustive offline-export tests that render every default page and state",
+]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E9", "F63", "F7", "F82"]

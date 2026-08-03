@@ -10,6 +10,7 @@ import polars as pl
 from processor.models import RunData
 from processor.skimjoin.annotate.tours import annotate_tours
 from processor.skimjoin.annotate.trips import annotate_trips
+from processor.skimjoin.hypothetical_sidecars import build_hypothetical_sidecars
 from processor.skimjoin.inventory import inventory_skim_files
 from processor.skimjoin.runtime_types import _RuntimeSkimjoinResult
 from processor.skimjoin.skimstore.omx import OmxSkimStore
@@ -59,15 +60,17 @@ def _run_integrated_skimjoin(
     *,
     rd: RunData,
     normalized: object,
+    create_hypothetical_skim_tables: bool = False,
     annotate_trips_fn: Callable[..., tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]] = annotate_trips,
     annotate_tours_fn: Callable[..., tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]] = annotate_tours,
 ) -> _RuntimeSkimjoinResult:
     inventory = _resolved_runtime_inventory(normalized)
+    skim_store = OmxSkimStore()
     trip_outputs = annotate_trips_fn(
         rd.trips,
         normalized,
         inventory,
-        skim_store=OmxSkimStore(),
+        skim_store=skim_store,
         include_fallback_report=True,
     )
     annotated_trips, lookup_summary, missing_lookup_report, fallback_lookup_report = trip_outputs
@@ -75,13 +78,25 @@ def _run_integrated_skimjoin(
         rd.tours,
         normalized,
         inventory,
-        skim_store=OmxSkimStore(),
+        skim_store=skim_store,
         include_fallback_report=True,
     )
     enriched_tours, tour_lookup_summary, tour_missing_lookup_report, tour_fallback_lookup_report = tour_outputs
+    trip_hypothetical_skims = pl.DataFrame()
+    tour_hypothetical_skims = pl.DataFrame()
+    if create_hypothetical_skim_tables:
+        trip_hypothetical_skims, tour_hypothetical_skims = build_hypothetical_sidecars(
+            trips=rd.trips,
+            tours=rd.tours,
+            normalized=normalized,
+            inventory=inventory,
+            skim_store=skim_store,
+        )
     return _RuntimeSkimjoinResult(
         annotated_trips=annotated_trips,
         enriched_tours=enriched_tours,
+        trip_hypothetical_skims=trip_hypothetical_skims,
+        tour_hypothetical_skims=tour_hypothetical_skims,
         lookup_summary=pl.concat(
             [lookup_summary, tour_lookup_summary],
             how="vertical_relaxed",

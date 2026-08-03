@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import polars as pl
 
-from processor.models import RunData
-from processor.prepare.availability import attach_table_availability
 from processor.prepare.enrichment.columns import _cast_if_present
 from processor.prepare.enrichment.types import _PrepareState
 
@@ -94,7 +92,10 @@ def _cast_tours(tours: pl.DataFrame) -> pl.DataFrame:
                 "school_esc_inbound": pl.Utf8,
                 "start_hour": pl.Int32,
                 "end_hour": pl.Int32,
+                "start_period": pl.Utf8,
+                "end_period": pl.Utf8,
                 "first_inbound_trip_depart": pl.Int32,
+                "first_inbound_trip_period": pl.Utf8,
                 "tourdur": pl.Int32,
                 "o_maz": pl.Int64,
                 "d_maz": pl.Int64,
@@ -131,6 +132,7 @@ def _cast_trips(trips: pl.DataFrame) -> pl.DataFrame:
                 "summary_tour_purpose": pl.Utf8,
                 "tour_category": pl.Utf8,
                 "depart_hour": pl.Int32,
+                "trip_period": pl.Utf8,
                 "o_maz": pl.Int64,
                 "d_maz": pl.Int64,
                 "pnr_zone_id": pl.Int64,
@@ -142,6 +144,7 @@ def _cast_trips(trips: pl.DataFrame) -> pl.DataFrame:
                 "income_segment": pl.Int64,
                 "vot_bin": pl.Utf8,
                 "od_dist": pl.Float64,
+                "prepared_non_motorized_distance": pl.Float64,
                 "out_dir_dist": pl.Float64,
                 "stops": pl.Int32,
                 "inbound": pl.Int32,
@@ -215,29 +218,3 @@ def _cast_prepared_tables(state: _PrepareState) -> _PrepareState:
     state.vehicles = _cast_vehicles(state.vehicles)
     state.land_use = _cast_land_use(state.land_use)
     return state
-
-
-def _finalize_prepared_run(state: _PrepareState) -> RunData:
-    return attach_table_availability(
-        RunData(
-            label=state.label,
-            run_dir=state.run_dir,
-            skim_file=state.skim_file,
-            hh=state.hh,
-            per=state.per,
-            day=state.day,
-            tours=state.tours,
-            trips=state.trips,
-            vehicles=state.vehicles,
-            joint_participants=state.joint_participants,
-            land_use=state.land_use,
-            skim_matrix=state.skim,
-            skim_zone_map=state.skim_map,
-            hh_weight_col=state.hh_weight_col,
-            person_weight_col=state.person_weight_col,
-            trip_weight_col=state.trip_weight_col,
-            prepare_diagnostics=dict(state.prepare_diagnostics),
-        ),
-        table_states=state.table_states,
-        table_reasons=state.table_reasons,
-    )

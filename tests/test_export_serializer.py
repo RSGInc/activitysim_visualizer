@@ -11,9 +11,14 @@ import panel as pn
 import plotly.graph_objects as go
 import numpy as np
 
-from dashboard.export.serializer import sanitize_export_payload, serialize_viewable, variant_key
+from dashboard.export.serializer import (
+    sanitize_export_payload,
+    sanitize_export_payload_in_place,
+    serialize_viewable,
+    variant_key,
+)
 from dashboard.pages.tour_summaries.tour_mode import (
-    _auto_sufficiency_definitions_markdown,
+    auto_sufficiency_definitions_markdown,
 )
 from runtime.config import Config
 
@@ -54,7 +59,10 @@ def test_serialize_viewable_supports_plotly_and_table_nodes() -> None:
         disable_widgets=True,
     )
     table_payload = serialize_viewable(
-        pn.widgets.Tabulator(pd.DataFrame({"alpha": [1.2345], "beta": ["x"], "gamma": [2.0]})),
+        pn.widgets.Tabulator(
+            pd.DataFrame({"alpha": [1.2345], "beta": ["x"], "gamma": [2.0]}),
+            titles={"alpha": "Alpha Value", "gamma": "Gamma Value"},
+        ),
         disable_widgets=True,
     )
 
@@ -62,8 +70,8 @@ def test_serialize_viewable_supports_plotly_and_table_nodes() -> None:
     assert plot_payload["figure"]["data"][0]["type"] == "bar"
     assert table_payload == {
         "kind": "table",
-        "columns": ["alpha", "beta", "gamma"],
-        "rows": [{"alpha": "1.2", "beta": "x", "gamma": "2"}],
+        "columns": ["Alpha Value", "beta", "Gamma Value"],
+        "rows": [{"Alpha Value": "1.2", "beta": "x", "Gamma Value": "2"}],
     }
 
 
@@ -157,7 +165,7 @@ def test_serialize_viewable_dedents_indented_markdown_blocks() -> None:
             **Auto sufficiency definitions**
 
             - **Zero Auto**: household has no vehicles.
-            - **Auto Deficient**: household has fewer vehicles than licensed drivers.
+            - **Fewer Vehicles Than Drivers**: household has fewer vehicles than licensed drivers.
             """
         ),
         disable_widgets=True,
@@ -176,11 +184,10 @@ def test_serialize_viewable_preserves_configured_auto_sufficiency_basis_text(
         "\n".join(
             [
                 'name: "Export Serializer Test"',
+                "root: summary_cache",
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
-                "visualizer:",
-                '  dashboard_title: "Export Serializer Test"',
+                "dashboard:",
+                '  title: "Export Serializer Test"',
                 "prepare:",
                 "  auto_sufficiency_basis: adults",
             ]
@@ -190,7 +197,7 @@ def test_serialize_viewable_preserves_configured_auto_sufficiency_basis_text(
     config = Config.from_yaml(config_path)
 
     markdown_payload = serialize_viewable(
-        pn.pane.Markdown(_auto_sufficiency_definitions_markdown(config)),
+        pn.pane.Markdown(auto_sufficiency_definitions_markdown(config)),
         disable_widgets=True,
     )
 
@@ -230,4 +237,25 @@ def test_sanitize_export_payload_removes_nan_and_infinity() -> None:
         "numpy_nan": None,
         "numpy_inf": None,
         "nested": [1.0, 2.5, None],
+    }
+
+
+def test_sanitize_export_payload_in_place_retains_existing_containers() -> None:
+    nested = [1.0, np.float64(2.5), float("nan")]
+    payload = {
+        "nan_float": float("nan"),
+        "numpy_inf": np.float64("inf"),
+        "nested": nested,
+        "tuple": (np.int64(3), float("inf")),
+    }
+
+    sanitized = sanitize_export_payload_in_place(payload)
+
+    assert sanitized is payload
+    assert sanitized["nested"] is nested
+    assert sanitized == {
+        "nan_float": None,
+        "numpy_inf": None,
+        "nested": [1.0, 2.5, None],
+        "tuple": [3, None],
     }

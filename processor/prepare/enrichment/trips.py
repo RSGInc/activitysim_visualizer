@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 import numpy as np
 import polars as pl
 

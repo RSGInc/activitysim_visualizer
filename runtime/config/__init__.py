@@ -11,12 +11,14 @@ from .models import (
     ExportHTMLSettings,
     ExportSelectorRequest,
     PipelineSettings,
+    PrepareNonMotorizedDistanceSkimSettings,
     PreparedColumnSegmentationSource,
     SegmentationDefinition,
     StudentTypeConfig,
 )
 from .normalize_prepare import config_for_run
 from .normalize_skimjoin import resolve_run_skimjoin_settings
+from runtime.weighting import WeightingModeDefinition, WeightingModeRegistry
 
 __all__ = [
     "CategorySpec",
@@ -26,9 +28,12 @@ __all__ = [
     "ExportHTMLSettings",
     "ExportSelectorRequest",
     "PipelineSettings",
+    "PrepareNonMotorizedDistanceSkimSettings",
     "PreparedColumnSegmentationSource",
     "SegmentationDefinition",
     "StudentTypeConfig",
+    "WeightingModeDefinition",
+    "WeightingModeRegistry",
     "config_for_run",
     "load_config_from_yaml",
     "resolve_run_skimjoin_settings",

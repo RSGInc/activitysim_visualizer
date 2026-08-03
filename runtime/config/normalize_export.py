@@ -248,6 +248,12 @@ def normalize_export_page_entries(
         if not isinstance(raw_page_cfg, dict):
             raise ValueError(f"{field_name}.{page_id} must be a mapping.")
 
+        # Preserve explicit no-op overrides. Export pages inherit from the live
+        # page set; an empty mapping does not turn the mapping into an allow-list.
+        if not raw_page_cfg:
+            normalized[page_id] = ExportPageOverride()
+            continue
+
         is_leaf_override = any(
             str(key).strip().lower() in {"enabled", "parts"}
             or not isinstance(value, dict)

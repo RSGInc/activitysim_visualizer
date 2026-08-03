@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, Mapping
 
 import polars as pl
 
@@ -50,6 +50,95 @@ def percent_difference_string(
     return f"{pct_diff:.{precision}f}%"
 
 
+def _finite_float(value: float | int | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    return numeric if math.isfinite(numeric) else None
+
+
+def ab_percent_difference_string(
+    quantity_a: float | int | None,
+    quantity_b: float | int | None,
+    *,
+    precision: int = 2,
+) -> str:
+    """Return formatted percent difference using the second value as denominator."""
+    a_value = _finite_float(quantity_a)
+    b_value = _finite_float(quantity_b)
+    if a_value is None or b_value is None or b_value == 0.0:
+        return ""
+    pct_diff = ((a_value - b_value) / b_value) * 100.0
+    return f"{pct_diff:.{precision}f}%"
+
+
+def ab_difference_value(
+    quantity_a: float | int | None,
+    quantity_b: float | int | None,
+) -> float | None:
+    """Return absolute difference for a single A/B comparison."""
+    a_value = _finite_float(quantity_a)
+    b_value = _finite_float(quantity_b)
+    if a_value is None or b_value is None:
+        return None
+    return math.sqrt((a_value - b_value) ** 2)
+
+
+def build_ab_comparison_row(
+    *,
+    keys: Mapping[str, Any],
+    quantity_a: float | int | None,
+    quantity_b: float | int | None,
+    quantity_a_column: str,
+    quantity_b_column: str,
+    precision: int = 2,
+) -> dict[str, Any]:
+    """Build one long-form A/B comparison row with caller-supplied value labels."""
+    a_value = _finite_float(quantity_a)
+    b_value = _finite_float(quantity_b)
+    return {
+        **dict(keys),
+        quantity_a_column: a_value,
+        quantity_b_column: b_value,
+        "Difference": ab_difference_value(a_value, b_value),
+        "% Difference": ab_percent_difference_string(
+            a_value,
+            b_value,
+            precision=precision,
+        ),
+    }
+
+
+def build_ab_comparison_table(
+    rows: list[Mapping[str, Any]],
+    *,
+    key_columns: list[str],
+    quantity_a_column: str,
+    quantity_b_column: str,
+) -> pl.DataFrame:
+    """Return rows with stable key/A/B/difference/% difference column ordering."""
+    columns = [
+        *key_columns,
+        quantity_a_column,
+        quantity_b_column,
+        "Difference",
+        "% Difference",
+    ]
+    if not rows:
+        schema = {
+            **{column: pl.Utf8 for column in key_columns},
+            quantity_a_column: pl.Float64,
+            quantity_b_column: pl.Float64,
+            "Difference": pl.Float64,
+            "% Difference": pl.Utf8,
+        }
+        return pl.DataFrame(schema=schema).select(columns)
+    return pl.DataFrame(rows).select(columns)
+
+
 def build_base_run_percent_difference_table(
     *,
     run_labels: list[str],
@@ -91,7 +180,7 @@ def build_base_run_percent_difference_table(
 def weighted_average_lookup(
     df: pl.DataFrame,
     *,
-    category_col: str,
+    category: str,
     average_col: str,
     weight_col: str,
 ) -> dict[str, float]:
@@ -103,21 +192,21 @@ def weighted_average_lookup(
     """
     if df.is_empty():
         return {}
-    if category_col not in df.columns or average_col not in df.columns:
+    if category not in df.columns or average_col not in df.columns:
         return {}
     if weight_col not in df.columns:
         aggregated = (
-            df.group_by(category_col)
+            df.group_by(category)
             .agg(pl.col(average_col).mean().alias(average_col))
-            .select(category_col, average_col)
+            .select(category, average_col)
         )
         return {
-            str(row[category_col]): float(row[average_col])
+            str(row[category]): float(row[average_col])
             for row in aggregated.to_dicts()
-            if row.get(category_col) is not None and row.get(average_col) is not None
+            if row.get(category) is not None and row.get(average_col) is not None
         }
     aggregated = (
-        df.group_by(category_col)
+        df.group_by(category)
         .agg(
             pl.col(weight_col).sum().alias(weight_col),
             (pl.col(average_col) * pl.col(weight_col)).sum().alias("_weighted_value"),
@@ -128,10 +217,10 @@ def weighted_average_lookup(
             .otherwise(None)
             .alias(average_col)
         )
-        .select(category_col, average_col)
+        .select(category, average_col)
     )
     return {
-        str(row[category_col]): float(row[average_col])
+        str(row[category]): float(row[average_col])
         for row in aggregated.to_dicts()
-        if row.get(category_col) is not None and row.get(average_col) is not None
+        if row.get(category) is not None and row.get(average_col) is not None
     }

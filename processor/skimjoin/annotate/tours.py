@@ -12,22 +12,26 @@ def annotate_tours(
     tours: pl.DataFrame,
     normalized: NormalizedConfig,
     inventory: pl.DataFrame,
+    trips: pl.DataFrame | None = None,
     skim_store: SkimStore | None = None,
     include_fallback_report: bool = False,
-) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame] | tuple[
-    pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame
-]:
+) -> (
+    tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]
+    | tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]
+):
     tours_with_ids = tours.with_row_index("_row_id")
     contexts = pl.concat(
         [
             _directional_tour_context(
                 tours_with_ids,
                 normalized,
+                trips=trips,
                 outbound=True,
             ),
             _directional_tour_context(
                 tours_with_ids,
                 normalized,
+                trips=trips,
                 outbound=False,
             ),
         ],
@@ -49,36 +53,126 @@ def annotate_tours(
 def _directional_tour_context(
     tours: pl.DataFrame,
     normalized: NormalizedConfig,
+    trips: pl.DataFrame | None = None,
     *,
     outbound: bool,
 ) -> pl.DataFrame:
     activitysim = normalized.activitysim
-    expressions: list[pl.Expr] = [
+    od_columns = _tour_od_columns(tours, normalized)
+    context_origin = (
+        pl.col(od_columns["origin"]) if outbound else pl.col(od_columns["destination"])
+    )
+    context_destination = (
+        pl.col(od_columns["destination"]) if outbound else pl.col(od_columns["origin"])
+    )
+    maz_origin = pl.col(od_columns["o_maz"]) if outbound else pl.col(od_columns["d_maz"])
+    maz_destination = (
+        pl.col(od_columns["d_maz"]) if outbound else pl.col(od_columns["o_maz"])
+    )
+    depart_expr = _tour_departure_expr(tours)
+    return tours.with_columns(
         pl.col("_row_id").cast(pl.Int64),
-        pl.col(activitysim.tour_id_column).cast(pl.Int64, strict=False).alias("trip_id"),
+        pl.col(activitysim.tour_id_column)
+        .cast(pl.Int64, strict=False)
+        .alias("trip_id"),
         pl.lit(outbound).alias(activitysim.outbound_column),
         pl.lit("outbound" if outbound else "inbound").alias(TOUR_DIRECTION_COLUMN),
-    ]
-    if not outbound:
-        expressions.extend(_inbound_endpoint_swap_expressions(tours))
-    return tours.with_columns(expressions)
+        depart_expr.alias("depart"),
+        context_origin.cast(pl.Float64).alias("OTAZ"),
+        context_destination.cast(pl.Float64).alias("DTAZ"),
+        maz_origin.cast(pl.Float64).alias("o_maz"),
+        maz_destination.cast(pl.Float64).alias("d_maz"),
+    )
 
 
-def _inbound_endpoint_swap_expressions(tours: pl.DataFrame) -> list[pl.Expr]:
-    expressions: list[pl.Expr] = []
-    for origin_column, destination_column in (
-        ("origin", "destination"),
-        ("OTAZ", "DTAZ"),
-        ("o_maz", "d_maz"),
-    ):
-        if origin_column in tours.columns and destination_column in tours.columns:
-            expressions.extend(
-                [
-                    pl.col(destination_column).alias(origin_column),
-                    pl.col(origin_column).alias(destination_column),
-                ]
-            )
-    return expressions
+def _tour_od_columns(
+    tours: pl.DataFrame,
+    normalized: NormalizedConfig,
+) -> dict[str, str]:
+    defaults = normalized.defaults
+    return {
+        "origin": _first_present_column(
+            tours,
+            defaults.origin,
+            "OTAZ",
+            "origin",
+        ),
+        "destination": _first_present_column(
+            tours,
+            defaults.destination,
+            "DTAZ",
+            "destination",
+        ),
+        "o_maz": _first_present_column(
+            tours,
+            "o_maz",
+            defaults.origin,
+            "OTAZ",
+            "origin",
+        ),
+        "d_maz": _first_present_column(
+            tours,
+            "d_maz",
+            defaults.destination,
+            "DTAZ",
+            "destination",
+        ),
+    }
+
+
+def _first_present_column(
+    tours: pl.DataFrame,
+    *candidates: str,
+) -> str:
+    for column in candidates:
+        if column in tours.columns:
+            return column
+    raise ValueError(
+        "Tour skimjoin context requires one of the configured origin/destination "
+        f"columns, but none were present. Tried: {', '.join(repr(column) for column in candidates)}"
+    )
+
+
+def _tour_departure_expr(tours: pl.DataFrame) -> pl.Expr:
+    if "depart" in tours.columns:
+        return pl.col("depart")
+    if "start" in tours.columns:
+        return pl.col("start")
+    if "start_hour" in tours.columns:
+        return pl.col("start_hour")
+    return pl.lit(None, dtype=pl.Int64)
+
+
+def _first_inbound_departures(
+    trips: pl.DataFrame,
+    normalized: NormalizedConfig,
+) -> dict[int, int | float | None] | None:
+    activitysim = normalized.activitysim
+    required = {activitysim.tour_id_column, activitysim.outbound_column, "depart"}
+    if not required.issubset(trips.columns):
+        return None
+    trip_num_present = "trip_num" in trips.columns
+    inbound = trips.filter(
+        pl.col(activitysim.outbound_column).is_not_null()
+        & ~pl.col(activitysim.outbound_column).cast(pl.Boolean, strict=False)
+        & pl.col("depart").is_not_null()
+    )
+    if inbound.is_empty():
+        return {}
+    sort_columns = [activitysim.tour_id_column]
+    if trip_num_present:
+        sort_columns.append("trip_num")
+    sort_columns.append("depart")
+    first_inbound = (
+        inbound.sort(sort_columns)
+        .group_by(activitysim.tour_id_column)
+        .agg(pl.col("depart").first().alias("first_inbound_depart"))
+    )
+    return {
+        int(row[activitysim.tour_id_column]): row["first_inbound_depart"]
+        for row in first_inbound.to_dicts()
+        if row.get(activitysim.tour_id_column) is not None
+    }
 
 
 def aggregate_tours_from_trips(

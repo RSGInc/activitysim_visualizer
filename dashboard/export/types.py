@@ -20,11 +20,17 @@ NodeKind = Literal[
     "region",
 ]
 ContainerLayout = Literal["row", "column"]
-WidgetType = Literal["radio_button_group", "select", "float_input"]
+WidgetType = Literal["radio_button_group", "select", "float_input", "checkbox", "button"]
 RegionContentMode = Literal["snapshot"]
 
 
-class SelectorMetadataPayload(TypedDict):
+class DependentSelectorPayload(TypedDict, total=False):
+    parent_selector_id: str
+    options_by_parent_value: dict[str, list[str]]
+    disabled_parent_values: list[str]
+
+
+class SelectorMetadataPayload(DependentSelectorPayload):
     id: str
     label: str
     available: bool
@@ -74,6 +80,9 @@ class ContainerNode(TypedDict):
     kind: Literal["container"]
     layout: ContainerLayout
     children: list["ExportNode"]
+    child_count: int
+    styles: dict[str, Any]
+    css_classes: list[str]
 
 
 class CardNode(TypedDict):
@@ -103,7 +112,7 @@ class TableNode(TypedDict):
     rows: list[dict[str, Any]]
 
 
-class WidgetNode(TypedDict):
+class WidgetNode(DependentSelectorPayload):
     kind: Literal["widget"]
     widget_type: WidgetType
     name: str
@@ -132,6 +141,7 @@ class RegionNode(TypedDict):
     default_key: str
     default_content: "ExportNode"
     variants: dict[str, "ExportNode"]
+    variant_aliases: dict[str, str]
 
 
 ExportNode = (

@@ -6,26 +6,59 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
-from processor.models import PreparedTableName, ProcessorWorkflowResult, RunData
+from processor.models import PreparedTableName, RunData
 from runtime.config import Config
 from runtime.config.signatures import digest_payload
+from runtime.workflows.artifacts import (
+    PreparedRunsArtifact,
+    SummaryRunsArtifact,
+    WorkflowPlan,
+)
+
+
+def summary_run_fingerprint(
+    run_fingerprint: dict[str, object],
+    entry: dict,
+) -> dict[str, object]:
+    """Return the run fingerprint used specifically by summary caches."""
+    from processor.summarize.external import summary_table_map_identity
+
+    fingerprint = dict(run_fingerprint)
+    summary_identity = summary_table_map_identity(entry.get("summary_table_map") or None)
+    if summary_identity is not None:
+        fingerprint["summary_table_map_identity"] = summary_identity
+    return fingerprint
+
+
+def is_summary_table_map_only_run(entry: dict) -> bool:
+    """Return whether a run entry only contributes user-supplied summary tables."""
+    return bool(entry.get("summary_table_map")) and not (
+        entry.get("dir") or entry.get("prepared_table_map")
+    )
 
 
 def effective_processor_config(
     config: Config,
     *,
-    apply_skimjoin: bool | None,
-    apply_segmentation: bool | None = None,
+    plan: WorkflowPlan,
 ) -> Config:
     """Return a runtime-effective config for processor/cache identity decisions."""
     effective = config
-    if apply_skimjoin is not None and bool(config.skimjoin.enabled) != apply_skimjoin:
-        if apply_skimjoin:
+    skimjoin_enabled = effective.skimjoin_step_enabled()
+    run_skimjoin = plan.includes("skimjoin")
+    if skimjoin_enabled != run_skimjoin:
+        if run_skimjoin:
             raise ValueError(
                 "Cannot force integrated skimjoin on when the loaded config has it disabled."
             )
         effective = replace(
             effective,
+            pipeline=replace(
+                effective.pipeline,
+                steps=tuple(
+                    step for step in effective.pipeline.steps if step != "skimjoin"
+                ),
+            ),
             skimjoin=replace(
                 effective.skimjoin,
                 enabled=False,
@@ -35,11 +68,9 @@ def effective_processor_config(
                 resolved_network_los_file=None,
             ),
         )
-    if (
-        apply_segmentation is not None
-        and bool(effective.segmentation.enabled) != apply_segmentation
-    ):
-        if apply_segmentation:
+    run_segmentation = plan.includes("segment")
+    if bool(effective.segmentation.enabled) != run_segmentation:
+        if run_segmentation:
             raise ValueError(
                 "Cannot force segmentation on when the loaded config has it disabled."
             )
@@ -103,8 +134,9 @@ def summary_cache_load_expectations(
     expected_label = entry.get("label", Path(run_dir).name)
     expected_run_key = cache_dir.name
     uses_custom_prepared_tables = bool(entry.get("prepared_table_map"))
+    uses_summary_table_map_only = is_summary_table_map_only_run(entry)
     expected_skimjoin = None
-    if not uses_custom_prepared_tables:
+    if not (uses_custom_prepared_tables or uses_summary_table_map_only):
         from runtime.config import resolve_run_skimjoin_settings
 
         resolved_skimjoin = resolve_run_skimjoin_settings(config, entry)
@@ -116,48 +148,63 @@ def summary_cache_load_expectations(
                 "resolved_skim_files": list(resolved_skimjoin.resolved_skim_files),
                 "resolved_network_los_file": resolved_skimjoin.resolved_network_los_file,
             }
-    expected_run_fingerprint = build_run_fingerprint_fn(
+    base_run_fingerprint = build_run_fingerprint_fn(
         label=expected_label,
-        run_dir=None if uses_custom_prepared_tables else run_dir,
+        run_dir=(
+            None
+            if (uses_custom_prepared_tables or uses_summary_table_map_only)
+            else run_dir
+        ),
         skim_file=(
             None
-            if uses_custom_prepared_tables
+            if (uses_custom_prepared_tables or uses_summary_table_map_only)
             else resolve_skim_path_fn(
                 entry.get("skim_file") or None,
                 config.skim_file,
                 run_dir,
             )
         ),
-        file_map=None if uses_custom_prepared_tables else entry.get("file_map") or None,
+        file_map=None
+        if (uses_custom_prepared_tables or uses_summary_table_map_only)
+        else entry.get("file_map") or None,
         fallback_file_map=(
-            None if uses_custom_prepared_tables else config.fallback_files or None
+            None
+            if (uses_custom_prepared_tables or uses_summary_table_map_only)
+            else config.fallback_files or None
         ),
         skimjoin=expected_skimjoin,
         hh_weight_col=None
-        if uses_custom_prepared_tables
+        if (uses_custom_prepared_tables or uses_summary_table_map_only)
         else entry.get("hh_weight_col") or None,
         person_weight_col=None
-        if uses_custom_prepared_tables
+        if (uses_custom_prepared_tables or uses_summary_table_map_only)
         else entry.get("person_weight_col") or None,
         trip_weight_col=None
-        if uses_custom_prepared_tables
+        if (uses_custom_prepared_tables or uses_summary_table_map_only)
         else entry.get("trip_weight_col") or None,
     )
-    return {
-        "expected_label": expected_label,
-        "expected_run_key": expected_run_key,
-        "expected_run_fingerprint": expected_run_fingerprint,
-        "expected_prepared_manifest_identity": build_prepared_manifest_identity_fn(
+    expected_run_fingerprint = summary_run_fingerprint(
+        base_run_fingerprint,
+        entry,
+    )
+    expected_prepared_manifest_identity = None
+    if not uses_summary_table_map_only:
+        expected_prepared_manifest_identity = build_prepared_manifest_identity_fn(
             run_key=expected_run_key,
             config=config,
-            run_fingerprint=expected_run_fingerprint,
+            run_fingerprint=base_run_fingerprint,
             source_type=(
                 "custom_prepared_table_map"
                 if uses_custom_prepared_tables
                 else "prepared_cache"
             ),
             prepared_table_map=entry.get("prepared_table_map") or None,
-        ),
+        )
+    return {
+        "expected_label": expected_label,
+        "expected_run_key": expected_run_key,
+        "expected_run_fingerprint": expected_run_fingerprint,
+        "expected_prepared_manifest_identity": expected_prepared_manifest_identity,
     }
 
 
@@ -231,16 +278,16 @@ def prune_summary_runs(
     ]
 
 
-def prune_processor_result(
-    result: ProcessorWorkflowResult | None,
+def prune_summary_artifact(
+    artifact: SummaryRunsArtifact | None,
     *,
     required_summary_ids: list[str] | tuple[str, ...],
     required_prepared_tables: list[PreparedTableName] | tuple[PreparedTableName, ...],
     prune_prepared_runs_fn: Callable[[list[tuple[str, RunData]], list[PreparedTableName] | tuple[PreparedTableName, ...]], list[tuple[str, RunData]]],
     prune_summary_runs_fn: Callable[[list[Any], list[str] | tuple[str, ...]], list[Any]],
-) -> ProcessorWorkflowResult | None:
-    """Return a processor result trimmed to the next dashboard/export step."""
-    if result is None:
+) -> SummaryRunsArtifact | None:
+    """Return summary/prepared artifacts trimmed for dashboard or export."""
+    if artifact is None:
         return None
 
     pruned_prepared_runs_by_key = {
@@ -250,18 +297,20 @@ def prune_processor_result(
                 1
             ],
         )
-        for run_key, (label, prepared_run) in result.prepared_runs_by_key.items()
+        for run_key, (label, prepared_run) in artifact.prepared.by_key.items()
     }
     ordered_prepared_runs = ordered_prepared_runs_by_key(
         prepared_runs_by_key=pruned_prepared_runs_by_key,
-        run_keys=result.run_keys,
+        run_keys=artifact.prepared.run_keys,
     )
-    return ProcessorWorkflowResult(
-        summary_runs=prune_summary_runs_fn(result.summary_runs, required_summary_ids),
-        prepared_runs=ordered_prepared_runs,
-        prepared_runs_by_key=pruned_prepared_runs_by_key,
-        run_keys=list(result.run_keys),
-        run_fingerprints_by_key=dict(result.run_fingerprints_by_key),
+    return SummaryRunsArtifact(
+        runs=prune_summary_runs_fn(artifact.runs, required_summary_ids),
+        prepared=PreparedRunsArtifact(
+            runs=ordered_prepared_runs,
+            by_key=pruned_prepared_runs_by_key,
+            run_keys=list(artifact.prepared.run_keys),
+            fingerprints_by_key=dict(artifact.prepared.fingerprints_by_key),
+        ),
     )
 
 
@@ -279,8 +328,9 @@ def run_cache_metadata(
     label = entry.get("label", Path(run_dir).name)
     skim = entry.get("skim_file") or None
     uses_custom_prepared_tables = bool(entry.get("prepared_table_map"))
+    uses_summary_table_map_only = is_summary_table_map_only_run(entry)
     resolved_skimjoin_payload = None
-    if not uses_custom_prepared_tables:
+    if not (uses_custom_prepared_tables or uses_summary_table_map_only):
         from runtime.config import resolve_run_skimjoin_settings
 
         resolved_skimjoin = resolve_run_skimjoin_settings(config, entry)
@@ -293,27 +343,40 @@ def run_cache_metadata(
                 "resolved_network_los_file": resolved_skimjoin.resolved_network_los_file,
             }
     resolved_skim = (
-        None if uses_custom_prepared_tables else resolve_skim_path_fn(skim, config.skim_file, run_dir)
+        None
+        if (uses_custom_prepared_tables or uses_summary_table_map_only)
+        else resolve_skim_path_fn(skim, config.skim_file, run_dir)
     )
     run_fingerprint = build_run_fingerprint_fn(
         label=label,
-        run_dir=None if uses_custom_prepared_tables else run_dir,
+        run_dir=(
+            None
+            if (uses_custom_prepared_tables or uses_summary_table_map_only)
+            else run_dir
+        ),
         skim_file=resolved_skim,
         skimjoin=resolved_skimjoin_payload,
-        file_map=None if uses_custom_prepared_tables else entry.get("file_map") or None,
+        file_map=None
+        if (uses_custom_prepared_tables or uses_summary_table_map_only)
+        else entry.get("file_map") or None,
         fallback_file_map=(
-            None if uses_custom_prepared_tables else config.fallback_files or None
+            None
+            if (uses_custom_prepared_tables or uses_summary_table_map_only)
+            else config.fallback_files or None
         ),
-        hh_weight_col=None if uses_custom_prepared_tables else entry.get("hh_weight_col") or None,
-        person_weight_col=None if uses_custom_prepared_tables else entry.get("person_weight_col") or None,
-        trip_weight_col=None if uses_custom_prepared_tables else entry.get("trip_weight_col") or None,
+        hh_weight_col=None
+        if (uses_custom_prepared_tables or uses_summary_table_map_only)
+        else entry.get("hh_weight_col") or None,
+        person_weight_col=None
+        if (uses_custom_prepared_tables or uses_summary_table_map_only)
+        else entry.get("person_weight_col") or None,
+        trip_weight_col=None
+        if (uses_custom_prepared_tables or uses_summary_table_map_only)
+        else entry.get("trip_weight_col") or None,
     )
-    return {
-        "label": label,
-        "run_dir": run_dir,
-        "skim": skim,
-        "run_fingerprint": run_fingerprint,
-        "prepared_manifest_identity": build_prepared_manifest_identity_fn(
+    prepared_manifest_identity = None
+    if not uses_summary_table_map_only:
+        prepared_manifest_identity = build_prepared_manifest_identity_fn(
             run_key=run_key,
             config=config,
             run_fingerprint=run_fingerprint,
@@ -323,21 +386,27 @@ def run_cache_metadata(
                 else "prepared_cache"
             ),
             prepared_table_map=entry.get("prepared_table_map") or None,
-        ),
+        )
+    return {
+        "label": label,
+        "run_dir": run_dir,
+        "skim": skim,
+        "run_fingerprint": run_fingerprint,
+        "prepared_manifest_identity": prepared_manifest_identity,
     }
 
 
-def init_processor_result(
-    existing_result: ProcessorWorkflowResult | None,
+def init_prepared_artifact(
+    existing: PreparedRunsArtifact | None,
 ) -> tuple[
     dict[str, tuple[str, RunData]],
     dict[str, tuple[str, RunData]],
     list[str],
     dict[str, dict[str, object]],
 ]:
-    """Initialize shared workflow collections from an existing processor result."""
+    """Initialize workflow collections from an existing prepared artifact."""
     existing_prepared_runs_by_key = dict(
-        (existing_result.prepared_runs_by_key if existing_result else {}) or {}
+        (existing.by_key if existing else {}) or {}
     )
     return existing_prepared_runs_by_key, {}, [], {}
 

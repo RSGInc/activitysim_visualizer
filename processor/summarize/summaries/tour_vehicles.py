@@ -5,7 +5,7 @@ from __future__ import annotations
 import polars as pl
 
 from processor.models import RunData
-from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize.contracts import summary
 from runtime.config import Config
 
 
@@ -66,7 +66,8 @@ def _prepared_allocated_vehicles_from_tours(rd: RunData) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="allocated_vehicle_age_by_occupancy",
     schema={"age": pl.Utf8, "occupancy": pl.Utf8, "vehicle_count": pl.Float64},
     required_columns={
         "tours": (
@@ -80,7 +81,7 @@ def _prepared_allocated_vehicles_from_tours(rd: RunData) -> pl.DataFrame:
 def allocated_vehicle_age(rd: RunData, config: Config) -> pl.DataFrame:
     vehicles = _prepared_allocated_vehicles_from_tours(rd)
     if vehicles.is_empty():
-        return empty_summary_frame(allocated_vehicle_age)
+        return allocated_vehicle_age.empty()
 
     return (
         vehicles.group_by(["age", "occupancy"])
@@ -99,7 +100,8 @@ def allocated_vehicle_age(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="allocated_vehicle_fuel_type_by_occupancy",
     schema={"fuel_type": pl.Utf8, "occupancy": pl.Utf8, "vehicle_count": pl.Float64},
     required_columns={
         "tours": (
@@ -113,7 +115,7 @@ def allocated_vehicle_age(rd: RunData, config: Config) -> pl.DataFrame:
 def allocated_vehicle_fuel(rd: RunData, config: Config) -> pl.DataFrame:
     vehicles = _prepared_allocated_vehicles_from_tours(rd)
     if vehicles.is_empty():
-        return empty_summary_frame(allocated_vehicle_fuel)
+        return allocated_vehicle_fuel.empty()
 
     return (
         vehicles.group_by(["fuel_type", "occupancy"])
@@ -128,7 +130,8 @@ def allocated_vehicle_fuel(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="allocated_vehicle_body_type_by_occupancy",
     schema={"body_type": pl.Utf8, "occupancy": pl.Utf8, "vehicle_count": pl.Float64},
     required_columns={
         "tours": (
@@ -142,7 +145,7 @@ def allocated_vehicle_fuel(rd: RunData, config: Config) -> pl.DataFrame:
 def allocated_vehicle_body(rd: RunData, config: Config) -> pl.DataFrame:
     vehicles = _prepared_allocated_vehicles_from_tours(rd)
     if vehicles.is_empty():
-        return empty_summary_frame(allocated_vehicle_body)
+        return allocated_vehicle_body.empty()
 
     return (
         vehicles.group_by(["body_type", "occupancy"])

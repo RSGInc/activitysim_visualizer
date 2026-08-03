@@ -15,16 +15,17 @@ Install dependencies with `uv`:
 uv sync --locked
 ```
 
+Notebook tooling is optional; install it only when working with the repository's
+notebooks:
+
+```bash
+uv sync --locked --group notebooks
+```
+
 If `uv sync` fails because of a hardlink issue, retry with:
 
 ```bash
 uv sync --locked --link-mode=copy
-```
-
-Activate the environment:
-
-```bash
-.\.venv\Scripts\activate
 ```
 
 Create a project-specific config:
@@ -36,19 +37,21 @@ Copy-Item config.yaml local_config.yaml
 Edit `local_config.yaml`, then run the app with that config:
 
 ```bash
-python run.py --config local_config.yaml
+uv run activitysim-viz --config local_config.yaml
 ```
 
-By default, `python run.py` follows `pipeline.steps` from the loaded config when no explicit step flags are supplied. The shipped example config defaults to `summarize` + `dashboard`, so a normal run will reuse summary caches when possible, rebuild them when needed, and then start the live dashboard on [http://localhost:5006](http://localhost:5006).
+By default, `activitysim-viz` follows `pipeline.steps` from the loaded config when no explicit step flags are supplied. The shipped example config defaults to `summarize` + `dashboard`, so a normal run will reuse summary caches when possible, rebuild them when needed, and then start the live dashboard on [http://localhost:5006](http://localhost:5006).
 
 ## Dashboard Pages
 
 Dashboard pages now use one shared authoring model:
 
-- page modules export `PAGE = DashboardPageDefinition(...)`
-- page classes subclass `DashboardPage`
-- page-local controls are registered with `selector(...)`
+- page classes use `@dashboard_page(...)` and subclass `DashboardPage`
+- dropdowns use `select(...)`; custom widgets use `selector(...)`
+- dynamic selectors declare an option provider and default policy
 - refreshable regions are registered with `section(...)`
+- large pages compose related selectors and sections with `feature(...)`
+- repeated chart transforms use `query(...)` without page-authored cache keys
 - live refresh and export metadata both derive from those registrations
 
 The main shared page-helper modules live under `dashboard/helpers/`:
@@ -59,7 +62,11 @@ The main shared page-helper modules live under `dashboard/helpers/`:
 - `time_distance_helpers.py`
 - `comparison_helpers.py`
 
-If you are adding or refactoring a page, read [docs/adding-dashboard-pages.md](docs/adding-dashboard-pages.md) first. For the broader runtime picture, see [docs/architecture.md](docs/architecture.md).
+If you are adding or refactoring a page, start with the
+[dashboard page recipes](wiki/33-dashboard-page-recipes.md) and
+[figures/widgets guide](wiki/32-figures-and-widgets.md). The
+[dashboard extension cookbook](wiki/45-dashboard-extension-cookbook.md) covers
+the complete contributor path.
 
 ## Config Setup
 
@@ -67,7 +74,7 @@ The repo ships with `config.yaml` as a template. In practice, most people should
 
 1. Copy `config.yaml` to `local_config.yaml` or another machine-specific file.
 2. Update the `runs` section to point at real ActivitySim output folders.
-3. Update `skimjoin.distance_skim`, `zones`, and `files` if your model layout differs from the defaults.
+3. Update `prepare.distance_skim`, `zones`, and `files` if your model layout differs from the defaults.
 4. Run with `--config your_file.yaml`.
 
 The canonical config layout is organized around a few top-level sections:
@@ -87,12 +94,12 @@ segment: ...
 dashboard: ...
 display: ...
 skimjoin: ...
+extensions: ...
 ```
 
-Older keys such as `processor.*`, `summaries.*`, `visualizer.*`, top-level
-`dashboard_labels`, and top-level `run_colors` are still supported for
-compatibility, but they now emit deprecation warnings and normalize into the
-canonical schema above.
+Removed keys such as `processor.*`, `summaries.*`, `visualizer.*`, top-level
+`dashboard_labels`, and top-level `run_colors` now fail validation and name the
+canonical replacement. Unknown keys also fail instead of being silently ignored.
 
 The minimum useful config is usually:
 
@@ -179,6 +186,26 @@ skimjoined and then optionally filtered or otherwise post-processed outside this
 repo. When a run uses `prepared_table_map`, the workflow loads those prepared
 tables directly and does not rerun raw prepare or integrated skimjoin for that run.
 
+If a run already has dashboard-ready summary tables, point directly at those
+files with `runs[*].summary_table_map`:
+
+```yaml
+runs:
+  - label: Summary Only Demo
+    summary_table_map:
+      population_totals: path\to\summaries\population_totals.csv
+      traffic_count_comparisons: path\to\summaries\traffic_count_comparisons.parquet
+```
+
+`summary_table_map` uses registered summary IDs as keys, accepts explicit
+`.csv` or `.parquet` paths, and resolves relative paths from the config file
+directory. Mapped summaries are expected to already use the dashboard's canonical
+columns. During summarize they override the listed generated summaries; missing
+summaries can still be generated from raw/prepared inputs when those inputs exist.
+Some registered summary IDs are external/demo-only and are not generated by
+default for raw/prepared runs, which avoids writing `__empty__` cache CSVs just
+to make those IDs available to `summary_table_map`.
+
 Integrated skim enrichment can now be selected per run without forcing one
 shared skimjoin config for every skim structure. Keep the explicit skimjoin
 YAML logic in separate files, then choose the file and optional project-input
@@ -212,6 +239,7 @@ Skimjoin override rules:
 - `runs[*].skimjoin.config_path` overrides global `skimjoin.config_path`.
 - `runs[*].skimjoin.skim_files` overrides the selected skimjoin config's `project.skim_files`.
 - `runs[*].skimjoin.network_los_file` overrides the selected skimjoin config's `project.network_los_file`.
+- `skimjoin.failure_policy` defaults to `record`; use `error` when skimjoin failures must stop a validation or batch run.
 - If a run omits `runs[*].skimjoin`, it uses the global skimjoin settings exactly as before.
 
 Recommended rule of thumb:
@@ -286,10 +314,11 @@ Important path rules:
 - `root` is resolved relative to the config file if you give a relative path.
 - The prepared cache is created automatically next to `root` as `prepared_cache/`.
 - `runs[*].dir` should point at an ActivitySim output directory.
-- `skimjoin.distance_skim.file` may be absolute, or relative to each run directory.
+- `prepare.distance_skim.file` may be absolute, or relative to each run directory.
 - File entries under `files` can be bare stems like `final_trips` or explicit filenames like `final_trips.csv`.
 - `runs[*].file_map` uses the same filename rules as `files`, but applies only to that run.
 - `runs[*].prepared_table_map` must use explicit `.parquet` or `.csv` paths and resolves relative paths from the config file directory.
+- `runs[*].summary_table_map` must use registered summary IDs with explicit `.parquet` or `.csv` paths and resolves relative paths from the config file directory.
 - `prepare.output.file_format` controls how standard prepared caches are written; supported values are `parquet` and `csv`, with `parquet` as the default.
 - `prepare.validation.relationship_checks` controls prepared-table foreign-key validation. Use `warn` to log inconsistencies and continue, `error` to fail the run, or `off` to skip the checks.
 - `dashboard.export.output_path`, when relative, is resolved from `root`.
@@ -302,45 +331,56 @@ These are the sections most people need to touch:
 |---|---|
 | `root` | Where summary caches are stored |
 | `pipeline` | Default workflow steps, dashboard mode, and overwrite behavior |
-| `runs` | Run directories, display labels, and optional per-run skim, raw file-map, custom prepared-table map, and weight overrides |
-| `skimjoin.distance_skim` | Default distance skim file and matrix name used by summaries |
+| `runs` | Run directories, display labels, and optional per-run skim, raw file-map, custom prepared-table map, custom summary-table map, and weight overrides |
+| `prepare.distance_skim` | Default distance skim file and matrix name used by summaries |
 | `zones` | MAZ/TAZ settings for skim joins and zone normalization |
 | `files` | Default ActivitySim output file stems or filenames used unless a run overrides them |
 | `columns` | Column aliases when outputs use non-default names |
 | `prepare.output.file_format` | On-disk format for prepared caches written by the normal prepare workflow |
 | `prepare.validation.relationship_checks` | Whether cross-table prepared-key validation is disabled, warns, or errors |
+| `prepare.student_types` | Optional school/university enrollment definitions for shadow pricing pages |
 | `dashboard.title` | Title used in the live dashboard and HTML export |
+| `dashboard.include_notes` | Show per-plot and per-table calculation notes in the live dashboard and HTML export (default: `true`) |
 | `dashboard.live.pages` | Ordered list of live pages/groups to show |
 | `dashboard.export` | Export-only output path, page selection, and selector-state controls |
 | `display.run_colors` | Plot colors by run |
 | `display.labels` | Presentation-only labels and ordering for dashboard/export |
-| `summarize.weighting_modes` | Which cache variants to build: `weighted`, `unweighted`, or both |
-| `summarize.geography` | Optional district/county/zone grouping |
+| `weighting.modes` | Named weighting alternatives backed by household, person, and/or trip columns |
+| `extensions` | Advanced importable weighting calculations and their summary-affecting settings |
+| `summarize.weighting_modes` | Ordered built-in, declarative, or custom weighting-mode IDs to build |
+| `summarize.failure_policy` | `record` keeps failed summaries visible as diagnostics; `error` stops immediately on a builder exception |
+| `summarize.geography` | Optional configured district/county/zone mappings |
 | `summarize.pnr_tour_modes` | Which tour modes count as park-and-ride in summary builders |
 | `summarize.group_*_tour_purposes` | Summary-time purpose regrouping switches |
-| `summary_categories` | Summary-affecting category normalization/regrouping |
+| `summarize.category_normalization` | Summary-affecting category normalization/regrouping |
 | `modes` | Optional mode ordering and grouped mode display |
-| `person_types` | Optional display labels for `ptype` values |
-| `student_types` | Optional school/university enrollment definitions for shadow pricing pages |
+| `display.labels.person_type` | Optional display labels for `ptype` values |
 
 Weighting rules:
 
 - If a run sets `hh_weight_col`, `person_weight_col`, or `trip_weight_col`, those are used.
 - Otherwise, if a `sample_rate` column is available, weights are derived from it.
 - Otherwise, weights default to `1`.
+- `weighting.modes` can select additional prepared household, person, and trip columns as named alternatives without replacing the primary `weighted` mode.
 
-Legacy config notes:
+Geography summary notes:
+
+- Summaries may emit `all_geographies` total rows independently of the geography config.
+- Native prepared geographies such as `home_taz`, `home_county`, and `home_mpo` may appear whenever those columns are available in prepared data, even when `summarize.geography.enabled: false`.
+- `summarize.geography` controls additional mapped geography aggregations, such as `home_geo__school_district`, `work_geo__county`, or `land_use_geo__district`.
+
+Removed config notes:
 
 - Prefer the canonical top-level schema: `root`, `pipeline`, `dashboard`, `display`, `summarize`, `segment`, and `skimjoin`.
-- Older keys such as `processor.root`, `summaries.weighting_modes`, `visualizer.dashboard_pages`, and top-level `run_colors` are still supported for compatibility, but now log deprecation warnings.
+- Older keys such as `processor.root`, `summaries.weighting_modes`, `visualizer.dashboard_pages`, top-level `run_colors`, top-level `summary_categories`, and top-level `student_types` are rejected with their canonical replacement.
 
 Geography note:
 
-- `geography.enabled: false` now disables both the older geography mapping behavior and the newer `geography.aggregations` derived columns. If you want aggregation-based geography summaries, `geography.enabled` must be `true`.
+- `summarize.geography.enabled: false` disables mapped geography aggregation columns. Set it to `true` for aggregation-based geography summaries.
 
 Category config note:
 
-- Use `summary_categories` when a mapping changes summary values, grouping membership, or canonical category values.
+- Use `summarize.category_normalization` when a mapping changes summary values, grouping membership, or canonical category values.
 - Use `display.labels` when a change is cosmetic and should only affect dashboard/export labels or ordering.
 
 ## Live Pages And Export Pages
@@ -362,6 +402,8 @@ Grouped page ids support either the whole group or specific child pages. For exa
 
 ```yaml
 dashboard:
+  # Set to false to omit all per-plot and per-table calculation notes.
+  include_notes: true
   live:
     pages:
       - overview
@@ -383,7 +425,8 @@ Notes:
 - A plain group id like `tour_summaries` behaves like the group's default selection.
 - `raw_trip_demo` is disabled by default and requests prepared trip tables, so keep it out unless you explicitly want that behavior.
 
-For HTML export, you can further narrow the exported page set and selector states:
+For HTML export, start with the live page set and override selector states or
+parts as needed:
 
 ```yaml
 dashboard:
@@ -407,9 +450,12 @@ dashboard:
 Rules worth remembering:
 
 - If `dashboard.live.pages` is omitted, the app uses its built-in default page set.
-- If `dashboard.export.pages` is omitted, export mirrors the live page set.
+- Export always starts from the live page set. Entries under
+  `dashboard.export.pages` modify matching pages; they are not an allow-list.
 - Export selector requests accept `default`, `all`, or a list of explicit values.
-- `dashboard.export.exclude_pages` and `exclude_groups` remove pages from export without changing the live dashboard.
+- Set a page override's `enabled` to `false`, or use
+  `dashboard.export.exclude_pages` / `exclude_groups`, to remove pages from
+  export without changing the live dashboard.
 
 ## Run Modes
 
@@ -439,8 +485,9 @@ Common commands:
 
 Behavior details:
 
-- `--from-csvs` is cache-only: it will not rebuild missing summaries.
+- `--from-csvs` is cache-only: it reads visualizer summary-cache directories with manifests, not loose summary CSVs.
 - `--from-csvs path\to\cache1 path\to\cache2` lets you point directly at specific summary cache directories.
+- Use `runs[*].summary_table_map` when you have loose dashboard-ready summary files instead of visualizer cache directories.
 - `--dashboard` by itself is valid when summary caches already exist for the configured runs.
 - During summarize, the app will reuse prepared cache when possible and rebuild from raw outputs only when needed.
 - `--refresh-prepared-cache` deletes the selected runs' prepared-cache directories first, then disables prepared-cache reuse for that invocation.
@@ -502,7 +549,7 @@ python run.py --config local_config.yaml ^
   --run-skim C:\path\to\base_skims.omx C:\path\to\build_skims.omx
 ```
 
-Use `null`, `None`, or an empty string in `--run-skim` to fall back to the configured `skimjoin.distance_skim.file`.
+Use `null`, `None`, or an empty string in `--run-skim` to fall back to the configured `prepare.distance_skim.file`.
 
 ## Codebase Map
 
@@ -521,6 +568,11 @@ activitysim_visualizer/
 |   |-- app.py
 |   |-- export/
 |   |-- page_base.py
+|   |-- page_declarations.py
+|   |-- page_diagnostics.py
+|   |-- page_features.py
+|   |-- page_lifecycle.py
+|   |-- page_navigation.py
 |   |-- page_definitions.py
 |   |-- page_registry.py
 |   |-- state.py
@@ -528,26 +580,40 @@ activitysim_visualizer/
 `-- tests/
 ```
 
-## Contributor Docs
+## Documentation
 
-Contributor-oriented docs live under [`docs/`](docs/):
+The main user and contributor documentation lives in the
+[`wiki/`](wiki/00-home.md) chapter set. Start with:
 
-- [`docs/architecture.md`](docs/architecture.md)
-- [`docs/summary-workflow.md`](docs/summary-workflow.md)
-- [`docs/adding-summaries.md`](docs/adding-summaries.md)
-- [`docs/adding-dashboard-pages.md`](docs/adding-dashboard-pages.md)
-- [`docs/plotting-summary-tables.md`](docs/plotting-summary-tables.md)
-- [`docs/export_html_schema.md`](docs/export_html_schema.md)
-- [`docs/export_html_contributor_guide.md`](docs/export_html_contributor_guide.md)
+- [Getting Started](wiki/10-getting-started.md)
+- [Architecture](wiki/01-architecture.md)
+- [Configuration Reference](wiki/13-configuration-reference.md)
+- [Output Processor](wiki/20-output-processor.md)
+- [Output Visualizer](wiki/30-output-visualizer.md)
+- [Developer Workflows](wiki/40-developer-workflows.md)
+- [Data Extension Cookbook](wiki/41-data-extension-cookbook.md)
+- [Config, Columns, and Labels](wiki/42-config-column-label-cookbook.md)
+- [Weighting and Hosting Extensions](wiki/43-weighting-hosting-extensions.md)
+- [Summary Function Cookbook](wiki/44-summary-function-cookbook.md)
+- [Dashboard Extension Cookbook](wiki/45-dashboard-extension-cookbook.md)
+- [Testing](wiki/46-testing.md)
+- [Troubleshooting](wiki/90-troubleshooting.md)
 
-If you are new to the codebase, start with `docs/architecture.md`, then `docs/summary-workflow.md`.
+The wiki is the sole documentation source. Add or revise a wiki chapter instead
+of creating a parallel documentation tree.
 
 ## Documentation Maintenance Checklist
 
 When behavior changes, update docs in the same change:
 
-- New config key or config behavior: update this README and any affected workflow guide.
-- New summary contract or registration pattern: update `docs/adding-summaries.md`.
-- New page, selector, or export behavior: update `docs/adding-dashboard-pages.md`.
-- New export payload/runtime behavior: update `docs/export_html_schema.md` and `docs/export_html_contributor_guide.md`.
-- Architecture or runtime-flow changes: update `docs/architecture.md` or `docs/summary-workflow.md`.
+- New config key or config behavior: update chapters 11 and 13.
+- New summary declaration or contract: update chapter 23 and regenerate catalogs.
+- New page, selector, or plotting behavior: update chapters 31 through 33 and regenerate catalogs.
+- New export payload/runtime behavior: update chapter 34.
+- Architecture or runtime-flow changes: update chapters 12, 20, and 30 as applicable.
+
+## Tests
+
+See [Developer Workflows](wiki/40-developer-workflows.md) for the normal test
+loop and [Testing](wiki/46-testing.md) for the fast/full split and
+offline-export boundary.

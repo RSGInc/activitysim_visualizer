@@ -79,10 +79,7 @@ def _explicit_escort_label_present(column: str) -> pl.Expr:
 
 
 def _escort_label_present(column: str) -> pl.Expr:
-    return (
-        pl.col(column).is_not_null()
-        & ~_escort_type_matches(column, "not_escorted")
-    )
+    return pl.col(column).is_not_null() & ~_escort_type_matches(column, "not_escorted")
 
 
 def _both_escort_labels_present() -> pl.Expr:

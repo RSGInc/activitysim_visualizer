@@ -7,24 +7,21 @@ from functools import lru_cache
 import importlib
 import pkgutil
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 import dashboard.pages as dashboard_pages_package
 from dashboard import DashboardState
 from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.page_base import DashboardPage
 from dashboard.page_definitions import (
     DashboardDataRequirements,
-    PageExportPartDefinition,
-    PageExportRegionDefinition,
     DashboardGroupDefinition,
-    DashboardPageConfigEntry,
     DashboardPageDefinition,
-    PageSelectorDefinition,
     PreparedDataMode,
 )
 from processor.models import PREPARED_TABLE_NAMES, PreparedTableName, RunData
-from processor.summarize.cache import SUMMARY_SPEC_BY_ID
+from processor.summarize.catalog import SUMMARY_BY_ID
 from runtime.config import Config
+from runtime.config.models import DashboardPageConfigEntry
 
 LOGGER = get_logger("dashboard.page_registry")
 VALID_PREPARED_DATA_MODES: tuple[PreparedDataMode, ...] = (
@@ -178,21 +175,33 @@ def all_page_definitions() -> tuple[DashboardPageDefinition, ...]:
 
 
 def _page_definition_from_module(module: object) -> DashboardPageDefinition:
-    page_definition = getattr(module, "PAGE", None)
-    if page_definition is None:
+    page_classes = [
+        value
+        for value in vars(module).values()
+        if isinstance(value, type)
+        and issubclass(value, DashboardPage)
+        and value is not DashboardPage
+        and value.__module__ == module.__name__
+    ]
+    if not page_classes:
         raise ValueError(
-            f"{module.__name__} must declare a module-level PAGE definition."
+            f"{module.__name__} must declare one @dashboard_page class."
         )
+    if len(page_classes) > 1:
+        raise ValueError(
+            f"{module.__name__} declares multiple DashboardPage classes; "
+            "each page module must contain exactly one."
+        )
+    page_definition = page_classes[0].definition
     if not isinstance(page_definition, DashboardPageDefinition):
         raise TypeError(
-            f"{module.__name__}.PAGE must be a DashboardPageDefinition instance."
+            f"{module.__name__}.{page_classes[0].__name__} must use @dashboard_page."
         )
     page_cls = page_definition.page_cls
     if page_cls is None:
         raise ValueError(
             f"Dashboard page {page_definition.page_id!r} does not declare a page class."
         )
-    page_cls.definition = page_definition
     return page_definition
 
 
@@ -214,9 +223,20 @@ def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
         )
 
     required_summary_ids = page_definition.required_summary_ids
+    optional_summary_ids = page_definition.optional_summary_ids
     if len(set(required_summary_ids)) != len(required_summary_ids):
         raise ValueError(
             f"Dashboard page {page_definition.page_id!r} declares duplicate required_summary_ids."
+        )
+    if len(set(optional_summary_ids)) != len(optional_summary_ids):
+        raise ValueError(
+            f"Dashboard page {page_definition.page_id!r} declares duplicate optional_summary_ids."
+        )
+    summary_id_overlap = sorted(set(required_summary_ids).intersection(optional_summary_ids))
+    if summary_id_overlap:
+        raise ValueError(
+            f"Dashboard page {page_definition.page_id!r} declares summary ids as both required and optional: "
+            + ", ".join(repr(summary_id) for summary_id in summary_id_overlap)
         )
     required_prepared_tables = page_definition.required_prepared_tables
     if len(set(required_prepared_tables)) != len(required_prepared_tables):
@@ -240,65 +260,14 @@ def _validate_page_definition(page_definition: DashboardPageDefinition) -> None:
         )
     unknown_summary_ids = [
         summary_id
-        for summary_id in required_summary_ids
-        if summary_id not in SUMMARY_SPEC_BY_ID
+        for summary_id in (*required_summary_ids, *optional_summary_ids)
+        if summary_id not in SUMMARY_BY_ID
     ]
     if unknown_summary_ids:
         raise ValueError(
             f"Dashboard page {page_definition.page_id!r} declares unknown summary ids: "
             + ", ".join(repr(summary_id) for summary_id in unknown_summary_ids)
         )
-
-    selector_ids = [selector.selector_id for selector in page_definition.selectors]
-    if len(selector_ids) != len(set(selector_ids)):
-        raise ValueError(
-            f"Dashboard page {page_definition.page_id!r} declares duplicate selector ids."
-        )
-
-    region_ids = [region.region_id for region in page_definition.export_regions]
-    if len(region_ids) != len(set(region_ids)):
-        raise ValueError(
-            f"Dashboard page {page_definition.page_id!r} declares duplicate export region ids."
-        )
-    part_ids = [part.part_id for part in page_definition.export_parts]
-    if len(part_ids) != len(set(part_ids)):
-        raise ValueError(
-            f"Dashboard page {page_definition.page_id!r} declares duplicate export part ids."
-        )
-    if page_definition.export_regions and page_definition.export_parts:
-        raise ValueError(
-            f"Dashboard page {page_definition.page_id!r} must not declare both export_regions and export_parts."
-        )
-
-    selector_id_set = set(selector_ids)
-    exportable_selector_ids = {
-        selector.selector_id
-        for selector in page_definition.selectors
-        if selector.exportable
-    }
-    referenced_selector_ids: set[str] = set()
-    export_parts = effective_export_parts(page_definition)
-    for part in export_parts:
-        unknown_part_selectors = [
-            selector_id
-            for selector_id in part.selector_ids
-            if selector_id not in selector_id_set
-        ]
-        if unknown_part_selectors:
-            raise ValueError(
-                f"Dashboard page {page_definition.page_id!r} export part {part.part_id!r} "
-                "references unknown selector ids: "
-                + ", ".join(repr(selector_id) for selector_id in unknown_part_selectors)
-            )
-        referenced_selector_ids.update(part.selector_ids)
-    missing_region_selectors = sorted(exportable_selector_ids - referenced_selector_ids)
-    if exportable_selector_ids and missing_region_selectors:
-        raise ValueError(
-            f"Dashboard page {page_definition.page_id!r} does not assign export regions to "
-            "selector ids: "
-            + ", ".join(repr(selector_id) for selector_id in missing_region_selectors)
-        )
-
 
 def _validate_selected_page_definitions(
     page_definitions: (
@@ -332,61 +301,6 @@ def page_definitions_for_group(group_id: str) -> tuple[DashboardPageDefinition, 
         for page_definition in all_page_definitions()
         if page_definition.group_id == group_id
     )
-
-
-def selector_definition_by_id(
-    page_id: str, selector_id: str
-) -> PageSelectorDefinition | None:
-    """Look up one registered selector definition by page id and selector id."""
-    page_definition = page_definition_by_id(page_id)
-    if page_definition is None:
-        return None
-    for selector in page_definition.selectors:
-        if selector.selector_id == selector_id:
-            return selector
-    return None
-
-
-def export_part_definition_by_id(
-    page_id: str,
-    part_id: str,
-) -> PageExportPartDefinition | None:
-    """Look up one registered export part definition by page id and part id."""
-    page_definition = page_definition_by_id(page_id)
-    if page_definition is None:
-        return None
-    for part in effective_export_parts(page_definition):
-        if part.part_id == part_id:
-            return part
-    return None
-
-
-def effective_export_parts(
-    page_definition: DashboardPageDefinition,
-) -> tuple[PageExportPartDefinition, ...]:
-    """Return the effective export parts for one page definition."""
-    if page_definition.export_parts:
-        return page_definition.export_parts
-    return tuple(
-        PageExportPartDefinition(
-            part_id=region.region_id,
-            view_attr=region.view_attr,
-            selector_ids=region.selector_ids,
-        )
-        for region in page_definition.export_regions
-    )
-
-
-def exportable_page_selectors() -> (
-    list[tuple[DashboardPageDefinition, PageSelectorDefinition]]
-):
-    """Return all exportable page selectors in stable page/selector order."""
-    return [
-        (page_definition, selector)
-        for page_definition in all_page_definitions()
-        for selector in page_definition.selectors
-        if selector.exportable
-    ]
 
 
 def default_page_definitions() -> tuple[DashboardPageDefinition, ...]:
@@ -563,18 +477,13 @@ def resolve_live_page_definitions(config: Config) -> list[DashboardPageDefinitio
         return page_definitions
     return _resolve_page_definitions_from_entries(
         config.dashboard_pages,
-        error_field_name="visualizer.dashboard_pages entries",
+        error_field_name="dashboard.live.pages entries",
     )
 
 
 def resolve_live_navigation_entries(config: Config) -> list[DashboardNavigationEntry]:
     """Resolve the live dashboard top-level navigation entries."""
     return list(navigation_entries_for_pages(resolve_live_page_definitions(config)))
-
-
-def resolve_page_definitions(config: Config) -> list[DashboardPageDefinition]:
-    """Compatibility alias for the live dashboard page resolver."""
-    return resolve_live_page_definitions(config)
 
 
 def resolve_export_page_definitions(config: Config) -> list[DashboardPageDefinition]:
@@ -631,8 +540,10 @@ def data_requirements_for_pages(
 ) -> DashboardDataRequirements:
     """Return the summary/prepared-table requirements for a page definition set."""
     required_summary_ids: list[str] = []
+    optional_summary_ids: list[str] = []
     required_prepared_tables: list[PreparedTableName] = []
     seen_summary_ids: set[str] = set()
+    seen_optional_summary_ids: set[str] = set()
     seen_prepared_tables: set[PreparedTableName] = set()
 
     for page_definition in page_definitions:
@@ -640,6 +551,11 @@ def data_requirements_for_pages(
             if summary_id not in seen_summary_ids:
                 required_summary_ids.append(summary_id)
                 seen_summary_ids.add(summary_id)
+        for summary_id in page_definition.optional_summary_ids:
+            if summary_id in seen_summary_ids or summary_id in seen_optional_summary_ids:
+                continue
+            optional_summary_ids.append(summary_id)
+            seen_optional_summary_ids.add(summary_id)
         for table_name in page_definition.required_prepared_tables:
             if table_name not in seen_prepared_tables:
                 required_prepared_tables.append(table_name)
@@ -648,6 +564,7 @@ def data_requirements_for_pages(
     return DashboardDataRequirements(
         prepared_data_mode=enabled_prepared_data_mode_for_pages(page_definitions),
         required_summary_ids=tuple(required_summary_ids),
+        optional_summary_ids=tuple(optional_summary_ids),
         required_prepared_tables=tuple(required_prepared_tables),
     )
 
@@ -669,6 +586,7 @@ def export_data_requirements(config: Config) -> DashboardDataRequirements:
     return DashboardDataRequirements(
         prepared_data_mode="none",
         required_summary_ids=requirements.required_summary_ids,
+        optional_summary_ids=requirements.optional_summary_ids,
         required_prepared_tables=(),
     )
 
@@ -678,12 +596,20 @@ def build_prepared_run_provider_for_page_definitions(
     page_definitions: (
         list[DashboardPageDefinition] | tuple[DashboardPageDefinition, ...]
     ),
+    *,
+    config: Config | None = None,
 ) -> DashboardPreparedRunProvider:
     prepared_mode = data_requirements_for_pages(page_definitions).prepared_data_mode
     if prepared_mode == "none":
         return DashboardPreparedRunProvider.not_requested()
     if runs:
-        return DashboardPreparedRunProvider.loaded(runs)
+        provider = DashboardPreparedRunProvider.loaded(runs)
+        if config is not None:
+            provider.configure_weighting_modes(
+                config.weighting_mode_definitions,
+                config=config,
+            )
+        return provider
     return DashboardPreparedRunProvider.unavailable()
 
 
@@ -694,6 +620,7 @@ def build_dashboard_prepared_run_provider(
     return build_prepared_run_provider_for_page_definitions(
         runs,
         resolve_live_page_definitions(config),
+        config=config,
     )
 
 

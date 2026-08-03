@@ -5,7 +5,7 @@ from __future__ import annotations
 import polars as pl
 
 from processor.models import RunData
-from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize.contracts import summary
 from processor.summarize.summaries.summary_helpers import (
     _all_person_types_rollup,
     _summary_purpose_column,
@@ -13,7 +13,8 @@ from processor.summarize.summaries.summary_helpers import (
 from runtime.config import Config
 
 
-@summary_contract(
+@summary(
+    id="daily_activity_pattern_by_person_type",
     schema={
         "person_type": pl.Utf8,
         "daily_activity_pattern": pl.Utf8,
@@ -24,7 +25,7 @@ from runtime.config import Config
 def dap_summary(rd: RunData, config: Config) -> pl.DataFrame:
     """DAP by person type. Columns: person_type, daily_activity_pattern, person_count"""
     if "person_type" not in rd.per.columns or "cdap_activity" not in rd.per.columns:
-        return empty_summary_frame(dap_summary)
+        return dap_summary.empty()
 
     df = (
         rd.per.filter(pl.col("cdap_activity").is_not_null())
@@ -49,7 +50,8 @@ def dap_summary(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="mandatory_tour_frequency_by_person_type",
     schema={
         "person_type": pl.Utf8,
         "mandatory_tour_frequency": pl.Int32,
@@ -60,7 +62,7 @@ def dap_summary(rd: RunData, config: Config) -> pl.DataFrame:
 def mandatory_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
     """Returns DataFrame: person_type, mandatory_tour_frequency, person_count."""
     if "person_type" not in rd.per.columns or "imf_choice" not in rd.per.columns:
-        return empty_summary_frame(mandatory_tour_freq)
+        return mandatory_tour_freq.empty()
 
     df = (
         rd.per.filter(pl.col("imf_choice") > 0)
@@ -82,7 +84,8 @@ def mandatory_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="nonmandatory_tour_frequency_by_person_type",
     schema={
         "person_type": pl.Utf8,
         "nonmandatory_tour_frequency": pl.Utf8,
@@ -98,11 +101,11 @@ def indiv_nm_summary(rd: RunData, config: Config) -> pl.DataFrame:
     """Returns DataFrame: person_type, nonmandatory_tour_frequency, person_count."""
     per = rd.per
     if "person_type" not in per.columns:
-        return empty_summary_frame(indiv_nm_summary)
+        return indiv_nm_summary.empty()
 
     if "tour_category" in rd.tours.columns:
         inm_counts = (
-            rd.tours.filter(pl.col("tour_category") == "non-mandatory")
+            rd.tours.filter(pl.col("tour_category") == "non_mandatory")
             .group_by("person_id")
             .agg(pl.len().alias("inmTours"))
         )
@@ -156,7 +159,8 @@ def indiv_nm_summary(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="tour_rates_by_person_type_and_tour_purpose",
     schema={
         "person_type": pl.Utf8,
         "tour_purpose": pl.Utf8,
@@ -174,11 +178,11 @@ def tour_rate_per_person(rd: RunData, config: Config) -> pl.DataFrame:
     if not person_required.issubset(set(rd.per.columns)) or not tour_required.issubset(
         set(rd.tours.columns)
     ):
-        return empty_summary_frame(tour_rate_per_person)
+        return tour_rate_per_person.empty()
 
     purpose_col = _summary_purpose_column(rd.tours)
     if not purpose_col:
-        return empty_summary_frame(tour_rate_per_person)
+        return tour_rate_per_person.empty()
 
     weighted_person_days = (
         rd.per.filter(
@@ -258,7 +262,8 @@ def tour_rate_per_person(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="trip_rates_by_person_type_and_trip_purpose",
     schema={
         "person_type": pl.Utf8,
         "trip_purpose": pl.Utf8,
@@ -276,7 +281,7 @@ def trip_rate_per_person(rd: RunData, config: Config) -> pl.DataFrame:
     if not person_required.issubset(set(rd.per.columns)) or not trip_required.issubset(
         set(rd.trips.columns)
     ):
-        return empty_summary_frame(trip_rate_per_person)
+        return trip_rate_per_person.empty()
 
     person_totals = (
         rd.per.filter(pl.col("person_type").is_not_null())

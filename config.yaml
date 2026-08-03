@@ -7,13 +7,31 @@ log_level: INFO
 
 pipeline:
   steps:
-    - prepare
-    - skimjoin
-    - segment
     - summarize
     - dashboard
-  dashboard_mode: live # live | export | host
+  # Add `prepare`, `skimjoin`, or `segment` when those explicit stages are
+  # needed. Summarize automatically prepares data when no valid cache exists.
+  dashboard_mode: live # none | live | export | host
   overwrite: false
+
+# Optional named alternatives backed by columns retained in prepared tables.
+# weighting:
+#   modes:
+#     calibrated:
+#       label: Calibrated
+#       columns:
+#         households: calibrated_hh_weight
+#         persons: calibrated_person_weight
+#         trips: calibrated_trip_weight
+
+# Advanced trusted calculations only. Each importable module defines
+# register_weighting_modes(registry); settings are available on Config and enter
+# summary cache identity.
+# extensions:
+#   modules: [my_project.weighting]
+#   settings:
+#     calibrated:
+#       multiplier: 1.0
 
 # ---------------------------------------------------------------------------
 # ActivitySim output file names
@@ -49,7 +67,7 @@ runs:
   - dir: path\to\activitysim\output\run1
     label: Base
     # skimjoin:
-    #   config_path: configs/example_skimjoin.yaml
+    #   config_path: example_skimjoin_config.yaml
     #   skim_files:
     #     - C:\path\to\model_skims\*.omx
     #     - C:\path\to\model_skims\maz_stop_walk.csv
@@ -128,8 +146,10 @@ prepare:
 # Settings for the `skimjoin` step, to be used as defaults.
 # ---------------------------------------------------------------------------
 skimjoin:
+  failure_policy: record # record | error
+  create_hypothetical_skim_tables: false
   defaults:
-    config_path: configs/example_skimjoin.yaml
+    config_path: example_skimjoin_config.yaml
     skim_files:
       - C:\path\to\model_skims\*.omx
       - C:\path\to\model_skims\maz_stop_walk.csv
@@ -141,7 +161,7 @@ skimjoin:
 # ---------------------------------------------------------------------------
 segment:
   dashboard:
-    segmentation_type: person_sex
+    segmentation_type: signup_platform
     visibility: segments_only   # full_only | segments_only | full_and_segments
   definitions:
     signup_platform:
@@ -169,10 +189,16 @@ segment:
 # ---------------------------------------------------------------------------
 summarize:
   weighting_modes: [weighted, unweighted]
+  failure_policy: record # record | error
   pnr_tour_modes:
     - PNR_TRANSIT
+  # Controls additional mapped geography aggregations only. Summaries may still
+  # emit all_geographies totals, and native prepared home geographies such as
+  # home_taz, home_county, and home_mpo can appear when those columns exist.
   geography:
     enabled: false
+    # Configured mappings create columns such as home_geo__district,
+    # work_geo__county, or land_use_geo__district.
     # landuse_col: COUNTY
     # mapping:
     #   1: County 1
@@ -188,6 +214,7 @@ summarize:
 # ---------------------------------------------------------------------------
 dashboard:
   title: "ActivitySim Comparison Visualizer"
+  include_notes: true
   enable_maz_geographies: false
   live:
     pages:
@@ -200,6 +227,7 @@ dashboard:
       - validation
   export:
     output_path: exports/dashboard.html
+    # `pages` overrides matching live pages; it is not an inclusion list.
     # dashboard:
     #   weighting: [unweighted]
     # pages:
@@ -212,8 +240,18 @@ dashboard:
     #           enabled: false
     #         school_table:
     #           enabled: false
+  # Reserved for a future hosted-dashboard implementation. These settings are
+  # validated but intentionally ignored by the current runtime.
+  # host:
+  #   account: my-connect-cloud-account
+  #   app_id: 12345
+  #   title: ActivitySim Comparison Visualizer
+  #   verify: true
 
 display:
+  missing_data_display: card # card | blank
+  # bar_hover_mode: all # closest | all
+  # density_hover_mode: all # closest | all
   labels:
     person_type:
       mapping:

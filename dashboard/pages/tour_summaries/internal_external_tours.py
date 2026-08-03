@@ -3,30 +3,45 @@
 from __future__ import annotations
 
 import panel as pn
+import polars as pl
 
-from dashboard.components import data_table, selector_row
+from dashboard.rendering import data_table, selector_row
+from dashboard.data_access import RunTables
 from dashboard.helpers.geography_helpers import (
+    ALL_GEOGRAPHY_TYPES_LABEL,
+    ALL_GEOGRAPHY_TYPES_VALUE,
+    GEOGRAPHY_TYPE_SELECTOR_LABEL,
     filter_geography_level,
-    geography_level_options,
+    geography_type_options,
     normalize_geography_data,
+    with_display_geography_columns,
 )
-from dashboard.page_base import DashboardPage, SectionContent
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
+from dashboard.page_base import SectionContent
 
 
+@dashboard_page(
+    page_id="internal_external_tours",
+    title="Internal vs. External Tours",
+    group_id="tour_summaries",
+    order=46,
+    required_summary_ids=(
+        "internal_external_nonmandatory_tour_frequency_by_home_geography",
+        "external_nonmandatory_tour_locations",
+    ),
+)
 class InternalExternalToursPage(DashboardPage):
     """Compare internal/external non-mandatory tours across geography levels."""
 
     def build_page(self) -> pn.viewable.Viewable:
         """Build the page with one shared geography-level selector."""
-        self.geo_level_sel = self.selector(
+        self._geo_level_raw_by_label: dict[str, str | None] = {
+            ALL_GEOGRAPHY_TYPES_LABEL: ALL_GEOGRAPHY_TYPES_VALUE
+        }
+        self.geo_level_sel = self.select(
             "geography_level",
-            widget=pn.widgets.Select(
-                name="Geography Level",
-                options=["Total"],
-                value="Total",
-            ),
-            label="Geography Level",
+            GEOGRAPHY_TYPE_SELECTOR_LABEL,
+            options=self._geography_options,
         )
         self._body = self.section(
             "internal_external_tours_body",
@@ -40,40 +55,91 @@ class InternalExternalToursPage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def sync_controls(self) -> None:
-        """Keep the geography-level selector aligned with available summaries."""
-        summaries = self.optional_summaries_dict(
+    def _geography_options(self) -> list[str]:
+        """Return available geography levels and refresh their raw mapping."""
+        summaries = self.data.summaries(
             "internal_external_nonmandatory_tour_frequency_by_home_geography",
             "external_nonmandatory_tour_locations",
         )
-        geo_opts = geography_level_options(
+        geo_opts, self._geo_level_raw_by_label = geography_type_options(
             normalize_geography_data(
-                summaries["internal_external_nonmandatory_tour_frequency_by_home_geography"]
+                summaries[
+                    "internal_external_nonmandatory_tour_frequency_by_home_geography"
+                ]
             )
             or None,
             normalize_geography_data(summaries["external_nonmandatory_tour_locations"])
             or None,
             config=self.config,
-            total_label="Total",
+            include_all_types=True,
         )
-        self.geo_level_sel.options = geo_opts
-        if self.geo_level_sel.value not in geo_opts:
-            self.geo_level_sel.value = geo_opts[0]
+        return geo_opts
+
+    def selected_geography_level_raw(self) -> str:
+        """Return the raw geography type selected in the display selector."""
+        selected = str(self.geo_level_sel.value)
+        raw_value = self._geo_level_raw_by_label.get(selected, selected)
+        return ALL_GEOGRAPHY_TYPES_VALUE if raw_value is None else str(raw_value)
+
+    def _display_geography_table(
+        self,
+        data_list: list[tuple[str, pl.DataFrame]],
+        *,
+        geography_col: str = "geography",
+    ) -> list[tuple[str, pl.DataFrame]]:
+        """Return table data with friendly geography display columns first."""
+        raw_geography_columns = {
+            "geography_level",
+            "geography_type",
+            "geography",
+            "geography_id",
+            "home_geography",
+        }
+
+        def prepare(df: pl.DataFrame) -> pl.DataFrame:
+            display_df = with_display_geography_columns(
+                df,
+                config=self.config,
+                geography_col=geography_col,
+            )
+            ordered_columns = [
+                column
+                for column in (
+                    "Geography Type",
+                    "Geography Name",
+                    *[
+                        column
+                        for column in display_df.columns
+                        if column
+                        not in {
+                            "Geography Type",
+                            "Geography Name",
+                            *raw_geography_columns,
+                        }
+                    ],
+                )
+                if column in display_df.columns
+            ]
+            return display_df.select(ordered_columns) if ordered_columns else display_df
+
+        return RunTables.from_runs(data_list).map(prepare)
 
     def render_body_section(self) -> SectionContent:
         """Render the two tour tables side by side for the selected level."""
         if not self.state.run_labels:
             return [self.no_runs_message()]
 
-        geo_level = str(self.geo_level_sel.value)
-        summaries = self.optional_summaries_dict(
+        geo_level = self.selected_geography_level_raw()
+        summaries = self.data.summaries(
             "internal_external_nonmandatory_tour_frequency_by_home_geography",
             "external_nonmandatory_tour_locations",
         )
         int_ext_widget = self.render_internal_external_table(
             geo_level,
             normalize_geography_data(
-                summaries["internal_external_nonmandatory_tour_frequency_by_home_geography"]
+                summaries[
+                    "internal_external_nonmandatory_tour_frequency_by_home_geography"
+                ]
             ),
         )
         external_locations_widget = self.render_external_locations_table(
@@ -82,8 +148,14 @@ class InternalExternalToursPage(DashboardPage):
         )
         return [
             pn.Row(
-                int_ext_widget,
-                external_locations_widget,
+                self.noted_view(
+                    "internal_external_tours.frequency_table",
+                    int_ext_widget,
+                ),
+                self.noted_view(
+                    "internal_external_tours.location_table",
+                    external_locations_widget,
+                ),
                 sizing_mode="stretch_width",
             )
         ]
@@ -102,13 +174,9 @@ class InternalExternalToursPage(DashboardPage):
                 ],
             )
 
-        table_data = self.get_filtered_view(
-            "internal_external_nonmandatory_tours",
-            geo_level,
-            factory=lambda: filter_geography_level(summary_data, geo_level),
-        )
+        table_data = self.query(lambda: filter_geography_level(summary_data, geo_level))
         return data_table(
-            table_data,
+            self._display_geography_table(table_data, geography_col="home_geography"),
             "Internal vs. External Non-Mandatory Tour Frequency",
         )
 
@@ -124,24 +192,18 @@ class InternalExternalToursPage(DashboardPage):
                 missing_items=["external_nonmandatory_tour_locations"],
             )
 
-        table_data = self.get_filtered_view(
-            "external_nonmandatory_tour_locations",
-            geo_level,
-            factory=lambda: filter_geography_level(summary_data, geo_level),
+        table_data = self.query(lambda: filter_geography_level(summary_data, geo_level))
+        if not any(not df.is_empty() for _, df in table_data):
+            return self.data_not_available_card(
+                detail=(
+                    "No external non-mandatory tour location data is available for the "
+                    "selected geography. This summary can render MPO, County, or other "
+                    "configured tour-location geographies only when the prepared tour "
+                    "data includes the corresponding location geography columns."
+                ),
+                missing_items=["external_nonmandatory_tour_locations"],
+            )
+        return data_table(
+            self._display_geography_table(table_data),
+            "External Non-Mandatory Tour Location",
         )
-        return data_table(table_data, "External Non-Mandatory Tour Location")
-
-
-PAGE = DashboardPageDefinition(
-    page_id="internal_external_tours",
-    title="Internal vs. External Tours",
-    group_id="tour_summaries",
-    order=46,
-    page_cls=InternalExternalToursPage,
-    required_summary_ids=(
-        "internal_external_nonmandatory_tour_frequency_by_home_geography",
-        "external_nonmandatory_tour_locations",
-    ),
-)
-
-InternalExternalToursPage.definition = PAGE

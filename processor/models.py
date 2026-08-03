@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Collection, Literal, Optional
+from typing import Any, Callable, Collection, Literal, Optional
 
 import numpy as np
 import polars as pl
@@ -87,6 +87,8 @@ class RunData:
     trip_weight_col: Optional[str] = None
     day: pl.DataFrame = field(default_factory=pl.DataFrame)
     vehicles: pl.DataFrame = field(default_factory=pl.DataFrame)
+    trip_hypothetical_skims: pl.DataFrame = field(default_factory=pl.DataFrame)
+    tour_hypothetical_skims: pl.DataFrame = field(default_factory=pl.DataFrame)
     table_availability_metadata: TableAvailabilityMetadata = field(
         default_factory=TableAvailabilityMetadata
     )
@@ -119,12 +121,72 @@ class RunData:
             self.skimjoin_reports = dict(self.skimjoin_artifacts.reports)
 
 
+def map_run_data_tables(
+    run: RunData,
+    transform: Callable[[str, pl.DataFrame], pl.DataFrame],
+    *,
+    clear_weight_columns: bool = False,
+) -> RunData:
+    """Copy a run while applying one transform to every DataFrame table."""
+
+    def mapped(table_name: str, frame: pl.DataFrame) -> pl.DataFrame:
+        result = transform(table_name, frame)
+        if not isinstance(result, pl.DataFrame):
+            raise TypeError(
+                f"RunData table transform for {table_name!r} returned "
+                f"{type(result).__name__}; expected polars.DataFrame."
+            )
+        return result
+
+    return RunData(
+        label=run.label,
+        run_dir=run.run_dir,
+        skim_file=run.skim_file,
+        hh=mapped("hh", run.hh),
+        per=mapped("per", run.per),
+        day=mapped("day", run.day),
+        tours=mapped("tours", run.tours),
+        trips=mapped("trips", run.trips),
+        vehicles=mapped("vehicles", run.vehicles),
+        trip_hypothetical_skims=mapped(
+            "trip_hypothetical_skims", run.trip_hypothetical_skims
+        ),
+        tour_hypothetical_skims=mapped(
+            "tour_hypothetical_skims", run.tour_hypothetical_skims
+        ),
+        joint_participants=mapped("joint_participants", run.joint_participants),
+        land_use=mapped("land_use", run.land_use),
+        skim_matrix=run.skim_matrix,
+        skim_zone_map=run.skim_zone_map,
+        hh_weight_col=None if clear_weight_columns else run.hh_weight_col,
+        person_weight_col=None if clear_weight_columns else run.person_weight_col,
+        trip_weight_col=None if clear_weight_columns else run.trip_weight_col,
+        table_availability_metadata=TableAvailabilityMetadata(
+            states=dict(run.table_availability_metadata.states),
+            diagnostics=dict(run.table_availability_metadata.diagnostics),
+        ),
+        prepare_diagnostics=dict(run.prepare_diagnostics),
+        skimjoin_artifacts=SkimjoinArtifacts(
+            manifest=dict(run.skimjoin_artifacts.manifest),
+            reports=dict(run.skimjoin_artifacts.reports),
+        ),
+        skimjoin_manifest=dict(run.skimjoin_manifest),
+        skimjoin_reports=dict(run.skimjoin_reports),
+    )
+
+
 def prune_prepared_run(
     prepared_run: RunData,
     required_tables: Collection[PreparedTableName],
 ) -> RunData:
     """Return a copy of ``prepared_run`` that keeps only the requested tables."""
     keep = set(required_tables)
+    trip_sidecar = prepared_run.trip_hypothetical_skims
+    if "trips" not in keep:
+        trip_sidecar = pl.DataFrame()
+    tour_sidecar = prepared_run.tour_hypothetical_skims
+    if "tours" not in keep:
+        tour_sidecar = pl.DataFrame()
     return RunData(
         label=prepared_run.label,
         run_dir=prepared_run.run_dir,
@@ -135,6 +197,8 @@ def prune_prepared_run(
         tours=prepared_run.tours if "tours" in keep else pl.DataFrame(),
         trips=prepared_run.trips if "trips" in keep else pl.DataFrame(),
         vehicles=prepared_run.vehicles if "vehicles" in keep else pl.DataFrame(),
+        trip_hypothetical_skims=trip_sidecar,
+        tour_hypothetical_skims=tour_sidecar,
         joint_participants=(
             prepared_run.joint_participants
             if "joint_participants" in keep
@@ -169,19 +233,3 @@ def prune_prepared_runs(
         (label, prune_prepared_run(prepared_run, required_tables))
         for label, prepared_run in prepared_runs
     ]
-
-
-@dataclass
-class ProcessorWorkflowResult:
-    """Prepared and summary workflow outputs for one processor invocation.
-
-    This is the shared in-memory handoff between prepare, summarize, and
-    dashboard/export workflows. ``prepared_runs`` is the authoritative
-    prepared-table contract carried across those steps.
-    """
-
-    summary_runs: list[Any] = field(default_factory=list)
-    prepared_runs: list[tuple[str, RunData]] = field(default_factory=list)
-    prepared_runs_by_key: dict[str, tuple[str, RunData]] = field(default_factory=dict)
-    run_keys: list[str] = field(default_factory=list)
-    run_fingerprints_by_key: dict[str, dict[str, object]] = field(default_factory=dict)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
 
@@ -33,7 +34,7 @@ from runtime.config import Config
 def _write_config(
     tmp_path: Path,
     *,
-    visualizer_lines: list[str] | None = None,
+    dashboard_lines: list[str] | None = None,
     column_lines: list[str] | None = None,
     extra_lines: list[str] | None = None,
 ) -> Config:
@@ -42,17 +43,16 @@ def _write_config(
     lines = [
         'name: "Prepared Cache Test"',
         "runs: []",
-        "processor:",
-        "  root: summary_cache",
-        "  summaries:",
-        "    weighting_modes:",
-        "      - weighted",
-        "      - unweighted",
-        "visualizer:",
-        '  dashboard_title: "Prepared Cache Test"',
+        "root: summary_cache",
+        "summarize:",
+        "  weighting_modes:",
+        "    - weighted",
+        "    - unweighted",
+        "dashboard:",
+        '  title: "Prepared Cache Test"',
     ]
-    if visualizer_lines:
-        lines.extend(f"  {line}" for line in visualizer_lines)
+    if dashboard_lines:
+        lines.extend(f"  {line}" for line in dashboard_lines)
     if column_lines:
         lines.append("columns:")
         lines.extend(f"  {line}" for line in column_lines)
@@ -132,34 +132,6 @@ def _raw_run() -> RunData:
     )
 
 
-def test_legacy_summaries_processor_keys_warn_but_still_load(
-    tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        "\n".join(
-            [
-                'name: "Legacy Processor Config"',
-                "runs: []",
-                "summaries:",
-                "  root: summary_cache",
-                "  weighting_modes:",
-                "    - weighted",
-                "visualizer:",
-                '  dashboard_title: "Legacy Processor Config"',
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    config = Config.from_yaml(config_path)
-
-    assert config.summary_root.endswith("summary_cache")
-    assert config.weighting_modes == ["weighted"]
-    assert "summaries.root" in caplog.text
-    assert "summaries.weighting_modes" in caplog.text
-
 
 def _prepared_run(config: Config) -> RunData:
     return prepare_data(_raw_run(), config)
@@ -173,11 +145,21 @@ def _write_custom_prepared_tables(
     root.mkdir(parents=True, exist_ok=True)
     tables = {
         "households": pl.DataFrame({"household_id": [1], "finalweight": [1.0]}),
-        "persons": pl.DataFrame({"person_id": [10], "household_id": [1], "finalweight": [1.0]}),
-        "day": pl.DataFrame({"day_id": [100], "person_id": [10], "household_id": [1], "finalweight": [1.0]}),
-        "tours": pl.DataFrame({"tour_id": [100], "person_id": [10], "household_id": [1], "finalweight": [1.0]}),
-        "trips": pl.DataFrame({"trip_id": [1000], "tour_id": [100], "person_id": [10], "finalweight": [1.0]}),
-        "vehicles": pl.DataFrame({"vehicle_id": [1001], "household_id": [1], "finalweight": [1.0]}),
+        "persons": pl.DataFrame(
+            {"person_id": [10], "household_id": [1], "finalweight": [1.0]}
+        ),
+        "day": pl.DataFrame(
+            {"day_id": [100], "person_id": [10], "household_id": [1], "finalweight": [1.0]}
+        ),
+        "tours": pl.DataFrame(
+            {"tour_id": [100], "person_id": [10], "household_id": [1], "finalweight": [1.0]}
+        ),
+        "trips": pl.DataFrame(
+            {"trip_id": [1000], "tour_id": [100], "person_id": [10], "finalweight": [1.0]}
+        ),
+        "vehicles": pl.DataFrame(
+            {"vehicle_id": [1001], "household_id": [1], "finalweight": [1.0]}
+        ),
         "joint_tour_participants": pl.DataFrame({"tour_id": [], "person_id": []}),
         "land_use": pl.DataFrame({"zone_id": [1], "TAZ": [1]}),
     }
@@ -202,12 +184,7 @@ def _prepared_run_with_orphan_trip() -> RunData:
             {"person_id": [10], "household_id": [1], "finalweight": [1.0]}
         ),
         tours=pl.DataFrame(
-            {
-                "tour_id": [100],
-                "person_id": [10],
-                "household_id": [1],
-                "finalweight": [1.0],
-            }
+            {"tour_id": [100], "person_id": [10], "household_id": [1], "finalweight": [1.0]}
         ),
         trips=pl.DataFrame(
             {
@@ -411,27 +388,65 @@ def test_prepared_cache_round_trip_creates_default_layout(tmp_path: Path) -> Non
     assert loaded.trip_weight_col == "trip_weight"
 
 
+def test_prepared_cache_round_trips_skimjoin_resolved_network_los(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    prepared = _prepared_run(config)
+    network_los = tmp_path / "network_los.yaml"
+    network_los.write_text("skim_time_periods: {}\n", encoding="utf-8")
+    prepared.skimjoin_manifest = {
+        "skimjoin_enabled": True,
+        "skimjoin_config_digest": "abc123",
+        "skimjoin_status": "applied",
+        "skimjoin_resolved_network_los_file": str(network_los),
+    }
+
+    entry = write_prepared_run_cache(prepared, config, run_key="base")
+    loaded = load_prepared_run_cache(entry.cache_dir, config)
+
+    assert entry.manifest["skimjoin_resolved_network_los_file"] == str(network_los)
+    assert loaded.skimjoin_manifest["skimjoin_resolved_network_los_file"] == str(
+        network_los
+    )
+
+    manifest_path = entry.cache_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.pop("skimjoin_resolved_network_los_file")
+    manifest["run_fingerprint"] = {
+        "skimjoin": {"resolved_network_los_file": str(network_los)}
+    }
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    loaded_from_nested = load_prepared_run_cache(entry.cache_dir, config)
+    assert loaded_from_nested.skimjoin_manifest[
+        "skimjoin_resolved_network_los_file"
+    ] == str(network_los)
+
+
 def test_prepare_config_digest_ignores_presentation_only_changes(
     tmp_path: Path,
 ) -> None:
     config_a = _write_config(
         tmp_path / "a",
-        visualizer_lines=[
-            'dashboard_title: "Dashboard A"',
-            "dashboard_pages:",
-            "  - overview",
-            "export_html:",
+        dashboard_lines=[
+            'title: "Dashboard A"',
+            "live:",
+            "  pages:",
+            "    - overview",
+            "export:",
             "  dashboard:",
             "    values: all",
         ],
     )
     config_b = _write_config(
         tmp_path / "b",
-        visualizer_lines=[
-            'dashboard_title: "Dashboard B"',
-            "dashboard_pages:",
-            "  - destination",
-            "export_html:",
+        dashboard_lines=[
+            'title: "Dashboard B"',
+            "live:",
+            "  pages:",
+            "    - destination",
+            "export:",
             "  dashboard:",
             "    weighting: all",
         ],
@@ -454,10 +469,10 @@ def test_config_accepts_custom_prepared_table_map_and_csv_prepare_output(
             "runs:",
             '  - label: "Prepared Run"',
             "    prepared_table_map:",
-            f"      households: {str(custom_dir / 'households.parquet').replace('\\', '/')}",
-            f"      persons: {str(custom_dir / 'persons.csv').replace('\\', '/')}",
-            f"      day: {str(custom_dir / 'day.csv').replace('\\', '/')}",
-            f"      vehicles: {str(custom_dir / 'vehicles.parquet').replace('\\', '/')}",
+            f"      households: {(custom_dir / 'households.parquet').as_posix()}",
+            f"      persons: {(custom_dir / 'persons.csv').as_posix()}",
+            f"      day: {(custom_dir / 'day.csv').as_posix()}",
+            f"      vehicles: {(custom_dir / 'vehicles.parquet').as_posix()}",
         ],
     )
 
@@ -497,10 +512,9 @@ def test_config_rejects_invalid_custom_prepared_table_map_and_output_format(
                 '  - label: "Prepared Run"',
                 "    prepared_table_map:",
                 "      households_alias: households.parquet",
-                "summaries:",
-                "  root: summary_cache",
-                "visualizer:",
-                '  dashboard_title: "Invalid Prepared Config"',
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Invalid Prepared Config"',
             ]
         ),
         encoding="utf-8",
@@ -517,10 +531,9 @@ def test_config_rejects_invalid_custom_prepared_table_map_and_output_format(
                 "prepare:",
                 "  output:",
                 "    file_format: json",
-                "summaries:",
-                "  root: summary_cache",
-                "visualizer:",
-                '  dashboard_title: "Invalid Prepare Format"',
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Invalid Prepare Format"',
             ]
         ),
         encoding="utf-8",
@@ -537,10 +550,9 @@ def test_config_rejects_invalid_custom_prepared_table_map_and_output_format(
                 "prepare:",
                 "  validation:",
                 "    relationship_checks: maybe",
-                "summaries:",
-                "  root: summary_cache",
-                "visualizer:",
-                '  dashboard_title: "Invalid Prepare Validation"',
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Invalid Prepare Validation"',
             ]
         ),
         encoding="utf-8",
@@ -818,7 +830,7 @@ def test_prepared_cache_invalidates_when_student_type_config_changes(
     config_b = _write_config(
         tmp_path / "b",
         column_lines=["total_employment: EMP_TOTAL"],
-        visualizer_lines=None,
+        dashboard_lines=None,
     )
     config_path = Path(config_b.config_path)
     config_path.write_text(
@@ -826,11 +838,12 @@ def test_prepared_cache_invalidates_when_student_type_config_changes(
         + "\n"
         + "\n".join(
             [
-                "student_types:",
-                "  - label: School",
-                "    land_use_columns: [ENROLLGRADEKto8, ENROLLGRADE9to12]",
-                "  - label: University",
-                "    land_use_columns: [COLLEGEENROLL]",
+                "prepare:",
+                "  student_types:",
+                "    - label: School",
+                "      land_use_columns: [ENROLLGRADEKto8, ENROLLGRADE9to12]",
+                "    - label: University",
+                "      land_use_columns: [COLLEGEENROLL]",
             ]
         ),
         encoding="utf-8",

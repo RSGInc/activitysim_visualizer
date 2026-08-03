@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-import math
-
 import polars as pl
 
 from processor.models import RunData
-from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize.contracts import summary
 from processor.summarize.summaries.long_term_shared import (
     _student_filter_expr,
     _worker_filter_expr,
 )
 from processor.summarize.summaries.summary_helpers import (
-    _aggregate_counts_across_geographies,
+    aggregate_counts_across_geographies,
     _configured_geography_columns,
     _configured_geography_dimensions,
     _configured_land_use_geography_dimensions,
@@ -84,7 +82,8 @@ def _all_geographies_external_worker_counts(df: pl.DataFrame) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="work_from_home_rate_by_geography",
     schema={
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
@@ -96,13 +95,13 @@ def _all_geographies_external_worker_counts(df: pl.DataFrame) -> pl.DataFrame:
 def wfh(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"is_worker", "home_zone_id", "finalweight"}
     if not required.issubset(set(rd.per.columns)):
-        return empty_summary_frame(wfh)
+        return wfh.empty()
 
     workers = rd.per.filter(
         _worker_filter_expr() & pl.col("home_zone_id").is_not_null()
     )
     if workers.is_empty():
-        return empty_summary_frame(wfh)
+        return wfh.empty()
 
     if "work_from_home" in workers.columns:
         workers = workers.with_columns(
@@ -151,7 +150,9 @@ def wfh(rd: RunData, config: Config) -> pl.DataFrame:
         )
 
     outputs = [
-        _aggregate_wfh_counts(base, geography_type=geography_type, geography_id_col=geography_col)
+        _aggregate_wfh_counts(
+            base, geography_type=geography_type, geography_id_col=geography_col
+        )
         for geography_type, geography_col in _configured_geography_dimensions(
             base,
             config=config,
@@ -182,7 +183,8 @@ def wfh(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="internal_external_worker_by_geography",
     schema={
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
@@ -196,7 +198,7 @@ def wfh(rd: RunData, config: Config) -> pl.DataFrame:
 def internal_vs_external(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"is_worker", "is_external_worker", "home_zone_id", "finalweight"}
     if not required.issubset(set(rd.per.columns)):
-        return empty_summary_frame(internal_vs_external)
+        return internal_vs_external.empty()
 
     base = (
         rd.per.filter(
@@ -219,7 +221,7 @@ def internal_vs_external(rd: RunData, config: Config) -> pl.DataFrame:
         )
     )
     if base.is_empty():
-        return empty_summary_frame(internal_vs_external)
+        return internal_vs_external.empty()
 
     outputs = [
         *[
@@ -254,7 +256,8 @@ def internal_vs_external(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="external_worker_workplace_locations",
     schema={
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
@@ -278,7 +281,7 @@ def external_workplace_loc(rd: RunData, config: Config) -> pl.DataFrame:
         "finalweight",
     }
     if not required.issubset(set(rd.per.columns)):
-        return empty_summary_frame(external_workplace_loc)
+        return external_workplace_loc.empty()
 
     base = rd.per.filter(
         (pl.col("is_external_worker") == True)
@@ -293,20 +296,19 @@ def external_workplace_loc(rd: RunData, config: Config) -> pl.DataFrame:
         ),
     )
     if base.is_empty():
-        return empty_summary_frame(external_workplace_loc)
+        return external_workplace_loc.empty()
 
     all_worker_count = float(
-        rd.per.filter(_worker_filter_expr())
-        .select(pl.col("finalweight").sum().cast(pl.Float64).alias("all_worker_count"))[
-            "all_worker_count"
-        ][0]
+        rd.per.filter(_worker_filter_expr()).select(
+            pl.col("finalweight").sum().cast(pl.Float64).alias("all_worker_count")
+        )["all_worker_count"][0]
         or 0.0
     )
 
     return (
         pl.concat(
             [
-                _aggregate_counts_across_geographies(
+                aggregate_counts_across_geographies(
                     base,
                     geography_dimensions=_configured_geography_dimensions(
                         base,
@@ -330,15 +332,16 @@ def external_workplace_loc(rd: RunData, config: Config) -> pl.DataFrame:
         .sort(["geography_type", "geography_id"])
     )
 
+
 def _workplace_land_use_and_modeled_counts(
     rd: RunData,
     config: Config,
 ) -> tuple[pl.DataFrame, pl.DataFrame] | None:
     land_use_required = {"MAZ", "employment_count"}
     person_required = {"workplace_zone_id", "is_worker", "finalweight"}
-    if not land_use_required.issubset(set(rd.land_use.columns)) or not person_required.issubset(
-        set(rd.per.columns)
-    ):
+    if not land_use_required.issubset(
+        set(rd.land_use.columns)
+    ) or not person_required.issubset(set(rd.per.columns)):
         return None
 
     land_use_base = rd.land_use.select(
@@ -358,7 +361,9 @@ def _workplace_land_use_and_modeled_counts(
         "finalweight",
         *_configured_geography_columns(rd.per, config=config, role_prefix="work"),
     )
-    land_use_dimensions = _configured_land_use_geography_dimensions(rd.land_use, config=config)
+    land_use_dimensions = _configured_land_use_geography_dimensions(
+        rd.land_use, config=config
+    )
     worker_dimensions = dict(
         _configured_geography_dimensions(
             worker_base,
@@ -432,7 +437,8 @@ def _workplace_land_use_and_modeled_counts(
     )
 
 
-@summary_contract(
+@summary(
+    id="workplace_location_employment_comparison",
     schema={
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
@@ -447,7 +453,7 @@ def _workplace_land_use_and_modeled_counts(
 def workplace_vs_land_use_employment(rd: RunData, config: Config) -> pl.DataFrame:
     aligned = _workplace_land_use_and_modeled_counts(rd, config)
     if aligned is None:
-        return empty_summary_frame(workplace_vs_land_use_employment)
+        return workplace_vs_land_use_employment.empty()
     land_use_counts, worker_counts = aligned
     return (
         land_use_counts.join(
@@ -467,7 +473,8 @@ def workplace_vs_land_use_employment(rd: RunData, config: Config) -> pl.DataFram
     )
 
 
-@summary_contract(
+@summary(
+    id="commuting_flows",
     schema={
         "origin_geography_type": pl.Utf8,
         "origin_geography_id": pl.Utf8,
@@ -482,7 +489,7 @@ def workplace_vs_land_use_employment(rd: RunData, config: Config) -> pl.DataFram
 def commuting_flows(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"home_zone_id", "workplace_zone_id", "is_worker", "finalweight"}
     if not required.issubset(set(rd.per.columns)):
-        return empty_summary_frame(commuting_flows)
+        return commuting_flows.empty()
 
     def aggregate_flows(
         df: pl.DataFrame,
@@ -528,7 +535,7 @@ def commuting_flows(rd: RunData, config: Config) -> pl.DataFrame:
         *_configured_geography_columns(rd.per, config=config, role_prefix="work"),
     )
     if base.is_empty():
-        return empty_summary_frame(commuting_flows)
+        return commuting_flows.empty()
 
     home_dimensions = _configured_geography_dimensions(
         base,
@@ -548,7 +555,9 @@ def commuting_flows(rd: RunData, config: Config) -> pl.DataFrame:
     )
     outputs = [
         aggregate_flows(
-            base.filter(pl.col(origin_col).is_not_null() & pl.col(destination_col).is_not_null()),
+            base.filter(
+                pl.col(origin_col).is_not_null() & pl.col(destination_col).is_not_null()
+            ),
             origin_type=origin_type,
             origin_col=origin_col,
             destination_type=origin_type,
@@ -599,9 +608,9 @@ def _school_land_use_and_modeled_counts(
 ) -> tuple[pl.DataFrame, pl.DataFrame] | None:
     land_use_required = {"MAZ", "enrollment_count", "student_type"}
     person_required = {"school_zone_id", "is_student", "finalweight", "student_type"}
-    if not land_use_required.issubset(set(rd.land_use.columns)) or not person_required.issubset(
-        set(rd.per.columns)
-    ):
+    if not land_use_required.issubset(
+        set(rd.land_use.columns)
+    ) or not person_required.issubset(set(rd.per.columns)):
         return None
 
     land_use_base = rd.land_use.filter(
@@ -628,7 +637,9 @@ def _school_land_use_and_modeled_counts(
             *_configured_geography_columns(rd.per, config=config, role_prefix="school"),
         )
     )
-    land_use_dimensions = _configured_land_use_geography_dimensions(rd.land_use, config=config)
+    land_use_dimensions = _configured_land_use_geography_dimensions(
+        rd.land_use, config=config
+    )
     student_dimensions = dict(
         _configured_geography_dimensions(
             student_base,
@@ -655,7 +666,9 @@ def _school_land_use_and_modeled_counts(
                 pl.col("student_type").cast(pl.Utf8),
                 pl.col("enrollment_count").cast(pl.Float64),
             )
-            .select("geography_type", "geography_id", "student_type", "enrollment_count")
+            .select(
+                "geography_type", "geography_id", "student_type", "enrollment_count"
+            )
         )
         student_outputs.append(
             student_base.filter(pl.col(student_col).is_not_null())
@@ -706,7 +719,7 @@ def _park_and_ride_location_counts(
     rd: RunData,
     config: Config,
 ) -> pl.DataFrame | None:
-    required_tour_cols = {"tour_mode", "pnr_zone_id", "finalweight"}
+    required_tour_cols = {"tour_mode", "finalweight"}
     if not required_tour_cols.issubset(set(rd.tours.columns)):
         return None
 
@@ -719,25 +732,31 @@ def _park_and_ride_location_counts(
 
     join_key = None
     land_use_base_col = None
-    geography_base_col = None
     geography_base_type = None
     if "pnr_zone_id" in rd.tours.columns and "MAZ" in rd.land_use.columns:
         join_key = "pnr_zone_id"
         land_use_base_col = "MAZ"
-        geography_base_col = "MAZ"
         geography_base_type = "maz"
     elif "pnr_taz" in rd.tours.columns and "TAZ" in rd.land_use.columns:
         join_key = "pnr_taz"
         land_use_base_col = "TAZ"
-        geography_base_col = "TAZ"
         geography_base_type = "taz"
-    if (
-        join_key is None
-        or land_use_base_col is None
-        or geography_base_col is None
-        or geography_base_type is None
-    ):
+    if join_key is None or land_use_base_col is None or geography_base_type is None:
         return None
+
+    geography_dimensions: list[tuple[str, str]] = [
+        (geography_base_type, land_use_base_col)
+    ]
+    if land_use_base_col == "MAZ" and "TAZ" in rd.land_use.columns:
+        geography_dimensions.append(("taz", "TAZ"))
+    seen_geography_cols = {column for _, column in geography_dimensions}
+    for geography_type, geography_col in _configured_land_use_geography_dimensions(
+        rd.land_use,
+        config=config,
+    ):
+        if geography_col not in seen_geography_cols:
+            geography_dimensions.append((geography_type, geography_col))
+            seen_geography_cols.add(geography_col)
 
     pnr_modes = {mode.lower() for mode in config.pnr_tour_modes}
     modeled = (
@@ -756,12 +775,12 @@ def _park_and_ride_location_counts(
 
     land_use_cols = [land_use_base_col, capacity_col]
     land_use_cols.extend(
-        column
-        for _, column in _configured_land_use_geography_dimensions(rd.land_use, config=config)
-        if column not in land_use_cols
+        column for _, column in geography_dimensions if column not in land_use_cols
     )
     land_use_base = (
-        rd.land_use.filter(pl.col(capacity_col).is_not_null() & pl.col(land_use_base_col).is_not_null())
+        rd.land_use.filter(
+            pl.col(capacity_col).is_not_null() & pl.col(land_use_base_col).is_not_null()
+        )
         .select(*land_use_cols)
         .group_by(land_use_base_col)
         .agg(
@@ -784,7 +803,10 @@ def _park_and_ride_location_counts(
         how="left",
         coalesce=True,
     )
-    if used_lots.height != modeled.height or used_lots["pnr_lot_capacity"].null_count() > 0:
+    if (
+        used_lots.height != modeled.height
+        or used_lots["pnr_lot_capacity"].null_count() > 0
+    ):
         return None
 
     outputs = [
@@ -802,11 +824,8 @@ def _park_and_ride_location_counts(
         )
         .select("geography_type", "geography_id", "pnr_tour_count", "pnr_lot_capacity")
     ]
-    for geography_type, geography_col in _configured_land_use_geography_dimensions(
-        used_lots,
-        config=config,
-    ):
-        if geography_col == geography_base_col or geography_col not in used_lots.columns:
+    for geography_type, geography_col in geography_dimensions:
+        if geography_col == land_use_base_col or geography_col not in used_lots.columns:
             continue
         outputs.append(
             used_lots.filter(pl.col(geography_col).is_not_null())
@@ -822,7 +841,9 @@ def _park_and_ride_location_counts(
                 pl.col("pnr_tour_count").cast(pl.Float64),
                 pl.col("pnr_lot_capacity").cast(pl.Float64),
             )
-            .select("geography_type", "geography_id", "pnr_tour_count", "pnr_lot_capacity")
+            .select(
+                "geography_type", "geography_id", "pnr_tour_count", "pnr_lot_capacity"
+            )
         )
     outputs.append(
         used_lots.select(
@@ -835,7 +856,8 @@ def _park_and_ride_location_counts(
     return pl.concat(outputs, how="vertical").sort(["geography_type", "geography_id"])
 
 
-@summary_contract(
+@summary(
+    id="school_location_enrollment_comparison",
     schema={
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
@@ -851,7 +873,7 @@ def _park_and_ride_location_counts(
 def school_loc_vs_land_use_enrollment(rd: RunData, config: Config) -> pl.DataFrame:
     aligned = _school_land_use_and_modeled_counts(rd, config)
     if aligned is None:
-        return empty_summary_frame(school_loc_vs_land_use_enrollment)
+        return school_loc_vs_land_use_enrollment.empty()
     land_use_counts, student_counts = aligned
     return (
         land_use_counts.join(
@@ -878,7 +900,8 @@ def school_loc_vs_land_use_enrollment(rd: RunData, config: Config) -> pl.DataFra
     )
 
 
-@summary_contract(
+@summary(
+    id="workplace_shadow_pricing_residuals",
     schema={
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
@@ -896,24 +919,39 @@ def school_loc_vs_land_use_enrollment(rd: RunData, config: Config) -> pl.DataFra
 def workplace_shadow_pricing_residuals(rd: RunData, config: Config) -> pl.DataFrame:
     aligned = _workplace_land_use_and_modeled_counts(rd, config)
     if aligned is None:
-        return empty_summary_frame(workplace_shadow_pricing_residuals)
+        return workplace_shadow_pricing_residuals.empty()
     land_use_counts, worker_counts = aligned
-    return _finalize_residual_frame(
-        land_use_counts.join(
-            worker_counts,
-            on=["geography_type", "geography_id"],
-            how="full",
-            coalesce=True,
+    return (
+        _finalize_residual_frame(
+            land_use_counts.join(
+                worker_counts,
+                on=["geography_type", "geography_id"],
+                how="full",
+                coalesce=True,
+            )
+            .with_columns(
+                pl.col("employment_count").fill_null(0.0).cast(pl.Float64),
+                pl.col("worker_count").fill_null(0.0).cast(pl.Float64),
+            )
+            .with_columns(
+                *_residual_metrics_columns("employment_count", "worker_count")
+            )
         )
-        .with_columns(
-            pl.col("employment_count").fill_null(0.0).cast(pl.Float64),
-            pl.col("worker_count").fill_null(0.0).cast(pl.Float64),
+        .select(
+            "geography_type",
+            "geography_id",
+            "target_count",
+            "modeled_count",
+            "residual_count",
+            "absolute_residual_count",
+            "percent_error",
         )
-        .with_columns(*_residual_metrics_columns("employment_count", "worker_count"))
-    ).sort(["geography_type", "geography_id"])
+        .sort(["geography_type", "geography_id"])
+    )
 
 
-@summary_contract(
+@summary(
+    id="school_shadow_pricing_residuals",
     schema={
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
@@ -932,7 +970,7 @@ def workplace_shadow_pricing_residuals(rd: RunData, config: Config) -> pl.DataFr
 def school_shadow_pricing_residuals(rd: RunData, config: Config) -> pl.DataFrame:
     aligned = _school_land_use_and_modeled_counts(rd, config)
     if aligned is None:
-        return empty_summary_frame(school_shadow_pricing_residuals)
+        return school_shadow_pricing_residuals.empty()
     land_use_counts, student_counts = aligned
     return _finalize_residual_frame(
         land_use_counts.join(
@@ -950,7 +988,8 @@ def school_shadow_pricing_residuals(rd: RunData, config: Config) -> pl.DataFrame
     ).sort(["geography_type", "geography_id", "student_type"])
 
 
-@summary_contract(
+@summary(
+    id="workplace_shadow_pricing_residual_histogram",
     schema={
         "geography_type": pl.Utf8,
         "bin_start": pl.Float64,
@@ -968,7 +1007,7 @@ def workplace_shadow_pricing_residual_histogram(
 ) -> pl.DataFrame:
     residuals = workplace_shadow_pricing_residuals(rd, config)
     if residuals.is_empty():
-        return empty_summary_frame(workplace_shadow_pricing_residual_histogram)
+        return workplace_shadow_pricing_residual_histogram.empty()
     return _residual_histogram_summary(
         residuals,
         group_cols=["geography_type"],
@@ -976,7 +1015,8 @@ def workplace_shadow_pricing_residual_histogram(
     ).sort(["geography_type", "bin_start", "bin_end"])
 
 
-@summary_contract(
+@summary(
+    id="school_shadow_pricing_residual_histogram",
     schema={
         "geography_type": pl.Utf8,
         "student_type": pl.Utf8,
@@ -995,7 +1035,7 @@ def school_shadow_pricing_residual_histogram(
 ) -> pl.DataFrame:
     residuals = school_shadow_pricing_residuals(rd, config)
     if residuals.is_empty():
-        return empty_summary_frame(school_shadow_pricing_residual_histogram)
+        return school_shadow_pricing_residual_histogram.empty()
     by_student_type = _residual_histogram_summary(
         residuals,
         group_cols=["geography_type", "student_type"],
@@ -1021,7 +1061,8 @@ def school_shadow_pricing_residual_histogram(
     )
 
 
-@summary_contract(
+@summary(
+    id="park_and_ride_location_residuals",
     schema={
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
@@ -1032,29 +1073,42 @@ def school_shadow_pricing_residual_histogram(
         "percent_error": pl.Float64,
     },
     required_columns={
-        "tours": ("tour_mode", "pnr_zone_id", "finalweight"),
-        "land_use": ("MAZ",),
+        "tours": ("tour_mode", "finalweight"),
+        "land_use": (),
     },
 )
 def park_and_ride_location_residuals(rd: RunData, config: Config) -> pl.DataFrame:
     base = _park_and_ride_location_counts(rd, config)
     if base is None or base.is_empty():
-        return empty_summary_frame(park_and_ride_location_residuals)
-    return _finalize_residual_frame(
-        base.with_columns(
-            *_residual_metrics_columns(
-                "pnr_lot_capacity",
-                "pnr_tour_count",
-                target_output_col="pnr_lot_capacity",
-                modeled_output_col="pnr_tour_count",
-            )
-        ),
-        target_output_col="pnr_lot_capacity",
-        modeled_output_col="pnr_tour_count",
-    ).sort(["geography_type", "geography_id"])
+        return park_and_ride_location_residuals.empty()
+    return (
+        _finalize_residual_frame(
+            base.with_columns(
+                *_residual_metrics_columns(
+                    "pnr_lot_capacity",
+                    "pnr_tour_count",
+                    target_output_col="pnr_lot_capacity",
+                    modeled_output_col="pnr_tour_count",
+                )
+            ),
+            target_output_col="pnr_lot_capacity",
+            modeled_output_col="pnr_tour_count",
+        )
+        .select(
+            "geography_type",
+            "geography_id",
+            "pnr_tour_count",
+            "pnr_lot_capacity",
+            "residual_count",
+            "absolute_residual_count",
+            "percent_error",
+        )
+        .sort(["geography_type", "geography_id"])
+    )
 
 
-@summary_contract(
+@summary(
+    id="park_and_ride_location_residual_histogram",
     schema={
         "geography_type": pl.Utf8,
         "bin_start": pl.Float64,
@@ -1062,8 +1116,8 @@ def park_and_ride_location_residuals(rd: RunData, config: Config) -> pl.DataFram
         "geography_count": pl.Float64,
     },
     required_columns={
-        "tours": ("tour_mode", "pnr_zone_id", "finalweight"),
-        "land_use": ("MAZ",),
+        "tours": ("tour_mode", "finalweight"),
+        "land_use": (),
     },
 )
 def park_and_ride_location_residual_histogram(
@@ -1072,7 +1126,7 @@ def park_and_ride_location_residual_histogram(
 ) -> pl.DataFrame:
     residuals = park_and_ride_location_residuals(rd, config)
     if residuals.is_empty():
-        return empty_summary_frame(park_and_ride_location_residual_histogram)
+        return park_and_ride_location_residual_histogram.empty()
     return _residual_histogram_summary(
         residuals,
         group_cols=["geography_type"],
@@ -1080,7 +1134,8 @@ def park_and_ride_location_residual_histogram(
     ).sort(["geography_type", "bin_start", "bin_end"])
 
 
-@summary_contract(
+@summary(
+    id="free_parking_eligibility_by_workplace_geography",
     schema={
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
@@ -1099,7 +1154,24 @@ def park_and_ride_location_residual_histogram(
 def free_parking(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"is_worker", "free_parking_at_work", "workplace_zone_id", "finalweight"}
     if not required.issubset(set(rd.per.columns)):
-        return empty_summary_frame(free_parking)
+        return free_parking.empty()
+
+    free_parking_dtype = rd.per.schema["free_parking_at_work"]
+    if free_parking_dtype == pl.Boolean:
+        free_parking_expr = pl.col("free_parking_at_work")
+    elif free_parking_dtype.is_numeric():
+        # Estimation survey inputs use the model alternative codes 0/1/2;
+        # ActivitySim's free-parking alternative is 2. Model outputs already
+        # contain a Boolean and take the branch above.
+        free_parking_expr = pl.col("free_parking_at_work") == 2
+    else:
+        free_parking_expr = (
+            pl.col("free_parking_at_work")
+            .cast(pl.Utf8)
+            .str.strip_chars()
+            .str.to_lowercase()
+            .is_in(["true", "yes", "y", "2"])
+        )
 
     def aggregate_counts(
         df: pl.DataFrame,
@@ -1109,7 +1181,9 @@ def free_parking(rd: RunData, config: Config) -> pl.DataFrame:
         return (
             df.group_by(geography_id_col)
             .agg(
-                workers_without_free_parking_count=pl.when(~pl.col("free_parking_at_work"))
+                workers_without_free_parking_count=pl.when(
+                    ~pl.col("free_parking_at_work")
+                )
                 .then(pl.col("finalweight"))
                 .otherwise(0.0)
                 .sum(),
@@ -1133,18 +1207,22 @@ def free_parking(rd: RunData, config: Config) -> pl.DataFrame:
             )
         )
 
-    base = rd.per.filter(
-        _worker_filter_expr()
-        & pl.col("workplace_zone_id").is_not_null()
-        & pl.col("free_parking_at_work").is_not_null()
-    ).select(
-        "workplace_zone_id",
-        "free_parking_at_work",
-        "finalweight",
-        *_configured_geography_columns(rd.per, config=config, role_prefix="work"),
+    base = (
+        rd.per.filter(
+            _worker_filter_expr()
+            & pl.col("workplace_zone_id").is_not_null()
+            & pl.col("free_parking_at_work").is_not_null()
+        )
+        .with_columns(free_parking_expr.alias("free_parking_at_work"))
+        .select(
+            "workplace_zone_id",
+            "free_parking_at_work",
+            "finalweight",
+            *_configured_geography_columns(rd.per, config=config, role_prefix="work"),
+        )
     )
     if base.is_empty():
-        return empty_summary_frame(free_parking)
+        return free_parking.empty()
 
     return (
         pl.concat(

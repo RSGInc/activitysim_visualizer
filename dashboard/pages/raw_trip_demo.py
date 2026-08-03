@@ -5,15 +5,13 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
-from processor.models import RunData
+from dashboard import DashboardPage, dashboard_page
+from dashboard.data_access import RunTables
 
 
 def trip_mode_distribution(
-    prepared_runs: list[tuple[str, RunData]],
-) -> list[tuple[str, pl.DataFrame]]:
+    trip_tables: RunTables,
+) -> RunTables:
     """Aggregate prepared trip records into one trip-mode distribution per run."""
 
     def _one_run(trips: pl.DataFrame) -> pl.DataFrame:
@@ -38,9 +36,17 @@ def trip_mode_distribution(
             .sort("trip_mode")
         )
 
-    return [(label, _one_run(run.trips)) for label, run in prepared_runs]
+    return trip_tables.map(_one_run)
 
 
+@dashboard_page(
+    page_id="raw_trip_demo",
+    title="Prepared Trip Demo",
+    order=900,
+    default_enabled=False,
+    prepared_data_mode="required",
+    required_prepared_tables=("trips",),
+)
 class RawTripDemoPage(DashboardPage):
     """Example page for future prepared-data pages to follow."""
 
@@ -57,30 +63,26 @@ class RawTripDemoPage(DashboardPage):
         """Render the prepared-run trip mode demo or an unavailable placeholder."""
         if not self.state.run_labels:
             return [self.no_runs_message()]
+        note = self.section_note("raw_trip_demo.trip_modes", self._body)
 
-        prepared_result = self.resolve_prepared_visualization(
-            "raw_trip_demo_trip_modes",
-            table_requirements={"trips": ("trip_mode",)},
+        trip_tables = self.data.prepared(
+            "trips",
+            columns=("trip_mode",),
         )
-        if not prepared_result.has_usable_runs:
+        if not trip_tables:
             return [
                 pn.pane.Markdown("## Prepared Trip Demo"),
-                self.unavailable_visualization(
-                    prepared_result,
+                self.data_not_available_card(
                     detail=(
                         "This demo page intentionally requires disaggregate prepared trip "
                         "records and does not render from summary tables."
                     ),
+                    missing_items=["trips"],
                 ),
+                note,
             ]
 
-        prepared_runs = prepared_result.usable_by_input["trips"]
-        trip_mode_list = self.get_filtered_view(
-            "raw_trip_demo_trip_modes",
-            self.weighting_key,
-            tuple(label for label, _ in prepared_runs),
-            factory=lambda: trip_mode_distribution(prepared_runs),
-        )
+        trip_mode_list = self.query(lambda: trip_mode_distribution(trip_tables))
         return [
             pn.pane.Markdown("## Prepared Trip Demo"),
             pn.pane.Markdown(
@@ -88,6 +90,7 @@ class RawTripDemoPage(DashboardPage):
                 "trip records directly from the loaded prepared runs."
             ),
             self.render_trip_mode_chart(trip_mode_list),
+            note,
         ]
 
     def render_trip_mode_chart(
@@ -95,25 +98,11 @@ class RawTripDemoPage(DashboardPage):
         trip_mode_list: list[tuple[str, pl.DataFrame]],
     ) -> pn.viewable.Viewable:
         """Render the prepared-run trip mode distribution."""
-        return bar_chart(
+        return self.plot.bar(
             trip_mode_list,
-            x_col="trip_mode",
-            y_col="freq",
+            x="trip_mode",
+            y="freq",
             title="Trip Mode Distribution From Raw Trips",
-            xaxis_title="Trip Mode",
-            yaxis_title="Trips",
-            as_percent=self.as_percent,
+            x_title="Trip Mode",
+            y_title="Trips",
         )
-
-
-PAGE = DashboardPageDefinition(
-    page_id="raw_trip_demo",
-    title="Prepared Trip Demo",
-    order=900,
-    default_enabled=False,
-    prepared_data_mode="required",
-    required_prepared_tables=("trips",),
-    page_cls=RawTripDemoPage,
-)
-
-RawTripDemoPage.definition = PAGE

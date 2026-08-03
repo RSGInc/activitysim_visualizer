@@ -17,9 +17,19 @@ the result. This is not a frontend application with a separate deployment model.
 ## Important Files
 
 - `payload.py`
-  Builds page descriptors, dashboard states, selector metadata, and region variants.
+  Composes dashboard states, page descriptors, selector metadata, and the final
+  client payload.
+- `traversal.py`
+  Projects registered page sections onto the export contract and validates that
+  enabled region roots are present and non-overlapping.
+- `selector_states.py`
+  Resolves selector requests, enumerates canonical region states, and owns the
+  scoped widget-mutation boundary.
+- `page_serializer.py`
+  Serializes page shells and selector-driven region variants.
 - `serializer.py`
-  Converts supported Panel objects into export nodes and sanitizes JSON-unsafe values.
+  Converts individual supported Panel objects into export nodes and sanitizes
+  JSON-unsafe values.
 - `types.py`
   Defines the Python-side payload and node shapes, including `EXPORT_SCHEMA_VERSION`.
 - `runtime_assets.py`
@@ -61,14 +71,15 @@ The contract is versioned by `EXPORT_SCHEMA_VERSION` in `types.py`.
 When you change payload structure:
 
 1. Update `types.py`.
-2. Update the Python payload builder in `payload.py`.
+2. Update the relevant Python contract layer (`payload.py`, `page_serializer.py`,
+   or `serializer.py`).
 3. Update the runtime source in `js_runtime/`.
 4. Rebuild `assets/export_runtime.js`.
 5. Update fixture payloads in `tests/fixtures/`.
 6. Update contract and smoke tests.
 7. Bump `EXPORT_SCHEMA_VERSION` if the runtime can no longer safely read older payloads.
 
-The contract reference lives in [`docs/export_html_schema.md`](../../docs/export_html_schema.md).
+The export reference lives in [`wiki/34-html-export.md`](../../wiki/34-html-export.md).
 
 ## Trusted HTML Boundary
 
@@ -86,8 +97,8 @@ boundary explicit in both Python and JavaScript code.
 
 Region export works by temporarily mutating selector widget values so each selector
 combination can be rendered and serialized. That mutation is isolated in
-`payload.temporary_widget_values(...)` so widget state is restored on both success
-and failure paths.
+`selector_states.scoped_widget_values(...)` so widget state is restored on
+both success and failure paths.
 
 If you touch selector-driven region export:
 
@@ -108,12 +119,12 @@ When an export looks wrong:
 ## Segmentation Filtering
 
 When summary caches include segmented runs, HTML export uses one build-time
-segmentation view per file. By default export mirrors `segmentation.dashboard`,
-but you can override it under `visualizer.export_html.dashboard`:
+segmentation view per file. By default export mirrors `segment.dashboard`, but
+you can override it under `dashboard.export.dashboard`:
 
 ```yaml
-visualizer:
-  export_html:
+dashboard:
+  export:
     dashboard:
       segmentation_type: signup_platform
       segmentation_visibility: segments_only
@@ -134,6 +145,6 @@ Supported `segmentation_visibility` values are `full_only`,
 ## Related Docs
 
 - `js_runtime_guide.md`
-- `docs/export_html_schema.md`
-- `docs/export_html_contributor_guide.md`
-- `docs/adding-dashboard-pages.md`
+- `wiki/34-html-export.md`
+- `wiki/32-figures-and-widgets.md`
+- `wiki/33-dashboard-page-recipes.md`

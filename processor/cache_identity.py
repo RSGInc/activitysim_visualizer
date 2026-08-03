@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from pathlib import Path
 import re
 
 
@@ -53,4 +54,15 @@ def build_run_fingerprint(
     }
 
 
-__all__ = ["build_run_fingerprint", "build_run_keys", "slugify"]
+def file_identity(path: str | Path) -> dict[str, object]:
+    """Return a portable identity for an external input file."""
+    resolved = Path(path).resolve()
+    stat = resolved.stat()
+    return {
+        "path": str(resolved),
+        "size": int(stat.st_size),
+        "mtime_ns": int(stat.st_mtime_ns),
+    }
+
+
+__all__ = ["build_run_fingerprint", "build_run_keys", "file_identity", "slugify"]

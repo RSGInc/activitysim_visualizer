@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sys
-from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -18,7 +17,7 @@ from test_export_html import _full_summary_run, _write_config
 
 
 def _workspace_tmp_dir(label: str) -> Path:
-    path = Path("tmp_export_test_artifacts") / f"{label}_{uuid4().hex}"
+    path = Path(".pytest_tmp") / "export_helpers" / label
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -27,10 +26,13 @@ def test_export_html_smoke_writes_single_self_contained_file() -> None:
     tmp_path = _workspace_tmp_dir("html_smoke_file")
     config = _write_config(
         tmp_path,
+        dashboard_pages=[{"trip_summaries": ["trip_mode"]}],
         export_html_lines=[
             "dashboard:",
             "  weighting: all",
             "  values: all",
+            "pages:",
+            "  trip_mode: {}",
         ],
     )
     out_path = tmp_path / "smoke" / "dashboard.html"
@@ -52,6 +54,10 @@ def test_export_html_smoke_writes_single_self_contained_file() -> None:
     assert "activitysim-export-data" in html
     assert "Export payload JSON could not be parsed." in html
     assert "Plotly.react" in html
+    assert 'displayModeBar: "hover"' in html
+    assert "scale: 2" in html
+    assert 'name: "Download CSV"' in html
+    assert "modeBarButtonsToAdd: [makePlotCsvDownloadButton(figure)]" in html
     assert "Offline export failed to load" in html
     assert "This HTML export encountered a runtime rendering error." in html
     assert "Unknown export node kind encountered:" in html
@@ -66,7 +72,7 @@ def test_export_html_smoke_embeds_versioned_payload_and_runtime() -> None:
     tmp_path = _workspace_tmp_dir("html_smoke_payload")
     config = _write_config(
         tmp_path,
-        dashboard_pages=["trip_summaries"],
+        dashboard_pages=[{"trip_summaries": ["trip_mode"]}],
         export_html_lines=[
             "pages:",
             "  trip_summaries:",
@@ -94,27 +100,24 @@ def test_export_html_smoke_embeds_versioned_payload_and_runtime() -> None:
         ("trip_summaries", "Trip Summaries")
     ]
     trip_summaries = payload["pages"][0]
-    assert trip_summaries["default_page_id"] == "trip_stop_purpose"
+    assert trip_summaries["default_page_id"] == "trip_mode"
     assert [(child["id"], child["title"]) for child in trip_summaries["children"]] == [
-        ("trip_stop_purpose", "Trip and Stop Purpose"),
         ("trip_mode", "Trip Mode"),
-        ("trip_stop_time", "Trip and Stop Time"),
-        ("trip_stop_distance", "Trip and Stop Distance"),
     ]
     trip_mode = next(child for child in trip_summaries["children"] if child["id"] == "trip_mode")
-    assert trip_mode["selectors"] == [
-        {
-            "id": "tour_purpose",
-            "label": "Tour Purpose",
-            "available": True,
-            "request_mode": "all",
-            "requested_values": [],
-            "resolved_values": ["All", "eatout", "social"],
-            "default_value": "All",
-            "options": ["All", "eatout", "social"],
-            "export_enabled": True,
-        }
-    ]
+    selectors = {selector["id"]: selector for selector in trip_mode["selectors"]}
+    assert selectors["tour_purpose"] == {
+        "id": "tour_purpose",
+        "label": "Tour Purpose",
+        "available": True,
+        "request_mode": "all",
+        "requested_values": [],
+        "resolved_values": ["All Tour Purposes", "eatout", "social"],
+        "default_value": "All Tour Purposes",
+        "options": ["All Tour Purposes", "eatout", "social"],
+        "export_enabled": True,
+    }
+    assert selectors["hide_drive_alone"]["resolved_values"] == ["False", "True"]
     assert payload["states"]["Weighted||Percent"]["trip_mode"]["kind"] == "page"
     assert "Unsupported export schema version." in html
     assert "__EXPORT_SCHEMA_VERSION__" not in html
@@ -126,8 +129,10 @@ def test_export_runtime_assets_are_loaded_from_source_files() -> None:
 
     assert ".export-shell" in css
     assert ".export-error-panel" in css
+    assert ".export-table-sort" in css
     assert "function validatePayloadSchema(candidate)" in runtime_js
     assert "function renderPlot(node, context)" in runtime_js
+    assert "function renderTable(node)" in runtime_js
     assert "function renderNode(node, context, actions, leafPageId)" in runtime_js
     assert "function renderRegion(node, context, actions, leafPageId)" in runtime_js
     assert "function getLeafPageId(currentPayload, currentState)" in runtime_js
@@ -141,6 +146,11 @@ def test_export_html_smoke_serializes_grouped_default_page_as_leaf_page_id() -> 
     tmp_path = _workspace_tmp_dir("html_smoke_grouped_defaults")
     config = _write_config(
         tmp_path,
+        dashboard_pages=[
+            {"daily_travel": ["daily_activity_pattern"]},
+            {"tour_summaries": ["tour_purpose"]},
+            {"trip_summaries": ["trip_stop_purpose"]},
+        ],
         export_html_lines=[
             "dashboard:",
             "  weighting: all",

@@ -5,7 +5,7 @@ from __future__ import annotations
 import polars as pl
 
 from processor.models import RunData
-from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize.contracts import output_schema, summary
 from processor.summarize.summaries.long_term_shared import _student_filter_expr
 from processor.summarize.summaries.summary_helpers import (
     _configured_geography_columns,
@@ -14,7 +14,7 @@ from processor.summarize.summaries.summary_helpers import (
 from runtime.config import Config
 
 
-@summary_contract(
+@output_schema(
     schema={
         "distance_bin": pl.Int32,
         "geography_type": pl.Utf8,
@@ -27,11 +27,11 @@ def tlfd(rd: RunData, config: Config) -> dict[str, pl.DataFrame]:
         return df.with_columns(
             pl.col(dist_col).fill_null(0.0).clip(0, 9999)
         ).with_columns(
-            (pl.col(dist_col).cast(pl.Int32) + 1).clip(1, 51).alias("distance_bin")
+            pl.col(dist_col).cast(pl.Int32).clip(0, 51).alias("distance_bin")
         )
 
     def _make_tlfd(persons: pl.DataFrame, dist_col: str) -> pl.DataFrame:
-        empty = empty_summary_frame(work_tlfd)
+        empty = work_tlfd.empty()
         if dist_col not in persons.columns:
             return empty
 
@@ -49,7 +49,7 @@ def tlfd(rd: RunData, config: Config) -> dict[str, pl.DataFrame]:
             dist_col,
         )
         distance_bins = pl.DataFrame(
-            {"distance_bin": list(range(1, 52))}, schema={"distance_bin": pl.Int32}
+            {"distance_bin": list(range(0, 52))}, schema={"distance_bin": pl.Int32}
         )
 
         outputs: list[pl.DataFrame] = []
@@ -82,7 +82,9 @@ def tlfd(rd: RunData, config: Config) -> dict[str, pl.DataFrame]:
                     pl.lit(geography_type).alias("geography_type"),
                     pl.col("person_count").fill_null(0.0).cast(pl.Float64),
                 )
-                .select("distance_bin", "geography_type", "geography_id", "person_count")
+                .select(
+                    "distance_bin", "geography_type", "geography_id", "person_count"
+                )
             )
 
         total = (
@@ -118,7 +120,12 @@ def tlfd(rd: RunData, config: Config) -> dict[str, pl.DataFrame]:
     workers = (
         rd.per.filter(
             (pl.col("workplace_zone_id") > 0)
-            & (pl.col("is_worker").cast(pl.Utf8).str.to_lowercase().is_in(["true", "1"]))
+            & (
+                pl.col("is_worker")
+                .cast(pl.Utf8)
+                .str.to_lowercase()
+                .is_in(["true", "1"])
+            )
         )
         if "is_worker" in rd.per.columns
         else rd.per.head(0)
@@ -154,7 +161,8 @@ def tlfd(rd: RunData, config: Config) -> dict[str, pl.DataFrame]:
     }
 
 
-@summary_contract(
+@summary(
+    id="work_location_distance_distribution_by_geography",
     schema={
         "distance_bin": pl.Int32,
         "geography_type": pl.Utf8,
@@ -167,7 +175,8 @@ def work_tlfd(rd: RunData, config: Config) -> pl.DataFrame:
     return tlfd(rd, config)["work"]
 
 
-@summary_contract(
+@summary(
+    id="university_location_distance_distribution_by_geography",
     schema={
         "distance_bin": pl.Int32,
         "geography_type": pl.Utf8,
@@ -180,7 +189,8 @@ def univ_tlfd(rd: RunData, config: Config) -> pl.DataFrame:
     return tlfd(rd, config)["univ"]
 
 
-@summary_contract(
+@summary(
+    id="school_location_distance_distribution_by_geography",
     schema={
         "distance_bin": pl.Int32,
         "geography_type": pl.Utf8,

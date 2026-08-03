@@ -12,14 +12,12 @@ from runtime.config import Config
 from processor.models import RunData
 from processor.prepare.enrichment.pipeline import prepare_data
 from processor.summarize.schema import SUMMARY_OUTPUT_COLUMNS
-from processor.summarize.summaries import (
-    daily_travel,
-    joint_travel,
-    legacy,
-    long_term,
-    tour,
-    trip,
-)
+from processor.summarize.summaries import joint_travel, tour, trip
+from processor.summarize.summaries import tour_profiles, trip_distributions
+from processor.summarize.summaries import daily_travel_activity
+from processor.summarize.summaries import daily_travel_escort_counts
+from processor.summarize.summaries import daily_travel_escort_distributions
+from processor.summarize.summaries import long_term_geography, long_term_person
 from processor.tour_purpose import with_summary_tour_purpose
 
 
@@ -27,7 +25,7 @@ def _write_config(
     tmp_path: Path,
     *,
     column_lines: list[str] | None = None,
-    visualizer_lines: list[str] | None = None,
+    display_lines: list[str] | None = None,
     extra_lines: list[str] | None = None,
 ) -> Config:
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -35,13 +33,13 @@ def _write_config(
     lines = [
         'name: "Canonical Test Config"',
         "runs: []",
-        "summaries:",
-        "  root: summary_cache",
-        "visualizer:",
-        '  dashboard_title: "Canonical Test Dashboard"',
+        "root: summary_cache",
+        "dashboard:",
+        '  title: "Canonical Test Dashboard"',
     ]
-    if visualizer_lines:
-        lines.extend(f"  {line}" for line in visualizer_lines)
+    if display_lines:
+        lines.append("display:")
+        lines.extend(f"  {line}" for line in display_lines)
     if column_lines:
         lines.append("columns:")
         lines.extend(f"  {line}" for line in column_lines)
@@ -49,6 +47,21 @@ def _write_config(
         lines.extend(extra_lines)
     config_path.write_text("\n".join(lines), encoding="utf-8")
     return Config.from_yaml(config_path)
+
+
+def _write_network_los(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(
+            [
+                "skim_time_periods:",
+                "  periods: [0, 6, 12, 24, 32, 42, 48]",
+                "  labels: [EA, AM, MD, PM, EV, EA]",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return path
 
 
 def _raw_run_with_alternate_columns() -> RunData:
@@ -333,11 +346,11 @@ def test_config_rejects_empty_pnr_tour_mode_list(tmp_path: Path) -> None:
         )
 
 
-def test_config_still_supports_legacy_modes_pnr_tour_modes(tmp_path: Path) -> None:
+def test_config_parses_pnr_tour_modes_from_summarize(tmp_path: Path) -> None:
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "modes:",
+            "summarize:",
             "  pnr_tour_modes: [PNR_LOCAL, PNR_PREMIUM]",
         ],
     )
@@ -357,9 +370,10 @@ def test_tour_purpose_grouping_flags_parse_explicit_booleans(tmp_path: Path) -> 
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "group_joint_tour_purposes: true",
-            "group_atwork_tour_purposes: false",
-            "group_school_tour_purposes: true",
+            "summarize:",
+            "  group_joint_tour_purposes: true",
+            "  group_atwork_tour_purposes: false",
+            "  group_school_tour_purposes: true",
         ],
     )
 
@@ -368,13 +382,16 @@ def test_tour_purpose_grouping_flags_parse_explicit_booleans(tmp_path: Path) -> 
     assert config.group_school_tour_purposes is True
 
 
-def test_tour_purpose_grouping_flags_allow_explicit_false_overrides(tmp_path: Path) -> None:
+def test_tour_purpose_grouping_flags_allow_explicit_false_overrides(
+    tmp_path: Path,
+) -> None:
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "group_joint_tour_purposes: false",
-            "group_atwork_tour_purposes: false",
-            "group_school_tour_purposes: false",
+            "summarize:",
+            "  group_joint_tour_purposes: false",
+            "  group_atwork_tour_purposes: false",
+            "  group_school_tour_purposes: false",
         ],
     )
 
@@ -404,7 +421,10 @@ def test_tour_purpose_grouping_flags_reject_invalid_values(tmp_path: Path) -> No
         ValueError,
         match="group_joint_tour_purposes must be true or false",
     ):
-        _write_config(tmp_path, extra_lines=["group_joint_tour_purposes: maybe"])
+        _write_config(
+            tmp_path,
+            extra_lines=["summarize:", "  group_joint_tour_purposes: maybe"],
+        )
 
     with pytest.raises(
         ValueError,
@@ -434,27 +454,34 @@ def test_config_summary_signature_changes_when_alias_lists_change(
     assert config_a.summary_config_digest != config_b.summary_config_digest
 
 
-def test_config_summary_signature_changes_when_transit_subsidy_labels_change(
+def test_config_summary_signature_tracks_materialized_transit_subsidy_labels(
     tmp_path: Path,
 ) -> None:
     config_a = _write_config(
         tmp_path / "a",
         extra_lines=[
-            "transit_subsidies:",
-            "  0: No Subsidy",
-            "  1: Employer Paid",
+            "display:",
+            "  labels:",
+            "    transit_subsidy:",
+            "      mapping:",
+            "        0: No Subsidy",
+            "        1: Employer Paid",
         ],
     )
     config_b = _write_config(
         tmp_path / "b",
         extra_lines=[
-            "transit_subsidies:",
-            "  0: No Subsidy",
-            "  1: Universal Pass",
+            "display:",
+            "  labels:",
+            "    transit_subsidy:",
+            "      mapping:",
+            "        0: No Subsidy",
+            "        1: Universal Pass",
         ],
     )
 
     assert config_a.summary_config_digest != config_b.summary_config_digest
+    assert config_a.presentation_config_digest != config_b.presentation_config_digest
 
 
 def test_config_categories_preserve_mapping_order_and_fallback_order(
@@ -463,16 +490,17 @@ def test_config_categories_preserve_mapping_order_and_fallback_order(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "categories:",
-            "  mode:",
-            "    mapping:",
-            "      WALK: Walk",
-            "      DRIVEALONE: Drive Alone",
-            "    order: descending",
+            "display:",
+            "  labels:",
+            "    mode:",
+            "      mapping:",
+            "        WALK: Walk",
+            "        DRIVEALONE: Drive Alone",
+            "      order: descending",
         ],
     )
 
-    spec = config.category_spec("mode")
+    spec = config.dashboard_label_spec("mode")
     assert spec is not None
     assert list(spec.mapping_items) == [
         ("WALK", "Walk"),
@@ -487,13 +515,14 @@ def test_category_specs_apply_ascending_descending_and_data_fallbacks(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "categories:",
-            "  alpha:",
-            "    order: ascending",
-            "  omega:",
-            "    order: descending",
-            "  seen:",
-            "    order: data",
+            "display:",
+            "  labels:",
+            "    alpha:",
+            "      order: ascending",
+            "    omega:",
+            "      order: descending",
+            "    seen:",
+            "      order: data",
         ],
     )
 
@@ -504,53 +533,6 @@ def test_category_specs_apply_ascending_descending_and_data_fallbacks(
         "0",
         "1",
         "2+",
-    ]
-
-
-def test_categories_override_legacy_label_and_order_settings(
-    tmp_path: Path,
-) -> None:
-    config = _write_config(
-        tmp_path,
-        extra_lines=[
-            "person_types:",
-            "  1: Worker Legacy",
-            "transit_subsidies:",
-            "  1: Subsidy Legacy",
-            "geography:",
-            "  enabled: true",
-            "  landuse_col: COUNTY",
-            "  mapping:",
-            "    1: Legacy County",
-            "modes:",
-            "  order:",
-            "    - LEGACY_MODE",
-            "categories:",
-            "  person_type:",
-            "    mapping:",
-            "      1: Worker New",
-            "  transit_subsidy:",
-            "    mapping:",
-            "      1: Subsidy New",
-            "  geography:",
-            "    mapping:",
-            "      1: New County",
-            "  mode:",
-            "    mapping:",
-            "      NEW_MODE: New Mode",
-        ],
-    )
-
-    assert config.person_type_label("1") == "Worker New"
-    assert config.transit_subsidy_label("1") == "Subsidy New"
-    assert config.apply_geo_mapping(pl.Series(["1", "9"])).to_list() == [
-        "New County",
-        "9",
-    ]
-    assert config.ordered_modes(["LEGACY_MODE", "NEW_MODE", "OTHER"]) == [
-        "NEW_MODE",
-        "LEGACY_MODE",
-        "OTHER",
     ]
 
 
@@ -565,23 +547,26 @@ def test_geography_aggregations_support_inline_and_file_mappings(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        Urban: [10]",
-            "        Rural: [20]",
-            "    district:",
-            "      source_zone_system: maz",
-            f"      file: {geography_csv.name}",
-            "      zone_id_col: MAZ",
-            "      geography_col: district",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          Urban: [10]",
+            "          Rural: [20]",
+            "      district:",
+            "        source_zone_system: maz",
+            f"        file: {geography_csv.name}",
+            "        zone_id_col: MAZ",
+            "        geography_col: district",
         ],
     )
 
-    assert [aggregation.name for aggregation in config.geography_aggregations.aggregations] == [
+    assert [
+        aggregation.name for aggregation in config.geography_aggregations.aggregations
+    ] == [
         "county",
         "district",
     ]
@@ -598,25 +583,27 @@ def test_geography_aggregation_digest_changes_when_lookup_changes(
     config_a = _write_config(
         tmp_path / "a",
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        Urban: [10]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          Urban: [10]",
         ],
     )
     config_b = _write_config(
         tmp_path / "b",
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        Rural: [10]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          Rural: [10]",
         ],
     )
 
@@ -630,25 +617,27 @@ def test_disabled_geography_aggregations_are_ignored_and_do_not_change_digests(
     config_a = _write_config(
         tmp_path / "a",
         extra_lines=[
-            "geography:",
-            "  enabled: false",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        Urban: [10]",
+            "summarize:",
+            "  geography:",
+            "    enabled: false",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          Urban: [10]",
         ],
     )
     config_b = _write_config(
         tmp_path / "b",
         extra_lines=[
-            "geography:",
-            "  enabled: false",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        Rural: [10]",
+            "summarize:",
+            "  geography:",
+            "    enabled: false",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          Rural: [10]",
         ],
     )
 
@@ -671,10 +660,9 @@ def test_enable_maz_geographies_defaults_off_and_only_changes_presentation_diges
             [
                 'name: "Canonical Test Config"',
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
-                "visualizer:",
-                '  dashboard_title: "Canonical Test Dashboard"',
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Canonical Test Dashboard"',
                 "  enable_maz_geographies: true",
             ]
         ),
@@ -689,27 +677,115 @@ def test_enable_maz_geographies_defaults_off_and_only_changes_presentation_diges
     assert config_a.presentation_config_digest != config_b.presentation_config_digest
 
 
+def test_density_hover_mode_defaults_to_closest_and_accepts_all(tmp_path: Path) -> None:
+    default_config = _write_config(tmp_path / "default")
+    all_hover_config = _write_config(
+        tmp_path / "all",
+        extra_lines=[
+            "display:",
+            "  density_hover_mode: all",
+        ],
+    )
+
+    assert default_config.density_hover_mode == "closest"
+    assert all_hover_config.density_hover_mode == "all"
+
+
+def test_bar_hover_mode_defaults_to_closest_and_accepts_all(tmp_path: Path) -> None:
+    default_config = _write_config(tmp_path / "default")
+    all_hover_config = _write_config(
+        tmp_path / "all",
+        extra_lines=[
+            "display:",
+            "  bar_hover_mode: all",
+        ],
+    )
+
+    assert default_config.bar_hover_mode == "closest"
+    assert all_hover_config.bar_hover_mode == "all"
+
+
+def test_density_hover_mode_only_changes_presentation_digest(tmp_path: Path) -> None:
+    config_a = _write_config(tmp_path / "a")
+    config_b = _write_config(
+        tmp_path / "b",
+        extra_lines=[
+            "display:",
+            "  density_hover_mode: all",
+        ],
+    )
+
+    assert config_a.prepare_config_digest == config_b.prepare_config_digest
+    assert config_a.summary_config_digest == config_b.summary_config_digest
+    assert config_a.presentation_config_digest != config_b.presentation_config_digest
+
+
+def test_bar_hover_mode_only_changes_presentation_digest(tmp_path: Path) -> None:
+    config_a = _write_config(tmp_path / "a")
+    config_b = _write_config(
+        tmp_path / "b",
+        extra_lines=[
+            "display:",
+            "  bar_hover_mode: all",
+        ],
+    )
+
+    assert config_a.prepare_config_digest == config_b.prepare_config_digest
+    assert config_a.summary_config_digest == config_b.summary_config_digest
+    assert config_a.presentation_config_digest != config_b.presentation_config_digest
+
+
+def test_config_rejects_invalid_bar_hover_mode(tmp_path: Path) -> None:
+    with pytest.raises(
+        ValueError,
+        match="display.bar_hover_mode must be either 'closest' or 'all'",
+    ):
+        _write_config(
+            tmp_path,
+            extra_lines=[
+                "display:",
+                "  bar_hover_mode: everything",
+            ],
+        )
+
+
+def test_config_rejects_invalid_density_hover_mode(tmp_path: Path) -> None:
+    with pytest.raises(
+        ValueError,
+        match="display.density_hover_mode must be either 'closest' or 'all'",
+    ):
+        _write_config(
+            tmp_path,
+            extra_lines=[
+                "display:",
+                "  density_hover_mode: everything",
+            ],
+        )
+
+
 def test_dashboard_labels_only_change_presentation_digest(
     tmp_path: Path,
 ) -> None:
     config_a = _write_config(
         tmp_path / "a",
         extra_lines=[
-            "dashboard_labels:",
-            "  mode:",
-            "    mapping:",
-            "      WALK: Walk",
-            "      DRIVEALONE: Drive Alone",
+            "display:",
+            "  labels:",
+            "    mode:",
+            "      mapping:",
+            "        WALK: Walk",
+            "        DRIVEALONE: Drive Alone",
         ],
     )
     config_b = _write_config(
         tmp_path / "b",
         extra_lines=[
-            "dashboard_labels:",
-            "  mode:",
-            "    mapping:",
-            "      WALK: Walk Trips",
-            "      DRIVEALONE: Solo Drive",
+            "display:",
+            "  labels:",
+            "    mode:",
+            "      mapping:",
+            "        WALK: Walk Trips",
+            "        DRIVEALONE: Solo Drive",
         ],
     )
 
@@ -724,19 +800,21 @@ def test_summary_categories_change_summary_digest_without_changing_presentation_
     config_a = _write_config(
         tmp_path / "a",
         extra_lines=[
-            "summary_categories:",
-            "  geography:",
-            "    mapping:",
-            "      1: Urban",
+            "summarize:",
+            "  category_normalization:",
+            "    geography:",
+            "      mapping:",
+            "        1: Urban",
         ],
     )
     config_b = _write_config(
         tmp_path / "b",
         extra_lines=[
-            "summary_categories:",
-            "  geography:",
-            "    mapping:",
-            "      1: Core",
+            "summarize:",
+            "  category_normalization:",
+            "    geography:",
+            "      mapping:",
+            "        1: Core",
         ],
     )
 
@@ -751,14 +829,15 @@ def test_typed_geography_summaries_include_configured_aggregation_levels(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        Urban: [10]",
-            "        Rural: [20, 30]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          Urban: [10]",
+            "          Rural: [20, 30]",
         ],
     )
 
@@ -784,25 +863,18 @@ def test_typed_geography_summaries_include_configured_aggregation_levels(
         skim_matrix=None,
         skim_zone_map=None,
     )
-    wfh = long_term.wfh(prepared, config)
-    flows = long_term.commuting_flows(prepared, config)
+    wfh = long_term_geography.wfh(prepared, config)
+    flows = long_term_geography.commuting_flows(prepared, config)
     assert ("county" in wfh["geography_type"].to_list()) is True
-    assert (
-        wfh.filter(pl.col("geography_type") == "county")["geography_id"].to_list()
-        == ["Urban"]
-    )
-    assert (
-        flows.filter(pl.col("origin_geography_type") == "county")[
-            "origin_geography_id"
-        ].to_list()
-        == ["Urban"]
-    )
-    assert (
-        flows.filter(pl.col("destination_geography_type") == "county")[
-            "destination_geography_id"
-        ].to_list()
-        == ["Rural"]
-    )
+    assert wfh.filter(pl.col("geography_type") == "county")[
+        "geography_id"
+    ].to_list() == ["Urban"]
+    assert flows.filter(pl.col("origin_geography_type") == "county")[
+        "origin_geography_id"
+    ].to_list() == ["Urban"]
+    assert flows.filter(pl.col("destination_geography_type") == "county")[
+        "destination_geography_id"
+    ].to_list() == ["Rural"]
 
 
 def test_config_summary_signature_changes_when_tour_purpose_grouping_changes(
@@ -811,7 +883,7 @@ def test_config_summary_signature_changes_when_tour_purpose_grouping_changes(
     config_a = _write_config(tmp_path / "a")
     config_b = _write_config(
         tmp_path / "b",
-        extra_lines=["group_joint_tour_purposes: false"],
+        extra_lines=["summarize:", "  group_joint_tour_purposes: false"],
     )
 
     assert config_a.summary_config_digest != config_b.summary_config_digest
@@ -834,13 +906,232 @@ def test_config_prepare_signature_changes_when_auto_sufficiency_basis_changes(
     assert config_a.presentation_config_digest == config_b.presentation_config_digest
 
 
+def test_config_loads_prepare_time_periods_and_includes_file_digest(
+    tmp_path: Path,
+) -> None:
+    network_los = _write_network_los(tmp_path / "network_los.yaml")
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  time_periods:",
+            "    network_los_file: network_los.yaml",
+            "    trip_period_number_column: depart",
+            "    tour_start_period_number_column: start",
+            "    tour_end_period_number_column: end",
+        ],
+    )
+
+    assert config.prepare_time_periods.enabled is True
+    assert config.prepare_time_periods.network_los_file == str(network_los.resolve())
+    assert config.prepare_time_periods.network_los_digest is not None
+    assert config.prepare_time_periods.trip_period_number_column == "depart"
+
+
+def test_config_prepare_signature_changes_when_time_period_config_changes(
+    tmp_path: Path,
+) -> None:
+    network_los_a = _write_network_los(tmp_path / "a" / "network_los.yaml")
+    network_los_b = _write_network_los(tmp_path / "b" / "network_los.yaml")
+    network_los_b.write_text(
+        "\n".join(
+            [
+                "skim_time_periods:",
+                "  periods: [0, 12, 24, 48]",
+                "  labels: [EA, MD, EV]",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config_a = _write_config(
+        tmp_path / "a",
+        extra_lines=[
+            "prepare:",
+            "  time_periods:",
+            f"    network_los_file: {network_los_a.name}",
+            "    trip_period_number_column: depart",
+        ],
+    )
+    config_b = _write_config(
+        tmp_path / "b",
+        extra_lines=[
+            "prepare:",
+            "  time_periods:",
+            f"    network_los_file: {network_los_b.name}",
+            "    trip_period_number_column: depart",
+        ],
+    )
+
+    assert config_a.prepare_config_digest != config_b.prepare_config_digest
+
+
+def test_config_loads_non_motorized_distance_skim_csv_defaults(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "maz_maz_walk.csv"
+    pl.DataFrame({"OMAZ": [1], "DMAZ": [2], "DISTWALK": [0.5]}).write_csv(csv_path)
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  non_motorized_distance_skim:",
+            "    file: maz_maz_walk.csv",
+            "    matrix: null",
+        ],
+    )
+
+    settings = config.prepare_non_motorized_distance_skim
+    assert settings.enabled is True
+    assert settings.file == str(csv_path.resolve())
+    assert settings.source_type == "csv"
+    assert settings.matrix is None
+    assert settings.value_column == "DISTWALK"
+    assert settings.file_digest is not None
+
+
+def test_config_loads_non_motorized_distance_skim_csv_inventory_matrix_name(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "maz_maz_walk.csv"
+    pl.DataFrame({"OMAZ": [1], "DMAZ": [2], "DISTWALK": [0.5]}).write_csv(csv_path)
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  non_motorized_distance_skim:",
+            "    file: maz_maz_walk.csv",
+            "    matrix: maz_maz_walk__DISTWALK",
+        ],
+    )
+
+    assert config.prepare_non_motorized_distance_skim.matrix == (
+        "maz_maz_walk__DISTWALK"
+    )
+    assert config.prepare_non_motorized_distance_skim.value_column == "DISTWALK"
+
+
+def test_config_non_motorized_distance_skim_omx_requires_matrix(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "walk.omx").write_bytes(b"placeholder")
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'name: "Invalid Non-Motorized Config"',
+                "prepare:",
+                "  non_motorized_distance_skim:",
+                "    file: walk.omx",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="prepare.non_motorized_distance_skim.matrix is required",
+    ):
+        Config.from_yaml(config_path)
+
+
+def test_config_prepare_signature_changes_when_non_motorized_skim_changes(
+    tmp_path: Path,
+) -> None:
+    csv_a = tmp_path / "a" / "maz_maz_walk.csv"
+    csv_b = tmp_path / "b" / "maz_maz_walk.csv"
+    csv_a.parent.mkdir(parents=True)
+    csv_b.parent.mkdir(parents=True)
+    pl.DataFrame({"OMAZ": [1], "DMAZ": [2], "DISTWALK": [0.5]}).write_csv(csv_a)
+    pl.DataFrame({"OMAZ": [1], "DMAZ": [2], "DISTWALK": [0.75]}).write_csv(csv_b)
+    config_a = _write_config(
+        tmp_path / "a",
+        extra_lines=[
+            "prepare:",
+            "  non_motorized_distance_skim:",
+            "    file: maz_maz_walk.csv",
+            "    matrix: null",
+        ],
+    )
+    config_b = _write_config(
+        tmp_path / "b",
+        extra_lines=[
+            "prepare:",
+            "  non_motorized_distance_skim:",
+            "    file: maz_maz_walk.csv",
+            "    matrix: null",
+        ],
+    )
+
+    assert config_a.prepare_config_digest != config_b.prepare_config_digest
+
+
+def test_config_rejects_missing_prepare_time_period_network_los(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'name: "Canonical Test Config"',
+                "runs: []",
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Canonical Test Dashboard"',
+                "prepare:",
+                "  time_periods:",
+                "    network_los_file: missing_network_los.yaml",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="prepare.time_periods.network_los_file"):
+        Config.from_yaml(config_path)
+
+
+def test_config_loads_create_hypothetical_skim_tables(tmp_path: Path) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "skimjoin:",
+            "  create_hypothetical_skim_tables: true",
+        ],
+    )
+
+    assert config.skimjoin.create_hypothetical_skim_tables is True
+
+
+def test_config_rejects_renamed_hypothetical_sidecar_key(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'name: "Canonical Test Config"',
+                "runs: []",
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Canonical Test Dashboard"',
+                "skimjoin:",
+                "  generate_hypothetical_sidecars: true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="create_hypothetical_skim_tables",
+    ):
+        Config.from_yaml(config_path)
+
+
 def test_config_presentation_signature_changes_when_log_level_changes(
     tmp_path: Path,
 ) -> None:
     config_a = _write_config(tmp_path / "a")
     config_b = _write_config(
         tmp_path / "b",
-        visualizer_lines=[
+        extra_lines=[
             "log_level: warning",
         ],
     )
@@ -856,9 +1147,10 @@ def test_config_presentation_signature_changes_when_export_output_path_changes(
     config_a = _write_config(tmp_path / "a")
     config_b = _write_config(
         tmp_path / "b",
-        visualizer_lines=[
-            "export_html:",
-            "  output_path: exports/dashboard.html",
+        extra_lines=[
+            "dashboard:",
+            "  export:",
+            "    output_path: exports/dashboard.html",
         ],
     )
 
@@ -895,10 +1187,9 @@ def test_config_rejects_invalid_auto_sufficiency_basis(tmp_path: Path) -> None:
             [
                 'name: "Canonical Test Config"',
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
-                "visualizer:",
-                '  dashboard_title: "Canonical Test Dashboard"',
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Canonical Test Dashboard"',
                 "prepare:",
                 "  auto_sufficiency_basis: bicycles",
             ]
@@ -910,7 +1201,7 @@ def test_config_rejects_invalid_auto_sufficiency_basis(tmp_path: Path) -> None:
         Config.from_yaml(config_path)
 
 
-def test_config_rejects_invalid_visualizer_log_level(tmp_path: Path) -> None:
+def test_config_rejects_invalid_log_level(tmp_path: Path) -> None:
     tmp_path.mkdir(parents=True, exist_ok=True)
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
@@ -918,17 +1209,16 @@ def test_config_rejects_invalid_visualizer_log_level(tmp_path: Path) -> None:
             [
                 'name: "Canonical Test Config"',
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
-                "visualizer:",
-                '  dashboard_title: "Canonical Test Dashboard"',
-                "  log_level: verbose",
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Canonical Test Dashboard"',
+                "log_level: verbose",
             ]
         ),
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="visualizer.log_level"):
+    with pytest.raises(ValueError, match="log_level"):
         Config.from_yaml(config_path)
 
 
@@ -938,13 +1228,17 @@ def test_transit_subsidy_summary_uses_raw_categories_and_label_overrides(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "person_types:",
-            "  1: Full-time worker",
-            "  3: University student",
-            "transit_subsidies:",
-            "  0: No Subsidy",
-            "  1: Employer Paid",
-            "  2: Student Discount",
+            "display:",
+            "  labels:",
+            "    person_type:",
+            "      mapping:",
+            "        1: Full-time worker",
+            "        3: University student",
+            "    transit_subsidy:",
+            "      mapping:",
+            "        0: No Subsidy",
+            "        1: Employer Paid",
+            "        2: Student Discount",
         ],
     )
     run = RunData(
@@ -969,7 +1263,7 @@ def test_transit_subsidy_summary_uses_raw_categories_and_label_overrides(
         skim_zone_map=None,
     )
 
-    result = long_term.transit_subsidy(run, config).sort(
+    result = long_term_person.transit_subsidy(run, config).sort(
         ["person_type", "transit_subsidy_status"]
     )
 
@@ -1109,9 +1403,10 @@ def test_tour_purpose_grouping_preserves_current_behavior_when_disabled(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "group_joint_tour_purposes: false",
-            "group_atwork_tour_purposes: false",
-            "group_school_tour_purposes: false",
+            "summarize:",
+            "  group_joint_tour_purposes: false",
+            "  group_atwork_tour_purposes: false",
+            "  group_school_tour_purposes: false",
         ],
     )
     prepared = _prepared_run_with_groupable_tour_purposes()
@@ -1132,9 +1427,9 @@ def test_tour_purpose_grouping_preserves_current_behavior_when_disabled(
         trip_weight_col=prepared.trip_weight_col,
     )
 
-    tour_tod_profiles = tour.tour_tod(prepared, config)
+    tour_tod_profiles = tour_profiles.tour_tod(prepared, config)
     trip_mode_profile = trip.trip_mode(prepared, config)
-    person_tour_rates = daily_travel.tour_rate_per_person(prepared, config)
+    person_tour_rates = daily_travel_activity.tour_rate_per_person(prepared, config)
 
     tour_purposes = set(tour_tod_profiles["tour_purpose"].unique().to_list())
     assert "joint_eatout" in tour_purposes
@@ -1165,9 +1460,9 @@ def test_tour_purpose_grouping_rolls_up_joint_atwork_and_school_across_summaries
         trip_weight_col=prepared.trip_weight_col,
     )
 
-    tour_tod_profiles = tour.tour_tod(prepared, config)
+    tour_tod_profiles = tour_profiles.tour_tod(prepared, config)
     trip_mode_profile = trip.trip_mode(prepared, config)
-    person_tour_rates = daily_travel.tour_rate_per_person(prepared, config)
+    person_tour_rates = daily_travel_activity.tour_rate_per_person(prepared, config)
 
     tour_purposes = set(tour_tod_profiles["tour_purpose"].unique().to_list())
     assert "joint" in tour_purposes
@@ -1189,7 +1484,9 @@ def test_tour_purpose_grouping_rolls_up_joint_atwork_and_school_across_summaries
 
     non_total = tour_tod_profiles.filter(pl.col("tour_purpose") != "all_tour_purposes")
     total = tour_tod_profiles.filter(pl.col("tour_purpose") == "all_tour_purposes")
-    assert total["departure_tour_count"].sum() == non_total["departure_tour_count"].sum()
+    assert (
+        total["departure_tour_count"].sum() == non_total["departure_tour_count"].sum()
+    )
 
 
 def test_tour_rate_per_person_includes_all_person_types_total(tmp_path: Path) -> None:
@@ -1220,7 +1517,7 @@ def test_tour_rate_per_person_includes_all_person_types_total(tmp_path: Path) ->
         skim_zone_map=None,
     )
 
-    summary = daily_travel.tour_rate_per_person(rd, config).sort(
+    summary = daily_travel_activity.tour_rate_per_person(rd, config).sort(
         ["person_type", "tour_purpose"]
     )
 
@@ -1239,9 +1536,10 @@ def test_atwork_grouping_does_not_relabel_parent_mandatory_work_tours(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "group_joint_tour_purposes: true",
-            "group_atwork_tour_purposes: true",
-            "group_school_tour_purposes: false",
+            "summarize:",
+            "  group_joint_tour_purposes: true",
+            "  group_atwork_tour_purposes: true",
+            "  group_school_tour_purposes: false",
         ],
     )
     tours = pl.DataFrame(
@@ -1283,9 +1581,11 @@ def test_atwork_subtour_frequency_summary_counts_parent_work_tours_only(
         skim_zone_map=None,
     )
 
-    summary = tour.at_work_sub_tour_freq(rd, config)
+    summary = tour_profiles.at_work_sub_tour_freq(rd, config)
 
-    assert summary.sort("atwork_subtour_frequency_category").to_dict(as_series=False) == {
+    assert summary.sort("atwork_subtour_frequency_category").to_dict(
+        as_series=False
+    ) == {
         "atwork_subtour_frequency_category": ["eat", "no_subtours"],
         "atwork_subtour_count": [3.0, 2.0],
     }
@@ -1311,7 +1611,12 @@ def test_escorted_tour_summaries_exclude_child_person_types(tmp_path: Path) -> N
                 "person_id": [101, 101, 103, 102],
                 "person_type": [4, 4, 2, 7],
                 "tour_purpose": ["escort", "shopping", "escort", "school"],
-                "school_esc_outbound": ["ride_share", None, "pure_escort", "pure_escort"],
+                "school_esc_outbound": [
+                    "ride_share",
+                    None,
+                    "pure_escort",
+                    "pure_escort",
+                ],
                 "school_esc_inbound": [None, "ride_share", "pure_escort", "ride_share"],
                 "SKIMDIST": [12.2, 7.6, 44.4, 9.1],
                 "num_ob_stops": [1, 5, 4, 2],
@@ -1334,28 +1639,33 @@ def test_escorted_tour_summaries_exclude_child_person_types(tmp_path: Path) -> N
         skim_zone_map=None,
     )
 
-    total = daily_travel.total_escorted_tours(rd, config)
-    school = daily_travel.escorted_tours_to_from_school(rd, config).sort(
+    total = daily_travel_escort_counts.total_escorted_tours(rd, config)
+    school = daily_travel_escort_counts.escorted_tours_to_from_school(rd, config).sort(
         ["escort_type", "direction"]
     )
-    purposes = daily_travel.adult_escorted_tour_purposes_by_direction(rd, config).sort(
-        ["tour_purpose", "direction"]
-    )
-    person_types = daily_travel.adult_escorted_tours_by_person_type_and_direction(
+    purposes = daily_travel_escort_counts.adult_escorted_tour_purposes_by_direction(
         rd, config
-    ).sort(["person_type", "direction"])
-    tour_distance = (
-        daily_travel.adult_escorted_tour_distance_distribution_by_direction(
+    ).sort(["tour_purpose", "direction"])
+    person_types = (
+        daily_travel_escort_counts.adult_escorted_tours_by_person_type_and_direction(
             rd, config
-        ).sort(["direction", "distance_bin"])
+        ).sort(["person_type", "direction"])
     )
-    trip_distance = (
-        daily_travel.adult_escorted_trip_distance_distribution_by_direction(
-            rd, config
-        ).sort(["direction", "distance_bin"])
-    )
-    stop_frequency = daily_travel.adult_escort_trip_stop_frequency(rd, config).sort(
-        ["tour_purpose", "outbound_stop_count", "inbound_stop_count", "total_stop_count"]
+    tour_distance = daily_travel_escort_distributions.adult_escorted_tour_distance_distribution_by_direction(
+        rd, config
+    ).sort(["direction", "distance_bin"])
+    trip_distance = daily_travel_escort_distributions.adult_escorted_trip_distance_distribution_by_direction(
+        rd, config
+    ).sort(["direction", "distance_bin"])
+    stop_frequency = daily_travel_escort_distributions.adult_escort_trip_stop_frequency(
+        rd, config
+    ).sort(
+        [
+            "tour_purpose",
+            "outbound_stop_count",
+            "inbound_stop_count",
+            "total_stop_count",
+        ]
     )
 
     assert total.to_dict(as_series=False) == {"tour_count": [5.0]}
@@ -1475,9 +1785,9 @@ def test_adult_escort_event_stop_distribution_filters_to_explicit_escort_types(
         skim_zone_map=None,
     )
 
-    summary = daily_travel.adult_escort_event_stop_distribution(rd, config).sort(
-        ["segment", "stop_count"]
-    )
+    summary = daily_travel_escort_distributions.adult_escort_event_stop_distribution(
+        rd, config
+    ).sort(["segment", "stop_count"])
 
     assert summary.to_dict(as_series=False) == {
         "segment": [
@@ -1539,16 +1849,12 @@ def test_adult_escort_distance_distributions_filter_to_explicit_escort_types(
         skim_zone_map=None,
     )
 
-    tour_distance = (
-        daily_travel.adult_escorted_tour_distance_distribution_by_direction(
-            rd, config
-        ).sort(["direction", "distance_bin"])
-    )
-    trip_distance = (
-        daily_travel.adult_escorted_trip_distance_distribution_by_direction(
-            rd, config
-        ).sort(["direction", "distance_bin"])
-    )
+    tour_distance = daily_travel_escort_distributions.adult_escorted_tour_distance_distribution_by_direction(
+        rd, config
+    ).sort(["direction", "distance_bin"])
+    trip_distance = daily_travel_escort_distributions.adult_escorted_trip_distance_distribution_by_direction(
+        rd, config
+    ).sort(["direction", "distance_bin"])
 
     assert tour_distance.to_dict(as_series=False) == {
         "distance_bin": ["40+", "19", "40+", "12", "40+"],
@@ -1589,9 +1895,30 @@ def test_student_school_escort_status_by_direction_summarizes_student_school_tou
                 "tour_id": [2001, 2002, 2003, 2004, 2005, 2006],
                 "person_id": [201, 202, 202, 203, 204, 204],
                 "person_type": [6, 7, 7, 4, 8, 8],
-                "tour_purpose": ["school", "school", "school", "school", "shopping", "school"],
-                "school_esc_outbound": ["none", "pure_escort", "ride_share", "pure_escort", "ride_share", "pure_escort"],
-                "school_esc_inbound": ["none", "ride_share", "none", "pure_escort", "ride_share", "pure_escort"],
+                "tour_purpose": [
+                    "school",
+                    "school",
+                    "school",
+                    "school",
+                    "shopping",
+                    "school",
+                ],
+                "school_esc_outbound": [
+                    "none",
+                    "pure_escort",
+                    "ride_share",
+                    "pure_escort",
+                    "ride_share",
+                    "pure_escort",
+                ],
+                "school_esc_inbound": [
+                    "none",
+                    "ride_share",
+                    "none",
+                    "pure_escort",
+                    "ride_share",
+                    "pure_escort",
+                ],
                 "finalweight": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
             }
         ),
@@ -1602,9 +1929,9 @@ def test_student_school_escort_status_by_direction_summarizes_student_school_tou
         skim_zone_map=None,
     )
 
-    summary = daily_travel.student_school_escort_status_by_direction(rd, config).sort(
-        ["direction", "escort_type"]
-    )
+    summary = daily_travel_escort_counts.student_school_escort_status_by_direction(
+        rd, config
+    ).sort(["direction", "escort_type"])
 
     assert summary.to_dict(as_series=False) == {
         "direction": [
@@ -1665,9 +1992,9 @@ def test_student_school_escort_status_treats_blank_labels_as_not_escorted(
         skim_zone_map=None,
     )
 
-    summary = daily_travel.student_school_escort_status_by_direction(rd, config).sort(
-        ["direction", "escort_type"]
-    )
+    summary = daily_travel_escort_counts.student_school_escort_status_by_direction(
+        rd, config
+    ).sort(["direction", "escort_type"])
 
     assert summary.to_dict(as_series=False) == {
         "direction": [
@@ -1733,14 +2060,12 @@ def test_households_with_school_escorting_by_student_count_and_direction_summari
         skim_zone_map=None,
     )
 
-    denominator = daily_travel.student_households_by_student_count(rd, config).sort(
-        "student_count"
-    )
-    summary = (
-        daily_travel.households_with_school_escorting_by_student_count_and_direction(
-            rd, config
-        ).sort(["direction", "student_count"])
-    )
+    denominator = daily_travel_escort_counts.student_households_by_student_count(
+        rd, config
+    ).sort("student_count")
+    summary = daily_travel_escort_counts.households_with_school_escorting_by_student_count_and_direction(
+        rd, config
+    ).sort(["direction", "student_count"])
 
     assert denominator.to_dict(as_series=False) == {
         "student_count": [1, 2],
@@ -1786,7 +2111,14 @@ def test_schoolkids_per_escorted_tour_by_student_count_and_direction_summarizes_
             {
                 "tour_id": [2001, 2002, 2003, 2004, 2005, 2006],
                 "person_id": [101, 101, 103, 104, 104, 106],
-                "tour_purpose": ["escort", "escort", "escort", "escort", "shopping", "escort"],
+                "tour_purpose": [
+                    "escort",
+                    "escort",
+                    "escort",
+                    "escort",
+                    "shopping",
+                    "escort",
+                ],
                 "school_esc_outbound": [
                     "pure_escort",
                     "ride_share",
@@ -1803,7 +2135,7 @@ def test_schoolkids_per_escorted_tour_by_student_count_and_direction_summarizes_
                     "pure_escort",
                     "ride_share",
                 ],
-                "num_escorted": [1.0, 2.0, 3.0, 4.0, 9.0, None],
+                "num_escortees": [1.0, 2.0, 3.0, 4.0, 9.0, None],
                 "finalweight": [2.0, 1.0, 3.0, 4.0, 5.0, 6.0],
             }
         ),
@@ -1814,11 +2146,9 @@ def test_schoolkids_per_escorted_tour_by_student_count_and_direction_summarizes_
         skim_zone_map=None,
     )
 
-    summary = (
-        daily_travel.schoolkids_per_escorted_tour_by_student_count_and_direction(
-            rd, config
-        ).sort(["direction", "student_count"])
-    )
+    summary = daily_travel_escort_counts.schoolkids_per_escorted_tour_by_student_count_and_direction(
+        rd, config
+    ).sort(["direction", "student_count"])
 
     assert summary.to_dict(as_series=False) == {
         "student_count": [1, 1, 1],
@@ -1857,6 +2187,111 @@ def test_prepare_data_uses_default_fallbacks_for_purpose_timing_and_employment(
     assert prepared.land_use["EMPLOYMENT"].to_list() == [7, 8, 9]
 
 
+def test_prepare_data_derives_trip_and_tour_period_labels(
+    tmp_path: Path,
+) -> None:
+    _write_network_los(tmp_path / "network_los.yaml")
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  time_periods:",
+            "    network_los_file: network_los.yaml",
+            "    trip_period_number_column: depart",
+            "    tour_start_period_number_column: start",
+            "    tour_end_period_number_column: end",
+        ],
+    )
+    raw = RunData(
+        label="Base",
+        run_dir="C:/runs/base",
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1], "home_zone_id": [10]}),
+        per=pl.DataFrame({"person_id": [101], "household_id": [1], "ptype": [1]}),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [1001],
+                "person_id": [101],
+                "household_id": [1],
+                "tour_mode": ["DRIVE"],
+                "start": [7],
+                "end": [33],
+                "origin": [10],
+                "destination": [20],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "trip_id": list(range(1, 9)),
+                "tour_id": [1001] * 8,
+                "person_id": [101] * 8,
+                "household_id": [1] * 8,
+                "trip_mode": ["DRIVEALONE"] * 8,
+                "depart": [1, 7, 13, 25, 33, 44, 49, None],
+                "outbound": [True, True, True, False, False, False, False, False],
+                "trip_num": list(range(1, 9)),
+                "origin": [10] * 8,
+                "destination": [20] * 8,
+            },
+            schema_overrides={"depart": pl.Int64},
+        ),
+        joint_participants=pl.DataFrame(
+            {"tour_id": [], "person_id": []},
+            schema={"tour_id": pl.Int64, "person_id": pl.Int64},
+        ),
+        land_use=pl.DataFrame({"zone_id": [10, 20], "TAZ": [10, 20]}),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    prepared = prepare_data(raw, config)
+
+    assert prepared.trips["trip_period"].to_list() == [
+        "EA",
+        "AM",
+        "MD",
+        "PM",
+        "EV",
+        "EA",
+        None,
+        None,
+    ]
+    assert prepared.tours["start_period"].to_list() == ["AM"]
+    assert prepared.tours["end_period"].to_list() == ["EV"]
+    assert prepared.tours["first_inbound_trip_period"].to_list() == ["PM"]
+    assert (
+        prepared.prepare_diagnostics["time_periods.trips.trip_period"]["unresolved"]
+        == 2
+    )
+
+
+def test_prepare_data_preserves_raw_trip_period_when_source_missing(
+    tmp_path: Path,
+) -> None:
+    _write_network_los(tmp_path / "network_los.yaml")
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  time_periods:",
+            "    network_los_file: network_los.yaml",
+            "    trip_period_number_column: missing_depart",
+        ],
+    )
+    raw = _raw_run_with_default_fallback_columns()
+    raw.trips = raw.trips.drop("depart").with_columns(
+        pl.Series("trip_period", ["AM", "PM"])
+    )
+
+    prepared = prepare_data(raw, config)
+
+    assert prepared.trips["trip_period"].to_list() == ["AM", "PM"]
+    assert (
+        prepared.prepare_diagnostics["time_periods.trips.trip_period"]["status"]
+        == "source_column_missing"
+    )
+
+
 def test_prepare_data_resolves_shared_alias_lists_independently_per_run(
     tmp_path: Path,
 ) -> None:
@@ -1878,6 +2313,19 @@ def test_prepare_data_prefers_non_numeric_purpose_alias_when_multiple_candidates
     config = _write_config(
         tmp_path,
         column_lines=["tour_purpose: [primary_purpose, tour_type]"],
+    )
+
+    prepared = prepare_data(_raw_run_with_default_fallback_columns(), config)
+
+    assert prepared.tours["tour_purpose"].to_list() == ["eatout"]
+
+
+def test_prepare_data_falls_back_from_configured_numeric_purpose_to_tour_type(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        column_lines=["tour_purpose: primary_purpose"],
     )
 
     prepared = prepare_data(_raw_run_with_default_fallback_columns(), config)
@@ -2028,12 +2476,12 @@ def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
     assert stop_purpose["tour_purpose"].to_list() == ["eatout"]
     assert stop_purpose["stop_destination_purpose"].to_list() == ["shop"]
 
-    stop_freq = tour.stop_freq(prepared, config)
+    stop_freq = tour_profiles.stop_freq(prepared, config)
     assert stop_freq.columns == list(
         SUMMARY_OUTPUT_COLUMNS["tour_stop_frequency_by_tour_purpose"]
     )
 
-    stop_location = trip.stop_ood_distance(prepared, config)
+    stop_location = trip_distributions.stop_ood_distance(prepared, config)
     assert stop_location.columns == list(
         SUMMARY_OUTPUT_COLUMNS["stop_out_of_direction_distance_by_tour_purpose"]
     )
@@ -2041,24 +2489,14 @@ def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
         assert "all_tour_purposes" in stop_location["tour_purpose"].unique().to_list()
         assert "eatout" in stop_location["tour_purpose"].unique().to_list()
 
-    stop_timing = trip.trip_stop_tod(prepared, config)
+    stop_timing = trip_distributions.trip_stop_tod(prepared, config)
     assert stop_timing.columns == list(
         SUMMARY_OUTPUT_COLUMNS["trip_departure_time_by_purpose"]
     )
     assert "all_tour_purposes" in stop_timing["tour_purpose"].unique().to_list()
     assert "eatout" in stop_timing["tour_purpose"].unique().to_list()
 
-    tour_mode_profile = legacy.tour_mode_profile(prepared, config)
-    assert tour_mode_profile.columns == [
-        "tour_mode",
-        "purpose",
-        "freq_as0",
-        "freq_as1",
-        "freq_as2",
-        "freq_all",
-    ]
-
-    tour_tod_profiles = tour.tour_tod(prepared, config)
+    tour_tod_profiles = tour_profiles.tour_tod(prepared, config)
     assert tour_tod_profiles.columns == [
         "time_bin",
         "tour_purpose",
@@ -2068,15 +2506,6 @@ def test_summaries_use_canonical_runtime_columns_and_preserve_output_shapes(
     ]
     assert "all_tour_purposes" in tour_tod_profiles["tour_purpose"].unique().to_list()
     assert "eatout" in tour_tod_profiles["tour_purpose"].unique().to_list()
-
-    if "od_dist" in prepared.trips.columns:
-        totals_df = legacy.system_totals(prepared, config)
-        assert totals_df["employment"].to_list() == [24.0]
-
-    distance_df = legacy.distance_distribution(prepared, config)
-    assert "purpose" in distance_df.columns
-    assert "All NM" in distance_df["purpose"].to_list()
-
 
 def test_summaries_return_empty_tables_when_canonical_columns_are_missing(
     tmp_path: Path,
@@ -2091,7 +2520,9 @@ def test_summaries_return_empty_tables_when_canonical_columns_are_missing(
         hh=prepared.hh,
         per=prepared.per,
         tours=prepared.tours.drop(["tour_purpose", "summary_tour_purpose"]),
-        trips=prepared.trips.drop(["tour_purpose", "summary_tour_purpose", "trip_purpose"]),
+        trips=prepared.trips.drop(
+            ["tour_purpose", "summary_tour_purpose", "trip_purpose"]
+        ),
         joint_participants=prepared.joint_participants,
         land_use=prepared.land_use,
         skim_matrix=prepared.skim_matrix,
@@ -2103,12 +2534,10 @@ def test_summaries_return_empty_tables_when_canonical_columns_are_missing(
 
     assert trip.trip_mode(prepared, config).is_empty()
     assert trip.stop_purpose_by_tour_purpose(prepared, config).is_empty()
-    assert trip.trip_stop_tod(prepared, config).is_empty()
-    assert trip.stop_ood_distance(prepared, config).is_empty()
-    assert tour.stop_freq(prepared, config).is_empty()
-    assert tour.tour_tod(prepared, config).is_empty()
-    assert legacy.distance_distribution(prepared, config).is_empty()
-
+    assert trip_distributions.trip_stop_tod(prepared, config).is_empty()
+    assert trip_distributions.stop_ood_distance(prepared, config).is_empty()
+    assert tour_profiles.stop_freq(prepared, config).is_empty()
+    assert tour_profiles.tour_tod(prepared, config).is_empty()
 
 def test_prepare_data_skips_fragile_joins_when_dependency_keys_are_missing(
     tmp_path: Path,

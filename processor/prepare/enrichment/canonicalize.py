@@ -169,6 +169,7 @@ def _canonicalize_tours(tours: pl.DataFrame, config: Config) -> pl.DataFrame:
         tours,
         "tour_purpose",
         config.col_tour_purpose,
+        fallbacks=("tour_purpose", "primary_purpose", "tour_type", "purpose"),
         require_non_numeric=True,
     )
     tours = _materialize_column(

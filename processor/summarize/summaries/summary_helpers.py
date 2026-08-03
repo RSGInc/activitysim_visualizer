@@ -19,7 +19,7 @@ def _summary_purpose_column(df: pl.DataFrame) -> str:
     return purpose_column(df)
 
 
-def _weighted_group_sum(
+def weighted_group_sum(
     df: pl.DataFrame,
     group_cols: str | list[str],
     *,
@@ -84,7 +84,7 @@ def _dense_zero_fill(
     )
 
 
-def _aggregate_counts_by_geography(
+def aggregate_counts_by_geography(
     df: pl.DataFrame,
     *,
     geography_type: str,
@@ -114,14 +114,32 @@ def _configured_geography_dimensions(
     base_col: str,
     role_prefix: str,
 ) -> list[tuple[str, str]]:
-    """Return available geography dimensions for one semantic role."""
+    """Return available native and configured geography dimensions for one role."""
     dimensions: list[tuple[str, str]] = []
+    seen_columns: set[str] = set()
+
+    def _append(geography_type: str, column: str) -> None:
+        if column and column in df.columns and column not in seen_columns:
+            dimensions.append((geography_type, column))
+            seen_columns.add(column)
+
     if base_col in df.columns:
-        dimensions.append((base_type, base_col))
-    for aggregation in config.geography_aggregations.aggregations:
+        _append(base_type, base_col)
+    if role_prefix == "home":
+        for geography_type, column in [
+            ("home_taz", "home_taz"),
+            ("home_county", "home_county"),
+            ("home_mpo", "home_mpo"),
+        ]:
+            _append(geography_type, column)
+    geography_aggregations = getattr(
+        getattr(config, "geography_aggregations", None),
+        "aggregations",
+        (),
+    )
+    for aggregation in geography_aggregations:
         column = f"{role_prefix}_geo__{aggregation.name}"
-        if column in df.columns:
-            dimensions.append((aggregation.name, column))
+        _append(aggregation.name, column)
     return dimensions
 
 
@@ -131,7 +149,7 @@ def _configured_geography_columns(
     config,
     role_prefix: str,
 ) -> list[str]:
-    """Return configured prepared geography columns present for one role."""
+    """Return native and configured prepared geography columns present for one role."""
     return [
         column
         for _, column in _configured_geography_dimensions(
@@ -163,7 +181,7 @@ def _configured_land_use_geography_dimensions(
     return base_dimensions
 
 
-def _aggregate_counts_across_geographies(
+def aggregate_counts_across_geographies(
     df: pl.DataFrame,
     *,
     geography_dimensions: list[tuple[str, str]],
@@ -172,7 +190,7 @@ def _aggregate_counts_across_geographies(
 ) -> pl.DataFrame:
     """Aggregate one frame across multiple geography dimensions."""
     outputs = [
-        _aggregate_counts_by_geography(
+        aggregate_counts_by_geography(
             df.filter(pl.col(column).is_not_null()),
             geography_type=geography_type,
             geography_id_col=column,
@@ -330,7 +348,7 @@ def _residual_histogram_summary(
     )
 
 
-def _aggregate_weighted_average_across_geographies(
+def aggregate_weighted_average_across_geographies(
     df: pl.DataFrame,
     *,
     geography_dimensions: list[tuple[str, str]],

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
+import numpy as np
 import polars as pl
 import pytest
 
@@ -24,8 +25,10 @@ from processor.prepare.reader import (
     resolve_skim_path as processor_resolve_skim_path,
 )
 from processor.summarize.cache_types import strip_weights
+from processor.summarize.contracts import missing_summary_inputs
 from processor.summarize.summaries import tour, trip
-from processor.summarize.summaries.long_term import (
+from processor.summarize.summaries import tour_profiles, trip_distributions
+from processor.summarize.summaries.long_term_geography import (
     external_workplace_loc,
     internal_vs_external,
     park_and_ride_location_residual_histogram,
@@ -33,16 +36,24 @@ from processor.summarize.summaries.long_term import (
     school_shadow_pricing_residual_histogram,
     school_shadow_pricing_residuals,
     school_loc_vs_land_use_enrollment,
-    schl_tlfd,
-    telecommute,
-    univ_tlfd,
-    vehicle_char_age,
-    vehicle_char_body,
-    vehicle_char_fuel,
-    work_tlfd,
+    wfh,
     workplace_shadow_pricing_residual_histogram,
     workplace_shadow_pricing_residuals,
     workplace_vs_land_use_employment,
+)
+from processor.summarize.summaries.long_term_distance import (
+    schl_tlfd,
+    univ_tlfd,
+    work_tlfd,
+)
+from processor.summarize.summaries.long_term_person import telecommute
+from processor.summarize.summaries.long_term_vehicle import (
+    vehicle_char_age,
+    vehicle_char_body,
+    vehicle_char_fuel,
+)
+from processor.summarize.summaries.summary_helpers import (
+    _configured_geography_dimensions,
 )
 from processor.summarize.summaries.tour_geography import (
     avg_mand_tour_distance,
@@ -63,10 +74,9 @@ def _write_config(
     lines = [
         'name: "Processor Prepare Test"',
         "runs: []",
-        "summaries:",
-        "  root: summary_cache",
-        "visualizer:",
-        '  dashboard_title: "Processor Prepare Test"',
+        "root: summary_cache",
+        "dashboard:",
+        '  title: "Processor Prepare Test"',
     ]
     if extra_lines:
         lines.extend(extra_lines)
@@ -201,7 +211,9 @@ def _raw_run_with_atwork_subtour_frequency() -> ProcessorRunData:
             {"tour_id": [], "person_id": []},
             schema={"tour_id": pl.Int64, "person_id": pl.Int64},
         ),
-        land_use=pl.DataFrame({"zone_id": [10, 20], "TAZ": [10, 20], "EMPLOY_TOT": [7, 8]}),
+        land_use=pl.DataFrame(
+            {"zone_id": [10, 20], "TAZ": [10, 20], "EMPLOY_TOT": [7, 8]}
+        ),
         skim_matrix=None,
         skim_zone_map=None,
     )
@@ -315,7 +327,13 @@ def _raw_run_with_escort_event_inputs() -> ProcessorRunData:
                 "duration": [2, 2, 2, 2, 2],
                 "origin": [10, 20, 30, 10, 20],
                 "destination": [20, 30, 40, 20, 30],
-                "stop_frequency": ["2out_2in", "2out_0in", "0out_1in", "0out_0in", "0out_0in"],
+                "stop_frequency": [
+                    "2out_2in",
+                    "2out_0in",
+                    "0out_1in",
+                    "0out_0in",
+                    "0out_0in",
+                ],
             }
         ),
         trips=pl.DataFrame(
@@ -444,7 +462,11 @@ def _raw_run_with_escort_event_inputs() -> ProcessorRunData:
             schema={"tour_id": pl.Int64, "person_id": pl.Int64},
         ),
         land_use=pl.DataFrame(
-            {"zone_id": [10, 20, 30, 40], "TAZ": [10, 20, 30, 40], "EMPLOY_TOT": [7, 8, 9, 10]}
+            {
+                "zone_id": [10, 20, 30, 40],
+                "TAZ": [10, 20, 30, 40],
+                "EMPLOY_TOT": [7, 8, 9, 10],
+            }
         ),
         skim_matrix=None,
         skim_zone_map=None,
@@ -770,7 +792,9 @@ def test_processor_prepare_data_uses_person_worker_flags_for_autosuff_when_confi
 
     assert prepared.tours.sort("tour_id")["AUTOSUFF"].to_list() == [1, 2]
     assert prepared.trips.sort("trip_id")["AUTOSUFF"].to_list() == [1, 2]
-    summary = tour.tour_mode(prepared, config).sort(["tour_mode", "tour_purpose"])
+    summary = tour_profiles.tour_mode(prepared, config).sort(
+        ["tour_mode", "tour_purpose"]
+    )
     assert summary.filter(pl.col("tour_purpose") == "work").to_dicts() == [
         {
             "tour_mode": "DRIVE",
@@ -1005,6 +1029,147 @@ def test_processor_prepare_data_uses_zone_id_as_maz_fallback_for_trip_skim_dista
     assert prepared.trips["od_dist"].to_list() == [12.5]
 
 
+def test_processor_prepare_data_adds_non_motorized_distance_from_csv(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "maz_maz_walk.csv"
+    pl.DataFrame(
+        {
+            "OMAZ": [100, 200],
+            "DMAZ": [200, 100],
+            "DISTWALK": [0.5, 0.75],
+        }
+    ).write_csv(csv_path)
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "zones:",
+            "  use_maz: true",
+            "  maz_col: [MAZ, zone_id]",
+            "  taz_col: [TAZ]",
+            "prepare:",
+            "  non_motorized_distance_skim:",
+            "    file: maz_maz_walk.csv",
+            "    matrix: null",
+        ],
+    )
+    raw = _raw_run()
+    raw = ProcessorRunData(
+        label=raw.label,
+        run_dir=raw.run_dir,
+        skim_file=raw.skim_file,
+        hh=raw.hh,
+        per=raw.per,
+        tours=raw.tours,
+        trips=pl.DataFrame(
+            {
+                "trip_id": [1, 2, 3],
+                "tour_id": [1001, 1001, 1001],
+                "person_id": [101, 101, 101],
+                "household_id": [1, 1, 1],
+                "trip_mode": ["WALK", "BIKE", "WALK"],
+                "origin": [100, 200, 999],
+                "destination": [200, 100, 100],
+            }
+        ),
+        joint_participants=raw.joint_participants,
+        land_use=pl.DataFrame(
+            {
+                "zone_id": [100, 200, 999],
+                "TAZ": [1, 2, 3],
+                "EMPLOY_TOT": [7, 8, 9],
+            }
+        ),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    prepared = processor_prepare_data(raw, config)
+
+    assert prepared.trips["prepared_non_motorized_distance"].to_list() == [
+        0.5,
+        0.75,
+        None,
+    ]
+    diagnostics = prepared.prepare_diagnostics["trips.prepared_non_motorized_distance"]
+    assert diagnostics["source_type"] == "csv"
+    assert diagnostics["value_column"] == "DISTWALK"
+    assert diagnostics["unresolved"] == 1
+    assert diagnostics["eligible_non_motorized_unresolved"] == 1
+
+
+def test_processor_prepare_data_adds_non_motorized_distance_from_omx(
+    tmp_path: Path,
+) -> None:
+    import openmatrix as omx
+
+    omx_path = tmp_path / "walk.omx"
+    handle = omx.open_file(str(omx_path), "w")
+    handle["WLK_DIST"] = np.array([[0.0, 1.25], [1.5, 0.0]])
+    handle.close()
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "zones:",
+            "  use_maz: true",
+            "  maz_col: [MAZ, zone_id]",
+            "  taz_col: [TAZ]",
+            "prepare:",
+            "  non_motorized_distance_skim:",
+            "    file: walk.omx",
+            "    matrix: WLK_DIST",
+        ],
+    )
+    raw = _raw_run()
+    raw = ProcessorRunData(
+        label=raw.label,
+        run_dir=raw.run_dir,
+        skim_file=raw.skim_file,
+        hh=raw.hh,
+        per=raw.per,
+        tours=raw.tours,
+        trips=pl.DataFrame(
+            {
+                "trip_id": [1, 2],
+                "tour_id": [1001, 1001],
+                "person_id": [101, 101],
+                "household_id": [1, 1],
+                "trip_mode": ["WALK", "BIKE"],
+                "origin": [100, 200],
+                "destination": [200, 100],
+            }
+        ),
+        joint_participants=raw.joint_participants,
+        land_use=pl.DataFrame(
+            {
+                "zone_id": [100, 200],
+                "TAZ": [1, 2],
+                "EMPLOY_TOT": [7, 8],
+            }
+        ),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    prepared = processor_prepare_data(raw, config)
+
+    assert prepared.trips["prepared_non_motorized_distance"].to_list() == [
+        1.25,
+        1.5,
+    ]
+    diagnostics = prepared.prepare_diagnostics["trips.prepared_non_motorized_distance"]
+    assert diagnostics["source_type"] == "omx"
+    assert diagnostics["matrix"] == "WLK_DIST"
+
+
+def test_processor_prepare_data_leaves_non_motorized_distance_absent_without_config(
+    tmp_path: Path,
+) -> None:
+    prepared = processor_prepare_data(_raw_run(), _write_config(tmp_path))
+
+    assert "prepared_non_motorized_distance" not in prepared.trips.columns
+
+
 def test_processor_prepare_data_surfaces_null_distance_fields_without_usable_zone_mapping(
     tmp_path: Path,
 ) -> None:
@@ -1048,9 +1213,9 @@ def test_processor_prepare_data_surfaces_null_distance_fields_without_usable_zon
     assert prepared.prepare_diagnostics["tours.SKIMDIST"]["unresolved"] == 1
     assert prepared.prepare_diagnostics["trips.od_dist"]["unresolved"] == 1
     assert prepared.prepare_diagnostics["trips.out_dir_dist"]["unresolved"] == 1
-    assert tour.tour_distance(prepared, config).is_empty()
-    assert trip.trip_distance(prepared, config).is_empty()
-    assert trip.stop_ood_distance(prepared, config).is_empty()
+    assert tour_profiles.tour_distance(prepared, config).is_empty()
+    assert trip_distributions.trip_distance(prepared, config).is_empty()
+    assert trip_distributions.stop_ood_distance(prepared, config).is_empty()
 
 
 def test_processor_prepare_data_keeps_legitimate_zero_skim_values(
@@ -1427,7 +1592,12 @@ def test_processor_prepare_normalizes_escort_fields_and_derives_num_escortees(
             "primary_purpose": ["escort", "escort", "school", "school"],
             "tour_type": ["escort", "escort", "school", "school"],
             "tour_mode": ["DRIVE", "DRIVE", "WALK", "WALK"],
-            "tour_category": ["non-mandatory", "non-mandatory", "mandatory", "mandatory"],
+            "tour_category": [
+                "non-mandatory",
+                "non-mandatory",
+                "mandatory",
+                "mandatory",
+            ],
             "start": [8, 9, 10, 11],
             "end": [9, 10, 11, 12],
             "duration": [1, 1, 1, 1],
@@ -1483,7 +1653,9 @@ def test_processor_read_run_returns_partial_data_when_optional_tables_are_missin
     assert loaded.hh["household_id"].to_list() == [1]
     assert loaded.joint_participants.is_empty()
     assert loaded.land_use.is_empty()
-    assert processor_table_availability(loaded)["joint_tour_participants"] == "unavailable"
+    assert (
+        processor_table_availability(loaded)["joint_tour_participants"] == "unavailable"
+    )
     assert processor_table_availability(loaded)["land_use"] == "unavailable"
     assert "Cannot find" in processor_table_unavailable_reasons(loaded)["land_use"]
 
@@ -1498,10 +1670,9 @@ def test_processor_read_run_marks_misnamed_configured_table_as_unavailable(
             [
                 'name: "Processor Prepare Test"',
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
-                "visualizer:",
-                '  dashboard_title: "Processor Prepare Test"',
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Processor Prepare Test"',
                 "files:",
                 "  trips: definitely_not_trips",
             ]
@@ -1529,7 +1700,9 @@ def test_processor_read_run_marks_misnamed_configured_table_as_unavailable(
 
     assert loaded.trips.is_empty()
     assert processor_table_availability(loaded)["trips"] == "unavailable"
-    assert "definitely_not_trips" in processor_table_unavailable_reasons(loaded)["trips"]
+    assert (
+        "definitely_not_trips" in processor_table_unavailable_reasons(loaded)["trips"]
+    )
 
 
 def test_config_normalizes_per_run_file_map_and_rejects_invalid_keys(
@@ -1566,10 +1739,9 @@ def test_config_normalizes_per_run_file_map_and_rejects_invalid_keys(
                 '    label: "Run A"',
                 "    file_map:",
                 "      households_alias: final_hh",
-                "summaries:",
-                "  root: summary_cache",
-                "visualizer:",
-                '  dashboard_title: "Invalid File Map Config"',
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Invalid File Map Config"',
             ]
         ),
         encoding="utf-8",
@@ -1706,8 +1878,7 @@ def test_processor_read_run_marks_misnamed_per_run_override_as_unavailable(
     assert loaded.trips.is_empty()
     assert processor_table_availability(loaded)["trips"] == "unavailable"
     assert (
-        "definitely_not_trips"
-        in processor_table_unavailable_reasons(loaded)["trips"]
+        "definitely_not_trips" in processor_table_unavailable_reasons(loaded)["trips"]
     )
 
 
@@ -1720,10 +1891,14 @@ def test_processor_prepare_derives_default_student_types_and_land_use_overlay(
 
     assert prepared.per["student_type"].to_list() == [None, "School", "University"]
     school_overlay = prepared.land_use.filter(pl.col("student_type") == "School")
-    university_overlay = prepared.land_use.filter(pl.col("student_type") == "University")
+    university_overlay = prepared.land_use.filter(
+        pl.col("student_type") == "University"
+    )
     assert school_overlay["enrollment_count"].to_list() == [0.0, 75.0, 0.0]
     assert university_overlay["enrollment_count"].to_list() == [0.0, 0.0, 100.0]
-    assert prepared.land_use.filter(pl.col("student_type").is_null())["EMPLOYMENT"].to_list() == [
+    assert prepared.land_use.filter(pl.col("student_type").is_null())[
+        "EMPLOYMENT"
+    ].to_list() == [
         7.0,
         8.0,
         9.0,
@@ -1761,19 +1936,20 @@ def test_processor_prepare_adds_configured_geography_aggregation_columns(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        Urban: [10]",
-            "        Rural: [20]",
-            "    district:",
-            "      source_zone_system: maz",
-            f"      file: {geography_csv.name}",
-            "      zone_id_col: MAZ",
-            "      geography_col: district",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          Urban: [10]",
+            "          Rural: [20]",
+            "      district:",
+            "        source_zone_system: maz",
+            f"        file: {geography_csv.name}",
+            "        zone_id_col: MAZ",
+            "        geography_col: district",
         ],
     )
 
@@ -1793,6 +1969,74 @@ def test_processor_prepare_adds_configured_geography_aggregation_columns(
     assert prepared.trips["destination_geo__district"].to_list() == ["South"]
 
 
+def test_processor_prepare_copies_native_home_geographies_to_persons(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    raw = _raw_run()
+    raw.hh = raw.hh.with_columns(
+        pl.lit("Household County").alias("home_county"),
+        pl.lit("Household MPO").alias("home_mpo"),
+    )
+    raw.per = raw.per.with_columns(pl.lit("Person County").alias("home_county"))
+
+    prepared = processor_prepare_data(raw, config)
+
+    assert prepared.hh["home_county"].to_list() == ["Household County"]
+    assert prepared.hh["home_mpo"].to_list() == ["Household MPO"]
+    assert prepared.per["home_county"].to_list() == ["Person County"]
+    assert prepared.per["home_mpo"].to_list() == ["Household MPO"]
+
+
+def test_summary_geography_dimensions_include_native_home_geographies(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          West: [10]",
+        ],
+    )
+    df = pl.DataFrame(
+        {
+            "home_zone_id": [10],
+            "home_taz": [10],
+            "home_county": ["A"],
+            "home_mpo": ["B"],
+            "home_geo__county": ["West"],
+            "work_geo__county": ["West"],
+        }
+    )
+
+    assert _configured_geography_dimensions(
+        df,
+        config=config,
+        base_type="maz",
+        base_col="home_zone_id",
+        role_prefix="home",
+    ) == [
+        ("maz", "home_zone_id"),
+        ("home_taz", "home_taz"),
+        ("home_county", "home_county"),
+        ("home_mpo", "home_mpo"),
+        ("county", "home_geo__county"),
+    ]
+    assert _configured_geography_dimensions(
+        df,
+        config=config,
+        base_type="work_taz",
+        base_col="work_taz",
+        role_prefix="work",
+    ) == [("county", "work_geo__county")]
+
+
 def test_processor_prepare_skips_geography_aggregation_columns_when_geography_disabled(
     tmp_path: Path,
 ) -> None:
@@ -1804,19 +2048,20 @@ def test_processor_prepare_skips_geography_aggregation_columns_when_geography_di
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: false",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        Urban: [10]",
-            "        Rural: [20]",
-            "    district:",
-            "      source_zone_system: maz",
-            f"      file: {geography_csv.name}",
-            "      zone_id_col: MAZ",
-            "      geography_col: district",
+            "summarize:",
+            "  geography:",
+            "    enabled: false",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          Urban: [10]",
+            "          Rural: [20]",
+            "      district:",
+            "        source_zone_system: maz",
+            f"        file: {geography_csv.name}",
+            "        zone_id_col: MAZ",
+            "        geography_col: district",
         ],
     )
 
@@ -1836,15 +2081,16 @@ def test_long_term_comparison_summaries_emit_configured_geography_levels(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        West: [10]",
-            "        Central: [20]",
-            "        East: [30]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          West: [10]",
+            "          Central: [20]",
+            "          East: [30]",
         ],
     )
     prepared = processor_prepare_data(_raw_run_with_student_enrollment_inputs(), config)
@@ -1853,94 +2099,83 @@ def test_long_term_comparison_summaries_emit_configured_geography_levels(
     school = school_loc_vs_land_use_enrollment(prepared, config)
 
     assert "county" in workplace["geography_type"].to_list()
-    assert (
-        workplace.filter(pl.col("geography_type") == "county")
-        .sort("geography_id")
-        .select(["geography_id", "employment_count", "worker_count"])
-        .to_dicts()
-        == [
-            {"geography_id": "Central", "employment_count": 8.0, "worker_count": 0.0},
-            {"geography_id": "East", "employment_count": 9.0, "worker_count": 0.0},
-            {"geography_id": "West", "employment_count": 7.0, "worker_count": 1.0},
-        ]
-    )
+    assert workplace.filter(pl.col("geography_type") == "county").sort(
+        "geography_id"
+    ).select(["geography_id", "employment_count", "worker_count"]).to_dicts() == [
+        {"geography_id": "Central", "employment_count": 8.0, "worker_count": 0.0},
+        {"geography_id": "East", "employment_count": 9.0, "worker_count": 0.0},
+        {"geography_id": "West", "employment_count": 7.0, "worker_count": 1.0},
+    ]
     assert "county" in school["geography_type"].to_list()
-    assert (
-        school.filter(pl.col("geography_type") == "county")
-        .sort(["geography_id", "student_type"])
-        .select(["geography_id", "student_type", "enrollment_count", "student_count"])
-        .to_dicts()
-        == [
-            {
-                "geography_id": "Central",
-                "student_type": "School",
-                "enrollment_count": 75.0,
-                "student_count": 1.0,
-            },
-            {
-                "geography_id": "Central",
-                "student_type": "University",
-                "enrollment_count": 0.0,
-                "student_count": 0.0,
-            },
-            {
-                "geography_id": "East",
-                "student_type": "School",
-                "enrollment_count": 0.0,
-                "student_count": 0.0,
-            },
-            {
-                "geography_id": "East",
-                "student_type": "University",
-                "enrollment_count": 100.0,
-                "student_count": 1.0,
-            },
-            {
-                "geography_id": "West",
-                "student_type": "School",
-                "enrollment_count": 0.0,
-                "student_count": 0.0,
-            },
-            {
-                "geography_id": "West",
-                "student_type": "University",
-                "enrollment_count": 0.0,
-                "student_count": 0.0,
-            },
-        ]
-    )
-    assert (
-        workplace.filter(pl.col("geography_type") == "all_geographies")
-        .select(["geography_id", "employment_count", "worker_count"])
-        .to_dicts()
-        == [
-            {
-                "geography_id": "all_geographies",
-                "employment_count": 24.0,
-                "worker_count": 1.0,
-            }
-        ]
-    )
-    assert (
-        school.filter(pl.col("geography_type") == "all_geographies")
-        .sort("student_type")
-        .select(["geography_id", "student_type", "enrollment_count", "student_count"])
-        .to_dicts()
-        == [
-            {
-                "geography_id": "all_geographies",
-                "student_type": "School",
-                "enrollment_count": 75.0,
-                "student_count": 1.0,
-            },
-            {
-                "geography_id": "all_geographies",
-                "student_type": "University",
-                "enrollment_count": 100.0,
-                "student_count": 1.0,
-            },
-        ]
-    )
+    assert school.filter(pl.col("geography_type") == "county").sort(
+        ["geography_id", "student_type"]
+    ).select(
+        ["geography_id", "student_type", "enrollment_count", "student_count"]
+    ).to_dicts() == [
+        {
+            "geography_id": "Central",
+            "student_type": "School",
+            "enrollment_count": 75.0,
+            "student_count": 1.0,
+        },
+        {
+            "geography_id": "Central",
+            "student_type": "University",
+            "enrollment_count": 0.0,
+            "student_count": 0.0,
+        },
+        {
+            "geography_id": "East",
+            "student_type": "School",
+            "enrollment_count": 0.0,
+            "student_count": 0.0,
+        },
+        {
+            "geography_id": "East",
+            "student_type": "University",
+            "enrollment_count": 100.0,
+            "student_count": 1.0,
+        },
+        {
+            "geography_id": "West",
+            "student_type": "School",
+            "enrollment_count": 0.0,
+            "student_count": 0.0,
+        },
+        {
+            "geography_id": "West",
+            "student_type": "University",
+            "enrollment_count": 0.0,
+            "student_count": 0.0,
+        },
+    ]
+    assert workplace.filter(pl.col("geography_type") == "all_geographies").select(
+        ["geography_id", "employment_count", "worker_count"]
+    ).to_dicts() == [
+        {
+            "geography_id": "all_geographies",
+            "employment_count": 24.0,
+            "worker_count": 1.0,
+        }
+    ]
+    assert school.filter(pl.col("geography_type") == "all_geographies").sort(
+        "student_type"
+    ).select(
+        ["geography_id", "student_type", "enrollment_count", "student_count"]
+    ).to_dicts() == [
+        {
+            "geography_id": "all_geographies",
+            "student_type": "School",
+            "enrollment_count": 75.0,
+            "student_count": 1.0,
+        },
+        {
+            "geography_id": "all_geographies",
+            "student_type": "University",
+            "enrollment_count": 100.0,
+            "student_count": 1.0,
+        },
+    ]
 
 
 def test_shadow_pricing_residual_summaries_emit_configured_geography_levels(
@@ -1949,15 +2184,16 @@ def test_shadow_pricing_residual_summaries_emit_configured_geography_levels(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        West: [10]",
-            "        Central: [20]",
-            "        East: [30]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          West: [10]",
+            "          Central: [20]",
+            "          East: [30]",
         ],
     )
     prepared = processor_prepare_data(_raw_run_with_student_enrollment_inputs(), config)
@@ -1965,119 +2201,111 @@ def test_shadow_pricing_residual_summaries_emit_configured_geography_levels(
     workplace = workplace_shadow_pricing_residuals(prepared, config)
     school = school_shadow_pricing_residuals(prepared, config)
 
-    assert (
-        workplace.filter(pl.col("geography_type") == "county")
-        .sort("geography_id")
-        .select(
-            [
-                "geography_id",
-                "target_count",
-                "modeled_count",
-                "residual_count",
-                "absolute_residual_count",
-                "percent_error",
-            ]
-        )
-        .to_dicts()
-        == [
-            {
-                "geography_id": "Central",
-                "target_count": 8.0,
-                "modeled_count": 0.0,
-                "residual_count": -8.0,
-                "absolute_residual_count": 8.0,
-                "percent_error": -100.0,
-            },
-            {
-                "geography_id": "East",
-                "target_count": 9.0,
-                "modeled_count": 0.0,
-                "residual_count": -9.0,
-                "absolute_residual_count": 9.0,
-                "percent_error": -100.0,
-            },
-            {
-                "geography_id": "West",
-                "target_count": 7.0,
-                "modeled_count": 1.0,
-                "residual_count": -6.0,
-                "absolute_residual_count": 6.0,
-                "percent_error": pytest.approx(-85.71428571428571),
-            },
+    assert workplace.filter(pl.col("geography_type") == "county").sort(
+        "geography_id"
+    ).select(
+        [
+            "geography_id",
+            "target_count",
+            "modeled_count",
+            "residual_count",
+            "absolute_residual_count",
+            "percent_error",
         ]
-    )
-    assert (
-        school.filter(pl.col("geography_type") == "county")
-        .sort(["geography_id", "student_type"])
-        .select(
-            [
-                "geography_id",
-                "student_type",
-                "target_count",
-                "modeled_count",
-                "residual_count",
-                "absolute_residual_count",
-                "percent_error",
-            ]
-        )
-        .to_dicts()
-        == [
-            {
-                "geography_id": "Central",
-                "student_type": "School",
-                "target_count": 75.0,
-                "modeled_count": 1.0,
-                "residual_count": -74.0,
-                "absolute_residual_count": 74.0,
-                "percent_error": pytest.approx(-98.66666666666667),
-            },
-            {
-                "geography_id": "Central",
-                "student_type": "University",
-                "target_count": 0.0,
-                "modeled_count": 0.0,
-                "residual_count": 0.0,
-                "absolute_residual_count": 0.0,
-                "percent_error": None,
-            },
-            {
-                "geography_id": "East",
-                "student_type": "School",
-                "target_count": 0.0,
-                "modeled_count": 0.0,
-                "residual_count": 0.0,
-                "absolute_residual_count": 0.0,
-                "percent_error": None,
-            },
-            {
-                "geography_id": "East",
-                "student_type": "University",
-                "target_count": 100.0,
-                "modeled_count": 1.0,
-                "residual_count": -99.0,
-                "absolute_residual_count": 99.0,
-                "percent_error": -99.0,
-            },
-            {
-                "geography_id": "West",
-                "student_type": "School",
-                "target_count": 0.0,
-                "modeled_count": 0.0,
-                "residual_count": 0.0,
-                "absolute_residual_count": 0.0,
-                "percent_error": None,
-            },
-            {
-                "geography_id": "West",
-                "student_type": "University",
-                "target_count": 0.0,
-                "modeled_count": 0.0,
-                "residual_count": 0.0,
-                "absolute_residual_count": 0.0,
-                "percent_error": None,
-            },
+    ).to_dicts() == [
+        {
+            "geography_id": "Central",
+            "target_count": 8.0,
+            "modeled_count": 0.0,
+            "residual_count": -8.0,
+            "absolute_residual_count": 8.0,
+            "percent_error": -100.0,
+        },
+        {
+            "geography_id": "East",
+            "target_count": 9.0,
+            "modeled_count": 0.0,
+            "residual_count": -9.0,
+            "absolute_residual_count": 9.0,
+            "percent_error": -100.0,
+        },
+        {
+            "geography_id": "West",
+            "target_count": 7.0,
+            "modeled_count": 1.0,
+            "residual_count": -6.0,
+            "absolute_residual_count": 6.0,
+            "percent_error": pytest.approx(-85.71428571428571),
+        },
+    ]
+    assert school.filter(pl.col("geography_type") == "county").sort(
+        ["geography_id", "student_type"]
+    ).select(
+        [
+            "geography_id",
+            "student_type",
+            "target_count",
+            "modeled_count",
+            "residual_count",
+            "absolute_residual_count",
+            "percent_error",
         ]
-    )
+    ).to_dicts() == [
+        {
+            "geography_id": "Central",
+            "student_type": "School",
+            "target_count": 75.0,
+            "modeled_count": 1.0,
+            "residual_count": -74.0,
+            "absolute_residual_count": 74.0,
+            "percent_error": pytest.approx(-98.66666666666667),
+        },
+        {
+            "geography_id": "Central",
+            "student_type": "University",
+            "target_count": 0.0,
+            "modeled_count": 0.0,
+            "residual_count": 0.0,
+            "absolute_residual_count": 0.0,
+            "percent_error": None,
+        },
+        {
+            "geography_id": "East",
+            "student_type": "School",
+            "target_count": 0.0,
+            "modeled_count": 0.0,
+            "residual_count": 0.0,
+            "absolute_residual_count": 0.0,
+            "percent_error": None,
+        },
+        {
+            "geography_id": "East",
+            "student_type": "University",
+            "target_count": 100.0,
+            "modeled_count": 1.0,
+            "residual_count": -99.0,
+            "absolute_residual_count": 99.0,
+            "percent_error": -99.0,
+        },
+        {
+            "geography_id": "West",
+            "student_type": "School",
+            "target_count": 0.0,
+            "modeled_count": 0.0,
+            "residual_count": 0.0,
+            "absolute_residual_count": 0.0,
+            "percent_error": None,
+        },
+        {
+            "geography_id": "West",
+            "student_type": "University",
+            "target_count": 0.0,
+            "modeled_count": 0.0,
+            "residual_count": 0.0,
+            "absolute_residual_count": 0.0,
+            "percent_error": None,
+        },
+    ]
 
 
 def test_workplace_shadow_pricing_residuals_preserve_modeled_only_rows(
@@ -2086,14 +2314,15 @@ def test_workplace_shadow_pricing_residuals_preserve_modeled_only_rows(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        North: [10]",
-            "        South: [20]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          North: [10]",
+            "          South: [20]",
         ],
     )
     prepared = ProcessorRunData(
@@ -2128,38 +2357,33 @@ def test_workplace_shadow_pricing_residuals_preserve_modeled_only_rows(
         ["geography_type", "geography_id"]
     )
 
-    assert (
-        summary.filter(pl.col("geography_type") == "county")
-        .select(
-            [
-                "geography_id",
-                "target_count",
-                "modeled_count",
-                "residual_count",
-                "absolute_residual_count",
-                "percent_error",
-            ]
-        )
-        .to_dicts()
-        == [
-            {
-                "geography_id": "North",
-                "target_count": 0.0,
-                "modeled_count": 2.0,
-                "residual_count": 2.0,
-                "absolute_residual_count": 2.0,
-                "percent_error": None,
-            },
-            {
-                "geography_id": "South",
-                "target_count": 5.0,
-                "modeled_count": 0.0,
-                "residual_count": -5.0,
-                "absolute_residual_count": 5.0,
-                "percent_error": -100.0,
-            },
+    assert summary.filter(pl.col("geography_type") == "county").select(
+        [
+            "geography_id",
+            "target_count",
+            "modeled_count",
+            "residual_count",
+            "absolute_residual_count",
+            "percent_error",
         ]
-    )
+    ).to_dicts() == [
+        {
+            "geography_id": "North",
+            "target_count": 0.0,
+            "modeled_count": 2.0,
+            "residual_count": 2.0,
+            "absolute_residual_count": 2.0,
+            "percent_error": None,
+        },
+        {
+            "geography_id": "South",
+            "target_count": 5.0,
+            "modeled_count": 0.0,
+            "residual_count": -5.0,
+            "absolute_residual_count": 5.0,
+            "percent_error": -100.0,
+        },
+    ]
 
 
 def test_shadow_pricing_histogram_summaries_include_dynamic_count_bins(
@@ -2168,15 +2392,16 @@ def test_shadow_pricing_histogram_summaries_include_dynamic_count_bins(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        West: [10]",
-            "        Central: [20]",
-            "        East: [30]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          West: [10]",
+            "          Central: [20]",
+            "          East: [30]",
         ],
     )
     prepared = processor_prepare_data(_raw_run_with_student_enrollment_inputs(), config)
@@ -2186,7 +2411,11 @@ def test_shadow_pricing_histogram_summaries_include_dynamic_count_bins(
 
     assert "county" in workplace["geography_type"].to_list()
     assert "county" in school["geography_type"].to_list()
-    assert set(school["student_type"].unique().to_list()) == {"All", "School", "University"}
+    assert set(school["student_type"].unique().to_list()) == {
+        "All",
+        "School",
+        "University",
+    }
     assert set(workplace.columns) == {
         "geography_type",
         "bin_start",
@@ -2213,8 +2442,7 @@ def test_shadow_pricing_histogram_summaries_include_dynamic_count_bins(
     )
     assert (
         school.filter(
-            (pl.col("geography_type") == "county")
-            & (pl.col("student_type") == "All")
+            (pl.col("geography_type") == "county") & (pl.col("student_type") == "All")
         )["geography_count"].sum()
         == 6.0
     )
@@ -2234,16 +2462,16 @@ def test_park_and_ride_location_residuals_roll_up_used_lots_only(
         extra_lines=[
             "columns:",
             "  pnr_lot_capacity: [PNR_CAP]",
-            "modes:",
+            "summarize:",
             "  pnr_tour_modes: [PNR_TRANSIT, PNR_LOCAL, PNR_PREMIUM]",
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    district:",
-            "      source_zone_system: maz",
-            "      mapping:",
-            "        North: [1, 2]",
-            "        South: [3, 4, 5]",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      district:",
+            "        source_zone_system: maz",
+            "        mapping:",
+            "          North: [1, 2]",
+            "          South: [3, 4, 5]",
         ],
     )
     prepared = ProcessorRunData(
@@ -2254,7 +2482,13 @@ def test_park_and_ride_location_residuals_roll_up_used_lots_only(
         per=pl.DataFrame(),
         tours=pl.DataFrame(
             {
-                "tour_mode": ["PNR_TRANSIT", "PNR_LOCAL", "WALK", "PNR_PREMIUM", "PNR_LOCAL"],
+                "tour_mode": [
+                    "PNR_TRANSIT",
+                    "PNR_LOCAL",
+                    "WALK",
+                    "PNR_PREMIUM",
+                    "PNR_LOCAL",
+                ],
                 "pnr_zone_id": [1, 2, None, 3, 4],
                 "finalweight": [2.0, 3.0, 99.0, 5.0, 40.0],
             }
@@ -2264,6 +2498,7 @@ def test_park_and_ride_location_residuals_roll_up_used_lots_only(
         land_use=pl.DataFrame(
             {
                 "MAZ": [1, 2, 3, 4, 5],
+                "TAZ": [100, 100, 200, 200, 200],
                 "PNR_CAP": [10.0, 20.0, 30.0, 40.0, 50.0],
                 "land_use_geo__district": ["North", "North", "South", "South", "South"],
             }
@@ -2274,77 +2509,129 @@ def test_park_and_ride_location_residuals_roll_up_used_lots_only(
 
     summary = park_and_ride_location_residuals(prepared, config)
 
-    assert (
-        summary.filter(pl.col("geography_type") == "maz")
-        .sort("geography_id")
-        .select(
-            [
-                "geography_id",
-                "pnr_tour_count",
-                "pnr_lot_capacity",
-                "residual_count",
-                "absolute_residual_count",
-                "percent_error",
-            ]
-        )
-        .to_dicts()
-        == [
-            {
-                "geography_id": "1",
-                "pnr_tour_count": 2.0,
-                "pnr_lot_capacity": 10.0,
-                "residual_count": -8.0,
-                "absolute_residual_count": 8.0,
-                "percent_error": -80.0,
-            },
-            {
-                "geography_id": "2",
-                "pnr_tour_count": 3.0,
-                "pnr_lot_capacity": 20.0,
-                "residual_count": -17.0,
-                "absolute_residual_count": 17.0,
-                "percent_error": -85.0,
-            },
-            {
-                "geography_id": "3",
-                "pnr_tour_count": 5.0,
-                "pnr_lot_capacity": 30.0,
-                "residual_count": -25.0,
-                "absolute_residual_count": 25.0,
-                "percent_error": pytest.approx(-83.33333333333334),
-            },
-            {
-                "geography_id": "4",
-                "pnr_tour_count": 40.0,
-                "pnr_lot_capacity": 40.0,
-                "residual_count": 0.0,
-                "absolute_residual_count": 0.0,
-                "percent_error": 0.0,
-            },
+    assert summary.filter(pl.col("geography_type") == "maz").sort(
+        "geography_id"
+    ).select(
+        [
+            "geography_id",
+            "pnr_tour_count",
+            "pnr_lot_capacity",
+            "residual_count",
+            "absolute_residual_count",
+            "percent_error",
         ]
+    ).to_dicts() == [
+        {
+            "geography_id": "1",
+            "pnr_tour_count": 2.0,
+            "pnr_lot_capacity": 10.0,
+            "residual_count": -8.0,
+            "absolute_residual_count": 8.0,
+            "percent_error": -80.0,
+        },
+        {
+            "geography_id": "2",
+            "pnr_tour_count": 3.0,
+            "pnr_lot_capacity": 20.0,
+            "residual_count": -17.0,
+            "absolute_residual_count": 17.0,
+            "percent_error": -85.0,
+        },
+        {
+            "geography_id": "3",
+            "pnr_tour_count": 5.0,
+            "pnr_lot_capacity": 30.0,
+            "residual_count": -25.0,
+            "absolute_residual_count": 25.0,
+            "percent_error": pytest.approx(-83.33333333333334),
+        },
+        {
+            "geography_id": "4",
+            "pnr_tour_count": 40.0,
+            "pnr_lot_capacity": 40.0,
+            "residual_count": 0.0,
+            "absolute_residual_count": 0.0,
+            "percent_error": 0.0,
+        },
+    ]
+    assert summary.filter(pl.col("geography_type") == "district").sort(
+        "geography_id"
+    ).select(["geography_id", "pnr_tour_count", "pnr_lot_capacity"]).to_dicts() == [
+        {"geography_id": "North", "pnr_tour_count": 5.0, "pnr_lot_capacity": 30.0},
+        {"geography_id": "South", "pnr_tour_count": 45.0, "pnr_lot_capacity": 70.0},
+    ]
+    assert summary.filter(pl.col("geography_type") == "taz").sort(
+        "geography_id"
+    ).select(["geography_id", "pnr_tour_count", "pnr_lot_capacity"]).to_dicts() == [
+        {"geography_id": "100", "pnr_tour_count": 5.0, "pnr_lot_capacity": 30.0},
+        {"geography_id": "200", "pnr_tour_count": 45.0, "pnr_lot_capacity": 70.0},
+    ]
+    assert summary.filter(pl.col("geography_type") == "all_geographies").select(
+        ["geography_id", "pnr_tour_count", "pnr_lot_capacity"]
+    ).to_dicts() == [
+        {
+            "geography_id": "all_geographies",
+            "pnr_tour_count": 50.0,
+            "pnr_lot_capacity": 100.0,
+        }
+    ]
+
+
+def test_park_and_ride_location_residuals_support_taz_only_inputs(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "columns:",
+            "  pnr_lot_capacity: [PNR_CAP]",
+            "summarize:",
+            "  pnr_tour_modes: [PNR_TRANSIT]",
+        ],
     )
-    assert (
-        summary.filter(pl.col("geography_type") == "district")
-        .sort("geography_id")
-        .select(["geography_id", "pnr_tour_count", "pnr_lot_capacity"])
-        .to_dicts()
-        == [
-            {"geography_id": "North", "pnr_tour_count": 5.0, "pnr_lot_capacity": 30.0},
-            {"geography_id": "South", "pnr_tour_count": 45.0, "pnr_lot_capacity": 70.0},
-        ]
-    )
-    assert (
-        summary.filter(pl.col("geography_type") == "all_geographies")
-        .select(["geography_id", "pnr_tour_count", "pnr_lot_capacity"])
-        .to_dicts()
-        == [
+    prepared = ProcessorRunData(
+        label="Prepared",
+        run_dir="C:/runs/prepared",
+        skim_file=None,
+        hh=pl.DataFrame(),
+        per=pl.DataFrame(),
+        tours=pl.DataFrame(
             {
-                "geography_id": "all_geographies",
-                "pnr_tour_count": 50.0,
-                "pnr_lot_capacity": 100.0,
+                "tour_mode": ["PNR_TRANSIT", "PNR_TRANSIT", "WALK"],
+                "pnr_taz": [10, 20, 20],
+                "finalweight": [2.0, 3.0, 99.0],
             }
-        ]
+        ),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(
+            {
+                "TAZ": [10, 20, 30],
+                "PNR_CAP": [12.0, 30.0, 40.0],
+            }
+        ),
+        skim_matrix=None,
+        skim_zone_map=None,
     )
+
+    assert missing_summary_inputs(park_and_ride_location_residuals, prepared) == {}
+    summary = park_and_ride_location_residuals(prepared, config)
+
+    assert summary.filter(pl.col("geography_type") == "taz").sort(
+        "geography_id"
+    ).select(["geography_id", "pnr_tour_count", "pnr_lot_capacity"]).to_dicts() == [
+        {"geography_id": "10", "pnr_tour_count": 2.0, "pnr_lot_capacity": 12.0},
+        {"geography_id": "20", "pnr_tour_count": 3.0, "pnr_lot_capacity": 30.0},
+    ]
+    assert summary.filter(pl.col("geography_type") == "all_geographies").select(
+        ["geography_id", "pnr_tour_count", "pnr_lot_capacity"]
+    ).to_dicts() == [
+        {
+            "geography_id": "all_geographies",
+            "pnr_tour_count": 5.0,
+            "pnr_lot_capacity": 42.0,
+        }
+    ]
 
 
 def test_park_and_ride_location_residual_histogram_uses_zero_bin_and_configured_modes(
@@ -2355,7 +2642,7 @@ def test_park_and_ride_location_residual_histogram_uses_zero_bin_and_configured_
         extra_lines=[
             "columns:",
             "  pnr_lot_capacity: [PNR_CAP]",
-            "modes:",
+            "summarize:",
             "  pnr_tour_modes: [PNR_TRANSIT, PNR_LOCAL]",
         ],
     )
@@ -2398,15 +2685,19 @@ def test_park_and_ride_location_residual_histogram_uses_zero_bin_and_configured_
         & (pl.col("bin_end") == 0.0)
     )
     assert zero_bin["geography_count"].to_list() == [1.0]
-    assert histogram.filter(pl.col("geography_type") == "maz")["geography_count"].sum() == 2.0
+    assert (
+        histogram.filter(pl.col("geography_type") == "maz")["geography_count"].sum()
+        == 2.0
+    )
 
 
 def test_geography_summaries_include_all_geographies_rollups(tmp_path: Path) -> None:
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
         ],
     )
     prepared = ProcessorRunData(
@@ -2444,56 +2735,54 @@ def test_geography_summaries_include_all_geographies_rollups(tmp_path: Path) -> 
     nonmandatory_mix = int_vs_ext_non_mand_tour_freq(prepared, config)
     external_tour_locations = ext_non_mand_tour_loc(prepared, config)
 
-    assert (
-        external_workplace.filter(pl.col("geography_type") == "all_geographies")
-        .select(["geography_id", "external_worker_count", "all_worker_count"])
-        .to_dicts()
-        == [
-            {
-                "geography_id": "all_geographies",
-                "external_worker_count": 1.0,
-                "all_worker_count": 2.0,
-            }
+    assert external_workplace.filter(
+        pl.col("geography_type") == "all_geographies"
+    ).select(
+        ["geography_id", "external_worker_count", "all_worker_count"]
+    ).to_dicts() == [
+        {
+            "geography_id": "all_geographies",
+            "external_worker_count": 1.0,
+            "all_worker_count": 2.0,
+        }
+    ]
+    assert nonmandatory_mix.filter(
+        pl.col("geography_type") == "all_geographies"
+    ).select(
+        [
+            "geography_id",
+            "internal_nonmandatory_tour_count",
+            "external_nonmandatory_tour_count",
         ]
-    )
-    assert (
-        nonmandatory_mix.filter(pl.col("geography_type") == "all_geographies")
-        .select(
-            [
-                "geography_id",
-                "internal_nonmandatory_tour_count",
-                "external_nonmandatory_tour_count",
-            ]
-        )
-        .to_dicts()
-        == [
-            {
-                "geography_id": "all_geographies",
-                "internal_nonmandatory_tour_count": 1.0,
-                "external_nonmandatory_tour_count": 1.0,
-            }
-        ]
-    )
-    assert (
-        external_tour_locations.filter(pl.col("geography_type") == "all_geographies")
-        .select(["geography_id", "external_nonmandatory_tour_count"])
-        .to_dicts()
-        == [{"geography_id": "all_geographies", "external_nonmandatory_tour_count": 1.0}]
-    )
+    ).to_dicts() == [
+        {
+            "geography_id": "all_geographies",
+            "internal_nonmandatory_tour_count": 1.0,
+            "external_nonmandatory_tour_count": 1.0,
+        }
+    ]
+    assert external_tour_locations.filter(
+        pl.col("geography_type") == "all_geographies"
+    ).select(["geography_id", "external_nonmandatory_tour_count"]).to_dicts() == [
+        {"geography_id": "all_geographies", "external_nonmandatory_tour_count": 1.0}
+    ]
 
 
-def test_geography_summaries_include_configured_aggregation_levels(tmp_path: Path) -> None:
+def test_geography_summaries_include_configured_aggregation_levels(
+    tmp_path: Path,
+) -> None:
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        West: [10]",
-            "        East: [20, 30]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          West: [10]",
+            "          East: [20, 30]",
         ],
     )
     prepared = ProcessorRunData(
@@ -2534,36 +2823,29 @@ def test_geography_summaries_include_configured_aggregation_levels(tmp_path: Pat
     tour_summary = int_vs_ext_non_mand_tour_freq(prepared, config)
 
     assert "county" in worker_summary["geography_type"].to_list()
-    assert (
-        workplace_summary.filter(pl.col("geography_type") == "county")
-        .select(["geography_id", "external_worker_count"])
-        .to_dicts()
-        == [{"geography_id": "East", "external_worker_count": 1.0}]
-    )
-    assert (
-        tour_summary.filter(pl.col("geography_type") == "county")
-        .sort("geography_id")
-        .select(
-            [
-                "geography_id",
-                "internal_nonmandatory_tour_count",
-                "external_nonmandatory_tour_count",
-            ]
-        )
-        .to_dicts()
-        == [
-            {
-                "geography_id": "East",
-                "internal_nonmandatory_tour_count": 1.0,
-                "external_nonmandatory_tour_count": 0.0,
-            },
-            {
-                "geography_id": "West",
-                "internal_nonmandatory_tour_count": 0.0,
-                "external_nonmandatory_tour_count": 1.0,
-            },
+    assert workplace_summary.filter(pl.col("geography_type") == "county").select(
+        ["geography_id", "external_worker_count"]
+    ).to_dicts() == [{"geography_id": "East", "external_worker_count": 1.0}]
+    assert tour_summary.filter(pl.col("geography_type") == "county").sort(
+        "geography_id"
+    ).select(
+        [
+            "geography_id",
+            "internal_nonmandatory_tour_count",
+            "external_nonmandatory_tour_count",
         ]
-    )
+    ).to_dicts() == [
+        {
+            "geography_id": "East",
+            "internal_nonmandatory_tour_count": 1.0,
+            "external_nonmandatory_tour_count": 0.0,
+        },
+        {
+            "geography_id": "West",
+            "internal_nonmandatory_tour_count": 0.0,
+            "external_nonmandatory_tour_count": 1.0,
+        },
+    ]
 
 
 def test_mandatory_distance_summaries_include_configured_geography_levels(
@@ -2572,14 +2854,15 @@ def test_mandatory_distance_summaries_include_configured_geography_levels(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        West: [10]",
-            "        East: [20, 30]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          West: [10]",
+            "          East: [20, 30]",
         ],
     )
     prepared = ProcessorRunData(
@@ -2598,7 +2881,7 @@ def test_mandatory_distance_summaries_include_configured_geography_levels(
                 "is_worker": [True, True, False],
                 "is_student": [False, True, True],
                 "person_type": ["1", "7", "3"],
-                "distance_to_work": [10.0, 20.0, None],
+                "distance_to_work": [0.5, 20.0, None],
                 "distance_to_school": [None, 5.0, 15.0],
                 "finalweight": [1.0, 2.0, 3.0],
             }
@@ -2616,73 +2899,62 @@ def test_mandatory_distance_summaries_include_configured_geography_levels(
     university_distance = univ_tlfd(prepared, config)
     mandatory_distance = avg_mand_tour_distance(prepared, config)
 
-    assert (
-        work_distance.filter(
-            (pl.col("geography_type") == "county")
-            & (pl.col("geography_id") == "East")
-            & (pl.col("distance_bin") == 21)
-        )["person_count"].to_list()
-        == [2.0]
-    )
-    assert (
-        school_distance.filter(
-            (pl.col("geography_type") == "county")
-            & (pl.col("geography_id") == "East")
-            & (pl.col("distance_bin") == 6)
-        )["person_count"].to_list()
-        == [2.0]
-    )
-    assert (
-        university_distance.filter(
-            (pl.col("geography_type") == "county")
-            & (pl.col("geography_id") == "East")
-            & (pl.col("distance_bin") == 16)
-        )["person_count"].to_list()
-        == [3.0]
-    )
-    assert (
-        mandatory_distance.filter(
-            (pl.col("mandatory_tour_purpose") == "work")
-            & (pl.col("geography_type") == "county")
-            & (pl.col("geography_id") == "East")
-        )
-        .select(["average_tour_distance", "person_count"])
-        .to_dicts()
-        == [{"average_tour_distance": 20.0, "person_count": 2.0}]
-    )
-    assert (
-        mandatory_distance.filter(pl.col("geography_type") == "all_geographies")
-        .sort("mandatory_tour_purpose")
-        .select(
-            [
-                "mandatory_tour_purpose",
-                "geography_id",
-                "average_tour_distance",
-                "person_count",
-            ]
-        )
-        .to_dicts()
-        == [
-            {
-                "mandatory_tour_purpose": "school",
-                "geography_id": "all_geographies",
-                "average_tour_distance": 5.0,
-                "person_count": 2.0,
-            },
-            {
-                "mandatory_tour_purpose": "university",
-                "geography_id": "all_geographies",
-                "average_tour_distance": 15.0,
-                "person_count": 3.0,
-            },
-            {
-                "mandatory_tour_purpose": "work",
-                "geography_id": "all_geographies",
-                "average_tour_distance": 16.666666666666668,
-                "person_count": 3.0,
-            },
+    assert work_distance.filter(
+        (pl.col("geography_type") == "county")
+        & (pl.col("geography_id") == "West")
+        & (pl.col("distance_bin") == 0)
+    )["person_count"].to_list() == [1.0]
+    assert work_distance.filter(
+        (pl.col("geography_type") == "county")
+        & (pl.col("geography_id") == "East")
+        & (pl.col("distance_bin") == 20)
+    )["person_count"].to_list() == [2.0]
+    assert school_distance.filter(
+        (pl.col("geography_type") == "county")
+        & (pl.col("geography_id") == "East")
+        & (pl.col("distance_bin") == 5)
+    )["person_count"].to_list() == [2.0]
+    assert university_distance.filter(
+        (pl.col("geography_type") == "county")
+        & (pl.col("geography_id") == "East")
+        & (pl.col("distance_bin") == 15)
+    )["person_count"].to_list() == [3.0]
+    assert mandatory_distance.filter(
+        (pl.col("mandatory_tour_purpose") == "work")
+        & (pl.col("geography_type") == "county")
+        & (pl.col("geography_id") == "East")
+    ).select(["average_tour_distance", "person_count"]).to_dicts() == [
+        {"average_tour_distance": 20.0, "person_count": 2.0}
+    ]
+    assert mandatory_distance.filter(
+        pl.col("geography_type") == "all_geographies"
+    ).sort("mandatory_tour_purpose").select(
+        [
+            "mandatory_tour_purpose",
+            "geography_id",
+            "average_tour_distance",
+            "person_count",
         ]
-    )
+    ).to_dicts() == [
+        {
+            "mandatory_tour_purpose": "school",
+            "geography_id": "all_geographies",
+            "average_tour_distance": 5.0,
+            "person_count": 2.0,
+        },
+        {
+            "mandatory_tour_purpose": "university",
+            "geography_id": "all_geographies",
+            "average_tour_distance": 15.0,
+            "person_count": 3.0,
+        },
+        {
+            "mandatory_tour_purpose": "work",
+            "geography_id": "all_geographies",
+            "average_tour_distance": 13.5,
+            "person_count": 3.0,
+        },
+    ]
 
 
 def test_telecommute_summary_includes_configured_geography_levels(
@@ -2691,14 +2963,15 @@ def test_telecommute_summary_includes_configured_geography_levels(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        West: [10]",
-            "        East: [20, 30]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          West: [10]",
+            "          East: [20, 30]",
         ],
     )
     prepared = ProcessorRunData(
@@ -2728,44 +3001,95 @@ def test_telecommute_summary_includes_configured_geography_levels(
 
     summary = telecommute(prepared, config)
 
-    assert (
-        summary.filter(pl.col("geography_type") == "county")
-        .sort(["geography_id", "telecommute_frequency"])
-        .to_dicts()
-        == [
+    assert summary.filter(pl.col("geography_type") == "county").sort(
+        ["geography_id", "telecommute_frequency"]
+    ).to_dicts() == [
+        {
+            "geography_type": "county",
+            "geography_id": "East",
+            "telecommute_frequency": "often",
+            "person_count": 2.0,
+        },
+        {
+            "geography_type": "county",
+            "geography_id": "West",
+            "telecommute_frequency": "never",
+            "person_count": 1.0,
+        },
+    ]
+    assert summary.filter(pl.col("geography_type") == "all_geographies").sort(
+        "telecommute_frequency"
+    ).to_dicts() == [
+        {
+            "geography_type": "all_geographies",
+            "geography_id": "all_geographies",
+            "telecommute_frequency": "never",
+            "person_count": 1.0,
+        },
+        {
+            "geography_type": "all_geographies",
+            "geography_id": "all_geographies",
+            "telecommute_frequency": "often",
+            "person_count": 2.0,
+        },
+    ]
+
+
+def test_work_from_home_summary_includes_native_home_geographies(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    prepared = ProcessorRunData(
+        label="Prepared",
+        run_dir="C:/runs/prepared",
+        skim_file=None,
+        hh=pl.DataFrame({"household_id": [1, 2], "finalweight": [1.0, 1.0]}),
+        per=pl.DataFrame(
             {
-                "geography_type": "county",
-                "geography_id": "East",
-                "telecommute_frequency": "often",
-                "person_count": 2.0,
-            },
-            {
-                "geography_type": "county",
-                "geography_id": "West",
-                "telecommute_frequency": "never",
-                "person_count": 1.0,
-            },
-        ]
+                "person_id": [101, 201],
+                "household_id": [1, 2],
+                "home_zone_id": [10, 20],
+                "home_county": ["North", "South"],
+                "home_mpo": ["Metro", "Metro"],
+                "is_worker": [True, True],
+                "work_from_home": [True, False],
+                "finalweight": [2.0, 3.0],
+            }
+        ),
+        tours=pl.DataFrame(),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
     )
-    assert (
-        summary.filter(pl.col("geography_type") == "all_geographies")
-        .sort("telecommute_frequency")
-        .to_dicts()
-        == [
-            {
-                "geography_type": "all_geographies",
-                "geography_id": "all_geographies",
-                "telecommute_frequency": "never",
-                "person_count": 1.0,
-            },
-            {
-                "geography_type": "all_geographies",
-                "geography_id": "all_geographies",
-                "telecommute_frequency": "often",
-                "person_count": 2.0,
-            },
-        ]
-    )
+
+    summary = wfh(prepared, config)
+
+    assert summary.filter(pl.col("geography_type") == "home_county").sort(
+        "geography_id"
+    ).to_dicts() == [
+        {
+            "geography_type": "home_county",
+            "geography_id": "North",
+            "worker_count": 2.0,
+            "work_from_home_worker_count": 2.0,
+        },
+        {
+            "geography_type": "home_county",
+            "geography_id": "South",
+            "worker_count": 3.0,
+            "work_from_home_worker_count": 0.0,
+        },
+    ]
+    assert summary.filter(pl.col("geography_type") == "home_mpo").to_dicts() == [
+        {
+            "geography_type": "home_mpo",
+            "geography_id": "Metro",
+            "worker_count": 5.0,
+            "work_from_home_worker_count": 2.0,
+        }
+    ]
 
 
 def test_nonmandatory_average_tour_distance_includes_configured_geography_levels(
@@ -2774,14 +3098,15 @@ def test_nonmandatory_average_tour_distance_includes_configured_geography_levels
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "geography:",
-            "  enabled: true",
-            "  aggregations:",
-            "    county:",
-            "      source_zone_system: taz",
-            "      mapping:",
-            "        West: [10]",
-            "        East: [20, 30]",
+            "summarize:",
+            "  geography:",
+            "    enabled: true",
+            "    aggregations:",
+            "      county:",
+            "        source_zone_system: taz",
+            "        mapping:",
+            "          West: [10]",
+            "          East: [20, 30]",
         ],
     )
     prepared = ProcessorRunData(
@@ -2821,48 +3146,42 @@ def test_nonmandatory_average_tour_distance_includes_configured_geography_levels
 
     summary = avg_non_mand_tour_distance(prepared, config)
 
-    assert (
-        summary.filter(pl.col("geography_type") == "county")
-        .sort(["nonmandatory_tour_purpose", "geography_id"])
-        .to_dicts()
-        == [
-            {
-                "nonmandatory_tour_purpose": "eatout",
-                "geography_type": "county",
-                "geography_id": "East",
-                "average_tour_distance": 10.0,
-                "tour_count": 2.0,
-            },
-            {
-                "nonmandatory_tour_purpose": "shopping",
-                "geography_type": "county",
-                "geography_id": "West",
-                "average_tour_distance": 5.5,
-                "tour_count": 4.0,
-            },
-        ]
-    )
-    assert (
-        summary.filter(pl.col("geography_type") == "all_geographies")
-        .sort("nonmandatory_tour_purpose")
-        .to_dicts()
-        == [
-            {
-                "nonmandatory_tour_purpose": "eatout",
-                "geography_type": "all_geographies",
-                "geography_id": "all_geographies",
-                "average_tour_distance": 10.0,
-                "tour_count": 2.0,
-            },
-            {
-                "nonmandatory_tour_purpose": "shopping",
-                "geography_type": "all_geographies",
-                "geography_id": "all_geographies",
-                "average_tour_distance": 5.5,
-                "tour_count": 4.0,
-            },
-        ]
-    )
+    assert summary.filter(pl.col("geography_type") == "county").sort(
+        ["nonmandatory_tour_purpose", "geography_id"]
+    ).to_dicts() == [
+        {
+            "nonmandatory_tour_purpose": "eatout",
+            "geography_type": "county",
+            "geography_id": "East",
+            "average_tour_distance": 10.0,
+            "tour_count": 2.0,
+        },
+        {
+            "nonmandatory_tour_purpose": "shopping",
+            "geography_type": "county",
+            "geography_id": "West",
+            "average_tour_distance": 5.5,
+            "tour_count": 4.0,
+        },
+    ]
+    assert summary.filter(pl.col("geography_type") == "all_geographies").sort(
+        "nonmandatory_tour_purpose"
+    ).to_dicts() == [
+        {
+            "nonmandatory_tour_purpose": "eatout",
+            "geography_type": "all_geographies",
+            "geography_id": "all_geographies",
+            "average_tour_distance": 10.0,
+            "tour_count": 2.0,
+        },
+        {
+            "nonmandatory_tour_purpose": "shopping",
+            "geography_type": "all_geographies",
+            "geography_id": "all_geographies",
+            "average_tour_distance": 5.5,
+            "tour_count": 4.0,
+        },
+    ]
 
 
 def test_student_type_config_supports_custom_person_segmentation(
@@ -2871,19 +3190,20 @@ def test_student_type_config_supports_custom_person_segmentation(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "student_types:",
-            "  - label: Elementary/Middle School",
-            "    land_use_columns: [ENROLLGRADEKto8]",
-            "    person:",
-            "      school_segment: [1]",
-            "  - label: High School",
-            "    land_use_columns: [ENROLLGRADE9to12]",
-            "    person:",
-            "      SCHG: [2]",
-            "  - label: University",
-            "    land_use_columns: [COLLEGEENROLL]",
-            "    person:",
-            "      is_university: true",
+            "prepare:",
+            "  student_types:",
+            "    - label: Elementary/Middle School",
+            "      land_use_columns: [ENROLLGRADEKto8]",
+            "      person:",
+            "        school_segment: [1]",
+            "    - label: High School",
+            "      land_use_columns: [ENROLLGRADE9to12]",
+            "      person:",
+            "        SCHG: [2]",
+            "    - label: University",
+            "      land_use_columns: [COLLEGEENROLL]",
+            "      person:",
+            "        is_university: true",
         ],
     )
 
@@ -2917,11 +3237,12 @@ def test_student_type_config_supports_local_config_enrollment_columns(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "student_types:",
-            "  - label: School",
-            "    land_use_columns: [Elementary_Enrolment, Secondary_Enrolment]",
-            "  - label: University",
-            "    land_use_columns: [PostSecFTE]",
+            "prepare:",
+            "  student_types:",
+            "    - label: School",
+            "      land_use_columns: [Elementary_Enrolment, Secondary_Enrolment]",
+            "    - label: University",
+            "      land_use_columns: [PostSecFTE]",
         ],
     )
 
@@ -2968,13 +3289,14 @@ def test_student_type_config_rejects_custom_multi_school_segmentation_without_pe
         _write_config(
             tmp_path,
             extra_lines=[
-                "student_types:",
-                "  - label: Elementary/Middle School",
-                "    land_use_columns: [ENROLLGRADEKto8]",
-                "  - label: High School",
-                "    land_use_columns: [ENROLLGRADE9to12]",
-                "  - label: University",
-                "    land_use_columns: [COLLEGEENROLL]",
+                "prepare:",
+                "  student_types:",
+                "    - label: Elementary/Middle School",
+                "      land_use_columns: [ENROLLGRADEKto8]",
+                "    - label: High School",
+                "      land_use_columns: [ENROLLGRADE9to12]",
+                "    - label: University",
+                "      land_use_columns: [COLLEGEENROLL]",
             ],
         )
 
@@ -3169,17 +3491,18 @@ def test_processor_prepare_uses_canonical_student_aliases_for_student_type_deriv
             "  school_segment: school_segment_src",
             "  schg: schg_src",
             "  pstudent: pstudent_src",
-            "student_types:",
-            "  - label: School",
-            "    land_use_columns: [ENROLLGRADEKto8]",
-            "    person:",
-            "      is_university: false",
-            "      school_segment: [K12]",
-            "  - label: University",
-            "    land_use_columns: [COLLEGEENROLL]",
-            "    person:",
-            "      is_university: true",
-            "      pstudent: ['2']",
+            "prepare:",
+            "  student_types:",
+            "    - label: School",
+            "      land_use_columns: [ENROLLGRADEKto8]",
+            "      person:",
+            "        is_university: false",
+            "        school_segment: [K12]",
+            "    - label: University",
+            "      land_use_columns: [COLLEGEENROLL]",
+            "      person:",
+            "        is_university: true",
+            "        pstudent: ['2']",
         ],
     )
     raw = _raw_run()
@@ -3225,7 +3548,9 @@ def test_vehicle_long_term_summaries_use_prepared_vehicle_table_and_unweighted_r
         }
     )
     prepared = processor_prepare_data(raw, config)
-    prepared.vehicles = prepared.vehicles.with_columns(pl.Series("finalweight", [2.0, 3.0]))
+    prepared.vehicles = prepared.vehicles.with_columns(
+        pl.Series("finalweight", [2.0, 3.0])
+    )
 
     age = vehicle_char_age(prepared, config)
     fuel = vehicle_char_fuel(prepared, config)

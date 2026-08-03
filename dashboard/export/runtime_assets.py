@@ -30,12 +30,12 @@ def load_export_runtime_js() -> str:
     )
 
 
-def build_export_html_shell(*, title: str, payload_json: str, plotly_js: str) -> str:
-    """Assemble the final self-contained HTML document."""
+def build_export_html_shell_parts(*, title: str, plotly_js: str) -> tuple[str, str]:
+    """Build the shell surrounding the export payload JSON."""
 
     export_css = load_export_css()
     runtime_js = load_export_runtime_js()
-    return f"""<!DOCTYPE html>
+    prefix = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -50,10 +50,19 @@ def build_export_html_shell(*, title: str, payload_json: str, plotly_js: str) ->
 </head>
 <body>
   <div id="app"></div>
-  <script id="activitysim-export-data" type="application/json">{payload_json}</script>
+  <script id="activitysim-export-data" type="application/json">"""
+    suffix = f"""</script>
   <script>
 {runtime_js}
   </script>
 </body>
 </html>
 """
+    return prefix, suffix
+
+
+def build_export_html_shell(*, title: str, payload_json: str, plotly_js: str) -> str:
+    """Assemble the final self-contained HTML document."""
+
+    prefix, suffix = build_export_html_shell_parts(title=title, plotly_js=plotly_js)
+    return f"{prefix}{payload_json}{suffix}"

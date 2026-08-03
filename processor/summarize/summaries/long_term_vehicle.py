@@ -5,18 +5,19 @@ from __future__ import annotations
 import polars as pl
 
 from processor.models import RunData
-from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize.contracts import summary
 from runtime.config import Config
 
 
-@summary_contract(
+@summary(
+    id="autonomous_vehicle_ownership_totals",
     schema={"household_with_autonomous_vehicle_count": pl.Float64},
     required_columns={"hh": ("av_ownership", "finalweight")},
 )
 def av_ownership(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"av_ownership", "finalweight"}
     if not required.issubset(set(rd.hh.columns)):
-        return empty_summary_frame(av_ownership)
+        return av_ownership.empty()
 
     return rd.hh.filter(pl.col("av_ownership") == True).select(
         pl.col("finalweight")
@@ -26,23 +27,42 @@ def av_ownership(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="auto_ownership_distribution",
     schema={
+        "household_size": pl.Utf8,
         "household_vehicle_count": pl.Int64,
         "household_count": pl.Float64,
     },
-    required_columns={"hh": ("HHVEH", "finalweight")},
+    required_columns={"hh": ("HHSIZE", "HHVEH", "finalweight")},
 )
 def auto_ownership(rd: RunData, config: Config) -> pl.DataFrame:
     return (
-        rd.hh.group_by("HHVEH")
+        rd.hh.with_columns(
+            pl.when(pl.col("HHSIZE").cast(pl.Int64, strict=False) >= 5)
+            .then(pl.lit("5+"))
+            .otherwise(pl.col("HHSIZE").cast(pl.Int64, strict=False).cast(pl.Utf8))
+            .alias("household_size")
+        )
+        .group_by(["household_size", "HHVEH"])
         .agg(household_count=pl.col("finalweight").sum())
         .rename({"HHVEH": "household_vehicle_count"})
-        .sort("household_vehicle_count")
+        .with_columns(
+            pl.col("household_size").cast(pl.Utf8),
+            pl.col("household_vehicle_count").cast(pl.Int64),
+            pl.col("household_count").cast(pl.Float64),
+            pl.when(pl.col("household_size") == "5+")
+            .then(999)
+            .otherwise(pl.col("household_size").cast(pl.Int64, strict=False))
+            .alias("_sort_household_size"),
+        )
+        .sort(["_sort_household_size", "household_vehicle_count"])
+        .select("household_size", "household_vehicle_count", "household_count")
     )
 
 
-@summary_contract(
+@summary(
+    id="vehicle_age_distribution",
     schema={
         "age": pl.Utf8,
         "vehicle_count": pl.Float64,
@@ -52,9 +72,9 @@ def auto_ownership(rd: RunData, config: Config) -> pl.DataFrame:
 def vehicle_char_age(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"vehicle_age", "finalweight"}
     if not hasattr(rd, "vehicles"):
-        return empty_summary_frame(vehicle_char_age)
+        return vehicle_char_age.empty()
     if not required.issubset(set(rd.vehicles.columns)):
-        return empty_summary_frame(vehicle_char_age)
+        return vehicle_char_age.empty()
 
     return (
         rd.vehicles.filter(pl.col("vehicle_age").is_not_null())
@@ -79,7 +99,8 @@ def vehicle_char_age(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="vehicle_fuel_type_distribution",
     schema={
         "fuel_type": pl.Utf8,
         "vehicle_count": pl.Float64,
@@ -89,9 +110,9 @@ def vehicle_char_age(rd: RunData, config: Config) -> pl.DataFrame:
 def vehicle_char_fuel(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"fuel_type", "finalweight"}
     if not hasattr(rd, "vehicles"):
-        return empty_summary_frame(vehicle_char_fuel)
+        return vehicle_char_fuel.empty()
     if not required.issubset(set(rd.vehicles.columns)):
-        return empty_summary_frame(vehicle_char_fuel)
+        return vehicle_char_fuel.empty()
 
     return (
         rd.vehicles.filter(pl.col("fuel_type").is_not_null())
@@ -106,7 +127,8 @@ def vehicle_char_fuel(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="vehicle_body_type_distribution",
     schema={
         "body_type": pl.Utf8,
         "vehicle_count": pl.Float64,
@@ -116,9 +138,9 @@ def vehicle_char_fuel(rd: RunData, config: Config) -> pl.DataFrame:
 def vehicle_char_body(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"body_type", "finalweight"}
     if not hasattr(rd, "vehicles"):
-        return empty_summary_frame(vehicle_char_body)
+        return vehicle_char_body.empty()
     if not required.issubset(set(rd.vehicles.columns)):
-        return empty_summary_frame(vehicle_char_body)
+        return vehicle_char_body.empty()
 
     return (
         rd.vehicles.filter(pl.col("body_type").is_not_null())

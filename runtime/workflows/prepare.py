@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 from processor.cache_identity import build_run_fingerprint
-from processor.models import PreparedTableName, ProcessorWorkflowResult, RunData
+from processor.models import PreparedTableName, RunData
 from processor.prepare.availability import (
     failed_tables,
     has_usable_loaded_tables,
@@ -29,6 +29,7 @@ from processor.prepare.validation import (
 from processor.skimjoin.pipeline import apply_skimjoin
 from runtime.config import Config, config_for_run
 from runtime.workflows.common import prepared_cache_root, run_entries_with_keys
+from runtime.workflows.artifacts import PreparedRunsArtifact, WorkflowPlan
 from runtime.workflows import shared
 
 LOGGER = get_logger("main")
@@ -327,13 +328,14 @@ def run_prepare_workflow(
     run_entries: list[dict],
     prefer_cache: bool,
     write_cache: bool,
-    existing_result: ProcessorWorkflowResult | None = None,
-    apply_skimjoin: bool | None = None,
-) -> ProcessorWorkflowResult:
+    existing: PreparedRunsArtifact | None = None,
+    plan: WorkflowPlan | None = None,
+) -> PreparedRunsArtifact:
     """Build or reuse prepared runs for the configured entries."""
+    plan = plan or WorkflowPlan.from_config(config)
     config = shared.effective_processor_config(
         config,
-        apply_skimjoin=apply_skimjoin,
+        plan=plan,
     )
     prepared_root = prepared_root or prepared_cache_root(config, create=write_cache)
     (
@@ -341,9 +343,20 @@ def run_prepare_workflow(
         prepared_runs_by_key,
         run_keys,
         run_fingerprints_by_key,
-    ) = shared.init_processor_result(existing_result)
+    ) = shared.init_prepared_artifact(existing)
+    if existing is not None:
+        prepared_runs_by_key.update(existing_prepared_runs_by_key)
+        run_keys = list(existing.run_keys)
+        run_fingerprints_by_key.update(existing.fingerprints_by_key)
 
     for entry, run_key in run_entries_with_keys(run_entries):
+        if shared.is_summary_table_map_only_run(entry):
+            label = str(entry.get("label", run_key))
+            LOGGER.info(
+                "Skipping prepare for summary-table-map-only run: %r",
+                label,
+            )
+            continue
         metadata = _run_cache_metadata(entry=entry, run_key=run_key, config=config)
         prepared_loaded = _resolve_prepared_run(
             entry=entry,
@@ -353,23 +366,23 @@ def run_prepare_workflow(
             existing_prepared_runs_by_key=existing_prepared_runs_by_key,
             prefer_cache=prefer_cache,
             write_cache=write_cache,
-            run_skimjoin=bool(config.skimjoin.enabled),
+            run_skimjoin=config.skimjoin_step_enabled(),
         )
         if prepared_loaded is None:
             continue
         prepared_runs_by_key[run_key] = prepared_loaded
-        run_keys.append(run_key)
+        if run_key not in run_keys:
+            run_keys.append(run_key)
         run_fingerprints_by_key[run_key] = dict(metadata["run_fingerprint"])
 
-    return ProcessorWorkflowResult(
-        summary_runs=list(existing_result.summary_runs) if existing_result else [],
-        prepared_runs=_ordered_prepared_runs(
+    return PreparedRunsArtifact(
+        runs=_ordered_prepared_runs(
             prepared_runs_by_key=prepared_runs_by_key,
             run_keys=run_keys,
         ),
-        prepared_runs_by_key=prepared_runs_by_key,
+        by_key=prepared_runs_by_key,
         run_keys=run_keys,
-        run_fingerprints_by_key=run_fingerprints_by_key,
+        fingerprints_by_key=run_fingerprints_by_key,
     )
 
 
@@ -383,7 +396,7 @@ def load_prepared_runs_for_dashboard(
     ) = None,
     existing_prepared_runs_by_key: dict[str, tuple[str, RunData]] | None = None,
     prune_prepared_runs_fn: Callable[..., list[tuple[str, RunData]]] | None = None,
-    apply_skimjoin: bool | None = None,
+    plan: WorkflowPlan | None = None,
 ) -> list[tuple[str, RunData]]:
     """Load prepared runs only when enabled pages require them."""
     from processor.models import prune_prepared_runs as default_prune_prepared_runs
@@ -416,26 +429,26 @@ def load_prepared_runs_for_dashboard(
         return []
 
     selected_entries = [entries_by_key[run_key] for run_key in required_run_keys]
-    prepare_result = ProcessorWorkflowResult(
-        prepared_runs=[
+    prepare_artifact = PreparedRunsArtifact(
+        runs=[
             existing_prepared_runs_by_key[run_key]
             for run_key in required_run_keys
             if run_key in existing_prepared_runs_by_key
         ],
-        prepared_runs_by_key=existing_prepared_runs_by_key,
+        by_key=existing_prepared_runs_by_key,
         run_keys=list(existing_prepared_runs_by_key),
     )
-    prepare_result = run_prepare_workflow(
+    prepare_artifact = run_prepare_workflow(
         config=config,
         prepared_root=prepared_cache_root(config, create=True),
         run_entries=selected_entries,
         prefer_cache=True,
         write_cache=True,
-        existing_result=prepare_result,
-        apply_skimjoin=apply_skimjoin,
+        existing=prepare_artifact,
+        plan=plan,
     )
     ordered_runs = _ordered_prepared_runs(
-        prepared_runs_by_key=prepare_result.prepared_runs_by_key,
+        prepared_runs_by_key=prepare_artifact.by_key,
         run_keys=required_run_keys,
     )
     if required_prepared_tables:

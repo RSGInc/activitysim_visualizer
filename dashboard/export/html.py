@@ -5,17 +5,24 @@ from __future__ import annotations
 import html
 import json
 from pathlib import Path
+from typing import Iterator
 from uuid import uuid4
 
-from activitysim_viz_logging import get_logger
+from runtime.logging import get_logger
 from plotly.offline import get_plotlyjs
 
 from dashboard.export.payload import build_export_artifacts, emit_export_size_warnings
-from dashboard.export.runtime_assets import build_export_html_shell
-from dashboard.export.serializer import json_default, sanitize_export_payload
+from dashboard.export.runtime_assets import (
+    build_export_html_shell,
+    build_export_html_shell_parts,
+)
+from dashboard.export.serializer import (
+    json_default,
+    sanitize_export_payload_in_place,
+)
 from runtime.config import Config
 from processor.models import RunData
-from processor.summarize.cache import SummaryRun
+from processor.summarize.cache_types import SummaryRun
 
 LOGGER = get_logger("dashboard.export")
 
@@ -80,7 +87,10 @@ def _build_export_payload_and_diagnostics(
         runs, config, summary_runs=summary_runs
     )
     emit_export_size_warnings(diagnostics.get("size_analysis"))
-    return sanitize_export_payload(payload), sanitize_export_payload(diagnostics)
+    return (
+        sanitize_export_payload_in_place(payload),
+        sanitize_export_payload_in_place(diagnostics),
+    )
 
 
 def _serialize_export_payload_json(payload: dict) -> str:
@@ -108,6 +118,26 @@ def _build_export_html_shell_document(*, title: str, payload_json: str) -> str:
     )
 
 
+def _build_export_html_shell_parts(*, title: str) -> tuple[str, str]:
+    return build_export_html_shell_parts(
+        title=html.escape(title),
+        plotly_js=get_plotlyjs(),
+    )
+
+
+def _validate_export_html_shell_parts(prefix: str, suffix: str) -> None:
+    if not prefix.endswith(PAYLOAD_SCRIPT_START_TOKEN):
+        raise ExportBuildError(
+            phase="validate assembled HTML",
+            hint="The generated HTML is missing the embedded export payload script tag.",
+        )
+    if not suffix.startswith(PAYLOAD_SCRIPT_END_TOKEN):
+        raise ExportBuildError(
+            phase="validate assembled HTML",
+            hint="The generated HTML is missing the closing </script> for the embedded payload.",
+        )
+
+
 def _validate_export_html_document(document: str) -> None:
     if PAYLOAD_SCRIPT_START_TOKEN not in document:
         raise ExportBuildError(
@@ -121,28 +151,97 @@ def _validate_export_html_document(document: str) -> None:
             phase="validate assembled HTML",
             hint="The generated HTML is missing the closing </script> for the embedded payload.",
         )
-    payload_json = document[start:end]
-    if not payload_json.strip():
+    payload_start = start
+    while payload_start < end and document[payload_start].isspace():
+        payload_start += 1
+    payload_end = end - 1
+    while payload_end >= payload_start and document[payload_end].isspace():
+        payload_end -= 1
+    if payload_start > payload_end:
         raise ExportBuildError(
             phase="validate assembled HTML",
             hint="The embedded export payload was empty. Regenerate the export and inspect the diagnostics output.",
         )
-    try:
-        json.loads(payload_json)
-    except json.JSONDecodeError as exc:
+    if document[payload_start] != "{" or document[payload_end] != "}":
         raise ExportBuildError(
             phase="validate assembled HTML",
-            hint="The generated HTML contains malformed embedded JSON. Regenerate the export and inspect the diagnostics output.",
+            hint="The generated HTML payload does not have the expected JSON object boundaries.",
+        )
+
+
+def _iter_script_safe_payload_json(payload: dict) -> Iterator[str]:
+    """Yield JSON chunks while escaping closing tags across chunk boundaries."""
+
+    encoder = json.JSONEncoder(
+        default=json_default,
+        allow_nan=False,
+    )
+    pending = ""
+    for chunk in encoder.iterencode(payload):
+        text = pending + chunk
+        if text.endswith("<"):
+            text = text[:-1]
+            pending = "<"
+        else:
+            pending = ""
+        if text:
+            yield text.replace("</", "<\\/")
+    if pending:
+        yield pending
+
+
+def _write_streamed_export_html(
+    path: Path,
+    *,
+    prefix: str,
+    payload: dict,
+    suffix: str,
+) -> None:
+    """Write one export without materializing its JSON or final HTML string."""
+
+    payload_characters = 0
+    first_payload_character: str | None = None
+    last_payload_character: str | None = None
+    try:
+        with path.open("w", encoding="utf-8") as stream:
+            stream.write(prefix)
+            for chunk in _iter_script_safe_payload_json(payload):
+                if first_payload_character is None:
+                    first_payload_character = chunk[0]
+                last_payload_character = chunk[-1]
+                payload_characters += len(chunk)
+                stream.write(chunk)
+            stream.write(suffix)
+    except (TypeError, ValueError) as exc:
+        raise ExportBuildError(
+            phase="serialize payload JSON",
+            output_path=path,
+            hint="The export payload contained data that could not be serialized to JSON.",
             detail=str(exc),
         ) from exc
+
+    if (
+        payload_characters == 0
+        or first_payload_character != "{"
+        or last_payload_character != "}"
+    ):
+        raise ExportBuildError(
+            phase="validate assembled HTML",
+            output_path=path,
+            hint="The streamed export payload was empty or incomplete.",
+        )
 
 
 def _write_text_file(path: Path, contents: str) -> None:
     path.write_text(contents, encoding="utf-8")
 
 
+def _temporary_path(final_path: Path) -> Path:
+    return final_path.with_name(f".{final_path.name}.{uuid4().hex}.tmp")
+
+
 def _write_temp_text(final_path: Path, contents: str) -> Path:
-    temp_path = final_path.with_name(f".{final_path.name}.{uuid4().hex}.tmp")
+    temp_path = _temporary_path(final_path)
     _write_text_file(temp_path, contents)
     return temp_path
 
@@ -222,25 +321,17 @@ def write_export_html_document(
         output_path=output_path,
         hint="Check summary/prepared data compatibility and export page configuration.",
     )
-    LOGGER.info("Export phase: serialize payload JSON")
-    payload_json = _run_export_phase(
-        "serialize payload JSON",
-        lambda: _serialize_export_payload_json(payload),
-        output_path=output_path,
-        hint="The export payload contained data that could not be serialized to JSON.",
-    )
     diagnostics_json = _run_export_phase(
         "serialize diagnostics JSON",
         lambda: _serialize_export_diagnostics_json(diagnostics),
         output_path=diagnostics_path,
         hint="The export diagnostics contained data that could not be serialized to JSON.",
     )
-    LOGGER.info("Export phase: assemble HTML shell")
-    document = _run_export_phase(
+    LOGGER.info("Export phase: assemble streaming HTML shell")
+    prefix, suffix = _run_export_phase(
         "assemble HTML shell",
-        lambda: _build_export_html_shell_document(
+        lambda: _build_export_html_shell_parts(
             title=config.dashboard_title,
-            payload_json=payload_json,
         ),
         output_path=output_path,
         hint="The standalone HTML shell could not be assembled.",
@@ -248,17 +339,23 @@ def write_export_html_document(
     LOGGER.info("Export phase: validate assembled HTML")
     _run_export_phase(
         "validate assembled HTML",
-        lambda: _validate_export_html_document(document),
+        lambda: _validate_export_html_shell_parts(prefix, suffix),
         output_path=output_path,
         hint="The generated HTML looked incomplete or malformed before it was written.",
     )
     try:
-        LOGGER.info("Export phase: write HTML atomically")
-        html_temp_path = _run_export_phase(
+        LOGGER.info("Export phase: stream HTML atomically")
+        html_temp_path = _temporary_path(output_path)
+        _run_export_phase(
             "write HTML atomically",
-            lambda: _write_temp_text(output_path, document),
+            lambda: _write_streamed_export_html(
+                html_temp_path,
+                prefix=prefix,
+                payload=payload,
+                suffix=suffix,
+            ),
             output_path=output_path,
-            hint="The HTML export file could not be written to its temporary location.",
+            hint="The HTML export could not be serialized or written to its temporary location.",
         )
         LOGGER.info("Export phase: write diagnostics file")
         diagnostics_temp_path = _run_export_phase(

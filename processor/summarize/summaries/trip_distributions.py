@@ -5,18 +5,19 @@ from __future__ import annotations
 import polars as pl
 
 from processor.models import RunData
-from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize.contracts import summary
 from processor.summarize.summaries.summary_helpers import (
     ALL_TOUR_PURPOSES,
     _all_purpose_rollup as _all_tour_purpose_rollup,
     _dense_zero_fill,
     _summary_purpose_column as _trip_purpose_column,
-    _weighted_group_sum,
+    weighted_group_sum,
 )
 from runtime.config import Config
 
 
-@summary_contract(
+@summary(
+    id="trip_departure_time_by_purpose",
     schema={
         "tour_purpose": pl.Utf8,
         "time_bin": pl.Int32,
@@ -29,22 +30,22 @@ def trip_stop_tod(rd: RunData, config: Config) -> pl.DataFrame:
     """Stop and trip departure timing profiles."""
     dep_col = _departure_time_column(rd.trips)
     if dep_col is None or "stops" not in rd.trips.columns:
-        return empty_summary_frame(trip_stop_tod)
+        return trip_stop_tod.empty()
 
     purpose_col = _trip_purpose_column(rd.trips)
     if not purpose_col:
-        return empty_summary_frame(trip_stop_tod)
+        return trip_stop_tod.empty()
 
     all_trips = rd.trips.with_columns(
         pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose")
     )
     if "tour_purpose" not in all_trips.columns:
-        return empty_summary_frame(trip_stop_tod)
+        return trip_stop_tod.empty()
 
     stops = all_trips.filter(pl.col("stops") == 1)
     bins = _departure_bins(all_trips, dep_col)
     if not bins:
-        return empty_summary_frame(trip_stop_tod)
+        return trip_stop_tod.empty()
 
     purpose_values = (
         all_trips.select(pl.col("tour_purpose"))
@@ -63,18 +64,20 @@ def trip_stop_tod(rd: RunData, config: Config) -> pl.DataFrame:
             if purpose_name == ALL_TOUR_PURPOSES
             else pl.col("tour_purpose") == purpose_name
         )
-        stop_sub = stops.filter(purpose_filter & pl.col(dep_col).is_between(1, bins[-1]))
+        stop_sub = stops.filter(
+            purpose_filter & pl.col(dep_col).is_between(1, bins[-1])
+        )
         trip_sub = all_trips.filter(
             purpose_filter & pl.col(dep_col).is_between(1, bins[-1])
         )
 
-        stop_counts = _weighted_group_sum(
+        stop_counts = weighted_group_sum(
             stop_sub,
             dep_col,
             weight_col="finalweight",
             output_col="departure_stop_count",
         )
-        trip_counts = _weighted_group_sum(
+        trip_counts = weighted_group_sum(
             trip_sub,
             dep_col,
             weight_col="finalweight",
@@ -121,7 +124,8 @@ def trip_stop_tod(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="trip_distance_by_purpose",
     schema={
         "distance_bin": pl.Utf8,
         "tour_purpose": pl.Utf8,
@@ -139,11 +143,11 @@ def trip_distance(rd: RunData, config: Config) -> pl.DataFrame:
         "finalweight",
     }
     if not required.issubset(set(rd.trips.columns)):
-        return empty_summary_frame(trip_distance)
+        return trip_distance.empty()
 
     purpose_col = _trip_purpose_column(rd.trips)
     if not purpose_col:
-        return empty_summary_frame(trip_distance)
+        return trip_distance.empty()
 
     base = (
         rd.trips.filter(
@@ -171,7 +175,7 @@ def trip_distance(rd: RunData, config: Config) -> pl.DataFrame:
         )
     )
 
-    by_purpose = _weighted_group_sum(
+    by_purpose = weighted_group_sum(
         base,
         ["distance_bin", "tour_purpose"],
         weight_col="adjusted_weight",
@@ -200,7 +204,8 @@ def trip_distance(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="stop_out_of_direction_distance_by_tour_purpose",
     schema={
         "distance_bin": pl.Int32,
         "tour_purpose": pl.Utf8,
@@ -213,39 +218,40 @@ def trip_distance(rd: RunData, config: Config) -> pl.DataFrame:
 def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
     """Out-of-direction distance for stops, in 41 bins (0-40 miles)."""
     if "stops" not in rd.trips.columns:
-        return empty_summary_frame(stop_ood_distance)
+        return stop_ood_distance.empty()
 
     purpose_col = _trip_purpose_column(rd.trips)
     if not purpose_col:
-        return empty_summary_frame(stop_ood_distance)
+        return stop_ood_distance.empty()
 
     stops = rd.trips.filter(pl.col("stops") == 1)
     if "out_dir_dist" not in stops.columns:
-        return empty_summary_frame(stop_ood_distance)
+        return stop_ood_distance.empty()
 
-    stops2 = stops.filter(pl.col("out_dir_dist").is_not_null()).with_columns(
-        pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"),
-        pl.col("out_dir_dist").clip(0, 999).alias("ood"),
-    ).with_columns(pl.col("ood").cast(pl.Int32).clip(0, 40).alias("distance_bin"))
+    stops2 = (
+        stops.filter(pl.col("out_dir_dist").is_not_null())
+        .with_columns(
+            pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"),
+            pl.col("out_dir_dist").clip(0, 999).alias("ood"),
+        )
+        .with_columns(pl.col("ood").cast(pl.Int32).clip(0, 40).alias("distance_bin"))
+    )
 
     if "tour_purpose" not in stops2.columns or stops2.is_empty():
-        return empty_summary_frame(stop_ood_distance)
+        return stop_ood_distance.empty()
 
     bins_df = pl.DataFrame(
         {"distance_bin": list(range(0, 41))}, schema={"distance_bin": pl.Int32}
     )
-    by_purpose = (
-        _weighted_group_sum(
-            stops2.filter(pl.col("tour_purpose").is_not_null()),
-            ["tour_purpose", "distance_bin"],
-            weight_col="finalweight",
-            output_col="stop_count",
-        )
-        .select(
-            pl.col("distance_bin").cast(pl.Int32),
-            pl.col("tour_purpose").cast(pl.Utf8),
-            pl.col("stop_count").cast(pl.Float64),
-        )
+    by_purpose = weighted_group_sum(
+        stops2.filter(pl.col("tour_purpose").is_not_null()),
+        ["tour_purpose", "distance_bin"],
+        weight_col="finalweight",
+        output_col="stop_count",
+    ).select(
+        pl.col("distance_bin").cast(pl.Int32),
+        pl.col("tour_purpose").cast(pl.Utf8),
+        pl.col("stop_count").cast(pl.Float64),
     )
 
     purposes = (
@@ -267,7 +273,7 @@ def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
     total = (
-        _weighted_group_sum(
+        weighted_group_sum(
             stops2,
             "distance_bin",
             weight_col="finalweight",

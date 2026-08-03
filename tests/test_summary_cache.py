@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from dashboard.components import bar_chart
+from dashboard.rendering import Plotter, RenderContext
 from dashboard.pages.long_term_choices.individual_choices import (
     IndividualChoicesPage,
 )
@@ -35,8 +35,8 @@ from dashboard.pages.tour_summaries.tour_mode import (
     TourModePage as TourSummariesTourModePage,
 )
 from dashboard.pages.tour_summaries.tour_mode import (
-    _auto_sufficiency_definitions_markdown,
-    _filter_col,
+    auto_sufficiency_definitions_markdown,
+    vehicle_attribute_data,
 )
 from dashboard.pages.tour_summaries.internal_external_tours import (
     InternalExternalToursPage,
@@ -48,6 +48,7 @@ from dashboard.pages.tour_summaries.tour_distance import TourDistancePage
 from dashboard.pages.tour_summaries.tour_purpose import TourPurposePage
 from dashboard.pages.tour_summaries.tour_stop_frequency import (
     TourStopFrequencyPage,
+    stop_frequency_chart_data,
 )
 from dashboard.pages.tour_summaries.tour_time import TourTimePage
 from dashboard.pages.trip_summaries.trip_mode import TripModePage
@@ -62,23 +63,20 @@ from dashboard.page_registry import page_definitions_for_group
 from processor.models import RunData
 from processor.prepare.cache import build_prepared_manifest_identity
 from processor.prepare.enrichment.pipeline import prepare_data
-from processor.summarize import cache as summary_cache_module
-from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize import builder as summary_builder_module
+from processor.summarize.contracts import empty_summary_frame, summary
 from processor.summarize.cache import (
-    SummaryCacheError,
     build_run_fingerprint,
-    build_summaries_with_metadata,
     build_run_keys,
-    create_summary_run,
     load_summary_run_cache,
     write_summary_run_cache,
 )
+from processor.summarize.cache_types import SummaryCacheError, create_summary_run
+from processor.summarize.builder import build_summaries_with_metadata
 from processor.summarize.schema import SUMMARY_OUTPUT_COLUMNS
-from processor.summarize.summary_specs import SUMMARY_SPECS, SummarySpec
-from processor.summarize.summary_specs import SUMMARY_SPEC_BY_ID
+from processor.summarize.catalog import SUMMARY_BY_ID, SUMMARY_DEFINITIONS
 from runtime.config import Config
 from runtime.config.models import SkimjoinSettings
-from processor.summarize.summaries import legacy
 
 
 def _collect_cards(viewable) -> list[pn.Card]:
@@ -111,10 +109,20 @@ def _collect_tabulators(viewable) -> list[pn.widgets.Tabulator]:
     return tables
 
 
+def _collect_tabs(viewable) -> list[pn.Tabs]:
+    tabs: list[pn.Tabs] = []
+    if isinstance(viewable, pn.Tabs):
+        tabs.append(viewable)
+    if hasattr(viewable, "objects"):
+        for child in viewable.objects:
+            tabs.extend(_collect_tabs(child))
+    return tabs
+
+
 def _write_config(
     tmp_path: Path,
     *,
-    visualizer_lines: list[str] | None = None,
+    dashboard_lines: list[str] | None = None,
     extra_lines: list[str] | None = None,
 ) -> Config:
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -124,29 +132,27 @@ def _write_config(
             [
                 'name: "Test Config"',
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
+                "root: summary_cache",
+                "summarize:",
                 "  weighting_modes:",
                 "    - weighted",
                 "    - unweighted",
-                "visualizer:",
-                '  dashboard_title: "Test Dashboard"',
+                "dashboard:",
+                '  title: "Test Dashboard"',
             ]
         ),
         encoding="utf-8",
     )
     if extra_lines:
         config_path.write_text(
-            config_path.read_text(encoding="utf-8")
-            + "\n"
-            + "\n".join(extra_lines),
+            config_path.read_text(encoding="utf-8") + "\n" + "\n".join(extra_lines),
             encoding="utf-8",
         )
-    if visualizer_lines:
+    if dashboard_lines:
         config_path.write_text(
             config_path.read_text(encoding="utf-8")
             + "\n"
-            + "\n".join(f"  {line}" for line in visualizer_lines),
+            + "\n".join(f"  {line}" for line in dashboard_lines),
             encoding="utf-8",
         )
     return Config.from_yaml(config_path)
@@ -154,36 +160,42 @@ def _write_config(
 
 def _sample_summary_run() -> object:
     weighted = {
-        "destination_distance": pl.DataFrame(
+        "tour_distance_by_tour_purpose": pl.DataFrame(
             {
-                "purpose": ["All NM", "All NM", "shopping", "shopping"],
-                "distbin": [0, 1, 0, 1],
-                "freq": [5.0, 7.5, 2.0, 4.0],
+                "distance_bin": ["0", "1", "0", "1"],
+                "tour_purpose": ["all", "all", "shopping", "shopping"],
+                "tour_count": [5.0, 7.5, 2.0, 4.0],
             }
         ),
-        "destination_average_distance": pl.DataFrame(
+        "average_nonmandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
             {
-                "purpose": ["shopping"],
-                "avg_distance": [3.25],
+                "nonmandatory_tour_purpose": ["shopping"],
+                "geography_type": ["all_geographies"],
+                "geography_id": ["all_geographies"],
+                "average_tour_distance": [3.25],
+                "tour_count": [6.0],
             }
         ),
-        "geo_flows": pl.DataFrame(),
+        "commuting_flows": pl.DataFrame(),
     }
     unweighted = {
-        "destination_distance": pl.DataFrame(
+        "tour_distance_by_tour_purpose": pl.DataFrame(
             {
-                "purpose": ["All NM", "All NM", "shopping", "shopping"],
-                "distbin": [0, 1, 0, 1],
-                "freq": [2.0, 3.0, 1.0, 2.0],
+                "distance_bin": ["0", "1", "0", "1"],
+                "tour_purpose": ["all", "all", "shopping", "shopping"],
+                "tour_count": [2.0, 3.0, 1.0, 2.0],
             }
         ),
-        "destination_average_distance": pl.DataFrame(
+        "average_nonmandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
             {
-                "purpose": ["shopping"],
-                "avg_distance": [2.5],
+                "nonmandatory_tour_purpose": ["shopping"],
+                "geography_type": ["all_geographies"],
+                "geography_id": ["all_geographies"],
+                "average_tour_distance": [2.5],
+                "tour_count": [3.0],
             }
         ),
-        "geo_flows": pl.DataFrame(),
+        "commuting_flows": pl.DataFrame(),
     }
     return create_summary_run(
         label="Base",
@@ -245,16 +257,146 @@ def _skim_summary_tables() -> tuple[dict[str, pl.DataFrame], dict[str, pl.DataFr
                     "HOV3",
                     "SCHOOLBUS",
                 ],
-                "n_total": [10.0, 12.0, 10.0, 7.0, 7.0, 7.0, 7.0, 6.0, 8.0, 9.0, 11.0, 5.0],
-                "n_valid": [9.0, 11.0, 10.0, 7.0, 7.0, 7.0, 7.0, 6.0, 8.0, 9.0, 10.0, 5.0],
-                "mean": [15.126, 3.452, 99.111, 1.827, 12.233, 1.604, 28.06, 8.887, 34.221, 28.781, 7.004, 18.5],
-                "std": [1.554, 0.882, 9.001, 0.214, 2.104, 0.187, 3.109, 1.443, 5.115, 4.201, 0.993, 1.2],
-                "min": [11.0, 1.2, 88.0, 1.4, 8.1, 1.2, 22.0, 5.5, 20.0, 18.0, 5.0, 17.0],
-                "max": [18.5, 5.4, 110.0, 2.1, 16.8, 1.9, 35.0, 12.7, 44.0, 37.0, 8.9, 20.0],
-                "median": [15.0, 3.5, 100.0, 1.8, 12.0, 1.6, 28.0, 8.8, 34.0, 28.5, 7.0, 18.0],
-                "mode": [14.0, 3.0, 98.0, 1.7, 11.5, 1.5, 27.0, 8.4, 33.0, 27.0, 7.0, 18.0],
-                "zero_share": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                "missing_share": [0.1, 0.08, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.09, 0.0],
+                "n_total": [
+                    10.0,
+                    12.0,
+                    10.0,
+                    7.0,
+                    7.0,
+                    7.0,
+                    7.0,
+                    6.0,
+                    8.0,
+                    9.0,
+                    11.0,
+                    5.0,
+                ],
+                "n_valid": [
+                    9.0,
+                    11.0,
+                    10.0,
+                    7.0,
+                    7.0,
+                    7.0,
+                    7.0,
+                    6.0,
+                    8.0,
+                    9.0,
+                    10.0,
+                    5.0,
+                ],
+                "mean": [
+                    15.126,
+                    3.452,
+                    99.111,
+                    1.827,
+                    12.233,
+                    1.604,
+                    28.06,
+                    8.887,
+                    34.221,
+                    28.781,
+                    7.004,
+                    18.5,
+                ],
+                "std": [
+                    1.554,
+                    0.882,
+                    9.001,
+                    0.214,
+                    2.104,
+                    0.187,
+                    3.109,
+                    1.443,
+                    5.115,
+                    4.201,
+                    0.993,
+                    1.2,
+                ],
+                "min": [
+                    11.0,
+                    1.2,
+                    88.0,
+                    1.4,
+                    8.1,
+                    1.2,
+                    22.0,
+                    5.5,
+                    20.0,
+                    18.0,
+                    5.0,
+                    17.0,
+                ],
+                "max": [
+                    18.5,
+                    5.4,
+                    110.0,
+                    2.1,
+                    16.8,
+                    1.9,
+                    35.0,
+                    12.7,
+                    44.0,
+                    37.0,
+                    8.9,
+                    20.0,
+                ],
+                "median": [
+                    15.0,
+                    3.5,
+                    100.0,
+                    1.8,
+                    12.0,
+                    1.6,
+                    28.0,
+                    8.8,
+                    34.0,
+                    28.5,
+                    7.0,
+                    18.0,
+                ],
+                "mode": [
+                    14.0,
+                    3.0,
+                    98.0,
+                    1.7,
+                    11.5,
+                    1.5,
+                    27.0,
+                    8.4,
+                    33.0,
+                    27.0,
+                    7.0,
+                    18.0,
+                ],
+                "zero_share": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                ],
+                "missing_share": [
+                    0.1,
+                    0.08,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.09,
+                    0.0,
+                ],
             }
         ),
         "skimjoin_tour_component_stats": pl.DataFrame(
@@ -300,10 +442,15 @@ def _skim_summary_tables() -> tuple[dict[str, pl.DataFrame], dict[str, pl.DataFr
     return weighted, unweighted
 
 
-def _attach_test_skimjoin_config(config: Config) -> None:
+def _attach_test_skimjoin_config(
+    config: Config,
+    *,
+    ignore_modes: list[str] | None = None,
+) -> None:
     config.skimjoin = SkimjoinSettings(
         enabled=True,
         normalized_config=SimpleNamespace(
+            ignore_modes=ignore_modes or [],
             trip_lookups=[
                 SimpleNamespace(mode="SOV", output="skim_auto_time"),
                 SimpleNamespace(mode="SOV", output="skim_auto_distance"),
@@ -335,7 +482,9 @@ def _attach_test_skimjoin_config(config: Config) -> None:
                 SimpleNamespace(mode="HOV2", output="skim_auto_time_inbound"),
                 SimpleNamespace(mode="HOV2", output="skim_auto_cost_outbound"),
                 SimpleNamespace(mode="HOV2", output="skim_auto_cost_inbound"),
-                SimpleNamespace(mode="WALK_TRANSIT", output="skim_transit_tiv_outbound"),
+                SimpleNamespace(
+                    mode="WALK_TRANSIT", output="skim_transit_tiv_outbound"
+                ),
                 SimpleNamespace(mode="KNR_TRANSIT", output="skim_transit_tiv_inbound"),
                 SimpleNamespace(mode="WALK", output="skim_walk_time_outbound"),
                 SimpleNamespace(mode="WALK", output="skim_walk_time_inbound"),
@@ -457,11 +606,36 @@ def _write_custom_prepared_tables(
     root.mkdir(parents=True, exist_ok=True)
     tables = {
         "households": pl.DataFrame({"household_id": [1], "finalweight": [1.0]}),
-        "persons": pl.DataFrame({"person_id": [10], "household_id": [1], "finalweight": [1.0]}),
-        "day": pl.DataFrame({"day_id": [100], "person_id": [10], "household_id": [1], "finalweight": [1.0]}),
-        "tours": pl.DataFrame({"tour_id": [100], "person_id": [10], "household_id": [1], "finalweight": [1.0]}),
-        "trips": pl.DataFrame({"trip_id": [1000], "tour_id": [100], "person_id": [10], "finalweight": [1.0]}),
-        "vehicles": pl.DataFrame({"vehicle_id": [1001], "household_id": [1], "finalweight": [1.0]}),
+        "persons": pl.DataFrame(
+            {"person_id": [10], "household_id": [1], "finalweight": [1.0]}
+        ),
+        "day": pl.DataFrame(
+            {
+                "day_id": [100],
+                "person_id": [10],
+                "household_id": [1],
+                "finalweight": [1.0],
+            }
+        ),
+        "tours": pl.DataFrame(
+            {
+                "tour_id": [100],
+                "person_id": [10],
+                "household_id": [1],
+                "finalweight": [1.0],
+            }
+        ),
+        "trips": pl.DataFrame(
+            {
+                "trip_id": [1000],
+                "tour_id": [100],
+                "person_id": [10],
+                "finalweight": [1.0],
+            }
+        ),
+        "vehicles": pl.DataFrame(
+            {"vehicle_id": [1001], "household_id": [1], "finalweight": [1.0]}
+        ),
         "joint_tour_participants": pl.DataFrame({"tour_id": [], "person_id": []}),
         "land_use": pl.DataFrame({"zone_id": [1], "TAZ": [1]}),
     }
@@ -499,17 +673,21 @@ def test_summary_cache_round_trip_creates_configured_layout(tmp_path: Path) -> N
     assert cache_dir == Path(config.summary_root) / "base"
     assert cache_dir.exists()
     assert (cache_dir / "manifest.json").exists()
-    assert (cache_dir / "weighted" / "destinationDistByPurpose.csv").exists()
-    assert (cache_dir / "unweighted" / "destinationAvgDistance.csv").exists()
+    assert (cache_dir / "weighted" / "tour_distance_by_tour_purpose.csv").exists()
+    assert (
+        cache_dir
+        / "unweighted"
+        / "average_nonmandatory_tour_distance_by_purpose_and_geography.csv"
+    ).exists()
 
     loaded = load_summary_run_cache(
         cache_dir,
         config,
         expected_modes=config.weighting_modes,
         expected_summary_ids=[
-            "destination_distance",
-            "destination_average_distance",
-            "geo_flows",
+            "tour_distance_by_tour_purpose",
+            "average_nonmandatory_tour_distance_by_purpose_and_geography",
+            "commuting_flows",
         ],
         expected_summary_config_digest=config.summary_config_digest,
         expected_run_fingerprint=fingerprint,
@@ -524,13 +702,20 @@ def test_summary_cache_round_trip_creates_configured_layout(tmp_path: Path) -> N
 
     assert loaded.label == "Base"
     assert loaded.run_key == "base"
-    assert loaded.summaries_by_mode["weighted"]["destination_distance"].to_dicts() == [
-        {"purpose": "All NM", "distbin": 0, "freq": 5.0},
-        {"purpose": "All NM", "distbin": 1, "freq": 7.5},
-        {"purpose": "shopping", "distbin": 0, "freq": 2.0},
-        {"purpose": "shopping", "distbin": 1, "freq": 4.0},
+    assert loaded.summaries_by_mode["weighted"]["tour_distance_by_tour_purpose"].to_dicts() == [
+        {"distance_bin": "0", "tour_purpose": "all", "tour_count": 5.0},
+        {"distance_bin": "1", "tour_purpose": "all", "tour_count": 7.5},
+        {"distance_bin": "0", "tour_purpose": "shopping", "tour_count": 2.0},
+        {"distance_bin": "1", "tour_purpose": "shopping", "tour_count": 4.0},
     ]
-    assert loaded.summaries_by_mode["weighted"]["geo_flows"].width == 0
+    assert loaded.summaries_by_mode["weighted"]["commuting_flows"].is_empty()
+    assert loaded.summaries_by_mode["weighted"]["commuting_flows"].columns == [
+        "origin_geography_type",
+        "origin_geography_id",
+        "destination_geography_type",
+        "destination_geography_id",
+        "commuter_count",
+    ]
 
 
 def test_summary_cache_detects_file_map_only_run_fingerprint_mismatch(
@@ -565,9 +750,9 @@ def test_summary_cache_detects_file_map_only_run_fingerprint_mismatch(
             config,
             expected_modes=config.weighting_modes,
             expected_summary_ids=[
-                "destination_distance",
-                "destination_average_distance",
-                "geo_flows",
+                "tour_distance_by_tour_purpose",
+                "average_nonmandatory_tour_distance_by_purpose_and_geography",
+                "commuting_flows",
             ],
             expected_summary_config_digest=config.summary_config_digest,
             expected_run_fingerprint=build_run_fingerprint(
@@ -622,9 +807,9 @@ def test_summary_cache_detects_fallback_file_map_only_run_fingerprint_mismatch(
             config,
             expected_modes=config.weighting_modes,
             expected_summary_ids=[
-                "destination_distance",
-                "destination_average_distance",
-                "geo_flows",
+                "tour_distance_by_tour_purpose",
+                "average_nonmandatory_tour_distance_by_purpose_and_geography",
+                "commuting_flows",
             ],
             expected_summary_config_digest=config.summary_config_digest,
             expected_run_fingerprint=build_run_fingerprint(
@@ -681,17 +866,15 @@ def test_summary_cache_detects_custom_prepared_table_path_or_mtime_change(
     changed_path_map = dict(prepared_map)
     changed_path_map["households"] = str(moved_households)
 
-    with pytest.raises(
-        SummaryCacheError, match="prepared manifest identity mismatch"
-    ):
+    with pytest.raises(SummaryCacheError, match="prepared manifest identity mismatch"):
         load_summary_run_cache(
             cache_dir,
             config,
             expected_modes=config.weighting_modes,
             expected_summary_ids=[
-                "destination_distance",
-                "destination_average_distance",
-                "geo_flows",
+                "tour_distance_by_tour_purpose",
+                "average_nonmandatory_tour_distance_by_purpose_and_geography",
+                "commuting_flows",
             ],
             expected_summary_config_digest=config.summary_config_digest,
             expected_run_fingerprint=fingerprint,
@@ -728,17 +911,15 @@ def test_summary_cache_detects_custom_prepared_table_path_or_mtime_change(
 
     os.utime(trips_path, ns=(updated_ns, updated_ns))
 
-    with pytest.raises(
-        SummaryCacheError, match="prepared manifest identity mismatch"
-    ):
+    with pytest.raises(SummaryCacheError, match="prepared manifest identity mismatch"):
         load_summary_run_cache(
             cache_dir,
             config,
             expected_modes=config.weighting_modes,
             expected_summary_ids=[
-                "destination_distance",
-                "destination_average_distance",
-                "geo_flows",
+                "tour_distance_by_tour_purpose",
+                "average_nonmandatory_tour_distance_by_purpose_and_geography",
+                "commuting_flows",
             ],
             expected_summary_config_digest=config.summary_config_digest,
             expected_run_fingerprint=fingerprint,
@@ -764,21 +945,18 @@ def test_summary_cache_ignores_presentation_only_config_changes(
             [
                 'name: "Test Config"',
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
-                "  weighting_modes:",
-                "    - weighted",
-                "    - unweighted",
-                "visualizer:",
-                '  dashboard_title: "Dashboard A"',
-                "  dashboard_pages:",
-                "    - overview",
-                "    - destination",
-                "  export_html:",
+                "root: summary_cache",
+                "summarize:",
+                "  weighting_modes: [weighted, unweighted]",
+                "dashboard:",
+                '  title: "Dashboard A"',
+                "  live:",
+                "    pages: [overview, trip_mode]",
+                "  export:",
                 "    dashboard:",
                 "      weighting: all",
                 "    pages:",
-                "      destination: {}",
+                "      trip_mode: {}",
                 "      overview: {}",
             ]
         ),
@@ -791,22 +969,19 @@ def test_summary_cache_ignores_presentation_only_config_changes(
             [
                 'name: "Test Config"',
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
-                "  weighting_modes:",
-                "    - weighted",
-                "    - unweighted",
-                "visualizer:",
-                '  dashboard_title: "Dashboard B"',
-                "  dashboard_pages:",
-                "    - destination",
-                "    - overview",
-                "  export_html:",
+                "root: summary_cache",
+                "summarize:",
+                "  weighting_modes: [weighted, unweighted]",
+                "dashboard:",
+                '  title: "Dashboard B"',
+                "  live:",
+                "    pages: [trip_mode, overview]",
+                "  export:",
                 "    dashboard:",
                 "      values: all",
                 "    pages:",
                 "      overview: {}",
-                "      destination:",
+                "      trip_mode:",
                 "        purpose: all",
             ]
         ),
@@ -833,9 +1008,9 @@ def test_summary_cache_ignores_presentation_only_config_changes(
         config_b,
         expected_modes=config_b.weighting_modes,
         expected_summary_ids=[
-            "destination_distance",
-            "destination_average_distance",
-            "geo_flows",
+            "tour_distance_by_tour_purpose",
+            "average_nonmandatory_tour_distance_by_purpose_and_geography",
+            "commuting_flows",
         ],
         expected_summary_config_digest=config_b.summary_config_digest,
         expected_run_fingerprint=fingerprint,
@@ -862,12 +1037,11 @@ def test_summary_cache_invalidates_when_summary_affecting_config_changes(
             [
                 'name: "Test Config"',
                 "runs: []",
-                "summaries:",
-                "  root: summary_cache",
-                "  weighting_modes:",
-                "    - weighted",
-                "visualizer:",
-                '  dashboard_title: "Test Dashboard"',
+                "root: summary_cache",
+                "summarize:",
+                "  weighting_modes: [weighted]",
+                "dashboard:",
+                '  title: "Test Dashboard"',
             ]
         ),
         encoding="utf-8",
@@ -896,9 +1070,9 @@ def test_summary_cache_invalidates_when_summary_affecting_config_changes(
             changed_config,
             expected_modes=changed_config.weighting_modes,
             expected_summary_ids=[
-                "destination_distance",
-                "destination_average_distance",
-                "geo_flows",
+                "tour_distance_by_tour_purpose",
+                "average_nonmandatory_tour_distance_by_purpose_and_geography",
+                "commuting_flows",
             ],
             expected_summary_config_digest=changed_config.summary_config_digest,
             expected_run_fingerprint=fingerprint,
@@ -912,31 +1086,6 @@ def test_summary_cache_invalidates_when_summary_affecting_config_changes(
         )
 
 
-def test_destination_legacy_summaries_prefer_readable_purpose_aliases(
-    tmp_path: Path,
-) -> None:
-    config = _write_config(tmp_path)
-    prepared = prepare_data(_prepared_destination_raw_run(), config)
-
-    distance_df = legacy.distance_distribution(prepared, config)
-    average_df = legacy.average_distance(prepared, config)
-
-    assert sorted(distance_df["purpose"].unique().to_list()) == ["All NM", "eatout"]
-    assert average_df["purpose"].to_list() == ["eatout"]
-
-
-def test_destination_legacy_summaries_return_empty_without_canonical_purpose(
-    tmp_path: Path,
-) -> None:
-    config = _write_config(tmp_path)
-
-    distance_df = legacy.distance_distribution(_destination_raw_run(), config)
-    average_df = legacy.average_distance(_destination_raw_run(), config)
-
-    assert distance_df.is_empty()
-    assert average_df.is_empty()
-
-
 def test_prepare_data_overwrites_numeric_tour_purpose_before_destination_summaries(
     tmp_path: Path,
 ) -> None:
@@ -945,28 +1094,9 @@ def test_prepare_data_overwrites_numeric_tour_purpose_before_destination_summari
 
     assert prepared.tours["tour_purpose"].to_list() == ["eatout"]
 
-    distance_df = legacy.distance_distribution(prepared, config)
-    average_df = legacy.average_distance(prepared, config)
-
-    assert sorted(distance_df["purpose"].unique().to_list()) == ["All NM", "eatout"]
-    assert average_df["purpose"].to_list() == ["eatout"]
-
-
 def test_registered_summary_builders_expose_contract_metadata() -> None:
-    allowed_missing = {
-        "traffic_count_comparisons",
-        "screenline_flow_comparisons",
-        "transit_boardings_by_operator_and_technology",
-        "transit_transfer_rate",
-        "commercial_vmt_totals",
-        "bicycle_vmt_by_facility_type",
-    }
-    missing = [
-        spec.summary_id
-        for spec in SUMMARY_SPECS
-        if not hasattr(spec.builder, "_summary_contract")
-    ]
-    assert set(missing) == allowed_missing
+    assert SUMMARY_DEFINITIONS
+    assert all(definition.contract.schema for definition in SUMMARY_DEFINITIONS)
 
 
 def test_summary_output_columns_are_derived_from_builder_contracts() -> None:
@@ -976,10 +1106,10 @@ def test_summary_output_columns_are_derived_from_builder_contracts() -> None:
         "trip_mode",
         "trip_count",
     )
-    assert SUMMARY_OUTPUT_COLUMNS["destination_distance"] == (
-        "purpose",
-        "distbin",
-        "freq",
+    assert SUMMARY_OUTPUT_COLUMNS["tour_distance_by_tour_purpose"] == (
+        "distance_bin",
+        "tour_purpose",
+        "tour_count",
     )
 
 
@@ -989,7 +1119,8 @@ def test_build_summaries_with_metadata_marks_missing_inputs_unavailable(
 ) -> None:
     config = _write_config(tmp_path)
 
-    @summary_contract(
+    @summary(
+        id="probe_unavailable",
         schema={"value": pl.Float64},
         required_columns={"trips": ("needed",)},
     )
@@ -998,13 +1129,11 @@ def test_build_summaries_with_metadata_marks_missing_inputs_unavailable(
             "builder should not be called when prerequisites are missing"
         )
 
-    spec = SummarySpec("probe_unavailable", "probe_unavailable", unavailable_summary)
+    spec = unavailable_summary.summary_definition
     monkeypatch.setattr(
-        summary_cache_module, "DEFAULT_SUMMARY_IDS", ["probe_unavailable"]
+        summary_builder_module, "DEFAULT_SUMMARY_IDS", ["probe_unavailable"]
     )
-    monkeypatch.setitem(
-        summary_cache_module.SUMMARY_SPEC_BY_ID, "probe_unavailable", spec
-    )
+    monkeypatch.setitem(SUMMARY_BY_ID, "probe_unavailable", spec)
 
     tables, metadata = build_summaries_with_metadata(_destination_raw_run(), config)
 
@@ -1016,6 +1145,28 @@ def test_build_summaries_with_metadata_marks_missing_inputs_unavailable(
     assert "missing required columns" in metadata["probe_unavailable"]["detail"]
 
 
+def test_build_summaries_with_metadata_can_fail_fast_on_builder_errors(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config = _write_config(tmp_path)
+
+    @summary(id="probe_failure", schema={"value": pl.Float64})
+    def failing_summary(rd: RunData, config: Config) -> pl.DataFrame:
+        raise RuntimeError("summary probe failed")
+
+    spec = failing_summary.summary_definition
+    monkeypatch.setattr(summary_builder_module, "DEFAULT_SUMMARY_IDS", ["probe_failure"])
+    monkeypatch.setitem(SUMMARY_BY_ID, "probe_failure", spec)
+
+    with pytest.raises(RuntimeError, match="summary probe failed"):
+        build_summaries_with_metadata(
+            _destination_raw_run(),
+            config,
+            raise_on_error=True,
+        )
+
+
 def test_summary_cache_round_trip_preserves_summary_states_and_diagnostics(
     tmp_path: Path,
 ) -> None:
@@ -1025,31 +1176,31 @@ def test_summary_cache_round_trip_preserves_summary_states_and_diagnostics(
         run_key="base",
         summaries_by_mode={
             "weighted": {
-                "destination_distance": pl.DataFrame(),
-                "destination_average_distance": pl.DataFrame(),
+                "tour_distance_by_tour_purpose": pl.DataFrame(),
+                "average_nonmandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(),
             },
             "unweighted": {
-                "destination_distance": pl.DataFrame(),
-                "destination_average_distance": pl.DataFrame(),
+                "tour_distance_by_tour_purpose": pl.DataFrame(),
+                "average_nonmandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(),
             },
         },
         summary_metadata_by_mode={
             "weighted": {
-                "destination_distance": {
+                "tour_distance_by_tour_purpose": {
                     "state": "unavailable",
                     "detail": "tours (missing required columns: SKIMDIST)",
                 },
-                "destination_average_distance": {
+                "average_nonmandatory_tour_distance_by_purpose_and_geography": {
                     "state": "failed",
                     "detail": "boom",
                 },
             },
             "unweighted": {
-                "destination_distance": {
+                "tour_distance_by_tour_purpose": {
                     "state": "unavailable",
                     "detail": "tours (missing required columns: SKIMDIST)",
                 },
-                "destination_average_distance": {
+                "average_nonmandatory_tour_distance_by_purpose_and_geography": {
                     "state": "failed",
                     "detail": "boom",
                 },
@@ -1075,8 +1226,8 @@ def test_summary_cache_round_trip_preserves_summary_states_and_diagnostics(
         config,
         expected_modes=config.weighting_modes,
         expected_summary_ids=[
-            "destination_distance",
-            "destination_average_distance",
+            "tour_distance_by_tour_purpose",
+            "average_nonmandatory_tour_distance_by_purpose_and_geography",
         ],
         expected_summary_config_digest=config.summary_config_digest,
         expected_run_fingerprint=fingerprint,
@@ -1090,17 +1241,17 @@ def test_summary_cache_round_trip_preserves_summary_states_and_diagnostics(
     )
 
     assert (
-        loaded.summary_metadata_by_mode["weighted"]["destination_distance"]["state"]
+        loaded.summary_metadata_by_mode["weighted"]["tour_distance_by_tour_purpose"]["state"]
         == "unavailable"
     )
     assert (
-        loaded.summary_metadata_by_mode["weighted"]["destination_average_distance"][
+        loaded.summary_metadata_by_mode["weighted"]["average_nonmandatory_tour_distance_by_purpose_and_geography"][
             "state"
         ]
         == "failed"
     )
     assert loaded.manifest["failed_summaries"]["weighted"] == [
-        "destination_average_distance"
+        "average_nonmandatory_tour_distance_by_purpose_and_geography"
     ]
 
 
@@ -1113,30 +1264,30 @@ def test_summary_cache_writes_sentinel_csvs_for_empty_unavailable_and_failed_sum
         run_key="base",
         summaries_by_mode={
             "weighted": {
-                "destination_distance": pl.DataFrame(),
-                "destination_average_distance": pl.DataFrame(),
+                "tour_distance_by_tour_purpose": pl.DataFrame(),
+                "average_nonmandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(),
             },
             "unweighted": {
-                "destination_distance": pl.DataFrame(),
-                "destination_average_distance": pl.DataFrame(),
+                "tour_distance_by_tour_purpose": pl.DataFrame(),
+                "average_nonmandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(),
             },
         },
         summary_metadata_by_mode={
             "weighted": {
-                "destination_distance": {
+                "tour_distance_by_tour_purpose": {
                     "state": "unavailable",
                     "detail": "tours (missing required columns: SKIMDIST)",
                 },
-                "destination_average_distance": {
+                "average_nonmandatory_tour_distance_by_purpose_and_geography": {
                     "state": "failed",
                     "detail": "boom",
                 },
             },
             "unweighted": {
-                "destination_distance": {
+                "tour_distance_by_tour_purpose": {
                     "state": "empty",
                 },
-                "destination_average_distance": {
+                "average_nonmandatory_tour_distance_by_purpose_and_geography": {
                     "state": "failed",
                     "detail": "boom",
                 },
@@ -1157,11 +1308,13 @@ def test_summary_cache_writes_sentinel_csvs_for_empty_unavailable_and_failed_sum
         ),
     )
 
+    assert (cache_dir / "weighted" / "tour_distance_by_tour_purpose.csv").read_text(
+        encoding="utf-8"
+    ) == "__empty__\n"
     assert (
-        cache_dir / "weighted" / "destinationDistByPurpose.csv"
-    ).read_text(encoding="utf-8") == "__empty__\n"
-    assert (
-        cache_dir / "weighted" / "destinationAvgDistance.csv"
+        cache_dir
+        / "weighted"
+        / "average_nonmandatory_tour_distance_by_purpose_and_geography.csv"
     ).read_text(encoding="utf-8") == "__empty__\n"
 
     loaded = load_summary_run_cache(
@@ -1169,8 +1322,8 @@ def test_summary_cache_writes_sentinel_csvs_for_empty_unavailable_and_failed_sum
         config,
         expected_modes=config.weighting_modes,
         expected_summary_ids=[
-            "destination_distance",
-            "destination_average_distance",
+            "tour_distance_by_tour_purpose",
+            "average_nonmandatory_tour_distance_by_purpose_and_geography",
         ],
         expected_summary_config_digest=config.summary_config_digest,
         expected_run_fingerprint=fingerprint,
@@ -1184,12 +1337,18 @@ def test_summary_cache_writes_sentinel_csvs_for_empty_unavailable_and_failed_sum
     )
 
     assert (
-        loaded.summaries_by_mode["weighted"]["destination_distance"].schema
-        == empty_summary_frame(legacy.distance_distribution).schema
+        loaded.summaries_by_mode["weighted"]["tour_distance_by_tour_purpose"].schema
+        == empty_summary_frame(
+            SUMMARY_BY_ID["tour_distance_by_tour_purpose"].builder
+        ).schema
     )
     assert (
-        loaded.summaries_by_mode["weighted"]["destination_average_distance"].schema
-        == empty_summary_frame(legacy.average_distance).schema
+        loaded.summaries_by_mode["weighted"]["average_nonmandatory_tour_distance_by_purpose_and_geography"].schema
+        == empty_summary_frame(
+            SUMMARY_BY_ID[
+                "average_nonmandatory_tour_distance_by_purpose_and_geography"
+            ].builder
+        ).schema
     )
 
 
@@ -1228,7 +1387,23 @@ def test_tour_stop_frequency_live_page_uses_shared_summary_helpers(
     assert list(page.purpose_sel.options) == ["All Tour Purposes", "eatout", "social"]
     page.purpose_sel.value = "social"
     page.refresh(force=True)
-    assert page._body.objects
+    assert page.view.objects
+    directional_rows = [
+        obj
+        for obj in page.render_body()
+        if isinstance(obj, pn.Row)
+        and sum(len(_collect_plotly_panes(child)) for child in obj.objects) == 2
+    ]
+    assert len(directional_rows) == 1
+    directional_titles = {
+        str(plot.object.layout.title.text)
+        for child in directional_rows[0].objects
+        for plot in _collect_plotly_panes(child)
+    }
+    assert {
+        "Tour Stop Frequency - Purpose: social, Direction: Outbound",
+        "Tour Stop Frequency - Purpose: social, Direction: Inbound",
+    } == directional_titles
 
 
 def test_trip_mode_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
@@ -1284,10 +1459,24 @@ def test_trip_mode_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None
     page = TripModePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.tour_purpose_sel.options) == ["All Tour Purposes", "eatout", "social"]
+    assert list(page.tour_purpose_sel.options) == [
+        "All Tour Purposes",
+        "eatout",
+        "social",
+    ]
+    plots = _collect_plotly_panes(page._body)
+    all_titles = {str(plot.object.layout.title.text) for plot in plots}
+    assert "Trip Mode Distribution for All Tours" in all_titles
+    assert "Trip Mode Distribution for All DRIVE Tours" in all_titles
+    assert "Trip Mode Distribution for All WALK Tours" in all_titles
     page.tour_purpose_sel.value = "social"
     page.refresh(force=True)
     assert page._body.objects
+    plots = _collect_plotly_panes(page._body)
+    social_titles = {str(plot.object.layout.title.text) for plot in plots}
+    assert "Trip Mode Distribution for social Tours" in social_titles
+    assert "Trip Mode Distribution for DRIVE social Tours" in social_titles
+    assert "Trip Mode Distribution for WALK social Tours" in social_titles
 
 
 def test_trip_mode_selector_uses_union_across_runs_and_zero_fills_missing_modes(
@@ -1333,10 +1522,14 @@ def test_trip_mode_selector_uses_union_across_runs_and_zero_fills_missing_modes(
     page = TripModePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.tour_purpose_sel.options) == ["All Tour Purposes", "eatout", "social"]
+    assert list(page.tour_purpose_sel.options) == [
+        "All Tour Purposes",
+        "eatout",
+        "social",
+    ]
     page.tour_purpose_sel.value = "social"
     charts = page.render_body()
-    overall_chart = charts[0]
+    overall_chart = _collect_plotly_panes(charts[0])[0]
     traces = {trace.name: trace for trace in overall_chart.object.data}
 
     assert set(traces) == {"Base", "Build"}
@@ -1346,17 +1539,21 @@ def test_trip_mode_selector_uses_union_across_runs_and_zero_fills_missing_modes(
     assert list(traces["Build"].y) == [1.0, 5.0]
 
 
-def test_trip_mode_page_uses_configured_mode_labels_on_plot_axes(tmp_path: Path) -> None:
+def test_trip_mode_page_uses_configured_mode_labels_on_plot_axes(
+    tmp_path: Path,
+) -> None:
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "categories:",
-            "  mode:",
-            "    mapping:",
-            "      WALK: Walk",
-            "      SHARED2: Shared Ride 2",
-            "      DRIVEALONE: Drive Alone",
-            "      DRIVE: Drive",
+            "display:",
+            "  labels:",
+            "    mode:",
+            "      mapping:",
+            "        WALK: Walk",
+            "        SHARED2: Shared Ride 2",
+            "        SHARED3: Shared Ride 3+",
+            "        DRIVEALONE: Drive Alone",
+            "        DRIVE: Drive",
         ],
     )
     summary_run = _summary_run_with_tables(
@@ -1364,10 +1561,20 @@ def test_trip_mode_page_uses_configured_mode_labels_on_plot_axes(tmp_path: Path)
         weighted={
             "trip_mode_by_tour_purpose_and_tour_mode": pl.DataFrame(
                 {
-                    "tour_purpose": ["all_tour_purposes", "all_tour_purposes"],
-                    "tour_mode": ["all_tour_modes", "all_tour_modes"],
-                    "trip_mode": ["WALK", "SHARED2"],
-                    "trip_count": [2.0, 5.0],
+                    "tour_purpose": [
+                        "all_tour_purposes",
+                        "all_tour_purposes",
+                        "all_tour_purposes",
+                        "all_tour_purposes",
+                    ],
+                    "tour_mode": [
+                        "all_tour_modes",
+                        "all_tour_modes",
+                        "all_tour_modes",
+                        "all_tour_modes",
+                    ],
+                    "trip_mode": ["DRIVEALONE", "WALK", "SHARED2", "SHARED3"],
+                    "trip_count": [3.0, 2.0, 5.0, 10.0],
                 }
             ),
         },
@@ -1380,14 +1587,30 @@ def test_trip_mode_page_uses_configured_mode_labels_on_plot_axes(tmp_path: Path)
     page = TripModePage(state, config)
     page.refresh(force=True)
 
-    overall_chart = page.render_body()[0]
+    overall_chart = _collect_plotly_panes(page.render_body()[0])[0]
     trace = overall_chart.object.data[0]
 
-    assert list(trace.x) == ["Walk", "Shared Ride 2"]
+    assert page.hide_drive_alone.value is False
+    assert page.hide_drive_alone.name == "Hide Auto Modes"
+    assert list(trace.x) == [
+        "Walk",
+        "Shared Ride 2",
+        "Shared Ride 3+",
+        "Drive Alone",
+    ]
     assert list(overall_chart.object.layout.xaxis.categoryarray) == [
         "Walk",
         "Shared Ride 2",
+        "Shared Ride 3+",
+        "Drive Alone",
     ]
+    page.hide_drive_alone.value = True
+    checked_chart = _collect_plotly_panes(page.render_body()[0])[0]
+    checked_trace = checked_chart.object.data[0]
+
+    assert list(checked_trace.x) == ["Walk"]
+    assert list(checked_chart.object.layout.xaxis.categoryarray) == ["Walk"]
+    assert list(checked_trace.y) == pytest.approx([10.0])
 
 
 def test_daily_activity_pattern_page_uses_configured_mandatory_tour_labels_on_plot_axes(
@@ -1396,12 +1619,13 @@ def test_daily_activity_pattern_page_uses_configured_mandatory_tour_labels_on_pl
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "categories:",
-            "  mandatory_tour_frequency:",
-            "    mapping:",
-            "      1: Work",
-            "      2: 2 Work",
-            "      5: Work + School",
+            "display:",
+            "  labels:",
+            "    mandatory_tour_frequency:",
+            "      mapping:",
+            "        1: Work",
+            "        2: 2 Work",
+            "        5: Work + School",
         ],
     )
     summary_run = _summary_run_with_tables(
@@ -1452,7 +1676,7 @@ def test_daily_activity_pattern_page_uses_configured_mandatory_tour_labels_on_pl
     page = DailyActivityPatternPage(state, config)
     page.refresh(force=True)
 
-    mandatory_chart = page.render_body()[1].objects[0]
+    mandatory_chart = _collect_plotly_panes(page.render_body()[1])[0]
     trace = mandatory_chart.object.data[0]
 
     assert list(trace.x) == ["Work", "Work + School"]
@@ -1466,12 +1690,13 @@ def test_tour_purpose_selectors_use_category_labels_from_config(tmp_path: Path) 
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "categories:",
-            "  tour_purpose:",
-            "    mapping:",
-            "      all_tour_purposes: All Tour Purposes",
-            "      eatout: Eat Out",
-            "      social: Social Time",
+            "display:",
+            "  labels:",
+            "    tour_purpose:",
+            "      mapping:",
+            "        all_tour_purposes: All Tour Purposes",
+            "        eatout: Eat Out",
+            "        social: Social Time",
         ],
     )
     summary_run = _summary_run_with_tables(
@@ -1543,12 +1768,13 @@ def test_trip_stop_time_live_page_uses_shared_summary_helpers(
                         "eatout",
                         "social",
                         "social",
+                        "social",
                         "all_tour_purposes",
                         "all_tour_purposes",
                     ],
-                    "time_bin": [1, 2, 1, 2, 1, 2],
-                    "departure_trip_count": [2.0, 3.0, 4.0, 5.0, 6.0, 8.0],
-                    "departure_stop_count": [3.0, 4.0, 5.0, 6.0, 8.0, 10.0],
+                    "time_bin": [1, 2, 1, 2, 48, 1, 2],
+                    "departure_trip_count": [2.0, 3.0, 4.0, 5.0, 0.0, 6.0, 8.0],
+                    "departure_stop_count": [3.0, 4.0, 5.0, 6.0, 0.0, 8.0, 10.0],
                 }
             ),
         },
@@ -1561,10 +1787,21 @@ def test_trip_stop_time_live_page_uses_shared_summary_helpers(
     page = TripStopTimePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.tour_purpose_sel.options) == ["All Tour Purposes", "eatout", "social"]
+    assert list(page.tour_purpose_sel.options) == [
+        "All Tour Purposes",
+        "eatout",
+        "social",
+    ]
     page.tour_purpose_sel.value = "social"
     page.refresh(force=True)
     assert page._body.objects
+    trip_chart = _collect_plotly_panes(page._body)[0]
+    assert list(trip_chart.object.data[0].x)[:2] == ["03:00", "03:30"]
+    assert list(trip_chart.object.layout.xaxis.tickvals) == ["03:00"]
+    assert list(trip_chart.object.layout.xaxis.ticktext) == ["3:00"]
+    trip_hover = str(trip_chart.object.data[0].customdata[0])
+    assert "Clock Time: 03:00" in trip_hover
+    assert "start at 03:00" not in trip_hover
 
 
 def test_dashboard_pages_apply_configured_dashboard_labels_to_category_plots(
@@ -1573,31 +1810,32 @@ def test_dashboard_pages_apply_configured_dashboard_labels_to_category_plots(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "dashboard_labels:",
-            "  license_holding_status:",
-            "    mapping:",
-            "      has_license: Has License",
-            "      no_license: No License",
-            "  transit_pass_ownership_status:",
-            "    mapping:",
-            "      has_transit_pass: Has Transit Pass",
-            "      no_transit_pass: No Transit Pass",
-            "  telecommute_frequency:",
-            "    mapping:",
-            "      No_Telecommute: No Telecommute",
-            "      1_day_week: 1 Day per Week",
-            "  tour_composition:",
-            "    mapping:",
-            "      adults: Adults Only",
-            "      mixed: Mixed Group",
-            "  tour_category:",
-            "    mapping:",
-            "      mandatory: Mandatory",
-            "      non_mandatory: Non-Mandatory",
-            "  atwork_subtour_frequency_category:",
-            "    mapping:",
-            "      no_subtours: None",
-            "      eat: 1 Eating Out",
+            "display:",
+            "  labels:",
+            "    license_holding_status:",
+            "      mapping:",
+            "        has_license: Has License",
+            "        no_license: No License",
+            "    transit_pass_ownership_status:",
+            "      mapping:",
+            "        has_transit_pass: Has Transit Pass",
+            "        no_transit_pass: No Transit Pass",
+            "    telecommute_frequency:",
+            "      mapping:",
+            "        No_Telecommute: No Telecommute",
+            "        1_day_week: 1 Day per Week",
+            "    tour_composition:",
+            "      mapping:",
+            "        adults: Adults Only",
+            "        mixed: Mixed Group",
+            "    tour_category:",
+            "      mapping:",
+            "        mandatory: Mandatory",
+            "        non_mandatory: Non-Mandatory",
+            "    atwork_subtour_frequency_category:",
+            "      mapping:",
+            "        no_subtours: None",
+            "        eat: 1 Eating Out",
         ],
     )
     summary_run = _summary_run_with_tables(
@@ -1775,13 +2013,14 @@ def test_trip_stop_distance_live_page_uses_shared_summary_helpers(
                     "tour_purpose": [
                         "all_tour_purposes",
                         "all_tour_purposes",
+                        "all_tour_purposes",
                         "eatout",
                         "eatout",
                         "social",
                         "social",
                     ],
-                    "distance_bin": [0, 1, 0, 1, 0, 1],
-                    "stop_count": [13.0, 11.0, 8.0, 4.0, 5.0, 7.0],
+                    "distance_bin": [0, 1, 40, 0, 1, 0, 1],
+                    "stop_count": [13.0, 6.0, 5.0, 8.0, 4.0, 5.0, 7.0],
                 }
             ),
         },
@@ -1794,14 +2033,103 @@ def test_trip_stop_distance_live_page_uses_shared_summary_helpers(
     page = TripStopDistancePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.tour_purpose_sel.options) == ["All Tour Purposes", "eatout", "social"]
+    assert list(page.tour_purpose_sel.options) == [
+        "All Tour Purposes",
+        "eatout",
+        "social",
+    ]
     assert page.tour_purpose_sel.value == "All Tour Purposes"
-    assert len(page._body.objects) == 2
+    assert page.view.objects
+    all_titles = [
+        plot.object.layout.title.text for plot in _collect_plotly_panes(page._body)
+    ]
+    assert "Trip Distance Distribution for All Tours" in all_titles
+    assert "Stop Out-of-Direction Distance Distribution for All Tours" in all_titles
+    stop_ood_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._body)
+        if str(plot.object.layout.title.text)
+        == "Stop Out-of-Direction Distance Distribution for All Tours"
+    )
+    assert page.trip_stop_distance_range.current_range() == (0.0, 40.0)
+    assert list(stop_ood_plot.object.data[0].x) == [0.0, 1.0, 40.0]
+    assert list(stop_ood_plot.object.layout.xaxis.ticktext) == [
+        *[str(value) for value in range(0, 40, 2)],
+        "40+",
+    ]
+    assert list(stop_ood_plot.object.layout.xaxis.range) == [0.0, 40.0]
+    assert list(stop_ood_plot.object.data[0].y) == pytest.approx(
+        [54.166666666666664, 25.0, 20.833333333333336]
+    )
+    page.trip_stop_distance_range.min_widget.value = 0.25
+    page.trip_stop_distance_range.max_widget.value = "2"
+    page.refresh(force=True)
+    ranged_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._body)
+        if str(plot.object.layout.title.text)
+        == "Stop Out-of-Direction Distance Distribution for All Tours"
+    )
+    assert list(ranged_plot.object.layout.xaxis.range) == [0.25, 2.0]
+    page.trip_stop_distance_range.reset()
+    page.refresh(force=True)
+    reset_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._body)
+        if str(plot.object.layout.title.text)
+        == "Stop Out-of-Direction Distance Distribution for All Tours"
+    )
+    assert list(reset_plot.object.layout.xaxis.range) == [0.0, 40.0]
+    page.trip_stop_distance_range.min_widget.value = 2.0
+    page.trip_stop_distance_range.max_widget.value = "1"
+    page.refresh(force=True)
+    assert any(
+        card.title == "Trip and Stop Distance Data Not Available"
+        for card in _collect_cards(page._body)
+    )
+    page.trip_stop_distance_range.reset()
+    page.refresh(force=True)
 
     page.tour_purpose_sel.value = "social"
     page.refresh(force=True)
 
-    assert len(page._body.objects) == 2
+    assert page.view.objects
+    social_titles = [
+        plot.object.layout.title.text for plot in _collect_plotly_panes(page._body)
+    ]
+    assert "Trip Distance Distribution for social Tours" in social_titles
+    assert (
+        "Stop Out-of-Direction Distance Distribution for social Tours" in social_titles
+    )
+
+
+def test_tour_stop_frequency_chart_data_caps_directional_stop_counts() -> None:
+    data = [
+        (
+            "Base",
+            pl.DataFrame(
+                {
+                    "tour_purpose": ["all_tour_purposes"] * 6,
+                    "total_stop_count": [0, 6, 7, 1, 0, 6],
+                    "outbound_stop_count": [0, 3, 4, 1, 0, 3],
+                    "inbound_stop_count": [0, 2, 3, 4, 1, 3],
+                    "tour_count": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+                }
+            ),
+        )
+    ]
+
+    both = stop_frequency_chart_data(data, None, "Both")[0][1]
+    outbound = stop_frequency_chart_data(data, None, "Outbound")[0][1]
+
+    assert both.to_dict(as_series=False) == {
+        "stop_frequency": ["0", "1", "6+"],
+        "tour_count": [6.0, 4.0, 11.0],
+    }
+    assert outbound.to_dict(as_series=False) == {
+        "stop_frequency": ["0", "1", "3+"],
+        "tour_count": [6.0, 4.0, 11.0],
+    }
 
 
 def test_daily_activity_pattern_live_page_uses_shared_summary_helpers(
@@ -1885,7 +2213,7 @@ def test_daily_activity_pattern_live_page_uses_shared_summary_helpers(
     assert list(page.person_type_sel.options) == ["All Person Types", "worker"]
     page.person_type_sel.value = "worker"
     page.refresh(force=True)
-    assert page._body.objects
+    assert page.view.objects
 
 
 def test_daily_activity_pattern_page_renders_available_charts_when_one_summary_is_missing(
@@ -1957,9 +2285,7 @@ def test_daily_activity_pattern_page_renders_available_charts_when_one_summary_i
 
     assert len(plots) == 4
     card_markdown = [
-        str(card.objects[0].object)
-        for card in cards
-        if getattr(card, "objects", None)
+        str(card.objects[0].object) for card in cards if getattr(card, "objects", None)
     ]
     assert any(
         getattr(card, "title", "") == "Data Not Available"
@@ -2046,10 +2372,10 @@ def test_joint_travel_participation_page_uses_counts_and_runtime_percent_mode(
         if str(plot.object.layout.title.text)
         == "Households Taking Part in a Joint Tour - All"
     )
-    assert list(people_plot.object.layout.xaxis.categoryarray) == ["2", "3"]
+    assert list(people_plot.object.layout.xaxis.categoryarray) == ["2", "3", "4", "5+"]
     assert list(household_plot.object.layout.xaxis.categoryarray) == ["0", "1"]
     assert list(household_plot.object.data[0].x) == ["0", "1"]
-    assert list(people_plot.object.data[0].y) == [50.0, 100.0]
+    assert list(people_plot.object.data[0].y) == [50.0, 100.0, 0.0, 0.0]
 
     state.value_mode = "Count"
     page.refresh(force=True)
@@ -2060,8 +2386,85 @@ def test_joint_travel_participation_page_uses_counts_and_runtime_percent_mode(
         if str(plot.object.layout.title.text)
         == "People Taking Part in a Joint Tour by Household Size"
     )
-    assert list(people_plot.object.layout.xaxis.categoryarray) == ["2", "3"]
-    assert list(people_plot.object.data[0].y) == [2.0, 3.0]
+    assert list(people_plot.object.layout.xaxis.categoryarray) == ["2", "3", "4", "5+"]
+    assert list(people_plot.object.data[0].y) == [2.0, 3.0, 0.0, 0.0]
+
+
+def test_joint_travel_frequency_can_hide_no_joint_tours_without_renormalizing(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "jtf_distribution": pl.DataFrame(
+                {
+                    "jtf_code": [0, 1],
+                    "jtf_label": ["No Joint Tours", "One Joint Tour"],
+                    "household_count": [5.0, 3.0],
+                }
+            ),
+            "joint_tours_by_household_size": pl.DataFrame(
+                {
+                    "household_size": [2],
+                    "household_count": [6.0],
+                    "joint_tour_hh_count": [3.0],
+                }
+            ),
+            "joint_tour_party_size_distribution": pl.DataFrame(
+                {
+                    "party_size": [2],
+                    "joint_tour_count": [3.0],
+                }
+            ),
+            "joint_tour_composition_by_party_size": pl.DataFrame(
+                {
+                    "tour_composition": ["adults"],
+                    "party_size": [2],
+                    "joint_tour_count": [3.0],
+                }
+            ),
+            "person_jtp_by_household_size": pl.DataFrame(
+                {
+                    "household_size": [2],
+                    "joint_tour_person_count": [2.0],
+                    "total_person_count": [4.0],
+                }
+            ),
+            "household_jtp_by_household_size_and_jtf": pl.DataFrame(
+                {
+                    "jtf": ["0", "1"],
+                    "household_size": ["2", "2"],
+                    "household_percent": [50.0, 50.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = JointTravelPage(state, config)
+    page.refresh(force=True)
+
+    assert any(
+        isinstance(obj, pn.pane.Markdown)
+        and obj.object == "### Joint Tour Frequency"
+        for obj in page.view.objects
+    )
+    assert page._frequency_section.objects[0].objects == [page.hide_no_joint_tours]
+    frequency_plot = _collect_plotly_panes(page._frequency_section)[0]
+    trace = frequency_plot.object.data[0]
+    assert list(trace.x) == ["No Joint Tours", "One Joint Tour"]
+    assert list(trace.y) == pytest.approx([62.5, 37.5])
+
+    page.hide_no_joint_tours.value = True
+    checked_plot = _collect_plotly_panes(page.render_frequency()[-1])[0]
+    checked_trace = checked_plot.object.data[0]
+
+    assert list(checked_trace.x) == ["One Joint Tour"]
+    assert list(checked_trace.y) == pytest.approx([37.5])
 
 
 def test_joint_travel_composition_plot_keeps_category_axis_when_party_size_filters_out_bars(
@@ -2121,6 +2524,13 @@ def test_joint_travel_composition_plot_keeps_category_axis_when_party_size_filte
 
     page = JointTravelPage(state, config)
     page.refresh(force=True)
+    assert list(page.party_size_sel.options) == [
+        "All Party Sizes",
+        "2",
+        "3",
+        "4",
+        "5+",
+    ]
     page.party_size_sel.value = "2"
     page.refresh(force=True)
 
@@ -2130,15 +2540,18 @@ def test_joint_travel_composition_plot_keeps_category_axis_when_party_size_filte
         if str(plot.object.layout.title.text)
         == "Joint Tour Composition by Party Size - 2"
     )
-    assert list(composition_plot.object.layout.xaxis.categoryarray) == ["adults", "mixed"]
+    assert list(composition_plot.object.layout.xaxis.categoryarray) == [
+        "adults",
+        "mixed",
+    ]
     assert list(composition_plot.object.data[0].x) == ["adults", "mixed"]
     assert len(composition_plot.object.data[0].y) == 2
     assert composition_plot.object.data[0].y[0] > 0
     assert composition_plot.object.data[0].y[1] == 0.0
 
 
-def test_skims_group_lists_tour_skims_before_trip_skims() -> None:
-    definitions = page_definitions_for_group("skims")
+def test_skim_summaries_group_lists_tour_skims_before_trip_skims() -> None:
+    definitions = page_definitions_for_group("skim_summaries")
 
     assert [definition.page_id for definition in definitions] == [
         "tour_skims",
@@ -2203,11 +2616,64 @@ def test_trip_walk_skims_use_explicit_walk_distance_and_time_labels(
 
     table = _collect_tabulators(page._summary_section)[0]
     assert table.value["skim_name"].tolist() == [
-        "MAZ Actual Walk Time",
-        "MAZ Network Walk Distance",
-        "TAZ Skim Walk Distance",
-        "Total Walk Access/Egress Time",
+        "MAZ Actual Walk Time (min)",
+        "MAZ Network Walk Distance (mi)",
+        "TAZ Skim Walk Distance (mi)",
+        "Total Walk Access/Egress Time (min)",
     ]
+
+
+def test_trip_skim_family_respects_skimjoin_ignored_modes(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    ignored_modes = ["EBIKE", "ESCOOTER", "BIKE_TRANSIT"]
+    _attach_test_skimjoin_config(config, ignore_modes=ignored_modes)
+    weighted, unweighted = _skim_summary_tables()
+    ignored_mode_rows = pl.DataFrame(
+        {
+            "component": ["skim_walk_time", "skim_walk_time", "skim_walk_time"],
+            "trip_mode": ignored_modes,
+            "n_total": [4.0, 3.0, 2.0],
+            "n_valid": [4.0, 3.0, 2.0],
+            "mean": [6.0, 7.0, 8.0],
+            "std": [1.0, 1.0, 1.0],
+            "min": [5.0, 6.0, 7.0],
+            "max": [7.0, 8.0, 9.0],
+            "median": [6.0, 7.0, 8.0],
+            "mode": [6.0, 7.0, 8.0],
+            "zero_share": [0.0, 0.0, 0.0],
+            "missing_share": [0.0, 0.0, 0.0],
+        }
+    )
+    weighted["skimjoin_trip_component_stats"] = pl.concat(
+        [weighted["skimjoin_trip_component_stats"], ignored_mode_rows],
+        how="vertical",
+    )
+    unweighted["skimjoin_trip_component_stats"] = pl.concat(
+        [unweighted["skimjoin_trip_component_stats"], ignored_mode_rows],
+        how="vertical",
+    )
+    state = DashboardState(
+        summary_runs=[
+            _summary_run_with_tables(
+                label="Base",
+                weighted=weighted,
+                unweighted=unweighted,
+            )
+        ],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = TripSkimsPage(state, config)
+    page.refresh(force=True)
+    page.trip_family_sel.value = "Bike Skims"
+    page.refresh(force=True)
+
+    table = _collect_tabulators(page._summary_section)[0]
+    assert set(table.value["trip_mode"].tolist()) == {"BIKE"}
+    for ignored_mode in ignored_modes:
+        assert ignored_mode not in table.value["trip_mode"].tolist()
 
 
 def test_tour_skims_page_uses_family_and_direction_selectors_for_summary_table(
@@ -2238,7 +2704,7 @@ def test_tour_skims_page_uses_family_and_direction_selectors_for_summary_table(
     table = tables[0]
     assert list(table.value.columns[:2]) == ["skim_name", "tour_mode"]
     assert set(table.value["tour_mode"].tolist()) == {"SOV", "HOV2"}
-    assert set(table.value["skim_name"].tolist()) == {"Cost", "Time"}
+    assert set(table.value["skim_name"].tolist()) == {"Cost ($)", "Time (min)"}
     assert "Outbound" == page.tour_direction_sel.value
 
     page.tour_family_sel.value = "Transit Skims"
@@ -2246,21 +2712,22 @@ def test_tour_skims_page_uses_family_and_direction_selectors_for_summary_table(
     page.refresh(force=True)
     inbound_table = _collect_tabulators(page._summary_section)[0]
     assert set(inbound_table.value["tour_mode"].tolist()) == {"KNR_TRANSIT"}
-    assert "Transit In-Vehicle Time" in inbound_table.value["skim_name"].tolist()
+    assert "Transit In-Vehicle Time (min)" in inbound_table.value["skim_name"].tolist()
 
 
 def test_tour_purpose_labels_render_consistently_across_pages(tmp_path: Path) -> None:
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "categories:",
-            "  tour_purpose:",
-            "    mapping:",
-            "      all_tour_purposes: All Tour Purposes",
-            "      work: Work Trips",
-            "      shop: Shopping",
-            "      eatout: Eat Out",
-            "      social: Social Time",
+            "display:",
+            "  labels:",
+            "    tour_purpose:",
+            "      mapping:",
+            "        all_tour_purposes: All Tour Purposes",
+            "        work: Work Trips",
+            "        shop: Shopping",
+            "        eatout: Eat Out",
+            "        social: Social Time",
         ],
     )
     summary_run = _summary_run_with_tables(
@@ -2375,7 +2842,9 @@ def test_tour_purpose_labels_render_consistently_across_pages(tmp_path: Path) ->
     tour_purpose_page.refresh(force=True)
     tour_purpose_plots = _collect_plotly_panes(tour_purpose_page._body)
     purpose_chart = next(
-        plot for plot in tour_purpose_plots if plot.object.layout.title.text == "Tour Purpose"
+        plot
+        for plot in tour_purpose_plots
+        if plot.object.layout.title.text == "Tour Purpose"
     )
     assert list(purpose_chart.object.layout.xaxis.categoryarray) == [
         "Work Trips",
@@ -2385,14 +2854,12 @@ def test_tour_purpose_labels_render_consistently_across_pages(tmp_path: Path) ->
 
     tour_distance_page = TourDistancePage(state, config)
     tour_distance_page.refresh(force=True)
-    assert list(tour_distance_page.nonmand_purpose_sel.options) == [
-        "All Tour Purposes",
-        "Eat Out",
-        "Social Time",
-    ]
+    assert not hasattr(tour_distance_page, "nonmandatory_purpose_sel")
+    tour_distance_page.geo_level_sel.value = "Region"
+    tour_distance_page.refresh(force=True)
     tabulators = _collect_tabulators(tour_distance_page._average_section)
     nonmandatory_table = tabulators[0].value
-    assert nonmandatory_table["nonmandatory_tour_purpose"].tolist() == [
+    assert nonmandatory_table["Non-Mandatory Tour Purpose"].tolist() == [
         "Eat Out",
         "Social Time",
     ]
@@ -2404,19 +2871,20 @@ def test_trip_stop_purpose_page_uses_trip_and_stop_purpose_dashboard_labels(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "dashboard_labels:",
-            "  tour_purpose:",
-            "    mapping:",
-            "      work: Work Tours",
-            "      shop: Shopping Tours",
-            "  trip_purpose:",
-            "    mapping:",
-            "      work: Work Trips",
-            "      shop: Shopping Trips",
-            "  stop_purpose:",
-            "    mapping:",
-            "      work: Work Stops",
-            "      shop: Shopping Stops",
+            "display:",
+            "  labels:",
+            "    tour_purpose:",
+            "      mapping:",
+            "        work: Work Tours",
+            "        shop: Shopping Tours",
+            "    trip_purpose:",
+            "      mapping:",
+            "        work: Work Trips",
+            "        shop: Shopping Trips",
+            "    stop_purpose:",
+            "      mapping:",
+            "        work: Work Stops",
+            "        shop: Shopping Stops",
         ],
     )
     summary_run = _summary_run_with_tables(
@@ -2461,13 +2929,14 @@ def test_trip_stop_purpose_page_uses_trip_and_stop_purpose_dashboard_labels(
 
     plots = _collect_plotly_panes(page._body)
     trip_chart = next(
-        plot for plot in plots if plot.object.layout.title.text == "Trip Purpose"
+        plot
+        for plot in plots
+        if plot.object.layout.title.text == "Trip Purpose for All Tours"
     )
     stop_chart = next(
         plot
         for plot in plots
-        if plot.object.layout.title.text
-        == "Stop Destination Purpose by Tour Purpose - All Tour Purposes"
+        if plot.object.layout.title.text == "Stop Destination Purpose for All Tours"
     )
     assert list(trip_chart.object.layout.xaxis.categoryarray) == [
         "Work Trips",
@@ -2478,18 +2947,28 @@ def test_trip_stop_purpose_page_uses_trip_and_stop_purpose_dashboard_labels(
     page.refresh(force=True)
     plots = _collect_plotly_panes(page._body)
     filtered_trip_chart = next(
-        plot for plot in plots if plot.object.layout.title.text == "Trip Purpose"
+        plot
+        for plot in plots
+        if plot.object.layout.title.text == "Trip Purpose for Work Tours"
+    )
+    filtered_stop_chart = next(
+        plot
+        for plot in plots
+        if plot.object.layout.title.text == "Stop Destination Purpose for Work Tours"
     )
     assert list(filtered_trip_chart.object.data[0].x) == [
         "Work Trips",
         "Shopping Trips",
     ]
     assert list(filtered_trip_chart.object.data[0].y) == [62.5, 37.5]
-    assert list(stop_chart.object.layout.xaxis.categoryarray) == [
+    assert list(filtered_stop_chart.object.layout.xaxis.categoryarray) == [
         "Work Stops",
         "Shopping Stops",
     ]
-    assert list(stop_chart.object.data[0].x) == ["Work Stops", "Shopping Stops"]
+    assert list(filtered_stop_chart.object.data[0].x) == [
+        "Work Stops",
+        "Shopping Stops",
+    ]
 
 
 def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
@@ -2511,12 +2990,13 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
                 {
                     "segment": [
                         "outbound_before_dropoff",
+                        "outbound_before_dropoff",
                         "outbound_after_dropoff",
                         "inbound_before_pickup",
                         "inbound_after_pickup",
                     ],
-                    "stop_count": [1, 0, 0, 1],
-                    "tour_count": [2.0, 3.0, 4.0, 1.0],
+                    "stop_count": [1, 4, 0, 0, 1],
+                    "tour_count": [2.0, 5.0, 3.0, 4.0, 1.0],
                 }
             ),
             "adult_escorted_tours_by_person_type_and_direction": pl.DataFrame(
@@ -2545,14 +3025,15 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
             ),
             "student_households_by_student_count": pl.DataFrame(
                 {
-                    "student_count": [1, 2],
-                    "household_count": [10.0, 5.0],
+                    "student_count": [1, 2, 6, 7],
+                    "household_count": [10.0, 5.0, 3.0, 2.0],
                 }
             ),
             "households_with_school_escorting_by_student_count_and_direction": pl.DataFrame(
                 {
-                    "student_count": [1, 2, 1, 2, 1, 2],
+                    "student_count": [1, 2, 7, 1, 2, 1, 2],
                     "direction": [
+                        "outbound",
                         "outbound",
                         "outbound",
                         "inbound",
@@ -2560,13 +3041,14 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
                         "both",
                         "both",
                     ],
-                    "household_count": [4.0, 1.0, 3.0, 0.0, 2.0, 1.0],
+                    "household_count": [4.0, 1.0, 2.0, 3.0, 0.0, 2.0, 1.0],
                 }
             ),
             "schoolkids_per_escorted_tour_by_student_count_and_direction": pl.DataFrame(
                 {
-                    "student_count": [1, 2, 1, 2, 1, 2],
+                    "student_count": [1, 2, 7, 1, 2, 1, 2],
                     "direction": [
+                        "outbound",
                         "outbound",
                         "outbound",
                         "inbound",
@@ -2574,8 +3056,8 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
                         "both",
                         "both",
                     ],
-                    "avg_schoolkids_per_tour": [1.5, 2.0, 1.0, 2.5, 1.0, 2.0],
-                    "tour_count": [4.0, 2.0, 3.0, 1.0, 2.0, 1.0],
+                    "avg_schoolkids_per_tour": [1.5, 2.0, 4.0, 1.0, 2.5, 1.0, 2.0],
+                    "tour_count": [4.0, 2.0, 3.0, 3.0, 1.0, 2.0, 1.0],
                 }
             ),
             "adult_escorted_tour_distance_distribution_by_direction": pl.DataFrame(
@@ -2603,30 +3085,28 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
     page.refresh(force=True)
 
     assert list(page.direction_sel.options) == ["Both Directions", "Outbound"]
-    assert len(page._body.objects) == 2
-    render_calls = {"static": 0, "directional": 0}
-    static_section = page._registered_sections["escorted_tours_static_body"]
-    directional_section = page._registered_sections["escorted_tours_directional_body"]
-    original_static_render = static_section.render
-    original_directional_render = directional_section.render
+    assert page.view.objects
+    render_calls = {section_id: 0 for section_id in page._registered_sections}
+    for section_id, section in page._registered_sections.items():
+        original_render = section.render
 
-    def counted_static_render():
-        render_calls["static"] += 1
-        return original_static_render()
+        def counted_render(section_id=section_id, original_render=original_render):
+            render_calls[section_id] += 1
+            return original_render()
 
-    def counted_directional_render():
-        render_calls["directional"] += 1
-        return original_directional_render()
-
-    static_section.render = counted_static_render
-    directional_section.render = counted_directional_render
+        section.render = counted_render
     page.direction_sel.value = "Both Directions"
     page.refresh(force=False)
-    assert page._body.objects
-    assert render_calls == {"static": 0, "directional": 1}
+    assert page.view.objects
+    assert render_calls == {
+        "school_escort.body": 0,
+        "adult_escort.body": 0,
+        "direction.body": 1,
+        "distance.body": 1,
+    }
     student_titles = [
         str(plot.object.layout.title.text)
-        for plot in _collect_plotly_panes(page._body)
+        for plot in _collect_plotly_panes(page.view)
         if "Student School Escort Status" in str(plot.object.layout.title.text)
     ]
     assert sorted(student_titles) == [
@@ -2636,7 +3116,7 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
     ]
     household_titles = [
         str(plot.object.layout.title.text)
-        for plot in _collect_plotly_panes(page._body)
+        for plot in _collect_plotly_panes(page.view)
         if "Households With School Escorting" in str(plot.object.layout.title.text)
     ]
     assert sorted(household_titles) == [
@@ -2646,17 +3126,17 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
     ]
     schoolkids_titles = [
         str(plot.object.layout.title.text)
-        for plot in _collect_plotly_panes(page._body)
-        if "Schoolkids Per Escorted Tour" in str(plot.object.layout.title.text)
+        for plot in _collect_plotly_panes(page.view)
+        if "Schoolkids Per Adult Chauffeur Tour" in str(plot.object.layout.title.text)
     ]
     assert sorted(schoolkids_titles) == [
-        "Schoolkids Per Escorted Tour - Both Directions",
-        "Schoolkids Per Escorted Tour - Inbound",
-        "Schoolkids Per Escorted Tour - Outbound",
+        "Schoolkids Per Adult Chauffeur Tour - Both Directions",
+        "Schoolkids Per Adult Chauffeur Tour - Inbound",
+        "Schoolkids Per Adult Chauffeur Tour - Outbound",
     ]
     stop_titles = [
         str(plot.object.layout.title.text)
-        for plot in _collect_plotly_panes(page._body)
+        for plot in _collect_plotly_panes(page.view)
         if "Adult Escort Stops" in str(plot.object.layout.title.text)
     ]
     assert sorted(stop_titles) == [
@@ -2665,6 +3145,69 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
         "Adult Escort Stops Before Dropoff - Outbound",
         "Adult Escort Stops Before Pickup - Inbound",
     ]
+    household_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page.view)
+        if str(plot.object.layout.title.text)
+        == "Households With School Escorting - Outbound"
+    )
+    assert list(household_plot.object.layout.xaxis.categoryarray) == ["1", "2", "6+"]
+    schoolkids_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page.view)
+        if str(plot.object.layout.title.text)
+        == "Schoolkids Per Adult Chauffeur Tour - Outbound"
+    )
+    assert list(schoolkids_plot.object.layout.xaxis.categoryarray) == ["1", "2", "6+"]
+    assert list(schoolkids_plot.object.data[0].y) == [1.5, 2.0, 4.0]
+    stop_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page.view)
+        if str(plot.object.layout.title.text)
+        == "Adult Escort Stops Before Dropoff - Outbound"
+    )
+    assert list(stop_plot.object.layout.xaxis.categoryarray) == ["0", "1", "3+"]
+    assert list(stop_plot.object.data[0].y) == pytest.approx(
+        [0.0, 28.57142857142857, 71.42857142857143]
+    )
+    distance_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page.view)
+        if str(plot.object.layout.title.text)
+        == "Chauffeur Tour Distance Distribution - Both Directions"
+    )
+    assert page.escort_distance_range.current_range() == (0.0, 40.0)
+    assert list(distance_plot.object.layout.xaxis.range) == [0.0, 40.0]
+    assert list(distance_plot.object.layout.xaxis.ticktext) == [
+        *[str(value) for value in range(0, 40, 2)],
+        "40+",
+    ]
+    page.escort_distance_range.min_widget.value = 10.0
+    page.escort_distance_range.max_widget.value = "20"
+    page.refresh(force=True)
+    ranged_distance_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page.view)
+        if str(plot.object.layout.title.text)
+        == "Chauffeur Tour Distance Distribution - Both Directions"
+    )
+    assert list(ranged_distance_plot.object.layout.xaxis.range) == [10.0, 20.0]
+    page.escort_distance_range.reset()
+    page.refresh(force=True)
+    reset_distance_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page.view)
+        if str(plot.object.layout.title.text)
+        == "Chauffeur Tour Distance Distribution - Both Directions"
+    )
+    assert list(reset_distance_plot.object.layout.xaxis.range) == [0.0, 40.0]
+    page.escort_distance_range.min_widget.value = 20.0
+    page.escort_distance_range.max_widget.value = "10"
+    page.refresh(force=True)
+    assert any(
+        card.title == "Chauffeur Distance Data Not Available"
+        for card in _collect_cards(page.view)
+    )
 
 
 def test_escorted_tours_page_renders_core_charts_when_optional_summaries_missing(
@@ -2720,14 +3263,13 @@ def test_escorted_tours_page_renders_core_charts_when_optional_summaries_missing
     page = EscortedToursPage(state, config)
     page.refresh(force=True)
 
-    assert page._body.objects
+    assert page.view.objects
     titles = [
-        str(plot.object.layout.title.text)
-        for plot in _collect_plotly_panes(page._body)
+        str(plot.object.layout.title.text) for plot in _collect_plotly_panes(page.view)
     ]
-    assert "Chauffer Escorting Tours by Person Type - Both Directions" in titles
-    assert "Chauffer Escorting Tour Distance Distribution - Both Directions" in titles
-    assert "Chauffer Escorting Trip Distance Distribution - Both Directions" in titles
+    assert "Chauffeur Tours by Person Type - Both Directions" in titles
+    assert "Chauffeur Tour Distance Distribution - Both Directions" in titles
+    assert "Chauffeur Trip Distance Distribution - Both Directions" in titles
     assert "Adult Escort Stops Before Dropoff - Outbound" in titles
     assert "Adult Escort Trip Stop Frequency - Both Directions" not in titles
     assert all("Schoolkids Per Escorted Tour" not in title for title in titles)
@@ -2739,12 +3281,13 @@ def test_escorted_tours_page_uses_configured_escort_labels_for_student_status(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "categories:",
-            "  escort:",
-            "    mapping:",
-            "      not_escorted: Unescorted",
-            "      pure_escort: Driven Solo",
-            "      ride_share: Shared Ride",
+            "display:",
+            "  labels:",
+            "    escort:",
+            "      mapping:",
+            "        not_escorted: Unescorted",
+            "        pure_escort: Driven Solo",
+            "        ride_share: Shared Ride",
         ],
     )
     escorted_summary_run = _summary_run_with_tables(
@@ -2802,12 +3345,13 @@ def test_escorted_tours_page_uses_configured_escort_labels_for_student_status(
     )
     page = EscortedToursPage(state, config)
     page.refresh(force=True)
-    plots = _collect_plotly_panes(page._body)
+    plots = _collect_plotly_panes(page.view)
 
     student_plot = next(
         plot
         for plot in plots
-        if str(plot.object.layout.title.text) == "Student School Escort Status - Outbound"
+        if str(plot.object.layout.title.text)
+        == "Student School Escort Status - Outbound"
     )
     assert list(student_plot.object.layout.xaxis.categoryarray) == [
         "Unescorted",
@@ -2914,8 +3458,8 @@ def test_overview_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
             ),
             "household_size_distribution": pl.DataFrame(
                 {
-                    "household_size": [1, 2],
-                    "household_count": [15.0, 25.0],
+                    "household_size": [1, 5, 6],
+                    "household_count": [15.0, 10.0, 15.0],
                 }
             ),
             "auto_vmt_totals": pl.DataFrame({"auto_vmt": [180.0]}),
@@ -2929,7 +3473,14 @@ def test_overview_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
     page = OverviewPage(state, config)
     page.refresh(force=True)
 
-    assert len(page._body.objects) == 8
+    assert page.view.objects
+    household_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._demographics_section)
+        if str(plot.object.layout.title.text) == "Household Size Distribution"
+    )
+    assert list(household_plot.object.data[0].x) == ["1", "5+"]
+    assert list(household_plot.object.data[0].y) == [37.5, 62.5]
 
 
 def test_overview_page_skips_bad_run_for_one_visualization_but_keeps_rendering(
@@ -2999,11 +3550,11 @@ def test_overview_page_skips_bad_run_for_one_visualization_but_keeps_rendering(
     page = OverviewPage(state, config)
     page.refresh(force=True)
 
-    assert any(isinstance(obj, pn.Row) for obj in page._body.objects)
+    assert _collect_plotly_panes(page.view)
     person_type_diag = next(
         diagnostic
         for diagnostic in page.visualization_diagnostics
-        if diagnostic.visualization_id == "overview_person_type_distribution"
+        if diagnostic.visualization_id == "person_type_distribution"
     )
     assert person_type_diag.render_state == "partial"
     assert person_type_diag.usable_run_labels == ("Base",)
@@ -3019,10 +3570,10 @@ def test_individual_choices_page_renders_partial_content_when_some_summaries_mis
         label="Base",
         weighted={
             "license_holding_status_distribution": empty_summary_frame(
-                SUMMARY_SPEC_BY_ID["license_holding_status_distribution"].builder
+                SUMMARY_BY_ID["license_holding_status_distribution"].builder
             ),
             "bicycle_comfort_level_distribution": empty_summary_frame(
-                SUMMARY_SPEC_BY_ID["bicycle_comfort_level_distribution"].builder
+                SUMMARY_BY_ID["bicycle_comfort_level_distribution"].builder
             ),
             "transit_pass_ownership_by_person_type": pl.DataFrame(
                 {
@@ -3086,13 +3637,13 @@ def test_tour_summaries_tour_mode_page_renders_main_chart_without_vehicle_summar
                 }
             ),
             "allocated_vehicle_age_by_occupancy": empty_summary_frame(
-                SUMMARY_SPEC_BY_ID["allocated_vehicle_age_by_occupancy"].builder
+                SUMMARY_BY_ID["allocated_vehicle_age_by_occupancy"].builder
             ),
             "allocated_vehicle_fuel_type_by_occupancy": empty_summary_frame(
-                SUMMARY_SPEC_BY_ID["allocated_vehicle_fuel_type_by_occupancy"].builder
+                SUMMARY_BY_ID["allocated_vehicle_fuel_type_by_occupancy"].builder
             ),
             "allocated_vehicle_body_type_by_occupancy": empty_summary_frame(
-                SUMMARY_SPEC_BY_ID["allocated_vehicle_body_type_by_occupancy"].builder
+                SUMMARY_BY_ID["allocated_vehicle_body_type_by_occupancy"].builder
             ),
         },
     )
@@ -3105,23 +3656,18 @@ def test_tour_summaries_tour_mode_page_renders_main_chart_without_vehicle_summar
     page.refresh(force=True)
 
     assert list(page.purpose_sel.options) == ["All Tour Purposes", "work"]
-    assert len(page._mode_section.objects) == 6
+    assert len(page._mode_section.objects) == 5
     chart_titles = [
-        obj.object.layout.title.text
-        for obj in page._mode_section.objects
-        if isinstance(obj, pn.pane.Plotly)
+        plot.object.layout.title.text
+        for plot in _collect_plotly_panes(page._mode_section)
     ]
     assert chart_titles == [
         "Tour Mode - All",
         "Tour Mode - Zero Auto",
-        "Tour Mode - Auto Deficient",
-        "Tour Mode - Auto Sufficient",
+        "Tour Mode - Fewer Vehicles Than Drivers",
+        "Tour Mode - At Least As Many Vehicles as Drivers",
     ]
-    vehicle_cards = [
-        obj
-        for obj in page._vehicle_section.objects[-1].objects
-        if isinstance(obj, pn.Card)
-    ]
+    vehicle_cards = _collect_cards(page._vehicle_section)
     assert len(vehicle_cards) == 3
 
 
@@ -3131,11 +3677,14 @@ def test_tour_summaries_tour_mode_page_uses_configured_mode_labels_on_plot_axes(
     config = _write_config(
         tmp_path,
         extra_lines=[
-            "categories:",
-            "  mode:",
-            "    mapping:",
-            "      DRIVE: Drive Alone",
-            "      WALK: Walk",
+            "display:",
+            "  labels:",
+            "    mode:",
+            "      mapping:",
+            "        DRIVE: Drive Alone",
+            "        HOV2: Shared Ride 2",
+            "        HOV3: Shared Ride 3+",
+            "        WALK: Walk",
         ],
     )
     summary_run = _summary_run_with_tables(
@@ -3143,22 +3692,27 @@ def test_tour_summaries_tour_mode_page_uses_configured_mode_labels_on_plot_axes(
         weighted={
             "tour_mode_by_tour_purpose_and_auto_sufficiency": pl.DataFrame(
                 {
-                    "tour_purpose": ["all_tour_purposes", "all_tour_purposes"],
-                    "tour_mode": ["DRIVE", "WALK"],
-                    "tour_count_all_households": [10.0, 5.0],
-                    "tour_count_zero_auto": [2.0, 4.0],
-                    "tour_count_auto_deficient": [3.0, 1.0],
-                    "tour_count_auto_sufficient": [5.0, 0.0],
+                    "tour_purpose": [
+                        "all_tour_purposes",
+                        "all_tour_purposes",
+                        "all_tour_purposes",
+                        "all_tour_purposes",
+                    ],
+                    "tour_mode": ["DRIVE", "WALK", "HOV2", "HOV3"],
+                    "tour_count_all_households": [10.0, 5.0, 3.0, 2.0],
+                    "tour_count_zero_auto": [2.0, 4.0, 1.0, 1.0],
+                    "tour_count_auto_deficient": [3.0, 1.0, 1.0, 1.0],
+                    "tour_count_auto_sufficient": [5.0, 0.0, 1.0, 0.0],
                 }
             ),
             "allocated_vehicle_age_by_occupancy": empty_summary_frame(
-                SUMMARY_SPEC_BY_ID["allocated_vehicle_age_by_occupancy"].builder
+                SUMMARY_BY_ID["allocated_vehicle_age_by_occupancy"].builder
             ),
             "allocated_vehicle_fuel_type_by_occupancy": empty_summary_frame(
-                SUMMARY_SPEC_BY_ID["allocated_vehicle_fuel_type_by_occupancy"].builder
+                SUMMARY_BY_ID["allocated_vehicle_fuel_type_by_occupancy"].builder
             ),
             "allocated_vehicle_body_type_by_occupancy": empty_summary_frame(
-                SUMMARY_SPEC_BY_ID["allocated_vehicle_body_type_by_occupancy"].builder
+                SUMMARY_BY_ID["allocated_vehicle_body_type_by_occupancy"].builder
             ),
         },
     )
@@ -3170,14 +3724,27 @@ def test_tour_summaries_tour_mode_page_uses_configured_mode_labels_on_plot_axes(
     page = TourSummariesTourModePage(state, config)
     page.refresh(force=True)
 
-    mode_chart = page.render_modes()[-1]
+    mode_chart = _collect_plotly_panes(page._mode_section)[0]
     trace = mode_chart.object.data[0]
 
-    assert list(trace.x) == ["Drive Alone", "Walk"]
+    assert page.hide_drive_alone.value is False
+    assert page.hide_drive_alone.name == "Hide Auto Modes"
+    assert list(trace.x) == ["Drive Alone", "Shared Ride 2", "Shared Ride 3+", "Walk"]
     assert list(mode_chart.object.layout.xaxis.categoryarray) == [
         "Drive Alone",
+        "Shared Ride 2",
+        "Shared Ride 3+",
         "Walk",
     ]
+    page.hide_drive_alone.value = True
+    checked_chart = _collect_plotly_panes(
+        pn.Column(*page.render_modes_section())
+    )[0]
+    checked_trace = checked_chart.object.data[0]
+
+    assert list(checked_trace.x) == ["Walk"]
+    assert list(checked_chart.object.layout.xaxis.categoryarray) == ["Walk"]
+    assert list(checked_trace.y) == pytest.approx([25.0])
 
 
 def test_tour_mode_auto_sufficiency_definitions_follow_configured_basis(
@@ -3191,8 +3758,10 @@ def test_tour_mode_auto_sufficiency_definitions_follow_configured_basis(
         ],
     )
 
-    markdown = _auto_sufficiency_definitions_markdown(config)
+    markdown = auto_sufficiency_definitions_markdown(config)
 
+    assert "**Fewer Vehicles Than Workers**" in markdown
+    assert "**At Least As Many Vehicles as Workers**" in markdown
     assert "household has fewer vehicles than workers." in markdown
     assert "household has at least as many vehicles as workers." in markdown
 
@@ -3205,15 +3774,14 @@ def test_mandatory_location_choice_uses_union_of_available_geographies(
         label="Base",
         weighted={
             "internal_external_worker_by_geography": empty_summary_frame(
-                SUMMARY_SPEC_BY_ID["internal_external_worker_by_geography"].builder
+                SUMMARY_BY_ID["internal_external_worker_by_geography"].builder
             ),
-            "commuting_flows": pl.DataFrame(
+            "work_location_distance_distribution_by_geography": pl.DataFrame(
                 {
-                    "origin_geography_type": ["all_geographies", "district", "maz"],
-                    "origin_geography_id": ["all_geographies", "A", "10"],
-                    "destination_geography_type": ["all_geographies", "district", "maz"],
-                    "destination_geography_id": ["all_geographies", "B", "30"],
-                    "commuter_count": [12.0, 5.0, 7.0],
+                    "distance_bin": [1, 1, 1],
+                    "geography_type": ["all_geographies", "district", "maz"],
+                    "geography_id": ["all_geographies", "A", "10"],
+                    "person_count": [12.0, 5.0, 7.0],
                 }
             ),
         },
@@ -3226,9 +3794,10 @@ def test_mandatory_location_choice_uses_union_of_available_geographies(
     page = MandatoryLocationChoicePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["All Geographies", "district"]
-    commuting_widget = page._commuting_flows_section.objects[0]
-    assert not isinstance(commuting_widget, pn.Card)
+    assert list(page.geo_level_sel.options) == [
+        "All Geography Types",
+        "District",
+    ]
 
 
 def test_mandatory_location_choice_can_show_maz_when_enabled(
@@ -3236,21 +3805,20 @@ def test_mandatory_location_choice_can_show_maz_when_enabled(
 ) -> None:
     config = _write_config(
         tmp_path,
-        visualizer_lines=["enable_maz_geographies: true"],
+        dashboard_lines=["enable_maz_geographies: true"],
     )
     summary_run = _summary_run_with_tables(
         label="Base",
         weighted={
             "internal_external_worker_by_geography": empty_summary_frame(
-                SUMMARY_SPEC_BY_ID["internal_external_worker_by_geography"].builder
+                SUMMARY_BY_ID["internal_external_worker_by_geography"].builder
             ),
-            "commuting_flows": pl.DataFrame(
+            "work_location_distance_distribution_by_geography": pl.DataFrame(
                 {
-                    "origin_geography_type": ["all_geographies", "maz", "maz"],
-                    "origin_geography_id": ["all_geographies", "10", "20"],
-                    "destination_geography_type": ["all_geographies", "maz", "maz"],
-                    "destination_geography_id": ["all_geographies", "30", "40"],
-                    "commuter_count": [12.0, 5.0, 7.0],
+                    "distance_bin": [1, 1, 1],
+                    "geography_type": ["all_geographies", "maz", "maz"],
+                    "geography_id": ["all_geographies", "10", "20"],
+                    "person_count": [12.0, 5.0, 7.0],
                 }
             ),
         },
@@ -3263,11 +3831,14 @@ def test_mandatory_location_choice_can_show_maz_when_enabled(
     page = MandatoryLocationChoicePage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["All Geographies", "maz"]
+    assert list(page.geo_level_sel.options) == [
+        "All Geography Types",
+        "MAZ",
+    ]
 
 
 def test_tour_mode_vehicle_filters_sort_categories_stably() -> None:
-    filtered = _filter_col(
+    filtered = vehicle_attribute_data(
         [
             (
                 "Base",
@@ -3280,8 +3851,8 @@ def test_tour_mode_vehicle_filters_sort_categories_stably() -> None:
                 ),
             )
         ],
-        "occupancy",
         "All",
+        category="fuel_type",
     )
 
     assert filtered[0][1]["fuel_type"].to_list() == [
@@ -3345,7 +3916,7 @@ def test_tour_mode_occupancy_selector_uses_common_values_across_vehicle_summarie
 def test_internal_external_tours_geo_selector_uses_union_levels_across_tables(
     tmp_path: Path,
 ) -> None:
-    config = _write_config(tmp_path, visualizer_lines=["enable_maz_geographies: true"])
+    config = _write_config(tmp_path, dashboard_lines=["enable_maz_geographies: true"])
     summary_run = _summary_run_with_tables(
         label="Base",
         weighted={
@@ -3374,7 +3945,32 @@ def test_internal_external_tours_geo_selector_uses_union_levels_across_tables(
     page = InternalExternalToursPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["All Geographies", "district", "maz"]
+    assert list(page.geo_level_sel.options) == [
+        "All Geography Types",
+        "District",
+        "MAZ",
+    ]
+    tables = _collect_tabulators(page._body)
+    assert len(tables) == 2
+    frequency_table = tables[0].value
+    location_table = tables[1].value
+    assert frequency_table.columns[:2].tolist() == ["Geography Type", "Geography Name"]
+    assert location_table.columns[:2].tolist() == ["Geography Type", "Geography Name"]
+    assert frequency_table["Geography Type"].tolist() == ["All Geographies"]
+    assert frequency_table["Geography Name"].tolist() == ["All Geographies"]
+    assert location_table["Geography Type"].tolist() == ["All Geographies"]
+    assert location_table["Geography Name"].tolist() == ["All Geographies"]
+
+    page.geo_level_sel.value = "District"
+    page.refresh(force=True)
+    tables = _collect_tabulators(page._body)
+    assert len(tables) == 1
+    frequency_table = tables[0].value
+    assert frequency_table.columns[:2].tolist() == ["Geography Type", "Geography Name"]
+    assert frequency_table["Geography Type"].tolist() == ["District"]
+    assert frequency_table["Geography Name"].tolist() == ["A"]
+    cards = _collect_cards(page._body)
+    assert any(card.title == "Data Not Available" for card in cards)
 
 
 def test_internal_external_tours_geo_selector_hides_only_maz_when_disabled(
@@ -3409,7 +4005,7 @@ def test_internal_external_tours_geo_selector_hides_only_maz_when_disabled(
     page = InternalExternalToursPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["All Geographies", "district"]
+    assert list(page.geo_level_sel.options) == ["All Geography Types", "District"]
 
 
 def test_shadow_pricing_geo_selector_keeps_maz_available_when_disabled(
@@ -3469,13 +4065,17 @@ def test_shadow_pricing_geo_selector_keeps_maz_available_when_disabled(
     page = ShadowPricingPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["All Geographies", "district", "maz"]
+    assert list(page.geo_level_sel.options) == [
+        "All Geography Types",
+        "District",
+        "MAZ",
+    ]
 
 
 def test_shadow_pricing_geo_selector_shows_detailed_levels_when_enabled(
     tmp_path: Path,
 ) -> None:
-    config = _write_config(tmp_path, visualizer_lines=["enable_maz_geographies: true"])
+    config = _write_config(tmp_path, dashboard_lines=["enable_maz_geographies: true"])
     summary_run = _summary_run_with_tables(
         label="Base",
         weighted={
@@ -3529,7 +4129,11 @@ def test_shadow_pricing_geo_selector_shows_detailed_levels_when_enabled(
     page = ShadowPricingPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.geo_level_sel.options) == ["All Geographies", "district", "maz"]
+    assert list(page.geo_level_sel.options) == [
+        "All Geography Types",
+        "District",
+        "MAZ",
+    ]
 
 
 def test_shadow_pricing_page_uses_residual_histograms_and_filters_school_student_type(
@@ -3664,19 +4268,19 @@ def test_shadow_pricing_page_uses_residual_histograms_and_filters_school_student
 
     page = ShadowPricingPage(state, config)
     page.refresh(force=True)
-    page.geo_level_sel.value = "district"
+    page.geo_level_sel.value = "District"
     page.refresh(force=True)
 
     workplace_plot = next(
         plot
-        for plot in _collect_plotly_panes(page._workplace_section)
+        for plot in _collect_plotly_panes(page._workplace_plot_section)
         if plot.object.layout.title.text == "Workplace Residual Distribution"
     )
     initial_x = [list(trace.x) for trace in workplace_plot.object.data]
 
     workplace_plot = next(
         plot
-        for plot in _collect_plotly_panes(page._workplace_section)
+        for plot in _collect_plotly_panes(page._workplace_plot_section)
         if plot.object.layout.title.text == "Workplace Residual Distribution"
     )
     district_x = [list(trace.x) for trace in workplace_plot.object.data]
@@ -3687,17 +4291,19 @@ def test_shadow_pricing_page_uses_residual_histograms_and_filters_school_student
 
     workplace_plot = next(
         plot
-        for plot in _collect_plotly_panes(page._workplace_section)
+        for plot in _collect_plotly_panes(page._workplace_plot_section)
         if plot.object.layout.title.text == "Workplace Residual Distribution"
     )
-    assert workplace_plot.object.layout.xaxis.title.text == "Residual (Modeled - Target)"
+    assert (
+        workplace_plot.object.layout.xaxis.title.text == "Residual (Modeled - Target)"
+    )
     assert [list(trace.x) for trace in workplace_plot.object.data] == district_x
     assert workplace_plot.object.layout.yaxis.title.text == "Percent of Geographies (%)"
 
     page.student_type_sel.value = "University"
     page.refresh(force=True)
 
-    school_tables = _collect_tabulators(page._school_section)
+    school_tables = _collect_tabulators(page._school_table_section)
     school_df = pl.from_pandas(school_tables[0].value)
     assert set(school_df["student_type"].to_list()) == {"University"}
     assert school_df["percent_error"].to_list()[0].endswith("%")
@@ -3743,8 +4349,22 @@ def test_shadow_pricing_school_all_student_type_uses_upstream_rollup_histogram(
             ),
             "school_shadow_pricing_residual_histogram": pl.DataFrame(
                 {
-                    "geography_type": ["district", "district", "district", "district", "district", "district"],
-                    "student_type": ["School", "School", "University", "University", "All", "All"],
+                    "geography_type": [
+                        "district",
+                        "district",
+                        "district",
+                        "district",
+                        "district",
+                        "district",
+                    ],
+                    "student_type": [
+                        "School",
+                        "School",
+                        "University",
+                        "University",
+                        "All",
+                        "All",
+                    ],
                     "bin_start": [-2.0, 0.0, -2.0, 0.0, -2.0, 0.0],
                     "bin_end": [0.0, 2.0, 0.0, 2.0, 0.0, 2.0],
                     "geography_count": [3.0, 1.0, 2.0, 4.0, 5.0, 5.0],
@@ -3760,17 +4380,88 @@ def test_shadow_pricing_school_all_student_type_uses_upstream_rollup_histogram(
 
     page = ShadowPricingPage(state, config)
     page.refresh(force=True)
-    page.geo_level_sel.value = "district"
+    page.geo_level_sel.value = "District"
     page.student_type_sel.value = "All"
     page.refresh(force=True)
 
     school_plot = next(
         plot
-        for plot in _collect_plotly_panes(page._school_section)
+        for plot in _collect_plotly_panes(page._school_plot_section)
         if plot.object.layout.title.text == "School Residual Distribution"
     )
     assert list(school_plot.object.data[0].x) == [-2.0, 0.0]
     assert list(school_plot.object.data[0].y) == [5.0, 5.0]
+
+
+def test_shadow_pricing_tables_display_friendly_geography_columns(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "workplace_shadow_pricing_residuals": pl.DataFrame(
+                {
+                    "geography_type": ["all_geographies", "district"],
+                    "geography_id": ["all_geographies", "north_zone"],
+                    "target_count": [10.0, 4.0],
+                    "modeled_count": [9.0, 5.0],
+                    "residual_count": [-1.0, 1.0],
+                    "absolute_residual_count": [1.0, 1.0],
+                    "percent_error": [-10.0, 25.0],
+                }
+            ),
+            "workplace_shadow_pricing_residual_histogram": pl.DataFrame(
+                {
+                    "geography_type": ["district"],
+                    "bin_start": [-2.0],
+                    "bin_end": [0.0],
+                    "geography_count": [1.0],
+                }
+            ),
+            "school_shadow_pricing_residuals": pl.DataFrame(
+                {
+                    "geography_type": ["district"],
+                    "geography_id": ["school_zone"],
+                    "student_type": ["School"],
+                    "target_count": [8.0],
+                    "modeled_count": [7.0],
+                    "residual_count": [-1.0],
+                    "absolute_residual_count": [1.0],
+                    "percent_error": [-12.5],
+                }
+            ),
+            "school_shadow_pricing_residual_histogram": pl.DataFrame(
+                {
+                    "geography_type": ["district"],
+                    "student_type": ["School"],
+                    "bin_start": [-2.0],
+                    "bin_end": [0.0],
+                    "geography_count": [1.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+    page = ShadowPricingPage(state, config)
+    page.refresh(force=True)
+
+    workplace = page.render_workplace_table(
+        summary_run.summaries_by_mode["weighted"]["workplace_shadow_pricing_residuals"]
+    )
+    school = page.render_school_table(
+        summary_run.summaries_by_mode["weighted"]["school_shadow_pricing_residuals"]
+    )
+
+    assert workplace.columns[:2] == ["Geography Type", "Geography Name"]
+    assert workplace["Geography Type"].to_list() == ["All Geographies", "District"]
+    assert workplace["Geography Name"].to_list() == ["All Geographies", "North Zone"]
+    assert school.columns[:2] == ["Geography Type", "Geography Name"]
+    assert school["Geography Type"].to_list() == ["District"]
+    assert school["Geography Name"].to_list() == ["School Zone"]
 
 
 def test_shadow_pricing_all_geographies_shows_point_mass_cards_instead_of_plots(
@@ -3830,8 +4521,8 @@ def test_shadow_pricing_all_geographies_shows_point_mass_cards_instead_of_plots(
     page = ShadowPricingPage(state, config)
     page.refresh(force=True)
 
-    workplace_cards = _collect_cards(page._workplace_section)
-    school_cards = _collect_cards(page._school_section)
+    workplace_cards = _collect_cards(page._workplace_plot_section)
+    school_cards = _collect_cards(page._school_plot_section)
     assert any(
         getattr(card, "title", "") == "Workplace Residual Distribution Unavailable"
         and "point mass" in str(card.objects[0].object)
@@ -3844,10 +4535,10 @@ def test_shadow_pricing_all_geographies_shows_point_mass_cards_instead_of_plots(
         for card in school_cards
         if getattr(card, "objects", None)
     )
-    assert _collect_plotly_panes(page._workplace_section) == []
-    assert _collect_plotly_panes(page._school_section) == []
-    assert _collect_tabulators(page._workplace_section) != []
-    assert _collect_tabulators(page._school_section) != []
+    assert _collect_plotly_panes(page._workplace_plot_section) == []
+    assert _collect_plotly_panes(page._school_plot_section) == []
+    assert _collect_tabulators(page._workplace_table_section) != []
+    assert _collect_tabulators(page._school_table_section) != []
 
 
 def test_park_and_ride_location_page_uses_residual_plot_and_table(
@@ -3886,7 +4577,7 @@ def test_park_and_ride_location_page_uses_residual_plot_and_table(
 
     page = ParkAndRideLocationPage(state, config)
     page.refresh(force=True)
-    page.geo_level_sel.value = "district"
+    page.geo_level_sel.value = "District"
     page.refresh(force=True)
 
     plot = next(
@@ -3899,6 +4590,9 @@ def test_park_and_ride_location_page_uses_residual_plot_and_table(
     tables = _collect_tabulators(page._table_section)
     assert tables != []
     table_df = pl.from_pandas(tables[0].value)
+    assert table_df.columns[:2] == ["Geography Type", "Geography Name"]
+    assert table_df["Geography Type"].to_list() == ["District", "District"]
+    assert table_df["Geography Name"].to_list() == ["North", "South"]
     assert table_df["percent_error"].to_list()[0].endswith("%")
 
 
@@ -3948,7 +4642,7 @@ def test_park_and_ride_location_all_geographies_and_maz_table_behavior(
     assert _collect_plotly_panes(page._plot_section) == []
     assert _collect_tabulators(page._table_section) != []
 
-    page.geo_level_sel.value = "maz"
+    page.geo_level_sel.value = "MAZ"
     page.refresh(force=True)
 
     cards = _collect_cards(page._table_section)
@@ -4005,6 +4699,7 @@ def test_mandatory_location_choice_external_workplace_aggregate_percent_uses_all
         for plot in plots
         if plot.object.layout.title.text == "External Worker Workplace Location"
     )
+    assert list(external_plot.object.data[0].x) == ["All Geographies"]
     assert list(external_plot.object.data[0].y) == [25.0]
 
 
@@ -4031,21 +4726,20 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
                     "all_worker_count": [4.0],
                 }
             ),
-            "commuting_flows": pl.DataFrame(
-                {
-                    "origin_geography_type": ["all_geographies"],
-                    "origin_geography_id": ["all_geographies"],
-                    "destination_geography_type": ["all_geographies"],
-                    "destination_geography_id": ["all_geographies"],
-                    "commuter_count": [4.0],
-                }
-            ),
             "work_location_distance_distribution_by_geography": pl.DataFrame(
                 {
-                    "distance_bin": [1, 2],
-                    "geography_type": ["all_geographies", "all_geographies"],
-                    "geography_id": ["all_geographies", "all_geographies"],
-                    "person_count": [6.0, 4.0],
+                    "distance_bin": [1, 40, 41],
+                    "geography_type": [
+                        "all_geographies",
+                        "all_geographies",
+                        "all_geographies",
+                    ],
+                    "geography_id": [
+                        "all_geographies",
+                        "all_geographies",
+                        "all_geographies",
+                    ],
+                    "person_count": [6.0, 1.0, 3.0],
                 }
             ),
             "school_location_distance_distribution_by_geography": pl.DataFrame(
@@ -4117,9 +4811,6 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
         page._worker_section
     )
     assert page.view.objects.index(page._worker_section) < page.view.objects.index(
-        page._commuting_flows_section
-    )
-    assert page.view.objects.index(page._commuting_flows_section) < page.view.objects.index(
         page._mandatory_distance_table_section
     )
 
@@ -4129,14 +4820,87 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
         "School Location Distance Distribution",
         "University Location Distance Distribution",
     ]
-    comparison_table = _collect_tabulators(page._mandatory_distance_table_section)[0].value
-    assert comparison_table.columns.tolist() == ["Mandatory Tour Purpose", "Base"]
+    worker_table = _collect_tabulators(page._worker_section)[0].value
+    assert worker_table.columns.tolist()[:2] == [
+        "Geography Type",
+        "Geography Name",
+    ]
+    assert worker_table["Geography Type"].tolist() == ["All Geographies"]
+    assert worker_table["Geography Name"].tolist() == ["All Geographies"]
+    assert page.mandatory_distance_range.min_widget.disabled is False
+    assert page.mandatory_distance_range.max_widget.disabled is False
+    assert page.mandatory_distance_range.current_range() == (0.0, 40.0)
+    assert list(distance_plots[0].object.data[0].x) == [1.0, 40.0]
+    assert list(distance_plots[0].object.layout.xaxis.ticktext) == [
+        "0",
+        "2",
+        "4",
+        "6",
+        "8",
+        "10",
+        "12",
+        "14",
+        "16",
+        "18",
+        "20",
+        "22",
+        "24",
+        "26",
+        "28",
+        "30",
+        "32",
+        "34",
+        "36",
+        "38",
+        "40+",
+    ]
+    assert list(distance_plots[0].object.layout.xaxis.range) == [0.0, 40.0]
+    assert list(distance_plots[0].object.data[0].y) == [60.0, 40.0]
+    page.mandatory_distance_range.min_widget.value = 2.0
+    page.mandatory_distance_range.max_widget.value = "10"
+    page.refresh(force=True)
+    ranged_plot = _collect_plotly_panes(page._distance_section)[0]
+    assert list(ranged_plot.object.layout.xaxis.range) == [2.0, 10.0]
+    page.mandatory_distance_range.reset()
+    page.refresh(force=True)
+    reset_plot = _collect_plotly_panes(page._distance_section)[0]
+    assert list(reset_plot.object.layout.xaxis.range) == [0.0, 40.0]
+    page.mandatory_distance_range.min_widget.value = 10.0
+    page.mandatory_distance_range.max_widget.value = "2"
+    page.refresh(force=True)
+    assert any(
+        card.title == "Mandatory Location Distance Data Not Available"
+        for card in _collect_cards(page._distance_section)
+    )
+    comparison_table = _collect_tabulators(page._mandatory_distance_table_section)[
+        0
+    ].value
+    comparison_tabs = _collect_tabs(page._mandatory_distance_table_section)[0]
+    assert list(comparison_tabs._names) == ["Base"]
+    assert comparison_table.columns.tolist() == [
+        "Mandatory Tour Purpose",
+        "Average Mandatory Tour Distance",
+        "Base Run Average Mandatory Tour Distance",
+        "Difference",
+        "% Difference",
+    ]
     assert comparison_table["Mandatory Tour Purpose"].tolist() == [
         "work",
         "school",
         "university",
     ]
-    assert comparison_table["Base"].tolist() == ["0.00%", "0.00%", "0.00%"]
+    assert comparison_table["Average Mandatory Tour Distance"].tolist() == [
+        "8",
+        "4",
+        "10",
+    ]
+    assert comparison_table["Base Run Average Mandatory Tour Distance"].tolist() == [
+        "8",
+        "4",
+        "10",
+    ]
+    assert comparison_table["Difference"].tolist() == ["0", "0", "0"]
+    assert comparison_table["% Difference"].tolist() == ["0.00%", "0.00%", "0.00%"]
 
 
 def test_mandatory_location_choice_supports_configured_geography_levels_for_distance_sections(
@@ -4160,15 +4924,6 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
                     "geography_id": ["all_geographies", "North"],
                     "external_worker_count": [1.0, 1.0],
                     "all_worker_count": [4.0, 3.0],
-                }
-            ),
-            "commuting_flows": pl.DataFrame(
-                {
-                    "origin_geography_type": ["all_geographies", "school_district"],
-                    "origin_geography_id": ["all_geographies", "North"],
-                    "destination_geography_type": ["all_geographies", "school_district"],
-                    "destination_geography_id": ["all_geographies", "North"],
-                    "commuter_count": [4.0, 3.0],
                 }
             ),
             "work_location_distance_distribution_by_geography": pl.DataFrame(
@@ -4244,11 +4999,15 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
     page = MandatoryLocationChoicePage(state, config)
     page.refresh(force=True)
 
-    assert "school_district" in list(page.geo_level_sel.options)
+    assert "School District" in list(page.geo_level_sel.options)
     assert list(page.geography_sel.options) == ["All Geographies"]
-    page.geo_level_sel.value = "school_district"
+    page.geo_level_sel.value = "School District"
     page.refresh(force=True)
-    assert list(page.geography_sel.options) == ["All", "North", "South"]
+    assert list(page.geography_sel.options) == [
+        "All School Districts",
+        "North",
+        "South",
+    ]
     page.geography_sel.value = "North"
     page.refresh(force=True)
 
@@ -4261,13 +5020,14 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
         for plot in distance_plots
         if plot.object.layout.title.text == "Workplace Location Distance Distribution"
     )
-    assert list(work_distance_plot.object.data[0].x) == [1, 2]
+    assert list(work_distance_plot.object.data[0].x) == [1.0, 2.0]
     assert list(work_distance_plot.object.data[0].y) == pytest.approx(
         [66.66666666666666, 33.33333333333333]
     )
 
     worker_table = _collect_tabulators(page._worker_section)[0].value
-    assert worker_table["geography"].tolist() == ["North"]
+    assert worker_table["Geography Type"].tolist() == ["School District"]
+    assert worker_table["Geography Name"].tolist() == ["North"]
 
     worker_plots = _collect_plotly_panes(page._worker_section)
     external_workplace_plot = next(
@@ -4277,14 +5037,12 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
     )
     assert list(external_workplace_plot.object.data[0].x) == ["North"]
 
-    commuting_table = _collect_tabulators(page._commuting_flows_section)[0].value
-    assert commuting_table["origin_geography_id"].tolist() == ["North"]
-
     remote_work_plots = _collect_plotly_panes(page._remote_work_section)
     wfh_plot = next(
         plot
         for plot in remote_work_plots
-        if plot.object.layout.title.text in {
+        if plot.object.layout.title.text
+        in {
             "Work From Home Rate by Geography",
             "Workers Working From Home by Geography",
         }
@@ -4297,9 +5055,30 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
     )
     assert list(telecommute_plot.object.data[0].x) == ["never", "often"]
 
-    comparison_table = _collect_tabulators(page._mandatory_distance_table_section)[0].value
-    assert comparison_table.columns.tolist() == ["Mandatory Tour Purpose", "Base"]
-    assert comparison_table["Base"].tolist() == ["0.00%", "0.00%", "0.00%"]
+    comparison_table = _collect_tabulators(page._mandatory_distance_table_section)[
+        0
+    ].value
+    comparison_tabs = _collect_tabs(page._mandatory_distance_table_section)[0]
+    assert list(comparison_tabs._names) == ["Base"]
+    assert comparison_table.columns.tolist() == [
+        "Mandatory Tour Purpose",
+        "Average Mandatory Tour Distance",
+        "Base Run Average Mandatory Tour Distance",
+        "Difference",
+        "% Difference",
+    ]
+    assert comparison_table["Average Mandatory Tour Distance"].tolist() == [
+        "8",
+        "4",
+        "10",
+    ]
+    assert comparison_table["Base Run Average Mandatory Tour Distance"].tolist() == [
+        "8",
+        "4",
+        "10",
+    ]
+    assert comparison_table["Difference"].tolist() == ["0", "0", "0"]
+    assert comparison_table["% Difference"].tolist() == ["0.00%", "0.00%", "0.00%"]
 
     page.geography_sel.value = "South"
     page.refresh(force=True)
@@ -4340,7 +5119,10 @@ def test_mandatory_location_choice_reuses_collected_data_on_selector_changes(
                 {
                     "origin_geography_type": ["all_geographies", "school_district"],
                     "origin_geography_id": ["all_geographies", "North"],
-                    "destination_geography_type": ["all_geographies", "school_district"],
+                    "destination_geography_type": [
+                        "all_geographies",
+                        "school_district",
+                    ],
                     "destination_geography_id": ["all_geographies", "North"],
                     "commuter_count": [4.0, 3.0],
                 }
@@ -4415,14 +5197,14 @@ def test_mandatory_location_choice_reuses_collected_data_on_selector_changes(
     page.refresh(force=True)
     assert call_count == 1
 
-    page.geo_level_sel.value = "school_district"
+    page.geo_level_sel.value = "School District"
     assert call_count == 1
 
     page.geography_sel.value = "North"
     assert call_count == 1
 
 
-def test_traffic_validation_shared_selectors_use_common_summary_options(
+def test_traffic_validation_removes_direction_period_selectors_and_count_card(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -4457,8 +5239,243 @@ def test_traffic_validation_shared_selectors_use_common_summary_options(
     page = TrafficValidationPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.direction_sel.options) == ["All", "outbound"]
-    assert list(page.count_period_sel.options) == ["All", "AM"]
+    assert [selector.selector_id for selector in page.registered_selectors] == [
+        "demo_period",
+        "demo_facility_type",
+        "demo_top_period",
+        "demo_top_n",
+    ]
+    assert page.demo_period_sel.name == "Period"
+    assert page.demo_top_period_sel.name == "Period"
+    assert not hasattr(page, "direction_sel")
+    assert not hasattr(page, "count_period_sel")
+    assert page.view.objects[2].object == "### Traffic Volume Summaries"
+    assert list(page.view.objects[3].objects) == [
+        page.demo_period_sel,
+        page.demo_facility_sel,
+    ]
+    sections = {section.section_id: section for section in page.registered_sections}
+    assert sections["facility_summaries.body"].selector_ids == ()
+    assert sections["observed_model_fit.body"].selector_ids == (
+        "demo_period",
+        "demo_facility_type",
+    )
+    assert sections["link_tables.volume"].selector_ids == ("demo_period",)
+    assert page.view.objects[-2].object == "### Screenline Flow Summaries"
+    plot_titles = [
+        plot.object.layout.title.text
+        for plot in _collect_plotly_panes(page._screenline_body)
+    ]
+    assert plot_titles == ["Screenline Flow Comparisons"]
+
+
+def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "display:",
+            "  labels:",
+            "    facility_type:",
+            "      mapping:",
+            "        4: Minor Arterial",
+            "        3: Principal Arterial",
+        ],
+    )
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "traffic_count_comparisons": pl.DataFrame(
+                {
+                    "direction": ["outbound"],
+                    "count_period": ["AM"],
+                    "count_location_id": ["1"],
+                    "observed_volume": [10.0],
+                    "modeled_volume": [11.0],
+                }
+            ),
+            "screenline_flow_comparisons": pl.DataFrame(
+                {
+                    "direction": ["outbound"],
+                    "count_period": ["AM"],
+                    "screenline_id": ["A"],
+                    "observed_volume": [15.0],
+                    "modeled_volume": [14.0],
+                }
+            ),
+            "link_validation_summary": pl.DataFrame(
+                {
+                    "id": [1, 2],
+                    "From_Node": [100, 101],
+                    "To_Node": [200, 201],
+                    "FACTYPE": [3, 4],
+                    "am_vol": [10.0, 20.0],
+                    "md_vol": [0.0, 0.0],
+                    "pm_vol": [0.0, 0.0],
+                    "day_vol": [100.0, 200.0],
+                }
+            ),
+            "count_location_counts_validation_summary": pl.DataFrame(
+                {
+                    "id": [1, 2],
+                    "FACTYPE": [3, 4],
+                    "am_vol": [10.0, 20.0],
+                    "md_vol": [0.0, 0.0],
+                    "pm_vol": [0.0, 0.0],
+                    "day_vol": [100.0, 200.0],
+                }
+            ),
+            "count_location_volumes_validation_summary": pl.DataFrame(
+                {
+                    "id": [1, 2],
+                    "FACTYPE": [3, 4],
+                    "am_vol": [11.0, 21.0],
+                    "md_vol": [0.0, 0.0],
+                    "pm_vol": [0.0, 0.0],
+                    "day_vol": [110.0, 210.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = TrafficValidationPage(state, config)
+    page.refresh(force=True)
+    assert list(page.demo_facility_sel.options) == [
+        "All",
+        "Minor Arterial",
+        "Principal Arterial",
+    ]
+    assert page.demo_top_n_sel.name == "Top N by Modeled Volume"
+    page.demo_period_sel.value = "AM"
+    page.demo_facility_sel.value = "Principal Arterial"
+    page.refresh(force=True)
+
+    tables = _collect_tabulators(page._external_top_body)
+    tabs = _collect_tabs(page._external_top_body)
+    assert len(tables) == 1
+    assert list(tabs[-1]._names) == ["Base"]
+    table = tables[0].value
+    assert table.columns.tolist() == [
+        "link_id",
+        "facility_type",
+        "From_Node",
+        "To_Node",
+        "Observed Link Volume",
+        "Modeled Link Volume",
+        "Difference",
+        "% Difference",
+    ]
+    assert tables[0].titles["link_id"] == "Link ID"
+    assert table.to_dict("records") == [
+        {
+            "link_id": "1",
+            "facility_type": "Principal Arterial",
+            "From_Node": "100",
+            "To_Node": "200",
+            "Observed Link Volume": "100",
+            "Modeled Link Volume": "110",
+            "Difference": "10",
+            "% Difference": "10.00%",
+        }
+    ]
+    assert tables[0]._configuration == {
+        "columns": [{"field": "Difference", "sorter": "number"}]
+    }
+    assert page.view.objects[2].object == "### Traffic Volume Summaries"
+    assert list(page.view.objects[3].objects) == [
+        page.demo_period_sel,
+        page.demo_facility_sel,
+    ]
+    facility_tables = _collect_tabulators(page._facility_summary_body)
+    assert len(facility_tables) == 1
+    facility_table = facility_tables[0].value
+    assert facility_table.columns.tolist() == [
+        "Facility Type",
+        "n",
+        "Total Observed Count",
+        "Total Modeled Count",
+        "% Difference",
+        "RMSE",
+        "R^2",
+    ]
+    assert facility_table.to_dict("records") == [
+        {
+            "Facility Type": "Minor Arterial",
+            "n": "1",
+            "Total Observed Count": "200",
+            "Total Modeled Count": "210",
+            "% Difference": "5.00%",
+            "RMSE": "10",
+            "R^2": None,
+        },
+        {
+            "Facility Type": "Principal Arterial",
+            "n": "1",
+            "Total Observed Count": "100",
+            "Total Modeled Count": "110",
+            "% Difference": "10.00%",
+            "RMSE": "10",
+            "R^2": None,
+        },
+    ]
+    assert facility_tables[0]._configuration == {
+        "columns": [
+            {"field": "n", "sorter": "number"},
+            {"field": "RMSE", "sorter": "number"},
+            {"field": "R^2", "sorter": "number"},
+        ]
+    }
+    assert any(
+        isinstance(obj, pn.pane.Markdown)
+        and obj.object == "### Top Count Locations by Modeled Volume"
+        for obj in page.view.objects
+    )
+    top_count_section = page._external_top_body
+    assert (
+        top_count_section.objects[0].object
+        == "#### Observed vs Modeled Volumes - Day (Top 25 by Modeled Volume)"
+    )
+    plot_titles = [
+        plot.object.layout.title.text
+        for plot in _collect_plotly_panes(page._external_volume_body)
+        + _collect_plotly_panes(page._link_volume_body)
+        + _collect_plotly_panes(page._screenline_body)
+    ]
+    bar_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._link_volume_body)
+        if plot.object.layout.title.text == "Link Volume by Facility Type - AM"
+    )
+    count_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._external_volume_body)
+        if plot.object.layout.title.text == "Count Location Observed vs Modeled - AM"
+    )
+    reference_line = count_plot.object.data[-1]
+
+    assert reference_line.name == "1:1 line"
+    assert list(reference_line.x) == [0.0, 11.0]
+    assert list(reference_line.y) == [0.0, 11.0]
+    assert reference_line.line.color == "#BDBDBD"
+    assert reference_line.line.dash == "dash"
+    assert reference_line.showlegend is False
+    assert count_plot.sizing_mode == "scale_width"
+    assert count_plot.aspect_ratio == 1.0
+    assert list(bar_plot.object.data[0].x) == [
+        "Minor Arterial",
+        "Principal Arterial",
+    ]
+    assert bar_plot.object.layout.showlegend is True
+    assert bar_plot.object.data[0].name == "Base"
+    assert plot_titles[-1] == "Screenline Flow Comparisons"
+    assert "Traffic Count Comparisons" not in plot_titles
+    assert "Demo Link Volume by Facility Type - Day" not in plot_titles
+    assert "Link Volume by Facility Type - AM" in plot_titles
 
 
 def test_transit_validation_technology_selector_uses_common_summary_options(
@@ -4560,10 +5577,37 @@ def test_tour_distance_chart_casts_distance_bins_consistently_across_runs(
     page = TourDistancePage(state, config)
     page.refresh(force=True)
 
-    plot = next(obj for obj in page._distance_section.objects if isinstance(obj, pn.pane.Plotly))
+    plot = next(
+        obj for obj in page._distance_section.objects if isinstance(obj, pn.pane.Plotly)
+    )
     traces = {trace.name: list(trace.x) for trace in plot.object.data}
-    assert traces["A"] == ["0", "1"]
-    assert traces["B"] == ["0"]
+    assert traces["A"] == [0.0, 1.0]
+    assert traces["B"] == [0.0]
+    assert list(plot.object.layout.xaxis.ticktext) == [
+        *[str(value) for value in range(0, 40, 2)],
+        "40+",
+    ]
+    assert list(plot.object.layout.xaxis.range) == [0.0, 40.0]
+    page.tour_distance_range.min_widget.value = 0.25
+    page.tour_distance_range.max_widget.value = "1"
+    page.refresh(force=True)
+    ranged_plot = next(
+        obj for obj in page._distance_section.objects if isinstance(obj, pn.pane.Plotly)
+    )
+    assert list(ranged_plot.object.layout.xaxis.range) == [0.25, 1.0]
+    page.tour_distance_range.reset()
+    page.refresh(force=True)
+    reset_plot = next(
+        obj for obj in page._distance_section.objects if isinstance(obj, pn.pane.Plotly)
+    )
+    assert list(reset_plot.object.layout.xaxis.range) == [0.0, 40.0]
+    page.tour_distance_range.min_widget.value = 1.0
+    page.tour_distance_range.max_widget.value = "1"
+    page.refresh(force=True)
+    assert any(
+        card.title == "Tour Distance Data Not Available"
+        for card in _collect_cards(page._distance_section)
+    )
 
 
 def test_tour_distance_nonmandatory_average_table_compares_to_base_run(
@@ -4634,25 +5678,49 @@ def test_tour_distance_nonmandatory_average_table_compares_to_base_run(
     page = TourDistancePage(state, config)
     page.refresh(force=True)
 
-    page.geo_level_sel.value = "district"
+    page.geo_level_sel.value = "District"
     page.refresh(force=True)
-    assert list(page.geography_sel.options) == ["All", "North"]
+    assert list(page.geography_sel.options) == ["All Districts", "North"]
     page.geography_sel.value = "North"
     page.refresh(force=True)
 
     tables = _collect_tabulators(page._average_section)
-    comparison_table = tables[0].value
-    assert comparison_table.columns.tolist() == [
+    comparison_tabs = _collect_tabs(page._average_section)[0]
+    assert list(comparison_tabs._names) == ["Base", "Build"]
+    assert len(tables) == 2
+    base_table = tables[0].value
+    build_table = tables[1].value
+    expected_columns = [
         "Non-Mandatory Tour Purpose",
-        "Base",
-        "Build",
+        "Average Non-Mandatory Tour Distance",
+        "Base Run Average Non-Mandatory Tour Distance",
+        "Difference",
+        "% Difference",
     ]
-    assert comparison_table["Non-Mandatory Tour Purpose"].tolist() == [
+    assert base_table.columns.tolist() == expected_columns
+    assert build_table.columns.tolist() == expected_columns
+    assert base_table["Non-Mandatory Tour Purpose"].tolist() == [
         "shopping",
         "eatout",
     ]
-    assert comparison_table["Base"].tolist() == ["0.00%", "0.00%"]
-    assert comparison_table["Build"].tolist() == ["25.00%", "-25.00%"]
+    assert build_table["Non-Mandatory Tour Purpose"].tolist() == [
+        "shopping",
+        "eatout",
+    ]
+    assert base_table["Average Non-Mandatory Tour Distance"].tolist() == ["4", "8"]
+    assert base_table["Base Run Average Non-Mandatory Tour Distance"].tolist() == [
+        "4",
+        "8",
+    ]
+    assert base_table["Difference"].tolist() == ["0", "0"]
+    assert base_table["% Difference"].tolist() == ["0.00%", "0.00%"]
+    assert build_table["Average Non-Mandatory Tour Distance"].tolist() == ["5", "6"]
+    assert build_table["Base Run Average Non-Mandatory Tour Distance"].tolist() == [
+        "4",
+        "8",
+    ]
+    assert build_table["Difference"].tolist() == ["1", "2"]
+    assert build_table["% Difference"].tolist() == ["25.00%", "-25.00%"]
 
 
 def test_tour_distance_nonmandatory_average_table_filters_to_selected_geography(
@@ -4722,21 +5790,32 @@ def test_tour_distance_nonmandatory_average_table_filters_to_selected_geography(
 
     page = TourDistancePage(state, config)
     page.refresh(force=True)
-    page.geo_level_sel.value = "district"
+    page.geo_level_sel.value = "District"
     page.refresh(force=True)
-    assert list(page.geography_sel.options) == ["All", "North", "South"]
+    assert list(page.geography_sel.options) == ["All Districts", "North", "South"]
 
     page.geography_sel.value = "South"
     page.refresh(force=True)
 
-    comparison_table = _collect_tabulators(page._average_section)[0].value
-    assert comparison_table["Non-Mandatory Tour Purpose"].tolist() == ["shopping"]
-    assert comparison_table["Base"].tolist() == ["0.00%"]
-    assert comparison_table["Build"].tolist() == ["50.00%"]
+    comparison_tabs = _collect_tabs(page._average_section)[0]
+    assert list(comparison_tabs._names) == ["Base", "Build"]
+    tables = _collect_tabulators(page._average_section)
+    base_table = tables[0].value
+    build_table = tables[1].value
+    assert base_table["Non-Mandatory Tour Purpose"].tolist() == ["shopping"]
+    assert build_table["Non-Mandatory Tour Purpose"].tolist() == ["shopping"]
+    assert base_table["Average Non-Mandatory Tour Distance"].tolist() == ["8"]
+    assert base_table["Base Run Average Non-Mandatory Tour Distance"].tolist() == ["8"]
+    assert base_table["Difference"].tolist() == ["0"]
+    assert base_table["% Difference"].tolist() == ["0.00%"]
+    assert build_table["Average Non-Mandatory Tour Distance"].tolist() == ["12"]
+    assert build_table["Base Run Average Non-Mandatory Tour Distance"].tolist() == ["8"]
+    assert build_table["Difference"].tolist() == ["4"]
+    assert build_table["% Difference"].tolist() == ["50.00%"]
 
 
 def test_bar_chart_pins_category_order_from_input_sequence() -> None:
-    chart = bar_chart(
+    chart = Plotter(RenderContext()).bar(
         [
             (
                 "Base",
@@ -4748,8 +5827,8 @@ def test_bar_chart_pins_category_order_from_input_sequence() -> None:
                 ),
             )
         ],
-        x_col="fuel_type",
-        y_col="vehicle_count",
+        x="fuel_type",
+        y="vehicle_count",
     )
 
     category_array = list(chart.object.layout.xaxis.categoryarray)
@@ -4768,11 +5847,12 @@ def test_tour_time_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None
                         "all_tour_purposes",
                         "work",
                         "work",
+                        "work",
                     ],
-                    "time_bin": [1, 2, 1, 2],
-                    "departure_tour_count": [5.0, 6.0, 3.0, 4.0],
-                    "arrival_tour_count": [4.0, 5.0, 2.0, 3.0],
-                    "duration_tour_count": [2.0, 3.0, 1.0, 2.0],
+                    "time_bin": [1, 2, 1, 2, 48],
+                    "departure_tour_count": [5.0, 6.0, 3.0, 4.0, 0.0],
+                    "arrival_tour_count": [4.0, 5.0, 2.0, 3.0, 0.0],
+                    "duration_tour_count": [2.0, 3.0, 1.0, 2.0, 0.0],
                 }
             ),
         },
@@ -4789,6 +5869,13 @@ def test_tour_time_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None
     page.purpose_sel.value = "work"
     page.refresh(force=True)
     assert page._body.objects
+    departure_chart = _collect_plotly_panes(page._body)[0]
+    assert list(departure_chart.object.data[0].x)[:2] == ["03:00", "03:30"]
+    assert list(departure_chart.object.layout.xaxis.tickvals) == ["03:00"]
+    assert list(departure_chart.object.layout.xaxis.ticktext) == ["3:00"]
+    departure_hover = str(departure_chart.object.data[0].customdata[0])
+    assert "Clock Time: 03:00" in departure_hover
+    assert "start at 03:00" not in departure_hover
 
 
 def test_vehicle_ownership_type_live_page_uses_shared_summary_helpers(
@@ -4800,8 +5887,9 @@ def test_vehicle_ownership_type_live_page_uses_shared_summary_helpers(
         weighted={
             "auto_ownership_distribution": pl.DataFrame(
                 {
-                    "household_vehicle_count": [0, 1],
-                    "household_count": [12.0, 18.0],
+                    "household_size": ["1", "1", "5+", "5+"],
+                    "household_vehicle_count": [0, 5, 4, 5],
+                    "household_count": [12.0, 6.0, 8.0, 10.0],
                 }
             ),
             "autonomous_vehicle_ownership_totals": pl.DataFrame(
@@ -4874,8 +5962,60 @@ def test_vehicle_ownership_type_live_page_uses_shared_summary_helpers(
         summary_runs=[long_term_summary_run],
         weighting_modes=config.weighting_modes,
     )
+    state.value_mode = "Count"
 
     page = VehicleOwnershipTypePage(state, config)
     page.refresh(force=True)
 
-    assert page._body.objects
+    assert page.view.objects
+    assert list(page.hhsize_sel.options) == ["All", "1", "2", "3", "4", "5+"]
+    auto_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._ownership_section)
+        if str(plot.object.layout.title.text)
+        == "Auto Ownership by Household Size - All"
+    )
+    assert list(auto_plot.object.data[0].x) == ["0", "4+"]
+    assert list(auto_plot.object.data[0].y) == [12.0, 24.0]
+
+    page.hhsize_sel.value = "5+"
+    page.refresh(force=True)
+    filtered_plot = next(
+        plot
+        for plot in _collect_plotly_panes(page._ownership_section)
+        if str(plot.object.layout.title.text) == "Auto Ownership by Household Size - 5+"
+    )
+    assert list(filtered_plot.object.data[0].x) == ["4+"]
+    assert list(filtered_plot.object.data[0].y) == [18.0]
+
+
+def test_vehicle_ownership_type_renders_cards_for_empty_attribute_summaries(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(
+        label="Base",
+        weighted={
+            "auto_ownership_distribution": pl.DataFrame(
+                {
+                    "household_vehicle_count": [1],
+                    "household_count": [12.0],
+                }
+            ),
+        },
+    )
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = VehicleOwnershipTypePage(state, config)
+    page.refresh(force=True)
+
+    assert not _collect_plotly_panes(page._vehicle_mix_section)
+    cards = _collect_cards(page._vehicle_mix_section)
+    assert len(cards) == 3
+    card_text = "\n".join(str(card.objects[0].object) for card in cards if card.objects)
+    assert "vehicle_age_distribution" in card_text
+    assert "vehicle_fuel_type_distribution" in card_text
+    assert "vehicle_body_type_distribution" in card_text

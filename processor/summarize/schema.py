@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-from processor.summarize.contracts import get_summary_contract
-from processor.summarize.summary_specs import SUMMARY_SPECS
+from processor.summarize.catalog import SUMMARY_DEFINITIONS
 
 
 def _columns_for(summary_id: str) -> tuple[str, ...]:
-    for spec in SUMMARY_SPECS:
+    for spec in SUMMARY_DEFINITIONS:
         if spec.summary_id != summary_id:
             continue
-        contract = get_summary_contract(spec.builder)
-        return tuple(contract.schema.keys()) if contract is not None else ()
+        return tuple(spec.contract.schema)
     return ()
 
 
@@ -25,8 +23,8 @@ SUMMARY_OUTPUT_COLUMNS: dict[str, tuple[str, ...]] = {
         "trip_mode_by_tour_purpose_and_tour_mode",
         "tour_mode_by_tour_purpose_and_auto_sufficiency",
         "tour_time_of_day_by_tour_purpose",
-        "destination_distance",
-        "destination_average_distance",
+        "tour_distance_by_tour_purpose",
+        "average_nonmandatory_tour_distance_by_purpose_and_geography",
     )
 }
 

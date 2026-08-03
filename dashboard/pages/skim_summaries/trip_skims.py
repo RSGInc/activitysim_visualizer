@@ -4,29 +4,55 @@ from __future__ import annotations
 
 import panel as pn
 
-from dashboard.components import control_row, data_table, density_chart
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard.rendering import control_row, data_table
+from dashboard import DashboardPage, dashboard_page
 from dashboard.pages.skim_summaries._shared import (
+    ALL_RECORDS_SCENARIO,
+    CHOSEN_MODE_SCENARIO,
     TRIP_STATS_SUMMARY_ID,
     component_options,
     distribution_bins,
     distribution_data_bounds,
     family_stats_table,
     mode_options,
+    skim_scenario_available,
     resolve_distribution_range,
     skim_family_options,
     skim_summary_precision_overrides,
 )
+from dashboard.pages.skim_summaries._page_controls import (
+    repair_selector_options,
+    sync_auto_range_state,
+)
+
+TOP_SELECTOR_ROW_STYLESHEET = """
+:host(.trip-skim-top-selector) {
+  max-width: 240px;
+}
+
+:host(.trip-skim-top-selector-export) {
+  max-width: 190px;
+}
+"""
 
 
+@dashboard_page(
+    page_id="trip_skims",
+    title="Trip Skims",
+    order=51,
+    group_id="skim_summaries",
+    default_enabled=True,
+    prepared_data_mode="optional",
+    required_prepared_tables=("trips",),
+    required_summary_ids=(TRIP_STATS_SUMMARY_ID,),
+)
 class TripSkimsPage(DashboardPage):
     """Summary and live-distribution page for trip skim families."""
 
     def build_page(self) -> pn.viewable.Viewable:
         """Build the skim summary shell and the live-only distribution controls."""
-        trip_stats = self.state.get_summary_series_set(
-            TRIP_STATS_SUMMARY_ID, "weighted"
+        trip_stats = self.data.summary_series(
+            TRIP_STATS_SUMMARY_ID, weighting="weighted"
         )
         trip_family_options = skim_family_options(
             self.config,
@@ -37,6 +63,9 @@ class TripSkimsPage(DashboardPage):
         initial_trip_family = trip_family_options[0]
         trip_component_options = component_options(trip_stats)
         initial_trip_component = trip_component_options[0]
+        trip_scenario_options = ["Chosen Mode"]
+        if skim_scenario_available(trip_stats, ALL_RECORDS_SCENARIO):
+            trip_scenario_options.append("All Trips")
 
         self.trip_family_sel = self.selector(
             "trip_skim_family",
@@ -47,6 +76,17 @@ class TripSkimsPage(DashboardPage):
             ),
             label="Trip Skim Family",
         )
+        self.trip_scenario_sel = self.selector(
+            "trip_skim_scenario",
+            widget=pn.widgets.Select(
+                name="Trip Skim Scenario",
+                options=trip_scenario_options,
+                value=trip_scenario_options[0],
+            ),
+            label="Trip Skim Scenario",
+        )
+        self._apply_top_selector_sizing(self.trip_family_sel)
+        self._apply_top_selector_sizing(self.trip_scenario_sel)
         self.trip_component_sel = self.selector(
             "trip_distribution_component",
             widget=pn.widgets.Select(
@@ -65,6 +105,7 @@ class TripSkimsPage(DashboardPage):
                     trip_stats,
                     mode_column="trip_mode",
                     component=initial_trip_component,
+                    skim_scenario=self._trip_skim_scenario_value(),
                 ),
             ),
             label="Trip Distribution Mode",
@@ -92,14 +133,17 @@ class TripSkimsPage(DashboardPage):
             self.trip_mode_sel.value = self.trip_mode_sel.options[0]
         self.trip_reset_btn.on_click(lambda event: self._reset_distribution_range())
 
-        self._summary_section = self.section(
-            "trip_skim_summary_section",
-            selectors=("trip_skim_family",),
+        summary = self.feature("summary")
+        distribution = self.feature("distribution")
+        self._summary_section = summary.section(
+            "body",
+            selectors=("trip_skim_family", "trip_skim_scenario"),
             render=self.render_summary_section,
         )
-        self._distribution_section = self.section(
-            "trip_skim_distribution_section",
+        self._distribution_section = distribution.section(
+            "body",
             selectors=(
+                "trip_skim_scenario",
                 "trip_distribution_component",
                 "trip_distribution_mode",
                 "trip_min",
@@ -111,8 +155,9 @@ class TripSkimsPage(DashboardPage):
 
         content = [
             pn.pane.Markdown("## Trip Skims"),
-            control_row(self.trip_family_sel),
+            self._top_selector_row(),
             self._summary_section,
+            self.section_note("trip_skims.summary_table", self._summary_section),
         ]
         if not self.state.export_mode:
             content.extend(
@@ -120,20 +165,28 @@ class TripSkimsPage(DashboardPage):
                     pn.pane.Markdown("### Live Trip Distributions"),
                     control_row(self.trip_component_sel, self.trip_mode_sel),
                     self._distribution_section,
+                    self.section_note(
+                        "trip_skims.distribution", self._distribution_section
+                    ),
                 ]
             )
         return self.new_section(*content)
 
     def _trip_summaries(self):
         """Return the skim trip statistics for the current weighting mode."""
-        return self.state.get_summary_series_set(
-            TRIP_STATS_SUMMARY_ID,
-            self.weighting_key,
-        )
+        return self.data.summary_series(TRIP_STATS_SUMMARY_ID)
 
     def _trip_prepared_runs(self):
         """Return prepared runs in the weighting mode expected by distribution charts."""
-        return self.get_prepared_runs(weighted=(self.weighting_key == "weighted"))
+        return self.data.prepared_runs(weighting_mode=self.weighting_key)
+
+    def _trip_skim_scenario_value(self) -> str:
+        return (
+            ALL_RECORDS_SCENARIO
+            if getattr(self, "trip_scenario_sel", None) is not None
+            and self.trip_scenario_sel.value == "All Trips"
+            else CHOSEN_MODE_SCENARIO
+        )
 
     def sync_controls(self) -> None:
         """Keep family, component, mode, and x-range controls in sync."""
@@ -145,23 +198,23 @@ class TripSkimsPage(DashboardPage):
             mode_column="trip_mode",
             target_table="trips",
         )
-        self.trip_family_sel.options = trip_family_options
-        if self.trip_family_sel.value not in trip_family_options:
-            self.trip_family_sel.value = trip_family_options[0]
+        repair_selector_options(self.trip_family_sel, trip_family_options)
+
+        trip_scenario_options = ["Chosen Mode"]
+        if skim_scenario_available(trip_stats, ALL_RECORDS_SCENARIO):
+            trip_scenario_options.append("All Trips")
+        repair_selector_options(self.trip_scenario_sel, trip_scenario_options)
 
         trip_component_options = component_options(trip_stats)
-        self.trip_component_sel.options = trip_component_options
-        if self.trip_component_sel.value not in trip_component_options:
-            self.trip_component_sel.value = trip_component_options[0]
+        repair_selector_options(self.trip_component_sel, trip_component_options)
 
         trip_mode_options = mode_options(
             trip_stats,
             mode_column="trip_mode",
             component=self.trip_component_sel.value,
+            skim_scenario=self._trip_skim_scenario_value(),
         )
-        self.trip_mode_sel.options = trip_mode_options
-        if self.trip_mode_sel.value not in trip_mode_options:
-            self.trip_mode_sel.value = trip_mode_options[0]
+        repair_selector_options(self.trip_mode_sel, trip_mode_options)
 
         self._sync_distribution_range_controls()
 
@@ -171,6 +224,7 @@ class TripSkimsPage(DashboardPage):
             self.trip_component_sel.value,
             self.trip_mode_sel.value,
             self.weighting_key,
+            self._trip_skim_scenario_value(),
         )
         bounds = distribution_data_bounds(
             self._trip_prepared_runs(),
@@ -178,35 +232,22 @@ class TripSkimsPage(DashboardPage):
             mode_column="trip_mode",
             mode_value=self.trip_mode_sel.value,
             component=self.trip_component_sel.value,
+            skim_scenario=self._trip_skim_scenario_value(),
         )
-        target_range = bounds
-        if target_range is None:
-            self._page_state["trip_distribution_range_context"] = context_key
-            self._page_state["trip_distribution_auto_range"] = None
-            return
-
-        last_context = self._page_state.get("trip_distribution_range_context")
-        last_auto_range = self._page_state.get("trip_distribution_auto_range")
         current_range = resolve_distribution_range(
             self.trip_min_sel.value,
             self.trip_max_sel.value,
         )
-        should_reset = (
-            last_context != context_key
-            or last_auto_range is None
-            or current_range is None
-            or (
-                current_range is not None
-                and last_auto_range is not None
-                and tuple(current_range) == tuple(last_auto_range)
-            )
+        target_range = sync_auto_range_state(
+            self._page_state,
+            state_prefix="trip_distribution",
+            context_key=context_key,
+            bounds=bounds,
+            current_range=current_range,
         )
-        if should_reset:
+        if target_range is not None:
             self.trip_min_sel.value = float(target_range[0])
             self.trip_max_sel.value = float(target_range[1])
-
-        self._page_state["trip_distribution_range_context"] = context_key
-        self._page_state["trip_distribution_auto_range"] = tuple(target_range)
 
     def _reset_distribution_range(self) -> None:
         """Restore the current trip distribution x-range to its full observed extent."""
@@ -239,16 +280,15 @@ class TripSkimsPage(DashboardPage):
                 ),
             ]
 
-        trip_stats_data = self.get_filtered_view(
-            "trip_skim_family_stats",
-            family,
-            factory=lambda: family_stats_table(
+        trip_stats_data = self.query(
+            lambda: family_stats_table(
                 self.config,
                 trip_stats,
                 family=family,
                 mode_column="trip_mode",
                 target_table="trips",
-            ),
+                skim_scenario=self._trip_skim_scenario_value(),
+            )
         )
         if not any(not df.is_empty() for _, df in trip_stats_data):
             return [
@@ -280,21 +320,16 @@ class TripSkimsPage(DashboardPage):
                 ),
             ]
 
-        trip_distribution_data = self.get_filtered_view(
-            "trip_skim_distribution",
-            component,
-            trip_mode,
-            self.weighting_key,
-            trip_distribution_x_range[0],
-            trip_distribution_x_range[1],
-            factory=lambda: distribution_bins(
+        trip_distribution_data = self.query(
+            lambda: distribution_bins(
                 self._trip_prepared_runs(),
                 table_name="trips",
                 mode_column="trip_mode",
                 mode_value=trip_mode,
                 component=component,
                 x_range=trip_distribution_x_range,
-            ),
+                skim_scenario=self._trip_skim_scenario_value(),
+            )
         )
 
         trip_distribution_view = (
@@ -341,31 +376,43 @@ class TripSkimsPage(DashboardPage):
         x_range: tuple[float, float],
     ) -> pn.viewable.Viewable:
         """Render the live prepared-trip skim distribution chart."""
-        return density_chart(
+        return self.plot.density(
             trip_distribution_data,
-            x_col="bin_mid",
-            y_col="freq",
+            x="bin_mid",
+            y="freq",
             title=f"Trip Distribution - {component} / {trip_mode}",
-            xaxis_title="Skim Value",
-            yaxis_title="Trips",
-            normalize=self.as_percent,
+            x_title="Skim Value",
+            y_title="Trips",
             height=320,
-            as_percent=False,
-            xaxis_range=x_range,
+            x_range=x_range,
         )
 
+    def _apply_top_selector_sizing(self, widget: pn.widgets.Widget) -> None:
+        css_classes = list(getattr(widget, "css_classes", []) or [])
+        base_class = "trip-skim-top-selector"
+        export_class = "trip-skim-top-selector-export"
+        if base_class not in css_classes:
+            css_classes.append(base_class)
+        if self.state.export_mode and export_class not in css_classes:
+            css_classes.append(export_class)
+        widget.css_classes = css_classes
+        stylesheets = list(getattr(widget, "stylesheets", []) or [])
+        if TOP_SELECTOR_ROW_STYLESHEET not in stylesheets:
+            stylesheets.append(TOP_SELECTOR_ROW_STYLESHEET)
+        widget.stylesheets = stylesheets
 
-PAGE = DashboardPageDefinition(
-    page_id="trip_skims",
-    title="Trip Skims",
-    page_cls=TripSkimsPage,
-    order=51,
-    group_id="skim_summaries",
-    child_order=20,
-    default_enabled=True,
-    prepared_data_mode="optional",
-    required_prepared_tables=("trips",),
-    required_summary_ids=(TRIP_STATS_SUMMARY_ID,),
-)
-
-TripSkimsPage.definition = PAGE
+    def _top_selector_row(self) -> pn.Row:
+        gap = "4px" if self.state.export_mode else "6px"
+        return pn.Row(
+            self.trip_family_sel,
+            self.trip_scenario_sel,
+            sizing_mode="stretch_width",
+            min_height=72,
+            margin=(0, 0, 8, 0),
+            styles={
+                "justify-content": "flex-start",
+                "align-items": "flex-start",
+                "flex-wrap": "nowrap",
+                "column-gap": gap,
+            },
+        )

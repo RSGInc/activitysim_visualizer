@@ -5,15 +5,15 @@ from __future__ import annotations
 import panel as pn
 import polars as pl
 
-from dashboard.components import bar_chart, control_row, control_row_spacer
+from dashboard.rendering import control_row, control_row_spacer
+from dashboard.data_access import RunTables
 from dashboard.helpers.category_helpers import (
     column_options,
     label_category_data,
     nonempty,
     ordered_category_values,
 )
-from dashboard.page_base import DashboardPage
-from dashboard.page_definitions import DashboardPageDefinition
+from dashboard import DashboardPage, dashboard_page
 
 
 def order_chart_data(
@@ -26,28 +26,25 @@ def order_chart_data(
     if not ordered_values:
         return data_list
     order_index = {str(value): idx for idx, value in enumerate(ordered_values)}
-    out: list[tuple[str, pl.DataFrame]] = []
-    for label, df in data_list:
-        if df is None or column not in df.columns:
-            out.append((label, df))
-            continue
-        out.append(
-            (
-                label,
-                df.with_columns(
-                    pl.col(column)
-                    .cast(pl.Utf8)
-                    .map_elements(
-                        lambda value: order_index.get(str(value), len(order_index)),
-                        return_dtype=pl.Int64,
-                    )
-                    .alias("_category_order")
+
+    def order(frame: pl.DataFrame) -> pl.DataFrame:
+        if column not in frame.columns:
+            return frame
+        return (
+            frame.with_columns(
+                pl.col(column)
+                .cast(pl.Utf8)
+                .map_elements(
+                    lambda value: order_index.get(str(value), len(order_index)),
+                    return_dtype=pl.Int64,
                 )
-                .sort("_category_order")
-                .drop("_category_order"),
+                .alias("_category_order")
             )
+            .sort("_category_order")
+            .drop("_category_order")
         )
-    return out
+
+    return RunTables.from_runs(data_list).map(order)
 
 
 def stop_purpose_chart_data(
@@ -55,9 +52,9 @@ def stop_purpose_chart_data(
     tour_purpose: str | None,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Build stop-purpose distributions for the selected tour purpose."""
-    out = []
-    for label, df in nonempty(data_list):
-        filtered = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
+
+    def shape(frame: pl.DataFrame) -> pl.DataFrame:
+        filtered = frame.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
         if tour_purpose is None:
             filtered = (
                 filtered.group_by("stop_destination_purpose")
@@ -67,8 +64,9 @@ def stop_purpose_chart_data(
             )
         else:
             filtered = filtered.filter(pl.col("tour_purpose") == tour_purpose)
-        out.append((label, filtered))
-    return out
+        return filtered
+
+    return RunTables.from_runs(data_list).map(shape)
 
 
 def trip_purpose_chart_data(
@@ -76,12 +74,17 @@ def trip_purpose_chart_data(
     tour_purpose: str | None,
 ) -> list[tuple[str, pl.DataFrame]]:
     """Build trip-purpose distributions for the selected tour purpose."""
-    out = []
-    for label, df in nonempty(data_list):
-        filtered = df.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
+
+    def shape(frame: pl.DataFrame) -> pl.DataFrame:
+        filtered = frame.with_columns(pl.col("tour_purpose").cast(pl.Utf8))
         if tour_purpose is None:
-            if "all_tour_purposes" in filtered["tour_purpose"].cast(pl.Utf8).unique().to_list():
-                filtered = filtered.filter(pl.col("tour_purpose") == "all_tour_purposes")
+            if (
+                "all_tour_purposes"
+                in filtered["tour_purpose"].cast(pl.Utf8).unique().to_list()
+            ):
+                filtered = filtered.filter(
+                    pl.col("tour_purpose") == "all_tour_purposes"
+                )
             else:
                 filtered = (
                     filtered.group_by("trip_purpose")
@@ -89,44 +92,51 @@ def trip_purpose_chart_data(
                     .with_columns(pl.col("trip_purpose").cast(pl.Utf8))
                     .sort("trip_purpose")
                 )
-                out.append((label, filtered))
-                continue
+                return filtered
         else:
             filtered = filtered.filter(pl.col("tour_purpose") == tour_purpose)
-        out.append((label, filtered))
-    return out
+        return filtered
+
+    return RunTables.from_runs(data_list).map(shape)
 
 
+@dashboard_page(
+    page_id="trip_stop_purpose",
+    title="Trip and Stop Purpose",
+    group_id="trip_summaries",
+    order=47,
+    required_summary_ids=(
+        "trip_purpose_distribution",
+        "stop_destination_purpose_by_tour_purpose",
+    ),
+)
 class TripStopPurposePage(DashboardPage):
     TOTAL_PURPOSE_LABEL = "All Tour Purposes"
 
+    def _trip_purpose_title(self, display_purpose: str) -> str:
+        """Return the chart title for the selected tour-purpose slice."""
+        purpose_label = self._tour_slice_title_label(display_purpose)
+        return f"Trip Purpose for {purpose_label}"
+
+    def _stop_purpose_title(self, display_purpose: str) -> str:
+        """Return the stop-destination chart title for the selected tour-purpose slice."""
+        purpose_label = self._tour_slice_title_label(display_purpose)
+        return f"Stop Destination Purpose for {purpose_label}"
+
+    def _tour_slice_title_label(self, display_purpose: str) -> str:
+        """Return a display label such as All Tours or Work Tours."""
+        if display_purpose in {self.TOTAL_PURPOSE_LABEL, "All Trip Purposes"}:
+            return "All Tours"
+        purpose_label = str(display_purpose)
+        if not purpose_label.casefold().endswith(" tours"):
+            purpose_label = f"{purpose_label} Tours"
+        return purpose_label
+
     def build_page(self) -> pn.viewable.Viewable:
-        purpose_opts, self._tour_purpose_to_raw = column_options(
-            self.state.get_summary_table_set(
-                "stop_destination_purpose_by_tour_purpose", "weighted"
-            )
-            or [],
+        self.tour_purpose_sel = self.select(
             "tour_purpose",
-            category_id="tour_purpose",
-            config=self.config,
-            state=self.state,
-            cache_key=(
-                "trip_stop_purpose",
-                "stop_destination_purpose_by_tour_purpose",
-                "tour_purpose",
-                "weighted",
-            ),
-            total_raw=None,
-            total_label=self.TOTAL_PURPOSE_LABEL,
-        )
-        self.tour_purpose_sel = self.selector(
-            "tour_purpose",
-            widget=pn.widgets.Select(
-                name="Tour Purpose",
-                options=purpose_opts or [self.TOTAL_PURPOSE_LABEL],
-                value=(purpose_opts or [self.TOTAL_PURPOSE_LABEL])[0],
-            ),
-            label="Tour Purpose",
+            "Tour Purpose",
+            options=self._purpose_options,
         )
         self._body = self.section(
             "trip_stop_purpose_body",
@@ -139,28 +149,19 @@ class TripStopPurposePage(DashboardPage):
             sizing_mode="stretch_width",
         )
 
-    def sync_controls(self) -> None:
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
-            return
+    def _purpose_options(self) -> list[str]:
         purpose_opts, self._tour_purpose_to_raw = column_options(
-            summaries["stop_destination_purpose_by_tour_purpose"],
+            self.data.summary(
+                "stop_destination_purpose_by_tour_purpose", self.weighting_key
+            )
+            or [],
             "tour_purpose",
             category_id="tour_purpose",
             config=self.config,
-            state=self.state,
-            cache_key=(
-                "trip_stop_purpose",
-                "stop_destination_purpose_by_tour_purpose",
-                "tour_purpose",
-                self.weighting_key,
-            ),
             total_raw=None,
             total_label=self.TOTAL_PURPOSE_LABEL,
         )
-        self.tour_purpose_sel.options = purpose_opts or [self.TOTAL_PURPOSE_LABEL]
-        if self.tour_purpose_sel.value not in self.tour_purpose_sel.options:
-            self.tour_purpose_sel.value = self.tour_purpose_sel.options[0]
+        return purpose_opts or [self.TOTAL_PURPOSE_LABEL]
 
     def _selected_purpose(self) -> tuple[str, str | None]:
         display_purpose = self.tour_purpose_sel.value
@@ -173,10 +174,8 @@ class TripStopPurposePage(DashboardPage):
         raw_tour_purpose: str | None,
         display_purpose: str,
     ) -> pn.viewable.Viewable:
-        chart_data = self.get_filtered_view(
-            "trip_purpose",
-            raw_tour_purpose,
-            factory=lambda: trip_purpose_chart_data(trip_purpose_list, raw_tour_purpose),
+        chart_data = self.query(
+            lambda: trip_purpose_chart_data(trip_purpose_list, raw_tour_purpose)
         )
         raw_values = ordered_category_values(
             nonempty(trip_purpose_list),
@@ -196,16 +195,14 @@ class TripStopPurposePage(DashboardPage):
             column="trip_purpose",
             ordered_values=label_values,
         )
-        return bar_chart(
+        return self.plot.bar(
             chart_data,
-            x_col="trip_purpose",
-            y_col="trip_count",
-            title=f"Trip Purpose - {display_purpose}",
-            xaxis_title="Trip Purpose",
-            yaxis_title="Trips",
-            pct_col="pct",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=label_values,
+            x="trip_purpose",
+            y="trip_count",
+            title=self._trip_purpose_title(display_purpose),
+            x_title="Trip Purpose",
+            y_title="Trips",
+            category_order=label_values,
         )
 
     def render_stop_purpose_chart(
@@ -215,10 +212,8 @@ class TripStopPurposePage(DashboardPage):
         raw_tour_purpose: str | None,
         display_purpose: str,
     ) -> pn.viewable.Viewable:
-        chart_data = self.get_filtered_view(
-            "stop_destination_purpose",
-            raw_tour_purpose,
-            factory=lambda: stop_purpose_chart_data(stop_purpose_list, raw_tour_purpose),
+        chart_data = self.query(
+            lambda: stop_purpose_chart_data(stop_purpose_list, raw_tour_purpose)
         )
         raw_values = ordered_category_values(
             nonempty(stop_purpose_list),
@@ -238,23 +233,21 @@ class TripStopPurposePage(DashboardPage):
             column="stop_destination_purpose",
             ordered_values=label_values,
         )
-        return bar_chart(
+        return self.plot.bar(
             chart_data,
-            x_col="stop_destination_purpose",
-            y_col="stop_count",
-            title=f"Stop Destination Purpose by Tour Purpose - {display_purpose}",
-            xaxis_title="Stop Destination Purpose",
-            yaxis_title="Stops",
-            pct_col="pct",
-            as_percent=self.as_percent,
-            xaxis_categoryarray=label_values,
+            x="stop_destination_purpose",
+            y="stop_count",
+            title=self._stop_purpose_title(display_purpose),
+            x_title="Stop Destination Purpose",
+            y_title="Stops",
+            category_order=label_values,
         )
 
     def render_body(self):
         if not self.state.run_labels:
             return [self.no_runs_message()]
-        summaries = self.require_summaries(*self.required_summary_ids)
-        if summaries is None:
+        summaries = self.data.summaries(*self.required_summary_ids)
+        if not all(summaries.values()):
             return [self.summary_only_unavailable_card()]
         display_purpose, raw_tour_purpose = self._selected_purpose()
         return [
@@ -265,33 +258,24 @@ class TripStopPurposePage(DashboardPage):
                     sizing_mode="stretch_width",
                 ),
                 pn.Row(
-                    self.render_trip_purpose_chart(
-                        summaries["trip_purpose_distribution"],
-                        raw_tour_purpose=raw_tour_purpose,
-                        display_purpose=display_purpose,
+                    self.noted_view(
+                        "trip_stop_purpose.trip_purpose",
+                        self.render_trip_purpose_chart(
+                            summaries["trip_purpose_distribution"],
+                            raw_tour_purpose=raw_tour_purpose,
+                            display_purpose=display_purpose,
+                        ),
                     ),
-                    self.render_stop_purpose_chart(
-                        summaries["stop_destination_purpose_by_tour_purpose"],
-                        raw_tour_purpose=raw_tour_purpose,
-                        display_purpose=display_purpose,
+                    self.noted_view(
+                        "trip_stop_purpose.stop_purpose",
+                        self.render_stop_purpose_chart(
+                            summaries["stop_destination_purpose_by_tour_purpose"],
+                            raw_tour_purpose=raw_tour_purpose,
+                            display_purpose=display_purpose,
+                        ),
                     ),
                     sizing_mode="stretch_width",
                 ),
                 sizing_mode="stretch_width",
             )
         ]
-
-
-PAGE = DashboardPageDefinition(
-    page_id="trip_stop_purpose",
-    title="Trip and Stop Purpose",
-    group_id="trip_summaries",
-    order=47,
-    page_cls=TripStopPurposePage,
-    required_summary_ids=(
-        "trip_purpose_distribution",
-        "stop_destination_purpose_by_tour_purpose",
-    ),
-)
-
-TripStopPurposePage.definition = PAGE

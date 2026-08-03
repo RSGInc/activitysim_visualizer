@@ -18,6 +18,38 @@ from .models import (
     SegmentationSourceConfig,
 )
 
+SEGMENTATION_TABLE_ALIASES: dict[str, str] = {
+    "households": "hh",
+    "hh": "hh",
+    "persons": "per",
+    "per": "per",
+    "day": "day",
+    "tours": "tours",
+    "trips": "trips",
+    "vehicles": "vehicles",
+    "joint_tour_participants": "joint_participants",
+    "joint_participants": "joint_participants",
+    "land_use": "land_use",
+}
+SEGMENTATION_TABLE_DISPLAY = (
+    "households, persons, day, tours, trips, vehicles, "
+    "joint_tour_participants, land_use"
+)
+
+
+def normalize_segmentation_table_name(
+    raw_value,
+    *,
+    field_name: str,
+) -> str:
+    table_name = str(raw_value).strip()
+    normalized = SEGMENTATION_TABLE_ALIASES.get(table_name)
+    if normalized is None:
+        raise ValueError(
+            f"{field_name} must be one of {SEGMENTATION_TABLE_DISPLAY}."
+        )
+    return normalized
+
 
 def normalize_segment_values(
     raw_value,
@@ -48,15 +80,10 @@ def normalize_segmentation_source(
         source_table = str(source_table_raw).strip() if source_table_raw is not None else None
         if source_table == "":
             source_table = None
-        if source_table is not None and source_table not in {
-            "hh",
-            "per",
-            "tours",
-            "trips",
-            "land_use",
-        }:
-            raise ValueError(
-                f"{field_name}.source_table must be one of hh, per, tours, trips, land_use."
+        if source_table is not None:
+            source_table = normalize_segmentation_table_name(
+                source_table,
+                field_name=f"{field_name}.source_table",
             )
         return PreparedColumnSegmentationSource(column=column, source_table=source_table)
 
@@ -69,14 +96,14 @@ def normalize_segmentation_source(
     join_raw = raw_value.get("join")
     if not isinstance(join_raw, dict):
         raise ValueError(f"{field_name}.join must be a mapping.")
-    join_source_table = str(join_raw.get("source_table", "")).strip()
+    join_source_table_raw = str(join_raw.get("source_table", "")).strip()
     join_source_key_column = str(join_raw.get("source_key_column", "")).strip()
     csv_key_column = str(join_raw.get("csv_key_column", "")).strip()
     segment_value_column = str(raw_value.get("segment_value_column", "")).strip()
-    if join_source_table not in {"hh", "per", "tours", "trips", "land_use"}:
-        raise ValueError(
-            f"{field_name}.join.source_table must be one of hh, per, tours, trips, land_use."
-        )
+    join_source_table = normalize_segmentation_table_name(
+        join_source_table_raw,
+        field_name=f"{field_name}.join.source_table",
+    )
     if not join_source_key_column:
         raise ValueError(f"{field_name}.join.source_key_column is required.")
     if not csv_key_column:

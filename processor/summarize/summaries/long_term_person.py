@@ -5,7 +5,7 @@ from __future__ import annotations
 import polars as pl
 
 from processor.models import RunData
-from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize.contracts import summary
 from processor.summarize.summaries.long_term_shared import (
     _person_type_distribution_with_total,
     _person_type_label_expr,
@@ -18,7 +18,8 @@ from processor.summarize.summaries.summary_helpers import (
 from runtime.config import Config
 
 
-@summary_contract(
+@summary(
+    id="license_holding_status_distribution",
     schema={
         "person_type": pl.Utf8,
         "license_holding_status": pl.Utf8,
@@ -30,7 +31,7 @@ from runtime.config import Config
 def license_holding_status(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"person_type", "has_license", "finalweight", "age"}
     if not required.issubset(set(rd.per.columns)):
-        return empty_summary_frame(license_holding_status)
+        return license_holding_status.empty()
 
     base = rd.per.filter(
         pl.col("person_type").is_not_null()
@@ -66,7 +67,8 @@ def license_holding_status(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="bicycle_comfort_level_distribution",
     schema={
         "person_type": pl.Utf8,
         "bicycle_comfort_level": pl.Utf8,
@@ -78,7 +80,7 @@ def license_holding_status(rd: RunData, config: Config) -> pl.DataFrame:
 def bicycle_comfort_level(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"person_type", "bike_comfort", "finalweight"}
     if not required.issubset(set(rd.per.columns)):
-        return empty_summary_frame(bicycle_comfort_level)
+        return bicycle_comfort_level.empty()
 
     base = rd.per.filter(
         pl.col("person_type").is_not_null() & pl.col("bike_comfort").is_not_null()
@@ -108,7 +110,8 @@ def bicycle_comfort_level(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="transit_pass_ownership_by_person_type",
     schema={
         "person_type": pl.Utf8,
         "transit_pass_ownership_status": pl.Utf8,
@@ -120,7 +123,7 @@ def bicycle_comfort_level(rd: RunData, config: Config) -> pl.DataFrame:
 def transit_pass(rd: RunData, config: Config) -> pl.DataFrame:
     required = {"person_type", "transit_pass_ownership", "finalweight"}
     if not required.issubset(set(rd.per.columns)):
-        return empty_summary_frame(transit_pass)
+        return transit_pass.empty()
 
     base = rd.per.filter(
         pl.col("person_type").is_not_null()
@@ -154,7 +157,8 @@ def transit_pass(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="transit_subsidy_by_person_type",
     schema={
         "person_type": pl.Utf8,
         "transit_subsidy_status": pl.Utf8,
@@ -180,7 +184,7 @@ def transit_subsidy(rd: RunData, config: Config) -> pl.DataFrame:
         "finalweight",
     }
     if not required.issubset(set(rd.per.columns)):
-        return empty_summary_frame(transit_subsidy)
+        return transit_subsidy.empty()
 
     base = rd.per.filter(
         pl.col("person_type").is_not_null()
@@ -216,7 +220,8 @@ def transit_subsidy(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="telecommute_frequency_distribution",
     schema={
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
@@ -241,27 +246,24 @@ def telecommute(rd: RunData, config: Config | None = None) -> pl.DataFrame:
         "work_from_home",
         "home_zone_id",
     }.issubset(rd.per.columns):
-        return empty_summary_frame(telecommute)
+        return telecommute.empty()
 
-    base = (
-        rd.per.filter(
-            pl.col("telecommute_frequency").is_not_null()
-            & (pl.col("telecommute_frequency") != "")
-            & _worker_filter_expr()
-            & ~pl.col("work_from_home")
-            .cast(pl.Utf8)
-            .str.to_lowercase()
-            .is_in(["true", "1", "yes", "work_from_home", "home"])
-        )
-        .select(
-            "telecommute_frequency",
-            "finalweight",
-            "home_zone_id",
-            *_configured_geography_columns(rd.per, config=config, role_prefix="home"),
-        )
+    base = rd.per.filter(
+        pl.col("telecommute_frequency").is_not_null()
+        & (pl.col("telecommute_frequency") != "")
+        & _worker_filter_expr()
+        & ~pl.col("work_from_home")
+        .cast(pl.Utf8)
+        .str.to_lowercase()
+        .is_in(["true", "1", "yes", "work_from_home", "home"])
+    ).select(
+        "telecommute_frequency",
+        "finalweight",
+        "home_zone_id",
+        *_configured_geography_columns(rd.per, config=config, role_prefix="home"),
     )
     if base.is_empty():
-        return empty_summary_frame(telecommute)
+        return telecommute.empty()
 
     outputs: list[pl.DataFrame] = []
     for geography_type, geography_col in _configured_geography_dimensions(

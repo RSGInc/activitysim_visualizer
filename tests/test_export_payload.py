@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
-from uuid import uuid4
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -11,12 +12,19 @@ from _dashboard_expectations import EXPECTED_DEFAULT_PAGES
 from dashboard import DashboardState
 from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.export.context import ExportBuildContext
-from dashboard.export.payload import build_export_payload
+from dashboard.export.page_serializer import (
+    VMT_EXPORT_DROPDOWN_NOTE,
+    _with_export_page_notes,
+)
+from dashboard.export.payload import (
+    build_export_payload,
+)
 from dashboard.export.types import (
     EXPORT_CLIENT_RUNTIME,
     EXPORT_PAGE_SELECTOR_RUNTIME,
     EXPORT_SCHEMA_VERSION,
 )
+from dashboard.page_definitions import DashboardPageDefinition
 from test_export_html import (
     _full_summary_run,
     _segmented_summary_runs,
@@ -28,7 +36,7 @@ from test_export_html import (
 
 
 def _workspace_tmp_dir(label: str) -> Path:
-    path = Path("tmp_export_test_artifacts") / f"{label}_{uuid4().hex}"
+    path = Path(".pytest_tmp") / "export_helpers" / label
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -42,6 +50,36 @@ def _plot_nodes(page_payload: dict) -> list[dict]:
     return [node for node in _walk_nodes(page_payload) if node.get("kind") == "plotly"]
 
 
+def test_vmt_export_content_includes_dropdown_availability_note() -> None:
+    title_node = {"kind": "html", "html": "<h2>VMT Validation</h2>"}
+    section_node = {"kind": "html", "html": "<h3>Personal Auto VMT</h3>"}
+    content = {
+        "kind": "container",
+        "layout": "column",
+        "child_count": 2,
+        "children": [title_node, section_node],
+        "styles": {},
+        "css_classes": [],
+    }
+
+    vmt_content = _with_export_page_notes(
+        DashboardPageDefinition(page_id="vmt", title="VMT Validation"),
+        content,
+    )
+    overview_content = _with_export_page_notes(
+        DashboardPageDefinition(page_id="overview", title="Overview"),
+        content,
+    )
+
+    assert overview_content is content
+    assert vmt_content["kind"] == "container"
+    assert vmt_content["child_count"] == 3
+    assert vmt_content["children"][0] is title_node
+    assert VMT_EXPORT_DROPDOWN_NOTE in vmt_content["children"][1]["html"]
+    assert vmt_content["children"][2] is section_node
+
+
+@pytest.mark.full_export
 def test_build_export_payload_has_stable_top_level_contract() -> None:
     tmp_path = _workspace_tmp_dir("payload_contract")
     config = _write_config(
@@ -99,25 +137,45 @@ def test_trip_mode_export_keeps_explicit_height_for_overall_plot() -> None:
         plot
         for plot in plots
         if plot.get("figure", {}).get("layout", {}).get("title", {}).get("text")
-        == "Trip Mode Distribution - All Tour Purposes"
+        == "Trip Mode Distribution for All Tours"
     )
 
     assert overall_plot["height"] == 400
     assert overall_plot["figure"]["layout"]["height"] == 400
 
 
+def test_density_hover_mode_is_serialized_in_export_payload() -> None:
+    tmp_path = _workspace_tmp_dir("payload_density_hover")
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=["tour_time"],
+        extra_lines=[
+            "display:",
+            "  density_hover_mode: all",
+        ],
+    )
+
+    payload = build_export_payload([], config, summary_runs=[_full_summary_run()])
+    plots = _plot_nodes(payload["states"]["Weighted||Percent"]["tour_time"])
+
+    assert any(
+        plot.get("figure", {}).get("layout", {}).get("hovermode") == "x unified"
+        for plot in plots
+    )
+
+
 def test_build_export_payload_defaults_to_live_segmentation_filter() -> None:
     tmp_path = _workspace_tmp_dir("payload_segmentation_fallback")
     config = _write_config(
         tmp_path,
+        dashboard_pages=[{"daily_travel": ["daily_activity_pattern"]}],
         export_html_lines=[
             "pages:",
             "  daily_travel:",
             "    daily_activity_pattern: {}",
         ],
         extra_lines=[
-            "segmentation:",
-            "  enabled: true",
+            "segment:",
             "  dashboard:",
             "    segmentation_type: signup_platform",
             "    visibility: segments_only",
@@ -161,6 +219,7 @@ def test_build_export_payload_honors_export_segmentation_overrides() -> None:
     tmp_path = _workspace_tmp_dir("payload_segmentation_override")
     config = _write_config(
         tmp_path,
+        dashboard_pages=[{"daily_travel": ["daily_activity_pattern"]}],
         export_html_lines=[
             "dashboard:",
             "  segmentation_type: person_sex",
@@ -170,8 +229,7 @@ def test_build_export_payload_honors_export_segmentation_overrides() -> None:
             "    daily_activity_pattern: {}",
         ],
         extra_lines=[
-            "segmentation:",
-            "  enabled: true",
+            "segment:",
             "  dashboard:",
             "    segmentation_type: signup_platform",
             "    visibility: segments_only",
@@ -215,6 +273,7 @@ def test_build_export_payload_supports_export_full_only_segmentation() -> None:
     tmp_path = _workspace_tmp_dir("payload_segmentation_full_only")
     config = _write_config(
         tmp_path,
+        dashboard_pages=[{"daily_travel": ["daily_activity_pattern"]}],
         export_html_lines=[
             "dashboard:",
             "  segmentation_type: signup_platform",
@@ -224,8 +283,7 @@ def test_build_export_payload_supports_export_full_only_segmentation() -> None:
             "    daily_activity_pattern: {}",
         ],
         extra_lines=[
-            "segmentation:",
-            "  enabled: true",
+            "segment:",
             "  dashboard:",
             "    segmentation_type: signup_platform",
             "    visibility: full_and_segments",
@@ -263,8 +321,7 @@ def test_export_build_context_does_not_change_live_segmentation_defaults() -> No
             "  segmentation_visibility: full_only",
         ],
         extra_lines=[
-            "segmentation:",
-            "  enabled: true",
+            "segment:",
             "  dashboard:",
             "    segmentation_type: signup_platform",
             "    visibility: segments_only",
@@ -315,11 +372,21 @@ def test_build_export_payload_serializes_representative_page_region_structure(
     tmp_path = _workspace_tmp_dir("payload_variants")
     config = _write_config(
         tmp_path,
+        dashboard_pages=[{"trip_summaries": ["trip_mode"]}],
         export_html_lines=[
             "pages:",
             "  trip_summaries:",
             "    trip_mode:",
             "      tour_purpose: all",
+        ],
+        extra_lines=[
+            "display:",
+            "  labels:",
+            "    mode:",
+            "      mapping:",
+            "        DRIVEALONE: Drive Alone",
+            "        WALK: Walk",
+            "        SHARED: Shared Ride",
         ],
     )
 
@@ -335,11 +402,22 @@ def test_build_export_payload_serializes_representative_page_region_structure(
             "available": True,
             "request_mode": "all",
             "requested_values": [],
-            "resolved_values": ["All", "eatout", "social"],
-            "default_value": "All",
-            "options": ["All", "eatout", "social"],
+            "resolved_values": ["All Tour Purposes", "eatout", "social"],
+            "default_value": "All Tour Purposes",
+            "options": ["All Tour Purposes", "eatout", "social"],
             "export_enabled": True,
-        }
+        },
+        {
+            "id": "hide_drive_alone",
+            "label": "Hide Auto Modes",
+            "available": True,
+            "request_mode": "all",
+            "requested_values": [],
+            "resolved_values": ["False", "True"],
+            "default_value": "False",
+            "options": ["False", "True"],
+            "export_enabled": True,
+        },
     ]
 
     trip_mode = payload["states"]["Weighted||Percent"]["trip_mode"]
@@ -347,12 +425,15 @@ def test_build_export_payload_serializes_representative_page_region_structure(
     regions = _region_nodes(trip_mode)
     assert sorted(regions) == ["trip_summary_mode_body"]
     trip_mode_region = regions["trip_summary_mode_body"]
-    assert trip_mode_region["selector_ids"] == ["tour_purpose"]
-    assert trip_mode_region["default_key"] == '["All"]'
+    assert trip_mode_region["selector_ids"] == ["tour_purpose", "hide_drive_alone"]
+    assert trip_mode_region["default_key"] == '["All Tour Purposes","False"]'
     assert sorted(trip_mode_region["variants"]) == [
-        '["All"]',
-        '["eatout"]',
-        '["social"]',
+        '["All Tour Purposes","False"]',
+        '["All Tour Purposes","True"]',
+        '["eatout","False"]',
+        '["eatout","True"]',
+        '["social","False"]',
+        '["social","True"]',
     ]
     page_nodes = _walk_nodes(trip_mode)
     assert any(
@@ -362,13 +443,28 @@ def test_build_export_payload_serializes_representative_page_region_structure(
         and node.get("export_enabled")
         for node in page_nodes
     )
+    assert any(
+        node.get("kind") == "widget"
+        and node.get("selector_id") == "hide_drive_alone"
+        and node.get("name") == "Hide Auto Modes"
+        and node.get("export_enabled")
+        for node in page_nodes
+    )
     assert not any(
         node.get("kind") == "html" and "Tour Purpose:" in node.get("html", "")
         for node in page_nodes
     )
     assert not any(node.get("selector_id") == "tour_mode" for node in page_nodes)
-    variant_nodes = _walk_nodes(trip_mode_region["variants"]['["eatout"]'])
+    variant_nodes = _walk_nodes(trip_mode_region["variants"]['["eatout","False"]'])
     assert any(node.get("kind") == "plotly" for node in variant_nodes)
+    checked_variant_nodes = _walk_nodes(trip_mode_region["variants"]['["eatout","True"]'])
+    checked_plot = next(node for node in checked_variant_nodes if node.get("kind") == "plotly")
+    checked_x_values = [
+        value
+        for trace in checked_plot.get("figure", {}).get("data", [])
+        for value in trace.get("x", [])
+    ]
+    assert "Drive Alone" not in checked_x_values
 
 
 def test_build_export_payload_keeps_static_pages_when_no_page_selectors_are_enabled() -> None:
@@ -403,6 +499,11 @@ def test_build_export_payload_normalizes_group_default_page_ids_to_leaf_page_ids
     tmp_path = _workspace_tmp_dir("payload_group_defaults")
     config = _write_config(
         tmp_path,
+        dashboard_pages=[
+            {"daily_travel": ["daily_activity_pattern"]},
+            {"tour_summaries": ["tour_purpose"]},
+            {"trip_summaries": ["trip_stop_purpose"]},
+        ],
         export_html_lines=[
             "dashboard:",
             "  weighting: all",
@@ -429,10 +530,48 @@ def test_build_export_payload_normalizes_group_default_page_ids_to_leaf_page_ids
     assert page_by_id["trip_summaries"]["default_page_id"] != "purpose"
 
 
+def test_build_export_payload_keeps_grouped_trip_selector_pages_export_ready() -> None:
+    tmp_path = _workspace_tmp_dir("payload_grouped_trip_selectors")
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=[{"trip_summaries": ["trip_mode", "trip_stop_time"]}],
+        export_html_lines=[
+            "pages:",
+            "  trip_summaries:",
+            "    trip_mode:",
+            "      tour_purpose: all",
+            "    trip_stop_time:",
+            "      tour_purpose: all",
+        ],
+    )
+
+    payload = build_export_payload([], config, summary_runs=[_full_summary_run()])
+    grouped_page = payload["pages"][0]
+    weighted_percent = payload["states"]["Weighted||Percent"]
+
+    assert grouped_page["id"] == "trip_summaries"
+    assert grouped_page["default_page_id"] == "trip_mode"
+    assert [child["id"] for child in grouped_page["children"]] == [
+        "trip_mode",
+        "trip_stop_time",
+    ]
+    assert any(
+        selector["id"] == "tour_purpose" and selector["export_enabled"]
+        for selector in grouped_page["children"][0]["selectors"]
+    )
+    assert any(
+        selector["id"] == "tour_purpose" and selector["export_enabled"]
+        for selector in grouped_page["children"][1]["selectors"]
+    )
+    assert "trip_mode" in weighted_percent
+    assert "trip_stop_time" in weighted_percent
+
+
 def test_build_export_payload_applies_excluded_pages_and_groups() -> None:
     tmp_path = _workspace_tmp_dir("payload_exclusions")
     config = _write_config(
         tmp_path,
+        dashboard_pages=["overview", "shadow_pricing", "validation"],
         export_html_lines=[
             "exclude_pages:",
             "  - shadow_pricing",
@@ -456,6 +595,7 @@ def test_build_export_payload_disables_shadow_pricing_table_parts() -> None:
     tmp_path = _workspace_tmp_dir("payload_shadow_parts")
     config = _write_config(
         tmp_path,
+        dashboard_pages=[{"long_term_choices": ["shadow_pricing"]}],
         export_html_lines=[
             "pages:",
             "  long_term_choices:",
@@ -481,74 +621,31 @@ def test_build_export_payload_skips_prepared_only_sections_but_keeps_summary_saf
     tmp_path = _workspace_tmp_dir("payload_skims_summary_safe")
     config = _write_config(
         tmp_path,
-        dashboard_pages=["skims"],
+        dashboard_pages=["skim_summaries"],
         export_html_lines=[
             "pages:",
-            "  skims: {}",
+            "  skim_summaries: {}",
         ],
     )
 
     payload = build_export_payload([], config, summary_runs=[_skim_summary_run()])
 
-    assert payload["pages"] == [
-        {
-            "id": "skims",
-            "title": "Skim Summaries",
-            "selectors": [],
-            "children": [
-                {
-                    "id": "tour_skims",
-                    "title": "Tour Skims",
-                    "selectors": [
-                        {
-                            "id": "tour_skim_family",
-                            "label": "Tour Skim Family",
-                            "available": True,
-                            "request_mode": "all",
-                            "requested_values": [],
-                            "resolved_values": ["Walk Skims"],
-                            "default_value": "Walk Skims",
-                            "options": ["Walk Skims"],
-                            "export_enabled": False,
-                        },
-                        {
-                            "id": "tour_skim_direction",
-                            "label": "Direction",
-                            "available": True,
-                            "request_mode": "all",
-                            "requested_values": [],
-                            "resolved_values": ["Outbound"],
-                            "default_value": "Outbound",
-                            "options": ["Outbound"],
-                            "export_enabled": False,
-                        },
-                    ],
-                    "children": [],
-                    "default_page_id": None,
-                },
-                {
-                    "id": "trip_skims",
-                    "title": "Trip Skims",
-                    "selectors": [
-                        {
-                            "id": "trip_skim_family",
-                            "label": "Trip Skim Family",
-                            "available": True,
-                            "request_mode": "all",
-                            "requested_values": [],
-                            "resolved_values": ["Walk Skims"],
-                            "default_value": "Walk Skims",
-                            "options": ["Walk Skims"],
-                            "export_enabled": False,
-                        }
-                    ],
-                    "children": [],
-                    "default_page_id": None,
-                },
-            ],
-            "default_page_id": "tour_skims",
-        }
+    assert len(payload["pages"]) == 1
+    skim_group = payload["pages"][0]
+    assert skim_group["id"] == "skim_summaries"
+    assert skim_group["default_page_id"] == "tour_skims"
+    assert [child["id"] for child in skim_group["children"]] == [
+        "tour_skims",
+        "trip_skims",
     ]
+    selector_ids_by_page = {
+        child["id"]: {selector["id"] for selector in child["selectors"]}
+        for child in skim_group["children"]
+    }
+    assert {"tour_skim_family", "tour_skim_direction"}.issubset(
+        selector_ids_by_page["tour_skims"]
+    )
+    assert "trip_skim_family" in selector_ids_by_page["trip_skims"]
     weighted_state = payload["states"]["Weighted||Percent"]
     nodes = _walk_nodes(weighted_state["tour_skims"]) + _walk_nodes(
         weighted_state["trip_skims"]
@@ -558,9 +655,12 @@ def test_build_export_payload_skips_prepared_only_sections_but_keeps_summary_saf
         + list(_region_nodes(weighted_state["trip_skims"]).keys())
     )
 
-    assert region_ids == ["tour_skim_summary_section", "trip_skim_summary_section"]
+    assert region_ids == ["summary.body", "summary.body"]
     assert not any(node.get("widget_type") == "float_input" for node in nodes)
-    assert not any(node.get("selector_id") in {"trip_min", "trip_max", "tour_min", "tour_max"} for node in nodes)
+    assert not any(
+        node.get("selector_id") in {"trip_min", "trip_max", "tour_min", "tour_max"}
+        for node in nodes
+    )
 
 
 def test_build_export_payload_omits_prepared_only_pages() -> None:

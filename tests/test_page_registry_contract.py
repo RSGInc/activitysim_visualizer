@@ -8,9 +8,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from dashboard import DashboardState
 from dashboard.export.protocols import validate_export_page
-from dashboard.export.payload import resolve_page_parts
+from dashboard.export.traversal import resolve_page_parts
 from dashboard.page_registry import (
-    all_page_definitions,
     build_registered_live_pages,
     build_registered_export_pages,
 )
@@ -89,19 +88,20 @@ def test_representative_export_pages_keep_expected_runtime_sections(
     }
 
     expected_sections = {
-        "overview": [("body", ())],
+        "overview": [("overview_kpis", ()), ("overview_demographics", ())],
         "daily_activity_pattern": [("activity_pattern_body", ("person_type",))],
         "escorted_tours": [
-            ("escorted_tours_static_body", ()),
-            ("escorted_tours_directional_body", ("direction",)),
+            ("school_escort.body", ()),
+            ("adult_escort.body", ()),
+            ("direction.body", ("direction.value",)),
+            ("distance.body", ("direction.value",)),
         ],
-        "trip_mode": [("trip_summary_mode_body", ("tour_purpose",))],
+        "trip_mode": [("trip_summary_mode_body", ("tour_purpose", "hide_drive_alone"))],
         "mandatory_location_choice": [
-            ("worker_geography", ("geography_level", "geography")),
-            ("commuting_flows", ("geography_level", "geography")),
-            ("mandatory_distance_table", ("geography_level", "geography")),
-            ("distance_distribution", ("geography_level", "geography")),
-            ("remote_work", ("geography_level", "geography")),
+            ("remote_work.body", ("geography_level", "geography")),
+            ("distance.distribution", ("geography_level", "geography")),
+            ("flows.body", ("geography_level", "geography")),
+            ("geography_comparison.body", ("geography_level", "geography")),
         ],
     }
 
@@ -113,9 +113,3 @@ def test_representative_export_pages_keep_expected_runtime_sections(
             (part_def.part_id, tuple(part_def.selector_ids))
             for part_def, _ in resolved_parts
         ] == expected
-
-
-def test_registered_page_definitions_keep_legacy_selector_ids_unique_per_page() -> None:
-    for definition in all_page_definitions():
-        selector_ids = [selector.selector_id for selector in definition.selectors]
-        assert len(selector_ids) == len(set(selector_ids))

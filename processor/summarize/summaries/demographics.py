@@ -3,10 +3,11 @@
 import polars as pl
 from runtime.config import Config
 from processor.models import RunData
-from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize.contracts import summary
 
 
-@summary_contract(
+@summary(
+    id="household_size_distribution",
     schema={
         "household_size": pl.Int64,
         "household_count": pl.Float64,
@@ -19,11 +20,13 @@ def hh_size(rd: RunData, config: Config | None = None) -> pl.DataFrame:
         rd.hh.group_by("HHSIZE")
         .agg(household_count=pl.col("finalweight").sum())
         .rename({"HHSIZE": "household_size"})
+        .with_columns(pl.col("household_size").cast(pl.Int64))
         .sort("household_size")
     )
 
 
-@summary_contract(
+@summary(
+    id="person_type_distribution",
     schema={
         "person_type": pl.Utf8,
         "person_type_label": pl.Utf8,
@@ -34,7 +37,7 @@ def hh_size(rd: RunData, config: Config | None = None) -> pl.DataFrame:
 def person_type(rd: RunData, config: Config) -> pl.DataFrame:
     """Returns DataFrame: person_type, person_type_label, person_count."""
     if "person_type" not in rd.per.columns:
-        return empty_summary_frame(person_type)
+        return person_type.empty()
     return (
         rd.per.select(
             [
@@ -52,11 +55,13 @@ def person_type(rd: RunData, config: Config) -> pl.DataFrame:
             )
             .alias("person_type_label")
         )
+        .select("person_type", "person_type_label", "person_count")
         .sort("person_type")
     )
 
 
-@summary_contract(
+@summary(
+    id="population_totals",
     schema={
         "person_count": pl.Float64,
         "household_count": pl.Float64,

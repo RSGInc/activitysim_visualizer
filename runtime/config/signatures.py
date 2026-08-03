@@ -50,29 +50,6 @@ def _geography_payload(config: Config) -> dict[str, Any]:
     return geography_payload
 
 
-def _effective_legacy_values(
-    config: Config,
-) -> tuple[dict[str, str] | None, dict[str, str] | None, list[str] | None]:
-    effective_person_type_labels = (
-        None
-        if config.dashboard_label_spec("person_type") is not None
-        else config.person_type_labels
-    )
-    effective_transit_subsidy_labels = (
-        None
-        if config.dashboard_label_spec("transit_subsidy") is not None
-        else config.transit_subsidy_labels
-    )
-    effective_mode_order = (
-        None if config.dashboard_label_spec("mode") is not None else config.mode_order
-    )
-    return (
-        effective_person_type_labels,
-        effective_transit_subsidy_labels,
-        effective_mode_order,
-    )
-
-
 def _student_types_payload(config: Config) -> list[dict[str, Any]]:
     return [
         {
@@ -94,11 +71,6 @@ def _student_types_payload(config: Config) -> list[dict[str, Any]]:
 
 
 def prepare_signature_payload(config: Config) -> dict[str, Any]:
-    (
-        effective_person_type_labels,
-        effective_transit_subsidy_labels,
-        effective_mode_order,
-    ) = _effective_legacy_values(config)
     return {
         "files": {key: config.files[key] for key in sorted(config.files)},
         "columns": {
@@ -151,14 +123,44 @@ def prepare_signature_payload(config: Config) -> dict[str, Any]:
         "geography": _geography_payload(config),
         "skim": {"matrix": config.skim_matrix},
         "skimjoin": {
-            "enabled": config.skimjoin.enabled,
+            "enabled": config.skimjoin_step_enabled(),
             "config_digest": config.skimjoin.config_digest,
+            "create_hypothetical_skim_tables": (
+                config.skimjoin.create_hypothetical_skim_tables
+            ),
+            "failure_policy": config.skimjoin.failure_policy,
         },
         "prepare": {
             "auto_sufficiency": {
                 "basis": config.prepare_auto_sufficiency.basis,
             },
             "output": {"file_format": config.prepare_output_file_format},
+            "time_periods": {
+                "enabled": config.prepare_time_periods.enabled,
+                "network_los_file": config.prepare_time_periods.network_los_file,
+                "network_los_digest": config.prepare_time_periods.network_los_digest,
+                "trip_period_number_column": (
+                    config.prepare_time_periods.trip_period_number_column
+                ),
+                "tour_start_period_number_column": (
+                    config.prepare_time_periods.tour_start_period_number_column
+                ),
+                "tour_end_period_number_column": (
+                    config.prepare_time_periods.tour_end_period_number_column
+                ),
+            },
+            "non_motorized_distance_skim": {
+                "enabled": config.prepare_non_motorized_distance_skim.enabled,
+                "file": config.prepare_non_motorized_distance_skim.file,
+                "file_digest": config.prepare_non_motorized_distance_skim.file_digest,
+                "matrix": config.prepare_non_motorized_distance_skim.matrix,
+                "source_type": (
+                    config.prepare_non_motorized_distance_skim.source_type
+                ),
+                "value_column": (
+                    config.prepare_non_motorized_distance_skim.value_column
+                ),
+            },
             "vot_bins": {
                 "enabled": config.prepare_vot_bins.enabled,
                 "source_column": config.prepare_vot_bins.source_column,
@@ -178,11 +180,6 @@ def prepare_signature_payload(config: Config) -> dict[str, Any]:
 
 
 def summary_signature_payload(config: Config) -> dict[str, Any]:
-    (
-        effective_person_type_labels,
-        effective_transit_subsidy_labels,
-        effective_mode_order,
-    ) = _effective_legacy_values(config)
     segmentation_payload: dict[str, Any] = {"enabled": config.segmentation.enabled}
     if config.segmentation.enabled:
         segmentation_payload["definitions"] = [
@@ -224,38 +221,26 @@ def summary_signature_payload(config: Config) -> dict[str, Any]:
             for definition in config.segmentation.definitions
         ]
     return {
-        "weighting_modes": list(config.weighting_modes),
+        "weighting_modes": [
+            definition.signature_payload()
+            for definition in config.weighting_mode_definitions
+        ],
+        "extension_settings": config.extension_settings,
+        "failure_policy": config.summary_failure_policy,
         "files": {key: config.files[key] for key in sorted(config.files)},
         "columns": prepare_signature_payload(config)["columns"],
         "summary_categories": category_specs_payload(config.summary_categories),
-        "dashboard_label_overrides": {
-            "person_type": (
-                dict(config.dashboard_label_spec("person_type").mapping_items)
-                if config.dashboard_label_spec("person_type") is not None
+        # These labels are still materialized by demographic/person summaries.
+        # Keep them in the summary identity until phase 4 moves labeling fully
+        # into the dashboard presentation boundary.
+        "display_label_dependencies": {
+            category_id: (
+                dict(config.dashboard_label_spec(category_id).mapping_items)
+                if config.dashboard_label_spec(category_id) is not None
                 else None
-            ),
-            "transit_subsidy": (
-                dict(config.dashboard_label_spec("transit_subsidy").mapping_items)
-                if config.dashboard_label_spec("transit_subsidy") is not None
-                else None
-            ),
+            )
+            for category_id in ("person_type", "transit_subsidy")
         },
-        "person_type_labels": (
-            {
-                key: effective_person_type_labels[key]
-                for key in sorted(effective_person_type_labels)
-            }
-            if effective_person_type_labels
-            else None
-        ),
-        "transit_subsidy_labels": (
-            {
-                key: effective_transit_subsidy_labels[key]
-                for key in sorted(effective_transit_subsidy_labels)
-            }
-            if effective_transit_subsidy_labels
-            else None
-        ),
         "tour_purpose_grouping": {
             "group_joint_tour_purposes": config.group_joint_tour_purposes,
             "group_atwork_tour_purposes": config.group_atwork_tour_purposes,
@@ -270,7 +255,6 @@ def summary_signature_payload(config: Config) -> dict[str, Any]:
         "geography": _geography_payload(config),
         "skim": {"matrix": config.skim_matrix},
         "modes": {
-            "order": list(effective_mode_order) if effective_mode_order else None,
             "groups": (
                 [
                     (group_name, list(mode_names))
@@ -282,8 +266,12 @@ def summary_signature_payload(config: Config) -> dict[str, Any]:
             "pnr_tour_modes": list(config.pnr_tour_modes),
         },
         "skimjoin": {
-            "enabled": config.skimjoin.enabled,
+            "enabled": config.skimjoin_step_enabled(),
             "config_digest": config.skimjoin.config_digest,
+            "create_hypothetical_skim_tables": (
+                config.skimjoin.create_hypothetical_skim_tables
+            ),
+            "failure_policy": config.skimjoin.failure_policy,
         },
         "prepare": {
             "vot_bins": prepare_signature_payload(config)["prepare"]["vot_bins"],
@@ -308,9 +296,16 @@ def presentation_signature_payload(config: Config) -> dict[str, Any]:
             if config.dashboard_pages is not None
             else None
         ),
+        "include_notes": config.include_notes,
         "enable_maz_geographies": config.enable_maz_geographies,
         "run_colors": list(config.run_colors),
         "missing_data_display": config.missing_data_display,
+        "bar_hover_mode": config.bar_hover_mode,
+        "density_hover_mode": config.density_hover_mode,
+        "weighting_modes": [
+            {"mode_id": definition.mode_id, "label": definition.label}
+            for definition in config.weighting_mode_definitions
+        ],
         "segmentation": {
             "enabled": config.segmentation.enabled,
             "dashboard": {

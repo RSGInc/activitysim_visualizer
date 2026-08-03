@@ -5,12 +5,7 @@ from __future__ import annotations
 import panel as pn
 
 from dashboard import DashboardState
-from dashboard.components import (
-    build_run_legend_panes,
-    set_percent_mode,
-    set_run_colors,
-    set_run_label_order,
-)
+from dashboard.rendering import RenderContext, run_legend_panes
 from dashboard.page_registry import (
     build_dashboard_prepared_run_provider,
     build_registered_live_pages,
@@ -18,7 +13,7 @@ from dashboard.page_registry import (
 )
 from dashboard.page_base import GroupedDashboardPage
 from processor.models import RunData
-from processor.summarize.cache import SummaryRun
+from processor.summarize.cache_types import SummaryRun
 from runtime.config import Config
 
 pn.extension("plotly", "tabulator", sizing_mode="stretch_width")
@@ -39,17 +34,17 @@ def build_dashboard(
     summary_runs: list[SummaryRun] | None = None,
 ) -> pn.template.FastListTemplate:
     """Assemble the full Panel dashboard from a list of (label, RunData) tuples."""
-    set_run_colors(config.run_colors)
     prepared_run_provider = build_dashboard_prepared_run_provider(prepared_runs, config)
     state = DashboardState(
         summary_runs=summary_runs,
         weighting_modes=config.weighting_modes,
+        weighting_definitions=config.weighting_mode_definitions,
+        config=config,
         prepared_run_provider=prepared_run_provider,
         dashboard_segmentation_type=config.segmentation.dashboard.segmentation_type,
         default_segmentation_visibility=config.segmentation.dashboard.visibility,
     )
     run_labels = state.run_labels
-    set_run_label_order(run_labels)
 
     weight_mode = pn.widgets.RadioButtonGroup(
         name="Weighting",
@@ -70,7 +65,6 @@ def build_dashboard(
     # if static_export:
     #     weight_mode.disabled = True
     #     value_mode.disabled = True
-    #     set_percent_mode(True)
     #     pages = build_registered_live_pages(state, config)
     #     for page in pages:
     #         page.mark_stale()
@@ -141,7 +135,7 @@ def build_dashboard(
 
     sidebar_items = [
         pn.pane.Markdown("## Runs Loaded"),
-        *build_run_legend_panes(run_labels),
+        *run_legend_panes(RenderContext.from_dashboard(config, state)),
         pn.layout.Divider(),
         pn.pane.Markdown("## Display Options"),
         pn.pane.HTML(

@@ -1,5 +1,5 @@
 """Processor package for prepared ActivitySim data and derived outputs."""
 
-from processor.models import ProcessorWorkflowResult, RunData
+from processor.models import RunData
 
-__all__ = ["ProcessorWorkflowResult", "RunData"]
+__all__ = ["RunData"]

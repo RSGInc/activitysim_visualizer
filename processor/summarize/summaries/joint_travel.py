@@ -4,10 +4,11 @@ import polars as pl
 
 from runtime.config import Config
 from processor.models import RunData
-from processor.summarize.contracts import empty_summary_frame, summary_contract
+from processor.summarize.contracts import summary
 
 
-@summary_contract(
+@summary(
+    id="jtf_distribution",
     schema={
         "jtf_code": pl.Int32,
         "jtf_label": pl.Utf8,
@@ -152,7 +153,8 @@ def joint_tour_freq(rd: RunData, config: Config | None = None) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="joint_tours_by_household_size",
     schema={
         "household_size": pl.Int32,
         "household_count": pl.Float64,
@@ -172,7 +174,7 @@ def joint_tours_hhsize(rd: RunData, config: Config | None = None) -> pl.DataFram
         or "household_id" not in rd.hh.columns
         or "finalweight" not in rd.hh.columns
     ):
-        return empty_summary_frame(joint_tours_hhsize)
+        return joint_tours_hhsize.empty()
 
     joint_tour_hhs = (
         rd.tours.filter(pl.col("tour_category") == "joint")
@@ -198,7 +200,8 @@ def joint_tours_hhsize(rd: RunData, config: Config | None = None) -> pl.DataFram
     )
 
 
-@summary_contract(
+@summary(
+    id="joint_tour_party_size_distribution",
     schema={
         "party_size": pl.Int32,
         "joint_tour_count": pl.Float64,
@@ -208,12 +211,12 @@ def joint_tours_hhsize(rd: RunData, config: Config | None = None) -> pl.DataFram
 def joint_party_size(rd: RunData, config: Config | None = None) -> pl.DataFrame:
     """Joint tour party size distribution (capped at 5+). Columns: party_size (1-5), joint_tour_count."""
     if "tour_category" not in rd.tours.columns or "NUMBER_HH" not in rd.tours.columns:
-        return empty_summary_frame(joint_party_size)
+        return joint_party_size.empty()
 
     joint_tours = rd.tours.filter(pl.col("tour_category") == "joint")
 
     if joint_tours.is_empty():
-        return empty_summary_frame(joint_party_size)
+        return joint_party_size.empty()
 
     df = (
         joint_tours.group_by("NUMBER_HH")
@@ -245,7 +248,8 @@ def joint_party_size(rd: RunData, config: Config | None = None) -> pl.DataFrame:
     )
 
 
-@summary_contract(
+@summary(
+    id="joint_tour_composition_distribution",
     schema={
         "tour_composition": pl.Utf8,
         "joint_tour_count": pl.Float64,
@@ -255,7 +259,7 @@ def joint_party_size(rd: RunData, config: Config | None = None) -> pl.DataFrame:
 def joint_composition(rd: RunData, config: Config | None = None) -> pl.DataFrame:
     """Joint tour composition. Columns: tour_composition, joint_tour_count."""
     if "tour_category" not in rd.tours.columns:
-        return empty_summary_frame(joint_composition)
+        return joint_composition.empty()
 
     joint_tours = rd.tours.filter(pl.col("tour_category") == "joint")
     # ActivitySim uses "composition"; fall back to "tour_composition" if somehow renamed
@@ -264,7 +268,7 @@ def joint_composition(rd: RunData, config: Config | None = None) -> pl.DataFrame
     )
 
     if comp_col not in joint_tours.columns:
-        return empty_summary_frame(joint_composition)
+        return joint_composition.empty()
 
     return (
         joint_tours.group_by(comp_col)
@@ -274,7 +278,8 @@ def joint_composition(rd: RunData, config: Config | None = None) -> pl.DataFrame
     )
 
 
-@summary_contract(
+@summary(
+    id="joint_tour_composition_by_party_size",
     schema={
         "tour_composition": pl.Utf8,
         "party_size": pl.Int64,
@@ -297,7 +302,7 @@ def joint_composition_by_party_size(rd: RunData, config: Config) -> pl.DataFrame
         "finalweight",
     }
     if not required.issubset(set(rd.tours.columns)):
-        return empty_summary_frame(joint_composition_by_party_size)
+        return joint_composition_by_party_size.empty()
 
     return (
         rd.tours.filter(
@@ -325,7 +330,8 @@ def joint_composition_by_party_size(rd: RunData, config: Config) -> pl.DataFrame
     )
 
 
-@summary_contract(
+@summary(
+    id="person_jtp_by_household_size",
     schema={
         "household_size": pl.Int64,
         "joint_tour_person_count": pl.Float64,
@@ -343,7 +349,7 @@ def joint_participation_person_by_hhsize(rd: RunData, config: Config) -> pl.Data
     if not person_required.issubset(set(rd.per.columns)) or not hh_required.issubset(
         set(rd.hh.columns)
     ):
-        return empty_summary_frame(joint_participation_person_by_hhsize)
+        return joint_participation_person_by_hhsize.empty()
 
     persons_with_hhsize = rd.per.join(
         rd.hh.select("household_id", "hhsize"),
@@ -352,7 +358,7 @@ def joint_participation_person_by_hhsize(rd: RunData, config: Config) -> pl.Data
     ).filter(pl.col("hhsize").is_not_null())
 
     if persons_with_hhsize.is_empty():
-        return empty_summary_frame(joint_participation_person_by_hhsize)
+        return joint_participation_person_by_hhsize.empty()
 
     total_people = persons_with_hhsize.group_by("hhsize").agg(
         total_person_weight=pl.col("finalweight").sum()
@@ -384,7 +390,8 @@ def joint_participation_person_by_hhsize(rd: RunData, config: Config) -> pl.Data
     )
 
 
-@summary_contract(
+@summary(
+    id="household_jtp_by_household_size_and_jtf",
     schema={
         "jtf": pl.Utf8,
         "household_size": pl.Utf8,
@@ -401,7 +408,7 @@ def jtf_by_hhsize(rd: RunData, config: Config | None = None) -> pl.DataFrame:
     hh = rd.hh
 
     if "tour_category" not in rd.tours.columns or "HHSIZE" not in hh.columns:
-        return empty_summary_frame(jtf_by_hhsize)
+        return jtf_by_hhsize.empty()
 
     joint_tours = rd.tours.filter(pl.col("tour_category") == "joint")
 

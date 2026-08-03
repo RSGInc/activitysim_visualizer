@@ -69,7 +69,6 @@ instance/
 .scrapy
 
 # Sphinx documentation
-docs/_build/
 
 # PyBuilder
 .pybuilder/
@@ -226,3 +225,22 @@ tmp*/
 *.json
 
 plans/
+
+# Local runtime and diagnostic artifacts
+/artifacts/
+/artifacts_2/
+/logs/
+/.manual_logging_test/
+/.posit/publish/
+/codex_tmp_check/
+/config_1.yaml
+/configs/artifacts/
+/configs/artifacts_2/
+/configs/scratch.py
+/configs/skimjoin_odot_series15.yaml
+/configs/will*.yaml
+/pytest-output.txt
+/raw_school_dropoff.ipynb
+/prepared_table_filter_example.ipynb
+/scratch.ipynb
+/test

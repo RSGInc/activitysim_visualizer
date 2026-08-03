@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, TYPE_CHECKING
 
 import polars as pl
 
 from .common import normalize_run_selector_key
+
+if TYPE_CHECKING:
+    from runtime.weighting import WeightingModeDefinition
 
 
 @dataclass(frozen=True)
@@ -49,6 +52,7 @@ class ExportDashboardSettings:
     """Resolved dashboard-level controls for HTML export."""
 
     weighting: list[str] = field(default_factory=lambda: ["weighted"])
+    weighting_labels: dict[str, str] = field(default_factory=dict)
     values: list[str] = field(default_factory=lambda: ["percent"])
     segmentation_type: str | None = None
     segmentation_visibility: Literal[
@@ -56,7 +60,7 @@ class ExportDashboardSettings:
     ] | None = None
 
     def panel_weighting_values(self) -> list[str]:
-        return [mode.title() for mode in self.weighting]
+        return [self.weighting_labels.get(mode, mode.title()) for mode in self.weighting]
 
     def panel_value_values(self) -> list[str]:
         labels = {"percent": "Percent", "count": "Count"}
@@ -144,6 +148,8 @@ class SkimjoinSettings:
     normalized_config: Any | None = None
     resolved_skim_files: tuple[str, ...] = ()
     resolved_network_los_file: str | None = None
+    create_hypothetical_skim_tables: bool = False
+    failure_policy: Literal["record", "error"] = "record"
 
 
 @dataclass(frozen=True)
@@ -153,6 +159,7 @@ class RunSkimjoinOverrides:
     config_path: str | None = None
     skim_files: tuple[str, ...] = ()
     network_los_file: str | None = None
+    create_hypothetical_skim_tables: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -174,6 +181,30 @@ class PrepareAutoSufficiencySettings:
     """Configurable household comparison basis for AUTOSUFF derivation."""
 
     basis: Literal["licensed_drivers", "workers", "adults"] = "licensed_drivers"
+
+
+@dataclass(frozen=True)
+class PrepareTimePeriodsSettings:
+    """Optional prepared trip/tour period-label derivation."""
+
+    enabled: bool = False
+    network_los_file: str | None = None
+    network_los_digest: str | None = None
+    trip_period_number_column: str = "depart"
+    tour_start_period_number_column: str = "start"
+    tour_end_period_number_column: str = "end"
+
+
+@dataclass(frozen=True)
+class PrepareNonMotorizedDistanceSkimSettings:
+    """Optional non-motorized distance lookup applied during prepare."""
+
+    enabled: bool = False
+    file: str | None = None
+    file_digest: str | None = None
+    matrix: str | None = None
+    source_type: Literal["csv", "omx"] | None = None
+    value_column: str = "DISTWALK"
 
 
 @dataclass(frozen=True)
@@ -318,15 +349,23 @@ class Config:
     log_level: str
     pipeline: PipelineSettings
     dashboard_pages: list[DashboardPageConfigEntry] | None
+    include_notes: bool
     enable_maz_geographies: bool
     run_colors: list[str]
     missing_data_display: str
+    bar_hover_mode: Literal["closest", "all"]
+    density_hover_mode: Literal["closest", "all"]
     summary_root: str
     weighting_modes: list[str]
+    weighting_mode_definitions: tuple["WeightingModeDefinition", ...]
+    extension_modules: tuple[str, ...]
+    extension_settings: dict[str, Any]
     export_html: ExportHTMLSettings
     skimjoin: SkimjoinSettings
     prepare_vot_bins: PrepareVotBinsSettings
     prepare_auto_sufficiency: PrepareAutoSufficiencySettings
+    prepare_time_periods: PrepareTimePeriodsSettings
+    prepare_non_motorized_distance_skim: PrepareNonMotorizedDistanceSkimSettings
     prepare_output_file_format: str
     prepare_relationship_checks: str
     files: dict[str, str]
@@ -389,8 +428,6 @@ class Config:
     col_inb_chauffeur_tour_id: list[str]
     summary_categories: dict[str, CategorySpec]
     dashboard_labels: dict[str, CategorySpec]
-    person_type_labels: Optional[dict[str, str]]
-    transit_subsidy_labels: Optional[dict[str, str]]
     group_joint_tour_purposes: bool
     group_atwork_tour_purposes: bool
     group_school_tour_purposes: bool
@@ -405,10 +442,10 @@ class Config:
     segmentation: SegmentationSettings
     skim_file: Optional[str]
     skim_matrix: str
-    mode_order: Optional[list[str]]
     mode_groups: Optional[dict[str, list[str]]]
     pnr_tour_modes: list[str]
     runs: list[dict]
+    summary_failure_policy: Literal["record", "error"] = "record"
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "Config":
@@ -434,20 +471,27 @@ class Config:
     def run_color(self, idx: int) -> str:
         return self.run_colors[idx % len(self.run_colors)]
 
-    @property
-    def categories(self) -> dict[str, CategorySpec]:
-        """Compatibility alias for pre-split display-oriented category lookups."""
-        return self.dashboard_labels
+    def weighting_mode_definition(self, mode_id: str) -> "WeightingModeDefinition":
+        normalized = str(mode_id).strip().lower()
+        for definition in self.weighting_mode_definitions:
+            if definition.mode_id == normalized:
+                return definition
+        raise ValueError(
+            f"Weighting mode {mode_id!r} is not enabled for this configuration."
+        )
+
+    def weighting_mode_label(self, mode_id: str) -> str:
+        return self.weighting_mode_definition(mode_id).label
+
+    def skimjoin_step_enabled(self) -> bool:
+        """Return whether the active pipeline includes integrated skimjoin."""
+        return self.pipeline.has_step("skimjoin")
 
     def summary_category_spec(self, category_id: str) -> CategorySpec | None:
         return self.summary_categories.get(str(category_id))
 
     def dashboard_label_spec(self, category_id: str) -> CategorySpec | None:
         return self.dashboard_labels.get(str(category_id))
-
-    def category_spec(self, category_id: str) -> CategorySpec | None:
-        """Compatibility shim for existing display-oriented call sites."""
-        return self.dashboard_label_spec(category_id)
 
     def normalize_escort_value(self, raw_value) -> str:
         from .normalize_categories import escort_normalization_key

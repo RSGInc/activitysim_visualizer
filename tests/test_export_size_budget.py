@@ -2,41 +2,27 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
-from uuid import uuid4
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from dashboard.export.html import build_export_html_document
-from test_export_html import _full_summary_run, _write_config
 
 # This baseline tracks the current representative export fixture on this branch.
 # The runtime split added source files, but the generated runtime asset remains
 # small; the larger size drift comes from the repository's current export
 # payload/embedded dependency footprint rather than from a major new runtime
 # bundle.
-EXPORT_HTML_BASELINE_BYTES = 8_833_840
+# Updated after calculation notes were ported to declarative page features.
+# Keep the growth allowance separate so future changes still surface clearly.
+EXPORT_HTML_BASELINE_BYTES = 11_502_295
 EXPORT_HTML_GROWTH_BUDGET_BYTES = 350_000
 
-
-def _workspace_tmp_dir(label: str) -> Path:
-    path = Path("tmp_export_test_artifacts") / f"{label}_{uuid4().hex}"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-def test_export_html_size_budget_for_representative_fixture() -> None:
-    tmp_path = _workspace_tmp_dir("size_budget")
-    config = _write_config(
-        tmp_path,
-        export_html_lines=[
-            "dashboard:",
-            "  weighting: all",
-            "  values: all",
-        ],
-    )
-
-    html = build_export_html_document([], config, summary_runs=[_full_summary_run()])
+@pytest.mark.full_export
+def test_export_html_size_budget_for_representative_fixture(
+    representative_full_export_html: str,
+) -> None:
+    html = representative_full_export_html
     actual_size = len(html.encode("utf-8"))
     max_size = EXPORT_HTML_BASELINE_BYTES + EXPORT_HTML_GROWTH_BUDGET_BYTES
 

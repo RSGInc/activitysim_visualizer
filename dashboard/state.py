@@ -15,14 +15,23 @@ from dashboard.data_access import (
 )
 from processor.models import RunData
 from processor.prepare.availability import table_availability, table_diagnostics
-from processor.summarize.cache import SummaryRun, normalize_weighting_modes
+from processor.summarize.cache_types import SummaryRun
+from runtime.weighting import (
+    WeightingModeDefinition,
+    weighting_mode_definitions,
+)
+
+_DEFAULT_WEIGHTING_DEFINITIONS = weighting_mode_definitions(None)
+_DEFAULT_WEIGHTING_LABELS = [
+    definition.label for definition in _DEFAULT_WEIGHTING_DEFINITIONS
+]
 
 
 class DashboardState(param.Parameterized):
     """Single source of truth for live Panel dashboard state."""
 
     weight_mode = param.ObjectSelector(
-        default="Weighted", objects=["Weighted", "Unweighted"]
+        default=_DEFAULT_WEIGHTING_LABELS[0], objects=_DEFAULT_WEIGHTING_LABELS
     )
     value_mode = param.ObjectSelector(default="Percent", objects=["Percent", "Count"])
     active_tab = param.Integer(default=0, bounds=(0, None))
@@ -31,6 +40,8 @@ class DashboardState(param.Parameterized):
         self,
         summary_runs: list[SummaryRun] | None = None,
         weighting_modes: list[str] | None = None,
+        weighting_definitions: tuple[WeightingModeDefinition, ...] | None = None,
+        config: Any | None = None,
         prepared_run_provider: DashboardPreparedRunProvider | None = None,
         dashboard_segmentation_type: str | None = None,
         default_segmentation_visibility: str = "full_and_segments",
@@ -43,8 +54,29 @@ class DashboardState(param.Parameterized):
             if prepared_run_provider is not None
             else DashboardPreparedRunProvider.not_requested()
         )
-        self._weighting_modes = normalize_weighting_modes(weighting_modes)
-        weight_options = [mode.title() for mode in self._weighting_modes]
+        self._weighting_definitions = (
+            tuple(weighting_definitions)
+            if weighting_definitions is not None
+            else weighting_mode_definitions(weighting_modes)
+        )
+        self._weighting_modes = [
+            definition.mode_id for definition in self._weighting_definitions
+        ]
+        if weighting_modes is not None and self._weighting_modes != [
+            str(mode).strip().lower() for mode in weighting_modes
+        ]:
+            raise ValueError(
+                "Dashboard weighting definitions do not match the configured mode order."
+            )
+        self._weighting_mode_by_label = {
+            definition.label: definition.mode_id
+            for definition in self._weighting_definitions
+        }
+        self._prepared_run_provider.configure_weighting_modes(
+            self._weighting_definitions,
+            config=config,
+        )
+        weight_options = list(self._weighting_mode_by_label)
         self.param.weight_mode.objects = weight_options
         self.weight_mode = weight_options[0]
         self._page_state: dict[str, dict[str, Any]] = {}
@@ -117,7 +149,7 @@ class DashboardState(param.Parameterized):
         return self._cache_stats
 
     def weighting_key(self) -> str:
-        return str(self.weight_mode).strip().lower()
+        return self._weighting_mode_by_label[str(self.weight_mode)]
 
     def value_key(self) -> str:
         return "percent" if self.value_mode == "Percent" else "count"
@@ -153,12 +185,12 @@ class DashboardState(param.Parameterized):
 
     def get_prepared_runs_if_loaded(
         self,
-        weighted: bool | None = None,
+        weighting_mode: str | None = None,
     ) -> list[tuple[str, RunData]] | None:
         """Return prepared runs only when the dashboard explicitly has them loaded."""
-        if weighted is None:
-            weighted = self.weight_mode == "Weighted"
-        return self._prepared_run_provider.get_runs_if_loaded(weighted=weighted)
+        return self._prepared_run_provider.get_runs_if_loaded(
+            weighting_mode=weighting_mode or self.weighting_key()
+        )
 
     def get_summary_table_set(
         self,
@@ -330,13 +362,15 @@ class DashboardState(param.Parameterized):
         self,
         table_name: str,
         *,
-        weighted: bool | None = None,
+        weighting_mode: str | None = None,
         required_columns: tuple[str, ...] = (),
     ) -> DashboardDataSelection:
         """Return usable and excluded runs for one prepared table."""
         usable_runs: list[tuple[str, RunData]] = []
         excluded_runs: list[VisualizationRunAvailability] = []
-        prepared_runs = self.get_prepared_runs_if_loaded(weighted=weighted)
+        prepared_runs = self.get_prepared_runs_if_loaded(
+            weighting_mode=weighting_mode
+        )
         if prepared_runs is None:
             detail = (
                 "prepared run data was not requested for this dashboard session"
