@@ -2008,11 +2008,11 @@ def test_regional_validation_page_compares_county_flows_to_commuting_flows(
         run_key="base",
         summaries_by_mode={
             "weighted": {
-                "county_flows_joja_validation_summary": observed,
+                "county_commuting_flows_validation_summary": observed,
                 "commuting_flows": modeled,
             },
             "unweighted": {
-                "county_flows_joja_validation_summary": observed,
+                "county_commuting_flows_validation_summary": observed,
                 "commuting_flows": modeled,
             },
         },
@@ -2154,7 +2154,10 @@ def test_data_requirements_for_pages_tracks_optional_summary_dependencies() -> N
     assert "commercial_vmt_totals" not in requirements.required_summary_ids
     assert "commercial_vmt_totals" not in requirements.optional_summary_ids
     assert "auto_vmt_validation_summary" not in requirements.optional_summary_ids
-    assert "county_flows_validation_summary" in requirements.optional_summary_ids
+    assert (
+        "district_commuting_flows_validation_summary"
+        in requirements.optional_summary_ids
+    )
     assert "commuting_flows" in requirements.optional_summary_ids
     assert "auto_vmt_validation_summary" not in requirements.summary_ids_for_pruning
 

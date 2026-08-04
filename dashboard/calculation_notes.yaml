@@ -607,7 +607,7 @@ notes:
   regional_validation.flows:
     method: aligned_comparison
     method_text: Duplicate origin-destination pairs are summed within the observed and modeled sources, then the two matrices are joined by origin and destination before the selected cell-by-cell comparison is calculated.
-    sources: [county_flows_validation_summary, county_flows_joja_validation_summary, commuting_flows]
+    sources: [district_commuting_flows_validation_summary, county_commuting_flows_validation_summary, commuting_flows]
     summary: Observed and modeled origin-destination flow matrices are aligned by geography pair and displayed beside a comparison matrix.
     source_filters:
       - Modeled flows include only workers with known home and workplace zones.

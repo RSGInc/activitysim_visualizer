@@ -37,11 +37,11 @@ class FlowOption:
 
 FLOW_OPTIONS = {
     "District flows": FlowOption(
-        summary_id="county_flows_validation_summary",
+        summary_id="district_commuting_flows_validation_summary",
         modeled_geography_types=("district", "home_district"),
     ),
     "County flows": FlowOption(
-        summary_id="county_flows_joja_validation_summary",
+        summary_id="county_commuting_flows_validation_summary",
         modeled_geography_types=("county", "home_county"),
     ),
 }
@@ -433,8 +433,8 @@ def flow_comparison_heatmap(
     order=55,
     default_enabled=False,
     optional_summary_ids=(
-        "county_flows_validation_summary",
-        "county_flows_joja_validation_summary",
+        "district_commuting_flows_validation_summary",
+        "county_commuting_flows_validation_summary",
         "commuting_flows",
     ),
 )

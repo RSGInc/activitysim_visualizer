@@ -101,7 +101,7 @@ def count_location_fit_validation_summary(rd: RunData, config: Config) -> pl.Dat
 
 
 @summary(
-    id="county_flows_validation_summary",
+    id="district_commuting_flows_validation_summary",
     build_by_default=False,
     schema={
         "": pl.Utf8,
@@ -112,12 +112,14 @@ def count_location_fit_validation_summary(rd: RunData, config: Config) -> pl.Dat
         "Total": pl.Float64,
     },
 )
-def county_flows_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return county_flows_validation_summary.empty()
+def district_commuting_flows_validation_summary(
+    rd: RunData, config: Config
+) -> pl.DataFrame:
+    return district_commuting_flows_validation_summary.empty()
 
 
 @summary(
-    id="county_flows_joja_validation_summary",
+    id="county_commuting_flows_validation_summary",
     build_by_default=False,
     schema={
         "": pl.Utf8,
@@ -127,8 +129,10 @@ def county_flows_validation_summary(rd: RunData, config: Config) -> pl.DataFrame
         "Total": pl.Float64,
     },
 )
-def county_flows_joja_validation_summary(rd: RunData, config: Config) -> pl.DataFrame:
-    return county_flows_joja_validation_summary.empty()
+def county_commuting_flows_validation_summary(
+    rd: RunData, config: Config
+) -> pl.DataFrame:
+    return county_commuting_flows_validation_summary.empty()
 
 
 @summary(

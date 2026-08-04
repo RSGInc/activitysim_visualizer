@@ -138,7 +138,7 @@ Total registered pages: **27**
 | `traffic` | Traffic Validation | Validation Summaries | yes | `none` | `screenline_flow_comparisons` | `link_validation_summary`, `count_location_counts_validation_summary`, `count_location_volumes_validation_summary`, `count_location_scatter_validation_summary`, `count_location_fit_validation_summary` | - |
 | `transit` | Transit Validation | Validation Summaries | yes | `none` | `transit_boardings_by_operator_and_technology`, `transit_transfer_rate` | - | - |
 | `vmt` | VMT Validation | Validation Summaries | yes | `none` | `auto_vmt_by_home_geography_income_hhsize_time_period`, `non_motorized_vmt_by_home_geography_income_hhsize_time_period`, `bicycle_vmt_by_facility_type` | `commercial_vehicle_validation_summary`, `commercial_vehicle_vmt_validation_summary`, `external_trip_validation_summary`, `external_vmt_validation_summary` | - |
-| `regional_validation` | Regional Validation | Validation Summaries | no | `none` | - | `county_flows_validation_summary`, `county_flows_joja_validation_summary`, `commuting_flows` | - |
+| `regional_validation` | Regional Validation | Validation Summaries | no | `none` | - | `district_commuting_flows_validation_summary`, `county_commuting_flows_validation_summary`, `commuting_flows` | - |
 | `raw_trip_demo` | Prepared Trip Demo | - | no | `required` | - | - | `trips` |
 
 ## Registered Page Groups
