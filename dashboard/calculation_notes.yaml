@@ -609,6 +609,7 @@ notes:
     method_text: Duplicate origin-destination pairs are summed within the observed and modeled sources, then the two matrices are joined by origin and destination before the selected cell-by-cell comparison is calculated.
     sources: [district_commuting_flows_validation_summary, county_commuting_flows_validation_summary, commuting_flows]
     summary: Observed and modeled origin-destination flow matrices are aligned by geography pair and displayed beside a comparison matrix.
+    formula: difference = modeled - observed; % difference = (modeled - observed) / observed * 100; absolute % difference = absolute value of % difference
     source_filters:
       - Modeled flows include only workers with known home and workplace zones.
       - Flow rows without both an origin and destination geography are excluded.
@@ -618,6 +619,7 @@ notes:
         - Duplicate origin-destination pairs are summed before the two matrices are joined.
       Comparison:
         - The selected metric is computed cell by cell from aligned observed and modeled values.
+        - Percent differences are blank when the observed flow is zero.
         - Include Totals adds origin, destination, and grand-total cells to the matrices.
 
   transit_validation.boardings:
@@ -650,14 +652,20 @@ notes:
 
   traffic.facility_summary:
     method: aligned_comparison
-    method_text: Daily observed and modeled volumes are paired by count-location ID and grouped by facility type. Location count, percent RMSE, and R-squared are calculated from those paired daily values.
+    method_text: Daily observed and modeled volumes are paired by count-location ID and grouped by facility type. Location count, RMSE, RMSPE, and R-squared are calculated from those paired daily values.
     sources: [count_location_counts_validation_summary, count_location_volumes_validation_summary, count_location_scatter_validation_summary, count_location_fit_validation_summary]
     summary: The table summarizes daily count-location validation statistics by facility type.
+    formula: >-
+      % difference = (sum(modeled_i) - sum(observed_i)) / sum(observed_i) * 100;
+      RMSE = sqrt(sum((modeled_i - observed_i)^2) / n);
+      RMSPE = sqrt(mean(((observed_i - modeled_i) / observed_i)^2)) * 100;
+      R^2 = 1 - sum((modeled_i - fitted_i)^2) / sum((modeled_i - mean(modeled_i))^2)
     details:
       Aggregation:
         - Daily observed and modeled volumes are paired by count location and grouped by facility type.
-        - The table reports location count, percent RMSE, and R-squared using the prepared fit summary when available.
+        - RMSE and RMSPE are calculated from the paired points; R-squared uses the prepared fit summary when available and otherwise is calculated from the paired points.
       Important details:
+        - RMSPE is blank when any observed count in the facility group is zero.
         - This overview always uses unfiltered daily totals; the controls below apply to other traffic charts.
 
   traffic.count_locations:
@@ -665,6 +673,12 @@ notes:
     method_text: After period and facility filters are applied, one observed count and one modeled volume are paired by count-location ID; each successfully paired location becomes one scatter point.
     sources: [count_location_counts_validation_summary, count_location_volumes_validation_summary, count_location_scatter_validation_summary, count_location_fit_validation_summary]
     summary: The scatter plot pairs observed traffic counts with modeled count-location volumes for the selected period and facility type.
+    formula: >-
+      x = observed count; y = modeled volume;
+      slope = sum((x_i - mean(x)) * (y_i - mean(y))) / sum((x_i - mean(x))^2);
+      intercept = mean(y) - slope * mean(x); fitted_i = slope * x_i + intercept;
+      R^2 = 1 - sum((y_i - fitted_i)^2) / sum((y_i - mean(y))^2);
+      one-to-one reference = y = x
     details:
       Aggregation:
         - Observed and modeled values are joined by count-location identifier after applying the selected filters.
@@ -701,6 +715,12 @@ notes:
     method_text: Records are first summed by screenline, direction, count period, and facility type; observed and modeled totals with matching keys are then paired for the scatter plot and fitted with an ordinary least-squares trendline.
     sources: [screenline_flow_comparisons]
     summary: The scatter plot compares observed and modeled screenline flows.
+    formula: >-
+      x = observed flow; y = modeled flow;
+      slope = sum((x_i - mean(x)) * (y_i - mean(y))) / sum((x_i - mean(x))^2);
+      intercept = mean(y) - slope * mean(x); fitted_i = slope * x_i + intercept;
+      R^2 = 1 - sum((y_i - fitted_i)^2) / sum((y_i - mean(y))^2);
+      one-to-one reference = y = x
     source_filters:
       - Screenline records without an identifier, direction, count period, or observed volume are excluded before matching modeled flows.
     details:

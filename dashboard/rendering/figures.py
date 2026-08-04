@@ -299,17 +299,18 @@ def scatter_figure(
         if frame.is_empty() or x not in frame.columns or y not in frame.columns:
             continue
         color = context.color(str(label), label_indices.get(str(label), index))
+        trace_name = f"{label} fit"
+        if fit_annotation in frame.columns:
+            annotation = str(frame[fit_annotation][0] or "").strip()
+            label_prefix = f"{label}<br>"
+            if annotation.startswith(label_prefix):
+                annotation = annotation[len(label_prefix):]
+            if annotation:
+                trace_name = f"{trace_name}<br>{annotation}"
         figure.add_trace(go.Scatter(
-            name=f"{label} fit", x=frame[x].to_list(), y=frame[y].to_list(),
+            name=trace_name, x=frame[x].to_list(), y=frame[y].to_list(),
             mode="lines", line=dict(color=color, width=2),
         ))
-        if fit_annotation in frame.columns and str(frame[fit_annotation][0] or "").strip():
-            figure.add_annotation(
-                text=str(frame[fit_annotation][0]), xref="paper", yref="paper",
-                x=0.02, y=max(0.05, 0.98 - 0.12 * index), showarrow=False,
-                font=dict(color=color, size=12), bgcolor="rgba(255,255,255,0.75)",
-                bordercolor=color, borderwidth=1,
-            )
     if one_to_one:
         if axis_values:
             minimum = min(axis_values)
@@ -323,7 +324,7 @@ def scatter_figure(
         figure.add_trace(go.Scatter(
             name="1:1 line", x=[minimum, maximum], y=[minimum, maximum], mode="lines",
             line=dict(color="#BDBDBD", width=1.5, dash="dash"),
-            hoverinfo="skip", showlegend=False,
+            hoverinfo="skip", showlegend=True,
         ))
     _layout(figure, title=title, x_title=x_title, y_title=y_title, height=height)
     if one_to_one:
@@ -343,6 +344,6 @@ def scatter_figure(
                 y=1.0,
                 yanchor="top",
             ),
-            margin=dict(l=60, r=180, t=90, b=90),
+            margin=dict(l=60, r=240, t=90, b=90),
         )
     return figure

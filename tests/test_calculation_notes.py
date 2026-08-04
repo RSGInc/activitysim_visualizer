@@ -94,6 +94,17 @@ def test_calculation_note_renderer_escapes_configured_text() -> None:
     assert rendered.endswith("</details></div>")
 
 
+def test_validation_notes_expose_comparison_and_error_formulas() -> None:
+    regional = get_calculation_note("regional_validation.flows")
+    facility = get_calculation_note("traffic.facility_summary")
+
+    assert "difference = modeled - observed" in regional.formula
+    assert (
+        "RMSPE = sqrt(mean(((observed_i - modeled_i) / observed_i)^2)) * 100"
+        in facility.formula
+    )
+
+
 def test_calculation_note_is_collapsed_html_pane_exported_without_conversion() -> None:
     pane = calculation_note("traffic.link_volume")
 

@@ -392,6 +392,17 @@ def demo_facility_comparison_table(
             rmse = math.sqrt(
                 sum(difference**2 for difference in differences) / len(differences)
             )
+            if any(value == 0.0 for value in observed):
+                rmspe = ""
+            else:
+                squared_percentage_errors = [
+                    ((observe - model) / observe) ** 2
+                    for observe, model in zip(observed, modeled)
+                ]
+                rmspe_value = math.sqrt(
+                    sum(squared_percentage_errors) / len(squared_percentage_errors)
+                ) * 100.0
+                rmspe = f"{rmspe_value:.2f}%"
             percent_value = (
                 None
                 if total_observed == 0.0
@@ -411,6 +422,7 @@ def demo_facility_comparison_table(
                     "Total Modeled Count": total_modeled,
                     "% Difference": percent_difference,
                     "RMSE": rmse,
+                    "RMSPE": rmspe,
                     "R^2": r_squared_lookup.get(raw_facility_type)
                     if raw_facility_type in r_squared_lookup
                     else _r_squared_from_points(facility_points),

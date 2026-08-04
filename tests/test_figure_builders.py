@@ -109,16 +109,34 @@ def test_scatter_chart_can_add_one_to_one_reference_line() -> None:
         [("Base", pl.DataFrame({"observed": [10.0, 20.0], "modeled": [12.0, 25.0]}))],
         x="observed",
         y="modeled",
+        fit_overlays=[
+            (
+                "Base",
+                pl.DataFrame(
+                    {
+                        "observed": [0.0, 100.0],
+                        "modeled": [-100.0, 200.0],
+                        "annotation": [
+                            "Base<br>y = 3.00x - 100.00<br>R^2 = 0.90<br>n = 2"
+                        ]
+                        * 2,
+                    }
+                ),
+            )
+        ],
         one_to_one=True,
     )
 
     reference_line = chart.object.data[-1]
+    fit_line = chart.object.data[-2]
+    assert fit_line.name == "Base fit<br>y = 3.00x - 100.00<br>R^2 = 0.90<br>n = 2"
+    assert not chart.object.layout.annotations
     assert reference_line.name == "1:1 line"
     assert list(reference_line.x) == [10.0, 25.0]
     assert list(reference_line.y) == [10.0, 25.0]
     assert reference_line.line.color == "#BDBDBD"
     assert reference_line.line.dash == "dash"
-    assert reference_line.showlegend is False
+    assert reference_line.showlegend is True
     assert list(chart.object.layout.xaxis.range) == [10.0, 25.0]
     assert list(chart.object.layout.yaxis.range) == [10.0, 25.0]
     assert chart.object.layout.xaxis.constrain == "domain"

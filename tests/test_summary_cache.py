@@ -5415,6 +5415,7 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
         "Total Modeled Count",
         "% Difference",
         "RMSE",
+        "RMSPE",
         "R^2",
     ]
     assert facility_table.to_dict("records") == [
@@ -5425,6 +5426,7 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
             "Total Modeled Count": "210",
             "% Difference": "5.00%",
             "RMSE": "10",
+            "RMSPE": "5.00%",
             "R^2": None,
         },
         {
@@ -5434,6 +5436,7 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
             "Total Modeled Count": "110",
             "% Difference": "10.00%",
             "RMSE": "10",
+            "RMSPE": "10.00%",
             "R^2": None,
         },
     ]
@@ -5477,7 +5480,7 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
     assert list(reference_line.y) == [10.0, 11.0]
     assert reference_line.line.color == "#BDBDBD"
     assert reference_line.line.dash == "dash"
-    assert reference_line.showlegend is False
+    assert reference_line.showlegend is True
     assert list(count_plot.object.layout.xaxis.range) == [10.0, 11.0]
     assert list(count_plot.object.layout.yaxis.range) == [10.0, 11.0]
     assert count_plot.object.layout.xaxis.constrain == "domain"
@@ -5495,12 +5498,11 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
     assert bar_plot.object.data[0].name == "Base"
     assert plot_titles[-1] == "Screenline Observed vs Modeled - AM"
     screenline_plot = _collect_plotly_panes(page._screenline_body)[0]
-    assert [trace.name for trace in screenline_plot.object.data] == [
-        "Base",
-        "Base fit",
-        "1:1 line",
-    ]
-    assert "R^2" in screenline_plot.object.layout.annotations[0].text
+    assert screenline_plot.object.data[0].name == "Base"
+    assert screenline_plot.object.data[-1].name == "1:1 line"
+    assert "Base fit<br>" in screenline_plot.object.data[1].name
+    assert "R^2" in screenline_plot.object.data[1].name
+    assert not screenline_plot.object.layout.annotations
     assert screenline_plot.object.layout.yaxis.scaleanchor == "x"
     assert screenline_plot.object.layout.legend.x == 1.02
     assert "Traffic Count Comparisons" not in plot_titles

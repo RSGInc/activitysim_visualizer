@@ -469,6 +469,7 @@ def test_external_traffic_helpers_filter_period_and_facility_type(
             "Total Modeled Count": 440.0,
             "% Difference": "10.00%",
             "RMSE": 22.360679774997898,
+            "RMSPE": "10.00%",
             "R^2": 0.875,
         }
     ]
