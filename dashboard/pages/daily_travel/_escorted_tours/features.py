@@ -166,7 +166,7 @@ class EscortedToursFeatureMixin:
 
     def render_student_school_escort_charts(self, summary_data):
         """Build the three student escort status charts when the summary is available."""
-        if summary_data is None:
+        if not summary_data:
             return None
 
         escort_order = self.config.ordered_values("escort", STUDENT_ESCORT_TYPE_ORDER)
@@ -240,7 +240,7 @@ class EscortedToursFeatureMixin:
         student_count_values: list[str],
     ):
         """Build household escort count/rate charts for each direction."""
-        if denominator_summary is None or numerator_summary is None:
+        if not denominator_summary or not numerator_summary:
             return None
 
         charts: list[pn.viewable.Viewable] = []
@@ -321,7 +321,7 @@ class EscortedToursFeatureMixin:
         student_count_values: list[str],
     ):
         """Build average schoolkids-per-tour charts for each direction."""
-        if summary_data is None:
+        if not summary_data:
             return None
 
         charts: list[pn.viewable.Viewable] = []

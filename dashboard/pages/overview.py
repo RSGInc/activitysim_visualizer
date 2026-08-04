@@ -305,7 +305,7 @@ class OverviewPage(DashboardPage):
     def render_demographics(self) -> SectionContent:
         """Render the demographic distribution charts."""
         if not self.state.run_labels:
-            return []
+            return [self.no_runs_message()]
 
         ptype_result, hhsize_result = self._demographic_results()
         return [

@@ -51,7 +51,7 @@ class TrafficFeatureMixin:
 
     def render_demo_facility_summary_section(self) -> list[pn.viewable.Viewable]:
         if not self.state.run_labels:
-            return []
+            return [self.no_runs_message()]
 
         count_list = self.data.summary(
             "count_location_counts_validation_summary", self.weighting_key
@@ -211,7 +211,7 @@ class TrafficFeatureMixin:
 
     def render_demo_link_volume_section(self) -> list[pn.viewable.Viewable]:
         if not self.state.run_labels:
-            return []
+            return [self.no_runs_message()]
 
         link_list = self.data.summary("link_validation_summary", self.weighting_key)
         if not link_list:

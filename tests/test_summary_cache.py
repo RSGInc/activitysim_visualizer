@@ -61,7 +61,7 @@ from dashboard.pages.validation.regional import RegionalValidationPage
 from dashboard.pages.validation.vmt import VMTValidationPage
 from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.state import DashboardState
-from dashboard.page_registry import page_definitions_for_group
+from dashboard.page_registry import all_page_definitions, page_definitions_for_group
 from processor.models import RunData
 from processor.prepare.cache import build_prepared_manifest_identity
 from processor.prepare.enrichment.pipeline import prepare_data
@@ -3275,6 +3275,17 @@ def test_escorted_tours_page_renders_core_charts_when_optional_summaries_missing
     assert "Adult Escort Stops Before Dropoff - Outbound" in titles
     assert "Adult Escort Trip Stop Frequency - Both Directions" not in titles
     assert all("Schoolkids Per Escorted Tour" not in title for title in titles)
+    card_text = [
+        str(card.objects[0].object)
+        for card in _collect_cards(page.view)
+        if card.objects
+    ]
+    assert any("student_school_escort_status_by_direction" in text for text in card_text)
+    assert any("student_households_by_student_count" in text for text in card_text)
+    assert any(
+        "schoolkids_per_escorted_tour_by_student_count_and_direction" in text
+        for text in card_text
+    )
 
 
 def test_escorted_tours_page_uses_configured_escort_labels_for_student_status(
@@ -5620,6 +5631,32 @@ def test_validation_visualizations_render_cards_when_data_is_unavailable(
         cards = _collect_cards(getattr(page, section_name))
         assert len(cards) == 1, section_name
         assert cards[0].title == "Data Not Available"
+
+
+def test_all_dashboard_sections_render_missing_data_content(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(label="Base", weighted={})
+
+    for definition in all_page_definitions():
+        state = DashboardState(
+            summary_runs=[summary_run],
+            weighting_modes=config.weighting_modes,
+            prepared_run_provider=DashboardPreparedRunProvider.unavailable(),
+        )
+        page = definition.page_cls(state, config)
+        page.refresh(force=True)
+
+        for section in page.registered_sections:
+            context = f"{definition.page_id}.{section.section_id}"
+            assert section.container.objects, context
+            cards = _collect_cards(section.container)
+            plots = _collect_plotly_panes(section.container)
+            tables = _collect_tabulators(section.container)
+            assert cards or plots or tables, context
+            for plot in plots:
+                assert plot.object.data, context
+            for tabs in _collect_tabs(section.container):
+                assert tabs.objects, context
 
 
 def test_tour_distance_chart_casts_distance_bins_consistently_across_runs(

@@ -211,8 +211,6 @@ class TourDistancePage(DashboardPage):
 
     def _distance_sources(self):
         summaries = self._summaries()
-        if not summaries:
-            return None, None, None
         nonmandatory_average = normalize_geography_data(
             summaries["average_nonmandatory_tour_distance_by_purpose_and_geography"]
         )
@@ -282,8 +280,13 @@ class TourDistancePage(DashboardPage):
             return [self.no_runs_message()]
 
         summaries = self._summaries()
-        if summaries is None:
-            return [self.summary_only_unavailable_card()]
+        distance_summary = summaries["tour_distance_by_tour_purpose"]
+        if not distance_summary:
+            return [
+                self.summary_only_unavailable_card(
+                    summary_ids=("tour_distance_by_tour_purpose",),
+                )
+            ]
 
         selected_purpose = str(self.tour_purpose_sel.value)
         raw_purpose = self._tour_purpose_to_raw.get(
@@ -291,7 +294,7 @@ class TourDistancePage(DashboardPage):
         )
         distance_data = self.query(
             lambda: tour_distance_chart_data(
-                summaries["tour_distance_by_tour_purpose"],
+                distance_summary,
                 str(raw_purpose),
             )
         )
@@ -344,11 +347,20 @@ class TourDistancePage(DashboardPage):
     def render_average_section(self) -> SectionContent:
         """Render the average non-mandatory distance comparison table."""
         summaries = self._summaries()
-        if summaries is None:
-            return []
+        nonmandatory_summary = summaries[
+            "average_nonmandatory_tour_distance_by_purpose_and_geography"
+        ]
+        if not nonmandatory_summary:
+            return [
+                self.summary_only_unavailable_card(
+                    summary_ids=(
+                        "average_nonmandatory_tour_distance_by_purpose_and_geography",
+                    ),
+                )
+            ]
 
         nonmandatory_average = normalize_geography_data(
-            summaries["average_nonmandatory_tour_distance_by_purpose_and_geography"]
+            nonmandatory_summary
         )
         geo_level = self.selected_geography_level_raw()
         geography = self.selected_geography_raw()

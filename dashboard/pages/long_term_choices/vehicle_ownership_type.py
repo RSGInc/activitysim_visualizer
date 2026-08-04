@@ -161,7 +161,7 @@ class VehicleOwnershipTypePage(DashboardPage):
 
     def render_vehicle_mix(self):
         if not self.state.run_labels:
-            return []
+            return [self.no_runs_message()]
 
         summaries = self._optional_summaries()
         vehicle_views: list[pn.viewable.Viewable] = []
@@ -216,11 +216,17 @@ class VehicleOwnershipTypePage(DashboardPage):
                 missing_items=["auto_ownership_distribution"],
             )
         household_size = str(self.hhsize_sel.value)
+        chart_data = _auto_ownership_chart_data(summary_data, household_size)
+        if not any(not df.is_empty() for _, df in chart_data):
+            return self.data_not_available_card(
+                detail=(
+                    "The auto ownership summary has no data for household size "
+                    f"`{household_size}`."
+                ),
+                missing_items=["auto_ownership_distribution"],
+            )
         return self.plot.bar(
-            _auto_ownership_chart_data(
-                summary_data,
-                household_size,
-            ),
+            chart_data,
             x="household_vehicle_count",
             y="household_count",
             title=f"Auto Ownership by Household Size - {household_size}",

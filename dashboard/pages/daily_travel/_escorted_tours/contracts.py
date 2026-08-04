@@ -19,7 +19,6 @@ OPTIONAL_SUMMARY_IDS = (
     "households_with_school_escorting_by_student_count_and_direction",
     "schoolkids_per_escorted_tour_by_student_count_and_direction",
 )
-PAGE_SUMMARY_IDS = (*CORE_SUMMARY_IDS, *OPTIONAL_SUMMARY_IDS)
 STOP_SEGMENT_LABELS = {
     "outbound_before_dropoff": "Adult Escort Stops Before Dropoff - Outbound",
     "outbound_after_dropoff": "Adult Escort Stops After Dropoff - Outbound",

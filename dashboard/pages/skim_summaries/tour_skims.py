@@ -313,7 +313,7 @@ class TourSkimsPage(DashboardPage):
         family = self.tour_family_sel.value
         direction = self.tour_direction_sel.value
 
-        if tour_stats is None:
+        if not tour_stats:
             return self.data_not_available_card(
                 detail="Tour skim summaries require the precomputed skim tour statistics table.",
                 missing_items=[TOUR_STATS_SUMMARY_ID],

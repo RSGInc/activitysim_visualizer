@@ -85,14 +85,14 @@ class JointTravelPage(DashboardPage):
             "joint_tour_composition_by_party_size",
             self.weighting_key,
         )
-        return party_size_options(data) if data is not None else ["All"]
+        return party_size_options(data) if data else ["All"]
 
     def _household_size_options(self) -> list[str]:
         data = self.data.summary(
             "household_jtp_by_household_size_and_jtf",
             self.weighting_key,
         )
-        return household_size_options(data) if data is not None else ["All"]
+        return household_size_options(data) if data else ["All"]
 
     def _summaries(self):
         return self.data.summaries(*self.required_summary_ids)
@@ -116,8 +116,12 @@ class JointTravelPage(DashboardPage):
         if not self.state.run_labels:
             return [self.no_runs_message()]
         summaries = self._summaries()
-        if summaries is None:
-            return [self.summary_only_unavailable_card()]
+        if not summaries["jtf_distribution"]:
+            return [
+                self.summary_only_unavailable_card(
+                    summary_ids=("jtf_distribution",),
+                )
+            ]
         return [
             selector_row(self.hide_no_joint_tours, height=48),
             self.noted_view(
@@ -128,8 +132,6 @@ class JointTravelPage(DashboardPage):
 
     def render_joint_tour_detail(self):
         summaries = self._summaries()
-        if summaries is None:
-            return []
         party_size = self.party_size_sel.value
         joint_tours_hhsize_data = [
             (label, df.with_columns(pl.col("household_size").cast(pl.Utf8)))
@@ -160,35 +162,53 @@ class JointTravelPage(DashboardPage):
                 summaries["joint_tour_composition_by_party_size"], party_size
             )
         )
+        household_size_view = (
+            self.render_household_size_chart(
+                complete_joint_household_size_data(
+                    joint_tours_hhsize_data,
+                    value_col="joint_tour_hh_count",
+                    household_size_values=household_size_values,
+                ),
+                household_size_values,
+            )
+            if summaries["joint_tours_by_household_size"]
+            else self.summary_only_unavailable_card(
+                summary_ids=("joint_tours_by_household_size",),
+            )
+        )
+        party_size_view = (
+            self.render_party_size_chart(party_size_data, party_size_values)
+            if summaries["joint_tour_party_size_distribution"]
+            else self.summary_only_unavailable_card(
+                summary_ids=("joint_tour_party_size_distribution",),
+            )
+        )
+        composition_view = (
+            self.render_composition_chart(
+                comp_party_data,
+                composition_label_values,
+                party_size,
+            )
+            if summaries["joint_tour_composition_by_party_size"]
+            else self.summary_only_unavailable_card(
+                summary_ids=("joint_tour_composition_by_party_size",),
+            )
+        )
         return [
             pn.Column(
                 selector_row(self.party_size_sel),
                 pn.Row(
                     self.noted_view(
                         "joint_travel.household_size",
-                        self.render_household_size_chart(
-                            complete_joint_household_size_data(
-                                joint_tours_hhsize_data,
-                                value_col="joint_tour_hh_count",
-                                household_size_values=household_size_values,
-                            ),
-                            household_size_values,
-                        ),
+                        household_size_view,
                     ),
                     self.noted_view(
                         "joint_travel.party_size",
-                        self.render_party_size_chart(
-                            party_size_data,
-                            party_size_values,
-                        ),
+                        party_size_view,
                     ),
                     self.noted_view(
                         "joint_travel.composition",
-                        self.render_composition_chart(
-                            comp_party_data,
-                            composition_label_values,
-                            party_size,
-                        ),
+                        composition_view,
                     ),
                     sizing_mode="stretch_width",
                 ),
@@ -198,8 +218,6 @@ class JointTravelPage(DashboardPage):
 
     def render_participation(self):
         summaries = self._summaries()
-        if summaries is None:
-            return []
         hhsize = self.hhsize_sel.value
         person_participation = self.query(
             lambda: person_participation_data(
@@ -228,6 +246,35 @@ class JointTravelPage(DashboardPage):
                 )
             ],
         )
+        person_view = (
+            self.render_person_participation_chart(
+                complete_joint_household_size_data(
+                    person_participation,
+                    value_col="person_value",
+                    household_size_values=household_size_values,
+                ),
+                household_size_values,
+            )
+            if summaries["person_jtp_by_household_size"]
+            else self.summary_only_unavailable_card(
+                summary_ids=("person_jtp_by_household_size",),
+            )
+        )
+        household_view = (
+            self.render_household_participation_chart(
+                household_participation,
+                jtf_values,
+                hhsize,
+            )
+            if any(not df.is_empty() for _, df in household_participation)
+            else self.summary_only_unavailable_card(
+                summary_ids=("household_jtp_by_household_size_and_jtf",),
+                detail=(
+                    "The household joint-tour participation summary has no data "
+                    f"for household size `{hhsize}`."
+                ),
+            )
+        )
         return [
             pn.Column(
                 pn.Row(
@@ -238,22 +285,11 @@ class JointTravelPage(DashboardPage):
                 pn.Row(
                     self.noted_view(
                         "joint_travel.person_participation",
-                        self.render_person_participation_chart(
-                            complete_joint_household_size_data(
-                                person_participation,
-                                value_col="person_value",
-                                household_size_values=household_size_values,
-                            ),
-                            household_size_values,
-                        ),
+                        person_view,
                     ),
                     self.noted_view(
                         "joint_travel.household_participation",
-                        self.render_household_participation_chart(
-                            household_participation,
-                            jtf_values,
-                            hhsize,
-                        ),
+                        household_view,
                     ),
                     sizing_mode="stretch_width",
                 ),

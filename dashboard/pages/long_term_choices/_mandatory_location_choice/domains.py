@@ -200,7 +200,7 @@ class MandatoryLocationDomainMixin:
             "average_mandatory_tour_distance_by_purpose_and_geography",
         )
 
-        if not any(summary is not None for summary in summaries.values()):
+        if not any(summaries.values()):
             return {
                 "mode": "unavailable",
                 "geo_opts": [ALL_GEOGRAPHY_TYPES_LABEL],

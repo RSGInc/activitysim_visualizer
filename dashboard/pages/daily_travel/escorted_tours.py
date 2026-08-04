@@ -15,7 +15,8 @@ from ._escorted_tours.features import EscortedToursFeatureMixin
     title="Escorted Tours",
     group_id="daily_travel",
     order=29,
-    required_summary_ids=(*PAGE_SUMMARY_IDS,),
+    required_summary_ids=CORE_SUMMARY_IDS,
+    optional_summary_ids=OPTIONAL_SUMMARY_IDS,
 )
 class EscortedToursPage(
     EscortedToursCompositionMixin,

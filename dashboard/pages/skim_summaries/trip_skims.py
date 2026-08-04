@@ -263,7 +263,7 @@ class TripSkimsPage(DashboardPage):
             return [self.no_runs_message()]
 
         trip_stats = self._trip_summaries()
-        if trip_stats is None:
+        if not trip_stats:
             return [
                 self.data_not_available_card(
                     detail="Trip skim summaries require the precomputed skim trip statistics table.",

@@ -98,7 +98,7 @@ class TourTimePage(DashboardPage):
             "tour_time_of_day_by_tour_purpose",
             self.weighting_key,
         )
-        if data is None:
+        if not data:
             self._purpose_to_raw = {self.TOTAL_PURPOSE_LABEL: "all_tour_purposes"}
             return [self.TOTAL_PURPOSE_LABEL]
         options, self._purpose_to_raw = column_options(

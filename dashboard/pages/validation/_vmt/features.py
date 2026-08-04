@@ -97,7 +97,7 @@ class VmtOverviewFeatureMixin:
 class SegmentedVmtFeatureMixin:
     def render_personal_auto_vmt_section(self) -> list[pn.viewable.Viewable]:
         if not self.state.run_labels:
-            return []
+            return [self.no_runs_message()]
         personal_vmt = self.data.summary(
             PERSONAL_AUTO_VMT_SUMMARY_ID,
             columns=PERSONAL_AUTO_VMT_REQUIRED_COLUMNS,
@@ -199,7 +199,7 @@ class SegmentedVmtFeatureMixin:
 
     def render_non_motorized_vmt_section(self) -> list[pn.viewable.Viewable]:
         if not self.state.run_labels:
-            return []
+            return [self.no_runs_message()]
         non_motorized_vmt = self.data.summary(
             NON_MOTORIZED_VMT_SUMMARY_ID,
             columns=NON_MOTORIZED_VMT_REQUIRED_COLUMNS,

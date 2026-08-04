@@ -113,7 +113,7 @@ class IndividualChoicesPage(DashboardPage):
         *,
         detail: str,
     ) -> list[tuple[str, pl.DataFrame]] | pn.Card:
-        summary = self.data.summary(summary_name, required=False)
+        summary = self.data.summary(summary_name)
         if summary:
             return summary
         return self.data_not_available_card(detail=detail, missing_items=[summary_name])
