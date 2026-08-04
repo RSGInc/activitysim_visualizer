@@ -124,13 +124,23 @@ def test_scatter_chart_can_add_one_to_one_reference_line() -> None:
                 ),
             )
         ],
+        x_title="Observed Count (vehicles)",
+        y_title="Modeled Volume (vehicles)",
         one_to_one=True,
     )
 
+    point_trace = chart.object.data[0]
     reference_line = chart.object.data[-1]
     fit_line = chart.object.data[-2]
-    assert fit_line.name == "Base fit<br>y = 3.00x - 100.00<br>R^2 = 0.90<br>n = 2"
+    assert point_trace.hovertemplate == (
+        "Observed Count (vehicles): %{x}<br>"
+        "Modeled Volume (vehicles): %{y}<extra>Base</extra>"
+    )
+    assert fit_line.name == "Base fit"
+    assert "y = 3.00x - 100.00" in fit_line.hovertemplate
     assert not chart.object.layout.annotations
+    assert chart.object.layout.height == 400
+    assert chart.object.layout.margin.t == 90
     assert reference_line.name == "1:1 line"
     assert list(reference_line.x) == [10.0, 25.0]
     assert list(reference_line.y) == [10.0, 25.0]
@@ -143,3 +153,49 @@ def test_scatter_chart_can_add_one_to_one_reference_line() -> None:
     assert chart.object.layout.yaxis.constrain == "domain"
     assert chart.object.layout.yaxis.scaleanchor == "x"
     assert chart.object.layout.yaxis.scaleratio == 1.0
+
+
+def test_scatter_fit_details_are_hover_only_for_multiple_runs() -> None:
+    labels = [f"Run {index}" for index in range(4)]
+    scatter_data = [
+        (
+            label,
+            pl.DataFrame({"observed": [10.0, 20.0], "modeled": [12.0, 25.0]}),
+        )
+        for label in labels
+    ]
+    fit_data = [
+        (
+            label,
+            pl.DataFrame(
+                {
+                    "observed": [0.0, 100.0],
+                    "modeled": [-100.0, 200.0],
+                    "annotation": [
+                        f"{label}<br>y = 3.00x - 100.00<br>R^2 = 0.90<br>n = 2"
+                    ]
+                    * 2,
+                }
+            ),
+        )
+        for label in labels
+    ]
+
+    chart = Plotter(RenderContext()).scatter(
+        scatter_data,
+        x="observed",
+        y="modeled",
+        x_title="Observed Count (vehicles)",
+        y_title="Modeled Volume (vehicles)",
+        fit_overlays=fit_data,
+        one_to_one=True,
+        panel_aspect_ratio=1.0,
+    )
+
+    assert not chart.object.layout.annotations
+    assert chart.object.layout.height == 400
+    assert chart.object.layout.margin.t == 90
+    assert all("R^2 = 0.90" in trace.hovertemplate for trace in chart.object.data[4:8])
+    assert list(chart.object.layout.xaxis.range) == [10.0, 25.0]
+    assert list(chart.object.layout.yaxis.range) == [10.0, 25.0]
+    assert chart.aspect_ratio == 1.0

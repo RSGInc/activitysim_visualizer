@@ -163,6 +163,26 @@ def demo_count_scatter_data_from_sources(
     return out
 
 
+def _fit_line_frame(
+    *,
+    observed_min: float,
+    observed_max: float,
+    slope: float,
+    intercept: float,
+    annotation: str,
+) -> pl.DataFrame:
+    point_count = 101
+    step = (observed_max - observed_min) / (point_count - 1)
+    observed = [observed_min + step * index for index in range(point_count)]
+    return pl.DataFrame(
+        {
+            "observed_volume": observed,
+            "modeled_volume": [slope * value + intercept for value in observed],
+            "annotation": [annotation] * point_count,
+        }
+    )
+
+
 def demo_count_fit_line_data(
     fit_list: list[tuple[str, pl.DataFrame]] | None,
     *,
@@ -214,15 +234,12 @@ def demo_count_fit_line_data(
         out.append(
             (
                 label,
-                pl.DataFrame(
-                    {
-                        "observed_volume": [observed_min, observed_max],
-                        "modeled_volume": [
-                            slope * observed_min + intercept,
-                            slope * observed_max + intercept,
-                        ],
-                        "annotation": [annotation, annotation],
-                    }
+                _fit_line_frame(
+                    observed_min=observed_min,
+                    observed_max=observed_max,
+                    slope=slope,
+                    intercept=intercept,
+                    annotation=annotation,
                 ),
             )
         )
@@ -280,15 +297,12 @@ def screenline_fit_line_data(
         out.append(
             (
                 label,
-                pl.DataFrame(
-                    {
-                        "observed_volume": [observed_min, observed_max],
-                        "modeled_volume": [
-                            slope * observed_min + intercept,
-                            slope * observed_max + intercept,
-                        ],
-                        "annotation": [annotation, annotation],
-                    }
+                _fit_line_frame(
+                    observed_min=observed_min,
+                    observed_max=observed_max,
+                    slope=slope,
+                    intercept=intercept,
+                    annotation=annotation,
                 ),
             )
         )

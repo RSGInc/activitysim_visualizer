@@ -5490,6 +5490,8 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
     assert count_plot.object.layout.legend.x == 1.02
     assert count_plot.sizing_mode == "scale_width"
     assert count_plot.aspect_ratio == 1.0
+    assert "Observed Count (vehicles): %{x}" in count_plot.object.data[0].hovertemplate
+    assert "Modeled Volume (vehicles): %{y}" in count_plot.object.data[0].hovertemplate
     assert list(bar_plot.object.data[0].x) == [
         "Minor Arterial",
         "Principal Arterial",
@@ -5500,9 +5502,19 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
     screenline_plot = _collect_plotly_panes(page._screenline_body)[0]
     assert screenline_plot.object.data[0].name == "Base"
     assert screenline_plot.object.data[-1].name == "1:1 line"
-    assert "Base fit<br>" in screenline_plot.object.data[1].name
-    assert "R^2" in screenline_plot.object.data[1].name
+    assert screenline_plot.object.data[1].name == "Base fit"
+    assert len(screenline_plot.object.data[1].x) == 101
+    assert "R^2" in screenline_plot.object.data[1].hovertemplate
+    assert "y = 1.30x - 5.50" in screenline_plot.object.data[1].hovertemplate
     assert not screenline_plot.object.layout.annotations
+    assert (
+        "Observed Screenline Flow (vehicles): %{x}"
+        in screenline_plot.object.data[0].hovertemplate
+    )
+    assert (
+        "Modeled Screenline Flow (vehicles): %{y}"
+        in screenline_plot.object.data[0].hovertemplate
+    )
     assert screenline_plot.object.layout.yaxis.scaleanchor == "x"
     assert screenline_plot.object.layout.legend.x == 1.02
     assert "Traffic Count Comparisons" not in plot_titles

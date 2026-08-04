@@ -685,6 +685,7 @@ notes:
         - A one-to-one reference line is always shown; a fitted regression line is added when fit coefficients are available.
       Display:
         - Each point is one validated count location.
+        - Hovering over a fitted line shows its run, equation, R-squared, and number of locations without reducing the plot area.
 
   traffic.link_volume:
     method: supplied_aggregation
@@ -728,7 +729,7 @@ notes:
         - Flow records are grouped by screenline, direction, count period, and facility type before observed and modeled volumes are paired.
       Display:
         - The time-period and facility-type selectors filter the paired records before fitting.
-        - Each run displays its fitted equation, R-squared value, and number of comparable records alongside a one-to-one reference line.
+        - Hovering over a fitted line shows its run, equation, R-squared, and number of comparable records; the plot also includes a one-to-one reference line.
 
   vmt.overview:
     method: vmt

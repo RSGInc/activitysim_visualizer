@@ -500,11 +500,15 @@ def test_demo_count_fit_line_helper_builds_plot_data() -> None:
         facility_type="4",
     )
 
-    assert fit_lines[0][1].select("observed_volume", "modeled_volume").to_dicts() == [
-        {"observed_volume": 20.0, "modeled_volume": 67.0},
-        {"observed_volume": 40.0, "modeled_volume": 127.0},
-    ]
-    assert "y = 3.00x + 7.00" in fit_lines[0][1]["annotation"][0]
+    fit_frame = fit_lines[0][1]
+    assert fit_frame.height == 101
+    assert fit_frame.select("observed_volume", "modeled_volume").row(
+        0, named=True
+    ) == {"observed_volume": 20.0, "modeled_volume": 67.0}
+    assert fit_frame.select("observed_volume", "modeled_volume").row(
+        -1, named=True
+    ) == {"observed_volume": 40.0, "modeled_volume": 127.0}
+    assert "y = 3.00x + 7.00" in fit_frame["annotation"][0]
 
 
 def test_external_vmt_helper_reshapes_wide_tod_table() -> None:

@@ -294,22 +294,23 @@ def scatter_figure(
         figure.add_trace(go.Scatter(
             name=str(label), x=x_values, y=y_values, mode="markers",
             marker=dict(color=context.color(str(label), index), size=8, line=dict(width=0.4)),
+            hovertemplate=(
+                f"{x_title or x}: %{{x}}<br>{y_title or y}: %{{y}}"
+                f"<extra>{label}</extra>"
+            ),
         ))
     for index, (label, frame) in enumerate(fit_overlays or []):
         if frame.is_empty() or x not in frame.columns or y not in frame.columns:
             continue
         color = context.color(str(label), label_indices.get(str(label), index))
         trace_name = f"{label} fit"
+        annotation = ""
         if fit_annotation in frame.columns:
             annotation = str(frame[fit_annotation][0] or "").strip()
-            label_prefix = f"{label}<br>"
-            if annotation.startswith(label_prefix):
-                annotation = annotation[len(label_prefix):]
-            if annotation:
-                trace_name = f"{trace_name}<br>{annotation}"
         figure.add_trace(go.Scatter(
             name=trace_name, x=frame[x].to_list(), y=frame[y].to_list(),
             mode="lines", line=dict(color=color, width=2),
+            hovertemplate=(f"{annotation}<extra></extra>" if annotation else None),
         ))
     if one_to_one:
         if axis_values:
@@ -344,6 +345,6 @@ def scatter_figure(
                 y=1.0,
                 yanchor="top",
             ),
-            margin=dict(l=60, r=240, t=90, b=90),
+            margin=dict(l=60, r=180, t=90, b=90),
         )
     return figure
