@@ -292,7 +292,7 @@ def screenline_fit_line_data(
         sign = "+" if intercept >= 0 else "-"
         annotation = (
             f"{label}<br>y = {slope:.2f}x {sign} {abs(intercept):.2f}"
-            f"<br>R^2 = {r_squared:.2f}<br>n = {points.height}"
+            f"<br>R² = {r_squared:.2f}<br>n = {points.height}"
         )
         out.append(
             (
@@ -437,7 +437,7 @@ def demo_facility_comparison_table(
                     "% Difference": percent_difference,
                     "RMSE": rmse,
                     "RMSPE": rmspe,
-                    "R^2": r_squared_lookup.get(raw_facility_type)
+                    "R²": r_squared_lookup.get(raw_facility_type)
                     if raw_facility_type in r_squared_lookup
                     else _r_squared_from_points(facility_points),
                 }

@@ -117,7 +117,7 @@ def test_scatter_chart_can_add_one_to_one_reference_line() -> None:
                         "observed": [0.0, 100.0],
                         "modeled": [-100.0, 200.0],
                         "annotation": [
-                            "Base<br>y = 3.00x - 100.00<br>R^2 = 0.90<br>n = 2"
+                            "Base<br>y = 3.00x - 100.00<br>R² = 0.90<br>n = 2"
                         ]
                         * 2,
                     }
@@ -133,8 +133,8 @@ def test_scatter_chart_can_add_one_to_one_reference_line() -> None:
     reference_line = chart.object.data[-1]
     fit_line = chart.object.data[-2]
     assert point_trace.hovertemplate == (
-        "Observed Count (vehicles): %{x}<br>"
-        "Modeled Volume (vehicles): %{y}<extra>Base</extra>"
+        "<b>Base</b><br>Observed Count (vehicles): %{x}<br>"
+        "Modeled Volume (vehicles): %{y}<extra></extra>"
     )
     assert fit_line.name == "Base fit"
     assert "y = 3.00x - 100.00" in fit_line.hovertemplate
@@ -172,7 +172,7 @@ def test_scatter_fit_details_are_hover_only_for_multiple_runs() -> None:
                     "observed": [0.0, 100.0],
                     "modeled": [-100.0, 200.0],
                     "annotation": [
-                        f"{label}<br>y = 3.00x - 100.00<br>R^2 = 0.90<br>n = 2"
+                        f"{label}<br>y = 3.00x - 100.00<br>R² = 0.90<br>n = 2"
                     ]
                     * 2,
                 }
@@ -195,7 +195,7 @@ def test_scatter_fit_details_are_hover_only_for_multiple_runs() -> None:
     assert not chart.object.layout.annotations
     assert chart.object.layout.height == 400
     assert chart.object.layout.margin.t == 90
-    assert all("R^2 = 0.90" in trace.hovertemplate for trace in chart.object.data[4:8])
+    assert all("R² = 0.90" in trace.hovertemplate for trace in chart.object.data[4:8])
     assert list(chart.object.layout.xaxis.range) == [10.0, 25.0]
     assert list(chart.object.layout.yaxis.range) == [10.0, 25.0]
     assert chart.aspect_ratio == 1.0

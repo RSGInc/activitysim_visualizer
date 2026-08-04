@@ -470,7 +470,7 @@ def test_external_traffic_helpers_filter_period_and_facility_type(
             "% Difference": "10.00%",
             "RMSE": 22.360679774997898,
             "RMSPE": "10.00%",
-            "R^2": 0.875,
+            "R²": 0.875,
         }
     ]
 
@@ -491,7 +491,7 @@ def test_demo_count_fit_line_helper_builds_plot_data() -> None:
                         "observed_min": [10.0, 20.0],
                         "observed_max": [30.0, 40.0],
                         "equation_label": ["y = 2.00x + 5.00", "y = 3.00x + 7.00"],
-                        "r_squared_label": ["R^2 = 1.00", "R^2 = 0.90"],
+                        "r_squared_label": ["R² = 1.00", "R² = 0.90"],
                     }
                 ),
             )

@@ -657,9 +657,9 @@ notes:
     summary: The table summarizes daily count-location validation statistics by facility type.
     formula: >-
       % difference = (sum(modeled_i) - sum(observed_i)) / sum(observed_i) * 100;
-      RMSE = sqrt(sum((modeled_i - observed_i)^2) / n);
-      RMSPE = sqrt(mean(((observed_i - modeled_i) / observed_i)^2)) * 100;
-      R^2 = 1 - sum((modeled_i - fitted_i)^2) / sum((modeled_i - mean(modeled_i))^2)
+      RMSE = sqrt(sum((modeled_i - observed_i)²) / n);
+      RMSPE = sqrt(mean(((observed_i - modeled_i) / observed_i)²)) * 100;
+      R² = 1 - sum((modeled_i - fitted_i)²) / sum((modeled_i - mean(modeled_i))²)
     details:
       Aggregation:
         - Daily observed and modeled volumes are paired by count location and grouped by facility type.
@@ -675,9 +675,9 @@ notes:
     summary: The scatter plot pairs observed traffic counts with modeled count-location volumes for the selected period and facility type.
     formula: >-
       x = observed count; y = modeled volume;
-      slope = sum((x_i - mean(x)) * (y_i - mean(y))) / sum((x_i - mean(x))^2);
+      slope = sum((x_i - mean(x)) * (y_i - mean(y))) / sum((x_i - mean(x))²);
       intercept = mean(y) - slope * mean(x); fitted_i = slope * x_i + intercept;
-      R^2 = 1 - sum((y_i - fitted_i)^2) / sum((y_i - mean(y))^2);
+      R² = 1 - sum((y_i - fitted_i)²) / sum((y_i - mean(y))²);
       one-to-one reference = y = x
     details:
       Aggregation:
@@ -718,9 +718,9 @@ notes:
     summary: The scatter plot compares observed and modeled screenline flows.
     formula: >-
       x = observed flow; y = modeled flow;
-      slope = sum((x_i - mean(x)) * (y_i - mean(y))) / sum((x_i - mean(x))^2);
+      slope = sum((x_i - mean(x)) * (y_i - mean(y))) / sum((x_i - mean(x))²);
       intercept = mean(y) - slope * mean(x); fitted_i = slope * x_i + intercept;
-      R^2 = 1 - sum((y_i - fitted_i)^2) / sum((y_i - mean(y))^2);
+      R² = 1 - sum((y_i - fitted_i)²) / sum((y_i - mean(y))²);
       one-to-one reference = y = x
     source_filters:
       - Screenline records without an identifier, direction, count period, or observed volume are excluded before matching modeled flows.

@@ -110,8 +110,8 @@ class TrafficFeatureMixin:
             data_table(
                 facility_comparison,
                 title="Count Location Summary by Facility Type",
-                numeric_precision_by_column={"RMSE": 3, "R^2": 3},
-                column_sorters={"n": "number", "RMSE": "number", "R^2": "number"},
+                numeric_precision_by_column={"RMSE": 3, "R²": 3},
+                column_sorters={"n": "number", "RMSE": "number", "R²": "number"},
             )
         ]
 

@@ -100,7 +100,7 @@ def test_validation_notes_expose_comparison_and_error_formulas() -> None:
 
     assert "difference = modeled - observed" in regional.formula
     assert (
-        "RMSPE = sqrt(mean(((observed_i - modeled_i) / observed_i)^2)) * 100"
+        "RMSPE = sqrt(mean(((observed_i - modeled_i) / observed_i)²)) * 100"
         in facility.formula
     )
 

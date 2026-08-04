@@ -5416,7 +5416,7 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
         "% Difference",
         "RMSE",
         "RMSPE",
-        "R^2",
+        "R²",
     ]
     assert facility_table.to_dict("records") == [
         {
@@ -5427,7 +5427,7 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
             "% Difference": "5.00%",
             "RMSE": "10",
             "RMSPE": "5.00%",
-            "R^2": None,
+            "R²": None,
         },
         {
             "Facility Type": "Principal Arterial",
@@ -5437,14 +5437,14 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
             "% Difference": "10.00%",
             "RMSE": "10",
             "RMSPE": "10.00%",
-            "R^2": None,
+            "R²": None,
         },
     ]
     assert facility_tables[0]._configuration == {
         "columns": [
             {"field": "n", "sorter": "number"},
             {"field": "RMSE", "sorter": "number"},
-            {"field": "R^2", "sorter": "number"},
+            {"field": "R²", "sorter": "number"},
         ]
     }
     assert any(
@@ -5504,7 +5504,7 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
     assert screenline_plot.object.data[-1].name == "1:1 line"
     assert screenline_plot.object.data[1].name == "Base fit"
     assert len(screenline_plot.object.data[1].x) == 101
-    assert "R^2" in screenline_plot.object.data[1].hovertemplate
+    assert "R²" in screenline_plot.object.data[1].hovertemplate
     assert "y = 1.30x - 5.50" in screenline_plot.object.data[1].hovertemplate
     assert not screenline_plot.object.layout.annotations
     assert (

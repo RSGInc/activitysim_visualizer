@@ -295,8 +295,8 @@ def scatter_figure(
             name=str(label), x=x_values, y=y_values, mode="markers",
             marker=dict(color=context.color(str(label), index), size=8, line=dict(width=0.4)),
             hovertemplate=(
-                f"{x_title or x}: %{{x}}<br>{y_title or y}: %{{y}}"
-                f"<extra>{label}</extra>"
+                f"<b>{label}</b><br>{x_title or x}: %{{x}}<br>"
+                f"{y_title or y}: %{{y}}<extra></extra>"
             ),
         ))
     for index, (label, frame) in enumerate(fit_overlays or []):
