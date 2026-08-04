@@ -2027,18 +2027,18 @@ def test_regional_validation_page_compares_county_flows_to_commuting_flows(
 
     assert list(page.flow_matrix_sel.options) == ["County flows"]
     assert list(page.comparison_metric_sel.options) == [
+        "Modeled",
         "Observed",
         "Difference",
-        "Percent Difference",
-        "Absolute Percent Difference",
-        "Modeled",
+        "% Difference",
+        "Absolute % Difference",
     ]
     chart = page.render_flow_section()
     tabs = chart.objects[0]
     plot = tabs.objects[0][0]
 
-    assert plot.object.layout.title.text == "Observed County flows"
-    assert plot.object.data[0].z == ([10.0, 5.0], [3.0, 20.0])
+    assert plot.object.layout.title.text == "Modeled County flows"
+    assert plot.object.data[0].z == ([12.0, 4.0], [3.0, 18.0])
 
     page.comparison_metric_sel.value = "Difference"
     chart = page.render_flow_section()

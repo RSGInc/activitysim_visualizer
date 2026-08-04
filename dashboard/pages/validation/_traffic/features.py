@@ -13,39 +13,39 @@ from .transforms import *
 
 
 class TrafficFeatureMixin:
-    def render_validation_chart(
-        self,
-        data_list: list[tuple[str, pl.DataFrame]] | None,
-        *,
-        title: str,
-        detail: str,
-        missing_summary_id: str,
-    ) -> pn.viewable.Viewable:
-        if data_list is None:
-            return self.data_not_available_card(
-                detail=detail,
-                missing_items=[missing_summary_id],
-            )
-        chart_data = self.query(lambda: validation_chart_data(data_list))
-        return self.plot.scatter(
-            chart_data,
-            x="observed_volume",
-            y="modeled_volume",
-            title=title,
-            x_title="Observed Traffic Volume",
-            y_title="Modeled Traffic Volume",
-        )
-
     def render_screenline_flow_section(self):
         if not self.state.run_labels:
             return [self.no_runs_message()]
-
+        data = self.data.summary("screenline_flow_comparisons", self.weighting_key)
+        if data is None:
+            return [
+                self.data_not_available_card(
+                    detail="Screenline flow comparisons are unavailable.",
+                    missing_items=["screenline_flow_comparisons"],
+                )
+            ]
+        period = str(self.screenline_period_sel.value)
+        facility_type = self.selected_screenline_facility_type_raw()
+        scatter_data = self.query(
+            lambda: screenline_scatter_data(
+                data,
+                period=period,
+                facility_type=facility_type,
+            )
+        )
+        fit_data = self.query(lambda: screenline_fit_line_data(scatter_data))
         return [
-            self.render_validation_chart(
-                self.data.summary("screenline_flow_comparisons", self.weighting_key),
-                title="Screenline Flow Comparisons",
-                detail="Screenline flow comparisons are unavailable.",
-                missing_summary_id="screenline_flow_comparisons",
+            self.plot.scatter(
+                scatter_data,
+                x="observed_volume",
+                y="modeled_volume",
+                title=f"Screenline Observed vs Modeled - {period}",
+                x_title="Observed Screenline Flow",
+                y_title="Modeled Screenline Flow",
+                fit_overlays=fit_data,
+                one_to_one=True,
+                legend_on_right=True,
+                panel_aspect_ratio=1.0,
             )
         ]
 
@@ -162,6 +162,7 @@ class TrafficFeatureMixin:
                     y_title="Modeled Volume",
                     fit_overlays=fit_data,
                     one_to_one=True,
+                    legend_on_right=True,
                     panel_aspect_ratio=1.0,
                 )
             )
@@ -183,6 +184,7 @@ class TrafficFeatureMixin:
                     x_title="Observed Count",
                     y_title="Modeled Volume",
                     one_to_one=True,
+                    legend_on_right=True,
                     panel_aspect_ratio=1.0,
                 )
             )

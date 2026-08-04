@@ -7,6 +7,7 @@ import polars as pl
 from processor.models import RunData
 from processor.summarize.summaries.demographics import hh_size, person_type
 from processor.summarize.summaries.long_term_geography import free_parking
+from processor.summarize.summaries.validation import screenline_flow_comparisons
 
 
 def _run(
@@ -37,6 +38,38 @@ def _config():
             str(value), str(value)
         ),
     )
+
+
+def test_screenline_comparison_uses_available_facility_type() -> None:
+    run = _run()
+    run.observed_screenline_flows = pl.DataFrame(
+        {
+            "screenline_id": ["A"],
+            "direction": ["NB"],
+            "count_period": ["AM"],
+            "volume": [100.0],
+        }
+    )
+    run.visum_screenline_flows = pl.DataFrame(
+        {
+            "screenline_id": ["A"],
+            "direction": ["NB"],
+            "count_period": ["AM"],
+            "facility_type": [3],
+            "volume": [110.0],
+        }
+    )
+
+    assert screenline_flow_comparisons(run, None).to_dicts() == [
+        {
+            "screenline_id": "A",
+            "direction": "NB",
+            "count_period": "AM",
+            "facility_type": "3",
+            "observed_volume": 100.0,
+            "modeled_volume": 110.0,
+        }
+    ]
 
 
 def test_household_size_summary_normalizes_integer_width_to_contract() -> None:

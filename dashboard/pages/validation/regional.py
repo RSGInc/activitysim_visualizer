@@ -14,18 +14,18 @@ from dashboard import DashboardPage, dashboard_page
 
 TOTAL_FLOW_LABELS = {"total", "all", "all_geographies"}
 FLOW_COMPARISON_OPTIONS = [
+    "Modeled",
     "Observed",
     "Difference",
-    "Percent Difference",
-    "Absolute Percent Difference",
-    "Modeled",
+    "% Difference",
+    "Absolute % Difference",
 ]
 FLOW_VALUE_COLUMNS = {
     "Modeled": "modeled",
     "Observed": "observed",
     "Difference": "difference",
-    "Percent Difference": "percent_difference",
-    "Absolute Percent Difference": "absolute_percent_difference",
+    "% Difference": "percent_difference",
+    "Absolute % Difference": "absolute_percent_difference",
 }
 
 
@@ -381,7 +381,7 @@ def flow_comparison_heatmap(
             [lookup.get((origin, destination)) for destination in destinations]
             for origin in origins
         ]
-        if metric in {"Percent Difference", "Absolute Percent Difference"}:
+        if metric in {"% Difference", "Absolute % Difference"}:
             text = [
                 ["" if value is None else f"{float(value):,.1f}%" for value in row]
                 for row in z
@@ -392,7 +392,7 @@ def flow_comparison_heatmap(
                 for row in z
             ]
         colorscale = (
-            "RdBu_r" if metric in {"Difference", "Percent Difference"} else "Blues"
+            "RdBu_r" if metric in {"Difference", "% Difference"} else "Blues"
         )
         z_values = [
             abs(float(value)) for row in z for value in row if value is not None
@@ -411,7 +411,7 @@ def flow_comparison_heatmap(
                 f"{metric}: %{{text}}<extra></extra>"
             ),
         }
-        if metric in {"Difference", "Percent Difference"} and zmax is not None:
+        if metric in {"Difference", "% Difference"} and zmax is not None:
             heatmap_kwargs.update(zmid=0, zmin=-zmax, zmax=zmax)
         fig = go.Figure(data=go.Heatmap(**heatmap_kwargs))
         fig.update_layout(

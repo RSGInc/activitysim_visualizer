@@ -121,6 +121,7 @@ def traffic_count_comparisons(rd: RunData, config: Config) -> pl.DataFrame:
         "screenline_id": pl.Utf8,
         "direction": pl.Utf8,
         "count_period": pl.Utf8,
+        "facility_type": pl.Utf8,
         "observed_volume": pl.Float64,
         "modeled_volume": pl.Float64,
     },
@@ -130,6 +131,7 @@ def screenline_flow_comparisons(rd: RunData, config: Config) -> pl.DataFrame:
         "screenline_id": pl.Utf8,
         "direction": pl.Utf8,
         "count_period": pl.Utf8,
+        "facility_type": pl.Utf8,
         "observed_volume": pl.Float64,
         "modeled_volume": pl.Float64,
     }
@@ -146,39 +148,48 @@ def screenline_flow_comparisons(rd: RunData, config: Config) -> pl.DataFrame:
     ) or not required.issubset(set(rd.visum_screenline_flows.columns)):
         return pl.DataFrame(schema=result_schema)
 
-    observed = (
-        rd.observed_screenline_flows.filter(
-            pl.col("screenline_id").is_not_null()
-            & pl.col("direction").is_not_null()
-            & pl.col("count_period").is_not_null()
-            & pl.col("volume").is_not_null()
+    def normalize(source: pl.DataFrame, value_column: str) -> pl.DataFrame:
+        facility_output = f"_{value_column}_facility_type"
+        facility_column = next(
+            (
+                column
+                for column in ("facility_type", "FACTYPE")
+                if column in source.columns
+            ),
+            None,
         )
-        .group_by(["screenline_id", "direction", "count_period"])
-        .agg(observed_volume=pl.col("volume").sum())
-        .with_columns(
-            pl.col("screenline_id").cast(pl.Utf8),
-            pl.col("direction").cast(pl.Utf8),
-            pl.col("count_period").cast(pl.Utf8),
-            pl.col("observed_volume").cast(pl.Float64),
+        return (
+            source.with_columns(
+                (
+                    pl.col(facility_column).cast(pl.Utf8)
+                    if facility_column is not None
+                    else pl.lit(None, dtype=pl.Utf8)
+                ).alias("facility_type")
+            )
+            .filter(
+                pl.col("screenline_id").is_not_null()
+                & pl.col("direction").is_not_null()
+                & pl.col("count_period").is_not_null()
+                & pl.col("volume").is_not_null()
+            )
+            .group_by(["screenline_id", "direction", "count_period"])
+            .agg(
+                pl.col("volume").sum().cast(pl.Float64).alias(value_column),
+                pl.col("facility_type")
+                .drop_nulls()
+                .first()
+                .alias(facility_output),
+            )
+            .with_columns(
+                pl.col("screenline_id").cast(pl.Utf8),
+                pl.col("direction").cast(pl.Utf8),
+                pl.col("count_period").cast(pl.Utf8),
+                pl.col(facility_output).cast(pl.Utf8),
+            )
         )
-    )
 
-    modeled = (
-        rd.visum_screenline_flows.filter(
-            pl.col("screenline_id").is_not_null()
-            & pl.col("direction").is_not_null()
-            & pl.col("count_period").is_not_null()
-            & pl.col("volume").is_not_null()
-        )
-        .group_by(["screenline_id", "direction", "count_period"])
-        .agg(modeled_volume=pl.col("volume").sum())
-        .with_columns(
-            pl.col("screenline_id").cast(pl.Utf8),
-            pl.col("direction").cast(pl.Utf8),
-            pl.col("count_period").cast(pl.Utf8),
-            pl.col("modeled_volume").cast(pl.Float64),
-        )
-    )
+    observed = normalize(rd.observed_screenline_flows, "observed_volume")
+    modeled = normalize(rd.visum_screenline_flows, "modeled_volume")
 
     return (
         observed.join(
@@ -186,14 +197,24 @@ def screenline_flow_comparisons(rd: RunData, config: Config) -> pl.DataFrame:
             on=["screenline_id", "direction", "count_period"],
             how="inner",
         )
+        .with_columns(
+            pl.coalesce(
+                [
+                    pl.col("_modeled_volume_facility_type"),
+                    pl.col("_observed_volume_facility_type"),
+                    pl.lit("All"),
+                ]
+            ).alias("facility_type")
+        )
         .select(
             "screenline_id",
             "direction",
             "count_period",
+            "facility_type",
             "observed_volume",
             "modeled_volume",
         )
-        .sort(["screenline_id", "direction", "count_period"])
+        .sort(["screenline_id", "direction", "count_period", "facility_type"])
     )
 
 

@@ -698,16 +698,17 @@ notes:
 
   traffic.screenlines:
     method: aligned_comparison
-    method_text: Records are first summed by screenline, direction, and count period; observed and modeled totals with the same three-part key are then paired for the scatter plot.
+    method_text: Records are first summed by screenline, direction, count period, and facility type; observed and modeled totals with matching keys are then paired for the scatter plot and fitted with an ordinary least-squares trendline.
     sources: [screenline_flow_comparisons]
     summary: The scatter plot compares observed and modeled screenline flows.
     source_filters:
       - Screenline records without an identifier, direction, count period, or observed volume are excluded before matching modeled flows.
     details:
       Aggregation:
-        - Flow records are grouped by screenline, direction, and count period before observed and modeled volumes are paired.
+        - Flow records are grouped by screenline, direction, count period, and facility type before observed and modeled volumes are paired.
       Display:
-        - Each point represents one comparable screenline-direction-period record.
+        - The time-period and facility-type selectors filter the paired records before fitting.
+        - Each run displays its fitted equation, R-squared value, and number of comparable records alongside a one-to-one reference line.
 
   vmt.overview:
     method: vmt

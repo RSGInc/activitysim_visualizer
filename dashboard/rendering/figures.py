@@ -277,6 +277,7 @@ def scatter_figure(
     fit_overlays: ChartTables | None = None,
     fit_annotation: str = "annotation",
     one_to_one: bool = False,
+    legend_on_right: bool = False,
 ) -> go.Figure:
     _require_columns(data, "scatter", x, y)
     figure = go.Figure()
@@ -310,11 +311,38 @@ def scatter_figure(
                 bordercolor=color, borderwidth=1,
             )
     if one_to_one:
-        maximum = max([value for value in axis_values if value >= 0], default=1.0) or 1.0
+        if axis_values:
+            minimum = min(axis_values)
+            maximum = max(axis_values)
+            if minimum == maximum:
+                padding = max(abs(minimum) * 0.05, 1.0)
+                minimum -= padding
+                maximum += padding
+        else:
+            minimum, maximum = 0.0, 1.0
         figure.add_trace(go.Scatter(
-            name="1:1 line", x=[0.0, maximum], y=[0.0, maximum], mode="lines",
+            name="1:1 line", x=[minimum, maximum], y=[minimum, maximum], mode="lines",
             line=dict(color="#BDBDBD", width=1.5, dash="dash"),
             hoverinfo="skip", showlegend=False,
         ))
     _layout(figure, title=title, x_title=x_title, y_title=y_title, height=height)
+    if one_to_one:
+        figure.update_xaxes(range=[minimum, maximum], constrain="domain")
+        figure.update_yaxes(
+            range=[minimum, maximum],
+            constrain="domain",
+            scaleanchor="x",
+            scaleratio=1.0,
+        )
+    if legend_on_right:
+        figure.update_layout(
+            legend=dict(
+                orientation="v",
+                x=1.02,
+                xanchor="left",
+                y=1.0,
+                yanchor="top",
+            ),
+            margin=dict(l=60, r=180, t=90, b=90),
+        )
     return figure

@@ -114,8 +114,14 @@ def test_scatter_chart_can_add_one_to_one_reference_line() -> None:
 
     reference_line = chart.object.data[-1]
     assert reference_line.name == "1:1 line"
-    assert list(reference_line.x) == [0.0, 25.0]
-    assert list(reference_line.y) == [0.0, 25.0]
+    assert list(reference_line.x) == [10.0, 25.0]
+    assert list(reference_line.y) == [10.0, 25.0]
     assert reference_line.line.color == "#BDBDBD"
     assert reference_line.line.dash == "dash"
     assert reference_line.showlegend is False
+    assert list(chart.object.layout.xaxis.range) == [10.0, 25.0]
+    assert list(chart.object.layout.yaxis.range) == [10.0, 25.0]
+    assert chart.object.layout.xaxis.constrain == "domain"
+    assert chart.object.layout.yaxis.constrain == "domain"
+    assert chart.object.layout.yaxis.scaleanchor == "x"
+    assert chart.object.layout.yaxis.scaleratio == 1.0

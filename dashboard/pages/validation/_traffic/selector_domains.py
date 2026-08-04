@@ -37,3 +37,15 @@ class TrafficSelectorDomainsMixin:
         selected = str(self.demo_facility_sel.value)
         raw_value = self.demo_facility_raw_by_label.get(selected, selected)
         return "All" if raw_value is None else str(raw_value)
+
+    def _screenline_facility_options(self) -> list[str]:
+        options, self.screenline_facility_raw_by_label = demo_facility_options(
+            self.data.summary("screenline_flow_comparisons", self.weighting_key),
+            config=self.config,
+        )
+        return options
+
+    def selected_screenline_facility_type_raw(self) -> str:
+        selected = str(self.screenline_facility_sel.value)
+        raw_value = self.screenline_facility_raw_by_label.get(selected, selected)
+        return "All" if raw_value is None else str(raw_value)

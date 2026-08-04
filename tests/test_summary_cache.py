@@ -5225,6 +5225,7 @@ def test_traffic_validation_removes_direction_period_selectors_and_count_card(
                     "direction": ["outbound"],
                     "count_period": ["AM"],
                     "screenline_id": ["A"],
+                    "facility_type": [3],
                     "observed_volume": [15.0],
                     "modeled_volume": [14.0],
                 }
@@ -5244,6 +5245,8 @@ def test_traffic_validation_removes_direction_period_selectors_and_count_card(
         "demo_facility_type",
         "demo_top_period",
         "demo_top_n",
+        "screenline_period",
+        "screenline_facility_type",
     ]
     assert page.demo_period_sel.name == "Period"
     assert page.demo_top_period_sel.name == "Period"
@@ -5261,12 +5264,20 @@ def test_traffic_validation_removes_direction_period_selectors_and_count_card(
         "demo_facility_type",
     )
     assert sections["link_tables.volume"].selector_ids == ("demo_period",)
-    assert page.view.objects[-2].object == "### Screenline Flow Summaries"
+    assert sections["screenlines.body"].selector_ids == (
+        "screenline_period",
+        "screenline_facility_type",
+    )
+    assert page.view.objects[-3].object == "### Screenline Flow Summaries"
+    assert list(page.view.objects[-2].objects) == [
+        page.screenline_period_sel,
+        page.screenline_facility_sel,
+    ]
     plot_titles = [
         plot.object.layout.title.text
         for plot in _collect_plotly_panes(page._screenline_body)
     ]
-    assert plot_titles == ["Screenline Flow Comparisons"]
+    assert plot_titles == ["Screenline Observed vs Modeled - Day"]
 
 
 def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
@@ -5297,11 +5308,12 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
             ),
             "screenline_flow_comparisons": pl.DataFrame(
                 {
-                    "direction": ["outbound"],
-                    "count_period": ["AM"],
-                    "screenline_id": ["A"],
-                    "observed_volume": [15.0],
-                    "modeled_volume": [14.0],
+                    "direction": ["outbound", "outbound", "inbound"],
+                    "count_period": ["AM", "AM", "AM"],
+                    "screenline_id": ["A", "B", "C"],
+                    "facility_type": [3, 3, 4],
+                    "observed_volume": [15.0, 25.0, 35.0],
+                    "modeled_volume": [14.0, 27.0, 30.0],
                 }
             ),
             "link_validation_summary": pl.DataFrame(
@@ -5353,6 +5365,8 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
     assert page.demo_top_n_sel.name == "Top N by Modeled Volume"
     page.demo_period_sel.value = "AM"
     page.demo_facility_sel.value = "Principal Arterial"
+    page.screenline_period_sel.value = "AM"
+    page.screenline_facility_sel.value = "Principal Arterial"
     page.refresh(force=True)
 
     tables = _collect_tabulators(page._external_top_body)
@@ -5459,11 +5473,18 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
     reference_line = count_plot.object.data[-1]
 
     assert reference_line.name == "1:1 line"
-    assert list(reference_line.x) == [0.0, 11.0]
-    assert list(reference_line.y) == [0.0, 11.0]
+    assert list(reference_line.x) == [10.0, 11.0]
+    assert list(reference_line.y) == [10.0, 11.0]
     assert reference_line.line.color == "#BDBDBD"
     assert reference_line.line.dash == "dash"
     assert reference_line.showlegend is False
+    assert list(count_plot.object.layout.xaxis.range) == [10.0, 11.0]
+    assert list(count_plot.object.layout.yaxis.range) == [10.0, 11.0]
+    assert count_plot.object.layout.xaxis.constrain == "domain"
+    assert count_plot.object.layout.yaxis.constrain == "domain"
+    assert count_plot.object.layout.yaxis.scaleanchor == "x"
+    assert count_plot.object.layout.legend.orientation == "v"
+    assert count_plot.object.layout.legend.x == 1.02
     assert count_plot.sizing_mode == "scale_width"
     assert count_plot.aspect_ratio == 1.0
     assert list(bar_plot.object.data[0].x) == [
@@ -5472,13 +5493,22 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
     ]
     assert bar_plot.object.layout.showlegend is True
     assert bar_plot.object.data[0].name == "Base"
-    assert plot_titles[-1] == "Screenline Flow Comparisons"
+    assert plot_titles[-1] == "Screenline Observed vs Modeled - AM"
+    screenline_plot = _collect_plotly_panes(page._screenline_body)[0]
+    assert [trace.name for trace in screenline_plot.object.data] == [
+        "Base",
+        "Base fit",
+        "1:1 line",
+    ]
+    assert "R^2" in screenline_plot.object.layout.annotations[0].text
+    assert screenline_plot.object.layout.yaxis.scaleanchor == "x"
+    assert screenline_plot.object.layout.legend.x == 1.02
     assert "Traffic Count Comparisons" not in plot_titles
     assert "Demo Link Volume by Facility Type - Day" not in plot_titles
     assert "Link Volume by Facility Type - AM" in plot_titles
 
 
-def test_transit_validation_technology_selector_uses_common_summary_options(
+def test_transit_validation_places_each_selector_with_its_plot(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -5510,7 +5540,18 @@ def test_transit_validation_technology_selector_uses_common_summary_options(
     page = TransitValidationPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.technology_sel.options) == ["All", "bus"]
+    assert list(page.technology_sel.options) == ["All", "bus", "rail"]
+    assert list(page.view.objects[2].objects) == [page.technology_sel]
+    assert list(page.view.objects[6].objects) == [page.access_mode_sel]
+    sections = {section.section_id: section for section in page.registered_sections}
+    assert sections["transit_boardings_body"].selector_ids == ("technology",)
+    assert sections["transit_transfer_body"].selector_ids == ("access_mode",)
+
+    page.technology_sel.value = "rail"
+    page.access_mode_sel.value = "walk"
+    page.refresh(force=True)
+    transfer_plot = _collect_plotly_panes(page._transfer_body)[0]
+    assert transfer_plot.object.layout.title.text == "Transit Transfer Rate - walk"
 
 
 def test_tour_distance_chart_casts_distance_bins_consistently_across_runs(

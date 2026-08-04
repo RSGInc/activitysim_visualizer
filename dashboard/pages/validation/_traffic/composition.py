@@ -12,6 +12,7 @@ from .contracts import *
 class TrafficPageCompositionMixin:
     def build_page(self) -> pn.viewable.Viewable:
         self.demo_facility_raw_by_label = {"All": "All"}
+        self.screenline_facility_raw_by_label = {"All": "All"}
         self.demo_period_sel = self.selector(
             "demo_period",
             widget=pn.widgets.Select(
@@ -43,6 +44,20 @@ class TrafficPageCompositionMixin:
                 value=25,
             ),
             label="Top N by Modeled Volume",
+        )
+        self.screenline_period_sel = self.selector(
+            "screenline_period",
+            widget=pn.widgets.Select(
+                name="Time Period",
+                options=list(DEMO_TRAFFIC_TIME_PERIODS),
+                value="Day",
+            ),
+            label="Time Period",
+        )
+        self.screenline_facility_sel = self.select(
+            "screenline_facility_type",
+            "Facility Type",
+            options=self._screenline_facility_options,
         )
         observed_fit = self.feature("observed_model_fit")
         facility = self.feature("facility_summaries")
@@ -76,6 +91,7 @@ class TrafficPageCompositionMixin:
         )
         self._screenline_body = screenlines.section(
             "body",
+            selectors=("screenline_period", "screenline_facility_type"),
             render=self.render_screenline_flow_section,
         )
         return self.new_section(
@@ -104,6 +120,10 @@ class TrafficPageCompositionMixin:
                 self._external_top_body,
             ),
             pn.pane.Markdown("### Screenline Flow Summaries"),
+            selector_row(
+                self.screenline_period_sel,
+                self.screenline_facility_sel,
+            ),
             self.noted_section("traffic.screenlines", self._screenline_body),
             sizing_mode="stretch_width",
         )
