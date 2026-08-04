@@ -235,6 +235,18 @@ def test_runtime_asset_exposes_full_table_and_tab_titles_as_tooltips() -> None:
     assert "(node.column_tooltips || {})[column] || column" in runtime_js
 
 
+def test_runtime_asset_contains_collapsible_export_rail() -> None:
+    runtime_js = load_export_runtime_js()
+
+    assert "railCollapsed: false" in runtime_js
+    assert 'rail.id = "export-rail"' in runtime_js
+    assert '"aria-controls": "export-rail"' in runtime_js
+    assert 'className: "export-layout" + (railCollapsed ? " rail-collapsed" : "")' in runtime_js
+    assert 'railCollapsed ? "Show sidebar" : "Hide sidebar"' in runtime_js
+    assert 'layout.classList.toggle("rail-collapsed", context.railCollapsed)' in runtime_js
+    assert 'context.plotManager.scheduleResize();' in runtime_js
+
+
 def test_runtime_asset_contains_plot_csv_export_helpers() -> None:
     runtime_js = load_export_runtime_js()
 
