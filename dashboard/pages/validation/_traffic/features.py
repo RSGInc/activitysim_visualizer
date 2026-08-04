@@ -17,7 +17,7 @@ class TrafficFeatureMixin:
         if not self.state.run_labels:
             return [self.no_runs_message()]
         data = self.data.summary("screenline_flow_comparisons", self.weighting_key)
-        if data is None:
+        if not data:
             return [
                 self.data_not_available_card(
                     detail="Screenline flow comparisons are unavailable.",
@@ -66,7 +66,15 @@ class TrafficFeatureMixin:
             "count_location_fit_validation_summary", self.weighting_key
         )
         if not any((count_list, volume_list, scatter_list, fit_list)):
-            return []
+            return [
+                self.data_not_available_card(
+                    detail="Count-location facility summaries are unavailable.",
+                    missing_items=[
+                        "count_location_counts_validation_summary",
+                        "count_location_volumes_validation_summary",
+                    ],
+                )
+            ]
 
         # Keep this overview on unfiltered daily totals. The controls below it
         # belong only to the Traffic Volume Summaries sections.
@@ -131,8 +139,6 @@ class TrafficFeatureMixin:
         fit_list = self.data.summary(
             "count_location_fit_validation_summary", self.weighting_key
         )
-        if not any((count_list, volume_list, scatter_list, fit_list)):
-            return []
         period = self.demo_period_sel.value
         volume_col = DEMO_TRAFFIC_TIME_PERIODS[str(period)]
         facility_type = self.selected_facility_type_raw()
@@ -208,7 +214,7 @@ class TrafficFeatureMixin:
             return []
 
         link_list = self.data.summary("link_validation_summary", self.weighting_key)
-        if link_list is None:
+        if not link_list:
             return [
                 self.data_not_available_card(
                     detail="Link validation summaries are unavailable.",
@@ -253,15 +259,12 @@ class TrafficFeatureMixin:
         volume_list = self.data.summary(
             "count_location_volumes_validation_summary", self.weighting_key
         )
-        if not any((link_list, count_list, volume_list)):
-            return []
-
         facility_type = self.selected_facility_type_raw()
         top_period = self.demo_top_period_sel.value
         top_volume_col = DEMO_TRAFFIC_TIME_PERIODS[str(top_period)]
         top_n = int(self.demo_top_n_sel.value)
 
-        if count_list is not None and volume_list is not None:
+        if count_list and volume_list:
             volume_comparison = self.query(
                 lambda: label_category_data(
                     demo_volume_comparison_table(
@@ -288,17 +291,15 @@ class TrafficFeatureMixin:
                     column_sorters={"Difference": "number"},
                 ),
             ]
-        if link_list is not None:
-            return [
-                self.data_not_available_card(
-                    detail=(
-                        "Count-location validation counts and volumes are both "
-                        "required for this comparison table."
-                    ),
-                    missing_items=[
-                        "count_location_counts_validation_summary",
-                        "count_location_volumes_validation_summary",
-                    ],
-                )
-            ]
-        return []
+        return [
+            self.data_not_available_card(
+                detail=(
+                    "Count-location validation counts and volumes are both "
+                    "required for this comparison table."
+                ),
+                missing_items=[
+                    "count_location_counts_validation_summary",
+                    "count_location_volumes_validation_summary",
+                ],
+            )
+        ]

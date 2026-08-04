@@ -147,7 +147,7 @@ class TransitValidationPage(DashboardPage):
             "transit_boardings_by_operator_and_technology",
             self.weighting_key,
         )
-        if boarding_list is None:
+        if not boarding_list:
             return self.data_not_available_card(
                 detail="Transit boarding summaries are unavailable.",
                 missing_items=["transit_boardings_by_operator_and_technology"],
@@ -171,7 +171,7 @@ class TransitValidationPage(DashboardPage):
             "transit_transfer_rate",
             self.weighting_key,
         )
-        if transfer_list is None:
+        if not transfer_list:
             return self.data_not_available_card(
                 detail="Transit transfer summaries are unavailable.",
                 missing_items=["transit_transfer_rate"],

@@ -526,7 +526,7 @@ class RegionalValidationPage(DashboardPage):
             flow_option.summary_id,
             self.weighting_key,
         )
-        if observed_data is None:
+        if not observed_data:
             return self.data_not_available_card(
                 detail="External regional flow summaries are unavailable.",
                 missing_items=[flow_option.summary_id],
@@ -550,7 +550,7 @@ class RegionalValidationPage(DashboardPage):
             modeled_data,
             flow_option.modeled_geography_types,
         )
-        if modeled_data is None or geography_type is None:
+        if not modeled_data or geography_type is None:
             return self.data_not_available_card(
                 detail=(
                     "Modeled commuting flows are unavailable for the selected "

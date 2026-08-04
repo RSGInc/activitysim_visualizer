@@ -57,6 +57,8 @@ from dashboard.pages.trip_summaries.trip_stop_distance import TripStopDistancePa
 from dashboard.pages.trip_summaries.trip_stop_time import TripStopTimePage
 from dashboard.pages.validation.traffic import TrafficValidationPage
 from dashboard.pages.validation.transit import TransitValidationPage
+from dashboard.pages.validation.regional import RegionalValidationPage
+from dashboard.pages.validation.vmt import VMTValidationPage
 from dashboard.data_access import DashboardPreparedRunProvider
 from dashboard.state import DashboardState
 from dashboard.page_registry import page_definitions_for_group
@@ -5566,6 +5568,58 @@ def test_transit_validation_places_each_selector_with_its_plot(
     page.refresh(force=True)
     transfer_plot = _collect_plotly_panes(page._transfer_body)[0]
     assert transfer_plot.object.layout.title.text == "Transit Transfer Rate - walk"
+
+
+@pytest.mark.parametrize(
+    ("page_type", "section_names"),
+    [
+        (
+            TrafficValidationPage,
+            (
+                "_facility_summary_body",
+                "_external_volume_body",
+                "_link_volume_body",
+                "_external_top_body",
+                "_screenline_body",
+            ),
+        ),
+        (
+            TransitValidationPage,
+            ("_boardings_body", "_transfer_body"),
+        ),
+        (
+            VMTValidationPage,
+            (
+                "_vmt_overview_body",
+                "_personal_vmt_body",
+                "_non_motorized_vmt_body",
+                "_external_vmt_body",
+                "_body",
+                "_bicycle_body",
+            ),
+        ),
+        (RegionalValidationPage, ("_body",)),
+    ],
+)
+def test_validation_visualizations_render_cards_when_data_is_unavailable(
+    tmp_path: Path,
+    page_type: type,
+    section_names: tuple[str, ...],
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(label="Base", weighted={})
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = page_type(state, config)
+    page.refresh(force=True)
+
+    for section_name in section_names:
+        cards = _collect_cards(getattr(page, section_name))
+        assert len(cards) == 1, section_name
+        assert cards[0].title == "Data Not Available"
 
 
 def test_tour_distance_chart_casts_distance_bins_consistently_across_runs(
