@@ -227,6 +227,18 @@ def test_runtime_asset_contains_explicit_context_action_and_region_helpers() -> 
     assert "modeBarButtonsToAdd: [makePlotCsvDownloadButton(figure)]" in runtime_js
 
 
+def test_runtime_asset_contains_collapsible_export_rail() -> None:
+    runtime_js = load_export_runtime_js()
+
+    assert "railCollapsed: false" in runtime_js
+    assert 'rail.id = "export-rail"' in runtime_js
+    assert '"aria-controls": "export-rail"' in runtime_js
+    assert 'className: "export-layout" + (railCollapsed ? " rail-collapsed" : "")' in runtime_js
+    assert 'railCollapsed ? "Show sidebar" : "Hide sidebar"' in runtime_js
+    assert 'layout.classList.toggle("rail-collapsed", context.railCollapsed)' in runtime_js
+    assert 'context.plotManager.scheduleResize();' in runtime_js
+
+
 def test_runtime_asset_contains_plot_csv_export_helpers() -> None:
     runtime_js = load_export_runtime_js()
 

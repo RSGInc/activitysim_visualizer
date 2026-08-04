@@ -1978,8 +1978,39 @@
   }
 
   function renderShell(context, actions) {
+    const railCollapsed = !!context.railCollapsed;
+    const rail = renderRail(context, actions);
+    rail.id = "export-rail";
+
+    const main = el("main", { className: "export-main" }, [
+      renderPageTabs(context, actions),
+      renderPagePanel(context, actions),
+    ]);
+    const layout = el("div", {
+      className: "export-layout" + (railCollapsed ? " rail-collapsed" : ""),
+    }, [rail, main]);
+    const railToggle = el("button", {
+      className: "rail-toggle",
+      text: railCollapsed ? "Show sidebar" : "Hide sidebar",
+      attrs: {
+        "aria-controls": "export-rail",
+        "aria-expanded": String(!railCollapsed),
+      },
+    });
+    railToggle.type = "button";
+    railToggle.addEventListener("click", () => {
+      context.railCollapsed = !context.railCollapsed;
+      layout.classList.toggle("rail-collapsed", context.railCollapsed);
+      railToggle.textContent = context.railCollapsed ? "Show sidebar" : "Hide sidebar";
+      railToggle.setAttribute("aria-expanded", String(!context.railCollapsed));
+      context.plotManager.scheduleResize();
+    });
+
     const headerChildren = [
-      el("h1", { text: context.payload.title }),
+      el("div", { className: "export-header-top" }, [
+        el("h1", { text: context.payload.title }),
+        railToggle,
+      ]),
     ];
     if (context.payload.client_export_note && String(context.payload.client_export_note).trim()) {
       headerChildren.push(
@@ -1990,17 +2021,9 @@
       );
     }
 
-    const main = el("main", { className: "export-main" }, [
-      renderPageTabs(context, actions),
-      renderPagePanel(context, actions),
-    ]);
-
     return el("div", { className: "export-shell" }, [
       el("div", { className: "export-header" }, headerChildren),
-      el("div", { className: "export-layout" }, [
-        renderRail(context, actions),
-        main,
-      ]),
+      layout,
     ]);
   }
 
@@ -2039,6 +2062,7 @@
       plotManager: config.plotManager,
       app: config.app,
       renderedRegions: {},
+      railCollapsed: false,
     };
   }
 
