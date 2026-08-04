@@ -240,6 +240,31 @@ def test_sanitize_export_payload_removes_nan_and_infinity() -> None:
     }
 
 
+def test_serialize_viewable_preserves_shortened_tab_and_column_tooltips() -> None:
+    tabs = pn.Tabs(
+        (
+            "Regional Transportat…050 North",
+            pn.widgets.Tabulator(
+                pd.DataFrame({"long_column": [1]}),
+                titles={"long_column": "Long Column…Title"},
+                header_tooltips={"long_column": "Long Column Full Title"},
+            ),
+        )
+    )
+    tabs._run_label_full_titles = (
+        "Regional Transportation Scenario Baseline 2050 North",
+    )
+
+    payload = serialize_viewable(tabs, disable_widgets=True)
+
+    assert payload["tabs"][0]["full_title"] == (
+        "Regional Transportation Scenario Baseline 2050 North"
+    )
+    assert payload["tabs"][0]["content"]["column_tooltips"] == {
+        "Long Column…Title": "Long Column Full Title"
+    }
+
+
 def test_sanitize_export_payload_in_place_retains_existing_containers() -> None:
     nested = [1.0, np.float64(2.5), float("nan")]
     payload = {

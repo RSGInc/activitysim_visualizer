@@ -10,6 +10,11 @@ import plotly.graph_objects as go
 
 from dashboard.rendering import selector_row
 from dashboard.helpers.category_helpers import nonempty
+from dashboard.rendering.labels import (
+    attach_full_tab_titles,
+    display_label_map,
+    hover_label,
+)
 from dashboard import DashboardPage, dashboard_page
 
 TOTAL_FLOW_LABELS = {"total", "all", "all_geographies"}
@@ -325,7 +330,11 @@ def flow_heatmap(
     title: str,
 ) -> pn.viewable.Viewable:
     tabs = pn.Tabs()
-    for label, df in nonempty(data_list):
+    runs = nonempty(data_list)
+    full_labels = [str(label) for label, _ in runs]
+    display_labels = display_label_map(full_labels)
+    for label, df in runs:
+        full_label = str(label)
         matrix = normalize_flow_matrix(df, include_totals=include_totals)
         destinations = [column for column in matrix.columns if column != "Origin"]
         z = matrix.select(destinations).to_numpy().tolist()
@@ -340,7 +349,8 @@ def flow_heatmap(
                 y=matrix["Origin"].cast(pl.Utf8).to_list(),
                 colorscale="Blues",
                 hovertemplate=(
-                    "Origin: %{y}<br>Destination: %{x}<br>Flow: %{z:,.0f}<extra></extra>"
+                    f"<b>{hover_label(full_label)}</b><br>Origin: %{{y}}<br>"
+                    "Destination: %{x}<br>Flow: %{z:,.0f}<extra></extra>"
                 ),
             )
         )
@@ -352,7 +362,13 @@ def flow_heatmap(
             margin=dict(l=70, r=20, t=80, b=70),
             font=dict(family="Inter, Segoe UI, Arial, sans-serif", size=12),
         )
-        tabs.append((label, pn.pane.Plotly(fig, sizing_mode="stretch_width")))
+        tabs.append(
+            (
+                display_labels[full_label],
+                pn.pane.Plotly(fig, sizing_mode="stretch_width"),
+            )
+        )
+    attach_full_tab_titles(tabs, full_labels)
     return tabs
 
 
@@ -365,7 +381,11 @@ def flow_comparison_heatmap(
     """Render aligned observed/modeled flow comparisons as heatmaps."""
     value_col = FLOW_VALUE_COLUMNS[metric]
     tabs = pn.Tabs()
-    for label, df in nonempty(data_list):
+    runs = nonempty(data_list)
+    full_labels = [str(label) for label, _ in runs]
+    display_labels = display_label_map(full_labels)
+    for label, df in runs:
+        full_label = str(label)
         if df.is_empty():
             continue
         origins = _flow_label_order(df["Origin"].to_list(), include_totals=True)
@@ -407,7 +427,8 @@ def flow_comparison_heatmap(
             "y": origins,
             "colorscale": colorscale,
             "hovertemplate": (
-                "Origin: %{y}<br>Destination: %{x}<br>"
+                f"<b>{hover_label(full_label)}</b><br>Origin: %{{y}}<br>"
+                "Destination: %{x}<br>"
                 f"{metric}: %{{text}}<extra></extra>"
             ),
         }
@@ -422,7 +443,13 @@ def flow_comparison_heatmap(
             margin=dict(l=70, r=20, t=80, b=70),
             font=dict(family="Inter, Segoe UI, Arial, sans-serif", size=12),
         )
-        tabs.append((label, pn.pane.Plotly(fig, sizing_mode="stretch_width")))
+        tabs.append(
+            (
+                display_labels[full_label],
+                pn.pane.Plotly(fig, sizing_mode="stretch_width"),
+            )
+        )
+    attach_full_tab_titles(tabs, full_labels)
     return tabs
 
 

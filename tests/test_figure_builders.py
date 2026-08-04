@@ -7,6 +7,25 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from dashboard.rendering import Plotter, RenderContext
+from dashboard.rendering.labels import display_label_map
+
+
+def test_display_run_labels_preserve_distinct_ends_and_deduplicate_collisions() -> None:
+    labels = [
+        "Regional Transportation Scenario Baseline 2050 North",
+        "Regional Transportation Scenario Baseline 2050 South",
+        f"{'A' * 20} first {'Z' * 12}",
+        f"{'A' * 20} second {'Z' * 12}",
+    ]
+
+    display_labels = display_label_map(labels)
+
+    assert display_labels[labels[0]] == "Regional Transportation…North"
+    assert display_labels[labels[1]] == "Regional Transportation…South"
+    assert len(set(display_labels.values())) == len(labels)
+    assert all(len(label) <= 30 for label in display_labels.values())
+    assert display_labels[labels[2]].endswith("[1]")
+    assert display_labels[labels[3]].endswith("[2]")
 
 
 def test_figure_first_bar_omits_undeclared_hover_columns() -> None:
@@ -77,6 +96,25 @@ def test_bar_and_density_chart_hover_formatting_matches_units() -> None:
     )
 
 
+def test_long_run_names_are_short_in_legends_and_full_in_hovers() -> None:
+    label = "Regional Transportation Scenario Baseline 2050 North"
+    data = [(label, pl.DataFrame({"period": [1, 2], "value": [10.0, 20.0]}))]
+    context = RenderContext(run_labels=(label,))
+
+    bar = Plotter(context).figure.bar(data, x="period", y="value")
+    line = Plotter(context).figure.line(data, x="period", y="value")
+    density = Plotter(context).figure.density(data, x="period", y="value")
+    scatter = Plotter(context).figure.scatter(data, x="period", y="value")
+
+    for figure in (bar, line, density, scatter):
+        trace = figure.data[0]
+        assert trace.name == "Regional Transportation…North"
+        assert trace.meta == {"run_name": label}
+        hover = trace.hovertemplate + "".join(map(str, trace.customdata or []))
+        assert "Regional Transportation Scenario<br>Baseline 2050 North" in hover
+    assert scatter.data[0].legendgroup == label
+
+
 def test_bar_chart_uses_configured_all_series_hover_mode() -> None:
     data = [
         ("Base", pl.DataFrame({"mode": ["Walk", "Bike"], "trip_count": [5.0, 1.0]})),
@@ -133,7 +171,7 @@ def test_scatter_chart_can_add_one_to_one_reference_line() -> None:
     reference_line = chart.object.data[-1]
     fit_line = chart.object.data[-2]
     assert point_trace.hovertemplate == (
-        "<b>Base</b><br>Observed Count (vehicles): %{x}<br>"
+        "Base<br>Observed Count (vehicles): %{x}<br>"
         "Modeled Volume (vehicles): %{y}<extra></extra>"
     )
     assert fit_line.name == "Base fit"

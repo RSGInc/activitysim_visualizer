@@ -91,6 +91,9 @@
     });
     button.type = "button";
     button.disabled = !!config.disabled;
+    if (config.title) {
+      button.title = String(config.title);
+    }
     if (!config.disabled && typeof config.onClick === "function") {
       button.addEventListener("click", config.onClick);
     }
@@ -940,7 +943,13 @@
           getTraceFieldLength(trace && trace.x),
           getTraceFieldLength(trace && trace.y)
         );
-        const traceName = trace && trace.name ? trace.name : "trace_" + String(traceIndex + 1);
+        const traceName = (
+          trace && trace.meta && trace.meta.run_name
+            ? trace.meta.run_name
+            : trace && trace.name
+              ? trace.name
+              : "trace_" + String(traceIndex + 1)
+        );
         for (let pointIndex = 0; pointIndex < pointCount; pointIndex += 1) {
           rows.push([
             traceName,
@@ -1359,6 +1368,7 @@
           type: "button",
           "data-column": column,
           "aria-sort": "none",
+          title: (node.column_tooltips || {})[column] || column,
         },
       }, [
         el("span", { className: "export-table-sort-label", text: column }),
@@ -1395,6 +1405,7 @@
         tabRow.appendChild(
           makeButton({
             label: tab.title,
+            title: tab.full_title || tab.title,
             active: index === activeIndex,
             onClick: () => {
               activeIndex = index;

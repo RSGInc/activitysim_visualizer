@@ -11,6 +11,7 @@ import polars as pl
 
 from dashboard.data_access import RunTableData, RunTables
 from dashboard.rendering.context import RenderContext
+from dashboard.rendering.labels import display_label_map, hover_label
 
 ChartTables = RunTables | RunTableData
 ChartValueMode = Literal["dashboard", "count", "share"]
@@ -81,9 +82,18 @@ def _point_hover(
     share: bool,
 ) -> str:
     return (
-        f"{label}<br>{x_title or x}: {x_value}"
+        f"{hover_label(label)}<br>{x_title or x}: {x_value}"
         f"<br>{_y_title(y_title or y, share)}: {_hover_value(y_value, y_title, share)}"
     )
+
+
+def _run_labels(context: RenderContext, data: ChartTables) -> list[str]:
+    labels = list(context.run_labels)
+    for label, _ in data:
+        text = str(label)
+        if text not in labels:
+            labels.append(text)
+    return labels
 
 
 def bar_figure(
@@ -103,9 +113,11 @@ def bar_figure(
     show_legend: bool | None = None,
 ) -> go.Figure:
     """Build a grouped/stacked categorical figure."""
+    data = list(data)
     _require_columns(data, "bar", x, y)
     share = _share_mode(context, value_mode)
     figure = go.Figure()
+    legend_labels = display_label_map(_run_labels(context, data))
     observed_order: list[object] = []
     for index, (label, frame) in enumerate(data):
         if frame.is_empty():
@@ -135,8 +147,9 @@ def bar_figure(
         ]
         figure.add_trace(
             go.Bar(
-                name=str(label), x=x_values, y=y_values,
+                name=legend_labels[str(label)], x=x_values, y=y_values,
                 marker_color=context.color(str(label), index),
+                meta={"run_name": str(label)},
                 hovertemplate="%{customdata}<extra></extra>", customdata=hover,
             )
         )
@@ -166,16 +179,29 @@ def line_figure(
     value_mode: ChartValueMode = "dashboard",
     height: int = 350,
 ) -> go.Figure:
+    data = list(data)
     _require_columns(data, "line", x, y)
     share = _share_mode(context, value_mode)
     figure = go.Figure()
+    legend_labels = display_label_map(_run_labels(context, data))
     for index, (label, frame) in enumerate(data):
+        x_values = frame[x].to_list()
         values = np.asarray(frame[y].to_list(), dtype=float)
         if share and values.sum() > 0:
             values = values / values.sum() * 100.0
+        y_values = values.tolist()
+        hover = [
+            _point_hover(
+                str(label), x_value, y_value, x=x, y=y,
+                x_title=x_title, y_title=y_title, share=share,
+            )
+            for x_value, y_value in zip(x_values, y_values)
+        ]
         figure.add_trace(go.Scatter(
-            name=str(label), x=frame[x].to_list(), y=values.tolist(), mode="lines",
+            name=legend_labels[str(label)], x=x_values, y=y_values, mode="lines",
             line=dict(color=context.color(str(label), index), width=2),
+            meta={"run_name": str(label)},
+            hovertemplate="%{customdata}<extra></extra>", customdata=hover,
         ))
     _layout(figure, title=title, x_title=x_title, y_title=_y_title(y_title, share), height=height)
     return figure
@@ -212,9 +238,11 @@ def density_figure(
     tick_text: list[str] | None = None,
     hover_x_title: str | None = None,
 ) -> go.Figure:
+    data = list(data)
     _require_columns(data, "density", x, y)
     share = _share_mode(context, value_mode)
     figure = go.Figure()
+    legend_labels = display_label_map(_run_labels(context, data))
     observed_x: list[object] = []
     for index, (label, frame) in enumerate(data):
         x_values = frame[x].to_list()
@@ -230,8 +258,9 @@ def density_figure(
             for xv, yv in zip(x_values, y_values)
         ]
         figure.add_trace(go.Scatter(
-            name=str(label), x=x_values, y=y_values, mode="lines",
+            name=legend_labels[str(label)], x=x_values, y=y_values, mode="lines",
             line=dict(color=color, width=2), fill="tozeroy",
+            meta={"run_name": str(label)},
             hovertemplate="%{customdata}<extra></extra>", customdata=hover,
         ))
     _layout(figure, title=title, x_title=x_title, y_title=_y_title(y_title, share), height=height)
@@ -279,8 +308,17 @@ def scatter_figure(
     one_to_one: bool = False,
     legend_on_right: bool = False,
 ) -> go.Figure:
+    data = list(data)
+    fit_overlays = list(fit_overlays or [])
     _require_columns(data, "scatter", x, y)
     figure = go.Figure()
+    all_run_labels = _run_labels(context, data)
+    for label, _ in fit_overlays:
+        if str(label) not in all_run_labels:
+            all_run_labels.append(str(label))
+    legend_labels = display_label_map(
+        [*all_run_labels, *(f"{label} fit" for label in all_run_labels)]
+    )
     label_indices = {str(label): index for index, (label, _) in enumerate(data)}
     axis_values: list[float] = []
     for index, (label, frame) in enumerate(data):
@@ -292,24 +330,31 @@ def scatter_figure(
         if one_to_one:
             axis_values.extend(_finite([*x_values, *y_values]))
         figure.add_trace(go.Scatter(
-            name=str(label), x=x_values, y=y_values, mode="markers",
+            name=legend_labels[str(label)], x=x_values, y=y_values, mode="markers",
             marker=dict(color=context.color(str(label), index), size=8, line=dict(width=0.4)),
+            legendgroup=str(label),
+            meta={"run_name": str(label)},
             hovertemplate=(
-                f"<b>{label}</b><br>{x_title or x}: %{{x}}<br>"
+                f"{hover_label(label)}<br>{x_title or x}: %{{x}}<br>"
                 f"{y_title or y}: %{{y}}<extra></extra>"
             ),
         ))
-    for index, (label, frame) in enumerate(fit_overlays or []):
+    for index, (label, frame) in enumerate(fit_overlays):
         if frame.is_empty() or x not in frame.columns or y not in frame.columns:
             continue
         color = context.color(str(label), label_indices.get(str(label), index))
-        trace_name = f"{label} fit"
+        trace_name = legend_labels[f"{label} fit"]
         annotation = ""
         if fit_annotation in frame.columns:
             annotation = str(frame[fit_annotation][0] or "").strip()
+            prefix = f"{label}<br>"
+            if annotation.startswith(prefix):
+                annotation = f"{hover_label(label)}<br>{annotation[len(prefix):]}"
         figure.add_trace(go.Scatter(
             name=trace_name, x=frame[x].to_list(), y=frame[y].to_list(),
             mode="lines", line=dict(color=color, width=2),
+            legendgroup=str(label),
+            meta={"run_name": f"{label} fit"},
             hovertemplate=(f"{annotation}<extra></extra>" if annotation else None),
         ))
     if one_to_one:

@@ -7,10 +7,10 @@ import polars as pl
 
 from dashboard.rendering import (
     to_pandas,
-    column_titles,
     drop_index_columns,
     format_numeric_frame,
 )
+from dashboard.rendering.tables import column_title_metadata
 from dashboard.helpers.comparison_helpers import (
     build_base_run_percent_difference_table,
 )
@@ -182,11 +182,13 @@ class OverviewPage(DashboardPage):
             drop_index_columns(pct_df),
             numeric_precision=2,
         )
+        titles, header_tooltips = column_title_metadata(display_df.columns)
         return pn.widgets.Tabulator(
             to_pandas(display_df),
             sizing_mode="stretch_width",
             height=260,
-            titles=column_titles(display_df.columns),
+            titles=titles,
+            header_tooltips=header_tooltips,
             show_index=False,
         )
 

@@ -182,7 +182,13 @@
           getTraceFieldLength(trace && trace.x),
           getTraceFieldLength(trace && trace.y)
         );
-        const traceName = trace && trace.name ? trace.name : "trace_" + String(traceIndex + 1);
+        const traceName = (
+          trace && trace.meta && trace.meta.run_name
+            ? trace.meta.run_name
+            : trace && trace.name
+              ? trace.name
+              : "trace_" + String(traceIndex + 1)
+        );
         for (let pointIndex = 0; pointIndex < pointCount; pointIndex += 1) {
           rows.push([
             traceName,

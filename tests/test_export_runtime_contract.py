@@ -218,6 +218,7 @@ def test_runtime_asset_contains_explicit_context_action_and_region_helpers() -> 
     assert "function createRuntimeContext(config)" in runtime_js
     assert "function createRuntimeActions(context)" in runtime_js
     assert "function makeButton(config)" in runtime_js
+    assert "button.title = String(config.title);" in runtime_js
     assert "function buildRegionVariantKey(selectorValues)" in runtime_js
     assert "const PLOT_RESIZE_RETRY_DELAYS_MS = [60, 180, 320];" in runtime_js
     assert 'displayModeBar: "hover"' in runtime_js
@@ -225,6 +226,13 @@ def test_runtime_asset_contains_explicit_context_action_and_region_helpers() -> 
     assert 'name: "Download CSV"' in runtime_js
     assert 'title: "Download plot data as CSV"' in runtime_js
     assert "modeBarButtonsToAdd: [makePlotCsvDownloadButton(figure)]" in runtime_js
+
+
+def test_runtime_asset_exposes_full_table_and_tab_titles_as_tooltips() -> None:
+    runtime_js = load_export_runtime_js()
+
+    assert "title: tab.full_title || tab.title" in runtime_js
+    assert "(node.column_tooltips || {})[column] || column" in runtime_js
 
 
 def test_runtime_asset_contains_plot_csv_export_helpers() -> None:
@@ -239,6 +247,7 @@ def test_runtime_asset_contains_plot_csv_export_helpers() -> None:
     assert '"y"' in runtime_js
     assert '"trace_index"' not in runtime_js
     assert '"customdata"' not in runtime_js
+    assert "trace.meta.run_name" in runtime_js
     assert '"-" + valueMode + ".csv"' in runtime_js
     assert 'return normalized || "plot-data";' in runtime_js
 

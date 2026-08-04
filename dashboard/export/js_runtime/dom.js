@@ -75,6 +75,9 @@
     });
     button.type = "button";
     button.disabled = !!config.disabled;
+    if (config.title) {
+      button.title = String(config.title);
+    }
     if (!config.disabled && typeof config.onClick === "function") {
       button.addEventListener("click", config.onClick);
     }

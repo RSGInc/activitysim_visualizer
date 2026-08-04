@@ -142,23 +142,28 @@ def serialize_viewable(
             "css_classes": _container_css_classes(obj),
         }
     if isinstance(obj, pn.Tabs):
+        full_titles = tuple(getattr(obj, "_run_label_full_titles", ()))
+        serialized_tabs = []
+        for index, (title, child) in enumerate(iter_tabs(obj)):
+            if _is_hidden_view(child):
+                continue
+            tab = {
+                "title": title,
+                "content": serialize_viewable(
+                    child,
+                    disable_widgets=disable_widgets,
+                    widget_metadata=widget_metadata,
+                    region_nodes_by_id=region_nodes_by_id,
+                    hidden_widget_ids=hidden_widget_ids,
+                    hidden_view_ids=hidden_view_ids,
+                ),
+            }
+            if index < len(full_titles) and full_titles[index] != title:
+                tab["full_title"] = full_titles[index]
+            serialized_tabs.append(tab)
         return {
             "kind": "tabs",
-            "tabs": [
-                {
-                    "title": title,
-                    "content": serialize_viewable(
-                        child,
-                        disable_widgets=disable_widgets,
-                        widget_metadata=widget_metadata,
-                        region_nodes_by_id=region_nodes_by_id,
-                        hidden_widget_ids=hidden_widget_ids,
-                        hidden_view_ids=hidden_view_ids,
-                    ),
-                }
-                for title, child in iter_tabs(obj)
-                if not _is_hidden_view(child)
-            ],
+            "tabs": serialized_tabs,
         }
     if isinstance(obj, pn.pane.Plotly):
         figure = obj.object.to_plotly_json()
@@ -174,7 +179,17 @@ def serialize_viewable(
         }
         columns = [str(column) for column in frame.columns]
         display_columns = [title_map.get(column, column) for column in columns]
-        return {
+        header_tooltips = {
+            str(column): str(tooltip)
+            for column, tooltip in (obj.header_tooltips or {}).items()
+            if tooltip is not None
+        }
+        column_tooltips = {
+            display_column: header_tooltips[column]
+            for column, display_column in zip(columns, display_columns)
+            if column in header_tooltips
+        }
+        table = {
             "kind": "table",
             "columns": display_columns,
             "rows": [
@@ -185,6 +200,9 @@ def serialize_viewable(
                 for row in frame.to_dict(orient="records")
             ],
         }
+        if column_tooltips:
+            table["column_tooltips"] = column_tooltips
+        return table
     if isinstance(obj, pn.widgets.RadioButtonGroup):
         if id(obj) in hidden_widget_ids:
             return {"kind": "spacer", "height": 0, "width": 0}

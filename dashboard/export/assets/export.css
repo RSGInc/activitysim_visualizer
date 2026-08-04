@@ -163,6 +163,13 @@ body {
   color: #334155;
 }
 
+.local-tab-button {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .page-tab-button.active,
 .local-tab-button.active {
   background: var(--accent);
@@ -450,6 +457,13 @@ table.export-table thead th {
   font-weight: 700;
   cursor: pointer;
   text-align: left;
+}
+
+.export-table-sort-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .export-table-sort-indicator {

@@ -14,6 +14,7 @@
         tabRow.appendChild(
           makeButton({
             label: tab.title,
+            title: tab.full_title || tab.title,
             active: index === activeIndex,
             onClick: () => {
               activeIndex = index;

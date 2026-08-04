@@ -474,6 +474,22 @@ def test_data_table_drops_index_columns_and_hides_pandas_index() -> None:
     assert tabulator.titles == {"metric": "Metric", "value": "Value"}
 
 
+def test_data_table_shortens_long_run_tabs_and_column_titles() -> None:
+    run_label = "Regional Transportation Scenario Baseline 2050 North"
+    column = "regional_transportation_scenario_comparison_measure"
+    table = data_table([(run_label, pl.DataFrame({column: [1.0]}))])
+
+    assert table._names == ["Regional Transportation…North"]
+    assert table._run_label_full_titles == (run_label,)
+    content = table.objects[0]
+    assert run_label in content.objects[0].object
+    tabulator = content.objects[1]
+    assert len(tabulator.titles[column]) <= 30
+    assert tabulator.header_tooltips == {
+        column: "Regional Transportation Scenario Comparison Measure"
+    }
+
+
 def test_column_titles_for_display_humanizes_machine_column_names() -> None:
     titles = column_titles(
         [
