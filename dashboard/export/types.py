@@ -105,7 +105,12 @@ class TabsNode(TypedDict):
     tabs: list[TabPayload]
 
 
-class PlotlyNode(TypedDict):
+class OptionalPlotlyNode(TypedDict, total=False):
+    height: int | float | None
+    aspect_ratio: float
+
+
+class PlotlyNode(OptionalPlotlyNode):
     kind: Literal["plotly"]
     figure: dict[str, Any]
 

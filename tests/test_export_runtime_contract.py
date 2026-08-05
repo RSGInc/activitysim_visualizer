@@ -228,6 +228,13 @@ def test_runtime_asset_contains_explicit_context_action_and_region_helpers() -> 
     assert "modeBarButtonsToAdd: [makePlotCsvDownloadButton(figure)]" in runtime_js
 
 
+def test_runtime_asset_preserves_exported_plot_aspect_ratios() -> None:
+    runtime_js = load_export_runtime_js()
+
+    assert "plotElement.style.aspectRatio = String(aspectRatio);" in runtime_js
+    assert "delete layout.height;" in runtime_js
+
+
 def test_runtime_asset_exposes_full_table_and_tab_titles_as_tooltips() -> None:
     runtime_js = load_export_runtime_js()
 

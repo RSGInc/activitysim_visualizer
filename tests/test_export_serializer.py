@@ -68,11 +68,25 @@ def test_serialize_viewable_supports_plotly_and_table_nodes() -> None:
 
     assert plot_payload["kind"] == "plotly"
     assert plot_payload["figure"]["data"][0]["type"] == "bar"
+    assert "aspect_ratio" not in plot_payload
     assert table_payload == {
         "kind": "table",
         "columns": ["Alpha Value", "beta", "Gamma Value"],
         "rows": [{"Alpha Value": "1.2", "beta": "x", "Gamma Value": "2"}],
     }
+
+
+def test_serialize_viewable_preserves_numeric_plotly_aspect_ratio() -> None:
+    pane = pn.pane.Plotly(
+        go.Figure(data=[go.Scatter(x=[1], y=[1])], layout={"height": 400}),
+        sizing_mode="scale_width",
+        aspect_ratio=1.0,
+    )
+
+    payload = serialize_viewable(pane, disable_widgets=True)
+
+    assert payload["height"] == 400
+    assert payload["aspect_ratio"] == 1.0
 
 
 def test_serialize_viewable_supports_widget_nodes_with_export_metadata() -> None:

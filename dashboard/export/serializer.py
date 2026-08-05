@@ -169,7 +169,11 @@ def serialize_viewable(
         figure = obj.object.to_plotly_json()
         layout = figure.get("layout", {}) if isinstance(figure, dict) else {}
         height = layout.get("height") if isinstance(layout, dict) else None
-        return {"kind": "plotly", "figure": figure, "height": height}
+        node = {"kind": "plotly", "figure": figure, "height": height}
+        aspect_ratio = getattr(obj, "aspect_ratio", None)
+        if isinstance(aspect_ratio, (int, float)) and aspect_ratio > 0:
+            node["aspect_ratio"] = float(aspect_ratio)
+        return node
     if isinstance(obj, pn.widgets.Tabulator):
         frame = obj.value
         title_map = {
