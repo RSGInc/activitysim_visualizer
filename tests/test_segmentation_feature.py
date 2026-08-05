@@ -271,7 +271,7 @@ def test_config_requires_dashboard_segmentation_type_to_exist(tmp_path: Path) ->
         )
 
 
-def test_summary_digest_changes_for_definition_but_not_dashboard_selection(
+def test_summary_digest_excludes_segmentation_definition_and_dashboard_selection(
     tmp_path: Path,
 ) -> None:
     base_lines = [
@@ -324,7 +324,7 @@ def test_summary_digest_changes_for_definition_but_not_dashboard_selection(
         config_a.presentation_config_digest
         != config_b.presentation_config_digest
     )
-    assert config_a.summary_config_digest != config_c.summary_config_digest
+    assert config_a.summary_config_digest == config_c.summary_config_digest
 
 
 def test_build_analysis_units_supports_multiple_segmentation_types(tmp_path: Path) -> None:

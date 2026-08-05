@@ -477,10 +477,22 @@ def explain_cache_plan(
                         expected_label=label,
                         expected_run_key=run_key,
                     )
-                    stale = list(inspection["stale_summary_ids"])
+                    stale_count = sum(
+                        len(summary_ids)
+                        for summary_ids in dict(
+                            inspection["stale_summary_ids_by_unit"]
+                        ).values()
+                    )
+                    obsolete_count = len(inspection["obsolete_unit_keys"])
                     summary_action = (
-                        decision("REBUILD", f"{len(stale)} summary tables are stale")
-                        if stale
+                        decision(
+                            "REBUILD",
+                            (
+                                f"{stale_count} analysis-unit summary tables are stale; "
+                                f"{obsolete_count} analysis units are obsolete"
+                            ),
+                        )
+                        if stale_count or obsolete_count
                         else "REUSE"
                     )
                 except SummaryCacheError as exc:

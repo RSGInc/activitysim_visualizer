@@ -187,7 +187,13 @@ base/
 
 The visualizer stores segmented summary CSV files in
 `summary_tables/<weighting>/segments/<segmentation-type>/<segment-id>/`. The
-run-level summary manifest describes these files.
+run-level summary manifest describes these files. With `refresh: []`, summary
+reuse is evaluated separately for the full run and for each configured segment.
+Enabling a new segment therefore reuses compatible full summaries and builds
+only the new segment summaries. Changing one segment rebuilds that segment;
+removing one deletes its obsolete cached summary directory on the next summary
+cache write. The prepared cache is loaded to resolve segment membership, but a
+valid prepared or skimjoin cache is not recomputed.
 
 The run-key directory uses a lowercase, file-system-safe form of the run label.
 For example, `Build Scenario` becomes `build-scenario`. Duplicate labels get
@@ -218,7 +224,7 @@ The refresh targets are stage-aware:
 |---|---|---|
 | `prepare` | nothing upstream of prepare | base prepared data, skimjoin output, summaries |
 | `skimjoin` | `base_prepared_tables` | enriched `prepared_tables`, summaries |
-| `summarize` | final `prepared_tables` | stale/default summaries and segmented summaries |
+| `summarize` | final `prepared_tables` | all default summaries for the full run and every configured segment |
 
 Cache reuse also depends on file content information. Prepared manifests record
 the path, size, and modification time of each raw input. They also record the
@@ -226,8 +232,9 @@ prepare, skimjoin, and skim input identities. The summary manifest records the
 prepared-manifest identity, summary configuration, and declaration digest for
 each summary. A changed raw file invalidates prepare and its later output. A
 changed skim input can rebuild only skimjoin and its later output. A changed
-summary declaration can rebuild only the applicable summary tables. The
-visualizer keeps compatible tables in the bundle.
+summary declaration can rebuild only the applicable summary table for each
+analysis unit. Segment definitions are tracked independently from full-summary
+configuration, so compatible full and segment tables stay in the bundle.
 
 Use `--explain-cache` to print the cache decision for each run. The command
 then exits without table loads, cache deletions, or artifact writes. The report

@@ -1288,6 +1288,60 @@ def _segmented_run_data(label: str, run_dir: str) -> RunData:
         skim_zone_map=None,
     )
 
+
+def _market_segmentation_lines(
+    segments: list[tuple[str, str, str]],
+) -> list[str]:
+    lines = [
+        "pipeline:",
+        "  steps: [segment, summarize]",
+        "segment:",
+        "  definitions:",
+        "    market:",
+        "      source:",
+        "        type: prepared_column",
+        "        source_table: hh",
+        "        column: market",
+        "      segments:",
+    ]
+    for segment_id, label, value in segments:
+        lines.extend(
+            [
+                f"        - id: {segment_id}",
+                f"          label: {label}",
+                f"          values: [{value}]",
+            ]
+        )
+    return lines
+
+
+def _recording_summary_builder(calls: list[tuple[str, ...]]):
+    def build(rd, config, summary_ids=None):
+        markets = (
+            tuple(sorted(rd.hh["market"].to_list()))
+            if "market" in rd.hh.columns
+            else ()
+        )
+        calls.append(markets)
+        requested = list(summary_ids or summary_builder.DEFAULT_SUMMARY_IDS)
+        tables = {
+            mode: {
+                summary_id: pl.DataFrame({"value": [float(rd.hh.height)]})
+                for summary_id in requested
+            }
+            for mode in config.weighting_modes
+        }
+        metadata = {
+            mode: {
+                summary_id: {"state": "available"}
+                for summary_id in requested
+            }
+            for mode in config.weighting_modes
+        }
+        return tables, metadata
+
+    return build
+
 def test_run_prepare_workflow_rebuilds_and_writes_prepared_cache_on_cache_miss(
     tmp_path: Path,
     monkeypatch,
@@ -1538,6 +1592,201 @@ def test_run_summary_workflow_with_segment_step_builds_full_and_segmented_summar
         ("market", "urban"),
         ("market", "rural"),
     ]
+
+
+def test_enabling_segmentation_reuses_full_summaries_and_builds_only_segments(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    runs = [{"dir": str(run_dir), "label": "Run A"}]
+    config = _write_config(tmp_path, runs=runs)
+    read_calls: list[str] = []
+    build_calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
+        _recording_summary_builder(build_calls),
+    )
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: (
+            read_calls.append(label or Path(run_dir).name),
+            _segmented_run_data(label or Path(run_dir).name, str(run_dir)),
+        )[1],
+        prepare_data=lambda rd, config: rd,
+    )
+
+    runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=True,
+    )
+    build_calls.clear()
+    segmented_config = _write_config(
+        tmp_path,
+        runs=runs,
+        extra_lines=_market_segmentation_lines(
+            [("urban", "Urban", "Urban"), ("rural", "Rural", "Rural")]
+        ),
+    )
+
+    result = runtime_workflows.run_summary_workflow(
+        config=segmented_config,
+        cache_root=Path(segmented_config.summary_root),
+        run_entries=segmented_config.runs,
+        prefer_cache=True,
+        write_cache=True,
+    )
+
+    assert build_calls == [("Urban",), ("Rural",)]
+    assert read_calls == ["Run A"]
+    assert [(run.segmentation_type, run.segment_id) for run in result.runs] == [
+        ("full", "full"),
+        ("market", "urban"),
+        ("market", "rural"),
+    ]
+    build_calls.clear()
+
+    runtime_workflows.run_summary_workflow(
+        config=segmented_config,
+        cache_root=Path(segmented_config.summary_root),
+        run_entries=segmented_config.runs,
+        prefer_cache=False,
+        write_cache=True,
+    )
+
+    assert build_calls == [("Rural", "Urban"), ("Urban",), ("Rural",)]
+    assert read_calls == ["Run A"]
+
+
+def test_changing_one_segment_rebuilds_only_that_segment(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    runs = [{"dir": str(run_dir), "label": "Run A"}]
+    config = _write_config(
+        tmp_path,
+        runs=runs,
+        extra_lines=_market_segmentation_lines(
+            [("urban", "Urban", "Urban"), ("rural", "Rural", "Rural")]
+        ),
+    )
+    build_calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
+        _recording_summary_builder(build_calls),
+    )
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: _segmented_run_data(
+            label or Path(run_dir).name, str(run_dir)
+        ),
+        prepare_data=lambda rd, config: rd,
+    )
+    runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=True,
+    )
+    build_calls.clear()
+    changed_config = _write_config(
+        tmp_path,
+        runs=runs,
+        extra_lines=_market_segmentation_lines(
+            [("urban", "Urban households", "Urban"), ("rural", "Rural", "Rural")]
+        ),
+    )
+
+    result = runtime_workflows.run_summary_workflow(
+        config=changed_config,
+        cache_root=Path(changed_config.summary_root),
+        run_entries=changed_config.runs,
+        prefer_cache=True,
+        write_cache=True,
+    )
+
+    assert build_calls == [("Urban",)]
+    assert next(run for run in result.runs if run.segment_id == "urban").segment_label == (
+        "Urban households"
+    )
+
+
+def test_removing_segment_reuses_current_units_and_cleans_obsolete_cache(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    runs = [{"dir": str(run_dir), "label": "Run A"}]
+    config = _write_config(
+        tmp_path,
+        runs=runs,
+        extra_lines=_market_segmentation_lines(
+            [("urban", "Urban", "Urban"), ("rural", "Rural", "Rural")]
+        ),
+    )
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
+        _recording_summary_builder([]),
+    )
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: _segmented_run_data(
+            label or Path(run_dir).name, str(run_dir)
+        ),
+        prepare_data=lambda rd, config: rd,
+    )
+    runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=True,
+    )
+    changed_config = _write_config(
+        tmp_path,
+        runs=runs,
+        extra_lines=_market_segmentation_lines([("urban", "Urban", "Urban")]),
+    )
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("no current analysis unit should be rebuilt")
+        ),
+    )
+
+    result = runtime_workflows.run_summary_workflow(
+        config=changed_config,
+        cache_root=Path(changed_config.summary_root),
+        run_entries=changed_config.runs,
+        prefer_cache=True,
+        write_cache=True,
+    )
+
+    assert [(run.segmentation_type, run.segment_id) for run in result.runs] == [
+        ("full", "full"),
+        ("market", "urban"),
+    ]
+    assert not (
+        Path(changed_config.summary_root)
+        / "run-a"
+        / "summary_tables"
+        / "weighted"
+        / "segments"
+        / "market"
+        / "rural"
+    ).exists()
 
 
 def test_run_prepare_workflow_loads_custom_prepared_tables_without_raw_prepare(

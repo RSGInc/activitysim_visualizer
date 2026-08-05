@@ -69,5 +69,8 @@ class SummaryCacheInspection:
     """Reusable cached summaries and the table ids that still need rebuilding."""
 
     runs: tuple[Any, ...] = ()
-    reusable_summary_ids: tuple[str, ...] = ()
-    stale_summary_ids: tuple[str, ...] = ()
+    reusable_summary_ids_by_unit: dict[str, tuple[str, ...]] = field(
+        default_factory=dict
+    )
+    stale_summary_ids_by_unit: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    obsolete_unit_keys: tuple[str, ...] = ()
