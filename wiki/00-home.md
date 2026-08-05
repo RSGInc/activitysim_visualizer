@@ -1,12 +1,12 @@
 # ActivitySim Visualizer Wiki
 
-This wiki is the main documentation home for the ActivitySim Visualizer. It is
-written for two audiences:
+This wiki contains the main documentation for ActivitySim Visualizer. Use it
+for these tasks:
 
-- users who need to run the visualizer on ActivitySim outputs
-- developers who need to extend the processor, summaries, skimjoin, or dashboard
+- run the visualizer with ActivitySim output
+- extend the processor, summaries, skimjoin, or dashboard
 
-The short mental model:
+The main data flow is:
 
 ```text
 ActivitySim outputs
@@ -16,24 +16,24 @@ ActivitySim outputs
   -> live dashboard or standalone HTML export
 ```
 
-For the subsystem boundaries and complete repository map, see
+For the subsystem boundaries and the complete repository map, see
 [01 - Architecture](01-architecture.md).
 
 ## I Am Using The Visualizer
 
-You only need three short chapters for normal use:
+For standard use, read these three chapters:
 
 1. [Get a dashboard running](10-getting-started.md).
 2. [Choose raw, prepared, or summary inputs](11-configuring-your-data.md).
 3. [Configure a live, export, or processor workflow](12-running-workflows.md).
 
-Use [Troubleshooting](90-troubleshooting.md) when something is missing. The
-[Configuration Reference](13-configuration-reference.md) is there when you need
-an exact field or default; it is not required reading.
+Use [Troubleshooting](90-troubleshooting.md) when data is missing. Use the
+[Configuration Reference](13-configuration-reference.md) to find a field or a
+default value. You do not have to read the complete reference.
 
 ## I Am Extending The Visualizer
 
-| If you want to... | Read |
+| Task | Read |
 |---|---|
 | Find every main config field and option | [13 - Configuration Reference](13-configuration-reference.md) |
 | Understand the Output Processor | [20 - Output Processor](20-output-processor.md) |
@@ -91,14 +91,14 @@ an exact field or default; it is not required reading.
 
 ## Generated Pages
 
-Some wiki sections are generated from code to keep reference material from
-drifting:
+The project generates some wiki sections from code. This process keeps the
+reference material consistent with the code:
 
 - [24 - Summary Catalog](24-summary-catalog.md)
 - the generated page catalog in [31 - Dashboard Pages](31-dashboard-pages.md)
 
-Regenerate them after changing summary declarations/contracts, dashboard page
-definitions, or page data requirements:
+Regenerate these sections after you change a summary declaration, a summary
+contract, a dashboard page definition, or a page data requirement:
 
 ```bash
 uv run python scripts/generate_wiki_catalogs.py

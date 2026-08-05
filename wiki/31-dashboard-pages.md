@@ -1,8 +1,8 @@
 # 31 - Dashboard Pages
 
-Dashboard pages are discovered from modules under
-[`dashboard/pages`](../dashboard/pages). Each leaf module contains one
-`DashboardPage` subclass decorated with `@dashboard_page(...)`; page packages
+The visualizer finds dashboard pages in modules under
+[`dashboard/pages`](../dashboard/pages). Each final module contains one
+`DashboardPage` subclass with a `@dashboard_page(...)` decorator. Page packages
 export a `DashboardGroupDefinition` as `GROUP`.
 
 ## Page Definition Contract
@@ -20,21 +20,21 @@ Important fields:
 | `optional_summary_ids` | Independent add-on summaries that may be absent. |
 | `required_prepared_tables` | Prepared tables required by the page. |
 
-These declarations control dashboard cache loading, pruning, availability
-diagnostics, and prepared-table loading. They do **not** select which generated
-summaries the summarize workflow builds; ordinary summarize runs build every
-`build_by_default=True` declaration.
+These declarations control dashboard cache loads, removal of unused data,
+availability diagnostics, and prepared-table loads. They do not select the
+summaries that the summarize workflow builds. Standard summarize runs build
+each declaration that has `build_by_default=True`.
 
-`required_summary_ids` marks the page's primary data. If no run has a usable
-required table, `self.data.summary(...)` records a required-data warning and the
-page should render a standard unavailable card. `optional_summary_ids` declares
-an independent add-on: its absence should hide or replace only that feature.
-Neither declaration crashes the whole dashboard, and both can be partially
-available when some runs are usable and others are excluded.
+`required_summary_ids` identifies the primary page data. If no run has a usable
+required table, `self.data.summary(...)` records a required-data warning. The
+page must then show a standard unavailable card. `optional_summary_ids`
+identifies an independent feature. If this data is absent, hide or replace only
+that feature. Missing declared data does not stop the complete dashboard. Data
+can also be available for only some runs.
 
 ## Enabling Pages
 
-Live pages are selected in config:
+Select live pages in the configuration:
 
 ```yaml
 dashboard:
@@ -55,15 +55,15 @@ Group selection modes are:
 | `trip_summaries: all` | Every registered child, including children with `default_enabled=False`. |
 | `trip_summaries: [trip_mode, trip_stop_distance]` | Exactly the listed children in that order. |
 
-When `dashboard.live.pages` is omitted, standalone pages and groups must be
-default-enabled, and grouped children must also be default-enabled. A group's
-`default_page_id` selects the initially visible tab/fallback; it does not by
-itself enable every child.
+If you omit `dashboard.live.pages`, the visualizer selects default-enabled
+standalone pages and groups. It also selects default-enabled children in each
+group. A group's `default_page_id` selects the first visible tab or fallback
+tab. It does not enable all children.
 
-`dashboard.export.pages` modifies matching pages in the resolved live page set;
-it is not an allow-list. Unmentioned live pages keep their default export
-behavior. Use `enabled: false`, `exclude_pages`, or `exclude_groups` to narrow
-the export. Export cannot add a page omitted from `dashboard.live.pages`.
+`dashboard.export.pages` changes matching pages in the resolved live page set.
+It is not an allow-list. Live pages without an entry keep their default export
+behavior. Use `enabled: false`, `exclude_pages`, or `exclude_groups` to remove
+pages. Export cannot add a page that `dashboard.live.pages` omits.
 
 For example, enable only two trip-summary children:
 
@@ -79,9 +79,9 @@ dashboard:
 
 ## Prepared-Data Pages
 
-Most pages are summary-backed. A prepared-data page declares
-`prepared_data_mode` and `required_prepared_tables`. Use prepared data only when
-the page truly needs disaggregate records.
+Most pages use summary data. A prepared-data page declares `prepared_data_mode`
+and `required_prepared_tables`. Use prepared data only when the page requires
+disaggregate records.
 
 Current runtime behavior is:
 
@@ -89,43 +89,43 @@ Current runtime behavior is:
 |---|---|
 | `none` | Prepared caches are not requested for the page. `required_prepared_tables` must be empty. |
 | `optional` | Prepared caches are requested, but the page's primary summary-backed workflow should remain useful when they are unavailable. |
-| `required` | Prepared caches are requested and the page should present an unavailable state when they cannot be loaded. |
+| `required` | The runtime requests prepared caches. The page must show an unavailable state if it cannot load them. |
 
-Both `optional` and `required` trigger loading; the distinction communicates
-feature criticality and contributes to the strongest requirement across enabled
-pages. Page render code remains responsible for the fallback. Standalone HTML
-export does not load prepared tables; see chapter 34 for section-level export
+Both `optional` and `required` cause a data load. The value identifies whether
+the feature requires the data. It also contributes to the strongest requirement
+for all enabled pages. Page render code must supply the fallback. Standalone
+HTML export does not load prepared tables. See chapter 34 for section export
 rules.
 
 ## Availability And Validation Features
 
-Page selectors are data-aware. Option providers enumerate values present in
-usable runs, and the page lifecycle repairs a selection when an upstream choice
-makes it invalid. A selector should not offer a value whose dependent section
-would be empty merely because that value exists in a hard-coded domain.
+Page selectors use available data. Option providers list values in usable runs.
+The page lifecycle repairs a selection if an earlier choice makes it invalid.
+Do not show a value only because it occurs in a fixed domain. Show it only when
+its dependent section has data.
 
-When no usable run remains, pages render the standard data-unavailable card for
-the affected feature. Required data can make the page's primary workflow
-unavailable; missing optional data replaces only its independent feature. Set
-`display.missing_data_display: blank` to suppress these cards globally.
+When no usable run remains, the page shows the standard data-unavailable card
+for the applicable feature. Missing required data can make the primary page
+workflow unavailable. Missing optional data replaces only its independent
+feature. Set `display.missing_data_display: blank` to hide all these cards.
 
-The validation group currently provides:
+The validation group provides:
 
 | Page | Current behavior |
 |---|---|
-| Traffic Validation | Observed-versus-modeled count-location fit, traffic volume summaries, top modeled count locations, link tables, and screenline flow comparison. Count-location diagnostics report location count, RMSE, RMSPE, and R-squared by facility group. Scatterplots include a 1:1 line; fitted equations, R-squared, and sample size appear on fit-line hover. Screenlines can be filtered by time period and facility type before a per-run ordinary-least-squares fit is calculated. RMSPE is blank for a group containing a zero observed count. |
-| Transit Validation | Boardings by operator/technology and transfer rates by operator, technology, and access mode, with calculation notes and unavailable states when the supplied contracts cannot be used. |
+| Traffic Validation | Observed-versus-modeled count-location fit, traffic volume summaries, top modeled count locations, link tables, and screenline flow comparison. Count-location diagnostics report location count, RMSE, RMSPE, and R-squared by facility group. Scatterplots include a 1:1 line. Fit-line hover shows the fitted equation, R-squared, and sample size. Filter screenlines by time period and facility type before the system calculates a fit for each run. RMSPE is blank for a group that contains a zero observed count. |
+| Transit Validation | Boardings by operator and technology.<br>Transfer rates by operator, technology, and access mode.<br>The page shows notes and unavailable states if it cannot use the supplied contracts. |
 | VMT Validation | Overview comparisons plus selector-driven personal-auto and non-motorized VMT. Optional outside tables add external travel/VMT, commercial travel/VMT, and bicycle facility summaries; each optional feature gets its own unavailable state. |
-| Regional Validation | Optional district or county observed flow matrices, modeled `commuting_flows`, and aligned heatmaps for modeled, observed, difference, percent difference, or absolute percent difference. Totals can be included or excluded. Only flow types backed by available inputs appear in the selector. |
+| Regional Validation | Optional district or county observed flow matrices, modeled `commuting_flows`, and aligned heatmaps. Heatmaps can show modeled, observed, difference, percent difference, or absolute percent difference. You can include or exclude totals. The selector shows only flow types that have available input. |
 
-Expandable calculation notes beneath these outputs identify source summary IDs,
-filters, formulas, and aggregation details. They are enabled by default and can
-be hidden with `dashboard.include_notes: false`.
+Expandable calculation notes identify source summary IDs, filters, formulas,
+and aggregation details. They occur below the applicable output. They are on by
+default. Set `dashboard.include_notes: false` to hide them.
 
 ## Generated Page Catalog
 
-The catalog below is generated from the dashboard page registry. Regenerate it
-with:
+The dashboard page registry generates the catalog below. Use this command to
+regenerate it:
 
 ```bash
 uv run python scripts/generate_wiki_catalogs.py

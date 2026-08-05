@@ -1,53 +1,52 @@
 # 24 - Summary Catalog
 
-This page is the analytical data dictionary for the summary CSV tables exposed
-by the Output Processor. It covers all registered summary tables, explains the
-observation represented by each row, identifies practical travel-analysis uses,
-and defines every output field. The generated developer inventory at the end of
-the page remains the authoritative list of filenames, schemas, builders, and
-input prerequisites.
+This page is the data dictionary for the summary CSV tables from the Output
+Processor. It describes all registered summary tables. For each table, it
+defines a row, gives analysis uses, and defines each output field. The generated
+developer inventory is at the end of the page. Use it as the authoritative list
+of file names, schemas, builders, and input requirements.
 
 ## How to Interpret the Tables
 
 - Count, volume, mileage, and boarding fields are numeric measures. In a
-  weighted cache they are sums of `finalweight`; in an unweighted cache the
-  workflow substitutes unit weights. A `Float64` count can therefore be a
-  fractional population estimate, not a literal row count.
-- Rate, percentage, mean, standard-deviation, median, and percentile fields are
-  calculated from the weighted observations described for that table.
+  weighted cache, they are sums of `finalweight`. In an unweighted cache, the
+  workflow uses unit weights. Thus, a `Float64` count can be a fractional
+  population estimate. It is not always a row count.
+- The workflow calculates rate, percentage, mean, standard deviation, median,
+  and percentile fields from the weighted observations for that table.
 - Values such as `all_geographies`, `all_person_types`, `all_tour_purposes`,
   `all_tour_modes`, `All Modes`, `All Auto`, and `Daily` are rollups. Do not add
-  a rollup to its component rows; choose either the rollup or the detail level.
+  a rollup to its component rows. Use the rollup or the detail level, but not both.
 - `geography_type` names the configured spatial system, such as MAZ, TAZ,
-  county, MPO, or a custom geography. `geography_id` is the identifier within
-  that system. Home, work, school, destination, and parking geography are
-  stated in each table description.
+  county, MPO, or a custom geography. `geography_id` is the identifier in that
+  system. Each table description identifies the home, work, school,
+  destination, or parking geography.
 - Distance values use the units of the prepared distance or skim fields,
-  normally miles. Integer distance bins use the truncated mile value unless a
-  table explicitly says distances are rounded; terminal bins such as `40+`,
-  `20+`, or numeric bin `51` include all larger values.
+  usually miles. Integer distance bins use the truncated mile value unless the
+  table specifies rounded values. End bins such as `40+`, `20+`, or numeric bin
+  `51` include all larger values.
 - `time_bin` is the prepared ActivitySim period index: 1--24 for hourly inputs
   or 1--48 for half-hour-period inputs. Named `time_period` and `count_period`
   values come from configured or supplied period labels.
 - Category codes and labels come from prepared ActivitySim values and the
-  configured category mappings. Analysts should retain the code field for
-  joins and use its label field for presentation.
+  configured category mappings. Keep the code field for joins. Use the label
+  field for presentation.
 - A valid calculation can produce an empty CSV. That is distinct from a summary
-  marked unavailable because an input table or field was absent; consult the
-  summary manifest when the distinction matters.
+  marked unavailable because an input table or field was absent. Use the
+  summary manifest to identify the status.
 
 ## Build Status
 
-The normal summarize workflow builds **85** tables. The other **15** registered
-tables have `Default build = no`: the two skim ECDF tables are optional
-on-demand products, while the 13 validation contracts are supplied through
-`summary_table_map` rather than calculated from `RunData`. All 100 contracts are
-documented below and appear in the generated inventory.
+The standard summarize workflow builds **85** tables. The other **15** tables
+have `Default build = no`. The two skim ECDF tables are optional products. An
+external process supplies the 13 validation contracts through
+`summary_table_map`. The visualizer does not calculate them from `RunData`.
+This page and the generated inventory describe all 100 contracts.
 
 ## Analytical Table Reference
 
-The fields listed for a table are the complete persisted output schema. See the
-generated inventory for physical data types and mechanical input requirements.
+The fields for a table are its complete stored output schema. See the generated
+inventory for data types and input requirements.
 
 ### Population and Demographics
 
@@ -97,9 +96,9 @@ generated inventory for physical data types and mechanical input requirements.
 
 ### Long-Term Location Distance
 
-These three tables contain a dense 0--51 distribution for each geography; bin
-51 contains distances of 51 or more. Missing distance values are treated as
-zero by these distribution builders.
+These three tables contain a complete 0--51 distribution for each geography.
+Bin 51 contains distances of 51 or more. These distribution builders use zero
+for a missing distance value.
 
 | Summary table | Information and analytical use | Fields |
 |---|---|---|
@@ -112,31 +111,31 @@ zero by these distribution builders.
 | Summary table | Information and analytical use | Fields |
 |---|---|---|
 | `daily_activity_pattern_by_person_type` | Daily activity pattern alternatives by person type, including an all-person-types rollup. Use it to compare mandatory, nonmandatory, and home-stay behavior. | `person_type`: person-type code or rollup.<br>`daily_activity_pattern`: prepared CDAP/activity-pattern category.<br>`person_count`: weighted people in the pattern. |
-| `mandatory_tour_frequency_by_person_type` | Positive mandatory-tour-frequency choice by person type, plus an all-person-types rollup. Use it to analyze how many mandatory tours travelers make; people with a choice of zero are excluded. | `person_type`: person-type code or rollup.<br>`mandatory_tour_frequency`: prepared positive mandatory-tour frequency alternative.<br>`person_count`: weighted people choosing that frequency. |
+| `mandatory_tour_frequency_by_person_type` | Positive mandatory-tour-frequency choice by person type, plus an all-person-types rollup. Use it to analyze how many mandatory tours travelers make. The table excludes people with a choice of zero. | `person_type`: person-type code or rollup.<br>`mandatory_tour_frequency`: prepared positive mandatory-tour frequency alternative.<br>`person_count`: weighted people choosing that frequency. |
 | `nonmandatory_tour_frequency_by_person_type` | Count of individual nonmandatory tours plus joint-tour participation per person, grouped as 0, 1, 2, or 3+, by person type and for all types. Use it to compare discretionary travel propensity. | `person_type`: person-type code or rollup.<br>`nonmandatory_tour_frequency`: combined nonmandatory-tour category `0`, `1`, `2`, or `3+`.<br>`person_count`: weighted people in the category. |
 | `tour_rates_by_person_type_and_tour_purpose` | Tours per weighted person-day by person type and tour purpose, plus all-person-types rates. Use it to compare tour-generation rates while controlling for population composition. | `person_type`: person-type code or rollup.<br>`tour_purpose`: prepared tour-purpose category.<br>`tour_rate`: weighted tours divided by weighted persons for the applicable person type. |
 | `trip_rates_by_person_type_and_trip_purpose` | Trips per weighted person by person type and trip purpose, plus all-person-types rates. Use it to compare trip-generation rates across demographic markets. | `person_type`: person-type code or rollup.<br>`trip_purpose`: destination purpose of the trip.<br>`trip_rate`: weighted trips divided by weighted persons for the applicable person type. |
 
 ### School Escorting
 
-`direction` values distinguish outbound and inbound tour halves. Some tables
-also include `both`, which counts tours or households escorted in both halves,
-or `all_directions`, which sums directional escort incidences and can count the
-same tour twice. These values are not interchangeable.
+`direction` values identify outbound and inbound tour halves. Some tables also
+include `both`. This value counts tours or households with escorts in both
+halves. The `all_directions` value sums escort incidences by direction. It can
+count the same tour two times. Do not use these values as equivalents.
 
 | Summary table | Information and analytical use | Fields |
 |---|---|---|
 | `escorted_tour_totals` | One run-level total of adult-side tours with an outbound or inbound school-escort condition. Use it as the top-level escorted-tour control total. | `tour_count`: weighted distinct eligible tours with at least one escorted direction. |
 | `school_escorted_tours_by_escort_type_and_direction` | Adult-side escorted tours by escort arrangement and direction, with an `all_directions` incidence rollup. Use it to compare ride-share and pure-escort patterns. | `escort_type`: prepared escort arrangement label.<br>`direction`: `outbound`, `inbound`, or `all_directions`.<br>`tour_count`: weighted escorted-tour incidences. |
-| `adult_escorted_tour_purposes_by_direction` | Purposes of the adult tours that perform school escorting, by direction and with an all-directions incidence rollup. Use it to see how escorting is linked with work or other adult activities. | `tour_purpose`: adult tour's primary purpose.<br>`direction`: escorted half or `all_directions`.<br>`tour_count`: weighted escorted-tour incidences. |
-| `adult_escorted_tours_by_person_type_and_direction` | Adult-side escorted tours by the adult traveler’s person type and escorted direction. Use it to identify who performs school escorting. | `person_type`: adult traveler person-type code.<br>`direction`: `outbound`, `inbound`, or `both`.<br>`tour_count`: weighted tours meeting that directional condition. |
+| `adult_escorted_tour_purposes_by_direction` | Purposes of the adult tours that do school escorting, by direction and with an all-directions incidence rollup. Use it to see how escorting connects with work or other adult activities. | `tour_purpose`: adult tour's primary purpose.<br>`direction`: escorted half or `all_directions`.<br>`tour_count`: weighted escorted-tour incidences. |
+| `adult_escorted_tours_by_person_type_and_direction` | Adult-side escorted tours by the adult traveler's person type and escorted direction. Use it to identify who performs school escorting. | `person_type`: adult traveler person-type code.<br>`direction`: `outbound`, `inbound`, or `both`.<br>`tour_count`: weighted tours meeting that directional condition. |
 | `student_school_escort_status_by_direction` | Student school tours classified by normalized escort type for each direction and for tours escorted both ways. Use it to measure the student-side escort experience. | `direction`: `outbound`, `inbound`, or `both`.<br>`escort_type`: normalized escort arrangement, including unescorted alternatives where present.<br>`tour_count`: weighted student school tours in the group. |
 | `student_households_by_student_count` | Households by the number of school-age/student household members recognized by the escort logic. Use it as a denominator for household escort participation. | `student_count`: students in the household.<br>`household_count`: weighted households with that count. |
 | `households_with_school_escorting_by_student_count_and_direction` | Unique households with at least one escorted student school tour, by number of students and directional condition. Use it to calculate escort-participation rates by household composition. | `student_count`: students in the household.<br>`direction`: `outbound`, `inbound`, or `both`.<br>`household_count`: weighted unique households meeting the condition. |
-| `schoolkids_per_escorted_tour_by_student_count_and_direction` | Average number of escorted children on adult-side escorted tours by household student count and direction. Use it to analyze escorting efficiency and child grouping. | `student_count`: students in the adult traveler’s household.<br>`direction`: `outbound`, `inbound`, or `both`.<br>`avg_schoolkids_per_tour`: weighted mean number of escortees per eligible tour.<br>`tour_count`: weighted eligible tours used as the mean denominator. |
+| `schoolkids_per_escorted_tour_by_student_count_and_direction` | Average number of escorted children on adult-side escorted tours by household student count and direction. Use it to analyze escorting efficiency and child grouping. | `student_count`: students in the adult traveler's household.<br>`direction`: `outbound`, `inbound`, or `both`.<br>`avg_schoolkids_per_tour`: weighted mean number of escortees per eligible tour.<br>`tour_count`: weighted eligible tours used as the mean denominator. |
 | `adult_escorted_tour_distance_distribution_by_direction` | Adult-side escorted tours by rounded tour distance and directional escort condition. Use it to compare the length of outbound-only, inbound-only, and both-way escort tours. | `distance_bin`: rounded tour-distance label from `0` to `39` or `40+`.<br>`direction`: `outbound`, `inbound`, or `both`.<br>`tour_count`: weighted eligible tours in the bin. |
-| `adult_escorted_trip_distance_distribution_by_direction` | Trips belonging to explicitly escorted adult tours, filtered to the corresponding outbound or inbound half, by rounded trip distance. Use it to examine the trip-leg burden of escorting. | `distance_bin`: rounded trip-distance label from `0` to `39` or `40+`.<br>`direction`: `outbound`, `inbound`, or `both` condition.<br>`trip_count`: weighted eligible trips in the bin. |
-| `adult_escort_event_stop_distribution` | Number of intermediate stops before and after the school drop-off or pickup event on explicitly escorted adult tours. Use it to analyze chaining around escort events. | `segment`: one of `outbound_before_dropoff`, `outbound_after_dropoff`, `inbound_before_pickup`, or `inbound_after_pickup`.<br>`stop_count`: prepared count of stops in that segment.<br>`tour_count`: weighted escort-event records with that stop count. |
+| `adult_escorted_trip_distance_distribution_by_direction` | Trips on adult tours marked as escorted, by outbound or inbound half and rounded trip distance. Use it to examine the trip-leg distance for escorting. | `distance_bin`: rounded trip-distance label from `0` to `39` or `40+`.<br>`direction`: `outbound`, `inbound`, or `both` condition.<br>`trip_count`: weighted eligible trips in the bin. |
+| `adult_escort_event_stop_distribution` | Intermediate stops before and after school drop-off or pickup on adult tours marked as escorted. Use it to analyze trip chains around escort events. | `segment`: one of `outbound_before_dropoff`, `outbound_after_dropoff`, `inbound_before_pickup`, or `inbound_after_pickup`.<br>`stop_count`: prepared count of stops in that segment.<br>`tour_count`: weighted escort-event records with that stop count. |
 | `adult_escort_trip_stop_frequency` | Adult-side escorted tours jointly classified by purpose and outbound, inbound, and total stop counts. Use it to compare stop-making complexity on escort tours. | `tour_purpose`: adult tour purpose.<br>`outbound_stop_count`: outbound stops capped at 3.<br>`inbound_stop_count`: inbound stops capped at 3.<br>`total_stop_count`: total stops capped at 6.<br>`tour_count`: weighted escorted tours in the combination. |
 
 ### Joint Travel
@@ -148,7 +147,7 @@ same tour twice. These values are not interchangeable.
 | `joint_tour_party_size_distribution` | Joint tours by number of household participants, with parties of five or more stored in bin 5. Use it to assess joint-tour occupancy. | `party_size`: household participants; value 5 represents `5+`.<br>`joint_tour_count`: weighted joint tours in the party-size bin. |
 | `joint_tour_composition_distribution` | Joint tours by prepared party-composition category. Use it to compare adult-only, child-inclusive, and other modeled compositions. | `tour_composition`: prepared joint-party composition.<br>`joint_tour_count`: weighted joint tours in the category. |
 | `joint_tour_composition_by_party_size` | Joint tours jointly classified by party composition and exact participant count. Use it to study how household makeup and group size interact. | `tour_composition`: prepared party-composition category.<br>`party_size`: number of tour participants.<br>`joint_tour_count`: weighted joint tours in the combination. |
-| `person_jtp_by_household_size` | All people and people participating in one or more joint tours by household size. Use the two counts to calculate person-level participation rates. | `household_size`: size of the person’s household.<br>`joint_tour_person_count`: weighted people with `num_joint_tours > 0`.<br>`total_person_count`: weighted people in households of that size. |
+| `person_jtp_by_household_size` | All people and people participating in one or more joint tours by household size. Use the two counts to calculate person-level participation rates. | `household_size`: size of the person's household.<br>`joint_tour_person_count`: weighted people with `num_joint_tours > 0`.<br>`total_person_count`: weighted people in households of that size. |
 | `household_jtp_by_household_size_and_jtf` | For households of size two or more, percentage distribution across 0, 1, and 2+ joint tours within each household size. Use it to compare joint-tour propensity independent of household-size totals. | `jtf`: joint-tour count category `0`, `1`, or `2+`.<br>`household_size`: household size as a category.<br>`household_percent`: percent of households of that size in the JTF category. |
 
 ### Basic Tour Distributions
@@ -160,9 +159,9 @@ same tour twice. These values are not interchangeable.
 
 ### Vehicles Allocated to Tours
 
-These tables decode the vehicle-type strings allocated under occupancy
-conditions 1, 2, and 3+. They describe modeled allocation incidences, not the
-unique household vehicle inventory.
+These tables decode vehicle-type strings for occupancy conditions 1, 2, and 3+.
+They describe modeled allocation incidences. They do not describe the unique
+household vehicle inventory.
 
 | Summary table | Information and analytical use | Fields |
 |---|---|---|
@@ -174,7 +173,7 @@ unique household vehicle inventory.
 
 | Summary table | Information and analytical use | Fields |
 |---|---|---|
-| `tour_mode_by_tour_purpose_and_auto_sufficiency` | Tour-mode counts by purpose and household auto sufficiency, with all-purpose rows. Joint tours are expanded by household participants for this summary. Use it to compare mode choice across vehicle-availability markets. | `tour_mode`: prepared tour mode.<br>`tour_purpose`: tour purpose or `all_tour_purposes`.<br>`tour_count_zero_auto`: weighted tours from zero-auto households.<br>`tour_count_auto_deficient`: weighted tours from households with fewer autos than workers.<br>`tour_count_auto_sufficient`: weighted tours from auto-sufficient households.<br>`tour_count_all_households`: sum of the three auto-sufficiency counts. |
+| `tour_mode_by_tour_purpose_and_auto_sufficiency` | Tour-mode counts by purpose and household auto sufficiency, with all-purpose rows. The calculation expands joint tours by household participants. Use it to compare mode choice across vehicle-availability markets. | `tour_mode`: prepared tour mode.<br>`tour_purpose`: tour purpose or `all_tour_purposes`.<br>`tour_count_zero_auto`: weighted tours from zero-auto households.<br>`tour_count_auto_deficient`: weighted tours from households with fewer autos than workers.<br>`tour_count_auto_sufficient`: weighted tours from auto-sufficient households.<br>`tour_count_all_households`: sum of the three auto-sufficiency counts. |
 | `tour_stop_frequency_by_tour_purpose` | Tours jointly classified by purpose and outbound, inbound, and total intermediate-stop counts. Use it to measure tour complexity and stop-generation patterns. | `tour_purpose`: canonical tour purpose.<br>`outbound_stop_count`: outbound stops capped at 3.<br>`inbound_stop_count`: inbound stops capped at 3.<br>`total_stop_count`: total stops capped at 6.<br>`tour_count`: weighted tours in the combination. |
 | `atwork_subtour_frequency_distribution` | Mandatory work tours by their at-work-subtour-frequency alternative. Use it to validate subtour generation from the workplace. | `atwork_subtour_frequency_category`: prepared at-work subtour-frequency category.<br>`atwork_subtour_count`: weighted parent work tours choosing the category. |
 | `tour_time_of_day_by_tour_purpose` | Dense departure, arrival, and duration profiles by tour purpose plus all-purpose totals. Joint tours are participant-expanded. Use it to compare scheduling and duration distributions. | `time_bin`: ActivitySim period index.<br>`tour_purpose`: tour purpose or `all_tour_purposes`.<br>`departure_tour_count`: weighted tours starting in the bin.<br>`arrival_tour_count`: weighted tours ending in the bin.<br>`duration_tour_count`: weighted tours whose prepared duration falls in the bin. |
@@ -208,9 +207,9 @@ unique household vehicle inventory.
 
 ### Skimjoin Diagnostics
 
-`skim_scenario` distinguishes values for the chosen mode from hypothetical
-mode/scenario sidecars; `all_records` is used for hypothetical values evaluated
-over all applicable records. Each table also includes an all-modes group.
+`skim_scenario` identifies values for the selected mode or a hypothetical mode
+in a sidecar table. `all_records` identifies hypothetical values for all
+applicable records. Each table also includes an all-modes group.
 
 | Summary table | Information and analytical use | Fields |
 |---|---|---|
@@ -221,12 +220,12 @@ over all applicable records. Each table also includes an all-modes group.
 
 ### Processor-Built Validation Summaries
 
-Several assignment-based tables accept optional tables attached to `RunData`.
-They remain valid but empty when those optional assignment inputs are absent.
+Some assignment tables accept optional tables attached to `RunData`. The result
+is valid but empty when the optional assignment input is absent.
 
 | Summary table | Information and analytical use | Fields |
 |---|---|---|
-| `traffic_count_comparisons` | Observed and modeled traffic counts matched at count-location, direction, and period level. Use it for count scatterplots, percent differences, RMSE, and facility calibration. Only keys present in both sources are retained. | `count_location_id`: traffic-count station/location identifier.<br>`direction`: observed/modeled direction label.<br>`count_period`: count time-period label.<br>`observed_volume`: summed observed count for the key.<br>`modeled_volume`: summed assigned volume for the matching key. |
+| `traffic_count_comparisons` | Observed and modeled traffic counts that agree at count-location, direction, and period level. Use it for count scatterplots, percent differences, RMSE, and facility calibration. The table keeps only keys in both sources. | `count_location_id`: traffic-count station/location identifier.<br>`direction`: observed/modeled direction label.<br>`count_period`: count time-period label.<br>`observed_volume`: summed observed count for the key.<br>`modeled_volume`: summed assigned volume for the matching key. |
 | `screenline_flow_comparisons` | Observed and modeled screenline flows matched by screenline, direction, and period, with a representative facility type. Use it for corridor-level flow validation and regression analysis. | `screenline_id`: screenline/cutline identifier.<br>`direction`: flow direction.<br>`count_period`: comparison period.<br>`facility_type`: supplied facility class, or `All` if absent.<br>`observed_volume`: summed observed flow.<br>`modeled_volume`: summed modeled flow for the matching key. |
 | `transit_boardings_by_operator_and_technology` | Assigned transit boardings summed by operator and transit technology. Use it to compare ridership scale across agencies and modes. | `operator`: supplied transit operator identifier or name.<br>`technology`: supplied transit mode/technology category.<br>`boardings`: total assigned unlinked passenger boardings. |
 | `transit_transfer_rate` | Assigned boardings divided by linked transit trips by operator, technology, and access mode. The value is boardings per linked trip, so values above one indicate transfers; subtract one if a transfers-per-trip measure is needed. | `operator`: transit operator.<br>`technology`: transit technology/mode.<br>`access_mode`: mode used to access transit.<br>`transfer_rate`: assigned boardings divided by linked trips; null for a zero linked-trip denominator. |
@@ -238,11 +237,10 @@ They remain valid but empty when those optional assignment inputs are absent.
 
 ### Externally Supplied Validation Contracts
 
-The following 13 tables are registered so externally prepared CSVs can be
-loaded consistently. Their no-op builders do not calculate values. The stated
-meaning is therefore the contract expected by the dashboard; the supplying
-workflow is responsible for units, period definitions, and internal
-consistency.
+The visualizer registers the following 13 tables for external CSV input. Their
+builders do not calculate values. The table descriptions define the dashboard
+contract. The external workflow must supply consistent units, period
+definitions, and values.
 
 | Summary table | Information and analytical use | Fields |
 |---|---|---|
@@ -262,7 +260,7 @@ consistency.
 
 ## Generated Developer Inventory
 
-Regenerate it with:
+Use this command to regenerate the inventory:
 
 ```bash
 uv run python scripts/generate_wiki_catalogs.py

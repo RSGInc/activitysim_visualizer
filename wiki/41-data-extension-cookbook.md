@@ -1,7 +1,7 @@
 # 41 - Data Extension Cookbook
 
-This chapter contains end-to-end examples for extending the data that reaches
-the dashboard. Each recipe starts at the narrowest supported boundary.
+This chapter gives complete examples for data extensions. Each procedure starts
+at the smallest supported boundary.
 
 ## Choose The Smallest Extension
 
@@ -9,14 +9,14 @@ the dashboard. Each recipe starts at the narrowest supported boundary.
 |---|---|
 | Load a dashboard-ready file produced elsewhere | Register an external summary schema and use `summary_table_map`. |
 | Reuse one derived value in several summaries | Add a column to an existing prepared table. |
-| Carry a genuinely new row grain through the whole application | Add a prepared table. |
+| Carry a new row type through the complete application | Add a prepared table. |
 
-Adding a prepared table is much more invasive than adding a column. Prefer a
-column unless the new data has its own stable row grain and lifecycle.
+A prepared table changes more interfaces than a prepared column. Add a column
+unless the new data has its own stable row type and lifecycle.
 
 ## Worked Example: Add An Outside Summary Table
 
-Suppose another process writes `regional_emissions.csv`:
+In this example, a different process writes `regional_emissions.csv`:
 
 ```csv
 pollutant,tons
@@ -24,10 +24,10 @@ CO2,1250.5
 NOX,18.2
 ```
 
-The visualizer only accepts registered summary IDs with exact schemas. Register
-the outside table with a no-op builder in an owning summary module. For a group
-of project-supplied tables, a module such as
-`processor/summarize/summaries/external_project.py` is appropriate:
+The visualizer accepts only registered summary IDs with exact schemas. Register
+the external table with a builder that does not calculate values. Put the
+builder in the applicable summary module. For multiple project tables, use a
+module such as `processor/summarize/summaries/external_project.py`:
 
 ```python
 import polars as pl
@@ -49,10 +49,10 @@ def regional_emissions(run: RunData, config: Config) -> pl.DataFrame:
     return regional_emissions.empty()
 ```
 
-`build_by_default=False` is important: raw ActivitySim runs cannot build this
-table, but the ID and contract must exist so an outside file can be validated.
+Set `build_by_default=False` because the standard ActivitySim workflow cannot
+build this table. The ID and contract must exist to validate an external file.
 
-If this is a new module, import it and add it to `SUMMARY_MODULES` in
+If you add a module, import it and add it to `SUMMARY_MODULES` in
 `processor/summarize/catalog.py`:
 
 ```python
@@ -64,7 +64,7 @@ SUMMARY_MODULES = (
 )
 ```
 
-Point a run at the file:
+Add the file to a run:
 
 ```yaml
 runs:
@@ -73,18 +73,18 @@ runs:
       regional_emissions: inputs/regional_emissions.csv
 ```
 
-Relative paths resolve from the main config file. CSV and Parquet are
-supported. The loader:
+A relative path starts from the main configuration file. The loader supports
+CSV and Parquet. It does these checks and actions:
 
 1. rejects unknown summary IDs;
 2. rejects missing or unexpected columns;
 3. casts to the declared dtypes and declared column order; and
 4. exposes the same outside table under every configured weighting mode.
 
-The fourth behavior matters: an outside table is assumed to be already
-aggregated. Selecting Weighted or Unweighted does not recalculate it.
+The loader assumes that an external table is already aggregated. The Weighted
+and Unweighted selections do not calculate it again.
 
-Wire the table to a page as optional data:
+Connect the table to a page as optional data:
 
 ```python
 @dashboard_page(
@@ -103,10 +103,10 @@ class RegionalValidationPage(DashboardPage):
         return self.plot.bar(data, x="pollutant", y="tons")
 ```
 
-Use `required_summary_ids` only if the page has no meaningful primary view
-without the table.
+Use `required_summary_ids` only if the table is necessary for the primary page
+view.
 
-Tests should prove registration, strict schema validation, loading, and page
+Tests must verify registration, strict schema validation, loading, and page
 requirements:
 
 ```python
@@ -130,7 +130,7 @@ def test_external_emissions_loads(tmp_path, config):
     assert run.summaries_by_mode["weighted"]["regional_emissions"].height == 1
 ```
 
-Run:
+Use these commands:
 
 ```bash
 uv run --with pytest pytest --basetemp .pytest_tmp tests/test_summary_declarations.py tests/test_runtime_workflows.py
@@ -139,11 +139,11 @@ uv run python scripts/generate_wiki_catalogs.py
 
 ## Worked Example: Add A Column To An Existing Prepared Table
 
-Suppose several summaries need a canonical household field named
-`area_type`. The raw table already contains enough information to derive it.
+In this example, several summaries require a canonical household field named
+`area_type`. The raw table contains the information to calculate it.
 
-Put the transformation in the enrichment module that owns the domain. For a
-household field, that is normally
+Put the transformation in the enrichment module for the domain. For a
+household field, this module is usually
 `processor/prepare/enrichment/households_persons.py`:
 
 ```python
@@ -169,7 +169,7 @@ def enrich_people_and_places_domain(state, config):
     return state
 ```
 
-Then declare the prepared dependency where it is consumed:
+Then declare the prepared dependency where the summary uses it:
 
 ```python
 @summary(
@@ -192,18 +192,19 @@ def households_by_area_type(run, config):
     )
 ```
 
-Add a prepare test with the source column present and another with it absent.
-Optional source data should leave the table usable; the summary contract will
-record the new summary as unavailable when `area_type` is absent.
+Add one prepare test with the source column and one without it. If the optional
+source data is absent, the table must stay usable. The summary contract records
+the new summary as unavailable when `area_type` is absent.
 
-If config affects the derived value, also add that config value to
-`prepare_signature_payload()` in `runtime/config/signatures.py`. Otherwise a
-prepared cache built with old config could be reused incorrectly.
+If configuration changes the derived value, add that configuration value to
+`prepare_signature_payload()` in `runtime/config/signatures.py`. Without this
+change, the visualizer can incorrectly use a cache from an old configuration.
 
 ## Worked Example: Add A Prepared Table
 
-Assume ActivitySim now emits one row per zone in `final_accessibility.csv`, and
-the table cannot sensibly be represented as columns on `land_use`.
+In this example, ActivitySim writes one row for each zone in
+`final_accessibility.csv`. Columns on `land_use` cannot correctly represent
+this table.
 
 ### 1. Define Names And Runtime Storage
 
@@ -234,9 +235,9 @@ class RunData:
     accessibility: pl.DataFrame = field(default_factory=pl.DataFrame)
 ```
 
-Also update `PREPARED_TABLE_NAMES`, `prune_prepared_run()`, and every explicit
-`RunData(...)` copy constructor. Copy constructors are intentionally explicit;
-missing one is a common source of a table disappearing between workflows.
+Also update `PREPARED_TABLE_NAMES`, `prune_prepared_run()`, and each explicit
+`RunData(...)` copy constructor. The copy constructors are explicit. If you do
+not update one, a workflow can omit the table.
 
 ### 2. Read It And Track Availability
 
@@ -272,16 +273,16 @@ PREPARED_TABLE_ATTRS = (
 )
 ```
 
-That one tuple drives prepared filenames, manifest entries, writes, and most
-loads. Because it changes the prepared cache contract, increment
-`SCHEMA_VERSION` and decide whether old schema versions remain readable.
+This tuple controls prepared file names, manifest entries, writes, and most
+loads. It changes the prepared cache contract. Increment `SCHEMA_VERSION` and
+decide whether the reader can read old schema versions.
 
 ### 4. Decide Segmentation And Dashboard Behavior
 
-If segmentation must filter or anchor on the new table, add explicit rules in
-`processor/segmentation.py` and aliases in
-`runtime/config/normalize_segmentation.py`. Do not silently copy the full table
-into every segment unless that is correct for its row grain.
+If segmentation must filter or use the new table as an anchor, add rules in
+`processor/segmentation.py`. Add aliases in
+`runtime/config/normalize_segmentation.py`. Do not copy the complete table to
+each segment unless this is correct for its row type.
 
 Pages can now declare:
 
@@ -296,7 +297,7 @@ Pages can now declare:
 
 ### 5. Test Every Boundary
 
-At minimum, cover:
+At a minimum, test these items:
 
 - config filename and `prepared_table_map` acceptance;
 - raw reader success and optional-file absence;
@@ -319,7 +320,7 @@ uv run --with pytest pytest --basetemp .pytest_tmp tests/test_runtime_workflows.
 - IDs are stable across config, runtime, cache, and dashboard declarations.
 - Cache identity changes whenever config changes data content.
 - Missing optional input produces typed empty/unavailable state, not a crash.
-- External schemas reject extra as well as missing columns.
+- External schemas reject extra and missing columns.
 - Generated catalogs have been refreshed.
 
 ## Related Chapters

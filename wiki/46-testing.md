@@ -1,40 +1,39 @@
 # 46 - Testing
 
-The default command runs every test, including the exhaustive offline HTML
+The default command executes all tests. It includes the complete offline HTML
 export checks:
 
 ```powershell
 uv run pytest --basetemp .pytest_tmp
 ```
 
-For a faster development loop, skip tests marked `full_export`:
+For a faster development test, omit tests marked `full_export`:
 
 ```powershell
 uv run pytest --basetemp .pytest_tmp -m "not full_export"
 ```
 
-Run the exhaustive export boundary on its own before merging export, page,
-plotting, or summary changes:
+Execute the complete export tests before you merge export, page, plotting, or
+summary changes:
 
 ```powershell
 uv run pytest --basetemp .pytest_tmp -m full_export
 ```
 
-The repository uses pytest's built-in `tmp_path` fixture with the workspace-local
-`--basetemp` above. Tests must not create persistent UUID-named directories at
-the repository root.
+The repository uses the built-in pytest `tmp_path` fixture. It uses the
+workspace-local `--basetemp` value above. Tests must not create persistent
+UUID-named directories in the repository root.
 
-Run the configured correctness lint before pushing:
+Execute this correctness check before you push changes:
 
 ```powershell
 uv run ruff check .
 ```
 
-`full_export` is reserved for behavior that requires every default dashboard
-page and all dashboard states. Tests of writing, validation, individual pages,
-selectors, and diagnostics should configure the smallest page and state set
-that exercises their contract. This keeps those tests focused without reducing
-the end-to-end coverage provided by the full-export tests.
+Use `full_export` only for behavior that requires all default dashboard pages
+and dashboard states. For writes, validation, pages, selectors, and diagnostics,
+configure the smallest applicable page and state set. The full-export tests
+continue to supply complete workflow coverage.
 
 ## Which Suite To Run
 
@@ -45,10 +44,10 @@ the end-to-end coverage provided by the full-export tests.
 | Export serializer, payload, runtime, or state behavior | Focused export tests | Fast suite plus `-m full_export` |
 | Documentation only | Link/catalog checks and focused documentation tests | Fast suite if CI does not provide a docs-only path |
 
-The full-export tests are slow because they render every default page and
-dashboard state into a representative standalone HTML document. The shared
-fixture builds that document once per test session, so running the marked group
-together avoids repeating the expensive render.
+The full-export tests render each default page and dashboard state in one
+representative standalone HTML document. Thus, these tests take more time. The
+shared fixture builds the document one time in each test session. Execute the
+marked group together to prevent repeated renders.
 
 ## Focused Commands
 
@@ -58,7 +57,7 @@ uv run pytest --basetemp .pytest_tmp tests/test_figure_builders.py
 uv run pytest --basetemp .pytest_tmp tests/test_export_serializer.py tests/test_export_payload.py
 ```
 
-Use [Developer Workflows](40-developer-workflows.md) to choose tests by
+Use [Developer Workflows](40-developer-workflows.md) to select tests for a
 subsystem.
 
 ## Related Chapters

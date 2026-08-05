@@ -1,18 +1,18 @@
 # 43 - Weighting And Hosting Extensions
 
-Weighting and hosting both cross major runtime boundaries. Ordinary alternative
-weights are configuration-driven. A Python registry remains available for
-calculations that cannot be expressed as column selection, while hosting remains
-a deliberately limited extension point.
+Weighting and hosting affect multiple runtime boundaries. The configuration
+controls standard alternative weights. Use the Python registry for calculations
+that column selection cannot define. Hosting is a limited extension point.
 
 ## Worked Example: Add A Weighting Mode
 
-The built-in modes are `weighted` and `unweighted`. A named column mode adds
-another complete set of summary tables, cache entries, dashboard selector state,
-and export states without requiring Python code.
+The built-in modes are `weighted` and `unweighted`. A named column mode adds a
+set of summary tables, cache entries, dashboard selector state, and export
+states. It does not require Python code.
 
-Suppose ActivitySim writes `calibrated_hh_weight`, `calibrated_person_weight`,
-and `calibrated_trip_weight` alongside its ordinary weights.
+In this example, ActivitySim writes `calibrated_hh_weight`,
+`calibrated_person_weight`, and `calibrated_trip_weight` with its standard
+weights.
 
 ### 1. Define The Named Column Mode
 
@@ -33,60 +33,58 @@ summarize:
   weighting_modes: [weighted, unweighted, calibrated]
 ```
 
-`label` is optional; an omitted label is generated from the mode ID. At least one
-column must be configured. Supported source tables are `households`, `persons`,
-and `trips`.
+`label` is optional. If you omit it, the loader creates a label from the mode
+ID. You must configure at least one column. The supported source tables are
+`households`, `persons`, and `trips`.
 
-This differs from the three weight fields on a run. `hh_weight_col`,
-`person_weight_col`, and `trip_weight_col` choose the one primary `weighted`
-definition during prepare. `weighting.modes` preserves that primary definition
-and adds named alternatives that can be compared in one dashboard.
+This function differs from the three weight fields on a run. `hh_weight_col`,
+`person_weight_col`, and `trip_weight_col` select the primary `weighted`
+definition during prepare. `weighting.modes` keeps that primary definition. It
+adds named alternatives for comparison in one dashboard.
 
 ### 2. Understand Propagation
 
-The configured source columns replace `finalweight` on their respective
-prepared tables. Related tables then receive consistent weights:
+The configured source columns replace `finalweight` on their prepared tables.
+The system then supplies consistent weights to related tables:
 
 - a household source propagates to persons, trips, tours, days, and vehicles
-  unless a more specific source is configured;
+  unless you configure a more specific source;
 - a person source propagates to trips, tours, and days;
 - a trip source propagates to tours as the mean selected trip weight for each
   `tour_id`; and
 - trip and tour hypothetical-skim sidecars inherit the selected trip and tour
   weights.
 
-You can configure only the levels that differ. For example, a mode containing
-only `trips` changes trips and tours while leaving household, person, day, and
-vehicle weights at their primary prepared values.
+Configure only the levels that differ. For example, a mode that contains only
+`trips` changes trips and tours. Household, person, day, and vehicle weights
+keep their primary prepared values.
 
-Source columns are validated on every prepared run before summaries begin. A
-misspelling therefore produces an error naming the missing table and column
-instead of silently reverting to another weight. Raw ActivitySim columns are
-normally retained by prepare. When using `prepared_table_map`, include the named
-source columns in those prepared files.
+The workflow validates source columns for each prepared run before summaries
+start. An incorrect name causes an error that identifies the missing table and
+column. It does not select a different weight. Prepare usually keeps raw
+ActivitySim columns. If you use `prepared_table_map`, include the named source
+columns in those prepared files.
 
 ### 3. Cache, Dashboard, And Outside-Summary Behavior
 
-The mode ID, selected source columns, and column-mode implementation version are
-part of summary cache identity. Changing a source column invalidates incompatible
-summary caches. The configured label is used by live and exported dashboard
-selectors.
+The summary cache identity includes the mode ID, source columns, and column-mode
+implementation version. A source column change invalidates incompatible summary
+caches. Live and export dashboard selectors use the configured label.
 
-Declarative column modes reject mode-independent `summary_table_map` inputs.
-An already aggregated outside table does not contain enough information to
-recalculate another weighting mode. Use generated summaries for these modes or
-provide the outside data through a custom workflow that makes its weighting
-semantics explicit.
+Declarative column modes reject mode-independent `summary_table_map` input. An
+aggregated external table does not contain enough information to calculate
+a different weighting mode. Use generated summaries for these modes. Or supply
+external data through a custom workflow that defines its weighting rules.
 
 ## Advanced: Custom Weight Calculations
 
-Use a Python weighting module only when selecting columns is insufficient; for
-example, when weights must be capped, scaled, joined from a control table, or
-calculated from several prepared columns.
+Use a Python weighting module only when column selection is insufficient. For
+example, use one to limit, scale, join, or calculate weights from multiple
+prepared columns.
 
 ### 1. Create An Importable Extension Module
 
-This example adds a capped form of the primary prepared weights. Create
+This example adds a limited form of the primary prepared weights. Create
 `my_project/weighting.py` in an installed package or another location on
 `PYTHONPATH`:
 
@@ -130,9 +128,9 @@ def register_weighting_modes(registry: WeightingModeRegistry) -> None:
     )
 ```
 
-`map_run_data_tables()` copies the complete `RunData`, transforms each DataFrame
-table, and preserves availability metadata, diagnostics, skims, and skimjoin
-artifacts. A transform must return a new `RunData` and must not mutate its input.
+`map_run_data_tables()` copies the complete `RunData` and transforms each data
+frame. It keeps availability metadata, diagnostics, skims, and skimjoin
+artifacts. A transform must return a new `RunData`. It must not change its input.
 
 The registration fields are:
 
@@ -148,7 +146,7 @@ The registration fields are:
 
 ### 2. Load And Configure The Extension
 
-Use `extensions.modules` for a project-local/importable module and keep plugin
+Use `extensions.modules` for an importable project module. Put extension
 settings under `extensions.settings`:
 
 ```yaml
@@ -163,9 +161,10 @@ summarize:
   weighting_modes: [weighted, unweighted, capped]
 ```
 
-Module imports are executable code, so configuration containing extensions is
-trusted configuration. Extension settings and each selected definition's
-version, requirements, and outside-summary policy enter summary cache identity.
+Module imports execute code. Thus, treat a configuration with extensions
+as trusted configuration. Summary cache identity includes extension settings.
+It also includes each selected definition version, requirements, and external
+summary policy.
 
 An installed package can advertise the same registration function with a
 Python entry point instead:
@@ -175,14 +174,13 @@ Python entry point instead:
 capped = "my_project.weighting:register_weighting_modes"
 ```
 
-Use either the installed entry point or `extensions.modules`, not both for the
-same definition. Duplicate IDs and labels fail during config loading.
+For one definition, use the installed entry point or `extensions.modules`. Do
+not use both. Duplicate IDs and labels cause an error during configuration load.
 
 ### 3. Runtime Behavior
 
-The weighting definition contract is the single source for config validation,
-summary transforms, prepared-data transforms, display labels, and cache
-compatibility:
+The weighting definition contract controls configuration validation, summary
+transforms, prepared-data transforms, display labels, and cache compatibility:
 
 - config preserves the requested mode order and rejects unknown IDs;
 - the summary workflow applies each registered transform before running builders;
@@ -193,7 +191,7 @@ compatibility:
   cache the result for the dashboard session; and
 - required source columns fail before a transform can silently fall back.
 
-Ordinary pages do not branch on particular modes:
+Standard pages do not branch on particular modes:
 
 ```python
 prepared = self.data.prepared("trips")
@@ -204,17 +202,17 @@ weighted = self.data.prepared("trips", weighting_mode="weighted")
 
 ### 4. Outside Summary Tables
 
-Built-in `weighted` and `unweighted` definitions explicitly use
-`external_summary_policy="copy"`, preserving current behavior. A custom mode
-defaults to `reject`: a run using `summary_table_map` then fails clearly because
-the runtime cannot prove that an already-aggregated file represents that mode.
+Built-in `weighted` and `unweighted` definitions use
+`external_summary_policy="copy"`. A custom mode uses `reject` by default. A run
+with `summary_table_map` then causes an error. The runtime cannot verify that an
+aggregated file represents the custom mode.
 
-Set the custom definition to `copy` only when the outside table is genuinely
-mode-independent. Per-mode outside file maps are not currently supported.
+Set the custom definition to `copy` only when the external table does not
+depend on the mode. The system does not support file maps for each mode.
 
 ### 5. Test The Whole Mode
 
-At minimum, prove:
+At a minimum, verify these behaviors:
 
 - config accepts, orders, deduplicates, and rejects mode names correctly;
 - both module and installed-entry-point discovery use the registration contract;
@@ -235,13 +233,13 @@ uv run --with pytest pytest --basetemp .pytest_tmp tests/test_dashboard_live.py 
 
 ## Worked Example: Connect A Hosting Script
 
-The safest first hosting extension is a thin deployment entrypoint that uses
-the existing config, cache loader, page requirements, and `build_dashboard()`.
-It should not duplicate prepare or summarize logic.
+The first hosting extension must be a small deployment entry point. Use the
+existing configuration, cache loader, page requirements, and `build_dashboard()`.
+Do not duplicate prepare or summarize logic.
 
-The current `pipeline.dashboard_mode: host` is only a placeholder: `run.py`
-logs a warning and falls back to live `pn.serve`. The `dashboard.host` keys are
-validated but are not yet normalized into `Config` or consumed.
+The current `pipeline.dashboard_mode: host` is a placeholder. `run.py` writes a
+warning and uses live `pn.serve`. Validation accepts the `dashboard.host` keys.
+The loader does not put them in `Config`, and the runtime does not use them.
 
 ## Option A: Provider Script Without Core Runtime Changes
 
@@ -290,12 +288,12 @@ dashboard = build_dashboard(
 dashboard.servable()
 ```
 
-Panel-compatible hosts can launch this module with their normal command. A
-provider SDK can instead receive `dashboard` from the same script. Keep secrets
-and deployment IDs in environment variables or provider configuration, not the
-main visualizer YAML.
+Panel-compatible hosts can start this module with their standard command. A
+provider SDK can receive `dashboard` from the same script. Put secrets and
+deployment IDs in environment variables or provider configuration. Do not put
+them in the main visualizer YAML.
 
-This approach has useful properties:
+This method has these properties:
 
 - hosting imports a ready-to-serve object instead of calling blocking
   `pn.serve()`;
@@ -303,15 +301,13 @@ This approach has useful properties:
 - enabled pages determine the data loaded; and
 - provider dependencies can live in an optional dependency group.
 
-For a hosted service, caches must already exist or be available on persistent
-storage. If startup should build them, call the public prepare/summarize
-workflows before `build_dashboard()` and make the cost and write permissions
-explicit.
+For a hosted service, caches must exist in persistent storage. To build caches
+at startup, call the public prepare and summarize workflows before
+`build_dashboard()`. Make the runtime cost and write permissions explicit.
 
 ## Option B: Make `dashboard_mode: host` A Core Adapter
 
-Use this only when the same hosting provider should be a supported runtime
-mode.
+Use this method only when one hosting provider must be a supported runtime mode.
 
 1. Add a typed `HostSettings` model in `runtime/config/models.py`.
 2. Normalize `dashboard.host` in a focused parser and pass it into `Config`.
@@ -325,7 +321,7 @@ mode.
 
 5. Let `resolve_dashboard_execution_mode("host")` remain `host` instead of
    converting it to `live`.
-6. Reuse the normal workflow loading and `build_dashboard()` path, then call
+6. Reuse the standard workflow loading and `build_dashboard()` path, then call
    the adapter instead of `pn.serve()`.
 7. Put provider SDKs in a `hosting` optional dependency group in
    `pyproject.toml`.
@@ -335,15 +331,14 @@ The boundary should look like:
 
 ```text
 config + validated caches
-  -> normal dashboard data requirements
+  -> standard dashboard data requirements
   -> build_dashboard(...)
   -> provider adapter
   -> hosted application
 ```
 
-Avoid putting provider logic in pages, `dashboard/app.py`, or summary
-workflows. Those layers should remain usable locally, in export, and with any
-future host.
+Do not put provider logic in pages, `dashboard/app.py`, or summary workflows.
+These layers must operate locally, in export, and with a future host.
 
 ## Hosting Test Matrix
 

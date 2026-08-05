@@ -1,7 +1,7 @@
 # 30 - Output Visualizer
 
-The Output Visualizer reads processor outputs and presents them as either a
-live Panel dashboard or a standalone HTML export.
+The Output Visualizer reads processor output. It shows the output in a live
+Panel dashboard or a standalone HTML file.
 
 ```text
 summary caches + optional prepared tables
@@ -14,7 +14,7 @@ The main code lives under [`dashboard/`](../dashboard).
 
 ## Visualizer Responsibilities
 
-The visualizer is responsible for:
+The visualizer does these tasks:
 
 - loading summary runs
 - loading prepared tables only for pages that request them
@@ -23,13 +23,13 @@ The visualizer is responsible for:
 - rendering figures, tables, cards, and widgets
 - exporting supported page states to standalone HTML
 
-It should not rebuild summaries. If a summary is missing, run the processor
-workflow first.
+The visualizer must not rebuild summaries. If a summary is missing, execute the
+processor workflow first.
 
 ## Live Dashboard
 
-The live dashboard is assembled in
-[`dashboard/app.py`](../dashboard/app.py). It creates:
+[`dashboard/app.py`](../dashboard/app.py) assembles the live dashboard. It
+creates:
 
 - run colors and run legend
 - `DashboardState`
@@ -45,7 +45,7 @@ pipeline:
   dashboard_mode: live
 ```
 
-Then run the normal config command:
+Then use the standard configuration command:
 
 ```bash
 uv run activitysim-viz --config local_config.yaml
@@ -53,9 +53,9 @@ uv run activitysim-viz --config local_config.yaml
 
 ## HTML Export
 
-HTML export uses the same page registry, but serializes supported page content
-into one self-contained HTML document. Export only includes states and selector
-variants generated at export time.
+HTML export uses the same page registry. It converts supported page content to
+one self-contained HTML document. The export includes only the states and
+selector variants that exist at export time.
 
 Configure `pipeline.dashboard_mode: export` and an output path:
 
@@ -69,12 +69,12 @@ dashboard:
     output_path: exports/dashboard.html
 ```
 
-The same normal config command then writes the export. For details, read
+The standard configuration command then writes the export. For details, read
 [34 - HTML Export](34-html-export.md).
 
 ## Dashboard State
 
-`DashboardState` centralizes the global state pages react to:
+`DashboardState` contains the global state that pages use:
 
 - loaded run labels
 - selected weighting mode
@@ -82,13 +82,14 @@ The same normal config command then writes the export. For details, read
 - optional segmentation type and visibility
 - prepared-data provider state
 
-Pages should read state through the `DashboardPage` helpers instead of
-duplicating cache or run-selection logic.
+Pages must read state through the `DashboardPage` helpers. Do not duplicate
+cache or run-selection logic.
 
 ## Extension Path
 
-The [Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md) shows
-complete page, page-group, selector, widget, table, and figure examples.
+The [Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md) gives
+complete examples for pages, page groups, selectors, widgets, tables, and
+figures.
 
 When adding visual output:
 

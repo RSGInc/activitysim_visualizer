@@ -1,7 +1,7 @@
 # 20 - Output Processor
 
-The Output Processor turns ActivitySim model outputs into stable data products
-for the dashboard.
+The Output Processor converts ActivitySim model output to stable data for the
+dashboard.
 
 ```text
 raw ActivitySim tables or prepared table inputs
@@ -17,7 +17,7 @@ orchestration under [`runtime/workflows`](../runtime/workflows).
 
 ## Responsibilities
 
-The processor is responsible for:
+The processor does these tasks:
 
 - reading raw `.csv` or `.parquet` ActivitySim outputs
 - normalizing identifiers and column names
@@ -25,12 +25,12 @@ The processor is responsible for:
 - applying weights
 - adding geography and zone fields
 - optionally joining skim values to trips and tours
-- optionally slicing outputs into configured segments
+- optionally dividing output into configured segments
 - writing prepared and summary caches
-- recording manifests and diagnostics so stale outputs can be detected
+- recording manifests and diagnostics to identify stale output
 
-The dashboard should not re-read raw ActivitySim files. It should consume
-summary caches and, only for pages that explicitly ask for them, prepared tables.
+The dashboard must not read raw ActivitySim files again. It must use summary
+caches. It uses prepared tables only for pages that require them.
 
 ## Runtime Data Contract
 
@@ -50,8 +50,8 @@ The key runtime object is `RunData` in
 | `skim_matrix` | Optional distance skim support. |
 | `skimjoin_artifacts` | Optional skimjoin manifest and QA reports. |
 
-Summary builders and prepared-data dashboard pages should depend on this
-prepared contract rather than raw model-specific table layouts.
+Summary builders and prepared-data dashboard pages must use this prepared
+contract. They must not use raw, model-specific table layouts.
 
 ## Processor Subsystems
 
@@ -62,34 +62,35 @@ prepared contract rather than raw model-specific table layouts.
 | Summaries | [23 - Summary Functions](23-summary-functions.md) | Build dashboard-ready tables. |
 | Summary catalog | [24 - Summary Catalog](24-summary-catalog.md) | Inspect registered summary outputs. |
 
-The former static prepared-cache schema document recorded one
-`estimation-output` dataset, including its row counts and model-specific
-columns. It was not a portable runtime contract and became stale as inputs
-changed. Use [Prepared Table Names and Fields](21-prepared-tables.md) for the
-stable contract and inspect the manifest and table schema of the actual cache
-when exact model-specific columns are needed.
+The former static prepared-cache schema described one `estimation-output` data
+set. It included row counts and model-specific columns. This schema was not a
+portable runtime contract. It became incorrect when the input changed. Use
+[Prepared Table Names and Fields](21-prepared-tables.md) for the stable
+contract. Examine the applicable cache manifest and table schema for exact
+model-specific columns.
 
 ## Where Processor Output Goes
 
-Prepared caches are reusable canonical data. Summary caches are smaller,
-dashboard-ready CSVs. The summary cache is the normal dashboard input.
+Prepared caches contain reusable canonical data. Summary caches contain
+smaller CSV files for the dashboard. The summary cache is the standard
+dashboard input.
 
-The processor also carries diagnostic state. A table or summary can be:
+The processor also keeps diagnostic status. A table or summary can be:
 
 - available and populated
 - available but empty
 - unavailable because an optional input is missing
 - failed, with a recorded diagnostic
 
-This is intentional. The dashboard can show partial results instead of failing
-the entire workflow when one optional table or summary is unavailable.
+This behavior lets the dashboard show partial results. One unavailable optional
+table or summary does not stop the complete workflow.
 
-“Empty” and “unavailable” are different contracts. Empty means the input and
-calculation were valid but produced zero rows. Unavailable means a prerequisite
-table/column was absent or a declared operation could not run. Failed means an
-exception was recorded under the configured failure policy. Preserve the
-availability metadata when copying `RunData`; checking only
-`DataFrame.is_empty()` loses that distinction.
+"Empty" and "unavailable" have different meanings. Empty means that the input
+and calculation were valid, but the result has zero rows. Unavailable means
+that a required table or column was absent. It can also mean that a declared
+operation could not execute. Failed means that the configured failure policy
+recorded an exception. Keep the availability metadata when you copy `RunData`.
+A check of only `DataFrame.is_empty()` removes this information.
 
 ### Example: Follow One Metric
 
@@ -104,20 +105,19 @@ final_trips.csv
   -> page reads the table through self.data.summary(...)
 ```
 
-Each boundary has one owner. Prepare resolves source filenames and aliases;
-the summary defines the aggregate; the cache validates the persisted contract;
-the page handles presentation. This separation is why a page should not open a
-raw file or reproduce a weighted aggregation. Chapter 44 works through this
-example in code.
+Each boundary has one owner. Prepare resolves source file names and aliases.
+The summary defines the aggregate. The cache validates the stored contract.
+The page controls the presentation. Thus, a page must not open a raw file or
+repeat a weighted aggregation. Chapter 44 gives the code for this example.
 
 ## Extension Checklist
 
-When adding new processor-visible behavior:
+To add processor behavior, do these steps:
 
-1. Decide whether the new data belongs in prepared tables, skimjoin outputs, or
+1. Decide whether the new data belongs in prepared tables, skimjoin output, or
    a summary table.
 2. Add or update the smallest processor subsystem that owns that behavior.
-3. Preserve stable output schemas and use typed empty fallbacks where possible.
+3. Keep stable output schemas and use typed empty fallback results when possible.
 4. Update dashboard page requirements if a page depends on the new output.
 5. Add focused tests for the new behavior.
 6. Regenerate wiki catalogs if summary declarations or page definitions changed.

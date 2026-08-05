@@ -1,17 +1,17 @@
 # 90 - Troubleshooting
 
-Use this chapter when a run, cache, page, or export is not behaving as expected.
+Use this chapter when a run, cache, page, or export does not operate correctly.
 
-## Fast Triage
+## Initial checks
 
-1. Confirm the config path you ran.
-2. Check the selected pipeline steps and dashboard mode in logs.
-3. Check whether the issue appears in prepare, summarize, dashboard, or export.
+1. Make sure that you used the correct configuration path.
+2. Find the selected pipeline steps and dashboard mode in the log.
+3. Identify whether the problem occurs in prepare, summarize, dashboard, or export.
 4. Inspect `<root>/<run-key>/manifest.json` for summary state and
    `<root>/<run-key>/prepared_tables/manifest.json` for final prepared/skimjoin
    state (see the [cache layout](12-running-workflows.md#artifact-and-cache-paths)).
-5. Run with `--explain-cache` to inspect reuse and rebuild decisions. If a
-   forced rebuild is needed, list only the affected stage in `pipeline.refresh`.
+5. Use `--explain-cache` to examine reuse and rebuild decisions. If you
+   must rebuild, list only the applicable step in `pipeline.refresh`.
 
 ## Symptoms
 
@@ -28,7 +28,7 @@ Use this chapter when a run, cache, page, or export is not behaving as expected.
 
 ## Cache Problems
 
-For a reproducible full rebuild, configure the steps and refresh policy:
+To make a repeatable full rebuild, configure the steps and refresh policy:
 
 ```yaml
 pipeline:
@@ -37,8 +37,8 @@ pipeline:
   refresh: all
 ```
 
-Return `refresh` to `[]` after the rebuild. Developers can use targeted
-one-off refresh flags while diagnosing a specific cache layer:
+Set `refresh` to `[]` after the rebuild. During a diagnostic run, developers
+can use a refresh flag for one cache layer:
 
 ```bash
 uv run activitysim-viz --config local_config.yaml --refresh-prepared-cache
@@ -46,12 +46,12 @@ uv run activitysim-viz --config local_config.yaml --refresh-summary-cache
 uv run activitysim-viz --config local_config.yaml --refresh-caches
 ```
 
-If only dashboard presentation changed, a refresh usually should not be needed.
-Raw-file, skim-file, and relevant config identities are checked automatically;
-use a manual refresh only when deliberately overriding a valid cache decision.
-Prefer `pipeline.refresh` for reproducible runs. A prepare refresh necessarily
-invalidates skimjoin and summary output; a skimjoin refresh preserves
-`base_prepared_tables`; a summary refresh preserves final prepared data.
+If only dashboard presentation changed, a refresh is usually not necessary.
+The system automatically checks raw-file, skim-file, and applicable
+configuration identities. Use a manual refresh only to override a valid cache
+decision. Use `pipeline.refresh` for repeatable runs. A prepare refresh
+invalidates skimjoin and summary output. A skimjoin refresh keeps
+`base_prepared_tables`. A summary refresh keeps final prepared data.
 
 ## Missing Page Data
 
@@ -60,31 +60,31 @@ Find the page in [31 - Dashboard Pages](31-dashboard-pages.md) and check:
 - required summary IDs
 - required prepared tables
 - prepared-data mode
-- whether the page is enabled in live/export config
+- whether the live or export configuration enables the page
 
-Then find each summary in [24 - Summary Catalog](24-summary-catalog.md) and
-check the required input tables/columns.
+Then find each summary in [24 - Summary Catalog](24-summary-catalog.md). Check
+the required input tables and columns.
 
 ### Worked Triage: A Page Says Data Is Unavailable
 
-Suppose Trip Mode opens but shows the standard unavailable card:
+Use this procedure if Trip Mode shows the standard unavailable card:
 
 1. Find `trip_mode` in chapter 31. It requires
    `trip_mode_by_tour_purpose_and_tour_mode`.
 2. Find that ID in chapter 24. Note its required prepared table and columns.
-3. Open `<root>/<run-key>/manifest.json` and inspect the summary entry. If the
-   summary is `unavailable`, read its recorded reason before rebuilding
-   anything.
+3. Open `<root>/<run-key>/manifest.json` and examine the summary entry. If the
+   summary is `unavailable`, read its recorded reason before a rebuild.
 4. If a required prepared column is missing, inspect
    `<root>/<run-key>/prepared_tables/manifest.json`, the table schema, and the
    canonical column settings in `columns`.
 5. If the contract recently changed, rebuild the configured summarize step
    with `pipeline.refresh: [summarize]`.
-6. If the summary is present and valid, confirm the page's `columns=` request
-   matches the cached schema and that the selected weighting mode exists.
+6. If the summary is valid, make sure that the page's `columns=` request agrees
+   with the cached schema.
+7. Make sure that the selected weighting mode exists.
 
-This sequence moves backward through the declared contracts. It avoids trying
-random cache refreshes when the real issue is an input or schema mismatch.
+This sequence examines the declared contracts in reverse order. It prevents
+unnecessary cache refreshes when the problem is an input or schema mismatch.
 
 ## Skimjoin Problems
 
@@ -97,7 +97,7 @@ Check the skimjoin reports:
 - `tour_aggregation_summary`
 - `failure_report`
 
-Common fixes:
+Common corrections:
 
 - correct skim file globs
 - correct `network_los_file`
@@ -108,27 +108,27 @@ Common fixes:
 
 ## Export Problems
 
-If live mode works but export does not:
+If live mode operates correctly but export fails, do these steps:
 
-1. Confirm the page is included in export page selection.
-2. Confirm ordinary dropdowns use `self.select(...)` and custom widgets use
-   `self.selector(...)`.
-3. Confirm affected content is registered with `self.section(...)`.
-4. Check browser console errors.
-5. Inspect the adjacent `<export-stem>.diagnostics.json` sidecar.
-6. Try `?debug_export=1`.
+1. Make sure that export page selection includes the page.
+2. Make sure that standard selection lists use `self.select(...)`.
+3. Make sure that custom widgets use `self.selector(...)`.
+4. Make sure that `self.section(...)` registers the applicable content.
+5. Check browser console errors.
+6. Inspect the adjacent `<export-stem>.diagnostics.json` sidecar.
+7. Try `?debug_export=1`.
 
-Export cannot reproduce arbitrary Python callbacks. It can only switch among
-serialized states and registered selector variants.
+Export cannot reproduce all Python callbacks. It can change only between stored
+states and registered selector variants.
 
-## Still Stuck
+## Create a small test case
 
-Create the smallest reproduction:
+Create the smallest test case:
 
 1. one run
 2. one page or one summary
 3. one weighting mode
 4. fresh cache root
-5. copied log excerpt and manifest diagnostics
+5. A copy of the applicable log text and manifest diagnostics.
 
-That usually makes the owning subsystem obvious.
+This test case usually identifies the applicable subsystem.

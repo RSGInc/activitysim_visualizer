@@ -1,14 +1,13 @@
 # 12 - Running Workflows
 
-The normal user experience is config-driven. Keep one launch command:
+The configuration controls the standard workflow. Use one start command:
 
 ```bash
 uv run activitysim-viz --config local_config.yaml
 ```
 
-The config decides which work runs, where artifacts are stored, and whether the
-result is a live dashboard or an HTML file. Command-line flags are intended for
-development and one-off diagnostics, not normal operation.
+The configuration selects the work, the artifact location, and the dashboard
+mode. Use command-line flags only for development or one diagnostic execution.
 
 ## The Three Main Steps
 
@@ -18,22 +17,22 @@ prepare -> summarize -> dashboard
 
 - **Prepare** reads raw outputs and creates canonical prepared tables.
 - **Summarize** creates the smaller tables used by dashboard pages.
-- **Dashboard** serves the live application or writes standalone HTML.
+- **Dashboard** starts the live application or writes standalone HTML.
 
 Skimjoin runs inside prepare when selected. Segmentation runs with summarize.
 
-These are requested workflow boundaries, not isolated commands. In particular,
-`summarize` must have prepared data: it reuses a valid prepared cache or builds
-prepared data from the configured raw/prepared inputs when the cache is missing
-or stale. Adding `prepare` explicitly runs and persists that boundary first;
-the summarize boundary then reuses the in-memory or cached result rather than
-preparing a second time.
+These steps are workflow boundaries, not independent commands. The `summarize`
+step requires prepared data. It uses a valid prepared cache when one is
+available. If the cache is missing or stale, it builds prepared data from the
+configured raw or prepared input. If you add `prepare`, the runtime completes
+and stores that step first. The summarize step then uses the result in memory
+or in the cache. It does not prepare the data a second time.
 
 | Requested step | What it guarantees | Prerequisites resolved automatically |
 |---|---|---|
-| `prepare` | Prepared tables are loaded/built and cached. | Raw files or `prepared_table_map`. |
-| `summarize` | Default registered summaries are loaded/built and cached. | Prepared data is loaded/built as needed. |
-| `dashboard` | Existing summary caches are loaded and displayed/exported. | No summaries are built; required caches must exist or come from `summary_table_map`. |
+| `prepare` | The runtime loads or builds prepared tables and writes the cache. | Raw files or `prepared_table_map`. |
+| `summarize` | The runtime loads or builds default registered summaries and writes the cache. | The runtime loads or builds prepared data as necessary. |
+| `dashboard` | The runtime loads existing summary caches and shows or exports them. | The runtime does not build summaries. Required caches must exist or come from `summary_table_map`. |
 
 ## Configure A Live Workflow
 
@@ -56,8 +55,8 @@ dashboard:
       - trip_summaries
 ```
 
-This builds missing or stale artifacts, reuses valid caches, and starts the
-dashboard. `dashboard.live.pages` controls which page groups are available.
+This workflow builds missing or stale artifacts. It uses valid caches and
+starts the dashboard. `dashboard.live.pages` selects the available page groups.
 
 ## Configure An HTML Export
 
@@ -74,14 +73,14 @@ dashboard:
     output_path: exports/dashboard.html
 ```
 
-The configured output is `artifacts/exports/dashboard.html`: relative export
-paths resolve below `root`. Use an absolute path when the file must be written
-elsewhere. Page and selector choices are covered in
+This configuration writes `artifacts/exports/dashboard.html`. Relative export
+paths start from `root`. Use an absolute path to write the file to a different
+location. For page and selector choices, see
 [HTML Export](34-html-export.md).
 
 ## Configure A Processor-Only Workflow
 
-Build prepared tables and summaries without opening or exporting a dashboard:
+Build prepared tables and summaries without a dashboard:
 
 ```yaml
 pipeline:
@@ -99,32 +98,32 @@ Other focused workflows use the same fields:
 | Open a live dashboard from existing caches | `[dashboard]` | `live` |
 | Export HTML from existing caches | `[dashboard]` | `export` |
 
-For loose dashboard-ready CSV or Parquet inputs, configure
-`runs[*].summary_table_map`; do not treat them as cache directories.
+For dashboard-ready CSV or Parquet files, configure
+`runs[*].summary_table_map`. Do not use the files as cache directories.
 
 ## Pipeline Rules
 
-Available logical steps are `prepare`, `skimjoin`, `segment`, `summarize`, and
-`dashboard`. Dashboard must be last. `skimjoin` requires `prepare`; `segment`
+The logical steps are `prepare`, `skimjoin`, `segment`, `summarize`, and
+`dashboard`. Put `dashboard` last. `skimjoin` requires `prepare`. `segment`
 requires `summarize`.
 
-The default when `pipeline.steps` is omitted is `[summarize, dashboard]`.
-That default still prepares raw inputs when a valid prepared cache is not
-available. Include `prepare` explicitly when prepared-cache creation is itself
-an intended, visible stage or when `skimjoin` is enabled.
+If you omit `pipeline.steps`, the default is `[summarize, dashboard]`. This
+default prepares raw input when a valid prepared cache is not available. Add
+`prepare` when cache creation must be a visible step. Also add `prepare` when
+you enable `skimjoin`.
 
 Dashboard modes:
 
 - `live`: local Panel server;
 - `export`: standalone HTML;
 - `none`: no dashboard; and
-- `host`: reserved extension point that currently logs a warning and executes
-  the normal live server; it does not publish to a hosting provider.
+- `host`: reserved extension point. It writes a warning to the log and starts
+  the standard live server. It does not publish to a hosting provider.
 
 ## Artifact And Cache Paths
 
-Prepared and summary caches live under the configured `root`. Each run has a
-manifest describing its inputs and config identity.
+The visualizer stores prepared and summary caches under the configured `root`.
+Each run has a manifest that describes its input and configuration identity.
 
 Set `root` once for the workflow:
 
@@ -132,7 +131,7 @@ Set `root` once for the workflow:
 root: D:\activitysim_visualizer\regional_comparison
 ```
 
-For two runs labeled `Base` and `Build`, the normal layout is:
+For two runs labeled `Base` and `Build`, the standard layout is:
 
 ```text
 regional_comparison/
@@ -157,16 +156,16 @@ regional_comparison/
     manifest.json
 ```
 
-The run-level `manifest.json` belongs to the summary bundle. Each prepared
-cache has its own manifest inside its table directory. A prepare-only workflow
-therefore writes `prepared_tables/manifest.json` but does not create the
-run-level summary manifest.
+The run-level `manifest.json` describes the summary bundle. Each prepared cache
+has a manifest in its table directory. Thus, a prepare-only workflow writes
+`prepared_tables/manifest.json`. It does not create the run-level summary
+manifest.
 
-When skimjoin is enabled, `base_prepared_tables/` contains a second prepared
-manifest and the canonical tables before skim enrichment. The enriched tables,
-skimjoin reports, and optional hypothetical sidecars remain under
-`prepared_tables/`, so summary and dashboard consumers continue to use the
-same final path:
+When you enable skimjoin, `base_prepared_tables/` contains a second prepared
+manifest. It also contains the canonical tables before skim enrichment. The
+visualizer stores enriched tables, skimjoin reports, and optional hypothetical
+sidecar tables under `prepared_tables/`. Thus, summary and dashboard consumers
+use the same final path:
 
 ```text
 base/
@@ -186,21 +185,21 @@ base/
       <QA reports>.csv
 ```
 
-Segmented summary CSVs are nested below
-`summary_tables/<weighting>/segments/<segmentation-type>/<segment-id>/` and
-are described by the run-level summary manifest.
+The visualizer stores segmented summary CSV files in
+`summary_tables/<weighting>/segments/<segmentation-type>/<segment-id>/`. The
+run-level summary manifest describes these files.
 
-The run-key directory is a filesystem-safe lowercase slug of the run label.
-For example, `Build Scenario` becomes `build-scenario`. Colliding labels receive
-ordered suffixes such as `build-1` and `build-2`; avoid duplicate labels because
-reordering them changes which run receives each suffix.
+The run-key directory uses a lowercase, file-system-safe form of the run label.
+For example, `Build Scenario` becomes `build-scenario`. Duplicate labels get
+ordered suffixes such as `build-1` and `build-2`. Do not use duplicate labels.
+If you change their order, you change the suffix for each run.
 
 Relative paths in `dashboard.export.output_path` resolve below this directory.
 Input paths follow the path rules documented in
 [Configuration Reference](13-configuration-reference.md#reading-this-reference).
 
-Valid caches are reused automatically. To deliberately rebuild every
-materialized stage used by the configured steps, temporarily set:
+The visualizer automatically uses valid caches. To rebuild each stored stage
+for the configured steps, temporarily set:
 
 ```yaml
 pipeline:
@@ -209,10 +208,9 @@ pipeline:
   refresh: all
 ```
 
-Return `refresh` to `[]` after the forced rebuild. To rebuild summaries while
-preserving prepared and skimjoined data, use `refresh: [summarize]`.
-Presentation-only changes such as labels, colors, or enabled pages normally do
-not require cache rebuilding.
+Set `refresh` to `[]` after the rebuild. To rebuild summaries and keep prepared
+and skimjoined data, use `refresh: [summarize]`. Changes to labels, colors, or
+enabled pages do not usually require a cache rebuild.
 
 The refresh targets are stage-aware:
 
@@ -222,24 +220,24 @@ The refresh targets are stage-aware:
 | `skimjoin` | `base_prepared_tables` | enriched `prepared_tables`, summaries |
 | `summarize` | final `prepared_tables` | stale/default summaries and segmented summaries |
 
-Normal reuse is also content-aware. Prepared manifests record resolved raw
-input identities, including path, size, and modification time, plus the
-prepare/skimjoin config identity and skim input identities. The summary
-manifest records its upstream prepared-manifest identity, summary config, and
-per-summary declaration digest. Consequently, a changed raw file invalidates
-prepare and downstream output, a changed skim input can rebuild only skimjoin
-and downstream output, and a changed summary declaration can rebuild only the
-affected summary tables while reusing compatible tables in the bundle.
+Cache reuse also depends on file content information. Prepared manifests record
+the path, size, and modification time of each raw input. They also record the
+prepare, skimjoin, and skim input identities. The summary manifest records the
+prepared-manifest identity, summary configuration, and declaration digest for
+each summary. A changed raw file invalidates prepare and its later output. A
+changed skim input can rebuild only skimjoin and its later output. A changed
+summary declaration can rebuild only the applicable summary tables. The
+visualizer keeps compatible tables in the bundle.
 
-Use `--explain-cache` to print the per-run reuse/rebuild decisions and exit
-without loading tables, deleting caches, or writing artifacts. The report shows
-`REUSE`, `REBUILD`, `RUN`, or `DISABLED` for prepare, skimjoin, summarize, and
-dashboard, with the cache-validation reason when available.
+Use `--explain-cache` to print the cache decision for each run. The command
+then exits without table loads, cache deletions, or artifact writes. The report
+shows `REUSE`, `REBUILD`, `RUN`, or `DISABLED` for each workflow step. It also
+shows the cache-validation reason when one is available.
 
 ## CLI Overrides
 
-CLI flags override the configured workflow for one invocation. Users should
-normally change YAML so the intended workflow remains reproducible.
+Command-line flags override the configured workflow for one execution. For standard
+operation, change the YAML so that you can reproduce the workflow.
 
 | Flag | Behavior |
 |---|---|
@@ -261,13 +259,13 @@ normally change YAML so the intended workflow remains reproducible.
 | `--no-show` | Start the live server without opening a browser. |
 | `--explain-cache` | Print the cache plan and exit without executing it. |
 
-If any of `--prepare`, `--summarize`, or `--dashboard` is present, those flags
-replace `pipeline.steps` with the selected coarse boundaries. They do not
-implicitly enable the logical `skimjoin` or `segment` steps. `--from-csvs`
-cannot be combined with processor steps or `--write-csvs`; `--write-csvs` and
-`--skip-summary-cache-write` require summarize. Refresh flags require the
-corresponding processor boundary. If the config omits dashboard, pair
-`--export-html` with `--dashboard` to select it.
+If you use `--prepare`, `--summarize`, or `--dashboard`, these flags replace
+`pipeline.steps` with the selected main boundaries. They do not enable the
+`skimjoin` or `segment` steps. Do not combine `--from-csvs` with processor steps
+or `--write-csvs`. The `--write-csvs` and `--skip-summary-cache-write` flags
+require summarize. Each refresh flag requires its applicable processor
+boundary. If the configuration omits dashboard, use `--export-html` with
+`--dashboard`.
 
 ## Related Chapters
 

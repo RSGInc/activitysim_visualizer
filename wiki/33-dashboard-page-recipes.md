@@ -1,7 +1,8 @@
 # 33 - Dashboard Page Recipes
 
-Use the smallest page shape that fits the behavior. Each discoverable page
-module contains one class decorated with `@dashboard_page(...)`.
+Use the smallest page structure that supplies the required behavior. Each
+discoverable page module contains one class with a `@dashboard_page(...)`
+decorator.
 
 ## Recipe 1: Simple Summary Page
 
@@ -30,8 +31,8 @@ class MySummaryPage(DashboardPage):
         return data_table(data, title="My Summary")
 ```
 
-Use `required_summary_ids` for the page's primary workflow and
-`optional_summary_ids` for independent add-on features.
+Use `required_summary_ids` for the primary page workflow. Use
+`optional_summary_ids` for independent optional features.
 
 ## Recipe 2: Dynamic Selector
 
@@ -80,12 +81,12 @@ def render_chart(self):
 ```
 
 The framework refreshes options and dependent sections. Use
-`self.selector(...)` only for a genuinely custom widget. Keep the label-to-raw
-mapping so display labels do not leak into data filters.
+`self.selector(...)` only for a custom widget. Keep the label-to-raw mapping.
+This mapping prevents display labels from entering data filters.
 
 ## Recipe 3: Multi-Workflow Page
 
-Create one `PageFeature` per coherent user workflow:
+Create one `PageFeature` for each user workflow:
 
 ```python
 comparison = self.feature("comparison")
@@ -95,10 +96,10 @@ comparison_body = comparison.section(
 )
 ```
 
-When the Python controller itself becomes difficult to navigate, keep the
-registered page as a small facade and split implementation mixins into a
-private `_<page>/` package. Current examples include tour mode, mandatory
-location choice, escorted tours, VMT, and traffic validation.
+If the Python controller becomes difficult to read, keep the registered page as
+a small facade. Put implementation mixins in a private `_<page>/` package.
+Examples include tour mode, mandatory location choice, escorted tours, VMT,
+and traffic validation.
 
 ## Recipe 4: Prepared-Data Page
 
@@ -137,21 +138,20 @@ class RawTripDemoPage(DashboardPage):
         )
 ```
 
-Load prepared data through `self.data`, handle an unavailable selection with a
-standard card, and keep disaggregate use limited. Prefer summaries for repeated
-aggregate views. `raw_trip_demo.py`, the skim pages, and parking location show
-the current required/optional patterns.
+Load prepared data through `self.data`. Show a standard card for unavailable
+data. Use disaggregate data only when necessary. Use summaries for repeated
+aggregate views. See `raw_trip_demo.py`, the skim pages, and parking location
+for current required and optional patterns.
 
-Mark every section that reads prepared data with
+Mark each section that reads prepared data with
 `export_data_mode="optional"` or `"required"`. Standalone export does not load
-prepared tables and skips those sections. If the page also has a summary-backed
-view that should export, place it in a separate section whose
-`export_data_mode` remains `"none"`.
+prepared tables. It omits these sections. Put an exportable summary view in a
+separate section. Keep `export_data_mode="none"` for that section.
 
 ## Adding A New Page Group
 
-For a complete file layout, config example, discovery explanation, and tests,
-see [Add A New Page Group](45-dashboard-extension-cookbook.md#add-a-new-page-group).
+For a complete file layout, configuration example, discovery description, and
+tests, see [Add A New Page Group](45-dashboard-extension-cookbook.md#add-a-new-page-group).
 
 Create a package under `dashboard/pages/` and define `GROUP` in `__init__.py`:
 
@@ -166,9 +166,8 @@ GROUP = DashboardGroupDefinition(
 )
 ```
 
-Every child decorator sets `group_id="my_group"`. Discovery rejects duplicate
-IDs, missing definitions, unknown groups, and invalid summary or prepared-table
-requirements.
+Set `group_id="my_group"` in each child decorator. Discovery rejects duplicate
+IDs, missing definitions, unknown groups, and invalid data requirements.
 
 ## Page Review Checklist
 

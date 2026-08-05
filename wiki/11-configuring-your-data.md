@@ -1,11 +1,11 @@
 # 11 - Configuring Your Data
 
-Most users only need to choose an input type and name their runs. Use one of the
-three patterns below.
+Select an input type and give each run a label. Use one of these three
+configurations.
 
 ## Raw ActivitySim Output
 
-Use this when you have normal ActivitySim output folders:
+Use this configuration for standard ActivitySim output directories:
 
 ```yaml
 root: artifacts
@@ -17,7 +17,7 @@ runs:
     label: Build
 ```
 
-The label is what appears in the dashboard.
+The dashboard shows this label.
 
 ### File Names
 
@@ -33,8 +33,8 @@ files:
   land_use: final_land_use
 ```
 
-A bare name accepts either `.parquet` or `.csv`. Override one unusual run with
-`file_map`:
+A name without an extension selects a `.parquet` or `.csv` file. Use `file_map`
+to set nonstandard file names for one run:
 
 ```yaml
 runs:
@@ -49,7 +49,8 @@ runs:
 
 ### Column Names
 
-If a model uses different column names, list the candidates in preferred order:
+If a model uses different column names, list the possible names in order of
+preference:
 
 ```yaml
 columns:
@@ -58,13 +59,14 @@ columns:
   trip_mode: mode
 ```
 
-Prepare converts the selected source to the visualizer's canonical column. See
-chapter 13 for the [complete column list](13-configuration-reference.md#columns).
+The prepare step copies the selected source to the canonical visualizer
+column. See the [complete column list](13-configuration-reference.md#columns)
+in chapter 13.
 
 ## Already-Prepared Tables
 
-Use `prepared_table_map` for canonical tables that were prepared, skimjoined,
-or filtered elsewhere:
+Use `prepared_table_map` for canonical tables from a different process. This
+process can prepare, skimjoin, or filter the tables:
 
 ```yaml
 runs:
@@ -77,14 +79,14 @@ runs:
       land_use: prepared/land_use.parquet
 ```
 
-Paths must end in `.csv` or `.parquet` and are relative to the config file.
-These tables must already use the canonical prepared columns expected by
-summaries. Raw prepare and integrated skimjoin are skipped for this run.
+Each path must end in `.csv` or `.parquet`. A relative path starts from the
+configuration file directory. The tables must contain the canonical prepared
+columns that the summaries require. The visualizer does not run raw prepare or
+integrated skimjoin for this run.
 
 ## Dashboard-Ready Summary Tables
 
-Use `summary_table_map` when another process has already produced registered
-summary tables:
+Use `summary_table_map` for registered summary tables from a different process:
 
 ```yaml
 runs:
@@ -94,13 +96,14 @@ runs:
       traffic_count_comparisons: summaries/traffic_counts.parquet
 ```
 
-Keys must appear in the [Summary Catalog](24-summary-catalog.md). Files must
-match the registered columns exactly. A run may contain only outside summaries,
-or they may override selected summaries generated from raw/prepared data.
+Each key must occur in the [Summary Catalog](24-summary-catalog.md). Each file
+must have the registered columns in the specified order. A run can contain
+only external summaries. External summaries can also replace selected
+summaries from raw or prepared data.
 
 ## Weights
 
-The normal modes are configured with:
+Configure the standard modes with:
 
 ```yaml
 summarize:
@@ -118,11 +121,12 @@ runs:
     trip_weight_col: trip_weight
 ```
 
-Otherwise prepare uses a configured sample-rate column when available, then
-falls back to `1.0`.
+If you do not set weight columns, prepare uses the configured sample-rate
+column when it is available. If this column is not available, prepare uses
+`1.0`.
 
-If the same output tables contain an additional set of weights, add a named
-column mode instead of duplicating the run or writing Python:
+If the output tables contain more weights, add a named column mode. Do not
+duplicate the run or write Python for this configuration:
 
 ```yaml
 weighting:
@@ -138,8 +142,10 @@ summarize:
   weighting_modes: [weighted, unweighted, calibrated]
 ```
 
-The named sources are validated and propagated to tours, days, vehicles, and
-skimjoin sidecars as appropriate. See [43 - Weighting And Hosting Extensions](43-weighting-hosting-extensions.md#worked-example-add-a-weighting-mode) for the exact rules.
+The visualizer validates the named sources. It copies the weights to applicable
+tours, days, vehicles, and skimjoin sidecar tables. See
+[43 - Weighting And Hosting Extensions](43-weighting-hosting-extensions.md#worked-example-add-a-weighting-mode)
+for the rules.
 
 ## Zones
 

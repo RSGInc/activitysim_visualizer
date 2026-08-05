@@ -1,22 +1,22 @@
 # ActivitySim Visualizer
 
-ActivitySim Visualizer turns [ActivitySim](https://activitysim.github.io/)
-outputs into an interactive dashboard for exploring one model run, comparing
-several runs side by side, or comparing model outputs to survey results.
+Use ActivitySim Visualizer to examine [ActivitySim](https://activitysim.github.io/)
+output in an interactive dashboard. You can examine one model run, compare
+multiple runs, or compare model output with survey results.
 
-It can:
+ActivitySim Visualizer can:
 
-- prepare and summarize ActivitySim household, person, tour, and trip outputs;
-- compare travel patterns, model choices, and validation measures across runs;
-- reuse cached results so subsequent launches are faster; and
-- serve a local dashboard or create a standalone HTML file for sharing.
+- prepare and summarize household, person, tour, and trip output;
+- compare travel patterns, model choices, and validation measures for multiple runs;
+- use valid cached results to decrease the start time; and
+- start a local dashboard or create a standalone HTML file.
 
 ## Quick Start
 
 ### 1. Install the project
 
-From the repository root, use `uv` to create the environment and install the
-locked dependencies:
+In the repository root, use `uv` to create the environment. This command also
+installs the locked dependencies:
 
 ```bash
 uv sync --locked
@@ -30,8 +30,8 @@ uv sync --locked --link-mode=copy
 
 ### 2. Create a configuration
 
-Copy `config.yaml` to `local_config.yaml`. In the new file, update the entries
-under `runs` so they point to your ActivitySim output directories:
+Copy `config.yaml` to `local_config.yaml`. In the new file, set each `runs.dir`
+value to an ActivitySim output directory:
 
 ```yaml
 runs:
@@ -42,11 +42,11 @@ runs:
 ```
 
 The default file names are `final_households`, `final_persons`, `final_tours`,
-`final_trips`, `final_joint_tour_participants`, and `final_land_use`. Both CSV
-and Parquet inputs are supported.
+`final_trips`, `final_joint_tour_participants`, and `final_land_use`. The
+visualizer accepts CSV and Parquet input files.
 
-For a smaller example configuration and help with nonstandard files or zones,
-see [Getting Started](wiki/10-getting-started.md) and
+For a small example configuration and instructions for nonstandard files or
+zones, see [Getting Started](wiki/10-getting-started.md) and
 [Configuring Your Data](wiki/11-configuring-your-data.md).
 
 ### 3. Start the visualizer
@@ -55,12 +55,11 @@ see [Getting Started](wiki/10-getting-started.md) and
 uv run activitysim-viz --config local_config.yaml
 ```
 
-The first run prepares the inputs, builds the summary tables needed by the
-dashboard, and opens a local server at
-[http://localhost:5006](http://localhost:5006). Later runs reuse valid caches.
-Stop the server with `Ctrl+C`.
+The first execution prepares the input and builds the required summary tables. It
+then starts a local server at [http://localhost:5006](http://localhost:5006).
+Later executions use valid caches. To stop the server, press `Ctrl+C`.
 
-If something is missing or the first run fails, start with
+If data is missing or the first execution fails, use
 [Troubleshooting](wiki/90-troubleshooting.md).
 
 ## How It Works
@@ -72,13 +71,13 @@ ActivitySim outputs
   -> display a live dashboard or export standalone HTML
 ```
 
-The configuration selects the inputs, workflow steps, output location, and
-dashboard mode. Most users can keep using the same launch command and change
-the YAML when they want a different workflow.
+The configuration selects the input, workflow steps, output location, and
+dashboard mode. Use the same start command for each workflow. Change the YAML
+configuration to change the workflow.
 
 | Goal | Where to learn more |
 |---|---|
-| Use raw ActivitySim output folders | [Configuring Your Data](wiki/11-configuring-your-data.md#raw-activitysim-output) |
+| Use raw ActivitySim output directories | [Configuring Your Data](wiki/11-configuring-your-data.md#raw-activitysim-output) |
 | Use already-prepared tables | [Already-Prepared Tables](wiki/11-configuring-your-data.md#already-prepared-tables) |
 | Use dashboard-ready summary tables | [Dashboard-Ready Summary Tables](wiki/11-configuring-your-data.md#dashboard-ready-summary-tables) |
 | Run only the processor | [Processor-Only Workflow](wiki/12-running-workflows.md#configure-a-processor-only-workflow) |
@@ -91,17 +90,17 @@ the YAML when they want a different workflow.
 
 The [wiki home](wiki/00-home.md) is the main documentation index.
 
-For normal use, these three chapters cover the usual path:
+For standard use, read these chapters in sequence:
 
 1. [Getting Started](wiki/10-getting-started.md)
 2. [Configuring Your Data](wiki/11-configuring-your-data.md)
 3. [Running Workflows](wiki/12-running-workflows.md)
 
-Additional user references:
+Other user references:
 
 - [Output Visualizer](wiki/30-output-visualizer.md) explains the dashboard.
 - [Dashboard Pages](wiki/31-dashboard-pages.md) lists the available analyses.
-- [HTML Export](wiki/34-html-export.md) covers offline sharing.
+- [HTML Export](wiki/34-html-export.md) explains how to create an offline file.
 - [Summary Catalog](wiki/24-summary-catalog.md) documents every summary table.
 - [Glossary](wiki/99-glossary.md) defines project terminology.
 - [Troubleshooting](wiki/90-troubleshooting.md) covers common failures.
@@ -109,8 +108,8 @@ Additional user references:
 ## For Contributors
 
 Start with [Architecture](wiki/01-architecture.md) and
-[Developer Workflows](wiki/40-developer-workflows.md). Task-specific guides are
-available for:
+[Developer Workflows](wiki/40-developer-workflows.md). Use these task-specific
+guides:
 
 - [extending prepared data](wiki/41-data-extension-cookbook.md);
 - [adding a summary function](wiki/44-summary-function-cookbook.md);
@@ -119,14 +118,14 @@ available for:
 - [skim enrichment](wiki/22-skimjoin.md); and
 - [testing](wiki/46-testing.md).
 
-Run focused tests while developing. The standard full test command is:
+Execute focused tests during development. To execute all tests, use this command:
 
 ```bash
 uv run pytest --basetemp .pytest_tmp
 ```
 
-After changing summary declarations or dashboard page definitions, regenerate
-the code-backed wiki catalogs:
+If you change summary declarations or dashboard page definitions, regenerate
+the wiki catalogs from the code:
 
 ```bash
 uv run python scripts/generate_wiki_catalogs.py
@@ -134,5 +133,5 @@ uv run python scripts/generate_wiki_catalogs.py
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0. See
+The GNU General Public License v3.0 applies to this project. See
 [`LICENSE.txt`](LICENSE.txt).

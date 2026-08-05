@@ -6,12 +6,12 @@
 2. Build and cache summary tables.
 3. Render those summaries in a live Panel dashboard or a standalone HTML export.
 
-The codebase is organized around those jobs rather than around one monolithic app layer.
+The codebase has a separate subsystem for each job.
 
-The config surface is now intentionally split into top-level domains such as
-`pipeline`, `dashboard`, `display`, `summarize`, `segment`, and `skimjoin`.
-`runtime.config.load_config_from_yaml()` validates that canonical schema before
-any workflow code sees it. Removed and unknown keys fail with a focused error.
+The configuration has top-level sections such as `pipeline`, `dashboard`,
+`display`, `summarize`, `segment`, and `skimjoin`.
+`runtime.config.load_config_from_yaml()` validates the canonical schema before
+the workflow uses it. Removed keys and unknown keys cause a specific error.
 
 ## Main Subsystems
 
@@ -53,36 +53,36 @@ run.py
           -> dashboard.export.write_export_html_document() for export mode
 ```
 
-`WorkflowPlan` is the single resolved execution plan passed into these
-operations. `run_prepare_workflow()` returns `PreparedRunsArtifact`, and
-`run_summary_workflow()` returns `SummaryRunsArtifact`. Cache policy stays in
-these runtime workflows; processor functions only transform tables.
+The runtime passes one resolved `WorkflowPlan` to these operations.
+`run_prepare_workflow()` returns `PreparedRunsArtifact`.
+`run_summary_workflow()` returns `SummaryRunsArtifact`. The runtime workflows
+control the cache policy. Processor functions only transform tables.
 
 ## Core Runtime Contracts
 
 ### `Config`
 
-`runtime.config.Config` is the normalized application configuration. The public
-import surface remains `runtime.config`, while the implementation now lives in
-the `runtime/config/` package.
+`runtime.config.Config` is the normalized application configuration. Import
+the public API from `runtime.config`. The implementation is in the
+`runtime/config/` package.
 
 Treat it as the contract for:
 
-- which files are read
-- which logical pipeline steps are requested by default
-- which dashboard mode is used by default (`none`, `live`, `export`, `host`)
-- which materialized stages, if any, should be explicitly refreshed
-- how schema aliases are resolved
+- files that the application reads
+- logical pipeline steps that the application requests by default
+- default dashboard mode (`none`, `live`, `export`, `host`)
+- stored stages that require a refresh
+- rules to resolve schema aliases
 - which weighting modes exist
-- which pages are enabled
-- how export selector requests are configured
+- enabled pages
+- export selector request configuration
 
-`dashboard.host` is a reserved placeholder for a future hosting integration.
-The schema accepts `account`, `app_id`, `title`, and `verify`, but the current
-runtime deliberately does not store or act on them.
+`dashboard.host` is reserved for a future hosting integration. The schema
+accepts `account`, `app_id`, `title`, and `verify`. The runtime does not store
+or use these values.
 
-If a new feature adds a config key or changes config behavior, update the README
-and the relevant wiki chapters in the same change.
+If a feature adds a configuration key or changes configuration behavior,
+update the README and the applicable wiki chapters in the same change.
 
 `Config.pipeline` is the canonical home for workflow defaults. Today the
 logical step names are:
@@ -93,43 +93,48 @@ logical step names are:
 - `summarize`
 - `dashboard`
 
-The runtime still executes three coarse workflow boundaries (`prepare`,
-`summarize`, `dashboard`). `skimjoin` currently resolves inside the prepare
-workflow, and `segment` currently resolves inside the summarize workflow.
+The runtime executes three main workflow boundaries: `prepare`, `summarize`,
+and `dashboard`. The runtime resolves `skimjoin` in the prepare workflow. It
+resolves `segment` in the summarize workflow.
 
 ### `RunData`
 
-`processor.models.RunData` is the prepared-data contract consumed by summary builders and prepared-data dashboard pages. Summary code should rely on canonical prepared columns rather than guessing raw ActivitySim column names directly. `processor/prepare/` is the layer that materializes those canonical fields and owns prepared-table cache helpers.
+`processor.models.RunData` is the prepared-data contract. Summary builders and
+prepared-data dashboard pages use this contract. Summary code must use
+canonical prepared columns. It must not estimate the names of raw ActivitySim
+columns. The `processor/prepare/` subsystem creates the canonical fields and
+contains the prepared-table cache helpers.
 
 ### `@summary` and the summary catalog
 
-Each persisted summary is declared beside its builder with `@summary(...)`. The
+Declare each persistent summary next to its builder with `@summary(...)`. The
 declaration defines:
 
 - the stable summary id used by dashboard pages
-- the CSV filename stem used in cache directories
+- the CSV file-name stem used in cache directories
 - its ordered output schema and prepared-input prerequisites
-- whether it is built by default
+- default build status
 
-`processor.summarize.catalog` imports the owning domain modules explicitly,
-collects those declarations deterministically, and rejects duplicate ids.
-Successful builder results are validated for exact columns, order, and dtypes.
-Unexpected builder exceptions follow `summarize.failure_policy`: `record` keeps
-typed failure metadata for an interactive dashboard, while `error` is the
-fail-fast setting for validation and batch workflows.
+`processor.summarize.catalog` imports the applicable domain modules. It
+collects the declarations in a repeatable order and rejects duplicate IDs. The
+system validates the columns, column order, and data types of each successful
+builder result. The `summarize.failure_policy` setting controls unexpected
+builder exceptions. The `record` value keeps typed failure metadata for an
+interactive dashboard. The `error` value stops validation and batch workflows
+immediately.
 
 ### `DashboardPageDefinition` and `DashboardPage`
 
-Dashboard pages are registered with `@dashboard_page(...)` on the page class in
-`dashboard/pages/`. The decorator holds identity, navigation grouping, ordering,
-and the summary/prepared-data contract through `required_summary_ids`,
+Register a dashboard page with `@dashboard_page(...)` on its page class in
+`dashboard/pages/`. The decorator defines identity, navigation group, order,
+and the summary or prepared-data contract through `required_summary_ids`,
 `optional_summary_ids`, `prepared_data_mode`, and `required_prepared_tables`.
 
 `dashboard.page_base` is the small public facade. Lifecycle, declarations,
 diagnostics, feature composition, data access, and grouped navigation live in
 separate implementation modules.
 
-Page authors are expected to:
+Page authors must:
 
 - implement `build_page()` to declare selectors, features, sections, and layout
 - give selectors an option provider and default policy when their domain is dynamic
@@ -137,10 +142,9 @@ Page authors are expected to:
 - memoize chart-ready transformations with `self.query(...)`
 - keep section render methods to lookup/query/render
 
-Large controllers may keep their registered page module as a compatibility
-facade and compose page-local implementation mixins from a private `_<page>/`
-package. This convention, its constraints, and its distinction from
-`PageFeature` are documented in
+Large controllers can keep the registered page module as a compatibility
+facade. They can use page-local implementation mixins from a private `_<page>/`
+package. For the rules and the difference from `PageFeature`, see
 [Figures And Widgets](32-figures-and-widgets.md#sections-and-features).
 
 The framework now owns:
@@ -154,10 +158,10 @@ The framework now owns:
 - export selector metadata
 - export region metadata
 
-That means live refresh behavior and export behavior both derive from the same selector/section registration graph rather than from separate page metadata declarations.
+The same selector and section registration graph controls live refresh and
+export behavior. Separate page metadata does not control these behaviors.
 
-The shared helper layer under `dashboard/helpers/` is now part of that page
-authoring model:
+The page authoring model includes the shared helpers in `dashboard/helpers/`:
 
 - `category_helpers.py` centralizes selector domains, labels, and category completion
 - `geography_helpers.py` centralizes geography normalization, option discovery, and filters
@@ -165,22 +169,21 @@ authoring model:
 - `time_distance_helpers.py` centralizes repeated time-bin and distance-bin behavior
 - `comparison_helpers.py` centralizes percent-error formatting and base-run comparisons
 
-For page-local table shaping, `dashboard.data_access.RunTables` applies one
-fluent query to every run while preserving run labels. Pages should prefer its
+For page-local table changes, `dashboard.data_access.RunTables` applies one
+query to every run and keeps the run labels. Pages must use its
 `where`, `with_columns`, `group`, `select`, `sort`, `join`, `requiring`,
-`drop_empty`, and `map` operations over open-coded loops through
-run/dataframe pairs.
+`drop_empty`, and `map` operations when possible. Do not write equivalent loops
+through run and data frame pairs.
 
-The skim pages share their family-specific model/query service while exposing
-small summary and distribution features. This is the reference pattern for
-logic reusable within one page family but not broad enough for
-`dashboard/helpers/`.
+The skim pages use a model and query service for their page family. Each page
+provides small summary and distribution features. Use this pattern for logic
+that one page family shares. Put more general logic in `dashboard/helpers/`.
 
 ## Public Python APIs
 
-Import through these facades when extending or embedding the visualizer. Files
-not exported by a facade are implementation details unless a focused cookbook
-explicitly identifies them as an extension point.
+Import these facades when you extend or embed the visualizer. A file that a
+facade does not export is an implementation detail. A cookbook can identify an
+exception as an extension point.
 
 | Import surface | Public contract |
 |---|---|
@@ -198,25 +201,24 @@ The normalized config value objects exported alongside `Config` are
 `ExportHTMLSettings`, `ExportSelectorRequest`,
 `PrepareNonMotorizedDistanceSkimSettings`, `SegmentationDefinition`,
 `PreparedColumnSegmentationSource`, `CsvLookupSegmentationSource`, and
-`StudentTypeConfig`. They are read-only runtime contracts; user input still
-enters through YAML normalization rather than by manually assembling a
-`Config`.
+`StudentTypeConfig`. They are read-only runtime contracts. YAML normalization
+supplies user input. Do not assemble a `Config` manually.
 
 The workflow facade also exports `effective_processor_config()`,
 `run_entries_with_keys()`, `prepared_cache_root()`, `summary_cache_root()`,
-`prune_summary_runs()`, and `prune_summary_artifact()` for embedding code that
-needs the same identity and consumer-pruning behavior as `run.py`. The
+`prune_summary_runs()`, and `prune_summary_artifact()`. Embedding code can use
+them to get the same identity and removal behavior as `run.py`. The
 dashboard facade exports `DashboardPreparedRunProvider` and
 `DashboardSummarySeries`; the page-base facade exports the typed
 `RegisteredPageSelector`, `RegisteredPageSection`, and `SectionContent`
 declaration records.
 
-The page-facing `PageData`/`RunTables` API is documented in chapter 32, chart
-keywords in chapter 35, the `@summary` contract in chapter 23, and workflow
-arguments and artifacts in the subsystem sections above. Public code should
-pass an explicit `WorkflowPlan` when it needs behavior different from the
-loaded config; the plan records logical steps, collapsed runtime boundaries,
-dashboard mode, and refresh targets.
+Chapter 32 describes the page-facing `PageData` and `RunTables` API. Chapter 35
+describes chart keywords. Chapter 23 describes the `@summary` contract. The
+subsystem sections above describe workflow arguments and artifacts. Public code must pass
+an explicit `WorkflowPlan` when the required behavior differs from the loaded
+configuration. The plan records logical steps, runtime boundaries, dashboard
+mode, and refresh targets.
 
 ## Repository Map
 

@@ -1,7 +1,7 @@
 # 21 - Prepared Tables
 
-Prepared tables are the processor's canonical form of ActivitySim output. They
-hide raw file naming differences and expose stable fields for summaries and
+Prepared tables are the canonical form of ActivitySim output. They remove
+differences in raw file names. They supply stable fields to summaries and
 dashboard pages.
 
 ## Prepare Data Flow
@@ -45,7 +45,7 @@ with domain boundaries in `processor/prepare/enrichment/domains.py`.
 
 ## Prepared Table Names
 
-Runtime table names are defined in `processor.models.PreparedTableName`:
+`processor.models.PreparedTableName` defines the runtime table names:
 
 | Config/file table ID | `RunData`/summary-contract name | Meaning |
 |---|---|---|
@@ -59,14 +59,15 @@ Runtime table names are defined in `processor.models.PreparedTableName`:
 | `land_use` | `land_use` | Land use and geography lookup data. |
 | no file-map ID | `skim` | Optional `skim_matrix` support exposed as a special prepared requirement. |
 
-Use config/file IDs in `files`, `file_map`, and `prepared_table_map`. Use the
-runtime names in `RunData` access and `@summary(required_columns=...)`; for
-example, `run.per` and `required_columns={"per": ("person_type",)}`.
+Use configuration and file IDs in `files`, `file_map`, and
+`prepared_table_map`. Use runtime names to access `RunData` and in
+`@summary(required_columns=...)`. Examples are `run.per` and
+`required_columns={"per": ("person_type",)}`.
 
 ## Common Prepared Fields
 
-The exact schema can differ by model and optional inputs, but summaries commonly
-rely on:
+The exact schema can differ for each model and optional input. Summaries
+frequently use these fields:
 
 - canonical IDs: `household_id`, `person_id`, `tour_id`, `trip_id`
 - purpose and mode fields: `tour_purpose`, `trip_purpose`, `tour_mode`, `trip_mode`
@@ -76,48 +77,47 @@ rely on:
 - household/person aliases: `HHVEH`, `HHSIZE`, `AUTOSUFF`, `NUMBER_HH`
 - aggregation weight: `finalweight`
 
-Use the prepared field when it exists rather than probing raw names in a summary
+Use the prepared field when it exists. Do not search for raw names in a summary
 or page.
 
-This list is orientation, not a guarantee that every table has every field.
-For a specific summary, the generated catalog in chapter 24 is the authoritative
-list of required prepared columns. At runtime, `@summary` prerequisites and
-prepared-table availability metadata determine whether a calculation can run.
+This list is an introduction. It does not mean that each table has each field.
+For a specified summary, the generated catalog in chapter 24 gives the required
+prepared columns. At runtime, `@summary` requirements and prepared-table
+availability metadata control whether a calculation can execute.
 
 ## Inspecting An Exact Prepared Schema
 
-There is intentionally no repository-wide dump of every column from one sample
-prepared cache. Raw model extensions and optional inputs make such a snapshot
-model-specific and quickly stale.
+The repository does not contain a list of all columns from one sample prepared
+cache. Raw model extensions and optional input make this list model-specific.
+Input changes can also make the list incorrect.
 
-For the cache you are actually using:
+For the applicable cache, do these steps:
 
-1. Read the run's `manifest.json` to find the prepared-table files and recorded
-   availability state.
-2. Inspect the Parquet or CSV schema for the relevant table.
+1. Read the run's `manifest.json`. Find the prepared-table files and the
+   recorded availability status.
+2. Examine the Parquet or CSV schema for the applicable table.
 3. Use `processor.models.RunData` names at runtime and the file/config names in
    [Prepared Table Names](#prepared-table-names).
 4. Use the generated [Summary Catalog](24-summary-catalog.md) to find the exact
    prepared columns required by each registered summary.
 
-Stable additions belong in the owning prepare enrichment module and should be
-covered by a prepare test. A row count or a column found only in one regional
-model output is evidence about that dataset, not part of the visualizer's
-portable contract.
+Add stable fields to the applicable prepare enrichment module. Add a prepare
+test for each field. A row count or column in only one regional model describes
+that data set. It is not part of the portable visualizer contract.
 
 ## Adding A Prepared Column
 
-For an end-to-end worked example, see
+For a complete example, see
 [Add A Column To An Existing Prepared Table](41-data-extension-cookbook.md#worked-example-add-a-column-to-an-existing-prepared-table).
 
-Use this path when many summaries/pages need the same derived field or when the
-field is part of canonical model-output normalization.
+Use this procedure when many summaries or pages require the same derived field.
+Also use it when the field is part of canonical model-output normalization.
 
 Checklist:
 
 1. Choose the owning enrichment module.
-2. Add the Polars expression or transformation in the appropriate stage.
-3. Keep missing source columns graceful when the input is optional.
+2. Add the Polars expression or transformation in the applicable stage.
+3. If the input is optional, keep the table usable when source columns are missing.
 4. Add final type/cast behavior if the field must be stable.
 5. Add or update tests that prepare a minimal run and assert the new column.
 6. If a summary depends on the column, add it to that summary's contract
@@ -133,12 +133,12 @@ if "source_column" in state.trips.columns:
     )
 ```
 
-Do not add page-only formatting columns to prepared tables. Prefer page helpers
-or summary output columns for presentation concerns.
+Do not add page formatting columns to prepared tables. Use page helpers or
+summary output columns for presentation.
 
 ## Using Prepared Tables As Inputs
 
-`prepared_table_map` lets a config bypass raw prepare for a run:
+Use `prepared_table_map` to omit raw prepare for a run:
 
 ```yaml
 runs:
@@ -151,11 +151,11 @@ runs:
       land_use: C:\prepared\land_use.parquet
 ```
 
-This path assumes the supplied tables already match the prepared contract.
+The supplied tables must agree with the prepared contract.
 
-Adding a new prepared table type is a larger change covering config, `RunData`,
-reader, availability, cache IO, pruning, and possibly segmentation. Follow the
-[complete worked example](41-data-extension-cookbook.md#worked-example-add-a-prepared-table).
+A new prepared table type changes the configuration, `RunData`, reader,
+availability, cache I/O, and pruning. It can also change segmentation. Follow
+the [complete example](41-data-extension-cookbook.md#worked-example-add-a-prepared-table).
 
 ## Related Chapters
 

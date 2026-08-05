@@ -1,6 +1,6 @@
 # 40 - Developer Workflows
 
-This chapter is for contributors changing code or documentation.
+Use this chapter when you change code or documentation.
 
 ## Codebase Map
 
@@ -54,7 +54,7 @@ activitysim_visualizer/
 
 ## Testing Guidance
 
-Use focused tests for the subsystem you changed:
+Execute focused tests for the subsystem that you changed:
 
 - prepare changes: minimal raw/prepared input tests and cache identity tests
 - skimjoin changes: config normalization, lookup behavior, reports
@@ -68,13 +68,13 @@ Common command:
 uv run --with pytest pytest --basetemp .pytest_tmp
 ```
 
-Run narrower tests while iterating when possible.
-The [Testing](46-testing.md) chapter documents the fast/full marker split and
-the required release-boundary commands.
+Execute smaller test groups during development when possible. The
+[Testing](46-testing.md) chapter describes the fast and full markers. It also
+gives the required release test commands.
 
 ## Generated Wiki Catalogs
 
-Regenerate catalogs after changing:
+Regenerate the catalogs after you change:
 
 - `@summary(...)` declarations and contracts
 - `processor/summarize/catalog.py`
@@ -87,12 +87,12 @@ Command:
 uv run python scripts/generate_wiki_catalogs.py
 ```
 
-Generated sections are marked with comments. Do not edit inside generated
-markers by hand.
+Comments identify generated sections. Do not manually edit text between the
+generated markers.
 
 ## Documentation Maintenance
 
-When behavior changes, update docs in the same change:
+When behavior changes, update the documentation in the same change:
 
 | Change | Wiki updates |
 |---|---|
@@ -110,8 +110,8 @@ When behavior changes, update docs in the same change:
 
 - The change follows the owning subsystem's existing patterns.
 - Config and cache behavior are explicit.
-- Missing optional inputs fail gracefully.
-- Summary/page requirements are declared where the runtime can see them.
+- Missing optional input gives a controlled result.
+- Declare summary and page requirements where the runtime can use them.
 - Tests cover the behavior rather than only the implementation detail.
 - Generated wiki catalogs are current.
 - The fast suite passes, and the `full_export` boundary passes when the change

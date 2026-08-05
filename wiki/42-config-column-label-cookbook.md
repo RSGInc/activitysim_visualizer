@@ -1,7 +1,8 @@
 # 42 - Config, Columns, And Labels
 
-This chapter shows how one YAML value travels through validation, typed config,
-cache identity, prepared data, and dashboard presentation.
+This chapter shows the complete path of one YAML value. The path includes
+validation, typed configuration, cache identity, prepared data, and dashboard
+presentation.
 
 ## First Decide Which Boundary Owns The Setting
 
@@ -12,13 +13,13 @@ cache identity, prepared data, and dashboard presentation.
 | labels, ordering, colors, or page appearance | `display` or `dashboard` | Presentation |
 | which workflow executes | `pipeline` | Runtime plan; include data effects in the owning signature too |
 
-Do not add a setting only to `Config`. A complete setting has validation,
-normalization, a typed field, cache/signature ownership, a consumer, an example,
-and tests.
+Do not add a setting only to `Config`. Add validation, normalization, a typed
+field, and cache signature ownership. Also add a consumer, an example, and
+tests.
 
 ## Worked Example: Add A New Config Item
 
-Suppose the dashboard needs a presentation-only switch:
+In this example, the dashboard requires a presentation-only control:
 
 ```yaml
 display:
@@ -62,12 +63,12 @@ class Config:
     show_zero_categories: bool
 ```
 
-Downstream code should read `config.show_zero_categories`, never the raw YAML
-mapping.
+Downstream code must read `config.show_zero_categories`. It must not read the
+raw YAML mapping.
 
 ### 3. Put It In The Correct Signature
 
-Because this switch changes only rendering, add it to
+This control changes only rendering. Add it to
 `presentation_signature_payload()` in `runtime/config/signatures.py`:
 
 ```python
@@ -77,32 +78,32 @@ return {
 }
 ```
 
-Do not add it to the prepare or summary signatures. That would cause expensive
-cache rebuilds for a display-only change.
+Do not add it to the prepare or summary signatures. If you add it, a display
+change causes unnecessary cache rebuilds.
 
 ### 4. Consume It At The Presentation Boundary
 
-For example, a shared category helper can choose whether to complete absent
-categories:
+For example, a shared category helper can add absent categories when the value
+is true:
 
 ```python
 if config.show_zero_categories:
     chart_data = complete_category_rows(chart_data, expected_categories)
 ```
 
-Prefer a shared helper if several pages need the setting. Keep one-off behavior
-on the owning page.
+Use a shared helper if several pages require the setting. Keep behavior for one
+page on that page.
 
 ### 5. Document And Test It
 
-Update `config.yaml` and chapter 13. Add tests for the default, explicit value,
-wrong type, signature ownership, and visible consumer behavior:
+Update `config.yaml` and chapter 13. Test the default, an explicit value, and an
+incorrect type. Also test signature ownership and visible consumer behavior.
 
-The snippets below use illustrative module-local helpers named
-`_write_config()` and `_raw_run()`. They are not repository-wide pytest
-fixtures: define the minimal helper in the owning test module, or adapt that
-module's existing config/run factory. Likewise, `extra_lines` and
-`column_lines` are example helper arguments rather than public config APIs.
+The examples below use module-local helpers named `_write_config()` and
+`_raw_run()`. These helpers are not repository-wide pytest fixtures. Define a
+small helper in the applicable test module, or use its existing configuration
+and run factory. `extra_lines` and `column_lines` are example helper arguments.
+They are not public configuration APIs.
 
 ```python
 def test_show_zero_categories_is_presentation_only(tmp_path):
@@ -118,8 +119,8 @@ def test_show_zero_categories_is_presentation_only(tmp_path):
 
 ## Worked Example: Wire A Configured Column Name Into Prepare
 
-Suppose different models call household area type `area_type`, `ATYPE`, or
-`area_class`. The prepared contract should expose one stable name:
+In this example, models use `area_type`, `ATYPE`, or `area_class` for household
+area type. The prepared contract must supply one stable name:
 `area_type`.
 
 ### 1. Add The Alias Setting
@@ -136,7 +137,7 @@ _ALIAS_COLUMN_DEFAULTS = {
 }
 ```
 
-`CANONICAL_COLUMN_KEYS` is derived from this mapping, so
+The loader gets `CANONICAL_COLUMN_KEYS` from this mapping. Thus,
 `columns.area_type` becomes valid automatically. Add the typed field to
 `Config`:
 
@@ -144,14 +145,14 @@ _ALIAS_COLUMN_DEFAULTS = {
 col_area_type: list[str]
 ```
 
-The user can now override precedence:
+The user can now change the order of preference:
 
 ```yaml
 columns:
   area_type: [area_class, ATYPE]
 ```
 
-The first available candidate wins.
+The loader uses the first available candidate.
 
 ### 2. Materialize The Canonical Column
 
@@ -167,13 +168,13 @@ def _canonicalize_households(hh: pl.DataFrame, config: Config) -> pl.DataFrame:
     )
 ```
 
-Keep the configured source candidates in config and the stable output name in
-prepare. Summary builders should require `hh.area_type`; they should never
-probe `ATYPE` or `area_class`.
+Keep configured source candidates in the configuration. Keep the stable output
+name in prepare. Summary builders must require `hh.area_type`. They must not
+search for `ATYPE` or `area_class`.
 
-Use `_materialize_preferred_column(...)` only when candidate selection needs
-extra rules, such as rejecting numeric purpose codes. Use `overwrite=True` only
-when prepare intentionally replaces an existing canonical column.
+Use `_materialize_preferred_column(...)` only when candidate selection requires
+more rules. One example is the rejection of numeric purpose codes. Use
+`overwrite=True` only when prepare must replace an existing canonical column.
 
 ### 3. Add Cache Identity
 
@@ -184,8 +185,8 @@ Add the candidate list to the `columns` mapping returned by
 "area_type": list(config.col_area_type),
 ```
 
-The summary signature currently incorporates the prepared column payload, so
-this also invalidates affected summary caches.
+The summary signature includes the prepared column payload. Thus, this change
+also invalidates applicable summary caches.
 
 ### 4. Test Precedence And Materialization
 
@@ -214,10 +215,10 @@ Also test the default candidate list and missing-source behavior.
 
 ## Worked Example: Add A Label Mapping And Use It On A Page
 
-Label mappings are presentation data. They do not change raw values used for
-filtering or summary grouping.
+Label mappings are presentation data. They do not change raw values for filters
+or summary groups.
 
-Suppose a summary contains `employment_status` values `0`, `1`, and `2`:
+In this example, a summary contains `employment_status` values `0`, `1`, and `2`:
 
 ```yaml
 display:
@@ -231,7 +232,7 @@ display:
 ```
 
 New category IDs do not require a schema change. `normalize_categories()` loads
-arbitrary category IDs into `config.dashboard_labels`.
+all category IDs into `config.dashboard_labels`.
 
 ### Selector With Display-To-Raw Mapping
 
@@ -257,9 +258,8 @@ def selected_employment_status_raw(self):
     return self._employment_status_by_label.get(self.employment_status.value)
 ```
 
-The widget shows `Full time`; the data filter still uses raw value `2`. This
-avoids corrupting joins, selector state, or summary contracts with display
-text.
+The widget shows `Full time`. The data filter continues to use raw value `2`.
+Thus, display text does not change joins, selector state, or summary contracts.
 
 ### Add A Label Column For A Figure
 
@@ -283,11 +283,10 @@ return self.plot.bar(
 )
 ```
 
-If many pages use the category, keep mapping mechanics in
+If many pages use the category, put mapping logic in
 `dashboard/helpers/category_helpers.py`. If the mapping changes canonical
-summary values rather than appearance, it belongs under
-`summarize.category_normalization` and must be applied by the owning summary
-logic.
+summary values, put it under `summarize.category_normalization`. The applicable
+summary logic must apply it.
 
 ### Test Raw And Display Behavior Separately
 
@@ -298,13 +297,13 @@ assert config.ordered_values(
 ) == ["0", "1", "2"]
 ```
 
-Add a page/helper test proving that selection of `Full time` filters raw `2`.
-This catches the most common label-wiring regression.
+Add a page or helper test. Verify that a `Full time` selection filters raw value
+`2`. This test identifies a common label connection error.
 
 ## Completion Checklist
 
 - Unknown keys and wrong types fail near the config boundary.
-- Raw YAML is normalized once and represented by a typed `Config` field.
+- Normalize raw YAML one time and represent it with a typed `Config` field.
 - The setting belongs to exactly the cache signatures it can affect.
 - Prepared code emits canonical names; summaries do not probe source aliases.
 - Dashboard filtering retains raw values and labels only at presentation time.

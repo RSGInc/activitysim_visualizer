@@ -1,10 +1,10 @@
 # 23 - Summary Functions
 
-Summary functions turn prepared `RunData` into dashboard-ready Polars
-`DataFrame`s. A summary's identity, prerequisites, output schema, cache name,
-and builder are declared together.
+Summary functions convert prepared `RunData` to Polars `DataFrame` objects for
+the dashboard. Declare the summary identity, requirements, output schema, cache
+name, and builder together.
 
-## Mental Model
+## Data flow
 
 ```text
 RunData + Config
@@ -15,20 +15,20 @@ RunData + Config
 ```
 
 Builders live under [`processor/summarize/summaries`](../processor/summarize/summaries).
-`processor.summarize.catalog` explicitly imports those owning modules and
-discovers their declarations. There is no separate summary-spec registry to
-edit.
+`processor.summarize.catalog` imports those modules and finds their
+declarations. Do not edit a separate summary specification registry. It does
+not exist.
 
 ## Summary Declaration
 
 Use `@summary(...)` from `processor.summarize`. The declaration provides:
 
-- the stable summary ID and optional cache filename
+- the stable summary ID and optional cache file name
 - an ordered Polars output schema
 - required prepared tables and columns
 - a typed empty result
 - strict result validation
-- whether the summary is built by default
+- default build status
 
 ```python
 import polars as pl
@@ -68,27 +68,27 @@ def trip_distance_by_mode(run: RunData, config: Config) -> pl.DataFrame:
     )
 ```
 
-Successful builders must return exactly the declared columns, in the declared
-order and with the declared dtypes. Missing declared inputs are handled before
-the builder runs and produce its typed empty result.
+A successful builder must return the declared columns in the declared order.
+Each column must have the declared data type. The workflow checks for missing
+declared input before it executes the builder. Missing input gives the typed empty
+result.
 
-Use `required_tables` only when the presence of an entire table or `skim` is
-enough to express the prerequisite. Use `required_columns` for ordinary table
-dependencies; it also implies that the named runtime table must exist. Table
-names here are `RunData` names (`hh`, `per`, `tours`, `trips`,
-`joint_participants`, `land_use`), not config IDs such as `households` or
-`persons`.
+Use `required_tables` only when a complete table or `skim` is enough to state
+the requirement. Use `required_columns` for standard table
+dependencies. It also requires the named runtime table. Use `RunData` table
+names here: `hh`, `per`, `tours`, `trips`, `joint_participants`, and
+`land_use`. Do not use configuration IDs such as `households` or `persons`.
 
 ## Weighting
 
-Builders aggregate `finalweight`; they do not branch on weighting mode. The
-summary workflow supplies the appropriate prepared data for weighted and
+Builders aggregate `finalweight`. They do not select a weighting mode. The
+summary workflow supplies the required prepared data for weighted and
 unweighted builds.
 
 ## Adding A Summary Function
 
-For a complete calculation, contract test, catalog, and page-wiring example,
-follow the [Summary Function Cookbook](44-summary-function-cookbook.md).
+For an example with a calculation, contract test, catalog, and page connection,
+use the [Summary Function Cookbook](44-summary-function-cookbook.md).
 
 1. Put the builder in the domain module that owns the calculation.
 2. Decorate it with `@summary(...)` and declare identity, ordered schema, and
@@ -100,50 +100,50 @@ follow the [Summary Function Cookbook](44-summary-function-cookbook.md).
    declared prerequisites cannot express.
 7. Add focused calculation and contract tests.
 8. Add the summary ID to a page's required or optional summaries when needed.
-9. Run `uv run python scripts/generate_wiki_catalogs.py`.
+9. Use `uv run python scripts/generate_wiki_catalogs.py`.
 
-The catalog import rejects duplicate IDs. Ordinary summarize workflows build
-every declaration with `build_by_default=True`; enabled page requirements do
-not narrow or expand that build set. `build_by_default=False` registers a
-contract without adding it to ordinary generated builds. In the current public
-workflow this is the external-table pattern: provide the table through
-`summary_table_map`. Merely listing a non-default ID in a page declaration does
-not cause its builder to run.
+The catalog import rejects duplicate IDs. Standard summarize workflows build
+each declaration that has `build_by_default=True`. Enabled page requirements
+do not change this build set. `build_by_default=False` registers a contract but
+does not add it to standard builds. Use this value for an external table in the
+public workflow. Supply the table through `summary_table_map`. A non-default ID
+in a page declaration does not start its builder.
 
 ## Summary CSV Boundary
 
-Summary caches are the dashboard input and their registered tables are already
-stored as CSV files under each run and weighting mode. Normal summarize runs
-write missing or stale cache tables unless `--skip-summary-cache-write` is used.
+Summary caches are the dashboard input. The visualizer stores their registered
+tables as CSV files for each run and weighting mode. Standard summarize workflows
+write missing or stale cache tables. Use `--skip-summary-cache-write` to prevent
+these writes.
 
-For a developer diagnostic, this command bypasses reusable summary caches,
-rebuilds the configured summaries, and forces the cache CSVs/manifests to be
-written:
+For a developer diagnostic, use this command to ignore reusable summary caches.
+The command rebuilds configured summaries and writes the cache CSV files and
+manifests:
 
 ```bash
 uv run activitysim-viz --config local_config.yaml --summarize --write-csvs
 ```
 
-It does not create a second export format or a separate calibration directory.
-`processor.summarize.csv_export.write_summary_csvs()` is the shared low-level
-writer used by cache storage. Dashboard pages load registered summaries through
-`self.data`; they do not open those CSVs directly.
+The command does not create a second export format or a separate calibration
+directory. Cache storage uses the shared
+`processor.summarize.csv_export.write_summary_csvs()` writer. Dashboard pages
+load registered summaries through `self.data`. They do not open the CSV files
+directly.
 
 To register a new dashboard-ready table produced outside the visualizer, use
 the [outside summary table recipe](41-data-extension-cookbook.md#worked-example-add-an-outside-summary-table).
 
 ## Segmentation
 
-Segmentation runs inside the summarize workflow and builds the same declarations
-for configured slices of the prepared data. Segment sources may be a prepared
-column or a CSV lookup. Dashboard visibility is controlled by
-`segment.dashboard`.
+Segmentation runs in the summarize workflow. It builds the same declarations
+for configured parts of the prepared data. A segment source can be a prepared
+column or a CSV lookup. `segment.dashboard` controls dashboard visibility.
 
 ## Summary Catalog
 
-The generated [24 - Summary Catalog](24-summary-catalog.md) lists every current
-declaration, output filename, builder, schema, and prerequisite. Regenerate it
-after summary declarations change.
+The generated [24 - Summary Catalog](24-summary-catalog.md) lists each current
+declaration, output file name, builder, schema, and requirement. Regenerate the
+catalog after you change a summary declaration.
 
 ## Related Chapters
 
