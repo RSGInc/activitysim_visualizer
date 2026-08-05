@@ -8,7 +8,7 @@ registered dashboard pages
   -> export payload
   -> serialized Panel nodes
   -> embedded CSS, Plotly, and runtime JS
-  -> one HTML file
+  -> one HTML file + diagnostics JSON sidecar
 ```
 
 ## When To Use Export
@@ -53,6 +53,15 @@ below `root`; an absolute path writes elsewhere. Change
 `pipeline.dashboard_mode` back to `live` when the same config should serve the
 dashboard instead.
 
+It also writes `artifacts/exports/dashboard.diagnostics.json`. The sidecar
+records export warnings and size/state analysis for developers; the HTML does
+not depend on the sidecar when it is opened or shared.
+
+For a one-off override, use `--export-html [PATH]`. With no path, the CLI uses
+the configured output path and then falls back to
+`<root>/exported_dashboard.html`. The dashboard step must still be selected;
+add `--dashboard` when it is absent from `pipeline.steps`.
+
 Export begins with the pages resolved by `dashboard.live.pages`. The
 `dashboard.export.pages` mapping modifies matching page selectors and parts; it
 does not select the included page set. Use a page override with `enabled: false`,
@@ -71,6 +80,11 @@ The export runtime supports a deliberately small set of rendered objects:
 - Markdown/HTML panes
 - registered regions
 - registered selector widgets
+
+Viewers can collapse and restore the export sidebar with the header button;
+Plotly charts resize after the layout changes. Long run names use compact,
+unique tab and legend labels while their full text remains available in tab
+tooltips and chart hovers.
 
 The Python-to-JavaScript contract lives in `dashboard/export/types.py`, and the
 browser runtime lives under `dashboard/export/js_runtime/`.
@@ -169,6 +183,23 @@ exported safely.
 | `dashboard/export/js_runtime/` | Readable browser runtime source. |
 | `dashboard/export/assets/export_runtime.js` | Built browser runtime embedded in exports. |
 
+## Export Write And Python APIs
+
+`dashboard.export` exposes two entry points:
+
+| API | Behavior |
+|---|---|
+| `build_export_html_document(runs, config, summary_runs=None) -> str` | Build, serialize, and validate a complete HTML document in memory. Useful for tests and callers that need the string. |
+| `write_export_html_document(output_path, runs, config, summary_runs=None) -> Path` | Build the payload, stream JSON into a temporary HTML file, write the diagnostics sidecar through a temporary file, and replace each destination only after that file is complete. This is the normal workflow path. |
+
+Payload construction sanitizes NumPy/Pandas values before JSON encoding;
+non-finite numeric values become JSON `null`, timestamps become ISO strings,
+and closing script tags are escaped. The writer streams the JSON rather than
+materializing a second payload string or final HTML string, which keeps peak
+memory lower for large selector-state exports. A serialization, shell, write,
+or finalization failure raises an `ExportBuildError` naming the failed phase
+and cleans up temporary files.
+
 ## Changing Export Runtime Behavior
 
 Checklist:
@@ -188,9 +219,11 @@ Checklist:
 
 1. Open the exported HTML in a browser.
 2. Open developer tools and check the console.
-3. Look for `ExportRuntimeError` messages.
-4. Try `?debug_export=1` in the URL.
-5. Compare live mode to export mode with the same config and summary caches.
+3. Inspect the adjacent `<stem>.diagnostics.json` file for build warnings and
+   size/state analysis.
+4. Look for `ExportRuntimeError` messages.
+5. Try `?debug_export=1` in the URL.
+6. Compare live mode to export mode with the same config and summary caches.
 
 ## Related Chapters
 

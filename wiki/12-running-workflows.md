@@ -137,8 +137,9 @@ For two runs labeled `Base` and `Build`, the normal layout is:
 ```text
 regional_comparison/
   base/
-    manifest.json
+    manifest.json                 # summary-bundle manifest
     prepared_tables/
+      manifest.json               # final prepared/skimjoin identity
       households.parquet
       persons.parquet
       tours.parquet
@@ -150,14 +151,44 @@ regional_comparison/
       unweighted/
         <summary>.csv
   build/
-    manifest.json
     prepared_tables/
+      manifest.json
     summary_tables/
+    manifest.json
 ```
 
-When skimjoin is enabled, `base_prepared_tables/` preserves the prepared input
-before skim enrichment. The enriched tables remain in `prepared_tables/` so
-existing summary and dashboard consumers continue to use the same final path.
+The run-level `manifest.json` belongs to the summary bundle. Each prepared
+cache has its own manifest inside its table directory. A prepare-only workflow
+therefore writes `prepared_tables/manifest.json` but does not create the
+run-level summary manifest.
+
+When skimjoin is enabled, `base_prepared_tables/` contains a second prepared
+manifest and the canonical tables before skim enrichment. The enriched tables,
+skimjoin reports, and optional hypothetical sidecars remain under
+`prepared_tables/`, so summary and dashboard consumers continue to use the
+same final path:
+
+```text
+base/
+  base_prepared_tables/
+    manifest.json
+    trips.parquet
+    tours.parquet
+    ...
+  prepared_tables/
+    manifest.json
+    trips.parquet
+    tours.parquet
+    trip_hypothetical_skims.parquet   # only when enabled and populated
+    tour_hypothetical_skims.parquet   # only when enabled and populated
+    skimjoin/
+      config_normalized.yaml
+      <QA reports>.csv
+```
+
+Segmented summary CSVs are nested below
+`summary_tables/<weighting>/segments/<segmentation-type>/<segment-id>/` and
+are described by the run-level summary manifest.
 
 The run-key directory is a filesystem-safe lowercase slug of the run label.
 For example, `Build Scenario` becomes `build-scenario`. Colliding labels receive
@@ -183,15 +214,60 @@ preserving prepared and skimjoined data, use `refresh: [summarize]`.
 Presentation-only changes such as labels, colors, or enabled pages normally do
 not require cache rebuilding.
 
+The refresh targets are stage-aware:
+
+| Refresh target | Reused | Rebuilt when enabled |
+|---|---|---|
+| `prepare` | nothing upstream of prepare | base prepared data, skimjoin output, summaries |
+| `skimjoin` | `base_prepared_tables` | enriched `prepared_tables`, summaries |
+| `summarize` | final `prepared_tables` | stale/default summaries and segmented summaries |
+
+Normal reuse is also content-aware. Prepared manifests record resolved raw
+input identities, including path, size, and modification time, plus the
+prepare/skimjoin config identity and skim input identities. The summary
+manifest records its upstream prepared-manifest identity, summary config, and
+per-summary declaration digest. Consequently, a changed raw file invalidates
+prepare and downstream output, a changed skim input can rebuild only skimjoin
+and downstream output, and a changed summary declaration can rebuild only the
+affected summary tables while reusing compatible tables in the bundle.
+
 Use `--explain-cache` to print the per-run reuse/rebuild decisions and exit
-without executing the pipeline.
+without loading tables, deleting caches, or writing artifacts. The report shows
+`REUSE`, `REBUILD`, `RUN`, or `DISABLED` for prepare, skimjoin, summarize, and
+dashboard, with the cache-validation reason when available.
 
 ## CLI Overrides
 
-CLI step, refresh, export-path, and port flags remain available for developers
-and troubleshooting. They override the configured workflow for that one
-invocation. Users should normally change the YAML and continue running the same
-command so the intended workflow remains reproducible.
+CLI flags override the configured workflow for one invocation. Users should
+normally change YAML so the intended workflow remains reproducible.
+
+| Flag | Behavior |
+|---|---|
+| `--config PATH`, `-c PATH` | Load the named main config. The default is `config.yaml` next to `run.py`. |
+| `--run DIR LABEL` | Replace configured `runs` with one CLI run. Repeat the flag for multiple runs. |
+| `--run-skim PATH ...` | Supply one legacy prepare distance-skim path per `--run`, in order. Use `null` or an empty string to inherit `prepare.distance_skim.file`. |
+| `--prepare` | Select the coarse prepare boundary for this invocation. |
+| `--summarize` | Select the coarse summarize boundary for this invocation. |
+| `--dashboard` | Select the dashboard boundary and force live mode unless `--export-html` is also present. |
+| `--prepare-only` | Select only prepare; it cannot be combined with the three explicit step flags. |
+| `--write-csvs` | Bypass reusable summary tables and force summary CSV/manifest writes; requires summarize. |
+| `--from-csvs [CACHE_DIR ...]` | Run dashboard-only and load completed summary-cache directories explicitly. These are cache bundles with manifests, not loose CSV files. |
+| `--skip-summary-cache-write` | Build summaries in memory without writing missing or stale summary cache entries; requires summarize. |
+| `--refresh-prepared-cache` | Force prepared data and all affected downstream output to rebuild for selected runs. |
+| `--refresh-summary-cache` | Preserve prepared directories and force summary output to rebuild. |
+| `--refresh-caches` | Force both prepared and summary cache layers to rebuild. |
+| `--export-html [PATH]` | Use export mode for a selected dashboard step. An omitted path uses `dashboard.export.output_path`, then `<root>/exported_dashboard.html`. |
+| `--port PORT` | Live-server port; default `5006`. |
+| `--no-show` | Start the live server without opening a browser. |
+| `--explain-cache` | Print the cache plan and exit without executing it. |
+
+If any of `--prepare`, `--summarize`, or `--dashboard` is present, those flags
+replace `pipeline.steps` with the selected coarse boundaries. They do not
+implicitly enable the logical `skimjoin` or `segment` steps. `--from-csvs`
+cannot be combined with processor steps or `--write-csvs`; `--write-csvs` and
+`--skip-summary-cache-write` require summarize. Refresh flags require the
+corresponding processor boundary. If the config omits dashboard, pair
+`--export-html` with `--dashboard` to select it.
 
 ## Related Chapters
 

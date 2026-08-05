@@ -61,6 +61,33 @@ Sort ordered data in the query. For categorical bars, pass
 `category_order=[...]` when the configured display order matters or missing
 categories must keep a stable axis position.
 
+### Keyword Reference
+
+All figure builders accept `x`, `y`, `title`, `x_title`, `y_title`, and
+`height`. Additional chart-specific keywords are:
+
+| Chart | Keywords |
+|---|---|
+| `bar` | `barmode="group"`, `share_y=None`, `value_mode="dashboard"`, `category_order=None`, `show_legend=None` |
+| `line` | `value_mode="dashboard"` |
+| `density` | `value_mode="dashboard"`, `x_range=None`, `category_order=None`, `tick_values=None`, `tick_text=None`, `hover_x_title=None` |
+| `scatter` | `drop_zero_y=False`, `fit_overlays=None`, `fit_annotation="annotation"`, `one_to_one=False`, `legend_on_right=False` |
+
+`self.plot.scatter(...)` additionally accepts `panel_aspect_ratio`; this sizes
+the returned Panel pane and is not passed to the Plotly figure builder.
+
+For fitted scatterplots, `fit_overlays` is another `RunTables` or iterable of
+run/frame pairs. Each fit frame must contain the same `x` and `y` columns used
+by the scatter and may contain the column named by `fit_annotation`. That text
+is shown when the fitted line is hovered. `one_to_one=True` adds a dashed 1:1
+line, gives both axes the same range, and locks their scale. The validation
+pages use this API for per-run equations, R-squared values, and sample sizes.
+
+Run labels are presentation-safe without changing their underlying identity.
+Long labels are shortened to unique legend/tab labels, while Plotly hovers and
+exported tab tooltips retain the full label. Scatter point and fit hovers also
+include the owning run name.
+
 ## Count and share behavior
 
 `value_mode` has three values:
@@ -129,6 +156,22 @@ use `self.plot.kpi(...)`, which shares the same run context as charts. Selector
 rows, missing-data cards, legends, and other layout helpers live in
 `dashboard.rendering.layout`; numeric and column formatting lives in
 `dashboard.rendering.tables`.
+
+The `dashboard.rendering` facade exports these non-plot helpers:
+
+| API | Purpose |
+|---|---|
+| `data_table()`, `to_pandas()` | Render run-aware tables or convert supported Polars/Pandas input at the presentation boundary. |
+| `format_numeric()`, `format_numeric_frame()` | Apply display-only numeric precision. |
+| `drop_index_columns()`, `column_titles()` | Remove serialized index artifacts and create human-readable column titles. |
+| `standardize_keys()` | Normalize a table iterable to common key/value column names. |
+| `selector_row()`, `control_row()`, `control_row_spacer()` | Build consistent page control layouts. |
+| `data_unavailable_card()` | Render the standard missing-data diagnostic card. |
+| `run_legend_entries()`, `run_legend_panes()` | Build run/color legend metadata or panes. |
+
+`column_title_metadata()` is available from
+`dashboard.rendering.tables` for serializer-aware title metadata, but is not
+part of the package-level facade.
 
 ## Testing charts
 

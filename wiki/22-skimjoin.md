@@ -77,6 +77,32 @@ Set `skimjoin.create_hypothetical_skim_tables: true` (globally or in a run
 override) when the configured lookups should also produce hypothetical skim
 sidecar tables. This is opt-in because it adds output work and artifacts.
 
+## Standalone Skimjoin CLI
+
+The integrated pipeline is the normal visualizer path. A standalone CLI is
+also available for inspecting and validating a skimjoin config or producing
+annotated tables without running the full visualizer:
+
+```bash
+uv run python -m processor.skimjoin.cli COMMAND --config skimjoin.yaml
+```
+
+| Command | Additional flags | Output |
+|---|---|---|
+| `inventory` | `--preview` | Writes `skim_inventory.csv` and `inventory_debug.log` under `project.output_dir`. Preview also writes trip/tour column inventories and ActivitySim value counts when the configured tables are available. |
+| `validate` | none | Strictly validates config, inventory, and configured ActivitySim tables; writes `config_normalized.yaml` and `validation_report.txt`. Returns exit code 1 and writes a failure report when validation fails. |
+| `annotate-trips` | `--out PATH`, `--preview` | Writes annotated trips plus validation, lookup-summary, and missing-lookup artifacts. The default table is `<output_dir>/trips_with_skims.parquet`. |
+| `annotate-tours` | `--out PATH`, `--preview` | Writes annotated tours, `tour_aggregation_summary.csv`, and `missing_lookup_report.csv`. The default table is `<output_dir>/tours_with_skims.parquet`. |
+| `run` | `--out-trips PATH`, `--out-tours PATH`, `--preview` | Runs both annotations and writes their validation/QA reports. Defaults to the two filenames above. |
+
+`--config` is required for every command. Output flags are optional only when
+`project.output_dir` is configured. Standalone table inputs come from
+`activitysim.trips_table` and `activitysim.tours_table`, with the legacy
+`project.trips_table`/`project.tours_table` fallback described in chapter 25.
+Input and output tables must be CSV or Parquet. `--preview` on annotation
+commands adds a compact output-column inventory; it does not limit rows or
+make the command a dry run.
+
 ## Debugging Skimjoin
 
 Start with the skimjoin artifacts on the prepared run:

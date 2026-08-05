@@ -77,6 +77,65 @@ def render_mode_chart(self):
     return self.plot.bar(chart_data, x="trip_mode", y="trip_count")
 ```
 
+The page-facing data API is:
+
+| API | Result |
+|---|---|
+| `self.data.summary(id, weighting=None, columns=(), required=None)` | One summary across usable runs. `columns` performs a schema compatibility check. |
+| `self.data.summaries(*ids, columns=None, required=None)` | A dictionary of summary ID to `RunTables`. |
+| `self.data.prepared(table, columns=(), weighting_mode=None)` | One declared prepared table across loaded runs. |
+| `self.data.prepared_runs(weighting_mode=None)` | Specialized `RunData` escape hatch for features that require matrices or other non-table state. |
+| `self.data.summary_series(id, weighting=None)` | Specialized skim-summary view that retains summary-series metadata. |
+
+`RunTables` is iterable and indexable as `(run_label, DataFrame)` pairs. Its
+public fluent/query surface is:
+
+| API | Behavior |
+|---|---|
+| `.where(column=value, ...)` | Equality filter; list, tuple, set, or frozenset values use membership. |
+| `.with_columns(*exprs)` / `.select(*exprs)` / `.sort(*by)` | Apply the corresponding Polars operation to every run. |
+| `.group(by, *aggs, **named_aggs)` | Group and aggregate every run. |
+| `.join(other, on=..., how="left", coalesce=None)` | Join matching run labels and merge availability issues/source IDs. |
+| `.map(transform)` | Apply a DataFrame-to-DataFrame transform to every run. |
+| `.requiring(*columns)` | Keep frames containing all named columns. Prefer the lookup `columns=` check when exclusions should produce schema diagnostics. |
+| `.drop_empty()` | Remove frames made empty by a previous operation. |
+| `.values(column)` | Distinct non-null values in first-seen run order. |
+| `.scalar(column, default=None)` | First value for each usable run. |
+| `.to_list()` | Materialize tuples for an external API that cannot consume `RunTables`. |
+| `.available`, `.partial`, `.issues`, `.source_ids` | Availability and provenance metadata retained through fluent operations. |
+
+## Calculation Notes
+
+Calculation notes are expandable, dependency-free HTML details displayed
+beneath annotated charts and tables. Users can hide all notes with:
+
+```yaml
+dashboard:
+  include_notes: false
+```
+
+Content lives in `dashboard/calculation_notes.yaml`. The top-level `methods`
+mapping contains reusable method explanations; `notes` contains stable note
+IDs. Every note requires `summary`, `method`, and a non-empty `sources` list,
+and may add `label`, `method_text`, `formula`, `source_filters`, and grouped
+`details`. Loading validates unknown fields and method references.
+
+Page authors attach a note to a registered selector-driven section with:
+
+```python
+body = self.section(
+    "comparison",
+    selectors=("facility_type",),
+    render=self.render_comparison,
+)
+return self.noted_section("traffic.observed_model_fit", body)
+```
+
+Use `self.noted_view(note_id, view)` for an individual plot or table that is
+not itself the registered section container. `self.section_note(...)` is the
+lower-level helper and rejects unregistered sections. Notes use the same page
+layout in live mode and HTML export.
+
 ## Selectors
 
 Declare a normal dropdown with its option domain in one place:

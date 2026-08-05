@@ -34,19 +34,23 @@ run.py
   -> resolve_effective_plan() from CLI overrides + config.pipeline defaults
   -> zero or more runtime steps:
        A. run_prepare_workflow()
-          -> processor.prepare.cache.load_prepared_run_cache()
+          -> inspect/load the final prepared cache
+          -> when skimjoin is enabled, inspect/load the base prepared cache separately
           -> processor.prepare.reader.read_run()
           -> processor.prepare.enrichment.pipeline.prepare_data()
+          -> processor.skimjoin.pipeline.apply_skimjoin() when selected
           -> processor.prepare.cache.write_prepared_run_cache()
        B. run_summary_workflow()
-          -> processor.summarize.cache.load_summary_run_cache()
+          -> inspect reusable/stale tables in the summary bundle
           -> run_prepare_workflow() on summary-cache miss
           -> processor.summarize.builder.build_mode_summaries_with_metadata()
-          -> processor.summarize.cache.write_summary_run_cache()
+          -> merge reusable and rebuilt tables
+          -> processor.summarize.cache.write_summary_run_bundle()
        C. load_summary_runs_from_cache() for dashboard-only cache runs
-          -> processor.summarize.cache.load_summary_run_cache()
-       D. dashboard.app.build_dashboard()
-       E. dashboard.export.html.build_export_html_document()
+          -> processor.summarize.cache.load_summary_run_bundle()
+       D. run_dashboard_workflow()
+          -> dashboard.app.build_dashboard() and Panel serve for live mode
+          -> dashboard.export.write_export_html_document() for export mode
 ```
 
 `WorkflowPlan` is the single resolved execution plan passed into these
@@ -85,8 +89,8 @@ logical step names are:
 
 - `prepare`
 - `skimjoin`
-- `summarize`
 - `segment`
+- `summarize`
 - `dashboard`
 
 The runtime still executes three coarse workflow boundaries (`prepare`,
@@ -172,37 +176,86 @@ small summary and distribution features. This is the reference pattern for
 logic reusable within one page family but not broad enough for
 `dashboard/helpers/`.
 
+## Public Python APIs
+
+Import through these facades when extending or embedding the visualizer. Files
+not exported by a facade are implementation details unless a focused cookbook
+explicitly identifies them as an extension point.
+
+| Import surface | Public contract |
+|---|---|
+| `runtime.config` | `Config`, `load_config_from_yaml()`, `config_for_run()`, `resolve_run_skimjoin_settings()`, normalized export/pipeline/prepare/segmentation setting types, and weighting registry types. `Config.from_yaml()` is the equivalent class entry point. |
+| `runtime.workflows` | Config/run resolution; prepared and summary cache roots/loaders; `run_prepare_workflow()`, `run_summary_workflow()`, and `run_dashboard_workflow()`; consumer pruning; `WorkflowPlan`, `PreparedRunsArtifact`, `SummaryRunsArtifact`, and `SummaryCacheInspection`. Workflow functions are keyword-oriented and return artifacts rather than hidden module state. |
+| `processor` | `RunData`, the canonical prepared-run data contract. |
+| `processor.summarize` | `summary`, the declaration decorator for registered summary builders. |
+| `dashboard` | `DashboardPage`, `dashboard_page`, `DashboardState`, `PageData`, `RunTables`, and prepared/summary provider types used by page and embedding code. |
+| `dashboard.page_base` | `GroupedDashboardPage`, `PageFeature`, selector/section declaration types, and `PAGE_SELECTOR_STYLESHEET`, in addition to `DashboardPage`. |
+| `dashboard.rendering` | `RenderContext`, `FigureBuilder`, `Plotter`, table/formatting helpers, selector/control rows, legends, and the standard unavailable card. |
+| `dashboard.export` | `build_export_html_document()` for an in-memory document and `write_export_html_document()` for the streamed file/diagnostics workflow. |
+
+The normalized config value objects exported alongside `Config` are
+`CategorySpec`, `PipelineSettings`, `ExportDashboardSettings`,
+`ExportHTMLSettings`, `ExportSelectorRequest`,
+`PrepareNonMotorizedDistanceSkimSettings`, `SegmentationDefinition`,
+`PreparedColumnSegmentationSource`, `CsvLookupSegmentationSource`, and
+`StudentTypeConfig`. They are read-only runtime contracts; user input still
+enters through YAML normalization rather than by manually assembling a
+`Config`.
+
+The workflow facade also exports `effective_processor_config()`,
+`run_entries_with_keys()`, `prepared_cache_root()`, `summary_cache_root()`,
+`prune_summary_runs()`, and `prune_summary_artifact()` for embedding code that
+needs the same identity and consumer-pruning behavior as `run.py`. The
+dashboard facade exports `DashboardPreparedRunProvider` and
+`DashboardSummarySeries`; the page-base facade exports the typed
+`RegisteredPageSelector`, `RegisteredPageSection`, and `SectionContent`
+declaration records.
+
+The page-facing `PageData`/`RunTables` API is documented in chapter 32, chart
+keywords in chapter 35, the `@summary` contract in chapter 23, and workflow
+arguments and artifacts in the subsystem sections above. Public code should
+pass an explicit `WorkflowPlan` when it needs behavior different from the
+loaded config; the plan records logical steps, collapsed runtime boundaries,
+dashboard mode, and refresh targets.
+
 ## Repository Map
 
 ```text
 activitysim_visualizer/
 |-- run.py
-|-- runtime/
-|   |-- workflows/
 |-- config.yaml
 |-- runtime/
-|   `-- config/
+|   |-- config/                 # canonical schema, normalizers, models, signatures
+|   |-- workflows/              # prepare/summarize/dashboard orchestration and artifacts
+|   |-- logging.py
+|   `-- weighting.py
 |-- processor/
+|   |-- analysis_units.py
+|   |-- cache_identity.py
+|   |-- cache_infra.py
 |   |-- models.py
+|   |-- segmentation.py
 |   |-- prepare/
-|   |   |-- __init__.py
 |   |   |-- availability.py
 |   |   |-- cache.py
 |   |   |-- enrichment/
-|   |   |   |-- __init__.py
 |   |   |   |-- canonicalize.py
 |   |   |   |-- columns.py
 |   |   |   |-- domains.py
 |   |   |   |-- finalize.py
 |   |   |   |-- households_persons.py
+|   |   |   |-- non_motorized_distance.py
 |   |   |   |-- pipeline.py
+|   |   |   |-- student_enrollment.py
+|   |   |   |-- time_periods.py
 |   |   |   |-- tours.py
 |   |   |   |-- trips.py
-|   |   |   |-- types.py
 |   |   |   |-- weights.py
 |   |   |   `-- zones.py
 |   |   |-- reader.py
+|   |   |-- validation.py
 |   |   `-- writer.py
+|   |-- skimjoin/               # config, inventory, annotation, stores, QA reports, CLI
 |   `-- summarize/
 |       |-- builder.py
 |       |-- cache.py
@@ -211,25 +264,20 @@ activitysim_visualizer/
 |       |-- catalog.py
 |       |-- contracts.py
 |       |-- csv_export.py
+|       |-- external.py
 |       |-- schema.py
+|       |-- validation_derived.py
 |       `-- summaries/
-|           |-- daily_travel_activity.py
-|           |-- daily_travel_escort_counts.py
-|           |-- daily_travel_escort_distributions.py
-|           |-- demographics.py
-|           |-- joint_travel.py
-|           |-- long_term_person.py
-|           |-- long_term_vehicle.py
-|           |-- long_term_geography.py
-|           |-- long_term_distance.py
-|           |-- tour.py
-|           |-- trip.py
-|           `-- validation.py
+|           `-- <domain summary modules>
 |-- dashboard/
 |   |-- app.py
+|   |-- calculation_notes.py / calculation_notes.yaml
+|   |-- data_access.py
+|   |-- helpers/
 |   |-- rendering/
 |   |   |-- context.py
 |   |   |-- figures.py
+|   |   |-- labels.py
 |   |   |-- plotter.py
 |   |   |-- layout.py
 |   |   `-- tables.py
@@ -242,6 +290,7 @@ activitysim_visualizer/
 |   |   |-- traversal.py
 |   |   |-- runtime_assets.py
 |   |   |-- types.py
+|   |   |-- js_runtime/
 |   |   `-- assets/
 |   |-- page_base.py
 |   |-- page_declarations.py
@@ -253,6 +302,10 @@ activitysim_visualizer/
 |   |-- page_registry.py
 |   |-- state.py
 |   `-- pages/
+|-- scripts/
+|   |-- generate_wiki_catalogs.py
+|   `-- generate_validation_demo_fixtures.py
+|-- wiki/
 `-- tests/
 ```
 

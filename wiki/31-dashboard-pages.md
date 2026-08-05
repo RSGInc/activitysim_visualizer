@@ -97,6 +97,31 @@ pages. Page render code remains responsible for the fallback. Standalone HTML
 export does not load prepared tables; see chapter 34 for section-level export
 rules.
 
+## Availability And Validation Features
+
+Page selectors are data-aware. Option providers enumerate values present in
+usable runs, and the page lifecycle repairs a selection when an upstream choice
+makes it invalid. A selector should not offer a value whose dependent section
+would be empty merely because that value exists in a hard-coded domain.
+
+When no usable run remains, pages render the standard data-unavailable card for
+the affected feature. Required data can make the page's primary workflow
+unavailable; missing optional data replaces only its independent feature. Set
+`display.missing_data_display: blank` to suppress these cards globally.
+
+The validation group currently provides:
+
+| Page | Current behavior |
+|---|---|
+| Traffic Validation | Observed-versus-modeled count-location fit, traffic volume summaries, top modeled count locations, link tables, and screenline flow comparison. Count-location diagnostics report location count, RMSE, RMSPE, and R-squared by facility group. Scatterplots include a 1:1 line; fitted equations, R-squared, and sample size appear on fit-line hover. Screenlines can be filtered by time period and facility type before a per-run ordinary-least-squares fit is calculated. RMSPE is blank for a group containing a zero observed count. |
+| Transit Validation | Boardings by operator/technology and transfer rates by operator, technology, and access mode, with calculation notes and unavailable states when the supplied contracts cannot be used. |
+| VMT Validation | Overview comparisons plus selector-driven personal-auto and non-motorized VMT. Optional outside tables add external travel/VMT, commercial travel/VMT, and bicycle facility summaries; each optional feature gets its own unavailable state. |
+| Regional Validation | Optional district or county observed flow matrices, modeled `commuting_flows`, and aligned heatmaps for modeled, observed, difference, percent difference, or absolute percent difference. Totals can be included or excluded. Only flow types backed by available inputs appear in the selector. |
+
+Expandable calculation notes beneath these outputs identify source summary IDs,
+filters, formulas, and aggregation details. They are enabled by default and can
+be hidden with `dashboard.include_notes: false`.
+
 ## Generated Page Catalog
 
 The catalog below is generated from the dashboard page registry. Regenerate it

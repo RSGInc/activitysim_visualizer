@@ -7,8 +7,9 @@ Use this chapter when a run, cache, page, or export is not behaving as expected.
 1. Confirm the config path you ran.
 2. Check the selected pipeline steps and dashboard mode in logs.
 3. Check whether the issue appears in prepare, summarize, dashboard, or export.
-4. Inspect `<root>/<run-key>/manifest.json` for the affected run (see the
-   [cache layout](12-running-workflows.md#artifact-and-cache-paths)).
+4. Inspect `<root>/<run-key>/manifest.json` for summary state and
+   `<root>/<run-key>/prepared_tables/manifest.json` for final prepared/skimjoin
+   state (see the [cache layout](12-running-workflows.md#artifact-and-cache-paths)).
 5. Run with `--explain-cache` to inspect reuse and rebuild decisions. If a
    forced rebuild is needed, list only the affected stage in `pipeline.refresh`.
 
@@ -17,7 +18,7 @@ Use this chapter when a run, cache, page, or export is not behaving as expected.
 | Symptom | Likely causes | First checks |
 |---|---|---|
 | Run missing from dashboard | Missing summary cache, label mismatch, config run omitted | `runs`, cache directories, log run keys |
-| Summary cache rebuilds unexpectedly | Input fingerprint changed, config digest changed, summary contract changed | the run manifest's summary-cache entries |
+| Summary cache rebuilds unexpectedly | Input fingerprint changed, upstream prepared identity changed, summary config changed, summary declaration changed | run-level summary manifest and `--explain-cache` |
 | Page says data unavailable | Required summary missing, optional raw input absent, prepared column missing | page catalog and summary catalog |
 | Counts look wrong | Weighting mode, sample rate, explicit weight columns | `summarize.weighting_modes`, prepared `finalweight` |
 | Geography options missing | Geography disabled, land-use columns missing, aggregation config wrong | `zones`, `summarize.geography` |
@@ -46,7 +47,11 @@ uv run activitysim-viz --config local_config.yaml --refresh-caches
 ```
 
 If only dashboard presentation changed, a refresh usually should not be needed.
-If raw inputs or prepare config changed, refresh both caches.
+Raw-file, skim-file, and relevant config identities are checked automatically;
+use a manual refresh only when deliberately overriding a valid cache decision.
+Prefer `pipeline.refresh` for reproducible runs. A prepare refresh necessarily
+invalidates skimjoin and summary output; a skimjoin refresh preserves
+`base_prepared_tables`; a summary refresh preserves final prepared data.
 
 ## Missing Page Data
 
@@ -70,8 +75,9 @@ Suppose Trip Mode opens but shows the standard unavailable card:
 3. Open `<root>/<run-key>/manifest.json` and inspect the summary entry. If the
    summary is `unavailable`, read its recorded reason before rebuilding
    anything.
-4. If a required prepared column is missing, inspect the same manifest's
-   prepared-cache entry and the canonical column settings in `columns`.
+4. If a required prepared column is missing, inspect
+   `<root>/<run-key>/prepared_tables/manifest.json`, the table schema, and the
+   canonical column settings in `columns`.
 5. If the contract recently changed, rebuild the configured summarize step
    with `pipeline.refresh: [summarize]`.
 6. If the summary is present and valid, confirm the page's `columns=` request
@@ -109,7 +115,8 @@ If live mode works but export does not:
    `self.selector(...)`.
 3. Confirm affected content is registered with `self.section(...)`.
 4. Check browser console errors.
-5. Try `?debug_export=1`.
+5. Inspect the adjacent `<export-stem>.diagnostics.json` sidecar.
+6. Try `?debug_export=1`.
 
 Export cannot reproduce arbitrary Python callbacks. It can only switch among
 serialized states and registered selector variants.

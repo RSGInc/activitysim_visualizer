@@ -538,6 +538,5 @@ Policies:
 ## Related Chapters
 
 - [13 - Configuration Reference](13-configuration-reference.md#skimjoin)
-- [13 - Configuration Reference](13-configuration-reference.md#skimjoin)
-- [22 - Skimjoin](22-skimjoin.md)
+- [22 - Skimjoin](22-skimjoin.md), including the standalone CLI
 - [90 - Troubleshooting](90-troubleshooting.md)
