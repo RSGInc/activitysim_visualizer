@@ -54,8 +54,8 @@ def build_summary_catalog() -> str:
         "",
         f"Total registered summaries: **{len(SUMMARY_DEFINITIONS)}**",
         "",
-        "| Summary ID | Filename | Builder | Output schema | Required inputs |",
-        "|---|---|---|---|---|",
+        "| Summary ID | Filename | Default build | Builder | Output schema | Required inputs |",
+        "|---|---|---|---|---|---|",
     ]
 
     for definition in sorted(
@@ -85,6 +85,7 @@ def build_summary_catalog() -> str:
                 [
                     f"`{_escape_cell(definition.summary_id)}`",
                     f"`{_escape_cell(definition.filename)}.csv`",
+                    "yes" if definition.build_by_default else "no",
                     f"`{_escape_cell(builder_name)}`",
                     schema,
                     required,
@@ -94,6 +95,41 @@ def build_summary_catalog() -> str:
         )
 
     return "\n".join(lines)
+
+
+def _validate_summary_reference() -> None:
+    """Keep the hand-written analytical reference aligned with declarations."""
+    from processor.summarize.catalog import SUMMARY_DEFINITIONS
+
+    path = WIKI / "24-summary-catalog.md"
+    reference = path.read_text(encoding="utf-8").split(
+        "<!-- GENERATED:SUMMARY-CATALOG START -->",
+        1,
+    )[0]
+    missing: list[str] = []
+    for definition in SUMMARY_DEFINITIONS:
+        prefix = f"| `{definition.summary_id}` |"
+        row = next(
+            (line for line in reference.splitlines() if line.startswith(prefix)),
+            "",
+        )
+        if not row:
+            missing.append(definition.summary_id)
+            continue
+        absent_fields = [
+            field_name
+            for field_name in definition.contract.schema
+            if field_name and f"`{field_name}`" not in row
+        ]
+        if absent_fields:
+            missing.append(
+                f"{definition.summary_id} fields: {', '.join(absent_fields)}"
+            )
+
+    if missing:
+        raise ValueError(
+            "Summary analytical reference is incomplete: " + "; ".join(missing)
+        )
 
 
 def build_dashboard_page_catalog() -> str:
@@ -166,6 +202,7 @@ def build_dashboard_page_catalog() -> str:
 
 
 def main() -> None:
+    _validate_summary_reference()
     _replace_generated_section(
         WIKI / "24-summary-catalog.md",
         marker="SUMMARY-CATALOG",

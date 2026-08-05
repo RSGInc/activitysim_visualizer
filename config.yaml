@@ -1,42 +1,25 @@
-# ActivitySim Visualizer Configuration
-# Canonical config example using the current schema.
+# ActivitySim Visualizer starter configuration
+#
+# Copy this file to local_config.yaml, then:
+#   1. Replace the two run directories below.
+#   2. Confirm the zone settings match your model.
+#   3. Run: uv run activitysim-viz --config local_config.yaml
+#
+# Standard ActivitySim final_* CSV or Parquet files work without other changes.
+# For other input types or advanced options, start at wiki/00-home.md.
 
-name: "Example ActivitySim Visualizer"
+name: ActivitySim Run Comparison
 root: artifacts
-log_level: INFO
 
+# Summarize prepares raw inputs automatically when no valid prepared cache
+# exists, then the dashboard opens at http://localhost:5006.
 pipeline:
-  steps:
-    - summarize
-    - dashboard
-  # Add `prepare`, `skimjoin`, or `segment` when those explicit stages are
-  # needed. Summarize automatically prepares data when no valid cache exists.
-  dashboard_mode: live # none | live | export | host
+  steps: [summarize, dashboard]
+  dashboard_mode: live
   overwrite: false
 
-# Optional named alternatives backed by columns retained in prepared tables.
-# weighting:
-#   modes:
-#     calibrated:
-#       label: Calibrated
-#       columns:
-#         households: calibrated_hh_weight
-#         persons: calibrated_person_weight
-#         trips: calibrated_trip_weight
-
-# Advanced trusted calculations only. Each importable module defines
-# register_weighting_modes(registry); settings are available on Config and enter
-# summary cache identity.
-# extensions:
-#   modules: [my_project.weighting]
-#   settings:
-#     calibrated:
-#       multiplier: 1.0
-
-# ---------------------------------------------------------------------------
-# ActivitySim output file names
-# Use stems (no extension) for automatic format detection.
-# ---------------------------------------------------------------------------
+# These are the default ActivitySim file stems. Edit only names that differ in
+# your model outputs; the visualizer accepts either .csv or .parquet files.
 files:
   households: final_households
   persons: final_persons
@@ -45,261 +28,22 @@ files:
   joint_tour_participants: final_joint_tour_participants
   land_use: final_land_use
 
-# Optional shared fallback files for optional inputs that may be missing in
-# some run folders. These must be explicit .csv or .parquet paths.
-# fallback_files:
-#   land_use: C:\path\to\shared\land_use.csv
-
-# ---------------------------------------------------------------------------
-# Runs to compare
-# `runs[*].skimjoin` overrides the global `skimjoin.defaults` settings.
-# `prepared_table_map` entries must be explicit .csv or .parquet paths.
-#
-# Use `file_map` when using non-standard input filenames
-#
-# use `prepared_table_map` if you have prepared tables you want to use other
-# than the cached prepared tables. For example, you could run the `prepare`
-# step of the pipeline, perform your own filtering operations on the 
-# prepared tables, then read your filtered prepared tables into the
-# `summarize` and `dashboard` steps.
-# ---------------------------------------------------------------------------
+# Required: replace these example directories. Add or remove runs as needed.
 runs:
-  - dir: path\to\activitysim\output\run1
+  - dir: C:\path\to\base\output
     label: Base
-    # skimjoin:
-    #   config_path: example_skimjoin_config.yaml
-    #   skim_files:
-    #     - C:\path\to\model_skims\*.omx
-    #     - C:\path\to\model_skims\maz_stop_walk.csv
-    #   network_los_file: C:\path\to\model_skims\network_los.yaml
-
-  - dir: path\to\activitysim\output\run2
+  - dir: C:\path\to\build\output
     label: Build
-    # file_map:
-    #   households: household
-    #   persons: person
-    #   tours: tour
-    #   trips: trip_linked
-    #   joint_tour_participants: joint_tour_participants
-    #   land_use: land_use
-    # prepared_table_map:
-    #   households: path\to\prepared\households.parquet
-    #   persons: path\to\prepared\persons.parquet
-    #   tours: path\to\prepared\tours.parquet
-    #   trips: path\to\prepared\trips.parquet
-    #   joint_tour_participants: path\to\prepared\joint_tour_participants.parquet
-    #   land_use: path\to\prepared\land_use.parquet
 
-# ---------------------------------------------------------------------------
-# Zone system
-# Set use_maz: false for TAZ-only models.
-# ---------------------------------------------------------------------------
+# Confirm these fields before the first run. For a TAZ-only model, keep
+# use_maz false. For a MAZ/TAZ model, set it to true and name both columns.
 zones:
   use_maz: false
   maz_col: zone_id
   taz_col: TAZ
 
-# ---------------------------------------------------------------------------
-# Column names in the ActivitySim output files
-# Alias-capable fields may be a single string or an ordered list of candidates.
-# ---------------------------------------------------------------------------
-columns:
-  ptype: ptype
-  hhsize: hhsize
-  auto_ownership: auto_ownership
-  num_workers: num_workers
-  num_adults: num_adults
-  # sample_rate: sample_rate
-  # household_id: [household_id, hh_id]
-  # person_id: [person_id, pid]
-  # tour_id: [tour_id, tid]
-  # trip_id: [trip_id, tripid]
-  # tour_purpose: [tour_purpose, primary_purpose, purpose]
-  # trip_purpose: [trip_purpose, purpose]
-  # tour_mode: [tour_mode, mode]
-  # trip_mode: [trip_mode, mode]
-
-
-# ---------------------------------------------------------------------------
-# Settings for the `prepare` step.
-# ---------------------------------------------------------------------------
-prepare:
-  output:
-    file_format: parquet # parquet | csv
-  validation:
-    relationship_checks: warn # off | warn | error
-  distance_skim:
-    file: path\to\skims.omx
-    matrix: SOV_DIST__MD
-  # auto_sufficiency_basis: licensed_drivers # licensed_drivers | workers | adults
-  # vot_bins:
-  #   source_column: income_segment
-  #   output_column: vot_bin
-  #   fallback_value: M
-  #   mappings:
-  #     base:
-  #       1: L
-  #       2: M
-  #       3: H
-
-# ---------------------------------------------------------------------------
-# Settings for the `skimjoin` step, to be used as defaults.
-# ---------------------------------------------------------------------------
-skimjoin:
-  failure_policy: record # record | error
-  create_hypothetical_skim_tables: false
-  defaults:
-    config_path: example_skimjoin_config.yaml
-    skim_files:
-      - C:\path\to\model_skims\*.omx
-      - C:\path\to\model_skims\maz_stop_walk.csv
-      - C:\path\to\model_skims\maz_maz_walk.csv
-    network_los_file: C:\path\to\model_skims\network_los.yaml
-
-# ---------------------------------------------------------------------------
-# Settings for the `segment` step. 
-# ---------------------------------------------------------------------------
-segment:
-  dashboard:
-    segmentation_type: signup_platform
-    visibility: segments_only   # full_only | segments_only | full_and_segments
-  definitions:
-    signup_platform:
-      include_full: true
-      persist_segmented_prepared_tables: false
-      allow_overlapping: false
-      on_empty_segment: warn
-      source:
-        type: prepared_column 
-        source_table: hh
-        column: signup_platform
-      segments:
-        - id: rmove
-          label: RMove
-          values: ["rmove"]
-        - id: browser
-          label: Browser
-          values: ["browser"]
-        - id: call
-          label: Call
-          values: ["call"]
-
-# ---------------------------------------------------------------------------
-# Settings for the `summarize` step.
-# ---------------------------------------------------------------------------
 summarize:
   weighting_modes: [weighted, unweighted]
-  failure_policy: record # record | error
-  pnr_tour_modes:
-    - PNR_TRANSIT
-  # Controls additional mapped geography aggregations only. Summaries may still
-  # emit all_geographies totals, and native prepared home geographies such as
-  # home_taz, home_county, and home_mpo can appear when those columns exist.
-  geography:
-    enabled: false
-    # Configured mappings create columns such as home_geo__district,
-    # work_geo__county, or land_use_geo__district.
-    # landuse_col: COUNTY
-    # mapping:
-    #   1: County 1
-    # aggregations:
-    #   district:
-    #     source_zone_system: maz
-    #     file: C:\path\to\land_use.csv
-    #     zone_id_col: MAZ
-    #     geography_col: DISTRICT
 
-# ---------------------------------------------------------------------------
-# Settings for the `dashboard` step.
-# ---------------------------------------------------------------------------
 dashboard:
-  title: "ActivitySim Comparison Visualizer"
-  include_notes: true
-  enable_maz_geographies: false
-  live:
-    pages:
-      - overview
-      - long_term_choices
-      - daily_travel
-      - joint_travel
-      - tour_summaries
-      - trip_summaries
-      - validation
-  export:
-    output_path: exports/dashboard.html
-    # `pages` overrides matching live pages; it is not an inclusion list.
-    # dashboard:
-    #   weighting: [unweighted]
-    # pages:
-    #   long_term_choices:
-    #     shadow_pricing:
-    #       geography_level: [all]
-    #       student_type: [all]
-    #       parts:
-    #         workplace_table:
-    #           enabled: false
-    #         school_table:
-    #           enabled: false
-  # Reserved for a future hosted-dashboard implementation. These settings are
-  # validated but intentionally ignored by the current runtime.
-  # host:
-  #   account: my-connect-cloud-account
-  #   app_id: 12345
-  #   title: ActivitySim Comparison Visualizer
-  #   verify: true
-
-display:
-  missing_data_display: card # card | blank
-  # bar_hover_mode: all # closest | all
-  # density_hover_mode: all # closest | all
-  labels:
-    person_type:
-      mapping:
-        all_person_types: All Person Types
-        1: Full-time worker
-        2: Part-time worker
-        3: University student
-        4: Non-worker adult
-        5: Retired
-        6: Driving-age student
-        7: Non-driving-age student
-        8: Preschool
-
-    geography:
-      mapping:
-        all_geographies: All Geographies
-        county: County
-
-    tour_purpose:
-      mapping:
-        all_tour_purposes: All Tour Purposes
-        work: Work
-        school: School
-        escort: Escort
-        shopping: Shopping
-        othmaint: Other Maintenance
-        eatout: Eat Out
-        social: Social
-        othdiscr: Other Discretionary
-        atwork: At-Work
-        joint: Joint
-
-    mode:
-      mapping:
-        SOV: Drive Alone
-        HOV2: Shared Ride 2
-        HOV3: Shared Ride 3+
-        WALK: Walk
-        BIKE: Bike
-        WALK_TRANSIT: Walk-Transit
-        PNR_TRANSIT: PNR-Transit
-        KNR_TRANSIT: KNR-Transit
-        TNC_SINGLE: TNC-Single
-        TNC_SHARED: TNC-Pool
-
-  run_colors:
-    - "#298c8c"
-    - "#a00000"
-    - "#b8b8b8"
-    - "#384860"
-    - "#ff7f0e"
+  title: ActivitySim Run Comparison

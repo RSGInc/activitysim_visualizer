@@ -12,6 +12,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from processor.models import RunData
 from processor.summarize.catalog import build_summary_catalog
 from processor.summarize.contracts import SummaryResultError, summary
+from scripts.generate_wiki_catalogs import (
+    _validate_summary_reference,
+    build_summary_catalog as build_wiki_summary_catalog,
+)
 
 
 def _run(**tables) -> RunData:
@@ -100,3 +104,16 @@ def test_explicit_catalog_rejects_duplicate_summary_ids() -> None:
 
     with pytest.raises(ValueError, match="Duplicate summary id 'duplicate'"):
         build_summary_catalog((module,))
+
+
+def test_wiki_summary_catalog_documents_build_status_and_all_fields() -> None:
+    _validate_summary_reference()
+
+    catalog = build_wiki_summary_catalog()
+
+    assert "| Summary ID | Filename | Default build |" in catalog
+    assert "| `population_totals` | `population_totals.csv` | yes |" in catalog
+    assert (
+        "| `auto_vmt_validation_summary` | "
+        "`auto_vmt_validation_summary.csv` | no |"
+    ) in catalog
