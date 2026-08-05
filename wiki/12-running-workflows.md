@@ -43,7 +43,7 @@ root: artifacts
 pipeline:
   steps: [prepare, summarize, dashboard]
   dashboard_mode: live
-  overwrite: false
+  refresh: []
 
 dashboard:
   title: Regional Model Comparison
@@ -67,7 +67,7 @@ root: artifacts
 pipeline:
   steps: [prepare, summarize, dashboard]
   dashboard_mode: export
-  overwrite: false
+  refresh: []
 
 dashboard:
   export:
@@ -87,7 +87,7 @@ Build prepared tables and summaries without opening or exporting a dashboard:
 pipeline:
   steps: [prepare, summarize]
   dashboard_mode: none
-  overwrite: false
+  refresh: []
 ```
 
 Other focused workflows use the same fields:
@@ -155,6 +155,10 @@ regional_comparison/
     summary_tables/
 ```
 
+When skimjoin is enabled, `base_prepared_tables/` preserves the prepared input
+before skim enrichment. The enriched tables remain in `prepared_tables/` so
+existing summary and dashboard consumers continue to use the same final path.
+
 The run-key directory is a filesystem-safe lowercase slug of the run label.
 For example, `Build Scenario` becomes `build-scenario`. Colliding labels receive
 ordered suffixes such as `build-1` and `build-2`; avoid duplicate labels because
@@ -164,19 +168,23 @@ Relative paths in `dashboard.export.output_path` resolve below this directory.
 Input paths follow the path rules documented in
 [Configuration Reference](13-configuration-reference.md#reading-this-reference).
 
-Valid caches are reused automatically. To deliberately rebuild every cache
-used by the configured steps, temporarily set:
+Valid caches are reused automatically. To deliberately rebuild every
+materialized stage used by the configured steps, temporarily set:
 
 ```yaml
 pipeline:
   steps: [prepare, summarize, dashboard]
   dashboard_mode: live
-  overwrite: true
+  refresh: all
 ```
 
-Return `overwrite` to `false` after the forced rebuild. Presentation-only
-changes such as labels, colors, or enabled pages normally do not require cache
-rebuilding.
+Return `refresh` to `[]` after the forced rebuild. To rebuild summaries while
+preserving prepared and skimjoined data, use `refresh: [summarize]`.
+Presentation-only changes such as labels, colors, or enabled pages normally do
+not require cache rebuilding.
+
+Use `--explain-cache` to print the per-run reuse/rebuild decisions and exit
+without executing the pipeline.
 
 ## CLI Overrides
 

@@ -1021,6 +1021,77 @@ def test_main_refresh_summary_cache_rebuilds_and_rewrites_run_cache(
     assert (summary_cache_dir / "manifest.json").exists()
 
 
+def test_main_refresh_summary_cache_preserves_prepared_cache(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_cli_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+    )
+    fingerprint = build_run_fingerprint(
+        label="Run A",
+        run_dir=config.runs[0]["dir"],
+        skim_file=None,
+        hh_weight_col=None,
+        person_weight_col=None,
+        trip_weight_col=None,
+    )
+    prepared_entry = write_prepared_run_cache(
+        _fake_run_data("Run A", str(run_dir)),
+        config,
+        run_key="run-a",
+        run_fingerprint=fingerprint,
+    )
+    write_summary_run_cache(
+        _simple_summary_run("Run A", "run-a"),
+        config,
+        run_fingerprint=fingerprint,
+        prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="run-a",
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+        ),
+    )
+    summary_build_calls: list[str] = []
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("summary refresh must preserve the prepared cache")
+        ),
+        prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("summary refresh must not rerun preparation")
+        ),
+    )
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
+        lambda rd, config, **kwargs: (
+            summary_build_calls.append(rd.label),
+            _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
+        )[1],
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "activitysim-viz",
+            "--config",
+            str(tmp_path / "config.yaml"),
+            "--summarize",
+            "--refresh-summary-cache",
+        ],
+    )
+
+    run.main()
+
+    assert prepared_entry.cache_dir.exists()
+    assert summary_build_calls == ["Run A"]
+
+
 def test_main_refresh_prepared_cache_rebuilds_prepared_tables_before_summarize(
     tmp_path: Path,
     monkeypatch,
@@ -1089,6 +1160,37 @@ def test_main_refresh_prepared_cache_rebuilds_prepared_tables_before_summarize(
     assert summary_build_calls == ["Run A"]
     assert not stale_marker.exists()
     assert (prepared_dir / "run-a" / "prepared_tables" / "manifest.json").exists()
+
+
+def test_explain_cache_reports_plan_without_creating_cache_root(
+    tmp_path: Path,
+    monkeypatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_cli_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+    )
+    cache_root = Path(config.summary_root)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "activitysim-viz",
+            "--config",
+            str(tmp_path / "config.yaml"),
+            "--explain-cache",
+        ],
+    )
+
+    run.main()
+
+    output = capsys.readouterr().out
+    assert "Pipeline plan — Run A" in output
+    assert "prepare    REBUILD" in output
+    assert "summarize  REBUILD" in output
+    assert not cache_root.exists()
 
 
 def test_main_uses_cache_hit_for_one_run_and_raw_fallback_for_another(

@@ -188,14 +188,18 @@ See [Advanced: Custom Weight Calculations](43-weighting-hosting-extensions.md#ad
 |---|---|---|---|---|---|
 | `steps` | non-empty list of strings | `[summarize, dashboard]` | `prepare`, `skimjoin`, `segment`, `summarize`, `dashboard` | Runtime | Steps must be lowercase, unique, and valid. `skimjoin` requires `prepare`; `segment` requires `summarize`; `dashboard` must be last when present. |
 | `dashboard_mode` | string | `live` | `none`, `live`, `export`, `host` | Runtime, Presentation | Controls what the dashboard step does. `host` is reserved and currently warns, then falls back to the ordinary live server; it does not publish an application. |
-| `overwrite` | boolean | `false` | `true`, `false` | Runtime | Bypasses reusable prepared/summary caches for configured processor steps and writes rebuilt artifacts. Return it to `false` after a forced rebuild. |
+| `refresh` | list of strings or `all` | `[]` | `prepare`, `skimjoin`, `summarize`, `all` | Runtime | Forces only the named materialized stages to rebuild. Upstream refreshes invalidate enabled downstream stages. Leave empty for normal cache-aware operation. |
 
 ```yaml
 pipeline:
   steps: [prepare, skimjoin, segment, summarize, dashboard]
   dashboard_mode: export
-  overwrite: false
+  refresh: []
 ```
+
+`segment` is materialized within summary bundles, so use `refresh: [summarize]`
+to rebuild segmented outputs. Dashboard rendering has no persistent processor
+cache and is not a refresh target.
 
 ## `runs`
 

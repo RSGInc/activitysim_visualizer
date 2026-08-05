@@ -9,8 +9,8 @@ Use this chapter when a run, cache, page, or export is not behaving as expected.
 3. Check whether the issue appears in prepare, summarize, dashboard, or export.
 4. Inspect `<root>/<run-key>/manifest.json` for the affected run (see the
    [cache layout](12-running-workflows.md#artifact-and-cache-paths)).
-5. If cache reuse is suspect, temporarily set `pipeline.overwrite: true` for
-   the affected configured steps.
+5. Run with `--explain-cache` to inspect reuse and rebuild decisions. If a
+   forced rebuild is needed, list only the affected stage in `pipeline.refresh`.
 
 ## Symptoms
 
@@ -27,16 +27,16 @@ Use this chapter when a run, cache, page, or export is not behaving as expected.
 
 ## Cache Problems
 
-For a reproducible full rebuild, configure the steps and overwrite policy:
+For a reproducible full rebuild, configure the steps and refresh policy:
 
 ```yaml
 pipeline:
   steps: [prepare, summarize, dashboard]
   dashboard_mode: live
-  overwrite: true
+  refresh: all
 ```
 
-Return `overwrite` to `false` after the rebuild. Developers can use targeted
+Return `refresh` to `[]` after the rebuild. Developers can use targeted
 one-off refresh flags while diagnosing a specific cache layer:
 
 ```bash
@@ -73,7 +73,7 @@ Suppose Trip Mode opens but shows the standard unavailable card:
 4. If a required prepared column is missing, inspect the same manifest's
    prepared-cache entry and the canonical column settings in `columns`.
 5. If the contract recently changed, rebuild the configured summarize step
-   with `pipeline.overwrite: true`.
+   with `pipeline.refresh: [summarize]`.
 6. If the summary is present and valid, confirm the page's `columns=` request
    matches the cached schema and that the selected weighting mode exists.
 

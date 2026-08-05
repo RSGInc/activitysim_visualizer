@@ -147,6 +147,10 @@ def _summary_manifest(
         "summary_digests": summary_digests,
         "run_fingerprint": run_fingerprint or {},
         "prepared_manifest_identity": prepared_manifest_identity,
+        "identity": {
+            "upstream_prepared": prepared_manifest_identity,
+            "summary_config": config.summary_config_digest,
+        },
     }
 
 

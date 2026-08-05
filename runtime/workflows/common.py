@@ -6,13 +6,17 @@ from pathlib import Path
 from typing import Any
 
 from runtime.logging import get_logger
-from processor.cache_identity import build_run_fingerprint, build_run_keys
+from processor.cache_identity import (
+    build_run_fingerprint,
+    build_run_keys,
+    optional_file_identity,
+)
 from processor.models import (
     PreparedTableName,
     prune_prepared_runs,
 )
 from processor.prepare.cache import build_prepared_manifest_identity, prepared_root
-from processor.prepare.reader import resolve_skim_path
+from processor.prepare.reader import resolve_run_file_paths, resolve_skim_path
 from processor.summarize import cache as summary_cache
 from processor.summarize import builder as summary_builder
 from processor.summarize import cache_types as summary_types
@@ -146,6 +150,8 @@ def load_summary_runs_from_cache(
                 config=config,
                 build_run_fingerprint_fn=build_run_fingerprint,
                 resolve_skim_path_fn=resolve_skim_path,
+                resolve_run_file_paths_fn=resolve_run_file_paths,
+                optional_file_identity_fn=optional_file_identity,
                 build_prepared_manifest_identity_fn=build_prepared_manifest_identity,
             )
             or {}

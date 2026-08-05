@@ -67,7 +67,7 @@ Treat it as the contract for:
 - which files are read
 - which logical pipeline steps are requested by default
 - which dashboard mode is used by default (`none`, `live`, `export`, `host`)
-- whether a run should prefer cache reuse or overwrite behavior by default
+- which materialized stages, if any, should be explicitly refreshed
 - how schema aliases are resolved
 - which weighting modes exist
 - which pages are enabled

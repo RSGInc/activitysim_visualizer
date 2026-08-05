@@ -81,7 +81,10 @@ def _load_summary_run_from_cache(
                 config,
                 expected_modes=config.weighting_modes,
                 expected_summary_ids=reusable_summary_ids,
-                expected_summary_config_digest=config.summary_config_digest,
+                # Per-summary digests were validated by the inspection above.
+                # Requiring the bundle-wide digest here would discard otherwise
+                # reusable tables whenever only one builder changed.
+                expected_summary_config_digest=None,
                 expected_run_fingerprint=run_fingerprint,
                 expected_prepared_manifest_identity=prepared_manifest_identity,
                 expected_label=label,
@@ -91,9 +94,14 @@ def _load_summary_run_from_cache(
             else []
         )
         LOGGER.info(
-            "Loaded reusable summary cache tables for run %r: %s",
+            "Pipeline decision for %r / summarize: %s (%s)",
             label,
-            ", ".join(reusable_summary_ids) if reusable_summary_ids else "(none)",
+            "REUSE" if not stale_summary_ids else "REBUILD",
+            (
+                "all summary tables reusable"
+                if not stale_summary_ids
+                else f"{len(stale_summary_ids)} stale; {len(reusable_summary_ids)} reusable"
+            ),
         )
         return SummaryCacheInspection(
             runs=tuple(cached_runs),
@@ -309,6 +317,11 @@ def run_summary_workflow(
                     if cached_prepared_run is not None:
                         prepared_runs_by_key[run_key] = cached_prepared_run
                     continue
+        else:
+            LOGGER.info(
+                "Pipeline decision for %r / summarize: REBUILD — refresh requested or cache reuse disabled",
+                label,
+            )
 
         cached_summary_runs = list(cached_run.runs) if cached_run else []
         summary_ids_to_build = list(summary_builder.DEFAULT_SUMMARY_IDS)

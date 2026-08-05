@@ -11,10 +11,10 @@ pipeline:
     - prepare
     - skimjoin
     # - segment
-    - summarize # will automatically overwrite summaries with a stale cache
+    - summarize # automatically rebuild stale summaries
     # - dashboard
   dashboard_mode: live # live | export | host 
-  overwrite: true # overwrite ALL prepared tables / summaries
+  refresh: [] # list stages here only when a forced rebuild is required
 
 # ---------------------------------------------------------------------------
 # ActivitySim output file names
@@ -343,7 +343,7 @@ summarize:
         geography_col: DIST_9to12
 
 dashboard:
-  title: "Estimation Mode Comparison Visualizer"
+  title: "Metro Estimation Visualizer"
   enable_maz_geographies: false
   live:
     pages:

@@ -119,6 +119,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Do not open the dashboard in a browser automatically",
     )
+    parser.add_argument(
+        "--explain-cache",
+        action="store_true",
+        help="Print cache decisions for the configured pipeline and exit without running it.",
+    )
     return parser.parse_args()
 
 
@@ -216,7 +221,7 @@ def resolve_effective_dashboard_mode(
 
 
 def resolve_effective_plan(args: argparse.Namespace, config) -> WorkflowPlan:
-    """Resolve logical steps, runtime steps, dashboard mode, and overwrite policy."""
+    """Resolve logical steps, runtime steps, dashboard mode, and refresh policy."""
     logical_steps = resolve_requested_steps(args, config)
     dashboard_mode = resolve_effective_dashboard_mode(
         args,
@@ -227,16 +232,28 @@ def resolve_effective_plan(args: argparse.Namespace, config) -> WorkflowPlan:
         logical_steps = [
             step for step in logical_steps if step != "dashboard"
         ]
-    overwrite = bool(config.pipeline.overwrite)
-    if args.refresh_caches or args.refresh_prepared_cache or args.refresh_summary_cache:
-        overwrite = True
+    refresh_steps = set(config.pipeline.refresh)
+    if args.refresh_caches:
+        refresh_steps.update(
+            step
+            for step in logical_steps
+            if step in {"prepare", "skimjoin", "summarize"}
+        )
+    if args.refresh_prepared_cache:
+        refresh_steps.add("prepare")
+    if args.refresh_summary_cache:
+        refresh_steps.add("summarize")
 
     runtime_steps = tuple(collapse_runtime_steps(logical_steps))
     return WorkflowPlan(
         logical_steps=tuple(logical_steps),
         runtime_steps=runtime_steps,
         dashboard_mode=dashboard_mode,
-        overwrite=overwrite,
+        refresh_steps=tuple(
+            step
+            for step in ("prepare", "skimjoin", "summarize")
+            if step in refresh_steps
+        ),
     )
 
 
@@ -245,13 +262,23 @@ def _remove_run_cache_dirs(
     root: Path,
     run_keys: list[str],
     cache_label: str,
+    preserve_names: set[str] | None = None,
 ) -> None:
     """Remove per-run cache directories before a forced rebuild."""
     for run_key in run_keys:
         cache_dir = root / run_key
         if cache_dir.exists():
             LOGGER.info("Refreshing %s cache for run key %r", cache_label, run_key)
-            shutil.rmtree(cache_dir)
+            if not preserve_names:
+                shutil.rmtree(cache_dir)
+                continue
+            for child in cache_dir.iterdir():
+                if child.name in preserve_names:
+                    continue
+                if child.is_dir():
+                    shutil.rmtree(child)
+                else:
+                    child.unlink()
 
 
 def _refresh_requested_caches(
@@ -281,6 +308,7 @@ def _refresh_requested_caches(
             root=cache_root,
             run_keys=run_keys,
             cache_label="summary",
+            preserve_names={"prepared_tables", "base_prepared_tables"},
         )
     return refresh_prepared, refresh_summary
 
@@ -292,11 +320,11 @@ def resolve_cache_preferences(
     refreshed_summary: bool,
 ) -> tuple[bool, bool]:
     """Resolve cache reuse preferences after config defaults and CLI refresh overrides."""
-    prefer_prepared_cache = not (
-        "prepare" in plan.runtime_steps and plan.overwrite
+    prefer_prepared_cache = not any(
+        plan.refreshes(step) for step in ("prepare", "skimjoin")
     )
-    prefer_summary_cache = not (
-        "summarize" in plan.runtime_steps and plan.overwrite
+    prefer_summary_cache = not any(
+        plan.refreshes(step) for step in ("prepare", "skimjoin", "summarize")
     )
     if refreshed_prepared:
         prefer_prepared_cache = False
@@ -336,6 +364,137 @@ def resolve_dashboard_execution_mode(dashboard_mode: str) -> str:
     return normalized_mode
 
 
+def explain_cache_plan(
+    *,
+    config,
+    plan: WorkflowPlan,
+    prepared_root: Path,
+    cache_root: Path,
+    run_entries: list[dict],
+) -> None:
+    """Print cache decisions without loading tables or writing artifacts."""
+    from processor.prepare.cache import PreparedCacheError, inspect_prepared_run_cache
+    from processor.summarize import builder as summary_builder
+    from processor.summarize import cache as summary_cache
+    from processor.summarize.cache_types import SummaryCacheError
+    from runtime.workflows import prepare as prepare_workflow
+    from runtime.workflows import summarize as summarize_workflow
+
+    effective = runtime_workflows.effective_processor_config(config, plan=plan)
+
+    def decision(action: str, reason: str | None = None) -> str:
+        return action if not reason else f"{action} — {reason}"
+
+    for entry, run_key in runtime_workflows.run_entries_with_keys(run_entries):
+        prepare_metadata = prepare_workflow._run_cache_metadata(
+            entry=entry,
+            run_key=run_key,
+            config=effective,
+        )
+        label = str(prepare_metadata["label"])
+        print(f"Pipeline plan — {label}")
+
+        prepare_action = "DISABLED"
+        prepare_reason = None
+        if "prepare" in plan.runtime_steps or "summarize" in plan.runtime_steps:
+            if plan.refreshes("prepare"):
+                prepare_action = "REBUILD"
+                prepare_reason = "explicitly refreshed"
+            else:
+                base_cache = (
+                    prepare_workflow.base_prepared_cache_dir(prepared_root, run_key)
+                    if plan.includes("skimjoin")
+                    else prepare_workflow.prepared_cache_dir(prepared_root, run_key)
+                )
+                base_digest = (
+                    effective.base_prepare_config_digest
+                    if plan.includes("skimjoin")
+                    else effective.prepare_config_digest
+                )
+                base_fingerprint = dict(
+                    prepare_metadata[
+                        "base_run_fingerprint"
+                        if plan.includes("skimjoin")
+                        else "run_fingerprint"
+                    ]
+                )
+                try:
+                    inspect_prepared_run_cache(
+                        base_cache,
+                        expected_prepare_config_digest=base_digest,
+                        expected_run_fingerprint=base_fingerprint,
+                        expected_label=label,
+                        expected_run_key=run_key,
+                    )
+                    prepare_action = "REUSE"
+                except PreparedCacheError as exc:
+                    prepare_action = "REBUILD"
+                    prepare_reason = str(exc)
+        print(f"  prepare    {decision(prepare_action, prepare_reason)}")
+
+        if plan.includes("skimjoin"):
+            if plan.refreshes("skimjoin"):
+                skimjoin_action = decision("REBUILD", "explicitly refreshed")
+            elif prepare_action == "REBUILD":
+                skimjoin_action = decision("REBUILD", "upstream prepare will change")
+            else:
+                try:
+                    inspect_prepared_run_cache(
+                        prepare_workflow.prepared_cache_dir(prepared_root, run_key),
+                        expected_prepare_config_digest=effective.prepare_config_digest,
+                        expected_run_fingerprint=dict(prepare_metadata["run_fingerprint"]),
+                        expected_label=label,
+                        expected_run_key=run_key,
+                    )
+                    skimjoin_action = "REUSE"
+                except PreparedCacheError as exc:
+                    skimjoin_action = decision("REBUILD", str(exc))
+            print(f"  skimjoin   {skimjoin_action}")
+        else:
+            print("  skimjoin   DISABLED")
+
+        if "summarize" in plan.runtime_steps:
+            if any(plan.refreshes(step) for step in ("prepare", "skimjoin", "summarize")):
+                summary_action = decision("REBUILD", "explicit or upstream refresh")
+            elif prepare_action == "REBUILD":
+                summary_action = decision("REBUILD", "upstream prepare will change")
+            else:
+                summary_metadata = summarize_workflow._run_cache_metadata(
+                    entry=entry,
+                    run_key=run_key,
+                    config=effective,
+                )
+                try:
+                    inspection = summary_cache.inspect_summary_run_bundle(
+                        cache_root / run_key,
+                        effective,
+                        expected_modes=effective.weighting_modes,
+                        expected_summary_ids=list(summary_builder.DEFAULT_SUMMARY_IDS),
+                        expected_run_fingerprint=dict(summary_metadata["run_fingerprint"]),
+                        expected_prepared_manifest_identity=summary_metadata[
+                            "prepared_manifest_identity"
+                        ],
+                        expected_label=label,
+                        expected_run_key=run_key,
+                    )
+                    stale = list(inspection["stale_summary_ids"])
+                    summary_action = (
+                        decision("REBUILD", f"{len(stale)} summary tables are stale")
+                        if stale
+                        else "REUSE"
+                    )
+                except SummaryCacheError as exc:
+                    summary_action = decision("REBUILD", str(exc))
+            print(f"  summarize  {summary_action}")
+        else:
+            print("  summarize  DISABLED")
+
+        print(
+            "  dashboard  "
+            + ("RUN" if "dashboard" in plan.runtime_steps else "DISABLED")
+        )
+
+
 def main() -> None:
     t0 = time.perf_counter()
     args = parse_args()
@@ -347,10 +506,11 @@ def main() -> None:
         sys.exit(1)
 
     config = runtime_workflows.load_runtime_config(args.config)
-    log_path = configure_logging(config, level=_resolve_terminal_log_level(config))
-    LOGGER.info("Starting ActivitySim Visualizer")
-    LOGGER.info("Loading config: %s", args.config)
-    LOGGER.info("Logging to %s", log_path)
+    if not args.explain_cache:
+        log_path = configure_logging(config, level=_resolve_terminal_log_level(config))
+        LOGGER.info("Starting ActivitySim Visualizer")
+        LOGGER.info("Loading config: %s", args.config)
+        LOGGER.info("Logging to %s", log_path)
 
     try:
         plan = resolve_effective_plan(args, config)
@@ -358,11 +518,12 @@ def main() -> None:
         LOGGER.info("Requested workflow steps: %s", ", ".join(steps) if steps else "(none)")
         LOGGER.info("Effective dashboard mode: %s", plan.dashboard_mode)
         cache_root = runtime_workflows.summary_cache_root(
-            config, create="summarize" in steps
+            config, create="summarize" in steps and not args.explain_cache
         )
         prepared_root = runtime_workflows.prepared_cache_root(
             config,
-            create="prepare" in steps or "summarize" in steps,
+            create=("prepare" in steps or "summarize" in steps)
+            and not args.explain_cache,
         )
 
         run_entries = runtime_workflows.resolve_run_entries(
@@ -371,6 +532,15 @@ def main() -> None:
             config=config,
             require_runs="prepare" in steps or "summarize" in steps,
         )
+        if args.explain_cache:
+            explain_cache_plan(
+                config=config,
+                plan=plan,
+                prepared_root=prepared_root,
+                cache_root=cache_root,
+                run_entries=run_entries,
+            )
+            return
         refreshed_prepared, refreshed_summary = _refresh_requested_caches(
             args=args,
             prepared_root=prepared_root,

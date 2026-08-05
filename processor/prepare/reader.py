@@ -49,6 +49,34 @@ def resolve_run_file_map(
     return effective
 
 
+def resolve_run_file_paths(
+    run_dir: str | Path,
+    config: Config,
+    run_file_map: dict[str, str] | None = None,
+) -> dict[str, str | None]:
+    """Resolve the concrete raw input files the reader would use."""
+    root = Path(run_dir).expanduser()
+    resolved: dict[str, str | None] = {}
+    for table_id, configured in resolve_run_file_map(config, run_file_map).items():
+        configured_path = Path(configured)
+        suffix = configured_path.suffix.lower()
+        candidates = (
+            [root / configured_path]
+            if suffix in {".csv", ".parquet"}
+            else [
+                root / f"{configured_path.name}.parquet",
+                root / f"{configured_path.name}.csv",
+            ]
+        )
+        selected = next((candidate for candidate in candidates if candidate.is_file()), None)
+        if selected is None:
+            fallback = config.fallback_files.get(table_id)
+            fallback_path = Path(fallback).expanduser() if fallback else None
+            selected = fallback_path if fallback_path is not None and fallback_path.is_file() else None
+        resolved[table_id] = str(selected.resolve()) if selected is not None else None
+    return resolved
+
+
 def _find_and_read(run_dir: Path, configured: str) -> pl.DataFrame:
     """Read a table from run_dir, resolving file format."""
     path = Path(configured)
@@ -217,4 +245,10 @@ def read_run(
     )
 
 
-__all__ = ["RunData", "read_run", "resolve_run_file_map", "resolve_skim_path"]
+__all__ = [
+    "RunData",
+    "read_run",
+    "resolve_run_file_map",
+    "resolve_run_file_paths",
+    "resolve_skim_path",
+]

@@ -16,7 +16,7 @@ root: artifacts
 pipeline:
   steps: [summarize, dashboard]
   dashboard_mode: live
-  overwrite: false
+  refresh: []
 
 # These are the default ActivitySim file stems. Edit only names that differ in
 # your model outputs; the visualizer accepts either .csv or .parquet files.

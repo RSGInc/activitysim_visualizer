@@ -222,11 +222,10 @@ def _write_sidecar_tables(
     if not sidecar_frames:
         return {}
 
-    sidecar_dir = cache_dir / "prepared_tables"
-    sidecar_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
     filenames = _sidecar_file_map(file_format)
     for attr_name, frame in sidecar_frames.items():
-        path = sidecar_dir / filenames[attr_name]
+        path = cache_dir / filenames[attr_name]
         if file_format == "parquet":
             frame.write_parquet(path)
         elif file_format == "csv":
@@ -244,6 +243,8 @@ def write_prepared_run_cache(
     output_root: str | Path | None = None,
     run_fingerprint: dict[str, object] | None = None,
     file_format: str | None = None,
+    cache_name: str = "prepared_tables",
+    prepare_config_digest: str | None = None,
 ) -> PreparedRunCacheEntry:
     """Write one prepared run's canonical tables and manifest."""
     if file_format is None:
@@ -259,7 +260,7 @@ def write_prepared_run_cache(
     )
     output_root.mkdir(parents=True, exist_ok=True)
 
-    cache_dir = output_root / run_key / "prepared_tables"
+    cache_dir = output_root / run_key / cache_name
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     tables_to_write: dict[str, pl.DataFrame] = {}
@@ -277,7 +278,7 @@ def write_prepared_run_cache(
             tables_to_write[stem] = table
 
     write_all(tables_to_write, cache_dir, file_format=file_format)
-    sidecar_files = _write_sidecar_tables(cache_dir.parent, rd, file_format=file_format)
+    sidecar_files = _write_sidecar_tables(cache_dir, rd, file_format=file_format)
     _write_skimjoin_outputs(cache_dir, rd, config)
 
     manifest = {
@@ -288,10 +289,10 @@ def write_prepared_run_cache(
         "run_key": run_key,
         "source_run_dir": rd.run_dir,
         "config_path": config.config_path,
-        "prepare_config_digest": config.prepare_config_digest,
+        "prepare_config_digest": prepare_config_digest or config.prepare_config_digest,
         "table_format": file_format,
-        "table_root": "prepared_tables",
-        "sidecar_root": "prepared_tables",
+        "table_root": cache_name,
+        "sidecar_root": cache_name,
         "table_files": _table_file_map(file_format),
         "sidecar_files": sidecar_files,
         "table_states": {
@@ -336,6 +337,18 @@ def write_prepared_run_cache(
         "person_weight_col": rd.person_weight_col,
         "trip_weight_col": rd.trip_weight_col,
         "run_fingerprint": run_fingerprint or {},
+        "identity": {
+            "raw_inputs": dict((run_fingerprint or {}).get("raw_file_identities", {})),
+            "prepare_config": prepare_config_digest or config.prepare_config_digest,
+            "skimjoin_config": (
+                dict((run_fingerprint or {}).get("skimjoin") or {}).get("config_digest")
+            ),
+            "skim_inputs": (
+                dict((run_fingerprint or {}).get("skimjoin") or {}).get(
+                    "resolved_skim_file_identities", []
+                )
+            ),
+        },
         "prepare_diagnostics": dict(rd.prepare_diagnostics),
         "skimjoin_enabled": bool(rd.skimjoin_manifest.get("skimjoin_enabled", False)),
         "skimjoin_config_digest": rd.skimjoin_manifest.get("skimjoin_config_digest"),
@@ -545,6 +558,53 @@ def load_prepared_run_cache(
         table_states=manifest_table_states,
         table_reasons=manifest_table_diagnostics,
     )
+
+
+def inspect_prepared_run_cache(
+    cache_dir: str | Path,
+    *,
+    expected_prepare_config_digest: str | None = None,
+    expected_run_fingerprint: dict[str, object] | None = None,
+    expected_label: str | None = None,
+    expected_run_key: str | None = None,
+) -> dict[str, object]:
+    """Validate a prepared cache identity without loading its tables."""
+    cache_dir = Path(cache_dir)
+    manifest = read_manifest(cache_dir, error_cls=PreparedCacheError)
+    validate_schema_version(
+        cache_dir=cache_dir,
+        manifest=manifest,
+        supported_versions=SUPPORTED_SCHEMA_VERSIONS,
+        error_factory=lambda message: PreparedCacheError(
+            message.replace(
+                "Unsupported cache schema_version",
+                "Unsupported prepared cache schema_version",
+            )
+        ),
+    )
+    if expected_label is not None and manifest.get("label") != expected_label:
+        raise PreparedCacheError(
+            f"Prepared cache label mismatch in {cache_dir}: expected {expected_label!r}, found {manifest.get('label')!r}"
+        )
+    if expected_run_key is not None and manifest.get("run_key") != expected_run_key:
+        raise PreparedCacheError(
+            f"Prepared cache run key mismatch in {cache_dir}: expected {expected_run_key!r}, found {manifest.get('run_key')!r}"
+        )
+    if (
+        expected_prepare_config_digest is not None
+        and manifest.get("prepare_config_digest") != expected_prepare_config_digest
+    ):
+        raise PreparedCacheError(
+            f"Prepared cache config digest mismatch in {cache_dir}; tables were built from a different preparation configuration."
+        )
+    if (
+        expected_run_fingerprint is not None
+        and manifest.get("run_fingerprint") != expected_run_fingerprint
+    ):
+        raise PreparedCacheError(
+            f"Prepared cache run fingerprint mismatch in {cache_dir}; tables were built from different run inputs."
+        )
+    return manifest
 
 
 def discover_cache_dirs(root: str | Path) -> list[Path]:

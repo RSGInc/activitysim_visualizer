@@ -8,6 +8,7 @@ from .models import PipelineSettings
 
 PIPELINE_STEP_ORDER = ("prepare", "skimjoin", "segment", "summarize", "dashboard")
 VALID_PIPELINE_STEPS = set(PIPELINE_STEP_ORDER)
+REFRESHABLE_PIPELINE_STEPS = {"prepare", "skimjoin", "summarize"}
 VALID_DASHBOARD_MODES = {"none", "live", "export", "host"}
 
 
@@ -60,9 +61,34 @@ def parse_pipeline(raw_value) -> PipelineSettings:
             "pipeline.dashboard_mode must be one of none, live, export, or host."
         )
 
-    overwrite = raw_value.get("overwrite", False)
-    if not isinstance(overwrite, bool):
-        raise ValueError("pipeline.overwrite must be true or false when provided.")
+    if "overwrite" in raw_value:
+        raise ValueError(
+            "pipeline.overwrite has been replaced by pipeline.refresh. "
+            "Use refresh: all for a complete rebuild or refresh: [] for normal operation."
+        )
+
+    refresh_raw = raw_value.get("refresh", [])
+    if refresh_raw == "all":
+        refresh = [step for step in steps if step in REFRESHABLE_PIPELINE_STEPS]
+    elif isinstance(refresh_raw, list):
+        refresh = []
+        for idx, raw_step in enumerate(refresh_raw):
+            if not isinstance(raw_step, str):
+                raise ValueError("pipeline.refresh entries must be strings.")
+            step = raw_step.strip()
+            if step not in REFRESHABLE_PIPELINE_STEPS:
+                raise ValueError(
+                    f"pipeline.refresh[{idx}] must be one of prepare, skimjoin, or summarize."
+                )
+            if step in refresh:
+                raise ValueError(f"pipeline.refresh contains duplicate step {step!r}.")
+            if step not in steps:
+                raise ValueError(
+                    f"pipeline.refresh cannot include disabled step {step!r}."
+                )
+            refresh.append(step)
+    else:
+        raise ValueError("pipeline.refresh must be a list or 'all' when provided.")
 
     if "skimjoin" in steps and "prepare" not in steps:
         raise ValueError("pipeline.steps cannot include 'skimjoin' without 'prepare'.")
@@ -74,7 +100,7 @@ def parse_pipeline(raw_value) -> PipelineSettings:
     return PipelineSettings(
         steps=tuple(steps),
         dashboard_mode=dashboard_mode,
-        overwrite=overwrite,
+        refresh=tuple(refresh),
     )
 
 

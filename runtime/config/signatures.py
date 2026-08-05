@@ -179,6 +179,13 @@ def prepare_signature_payload(config: Config) -> dict[str, Any]:
     }
 
 
+def base_prepare_signature_payload(config: Config) -> dict[str, Any]:
+    """Return preparation identity before optional skim enrichment."""
+    payload = prepare_signature_payload(config)
+    payload.pop("skimjoin", None)
+    return payload
+
+
 def summary_signature_payload(config: Config) -> dict[str, Any]:
     segmentation_payload: dict[str, Any] = {"enabled": config.segmentation.enabled}
     if config.segmentation.enabled:

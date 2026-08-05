@@ -754,6 +754,109 @@ def test_prepare_then_summary_does_not_rerun_skimjoin_for_existing_prepared_runs
     assert skimjoin_labels == ["Run A", "Run B"]
 
 
+def test_refresh_skimjoin_reuses_base_prepared_cache(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+        extra_lines=[
+            "pipeline:",
+            "  steps: [prepare, skimjoin]",
+            "skimjoin:",
+            "  defaults:",
+        ],
+    )
+    read_labels: list[str] = []
+    prepare_labels: list[str] = []
+    skimjoin_labels: list[str] = []
+
+    def fake_resolve_skimjoin(config, entry):
+        return SkimjoinSettings(
+            enabled=True,
+            config_path="mock_skimjoin.yaml",
+            config_digest="mock-digest",
+        )
+
+    monkeypatch.setattr(
+        "runtime.config.resolve_run_skimjoin_settings",
+        fake_resolve_skimjoin,
+    )
+    monkeypatch.setattr(
+        "runtime.config.normalize_prepare.resolve_run_skimjoin_settings",
+        fake_resolve_skimjoin,
+    )
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: (
+            read_labels.append(label or Path(run_dir).name),
+            _fake_run_data(label or Path(run_dir).name, str(run_dir)),
+        )[1],
+        prepare_data=lambda rd, config: (
+            prepare_labels.append(rd.label),
+            rd,
+        )[1],
+    )
+    monkeypatch.setattr(
+        prepare_workflow,
+        "apply_skimjoin",
+        lambda rd, config: (skimjoin_labels.append(rd.label), rd)[1],
+    )
+
+    plan = _workflow_plan(config, skimjoin=True)
+    runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=True,
+        plan=plan,
+    )
+    refreshed_plan = replace(plan, refresh_steps=("skimjoin",))
+    runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=True,
+        plan=refreshed_plan,
+    )
+
+    assert read_labels == ["Run A"]
+    assert prepare_labels == ["Run A"]
+    assert skimjoin_labels == ["Run A", "Run A"]
+    assert (
+        Path(config.summary_root) / "run-a" / "base_prepared_tables" / "manifest.json"
+    ).exists()
+
+
+def test_raw_input_file_identity_changes_run_fingerprint(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run_a"
+    run_dir.mkdir()
+    households = run_dir / "final_households.csv"
+    households.write_text("household_id\n1\n", encoding="utf-8")
+    config = _write_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+    )
+
+    first = prepare_workflow._run_cache_metadata(
+        entry=config.runs[0],
+        run_key="run-a",
+        config=config,
+    )["run_fingerprint"]
+    households.write_text("household_id\n1\n2\n", encoding="utf-8")
+    second = prepare_workflow._run_cache_metadata(
+        entry=config.runs[0],
+        run_key="run-a",
+        config=config,
+    )["run_fingerprint"]
+
+    assert first["raw_file_identities"] != second["raw_file_identities"]
+
+
 def test_run_summary_workflow_does_not_build_non_default_registered_summaries(
     tmp_path: Path,
     monkeypatch,
@@ -2340,7 +2443,7 @@ def test_resolve_requested_steps_uses_config_pipeline_defaults(tmp_path: Path) -
     ]
 
 
-def test_resolve_effective_plan_uses_pipeline_dashboard_mode_and_overwrite(
+def test_resolve_effective_plan_uses_pipeline_dashboard_mode_and_refresh(
     tmp_path: Path,
 ) -> None:
     config = _write_config(
@@ -2352,7 +2455,7 @@ def test_resolve_effective_plan_uses_pipeline_dashboard_mode_and_overwrite(
             "    - summarize",
             "    - dashboard",
             "  dashboard_mode: export",
-            "  overwrite: true",
+            "  refresh: [summarize]",
         ],
     )
 
@@ -2375,7 +2478,7 @@ def test_resolve_effective_plan_uses_pipeline_dashboard_mode_and_overwrite(
     assert plan.runtime_steps == ("summarize", "dashboard")
     assert plan.logical_steps == ("summarize", "dashboard")
     assert plan.dashboard_mode == "export"
-    assert plan.overwrite is True
+    assert plan.refresh_steps == ("summarize",)
 
 
 def test_resolve_effective_plan_drops_dashboard_when_config_dashboard_mode_is_none(

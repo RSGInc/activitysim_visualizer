@@ -27,7 +27,7 @@ root: artifacts
 pipeline:
   steps: [prepare, summarize, dashboard]
   dashboard_mode: live
-  overwrite: false
+  refresh: []
 
 runs:
   - dir: C:\models\base\output

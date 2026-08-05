@@ -132,10 +132,13 @@ class PipelineSettings:
 
     steps: tuple[str, ...] = ("summarize", "dashboard")
     dashboard_mode: Literal["none", "live", "export", "host"] = "live"
-    overwrite: bool = False
+    refresh: tuple[str, ...] = ()
 
     def has_step(self, step: str) -> bool:
         return step in self.steps
+
+    def refreshes(self, step: str) -> bool:
+        return step in self.refresh
 
 
 @dataclass(frozen=True)
@@ -341,6 +344,7 @@ class Config:
 
     config_path: str
     config_digest: str
+    base_prepare_config_digest: str
     prepare_config_digest: str
     summary_config_digest: str
     presentation_config_digest: str
@@ -457,6 +461,11 @@ class Config:
         from .signatures import prepare_signature_payload
 
         return prepare_signature_payload(self)
+
+    def base_prepare_signature_payload(self) -> dict[str, Any]:
+        from .signatures import base_prepare_signature_payload
+
+        return base_prepare_signature_payload(self)
 
     def summary_signature_payload(self) -> dict[str, Any]:
         from .signatures import summary_signature_payload

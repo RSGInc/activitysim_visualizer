@@ -265,6 +265,7 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
     config = cls(
         config_path=str(config_path),
         config_digest=hashlib.sha256(config_bytes).hexdigest(),
+        base_prepare_config_digest="",
         prepare_config_digest="",
         summary_config_digest="",
         presentation_config_digest="",
@@ -317,6 +318,9 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
     )
     if not config.pnr_tour_modes:
         raise ValueError("summarize.pnr_tour_modes must resolve to at least one mode.")
+    config.base_prepare_config_digest = digest_payload(
+        config.base_prepare_signature_payload()
+    )
     config.prepare_config_digest = digest_payload(config.prepare_signature_payload())
     config.summary_config_digest = digest_payload(config.summary_signature_payload())
     config.presentation_config_digest = digest_payload(

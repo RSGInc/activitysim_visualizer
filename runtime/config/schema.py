@@ -251,7 +251,7 @@ def validate_canonical_config(raw: Mapping[str, object]) -> None:
     _reject_unknown_keys(
         pipeline,
         field_name="pipeline",
-        allowed={"steps", "dashboard_mode", "overwrite"},
+        allowed={"steps", "dashboard_mode", "refresh", "overwrite"},
     )
 
     display = _mapping(raw.get("display"), field_name="display")

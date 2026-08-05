@@ -83,6 +83,9 @@ def effective_processor_config(
         )
     if effective is config:
         return config
+    effective.base_prepare_config_digest = digest_payload(
+        effective.base_prepare_signature_payload()
+    )
     effective.prepare_config_digest = digest_payload(effective.prepare_signature_payload())
     effective.summary_config_digest = digest_payload(effective.summary_signature_payload())
     return effective
@@ -123,6 +126,8 @@ def summary_cache_load_expectations(
     config: Any,
     build_run_fingerprint_fn: Callable[..., dict[str, object]],
     resolve_skim_path_fn: Callable[[str | None, str | None, str | Path], str | None],
+    resolve_run_file_paths_fn: Callable[..., dict[str, str | None]],
+    optional_file_identity_fn: Callable[[str | Path | None], dict[str, object] | None],
     build_prepared_manifest_identity_fn: Callable[..., dict[str, object]],
 ) -> dict[str, object] | None:
     """Return cache-load expectations for a cache dir when raw run inputs exist."""
@@ -146,7 +151,18 @@ def summary_cache_load_expectations(
                 "config_path": resolved_skimjoin.config_path,
                 "config_digest": resolved_skimjoin.config_digest,
                 "resolved_skim_files": list(resolved_skimjoin.resolved_skim_files),
+                "resolved_skim_file_identities": [
+                    optional_file_identity_fn(path)
+                    for path in resolved_skimjoin.resolved_skim_files
+                ],
                 "resolved_network_los_file": resolved_skimjoin.resolved_network_los_file,
+                "resolved_network_los_identity": optional_file_identity_fn(
+                    resolved_skimjoin.resolved_network_los_file
+                ),
+                "create_hypothetical_skim_tables": (
+                    resolved_skimjoin.create_hypothetical_skim_tables
+                ),
+                "failure_policy": resolved_skimjoin.failure_policy,
             }
     base_run_fingerprint = build_run_fingerprint_fn(
         label=expected_label,
@@ -173,6 +189,26 @@ def summary_cache_load_expectations(
             else config.fallback_files or None
         ),
         skimjoin=expected_skimjoin,
+        raw_file_identities=(
+            None
+            if (uses_custom_prepared_tables or uses_summary_table_map_only)
+            else {
+                table_id: identity
+                for table_id, path in resolve_run_file_paths_fn(
+                    run_dir,
+                    config,
+                    entry.get("file_map") or None,
+                ).items()
+                if (identity := optional_file_identity_fn(path)) is not None
+            }
+        ),
+        skim_file_identity=(
+            None
+            if (uses_custom_prepared_tables or uses_summary_table_map_only)
+            else optional_file_identity_fn(
+                resolve_skim_path_fn(entry.get("skim_file") or None, config.skim_file, run_dir)
+            )
+        ),
         hh_weight_col=None
         if (uses_custom_prepared_tables or uses_summary_table_map_only)
         else entry.get("hh_weight_col") or None,
@@ -320,6 +356,8 @@ def run_cache_metadata(
     run_key: str,
     config: Any,
     resolve_skim_path_fn: Callable[[str | None, str | None, str | Path], str | None],
+    resolve_run_file_paths_fn: Callable[..., dict[str, str | None]],
+    optional_file_identity_fn: Callable[[str | Path | None], dict[str, object] | None],
     build_run_fingerprint_fn: Callable[..., dict[str, object]],
     build_prepared_manifest_identity_fn: Callable[..., dict[str, object]],
 ) -> dict[str, object]:
@@ -340,7 +378,18 @@ def run_cache_metadata(
                 "config_path": resolved_skimjoin.config_path,
                 "config_digest": resolved_skimjoin.config_digest,
                 "resolved_skim_files": list(resolved_skimjoin.resolved_skim_files),
+                "resolved_skim_file_identities": [
+                    optional_file_identity_fn(path)
+                    for path in resolved_skimjoin.resolved_skim_files
+                ],
                 "resolved_network_los_file": resolved_skimjoin.resolved_network_los_file,
+                "resolved_network_los_identity": optional_file_identity_fn(
+                    resolved_skimjoin.resolved_network_los_file
+                ),
+                "create_hypothetical_skim_tables": (
+                    resolved_skimjoin.create_hypothetical_skim_tables
+                ),
+                "failure_policy": resolved_skimjoin.failure_policy,
             }
     resolved_skim = (
         None
@@ -355,6 +404,24 @@ def run_cache_metadata(
             else run_dir
         ),
         skim_file=resolved_skim,
+        raw_file_identities=(
+            None
+            if (uses_custom_prepared_tables or uses_summary_table_map_only)
+            else {
+                table_id: identity
+                for table_id, path in resolve_run_file_paths_fn(
+                    run_dir,
+                    config,
+                    entry.get("file_map") or None,
+                ).items()
+                if (identity := optional_file_identity_fn(path)) is not None
+            }
+        ),
+        skim_file_identity=(
+            None
+            if (uses_custom_prepared_tables or uses_summary_table_map_only)
+            else optional_file_identity_fn(resolved_skim)
+        ),
         skimjoin=resolved_skimjoin_payload,
         file_map=None
         if (uses_custom_prepared_tables or uses_summary_table_map_only)
