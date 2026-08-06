@@ -527,7 +527,10 @@ def main() -> None:
     try:
         plan = resolve_effective_plan(args, config)
         steps = list(plan.runtime_steps)
-        LOGGER.info("Requested workflow steps: %s", ", ".join(steps) if steps else "(none)")
+        LOGGER.info(
+            "Requested workflow steps: %s",
+            ", ".join(plan.logical_steps) if plan.logical_steps else "(none)",
+        )
         LOGGER.info("Effective dashboard mode: %s", plan.dashboard_mode)
         cache_root = runtime_workflows.summary_cache_root(
             config, create="summarize" in steps and not args.explain_cache
