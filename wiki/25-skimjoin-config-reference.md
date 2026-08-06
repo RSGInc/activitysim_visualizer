@@ -50,6 +50,26 @@ time:
   matrix: SOV_TIME
 ```
 
+When multiple skim files contain the same matrix name, qualify the reference
+with the source filename:
+
+```yaml
+project:
+  skim_files:
+    - C:\skims\bike_commute.omx
+    - C:\skims\bike_noncommute.omx
+
+modes:
+  BIKE:
+    distance:
+      matrix: "bike_commute.omx::distance"
+```
+
+Unqualified references continue to work when the matrix name is unique across
+the configured skim files. An ambiguous unqualified reference fails validation
+and lists the available qualified names. Filename-qualified references may also
+contain dimension placeholders.
+
 ### Period Dimension Lookup
 
 ```yaml
@@ -360,7 +380,7 @@ A component rule can be a matrix-name string or a mapping.
 
 | Field | Type | Default | Allowed values | Notes |
 |---|---|---|---|---|
-| `matrix` | string | required | matrix/table value name | Matrix name or matrix-name template using `{DIMENSION}` placeholders. |
+| `matrix` | string | required | matrix/table value name | Matrix name, `filename::matrix` reference, or template using `{DIMENSION}` placeholders. |
 | `output` | string | `output_prefix` + component name | output column | Final output column. Tour lookup outputs also receive `_outbound` or `_inbound`. |
 | `lookup` | string | `od` | `od`, `key` | Lookup type. |
 | `key_column` | string | none | source column | Required when `lookup: key`. |

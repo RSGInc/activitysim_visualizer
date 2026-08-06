@@ -21,6 +21,7 @@ from processor.skimjoin.annotate.trips import annotate_trips
 from processor.skimjoin.config.validation import ConfigValidationError, load_config, validate_config
 from processor.skimjoin.inventory import inventory_skim_files
 from processor.skimjoin.pipeline import apply_skimjoin
+from processor.skimjoin.runtime_execution import _validate_runtime_inventory
 from processor.skimjoin.skimstore.omx import OmxSkimStore
 from processor.summarize import cache_types as summary_cache_types
 from processor.summarize import builder as summary_builder
@@ -1125,7 +1126,9 @@ def test_config_accepts_mixed_omx_and_csv_skim_inputs(tmp_path: Path) -> None:
     assert config.skimjoin.normalized_config is not None
 
 
-def test_validate_config_rejects_duplicate_matrix_names_across_sources(tmp_path: Path) -> None:
+def test_validate_config_rejects_ambiguous_unqualified_matrix_reference(
+    tmp_path: Path,
+) -> None:
     skim_path = tmp_path / "auto.omx"
     csv_path = tmp_path / "auto.csv"
     _write_omx(skim_path, matrix_name="auto__time")
@@ -1174,11 +1177,119 @@ def test_validate_config_rejects_duplicate_matrix_names_across_sources(tmp_path:
         },
     }
     inventory = inventory_skim_files([skim_path, csv_path])
-    trips = pl.read_parquet(tmp_path / "run" / "final_trips.parquet")
-    tours = pl.read_parquet(tmp_path / "run" / "final_tours.parquet")
+    trips = pl.read_parquet(tmp_path / "run" / "final_trips.parquet").with_columns(
+        pl.lit("WALK_TRANSIT").alias("trip_mode")
+    )
+    tours = pl.read_parquet(tmp_path / "run" / "final_tours.parquet").with_columns(
+        pl.lit("WALK_TRANSIT").alias("tour_mode"),
+        pl.lit(101).alias("o_maz"),
+        pl.lit(102).alias("d_maz"),
+    )
 
-    with pytest.raises(ConfigValidationError, match="Duplicate matrix names"):
+    with pytest.raises(ConfigValidationError, match="ambiguous matrix reference 'auto__time'"):
         validate_config(config_data, inventory, trips, tours=tours)
+
+
+def test_qualified_matrix_references_select_duplicate_names_by_file(
+    tmp_path: Path,
+) -> None:
+    commute_path = tmp_path / "bike_commute.omx"
+    noncommute_path = tmp_path / "bike_noncommute.omx"
+    _write_omx_with_lookup(
+        commute_path,
+        matrix_name="distance",
+        lookup_name="taz",
+        values=np.array([[1.0, 2.0], [3.0, 4.0]]),
+    )
+    _write_omx_with_lookup(
+        noncommute_path,
+        matrix_name="distance",
+        lookup_name="taz",
+        values=np.array([[10.0, 20.0], [30.0, 40.0]]),
+    )
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[commute_path, noncommute_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  BIKE:",
+            "    commute_distance:",
+            "      output: skim_bike_commute_distance",
+            '      matrix: "bike_commute.omx::distance"',
+            "    noncommute_distance:",
+            "      output: skim_bike_noncommute_distance",
+            '      matrix: "bike_noncommute.omx::distance"',
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+    inventory = inventory_skim_files(normalized.skim_files)
+    _validate_runtime_inventory(inventory)
+
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1],
+            "trip_mode": ["BIKE"],
+            "OTAZ": [101],
+            "DTAZ": [102],
+        }
+    )
+    annotated, lookup_summary, missing = annotate_trips(
+        trips,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+    )
+
+    assert annotated["skim_bike_commute_distance"].to_list() == [2.0]
+    assert annotated["skim_bike_noncommute_distance"].to_list() == [20.0]
+    assert sorted(lookup_summary["matrix_name"].to_list()) == [
+        "bike_commute.omx::distance",
+        "bike_noncommute.omx::distance",
+    ]
+    assert missing.is_empty()
+
+
+def test_annotate_trips_rejects_ambiguous_unqualified_matrix_reference(
+    tmp_path: Path,
+) -> None:
+    first_path = tmp_path / "first.omx"
+    second_path = tmp_path / "second.omx"
+    _write_omx(first_path, matrix_name="distance")
+    _write_omx(second_path, matrix_name="distance")
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[first_path, second_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  BIKE:",
+            "    distance:",
+            "      matrix: distance",
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+    inventory = inventory_skim_files(normalized.skim_files)
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1],
+            "trip_mode": ["BIKE"],
+            "OTAZ": [101],
+            "DTAZ": [102],
+        }
+    )
+
+    with pytest.raises(ValueError, match="Ambiguous matrix reference 'distance'"):
+        annotate_trips(
+            trips,
+            normalized,
+            inventory,
+            skim_store=OmxSkimStore(),
+        )
 
 
 def test_validate_config_allows_summed_output_overlap_but_rejects_replace_overlap(

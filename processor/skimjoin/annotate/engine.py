@@ -277,6 +277,16 @@ def _execute_chain_queue(
 
         queued = step_queue.join(metadata, on="matrix_name", how="left")
 
+        ambiguous = queued.filter(pl.col("source_kind") == "ambiguous")
+        if not ambiguous.is_empty():
+            row = ambiguous.select(
+                ["matrix_name", "ambiguous_sources"]
+            ).unique(maintain_order=True).row(0, named=True)
+            raise ValueError(
+                f"Ambiguous matrix reference {row['matrix_name']!r}; qualify it with one of: "
+                f"{row['ambiguous_sources']}"
+            )
+
         missing_matrix = queued.filter(pl.col("file_path").is_null())
         if not missing_matrix.is_empty():
             for row in missing_matrix.select(

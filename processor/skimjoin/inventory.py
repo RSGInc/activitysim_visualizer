@@ -9,6 +9,9 @@ import h5py
 import polars as pl
 
 
+MATRIX_REFERENCE_SEPARATOR = "::"
+
+
 @dataclass(frozen=True)
 class MatrixRecord:
     file_path: str
@@ -22,6 +25,10 @@ class MatrixRecord:
     value_column_name: str | None = None
     origin_column_name: str | None = None
     destination_column_name: str | None = None
+
+
+def qualified_matrix_reference(file_path: str | Path, matrix_name: str) -> str:
+    return f"{Path(file_path).name}{MATRIX_REFERENCE_SEPARATOR}{matrix_name}"
 
 
 def expand_paths(paths: Iterable[str | Path]) -> list[Path]:
