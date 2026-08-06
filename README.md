@@ -83,8 +83,12 @@ dashboard mode. The start command stays the same for every workflow.
 | Run only the processor | [Processor-Only Workflow](wiki/12-running-workflows.md#configure-a-processor-only-workflow) |
 | Create a standalone HTML dashboard | [HTML Export](wiki/34-html-export.md) |
 | Understand caches and workflow steps | [Running Workflows](wiki/12-running-workflows.md) |
+| Build summaries for configured subsets | [Segmentation](wiki/24-segmentation.md) |
+| Add district, county, or other zone groupings | [Geography](wiki/27-geography.md) |
 | Find an exact configuration field | [Configuration Reference](wiki/13-configuration-reference.md) |
-| Understand a summary table or field | [Summary Catalog](wiki/24-summary-catalog.md) |
+| Verify raw or prepared table requirements | [Input Data Contract](wiki/14-input-data-contract.md) |
+| Interpret cache manifests and rebuild decisions | [Cache And Manifest Reference](wiki/15-cache-manifest-reference.md) |
+| Understand a summary table or field | [Summary Catalog](wiki/26-summary-catalog.md) |
 
 ## Documentation
 
@@ -99,9 +103,13 @@ For a standard setup, read these chapters in order:
 Other user references:
 
 - [Output Visualizer](wiki/30-output-visualizer.md) explains the dashboard.
-- [Dashboard Pages](wiki/31-dashboard-pages.md) lists the available analyses.
+- [Dashboard User Guide](wiki/16-dashboard-user-guide.md) lists the available analyses and explains how to interpret them.
+- [Input Data Contract](wiki/14-input-data-contract.md) defines source and canonical table boundaries.
+- [Cache And Manifest Reference](wiki/15-cache-manifest-reference.md) explains stored identities and diagnostics.
 - [HTML Export](wiki/34-html-export.md) explains how to create an offline file.
-- [Summary Catalog](wiki/24-summary-catalog.md) documents every summary table.
+- [Summary Catalog](wiki/26-summary-catalog.md) documents every summary table.
+- [Segmentation](wiki/24-segmentation.md) explains subset summaries and their caches.
+- [Geography](wiki/27-geography.md) explains zone mappings and spatial outputs.
 - [Glossary](wiki/99-glossary.md) defines project terminology.
 - [Troubleshooting](wiki/90-troubleshooting.md) covers common failures.
 

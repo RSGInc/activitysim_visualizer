@@ -27,6 +27,15 @@ For a standard setup, read these three chapters in order:
 2. [Choose raw, prepared, or summary inputs](11-configuring-your-data.md).
 3. [Configure a live, export, or processor workflow](12-running-workflows.md).
 
+After the dashboard starts, use the
+[Dashboard User Guide](16-dashboard-user-guide.md) to choose an analysis and
+interpret its controls and results.
+
+Use [14 - Input Data Contract](14-input-data-contract.md) when you need exact
+table, key, relationship, or bypass-prepare rules. Use
+[15 - Cache And Manifest Reference](15-cache-manifest-reference.md) when you
+need to interpret stored identities and diagnostics.
+
 If data is missing, see [Troubleshooting](90-troubleshooting.md). Use the
 [Configuration Reference](13-configuration-reference.md) to look up a field or
 default value; you do not need to read it from beginning to end.
@@ -39,9 +48,11 @@ default value; you do not need to read it from beginning to end.
 | Understand the Output Processor | [20 - Output Processor](20-output-processor.md) |
 | Add a prepared column | [41 - Data Extension Cookbook](41-data-extension-cookbook.md#worked-example-add-a-column-to-an-existing-prepared-table) |
 | Add or debug skimjoin outputs | [22 - Skimjoin](22-skimjoin.md) |
-| Find every skimjoin config field and lookup option | [25 - Skimjoin Config Reference](25-skimjoin-config-reference.md) |
+| Find every skimjoin config field and lookup option | [23 - Skimjoin Config Reference](23-skimjoin-config-reference.md) |
+| Build summaries for configured subsets | [24 - Segmentation](24-segmentation.md) |
+| Add custom zone-based geographies | [27 - Geography](27-geography.md) |
 | Add a summary function | [44 - Summary Function Cookbook](44-summary-function-cookbook.md) |
-| Find every registered summary table | [24 - Summary Catalog](24-summary-catalog.md) |
+| Find every registered summary table | [26 - Summary Catalog](26-summary-catalog.md) |
 | Understand the Output Visualizer | [30 - Output Visualizer](30-output-visualizer.md) |
 | Add a dashboard page or page group | [45 - Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md) |
 | Add a figure, table, selector, or widget | [45 - Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md) |
@@ -59,23 +70,30 @@ default value; you do not need to read it from beginning to end.
 - [11 - Configuring Your Data](11-configuring-your-data.md)
 - [12 - Running Workflows](12-running-workflows.md)
 - [13 - Configuration Reference](13-configuration-reference.md)
+- [14 - Input Data Contract](14-input-data-contract.md)
+- [15 - Cache And Manifest Reference](15-cache-manifest-reference.md)
+- [16 - Dashboard User Guide](16-dashboard-user-guide.md)
 
 ### Output Processor
 
 - [20 - Output Processor](20-output-processor.md)
 - [21 - Prepared Tables](21-prepared-tables.md)
 - [22 - Skimjoin](22-skimjoin.md)
-- [23 - Summary Functions](23-summary-functions.md)
-- [24 - Summary Catalog](24-summary-catalog.md)
-- [25 - Skimjoin Config Reference](25-skimjoin-config-reference.md)
+- [23 - Skimjoin Config Reference](23-skimjoin-config-reference.md)
+- [24 - Segmentation](24-segmentation.md)
+- [25 - Summary Functions](25-summary-functions.md)
+- [26 - Summary Catalog](26-summary-catalog.md)
+- [27 - Geography](27-geography.md)
 
 ### Output Visualizer
 
 - [30 - Output Visualizer](30-output-visualizer.md)
-- [31 - Dashboard Pages](31-dashboard-pages.md)
+- [31 - Dashboard Page Contract](31-dashboard-pages.md)
 - [32 - Figures and Widgets](32-figures-and-widgets.md)
 - [33 - Dashboard Page Recipes](33-dashboard-page-recipes.md)
 - [34 - HTML Export](34-html-export.md)
+- [35 - Plotting Reference](35-plotting-reference.md)
+- [36 - HTML Export Schema](36-html-export-schema.md)
 
 ### Developer Reference
 
@@ -94,8 +112,9 @@ default value; you do not need to read it from beginning to end.
 The project generates some wiki sections directly from the code so that the
 reference material stays accurate:
 
-- [24 - Summary Catalog](24-summary-catalog.md)
-- the generated page catalog in [31 - Dashboard Pages](31-dashboard-pages.md)
+- [26 - Summary Catalog](26-summary-catalog.md)
+- the generated page catalog in
+  [31 - Dashboard Page Contract](31-dashboard-pages.md)
 
 Regenerate these sections after you change a summary declaration, a summary
 contract, a dashboard page definition, or a page data requirement:

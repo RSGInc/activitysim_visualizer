@@ -1,9 +1,14 @@
-# 31 - Dashboard Pages
+# 31 - Dashboard Page Contract
 
 The visualizer discovers dashboard pages in modules under
 [`dashboard/pages`](../dashboard/pages). Each final module contains one
 `DashboardPage` subclass with a `@dashboard_page(...)` decorator. Page packages
 export a `DashboardGroupDefinition` as `GROUP`.
+
+For descriptions of the analyses and advice about interpreting their controls,
+see [16 - Dashboard User Guide](16-dashboard-user-guide.md). This chapter is
+the authoritative reference for page IDs, data prerequisites, and extension
+contracts.
 
 ## Page Definition Contract
 
@@ -180,6 +185,7 @@ Total registered pages: **27**
 
 ## Related Chapters
 
+- [16 - Dashboard User Guide](16-dashboard-user-guide.md)
 - [30 - Output Visualizer](30-output-visualizer.md)
 - [32 - Figures and Widgets](32-figures-and-widgets.md)
 - [33 - Dashboard Page Recipes](33-dashboard-page-recipes.md)

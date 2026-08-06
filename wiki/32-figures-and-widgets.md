@@ -26,9 +26,6 @@ The main author-facing objects are:
 - `self.query(...)` for repeated or expensive transformations
 - `self.plot` for figures and tables
 
-Do not add routine `sync_controls()` methods or page cache keys. Option
-providers and section dependencies supply the required information to the
-framework.
 
 ## Data And Figures
 
@@ -86,6 +83,19 @@ The page-facing data API is:
 | `self.data.prepared_runs(weighting_mode=None)` | Direct `RunData` access for features that require matrices or other non-table state. |
 | `self.data.summary_series(id, weighting=None)` | Specialized skim-summary view that retains summary-series metadata. |
 
+For `summary()` and `summaries()`, `required` has these exact meanings:
+
+| Value | Behavior when no run is usable |
+|---|---|
+| `None` | Required when the ID appears in the page definition's `required_summary_ids`; optional otherwise. |
+| `True` | Record the selection and emit the page's required-summary warning even when the decorator did not declare it. |
+| `False` | Record diagnostics but suppress the required-summary warning. Use this for an independent optional feature. |
+
+`required` does not make the lookup raise and does not render a card by itself.
+The section must still test the returned `RunTables` and choose its standard
+unavailable or optional-feature fallback. `columns=` is evaluated per run, so
+one compatible run can render while other runs appear in `data.issues`.
+
 `RunTables` is iterable and indexable as `(run_label, DataFrame)` pairs. Its
 public query interface is:
 
@@ -102,6 +112,50 @@ public query interface is:
 | `.scalar(column, default=None)` | First value for each usable run. |
 | `.to_list()` | Materialize tuples for an external API that cannot consume `RunTables`. |
 | `.available`, `.partial`, `.issues`, `.source_ids` | Availability and provenance metadata retained through fluent operations. |
+
+Each issue contains `label`, `status`, `detail`, `source_kind`, `source_id`,
+`missing_columns`, and available run/cache identity. Plotting a partial
+`RunTables` value renders only its usable runs and keeps the exclusions in page
+and export diagnostics. Do not replace it with `.to_list()` before the normal
+render boundary unless an external API requires tuples; that discards the
+structured availability object from subsequent fluent operations.
+
+## Query Cache Contract
+
+`self.query(factory)` accepts one zero-argument callable and returns the
+callable's result. On a cache miss it executes `factory`; on a hit it returns
+the stored value. Its identity contains:
+
+- page ID;
+- current global dashboard state, including weighting, Values, and segment
+  presentation state;
+- active section ID;
+- current values of selectors declared by that section;
+- callable module, qualified name, file, and first line; and
+- simple closure/default/keyword-default values. Complex captured objects are
+  represented by type, so capture the scalar values that actually change the
+  calculation.
+
+A selector affects query identity only when its ID appears in the active
+section's `selectors=(...)` declaration. Always declare every selector that
+changes the renderer. Global state or a declared selector change creates a new
+identity automatically. Call `self.clear_query_cache()` only after mutable
+external state changes outside those declared inputs; it clears this page's
+memoized queries.
+
+```python
+def render_body(self):
+    purpose = self._purpose_by_label[self.purpose.value]
+    data = self.data.summary(
+        "trip_mode_by_tour_purpose_and_tour_mode",
+        columns=("tour_purpose", "trip_mode", "trip_count"),
+    )
+    return self.query(
+        lambda: data.where(tour_purpose=purpose)
+        .group("trip_mode", pl.col("trip_count").sum())
+        .drop_empty()
+    )
+```
 
 ## Calculation Notes
 
@@ -254,7 +308,7 @@ exist at export time.
 
 ## Related Chapters
 
-- [31 - Dashboard Pages](31-dashboard-pages.md)
+- [31 - Dashboard Page Contract](31-dashboard-pages.md)
 - [33 - Dashboard Page Recipes](33-dashboard-page-recipes.md)
 - [34 - HTML Export](34-html-export.md)
 - [35 - Plotting Reference](35-plotting-reference.md)

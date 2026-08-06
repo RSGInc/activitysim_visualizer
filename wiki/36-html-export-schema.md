@@ -44,6 +44,28 @@ Top-level fields:
 | `page_export_support` | `PageExportSupportPayload` | Metadata about export-enabled page selectors |
 | `client_runtime` | `str` | Runtime family identifier for diagnostic/debugging purposes |
 
+Current protocol identifiers are `schema_version: "2.0"`,
+`client_runtime: "region-swap-v1"`, and
+`page_export_support.client_side_runtime: "dashboard-and-page-selectors"`.
+Treat them as compatibility identifiers, not user-visible labels.
+
+### Dashboard Chrome And State Fields
+
+| Object | Complete fields |
+|---|---|
+| `runs_loaded[*]` | `label`, `color` |
+| `chrome` | `layout`, `rail_sections`, `controls_enabled` |
+| `chrome.controls_enabled` | Boolean `weighting`, Boolean `values` |
+| `dashboard_controls` | `weighting` list and `values` list |
+| `default_state` | `weighting`, `values` |
+| `page_export_support` | `client_side_runtime`, `enabled_page_selectors` |
+| `enabled_page_selectors[*]` | `page_id`, `selector_id` |
+
+The runtime uses the options in `dashboard_controls` to validate
+`default_state` and to form state keys. A control can remain in the payload
+while `controls_enabled` disables switching because only one value was
+exported.
+
 `dashboard/export/payload.py` builds the dashboard state key for `states`:
 
 ```text
@@ -185,6 +207,82 @@ The supported widget types are `select`, `radio_button_group`, `float_input`,
 `checkbox`, and `button`. `SelectorMetadataPayload.default_value` and widget
 values can be all JSON-compatible values. They are not limited to strings.
 
+### Complete Node Fields
+
+Every node has a `kind` discriminator and only the fields for that kind:
+
+| Kind | Required fields | Optional fields |
+|---|---|---|
+| `container` | `layout`, `children`, `child_count`, `styles`, `css_classes` | none |
+| `card` | `title`, `children` | none |
+| `tabs` | `tabs`; each tab has `title`, `content` | tab `full_title` |
+| `plotly` | `figure` | `height`, `aspect_ratio` |
+| `table` | `columns`, `rows` | `column_tooltips` |
+| `widget` | `widget_type`, `name`, `value`, `options`, `step`, `disabled`, `selector_id`, `export_enabled` | `parent_selector_id`, `options_by_parent_value`, `disabled_parent_values` |
+| `html` | `html` | none |
+| `spacer` | none | none |
+| `region` | `region_id`, `selector_ids`, `content_mode`, `default_key`, `default_content`, `variants`, `variant_aliases` | none |
+
+`container.layout` is `row` or `column`. `widget_type` is one of
+`radio_button_group`, `select`, `float_input`, `checkbox`, or `button`.
+`region.content_mode` is currently `snapshot`.
+
+Plotly's `figure` field is its JSON-compatible figure dictionary. Table rows
+are dictionaries keyed by the ordered `columns`. HTML is already serialized
+markup; the browser runtime does not execute Python pane logic.
+
+## Diagnostics Sidecar Schema
+
+`write_export_html_document()` writes `<stem>.diagnostics.json` beside the
+HTML. It is build-time diagnostic data and is not required to open the HTML.
+The top-level shape is:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `schema_version` | integer, currently `1` | Diagnostics format version; separate from export payload `2.0`. |
+| `title` | string | Dashboard title. |
+| `states` | mapping | Page and region diagnostics keyed by `<Weighting>||<Values>`. |
+| `size_analysis` | mapping | Estimated compact-JSON bytes by state, page, and region. |
+
+For each dashboard state, `states[state_key][page_id]` is a mapping containing:
+
+- `default`: visualization diagnostics for the default page state;
+- `export_region:<region_id>`: selector enumeration counts; and
+- `region:<region_id>:<variant_key>`: visualization diagnostics captured for
+  one rendered region variant.
+
+A visualization diagnostic has these fields:
+
+| Field | Meaning |
+|---|---|
+| `visualization_id` | Summary or prepared input used as the diagnostic boundary. |
+| `render_state` | `rendered`, `partial`, or `skipped`. |
+| `input_kind` | `summary`, `prepared`, or `mixed`. |
+| `input_ids` | Source summary/prepared IDs. |
+| `usable_run_labels` | Runs included in that output. |
+| `excluded_runs` | Per-run exclusions. |
+
+Each excluded run contains `label`, `status`, `detail`, `source_kind`,
+`source_id`, and `missing_columns`. An export-region enumeration record
+contains `selector_ids`, `selector_counts`, `raw_state_count`,
+`valid_state_count`, `alias_count`, and `pruned_state_count`.
+
+`size_analysis` contains:
+
+| Field | Contents |
+|---|---|
+| `warning_thresholds` | Byte thresholds for total, strong-total, page, static-region, and selector-region warnings. |
+| `total_payload_bytes`, `state_count` | Whole payload estimate and number of dashboard states. |
+| `states` | Per-state `payload_bytes`; each page has `payload_bytes` and region metrics. |
+| `page_peaks` | Largest state for each page. |
+| `region_peaks` | Largest state for each page/region. |
+
+Region size metrics contain `selector_ids`, `variant_count`,
+`default_content_bytes`, `variants_bytes`, and `total_bytes`. Current warning
+thresholds are 100 MiB total, 250 MiB strong total, 10 MiB per page, 5 MiB for
+a static region, and 1 MiB for a selector region. These are warnings, not hard
+limits.
+
 ## Runtime Validation Rules
 
 The embedded runtime validates these items:
@@ -218,8 +316,9 @@ Rules:
    from older Python code.
 2. Keep the runtime check strict. A mismatch must show an error and must not
    render incorrect content.
-3. Update this document, `dashboard/export/assets/export_runtime.js`, and the
-   export payload tests in the same change.
+3. Update this document, the readable files under
+   `dashboard/export/js_runtime/`, rebuild the generated asset, and update the
+   export payload/runtime tests in the same change.
 
 ## Checklist for Adding a New Node Kind
 
@@ -227,10 +326,12 @@ To add a serialized node kind:
 
 1. Add the new typed shape to `dashboard/export/types.py`.
 2. Emit it from `dashboard/export/serializer.py`.
-3. Render it in `dashboard/export/assets/export_runtime.js`.
-4. Add serializer coverage in `tests/test_export_serializer.py`.
-5. Add or update payload/smoke assertions if the new node can appear in representative exports.
-6. Update this document.
+3. Render it in `dashboard/export/js_runtime/`.
+4. Run `uv run python dashboard/export/build_export_runtime.py` to rebuild
+   `dashboard/export/assets/export_runtime.js`; do not edit the built asset.
+5. Add serializer coverage in `tests/test_export_serializer.py`.
+6. Add or update payload/smoke assertions if the new node can appear in representative exports.
+7. Update this document.
 
 ## Related Chapters
 

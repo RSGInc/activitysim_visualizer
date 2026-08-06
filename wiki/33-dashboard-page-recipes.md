@@ -183,7 +183,7 @@ IDs, missing definitions, unknown groups, and invalid data requirements.
 
 ## Related Chapters
 
-- [31 - Dashboard Pages](31-dashboard-pages.md)
+- [31 - Dashboard Page Contract](31-dashboard-pages.md)
 - [32 - Figures and Widgets](32-figures-and-widgets.md)
 - [34 - HTML Export](34-html-export.md)
 - [45 - Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md)

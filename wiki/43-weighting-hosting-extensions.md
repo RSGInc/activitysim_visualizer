@@ -65,6 +65,13 @@ column; it does not select a different weight. Prepare usually preserves raw
 ActivitySim columns. If you use `prepared_table_map`, include the named source
 columns in those prepared files.
 
+Column validation checks presence and castability during use; it does not
+enforce finite, non-null, or nonnegative values. Validate those properties in
+the producing workflow. Zero and negative values can produce zero denominators
+or subtract from counts, and null source weights can be omitted by aggregation.
+See [Summary Functions](25-summary-functions.md#weight-resolution-and-edge-cases)
+for primary-mode fallback and sample-rate behavior.
+
 ### 3. Cache, Dashboard, And Outside-Summary Behavior
 
 The summary cache identity includes the mode ID, source columns, and column-mode
@@ -287,10 +294,30 @@ dashboard = build_dashboard(
 dashboard.servable()
 ```
 
-Panel-compatible hosts can start this module with their standard command. A
-provider SDK can receive `dashboard` from the same script. Put secrets and
-deployment IDs in environment variables or provider configuration. Do not put
-them in the main visualizer YAML.
+Start it locally from the repository root:
+
+```powershell
+$env:ACTIVITYSIM_VIZ_CONFIG = "C:\deploy\activitysim_viz\config.yaml"
+uv run panel serve scripts/host_dashboard.py --address 127.0.0.1 --port 5006
+```
+
+For a service behind a reverse proxy, bind the process to all container/host
+interfaces and allow the public WebSocket origin:
+
+```powershell
+uv run panel serve scripts/host_dashboard.py --address 0.0.0.0 --port 5006 --allow-websocket-origin dashboard.example.org
+```
+
+Use the scheme/host value expected by the deployed Panel version when the
+public URL is nonstandard, and repeat the origin option if the deployment has
+several valid hosts. The proxy must forward WebSocket upgrade headers as well
+as ordinary HTTP. Terminate TLS and enforce authentication in the proxy or the
+chosen hosting provider unless the deployment deliberately adds those concerns
+to the application.
+
+A provider SDK can instead receive `dashboard` from the same script. Put
+secrets and deployment IDs in environment variables, a secret store, or
+provider configuration. Do not put them in the main visualizer YAML.
 
 This approach has the following properties:
 
@@ -303,6 +330,26 @@ This approach has the following properties:
 For a hosted service, caches must exist in persistent storage. To build caches
 at startup, call the public prepare and summarize workflows before
 `build_dashboard()`. Make the runtime cost and write permissions explicit.
+
+### Deployment Requirements
+
+Before treating the command as a production service, verify:
+
+| Requirement | Deployment rule |
+|---|---|
+| Code/imports | Install the package or start from a working directory where `dashboard`, `processor`, and `runtime` are importable. Keep the deployed code version aligned with the cache schema. |
+| Configuration | Set `ACTIVITYSIM_VIZ_CONFIG` to an explicit readable file. Resolve relative paths intentionally; absolute cache/input paths are safer in containers. |
+| Summary caches | Mount `<root>` as persistent readable storage. All enabled summary-backed pages need compatible run manifests. |
+| Prepared caches | Mount them when any enabled live page has optional or required prepared data. HTML export alone cannot replace this live requirement. |
+| Permissions | Read-only cache mounts are sufficient when artifacts are built before deployment. Grant writes only when startup intentionally builds or refreshes caches. |
+| Network | Expose the selected port, configure the public WebSocket origin, and preserve WebSocket upgrades through the proxy/load balancer. |
+| Sessions and memory | Panel creates server-side sessions. Size workers for the loaded summary/prepared data and expected concurrent sessions; do not assume a standalone HTML memory profile. |
+| Security | Put TLS, authentication, secrets, and access logs in the provider/proxy boundary unless a reviewed adapter owns them. |
+| Startup failure | Fail the deployment when config or required caches cannot load. Do not serve a process that silently has no configured runs. |
+
+The `panel serve` command above loads caches and serves the app. It does not run
+prepare or summarize. Build and validate artifacts in a separate deployment
+step unless startup generation is an explicit operational choice.
 
 ## Option B: Make `dashboard_mode: host` A Core Adapter
 

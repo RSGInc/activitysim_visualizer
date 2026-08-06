@@ -1,4 +1,4 @@
-# 24 - Summary Catalog
+# 26 - Summary Catalog
 
 This page is the data dictionary for summary CSV tables from the Output
 Processor. It explains what one row represents, how each table is used, and

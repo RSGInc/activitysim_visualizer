@@ -40,6 +40,8 @@ activitysim_visualizer/
 | New raw-output normalization | [21 - Prepared Tables](21-prepared-tables.md) |
 | New prepared column | [21 - Prepared Tables](21-prepared-tables.md#adding-a-prepared-column) |
 | New skim-derived output | [22 - Skimjoin](22-skimjoin.md#adding-a-skim-output) |
+| New segmentation source or relationship | [24 - Segmentation](24-segmentation.md#implementation-and-extension-points) |
+| New custom geography behavior | [27 - Geography](27-geography.md#implementation-and-extension-points) |
 | New generated summary function/table | [44 - Summary Function Cookbook](44-summary-function-cookbook.md) |
 | New figure or table on existing page | [32 - Figures and Widgets](32-figures-and-widgets.md) |
 | New dashboard page | [33 - Dashboard Page Recipes](33-dashboard-page-recipes.md) |
@@ -99,7 +101,9 @@ When behavior changes, update the documentation in the same change:
 | Config behavior | `11-configuring-your-data.md` and `13-configuration-reference.md` |
 | Prepare behavior | `21-prepared-tables.md` |
 | Skimjoin behavior | `22-skimjoin.md` |
-| Summary contract or registration | `23-summary-functions.md`, then regenerate catalogs |
+| Segmentation behavior | `24-segmentation.md` and `13-configuration-reference.md` |
+| Geography behavior | `27-geography.md` and `13-configuration-reference.md` |
+| Summary contract or registration | `25-summary-functions.md`, then regenerate catalogs |
 | Dashboard page API | `31-dashboard-pages.md`, `32-figures-and-widgets.md`, `33-dashboard-page-recipes.md` |
 | Export payload/runtime | `34-html-export.md` |
 | Export payload schema | `36-html-export-schema.md` |

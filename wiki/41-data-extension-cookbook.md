@@ -326,6 +326,6 @@ uv run --with pytest pytest --basetemp .pytest_tmp tests/test_runtime_workflows.
 ## Related Chapters
 
 - [21 - Prepared Tables](21-prepared-tables.md)
-- [23 - Summary Functions](23-summary-functions.md)
-- [24 - Summary Catalog](24-summary-catalog.md)
+- [25 - Summary Functions](25-summary-functions.md)
+- [26 - Summary Catalog](26-summary-catalog.md)
 - [42 - Config, Columns, and Labels](42-config-column-label-cookbook.md)

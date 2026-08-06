@@ -4,6 +4,11 @@ Prepared tables are the canonical form of ActivitySim output. They remove
 differences in raw file names and provide stable fields for summaries and
 dashboard pages.
 
+[14 - Input Data Contract](14-input-data-contract.md) defines the exact input
+inventory, canonical identifiers and types, relationship checks, availability
+states, and requirements for bypassing prepare. This chapter explains how the
+processor creates and extends that contract.
+
 ## Prepare Data Flow
 
 ```text
@@ -81,7 +86,7 @@ Use the prepared field when it exists. Do not search for raw names in a summary
 or page.
 
 This introductory list does not imply that every table has every field. For a
-specific summary, the generated catalog in chapter 24 lists the required
+specific summary, the generated catalog in chapter 26 lists the required
 prepared columns. At runtime, `@summary` requirements and prepared-table
 availability metadata determine whether a calculation can run.
 
@@ -98,7 +103,7 @@ To inspect a cache:
 2. Examine the Parquet or CSV schema for the relevant table.
 3. Use `processor.models.RunData` names at runtime and the file/config names in
    [Prepared Table Names](#prepared-table-names).
-4. Use the generated [Summary Catalog](24-summary-catalog.md) to find the exact
+4. Use the generated [Summary Catalog](26-summary-catalog.md) to find the exact
    prepared columns required by each registered summary.
 
 Add stable fields to the relevant prepare enrichment module, with a prepare
@@ -160,6 +165,10 @@ the [complete example](41-data-extension-cookbook.md#worked-example-add-a-prepar
 ## Related Chapters
 
 - [11 - Configuring Your Data](11-configuring-your-data.md#already-prepared-tables)
-- [23 - Summary Functions](23-summary-functions.md)
-- [31 - Dashboard Pages](31-dashboard-pages.md)
+- [14 - Input Data Contract](14-input-data-contract.md)
+- [15 - Cache And Manifest Reference](15-cache-manifest-reference.md)
+- [25 - Summary Functions](25-summary-functions.md)
+- [24 - Segmentation](24-segmentation.md)
+- [27 - Geography](27-geography.md)
+- [31 - Dashboard Page Contract](31-dashboard-pages.md)
 - [01 - Architecture](01-architecture.md)

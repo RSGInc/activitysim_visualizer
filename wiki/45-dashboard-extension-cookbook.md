@@ -7,7 +7,9 @@ data through `self.data`.
 
 ## Worked Example: Add A Page To An Existing Group
 
-In this example, the registered summary `trips_by_mode` has `trip_mode` and
+In this example, `trips_by_mode` is the worked example summary created in
+[44 - Summary Function Cookbook](44-summary-function-cookbook.md). It is not a
+built-in summary until you add that declaration. It has `trip_mode` and
 `trip_count` columns. Create one discoverable final module:
 
 ```text
@@ -98,7 +100,7 @@ def build_page(self):
 
 
 def purpose_options(self):
-    data = self.data.summary("trips_by_mode_and_purpose")
+    data = self.data.summary("trip_mode_by_tour_purpose_and_tour_mode")
     options, self._purpose_by_label = column_options(
         data.to_list(),
         "tour_purpose",
@@ -115,7 +117,7 @@ Use the raw value for the filter. Do not use its display label:
 
 ```python
 raw_purpose = self._purpose_by_label[self.purpose.value]
-data = self.data.summary("trips_by_mode_and_purpose")
+data = self.data.summary("trip_mode_by_tour_purpose_and_tour_mode")
 chart_data = self.query(
     lambda: data.where(tour_purpose=raw_purpose).select(
         "trip_mode", "trip_count"
@@ -414,7 +416,7 @@ uv run --with pytest pytest --basetemp .pytest_tmp tests/test_figure_builders.py
 
 ## Related Chapters
 
-- [31 - Dashboard Pages](31-dashboard-pages.md)
+- [31 - Dashboard Page Contract](31-dashboard-pages.md)
 - [32 - Figures And Widgets](32-figures-and-widgets.md)
 - [33 - Dashboard Page Recipes](33-dashboard-page-recipes.md)
 - [34 - HTML Export](34-html-export.md)

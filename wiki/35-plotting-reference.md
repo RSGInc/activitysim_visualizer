@@ -11,17 +11,17 @@ Fetch, query, and plot without converting the data to tuple lists:
 ```python
 data = (
     self.data.summary(
-        "trip_mode_by_purpose",
-        columns=("purpose", "mode", "trip_count"),
+        "trip_mode_by_tour_purpose_and_tour_mode",
+        columns=("tour_purpose", "trip_mode", "trip_count"),
     )
-    .where(purpose=self.purpose_sel.value)
-    .group("mode", pl.col("trip_count").sum())
-    .sort("mode")
+    .where(tour_purpose=self.purpose_sel.value)
+    .group("trip_mode", pl.col("trip_count").sum())
+    .sort("trip_mode")
 )
 
 return self.plot.bar(
     data,
-    x="mode",
+    x="trip_mode",
     y="trip_count",
     title="Trip Mode",
     x_title="Mode",

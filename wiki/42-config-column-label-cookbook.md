@@ -299,6 +299,167 @@ assert config.ordered_values(
 Add a page or helper test. Verify that a `Full time` selection filters raw value
 `2`. This test identifies a common label connection error.
 
+## Worked Example: Segment Runs With An External Lookup
+
+Use a CSV-backed segment when membership does not belong in the canonical model
+output. For example, classify households into planning markets without adding a
+regional column to prepare.
+
+Create `lookups/household_market.csv`:
+
+```csv
+household_id,market
+1,Core
+2,Suburban
+3,Rural
+```
+
+Enable the segment step and join the lookup to prepared households:
+
+```yaml
+pipeline:
+  steps: [segment, summarize, dashboard]
+  dashboard_mode: live
+  refresh: []
+
+segment:
+  dashboard:
+    segmentation_type: market
+    visibility: full_and_segments
+  definitions:
+    market:
+      source:
+        type: csv_lookup
+        file: lookups\household_market.csv
+        join:
+          source_table: hh
+          source_key_column: household_id
+          csv_key_column: household_id
+        segment_value_column: market
+      allow_overlapping: false
+      on_empty_segment: error
+      segments:
+        - id: core
+          label: Core
+          values: [Core]
+        - id: suburban
+          label: Suburban
+          values: [Suburban]
+        - id: rural
+          label: Rural
+          values: [Rural]
+```
+
+The household anchor keeps each matched household and its related people,
+tours, trips, days, vehicles, and joint tours. Every default summary then runs
+for each market and weighting mode. Output appears below:
+
+```text
+summary_tables/<weighting>/segments/market/<segment-id>/
+```
+
+Before using a large lookup, check that every key and market value is nonblank
+and that one key does not map to different values. Decide whether missing CSV
+keys should remain only in the full run or indicate an incomplete lookup. The
+runtime permits missing keys but rejects joins that duplicate anchor rows.
+
+See [24 - Segmentation](24-segmentation.md) before using a person-, trip-, or
+other lower-level anchor; the selected relationship changes how population
+totals should be interpreted.
+
+## Worked Example: Add A Custom Geography From CSV
+
+Use a named geography aggregation when several summaries or pages need the same
+zone grouping. Suppose `lookups/maz_district.csv` contains:
+
+```csv
+MAZ,district
+101,North
+102,North
+201,South
+```
+
+Configure the lookup once:
+
+```yaml
+zones:
+  use_maz: true
+  maz_col: [MAZ, zone_id]
+  taz_col: [TAZ, taz]
+
+summarize:
+  geography:
+    enabled: true
+    aggregations:
+      district:
+        source_zone_system: maz
+        file: lookups\maz_district.csv
+        zone_id_col: MAZ
+        geography_col: district
+
+display:
+  labels:
+    geography:
+      mapping:
+        district: Planning District
+```
+
+Prepare creates role-specific columns such as `home_geo__district`,
+`work_geo__district`, `origin_geo__district`,
+`destination_geo__district`, and `land_use_geo__district`. Supporting summaries
+emit `geography_type: district` and the mapped district label as
+`geography_id`.
+
+The display mapping changes only the visible name of the geography type. It
+does not change zone membership. Keep the zone join under
+`summarize.geography.aggregations` and presentation text under
+`display.labels.geography`.
+
+Test at least one zone from each district, an unmapped zone, and a conflicting
+duplicate zone. Changing the CSV changes prepare and summary identity, so valid
+old caches are not reused. See [27 - Geography](27-geography.md) for every
+generated column and source-zone rule.
+
+## Worked Example: Share Skimjoin Rules Across Runs
+
+Keep skimjoin lookup behavior in one rules file and put model-specific data
+paths in the main visualizer config. This avoids copying mode and component
+rules for every scenario.
+
+Main config:
+
+```yaml
+pipeline:
+  steps: [prepare, skimjoin, summarize, dashboard]
+
+skimjoin:
+  defaults:
+    config_path: configs\skimjoin_rules.yaml
+    skim_files:
+      - skims\base\*.omx
+    network_los_file: skims\base\network_los.yaml
+
+runs:
+  - dir: outputs\base
+    label: Base
+  - dir: outputs\build
+    label: Build
+    skimjoin:
+      skim_files:
+        - skims\build\*.omx
+      network_los_file: skims\build\network_los.yaml
+```
+
+`configs/skimjoin_rules.yaml` contains `activitysim`, `defaults`, `dimensions`,
+and `modes`, but no `project` block. Integrated prepare supplies its trip and
+tour tables, while the main config supplies the paths.
+
+Repeat all required path overrides in a run-specific block. Once an override
+causes the selected rules file to be reloaded, an omitted skim or network path
+comes from that rules file rather than from the other global path overrides.
+See [22 - Skimjoin](22-skimjoin.md#where-path-settings-belong) for the full
+precedence rules.
+
 ## Completion Checklist
 
 - Unknown keys and wrong types fail near the config boundary.
@@ -312,6 +473,9 @@ Add a page or helper test. Verify that a `Full time` selection filters raw value
 
 - [13 - Configuration Reference](13-configuration-reference.md)
 - [21 - Prepared Tables](21-prepared-tables.md)
+- [22 - Skimjoin](22-skimjoin.md)
+- [24 - Segmentation](24-segmentation.md)
+- [27 - Geography](27-geography.md)
 - [32 - Figures And Widgets](32-figures-and-widgets.md)
 - [41 - Data Extension Cookbook](41-data-extension-cookbook.md)
 - [43 - Weighting And Hosting Extensions](43-weighting-hosting-extensions.md)

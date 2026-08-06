@@ -1,7 +1,7 @@
 # 44 - Summary Function Cookbook
 
 This chapter shows how to create and test one dashboard summary. Use it with the
-short contract reference in chapter 23.
+short contract reference in chapter 25.
 
 ## Worked Example: Trips By Mode
 
@@ -208,7 +208,7 @@ uv run python scripts/generate_wiki_catalogs.py
 uv run --with pytest pytest --basetemp .pytest_tmp tests/test_summary_declarations.py tests/test_page_registry_contract.py
 ```
 
-Make sure the new ID appears in chapter 24. After connecting it to a page, make
+Make sure the new ID appears in chapter 26. After connecting it to a page, make
 sure it also appears in the chapter 31 page catalog.
 
 ## Variations
@@ -246,7 +246,7 @@ make the summary unavailable. The builder must not fail.
 ## Related Chapters
 
 - [21 - Prepared Tables](21-prepared-tables.md)
-- [23 - Summary Functions](23-summary-functions.md)
-- [24 - Summary Catalog](24-summary-catalog.md)
+- [25 - Summary Functions](25-summary-functions.md)
+- [26 - Summary Catalog](26-summary-catalog.md)
 - [41 - Data Extension Cookbook](41-data-extension-cookbook.md)
 - [45 - Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md)

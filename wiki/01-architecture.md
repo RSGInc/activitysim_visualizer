@@ -20,6 +20,9 @@ the workflow uses it. Removed keys and unknown keys cause a specific error.
 | CLI and workflow orchestration | Parse step selections, choose cache-first vs rebuild flow, and hand off to prepare/summarize/dashboard workflows | `run.py`, `runtime/workflows/` |
 | Shared runtime contracts | Normalize YAML config and expose shared cross-cutting contracts used by both processor and dashboard | public surface `runtime.config`, implementation in `runtime/config/` |
 | Processor prepare step | Read raw ActivitySim outputs, materialize canonical prepared columns, and manage prepared-table cache I/O | `processor/models.py`, `processor/prepare/*` |
+| Skim enrichment | Resolve per-run lookup rules and add skim-derived prepared fields | `runtime/config/normalize_skimjoin.py`, `processor/skimjoin/` |
+| Segmentation | Slice related prepared tables into analysis units before summary generation | `runtime/config/normalize_segmentation.py`, `processor/segmentation.py` |
+| Geography | Normalize zone lookups and add role-specific spatial fields during prepare | `runtime/config/normalize_geography.py`, `processor/prepare/enrichment/zones.py` |
 | Summary generation | Declare builders and compute weighted/unweighted tables | `processor/summarize/contracts.py`, `processor/summarize/catalog.py`, `processor/summarize/summaries/*.py` |
 | Summary cache I/O | Inspect, write, and load cache manifests and CSVs | `processor/summarize/cache.py`, `processor/summarize/cache_storage.py` |
 | Dashboard page runtime | Discover pages, validate contracts, refresh declared features, and memoize section queries | `dashboard/page_registry.py`, `dashboard/page_definitions.py`, `dashboard/page_lifecycle.py`, `dashboard/page_declarations.py` |
@@ -43,7 +46,9 @@ run.py
        B. run_summary_workflow()
           -> inspect reusable/stale tables in the summary bundle
           -> run_prepare_workflow() on summary-cache miss
+          -> processor.segmentation.build_analysis_units_for_run() when selected
           -> processor.summarize.builder.build_mode_summaries_with_metadata()
+             for the full run and each segment analysis unit
           -> merge reusable and rebuilt tables
           -> processor.summarize.cache.write_summary_run_bundle()
        C. load_summary_runs_from_cache() for dashboard-only cache runs
@@ -96,6 +101,10 @@ logical step names are:
 The runtime executes three main workflow boundaries: `prepare`, `summarize`,
 and `dashboard`. The runtime resolves `skimjoin` in the prepare workflow. It
 resolves `segment` in the summarize workflow.
+
+For detailed flows, see [22 - Skimjoin](22-skimjoin.md),
+[24 - Segmentation](24-segmentation.md), and
+[27 - Geography](27-geography.md).
 
 ### `RunData`
 
@@ -214,7 +223,7 @@ dashboard facade exports `DashboardPreparedRunProvider` and
 declaration records.
 
 Chapter 32 describes the page-facing `PageData` and `RunTables` API, chapter 35
-covers chart keywords, and chapter 23 defines the `@summary` contract. The
+covers chart keywords, and chapter 25 defines the `@summary` contract. The
 subsystem sections above describe workflow arguments and artifacts. When public
 code needs behavior that differs from the loaded configuration, it must pass an
 explicit `WorkflowPlan` that records logical steps, runtime boundaries,

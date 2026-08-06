@@ -59,8 +59,10 @@ contract. They must not use raw, model-specific table layouts.
 |---|---|---|
 | Prepare | [21 - Prepared Tables](21-prepared-tables.md) | Normalize raw outputs and add derived fields. |
 | Skimjoin | [22 - Skimjoin](22-skimjoin.md) | Add skim-derived trip and tour columns. |
-| Summaries | [23 - Summary Functions](23-summary-functions.md) | Build dashboard-ready tables. |
-| Summary catalog | [24 - Summary Catalog](24-summary-catalog.md) | Inspect registered summary outputs. |
+| Segmentation | [24 - Segmentation](24-segmentation.md) | Slice related prepared tables and repeat summaries for configured subsets. |
+| Summaries | [25 - Summary Functions](25-summary-functions.md) | Build dashboard-ready tables. |
+| Summary catalog | [26 - Summary Catalog](26-summary-catalog.md) | Inspect registered summary outputs. |
+| Geography | [27 - Geography](27-geography.md) | Add consistent MAZ-, TAZ-, and custom geography fields. |
 
 The former static prepared-cache schema described one `estimation-output` data
 set, including its row counts and model-specific columns. Because those details
@@ -124,6 +126,8 @@ To add processor behavior:
 
 - [21 - Prepared Tables](21-prepared-tables.md)
 - [22 - Skimjoin](22-skimjoin.md)
-- [23 - Summary Functions](23-summary-functions.md)
+- [24 - Segmentation](24-segmentation.md)
+- [25 - Summary Functions](25-summary-functions.md)
+- [27 - Geography](27-geography.md)
 - [44 - Summary Function Cookbook](44-summary-function-cookbook.md)
 - [40 - Developer Workflows](40-developer-workflows.md)

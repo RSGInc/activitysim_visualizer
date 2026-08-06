@@ -101,7 +101,7 @@ def _validate_summary_reference() -> None:
     """Keep the hand-written analytical reference aligned with declarations."""
     from processor.summarize.catalog import SUMMARY_DEFINITIONS
 
-    path = WIKI / "24-summary-catalog.md"
+    path = WIKI / "26-summary-catalog.md"
     reference = path.read_text(encoding="utf-8").split(
         "<!-- GENERATED:SUMMARY-CATALOG START -->",
         1,
@@ -204,7 +204,7 @@ def build_dashboard_page_catalog() -> str:
 def main() -> None:
     _validate_summary_reference()
     _replace_generated_section(
-        WIKI / "24-summary-catalog.md",
+        WIKI / "26-summary-catalog.md",
         marker="SUMMARY-CATALOG",
         generated=build_summary_catalog(),
     )

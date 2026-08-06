@@ -56,6 +56,13 @@ The command also writes `artifacts/exports/dashboard.diagnostics.json`, a
 sidecar file that records export warnings and size or state analysis. The HTML
 file does not depend on this sidecar.
 
+The sidecar distinguishes rendered, partial, and skipped visualization inputs
+for every exported dashboard state and region variant. It also reports raw,
+valid, aliased, and pruned selector combinations plus estimated JSON bytes by
+state, page, and region. See
+[36 - HTML Export Schema](36-html-export-schema.md#diagnostics-sidecar-schema)
+for every field and current warning threshold.
+
 For one override, use `--export-html [PATH]`. If you do not give a path, the
 command uses the configured output path. If that path is absent, it uses
 `<root>/exported_dashboard.html`. You must also select the dashboard step. Add

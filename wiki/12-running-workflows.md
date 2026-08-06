@@ -10,17 +10,31 @@ uv run activitysim-viz --config local_config.yaml
 The configuration selects the work, artifact location, and dashboard mode.
 Reserve command-line flags for development or one-time diagnostics.
 
-## The Three Main Steps
+## Workflow Order
 
 ```text
-prepare -> summarize -> dashboard
+prepare -> optional skimjoin -> optional segmentation -> summarize -> dashboard
 ```
 
 - **Prepare** reads raw outputs and creates canonical prepared tables.
 - **Summarize** creates the smaller tables used by dashboard pages.
 - **Dashboard** starts the live application or writes standalone HTML.
 
-Skimjoin runs inside prepare when selected. Segmentation runs with summarize.
+Skimjoin runs inside the prepare boundary when selected. Segmentation resolves
+and slices prepared data inside the summarize boundary. Geography enrichment
+runs during prepare and geography-aware aggregations run during summarize; it
+is a feature, not a separate pipeline step.
+
+The written order of non-dashboard values in `pipeline.steps` does not control
+runtime order. Those values select logical capabilities, and the runtime
+resolves the fixed dependency order above. `dashboard`, when present, must be
+the last listed value. Use the canonical order in every example and local
+configuration because it makes intent clear:
+
+```yaml
+pipeline:
+  steps: [prepare, skimjoin, segment, summarize, dashboard]
+```
 
 These steps are workflow boundaries, not independent commands. The `summarize`
 step requires prepared data, so it reuses a valid prepared cache or builds the
@@ -104,12 +118,26 @@ For dashboard-ready CSV or Parquet files, configure
 ## Pipeline Rules
 
 The logical steps are `prepare`, `skimjoin`, `segment`, `summarize`, and
-`dashboard`. Put `dashboard` last. `skimjoin` requires `prepare`. `segment`
-requires `summarize`.
+`dashboard`. Values must be lowercase, unique, and valid. Put `dashboard` last.
+`skimjoin` requires `prepare`, and `segment` requires `summarize`. The runtime
+uses step membership, not the listed order, to form the prepare, summarize,
+and dashboard boundaries.
 
 If you omit `pipeline.steps`, it defaults to `[summarize, dashboard]` and
 prepares raw input when no valid prepared cache is available. Add `prepare`
 when cache creation must be a visible step or when you enable `skimjoin`.
+
+Add `segment` when the summarize workflow must build configured subsets:
+
+```yaml
+pipeline:
+  steps: [segment, summarize, dashboard]
+  dashboard_mode: live
+  refresh: []
+```
+
+The `segment` step requires `summarize`. Its configuration alone does not
+enable segmentation.
 
 Dashboard modes:
 
@@ -239,6 +267,9 @@ then exits without table loads, cache deletions, or artifact writes. The report
 shows `REUSE`, `REBUILD`, `RUN`, or `DISABLED` for each workflow step. It also
 shows the cache-validation reason when one is available.
 
+For annotated manifest examples, every stored field, and cache-recovery rules,
+see [15 - Cache And Manifest Reference](15-cache-manifest-reference.md).
+
 ## CLI Overrides
 
 Command-line flags override the configured workflow for one run. For normal
@@ -276,4 +307,8 @@ boundary. If the configuration omits dashboard, use `--export-html` with
 
 - [Getting Started](10-getting-started.md)
 - [Configuring Your Data](11-configuring-your-data.md)
+- [Input Data Contract](14-input-data-contract.md)
+- [Cache And Manifest Reference](15-cache-manifest-reference.md)
+- [Segmentation](24-segmentation.md)
+- [Geography](27-geography.md)
 - [Troubleshooting](90-troubleshooting.md)
