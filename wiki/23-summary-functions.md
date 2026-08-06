@@ -1,8 +1,8 @@
 # 23 - Summary Functions
 
-Summary functions convert prepared `RunData` to Polars `DataFrame` objects for
-the dashboard. Declare the summary identity, requirements, output schema, cache
-name, and builder together.
+Summary functions convert prepared `RunData` into Polars `DataFrame` objects
+for the dashboard. Each function keeps its identity, requirements, output
+schema, cache name, and builder in one declaration.
 
 ## Data flow
 
@@ -15,9 +15,8 @@ RunData + Config
 ```
 
 Builders live under [`processor/summarize/summaries`](../processor/summarize/summaries).
-`processor.summarize.catalog` imports those modules and finds their
-declarations. Do not edit a separate summary specification registry. It does
-not exist.
+`processor.summarize.catalog` imports those modules and discovers their
+declarations, so there is no separate summary specification registry to edit.
 
 ## Summary Declaration
 
@@ -68,16 +67,15 @@ def trip_distance_by_mode(run: RunData, config: Config) -> pl.DataFrame:
     )
 ```
 
-A successful builder must return the declared columns in the declared order.
-Each column must have the declared data type. The workflow checks for missing
-declared input before it executes the builder. Missing input gives the typed empty
-result.
+A successful builder must return the declared columns, in order, with the
+declared data types. Before running the builder, the workflow checks for missing
+declared input and returns the typed empty result if any input is unavailable.
 
 Use `required_tables` only when a complete table or `skim` is enough to state
-the requirement. Use `required_columns` for standard table
-dependencies. It also requires the named runtime table. Use `RunData` table
-names here: `hh`, `per`, `tours`, `trips`, `joint_participants`, and
-`land_use`. Do not use configuration IDs such as `households` or `persons`.
+the requirement. For standard table dependencies, use `required_columns`,
+which also requires the named runtime table. Specify `RunData` names such as
+`hh`, `per`, `tours`, `trips`, `joint_participants`, and `land_use`, not
+configuration IDs such as `households` or `persons`.
 
 ## Weighting
 
@@ -103,21 +101,21 @@ use the [Summary Function Cookbook](44-summary-function-cookbook.md).
 9. Use `uv run python scripts/generate_wiki_catalogs.py`.
 
 The catalog import rejects duplicate IDs. Standard summarize workflows build
-each declaration that has `build_by_default=True`. Enabled page requirements
-do not change this build set. `build_by_default=False` registers a contract but
-does not add it to standard builds. Use this value for an external table in the
-public workflow. Supply the table through `summary_table_map`. A non-default ID
-in a page declaration does not start its builder.
+every declaration with `build_by_default=True`, regardless of enabled page
+requirements. Setting `build_by_default=False` registers the contract without
+adding it to standard builds. Use this setting for an external table in the
+public workflow and supply the table through `summary_table_map`. Referencing a
+non-default ID in a page declaration does not start its builder.
 
 ## Summary CSV Boundary
 
-Summary caches are the dashboard input. The visualizer stores their registered
-tables as CSV files for each run and weighting mode. Standard summarize workflows
-write missing or stale cache tables. Use `--skip-summary-cache-write` to prevent
+Summary caches are the dashboard input. The visualizer stores registered tables
+as CSV files for each run and weighting mode, and standard summarize workflows
+write any that are missing or stale. Use `--skip-summary-cache-write` to prevent
 these writes.
 
-For a developer diagnostic, use this command to ignore reusable summary caches.
-The command rebuilds configured summaries and writes the cache CSV files and
+For a developer diagnostic, the following command ignores reusable summary
+caches, rebuilds the configured summaries, and writes their CSV files and
 manifests:
 
 ```bash

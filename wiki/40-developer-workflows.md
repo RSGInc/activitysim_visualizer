@@ -1,6 +1,6 @@
 # 40 - Developer Workflows
 
-Use this chapter when you change code or documentation.
+Use this chapter to find the right workflow when changing code or documentation.
 
 ## Codebase Map
 
@@ -54,7 +54,7 @@ activitysim_visualizer/
 
 ## Testing Guidance
 
-Execute focused tests for the subsystem that you changed:
+Run focused tests for the subsystem you changed:
 
 - prepare changes: minimal raw/prepared input tests and cache identity tests
 - skimjoin changes: config normalization, lookup behavior, reports
@@ -68,9 +68,9 @@ Common command:
 uv run --with pytest pytest --basetemp .pytest_tmp
 ```
 
-Execute smaller test groups during development when possible. The
-[Testing](46-testing.md) chapter describes the fast and full markers. It also
-gives the required release test commands.
+During development, use the smallest relevant test group. The
+[Testing](46-testing.md) chapter describes the fast and full markers and gives
+the required release test commands.
 
 ## Generated Wiki Catalogs
 
@@ -87,8 +87,8 @@ Command:
 uv run python scripts/generate_wiki_catalogs.py
 ```
 
-Comments identify generated sections. Do not manually edit text between the
-generated markers.
+Comments identify generated sections. Do not edit the text between those
+markers by hand.
 
 ## Documentation Maintenance
 

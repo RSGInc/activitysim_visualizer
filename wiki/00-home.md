@@ -1,10 +1,10 @@
 # ActivitySim Visualizer Wiki
 
-This wiki contains the main documentation for ActivitySim Visualizer. Use it
-for these tasks:
+This wiki is the main documentation for ActivitySim Visualizer. It covers two
+common tasks:
 
-- run the visualizer with ActivitySim output
-- extend the processor, summaries, skimjoin, or dashboard
+- running the visualizer with ActivitySim output
+- extending the processor, summaries, skimjoin, or dashboard
 
 The main data flow is:
 
@@ -16,20 +16,20 @@ ActivitySim outputs
   -> live dashboard or standalone HTML export
 ```
 
-For the subsystem boundaries and the complete repository map, see
+For subsystem boundaries and a complete repository map, see
 [01 - Architecture](01-architecture.md).
 
 ## I Am Using The Visualizer
 
-For standard use, read these three chapters:
+For a standard setup, read these three chapters in order:
 
 1. [Get a dashboard running](10-getting-started.md).
 2. [Choose raw, prepared, or summary inputs](11-configuring-your-data.md).
 3. [Configure a live, export, or processor workflow](12-running-workflows.md).
 
-Use [Troubleshooting](90-troubleshooting.md) when data is missing. Use the
-[Configuration Reference](13-configuration-reference.md) to find a field or a
-default value. You do not have to read the complete reference.
+If data is missing, see [Troubleshooting](90-troubleshooting.md). Use the
+[Configuration Reference](13-configuration-reference.md) to look up a field or
+default value; you do not need to read it from beginning to end.
 
 ## I Am Extending The Visualizer
 
@@ -91,8 +91,8 @@ default value. You do not have to read the complete reference.
 
 ## Generated Pages
 
-The project generates some wiki sections from code. This process keeps the
-reference material consistent with the code:
+The project generates some wiki sections directly from the code so that the
+reference material stays accurate:
 
 - [24 - Summary Catalog](24-summary-catalog.md)
 - the generated page catalog in [31 - Dashboard Pages](31-dashboard-pages.md)

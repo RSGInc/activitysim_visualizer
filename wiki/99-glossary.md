@@ -30,9 +30,9 @@
 
 ## How The Terms Connect
 
-For a run labeled `Build`, prepare converts raw `final_trips.csv` to the
+For a run labeled `Build`, prepare converts raw `final_trips.csv` into the
 prepared `trips` table. A summary builder aggregates the canonical `finalweight`
-column. It writes a registered summary in the weighted and unweighted cache
-directories for the run key. A dashboard page declares the summary ID and reads
-it through `self.data`. Registered selectors refresh its sections. Export
-converts the same declared page states to HTML.
+column and writes a registered summary to the run key's weighted and unweighted
+cache directories. A dashboard page declares that summary ID and reads it
+through `self.data`, while registered selectors refresh its sections. Export
+turns the same declared page states into HTML.

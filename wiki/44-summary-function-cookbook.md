@@ -1,7 +1,7 @@
 # 44 - Summary Function Cookbook
 
-This chapter shows how to make and test one summary for a dashboard. Use it with
-the short contract reference in chapter 23.
+This chapter shows how to create and test one dashboard summary. Use it with the
+short contract reference in chapter 23.
 
 ## Worked Example: Trips By Mode
 
@@ -13,8 +13,8 @@ output has one row for each mode, run, and weighting mode:
 | DRIVEALONE | 14230.0 |
 | WALK | 3180.0 |
 
-First, define what one row represents. This definition controls grouping keys,
-schema, tests, and figure axes.
+First, define what one row represents because that decision controls grouping
+keys, schema, tests, and figure axes.
 
 ## 1. Put Pure Calculation Before Registration
 
@@ -39,8 +39,8 @@ def trips_by_mode_frame(trips: pl.DataFrame) -> pl.DataFrame:
     )
 ```
 
-A pure transform is easy to test without cache or dashboard setup. Use
-canonical prepared columns. Do not search for raw aliases here.
+A pure transform is easy to test without setting up caches or a dashboard. Use
+canonical prepared columns rather than searching for raw aliases here.
 
 ## 2. Declare The Runtime Contract
 
@@ -73,9 +73,9 @@ The declaration does four tasks:
 3. supplies a correctly typed empty result; and
 4. rejects successful results with wrong columns, order, or dtypes.
 
-The uniform builder interface includes the unused `config` argument. If
-configuration changes the calculation, use the argument here. Make sure that
-the setting is in the summary signature.
+The uniform builder interface includes `config` even when this example does not
+use it. If configuration changes the calculation, use the argument and include
+the setting in the summary signature.
 
 ## 3. Let The Workflow Handle Weighting
 
@@ -98,10 +98,9 @@ Define the result for zero total weight and test it.
 
 ## 4. Register A New Owning Module Only Once
 
-You do not have to change the catalog when you add a function to an existing
-module in `SUMMARY_MODULES`. If you create
-`processor/summarize/summaries/emissions.py`, import it. Then add it to
-`SUMMARY_MODULES` in `processor/summarize/catalog.py`.
+Adding a function to an existing module in `SUMMARY_MODULES` requires no catalog
+change. If you create `processor/summarize/summaries/emissions.py`, import it and
+add it to `SUMMARY_MODULES` in `processor/summarize/catalog.py`.
 
 Do not keep a second list of functions. Catalog discovery reads decorated
 functions from the imported modules. It rejects duplicate IDs.
@@ -209,8 +208,8 @@ uv run python scripts/generate_wiki_catalogs.py
 uv run --with pytest pytest --basetemp .pytest_tmp tests/test_summary_declarations.py tests/test_page_registry_contract.py
 ```
 
-Make sure that the new ID occurs in chapter 24. After you connect it to a page,
-make sure that it occurs in the chapter 31 page catalog.
+Make sure the new ID appears in chapter 24. After connecting it to a page, make
+sure it also appears in the chapter 31 page catalog.
 
 ## Variations
 

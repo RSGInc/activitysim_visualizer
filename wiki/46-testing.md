@@ -1,7 +1,7 @@
 # 46 - Testing
 
-The default command executes all tests. It includes the complete offline HTML
-export checks:
+The default command runs all tests, including the complete offline HTML export
+checks:
 
 ```powershell
 uv run pytest --basetemp .pytest_tmp
@@ -13,18 +13,18 @@ For a faster development test, omit tests marked `full_export`:
 uv run pytest --basetemp .pytest_tmp -m "not full_export"
 ```
 
-Execute the complete export tests before you merge export, page, plotting, or
-summary changes:
+Run the complete export tests before merging export, page, plotting, or summary
+changes:
 
 ```powershell
 uv run pytest --basetemp .pytest_tmp -m full_export
 ```
 
-The repository uses the built-in pytest `tmp_path` fixture. It uses the
+The repository uses pytest's built-in `tmp_path` fixture with the
 workspace-local `--basetemp` value above. Tests must not create persistent
 UUID-named directories in the repository root.
 
-Execute this correctness check before you push changes:
+Run this correctness check before pushing changes:
 
 ```powershell
 uv run ruff check .
@@ -32,8 +32,8 @@ uv run ruff check .
 
 Use `full_export` only for behavior that requires all default dashboard pages
 and dashboard states. For writes, validation, pages, selectors, and diagnostics,
-configure the smallest applicable page and state set. The full-export tests
-continue to supply complete workflow coverage.
+configure the smallest relevant page and state set. The full-export tests still
+provide complete workflow coverage.
 
 ## Which Suite To Run
 
@@ -44,10 +44,10 @@ continue to supply complete workflow coverage.
 | Export serializer, payload, runtime, or state behavior | Focused export tests | Fast suite plus `-m full_export` |
 | Documentation only | Link/catalog checks and focused documentation tests | Fast suite if CI does not provide a docs-only path |
 
-The full-export tests render each default page and dashboard state in one
-representative standalone HTML document. Thus, these tests take more time. The
-shared fixture builds the document one time in each test session. Execute the
-marked group together to prevent repeated renders.
+The full-export tests take longer because they render every default page and
+dashboard state in one representative standalone HTML document. A shared
+fixture builds the document once per test session, so run the marked group
+together to avoid repeated renders.
 
 ## Focused Commands
 

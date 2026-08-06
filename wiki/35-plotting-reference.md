@@ -1,8 +1,8 @@
 # 35 - Plotting Reference
 
-Dashboard pages use one plotting interface: `self.plot`. It accepts the
-`RunTables` object that `self.data` returns. It applies the session run colors
-and count or share mode. It returns a Panel view for a section.
+Dashboard pages use one plotting interface, `self.plot`. It accepts the
+`RunTables` object returned by `self.data`, applies the session run colors and
+count or share mode, and returns a Panel view for a section.
 
 ## Standard method
 
@@ -42,7 +42,7 @@ Use:
 - `self.plot.line(...)` for an unfilled profile; and
 - `self.plot.scatter(...)` for observed-versus-modeled comparisons.
 
-All four methods validate their required columns before they call Plotly. An
+Before calling Plotly, all four methods validate their required columns. Any
 error identifies the chart type, run, and missing columns.
 
 ```python
@@ -83,10 +83,9 @@ Hovering on the fitted line shows this text. `one_to_one=True` adds a dashed 1:1
 line. It gives both axes the same range and locks their scale. Validation pages
 use this API for run equations, R-squared values, and sample sizes.
 
-The interface changes run labels for presentation without changing their
-identity. It shortens long labels to unique legend and tab labels. Plotly hover
-text and exported tab tooltips keep the full label. Scatter point and fit hover
-text also include the run name.
+The interface can shorten long run labels for legends and tabs without changing
+their identity. Plotly hover text and exported tab tooltips keep the full label,
+and scatter point and fit hover text also include the run name.
 
 ## Count and share behavior
 
@@ -117,10 +116,10 @@ return self.plot.bar(
 )
 ```
 
-Use `share_y` when the denominator has a special meaning that a sum of `y`
-cannot reproduce. Do not select count or percent columns in the page only to
-follow the global control. The plotting interface does not have `as_percent`,
-`normalize`, `percent_y_col`, or `pct_col` arguments.
+Use `share_y` when its denominator has a special meaning that a sum of `y`
+cannot reproduce. Do not select count or percentage columns in the page merely
+to follow the global control. The plotting interface does not have
+`as_percent`, `normalize`, `percent_y_col`, or `pct_col` arguments.
 
 ## Direct figure API
 
@@ -139,7 +138,7 @@ return self.plot.panel(figure)
 ```
 
 Use the standard `self.plot.*` methods when a figure does not require a custom
-change. They use the same fixed `RenderContext` as export. Thus, live and export
+change. They use the same fixed `RenderContext` as export, so live and export
 charts get identical colors, labels, hover policy, and value mode. They do not
 require module-global setup.
 
@@ -188,7 +187,8 @@ assert figure.data[0].name == "Base"
 assert list(figure.data[0].x) == ["Walk", "Bike"]
 ```
 
-This method keeps plot tests fast. It separates data and query behavior from Panel.
+This approach keeps plot tests fast by separating data and query behavior from
+Panel.
 
 Use the focused plotting target during development:
 
@@ -196,7 +196,7 @@ Use the focused plotting target during development:
 pytest tests/test_figure_builders.py
 ```
 
-Test page query behavior in `tests/test_page_authoring.py`. Execute the complete
+Test page query behavior in `tests/test_page_authoring.py`. Run the complete
 HTML export suite as a separate release check.
 
 ## Related Chapters

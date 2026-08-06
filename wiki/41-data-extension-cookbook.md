@@ -1,7 +1,7 @@
 # 41 - Data Extension Cookbook
 
-This chapter gives complete examples for data extensions. Each procedure starts
-at the smallest supported boundary.
+This chapter gives complete examples of data extensions, starting at the
+smallest supported boundary for each one.
 
 ## Choose The Smallest Extension
 
@@ -25,9 +25,9 @@ NOX,18.2
 ```
 
 The visualizer accepts only registered summary IDs with exact schemas. Register
-the external table with a builder that does not calculate values. Put the
-builder in the applicable summary module. For multiple project tables, use a
-module such as `processor/summarize/summaries/external_project.py`:
+the external table with a builder that does not calculate values, and place it
+in the relevant summary module. For multiple project tables, use a module such
+as `processor/summarize/summaries/external_project.py`:
 
 ```python
 import polars as pl
@@ -73,16 +73,16 @@ runs:
       regional_emissions: inputs/regional_emissions.csv
 ```
 
-A relative path starts from the main configuration file. The loader supports
-CSV and Parquet. It does these checks and actions:
+Relative paths start from the main configuration file. For both CSV and Parquet,
+the loader performs these checks and actions:
 
 1. rejects unknown summary IDs;
 2. rejects missing or unexpected columns;
 3. casts to the declared dtypes and declared column order; and
 4. exposes the same outside table under every configured weighting mode.
 
-The loader assumes that an external table is already aggregated. The Weighted
-and Unweighted selections do not calculate it again.
+The loader treats an external table as already aggregated, so the Weighted and
+Unweighted selections do not calculate it again.
 
 Connect the table to a page as optional data:
 
@@ -235,9 +235,9 @@ class RunData:
     accessibility: pl.DataFrame = field(default_factory=pl.DataFrame)
 ```
 
-Also update `PREPARED_TABLE_NAMES`, `prune_prepared_run()`, and each explicit
-`RunData(...)` copy constructor. The copy constructors are explicit. If you do
-not update one, a workflow can omit the table.
+Also update `PREPARED_TABLE_NAMES`, `prune_prepared_run()`, and every explicit
+`RunData(...)` copy constructor. Because the copy constructors list fields
+explicitly, missing one can cause a workflow to omit the table.
 
 ### 2. Read It And Track Availability
 
@@ -274,8 +274,8 @@ PREPARED_TABLE_ATTRS = (
 ```
 
 This tuple controls prepared file names, manifest entries, writes, and most
-loads. It changes the prepared cache contract. Increment `SCHEMA_VERSION` and
-decide whether the reader can read old schema versions.
+loads. Because it changes the prepared cache contract, increment
+`SCHEMA_VERSION` and decide whether the reader can read older schema versions.
 
 ### 4. Decide Segmentation And Dashboard Behavior
 

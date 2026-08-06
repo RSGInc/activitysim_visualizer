@@ -1,7 +1,7 @@
 # 30 - Output Visualizer
 
-The Output Visualizer reads processor output. It shows the output in a live
-Panel dashboard or a standalone HTML file.
+The Output Visualizer turns processor output into either a live Panel dashboard
+or a standalone HTML file.
 
 ```text
 summary caches + optional prepared tables
@@ -14,7 +14,7 @@ The main code lives under [`dashboard/`](../dashboard).
 
 ## Visualizer Responsibilities
 
-The visualizer does these tasks:
+The visualizer is responsible for:
 
 - loading summary runs
 - loading prepared tables only for pages that request them
@@ -23,8 +23,8 @@ The visualizer does these tasks:
 - rendering figures, tables, cards, and widgets
 - exporting supported page states to standalone HTML
 
-The visualizer must not rebuild summaries. If a summary is missing, execute the
-processor workflow first.
+The visualizer does not rebuild summaries. If one is missing, run the processor
+workflow first.
 
 ## Live Dashboard
 
@@ -53,9 +53,9 @@ uv run activitysim-viz --config local_config.yaml
 
 ## HTML Export
 
-HTML export uses the same page registry. It converts supported page content to
-one self-contained HTML document. The export includes only the states and
-selector variants that exist at export time.
+HTML export uses the same page registry and converts supported content into one
+self-contained document. It includes only the states and selector variants
+available at export time.
 
 Configure `pipeline.dashboard_mode: export` and an output path:
 
@@ -69,7 +69,7 @@ dashboard:
     output_path: exports/dashboard.html
 ```
 
-The standard configuration command then writes the export. For details, read
+The standard configuration command then writes the export. For details, see
 [34 - HTML Export](34-html-export.md).
 
 ## Dashboard State
@@ -82,8 +82,8 @@ The standard configuration command then writes the export. For details, read
 - optional segmentation type and visibility
 - prepared-data provider state
 
-Pages must read state through the `DashboardPage` helpers. Do not duplicate
-cache or run-selection logic.
+Pages read state through the `DashboardPage` helpers, which avoids duplicating
+cache and run-selection logic.
 
 ## Extension Path
 

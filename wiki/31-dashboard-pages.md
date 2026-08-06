@@ -1,6 +1,6 @@
 # 31 - Dashboard Pages
 
-The visualizer finds dashboard pages in modules under
+The visualizer discovers dashboard pages in modules under
 [`dashboard/pages`](../dashboard/pages). Each final module contains one
 `DashboardPage` subclass with a `@dashboard_page(...)` decorator. Page packages
 export a `DashboardGroupDefinition` as `GROUP`.
@@ -21,16 +21,16 @@ Important fields:
 | `required_prepared_tables` | Prepared tables required by the page. |
 
 These declarations control dashboard cache loads, removal of unused data,
-availability diagnostics, and prepared-table loads. They do not select the
-summaries that the summarize workflow builds. Standard summarize runs build
-each declaration that has `build_by_default=True`.
+availability diagnostics, and prepared-table loads. They do not select which
+summaries the summarize workflow builds; standard summarize runs build every
+declaration with `build_by_default=True`.
 
 `required_summary_ids` identifies the primary page data. If no run has a usable
-required table, `self.data.summary(...)` records a required-data warning. The
-page must then show a standard unavailable card. `optional_summary_ids`
-identifies an independent feature. If this data is absent, hide or replace only
-that feature. Missing declared data does not stop the complete dashboard. Data
-can also be available for only some runs.
+required table, `self.data.summary(...)` records a required-data warning and the
+page shows a standard unavailable card. `optional_summary_ids` identifies data
+for an independent feature; if that data is absent, hide or replace only the
+feature. Missing declared data does not stop the entire dashboard, and data can
+be available for only some runs.
 
 ## Enabling Pages
 
@@ -56,9 +56,9 @@ Group selection modes are:
 | `trip_summaries: [trip_mode, trip_stop_distance]` | Exactly the listed children in that order. |
 
 If you omit `dashboard.live.pages`, the visualizer selects default-enabled
-standalone pages and groups. It also selects default-enabled children in each
-group. A group's `default_page_id` selects the first visible tab or fallback
-tab. It does not enable all children.
+standalone pages and groups, along with each group's default-enabled children.
+A group's `default_page_id` selects the first visible or fallback tab; it does
+not enable every child.
 
 `dashboard.export.pages` changes matching pages in the resolved live page set.
 It is not an allow-list. Live pages without an entry keep their default export
@@ -99,13 +99,13 @@ rules.
 
 ## Availability And Validation Features
 
-Page selectors use available data. Option providers list values in usable runs.
-The page lifecycle repairs a selection if an earlier choice makes it invalid.
-Do not show a value only because it occurs in a fixed domain. Show it only when
-its dependent section has data.
+Page selectors reflect the available data, and option providers list values
+from usable runs. If an earlier choice makes a selection invalid, the page
+lifecycle repairs it. A value should appear only when its dependent section has
+data, not simply because it belongs to a fixed domain.
 
 When no usable run remains, the page shows the standard data-unavailable card
-for the applicable feature. Missing required data can make the primary page
+for the affected feature. Missing required data can make the primary page
 workflow unavailable. Missing optional data replaces only its independent
 feature. Set `display.missing_data_display: blank` to hide all these cards.
 
@@ -118,9 +118,9 @@ The validation group provides:
 | VMT Validation | Overview comparisons plus selector-driven personal-auto and non-motorized VMT. Optional outside tables add external travel/VMT, commercial travel/VMT, and bicycle facility summaries; each optional feature gets its own unavailable state. |
 | Regional Validation | Optional district or county observed flow matrices, modeled `commuting_flows`, and aligned heatmaps. Heatmaps can show modeled, observed, difference, percent difference, or absolute percent difference. You can include or exclude totals. The selector shows only flow types that have available input. |
 
-Expandable calculation notes identify source summary IDs, filters, formulas,
-and aggregation details. They occur below the applicable output. They are on by
-default. Set `dashboard.include_notes: false` to hide them.
+Expandable calculation notes appear below the related output and identify
+source summary IDs, filters, formulas, and aggregation details. They are shown
+by default; set `dashboard.include_notes: false` to hide them.
 
 ## Generated Page Catalog
 

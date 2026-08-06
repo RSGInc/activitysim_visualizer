@@ -11,8 +11,8 @@ pipeline:
     - prepare
     - skimjoin
     # - segment
-    - summarize # automatically rebuild stale summaries
-    # - dashboard
+    - summarize # will automatically overwrite summaries with a stale cache
+    - dashboard
   dashboard_mode: live # live | export | host 
   refresh: [] # list stages here only when a forced rebuild is required
 
@@ -36,8 +36,8 @@ files:
 
 # Optional shared fallback files for optional inputs that may be missing in some
 # run folders. These must be explicit .csv or .parquet paths.
-# fallback_files:
-#   land_use: C:\Users\wesley.darling\Downloads\dataset_2026-05-21\unfiltered\land_use.csv
+fallback_files:
+  land_use: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\land_use.csv
 
 # ---------------------------------------------------------------------------
 # Runs to compare
@@ -123,21 +123,25 @@ runs:
     #     - C:\Users\wesley.darling\project_data\odot_skims\maz_maz_walk.csv
     #   network_los_file: C:\Users\wesley.darling\project_data\odot_skims\network_los.yaml
 
-  - dir:              C:\Users\wesley.darling\Downloads\dataset_2026-05-21\output
-    label:            Estimation Output
-    summary_table_map:
-      link_validation_summary: ../outside_summary_tables/estimated_fixtures/estimation-output/link_validation_summary.csv
-      count_location_counts_validation_summary: ../outside_summary_tables/countLocCounts.csv
-      count_location_volumes_validation_summary: ../outside_summary_tables/estimated_fixtures/estimation-output/count_location_volumes_validation_summary.csv
-      screenline_flow_comparisons: ../outside_summary_tables/estimated_fixtures/estimation-output/screenline_flow_comparisons.csv
-      commuting_flows: ../outside_summary_tables/estimated_fixtures/estimation-output/commuting_flows.csv
-      transit_boardings_by_operator_and_technology: ../outside_summary_tables/estimated_fixtures/estimation-output/transit_boardings_by_operator_and_technology.csv
-      transit_transfer_rate: ../outside_summary_tables/estimated_fixtures/estimation-output/transit_transfer_rate.csv
-      bicycle_vmt_by_facility_type: ../outside_summary_tables/estimated_fixtures/estimation-output/bicycle_vmt_by_facility_type.csv
-      commercial_vehicle_validation_summary: ../outside_summary_tables/estimated_fixtures/estimation-output/commercial_vehicle_validation_summary.csv
-      commercial_vehicle_vmt_validation_summary: ../outside_summary_tables/estimated_fixtures/estimation-output/commercial_vehicle_vmt_validation_summary.csv
-      external_trip_validation_summary: ../outside_summary_tables/estimated_fixtures/estimation-output/external_trip_validation_summary.csv
-      external_vmt_validation_summary: ../outside_summary_tables/estimated_fixtures/estimation-output/external_vmt_validation_summary.csv
+  - dir:              C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\survey_data
+    label:            Base
+    hh_weight_col:     hh_weight
+    person_weight_col: person_weight
+    trip_weight_col:   linked_trip_weight
+    skimjoin:
+      config_path: metro_skimjoin_config_alternate_id_col.yaml
+
+  - dir:              C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data
+    label:            Override
+    hh_weight_col:     hh_weight
+    person_weight_col: person_weight
+    trip_weight_col:   linked_trip_weight
+    file_map:
+      households:              override_households
+      persons:                 override_persons
+      tours:                   override_tours
+      trips:                   override_trips
+      joint_tour_participants: override_joint_tour_participants
   #   # skimjoin:
     #   config_path: will_skimjoin_config.yaml
     #   skim_files:
@@ -224,10 +228,10 @@ prepare:
   validation:
     relationship_checks: warn
   distance_skim:
-    file: C:\Users\wesley.darling\project_data\new_odot_skims\Metro_skims\autoSkims__MD.omx       # path relative to run directory, or absolute
+    file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\autoSkims__MD.omx       # path relative to run directory, or absolute
     matrix: SOV_H_DIST__MD
   non_motorized_distance_skim:
-    file: C:\Users\wesley.darling\project_data\odot_skims\maz_maz_walk.csv
+    file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\maz_maz_walk.csv
     matrix: null
   time_periods:
     network_los_file: C:\Users\wesley.darling\project_data\odot_skims\network_los.yaml
@@ -271,11 +275,11 @@ skimjoin:
   # Create optional long-form trip/tour tables with skim values for alternate modes.
   create_hypothetical_skim_tables: true
   defaults:
-    config_path: will_skimjoin_config.yaml
+    config_path: metro_skimjoin_config.yaml
     skim_files:
-      - C:\Users\wesley.darling\project_data\new_odot_skims\Metro_skims\*.omx
-      - C:\Users\wesley.darling\project_data\odot_skims\maz_stop_walk.csv
-      - C:\Users\wesley.darling\project_data\odot_skims\maz_maz_walk.csv
+      - 'C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\*.omx'
+      - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\maz_stop_walk.csv
+      - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\maz_maz_walk.csv
     network_los_file: C:\Users\wesley.darling\project_data\odot_skims\network_los.yaml
 
 segment:
@@ -338,7 +342,7 @@ summarize:
     aggregations:
       school_district:
         source_zone_system: maz
-        file: C:\Users\wesley.darling\Downloads\viz\viz\new_output\land_use.csv
+        file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\land_use.csv
         zone_id_col: zone_id
         geography_col: DIST_9to12
 

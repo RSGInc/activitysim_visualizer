@@ -1,7 +1,7 @@
 # 36 - HTML Export Schema
 
 This document defines the Python-to-JavaScript contract for the standalone
-offline dashboard export.
+dashboard export.
 
 The implementation lives under `dashboard/export/`:
 
@@ -128,9 +128,9 @@ The shared page registry supplies these validation rules:
 | `kind` | `"page"` | Discriminator |
 | `content` | `ExportNode` | Serialized page shell that starts with a standard export node tree |
 
-Pages without export-enabled selectors create a standard page shell. Its tree
-does not contain `region` nodes. Pages with export-enabled selectors create one
-stable page shell with one or more `region` nodes.
+Pages without export-enabled selectors create a standard page shell whose tree
+has no `region` nodes. Pages with export-enabled selectors create one stable
+page shell with one or more `region` nodes.
 
 ## Region Nodes
 
@@ -178,8 +178,8 @@ The browser runtime supports only the node kinds in `dashboard/export/types.py`.
 | `html` | `pn.pane.Markdown`, `pn.pane.HTML`, plain strings, unsupported fallback markup | `html` |
 | `spacer` | `pn.Spacer` | no extra fields |
 
-An unsupported object becomes an `html` node with a visible fallback panel. The
-runtime identifies an unknown node kind as an error and shows an error panel.
+An unsupported object becomes an `html` node with a visible fallback panel. An
+unknown node kind is an error, which the runtime shows in an error panel.
 
 The supported widget types are `select`, `radio_button_group`, `float_input`,
 `checkbox`, and `button`. `SelectorMetadataPayload.default_value` and widget
@@ -205,8 +205,8 @@ At render time, it shows an error for these conditions:
 - missing region state for the active selector combination
 - Plotly runtime failures
 
-The HTML shows failures in a visible error panel. The runtime also writes them
-to the browser console.
+The HTML shows failures in a visible error panel and also writes them to the
+browser console.
 
 ## Schema Versioning Policy
 
@@ -223,7 +223,7 @@ Rules:
 
 ## Checklist for Adding a New Node Kind
 
-To add a serialized node kind, do these steps:
+To add a serialized node kind:
 
 1. Add the new typed shape to `dashboard/export/types.py`.
 2. Emit it from `dashboard/export/serializer.py`.

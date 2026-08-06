@@ -1,7 +1,7 @@
 # 22 - Skimjoin
 
-Skimjoin adds skim-derived columns to prepared trips and tours. It is an
-optional final part of prepare. It executes after prepare normalizes raw output.
+Skimjoin adds skim-derived columns to prepared trips and tours. This optional
+final part of prepare runs after the raw output has been normalized.
 
 Use skimjoin when summaries or dashboard pages require values from OMX skims or
 sidecar lookup files. Examples are time, cost, distance, walk access, and
@@ -17,9 +17,9 @@ Integrated skimjoin uses two YAML files:
 - the **standalone skimjoin config** defines `project`, `activitysim`,
   dimensions, mode/component lookup rules, fallbacks, and tour aggregation.
 
-Paths in the first file start from the main configuration file. Paths in the
-second file start from the standalone skimjoin configuration file. A
-configuration path does not enable the step. `pipeline.steps` must contain
+Paths in the first file start from the main configuration file, while paths in
+the second start from the standalone skimjoin configuration file. Providing a
+configuration path does not enable the step; `pipeline.steps` must contain both
 `prepare` and `skimjoin`.
 
 ## Runtime Placement
@@ -61,7 +61,7 @@ only when the new output requires them.
 
 Checklist:
 
-1. Make sure that prepared trips or tours contain the required lookup columns.
+1. Make sure prepared trips or tours contain the required lookup columns.
 2. Add or update a lookup rule in the skimjoin config.
 3. Select an output name. Use the `skim_` prefix unless the interface requires a different prefix.
 4. Set the missing-matrix and missing-OD policies.
@@ -78,10 +78,9 @@ because this option creates more output and artifacts.
 
 ## Standalone Skimjoin CLI
 
-The integrated pipeline is the standard visualizer method. You can also use the
-standalone command-line interface. Use it to examine or validate a skimjoin
-configuration. You can also create annotated tables without the full
-visualizer:
+The integrated pipeline is the standard approach. The standalone command-line
+interface is useful for inspecting or validating a skimjoin configuration, or
+for creating annotated tables without the full visualizer:
 
 ```bash
 uv run python -m processor.skimjoin.cli COMMAND --config skimjoin.yaml
@@ -95,12 +94,12 @@ uv run python -m processor.skimjoin.cli COMMAND --config skimjoin.yaml
 | `annotate-tours` | `--out PATH`, `--preview` | Writes annotated tours, `tour_aggregation_summary.csv`, and `missing_lookup_report.csv`. The default table is `<output_dir>/tours_with_skims.parquet`. |
 | `run` | `--out-trips PATH`, `--out-tours PATH`, `--preview` | Executes both annotations and writes their validation and QA reports. Uses the two file names above by default. |
 
-Each command requires `--config`. Output flags are optional only if you
-configure `project.output_dir`. The standalone input tables come from
+Each command requires `--config`; output flags are optional only when
+`project.output_dir` is configured. Standalone input tables come from
 `activitysim.trips_table` and `activitysim.tours_table`. Chapter 25 describes
 the legacy `project.trips_table` and `project.tours_table` fallback. Input and
 output tables must be CSV or Parquet. For annotation commands, `--preview` adds
-a short output-column inventory. It does not limit rows or prevent writes.
+a short output-column inventory but does not limit rows or prevent writes.
 
 ## Debugging Skimjoin
 

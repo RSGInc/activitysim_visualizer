@@ -17,7 +17,7 @@ orchestration under [`runtime/workflows`](../runtime/workflows).
 
 ## Responsibilities
 
-The processor does these tasks:
+The processor is responsible for:
 
 - reading raw `.csv` or `.parquet` ActivitySim outputs
 - normalizing identifiers and column names
@@ -29,8 +29,8 @@ The processor does these tasks:
 - writing prepared and summary caches
 - recording manifests and diagnostics to identify stale output
 
-The dashboard must not read raw ActivitySim files again. It must use summary
-caches. It uses prepared tables only for pages that require them.
+The dashboard reads summary caches instead of reopening raw ActivitySim files.
+Only pages that require prepared data read the prepared tables.
 
 ## Runtime Data Contract
 
@@ -63,17 +63,16 @@ contract. They must not use raw, model-specific table layouts.
 | Summary catalog | [24 - Summary Catalog](24-summary-catalog.md) | Inspect registered summary outputs. |
 
 The former static prepared-cache schema described one `estimation-output` data
-set. It included row counts and model-specific columns. This schema was not a
-portable runtime contract. It became incorrect when the input changed. Use
-[Prepared Table Names and Fields](21-prepared-tables.md) for the stable
-contract. Examine the applicable cache manifest and table schema for exact
-model-specific columns.
+set, including its row counts and model-specific columns. Because those details
+became incorrect when the input changed, the schema was not a portable runtime
+contract. Use [Prepared Table Names and Fields](21-prepared-tables.md) for the
+stable contract, and inspect the relevant cache manifest and table schema for
+exact model-specific columns.
 
 ## Where Processor Output Goes
 
-Prepared caches contain reusable canonical data. Summary caches contain
-smaller CSV files for the dashboard. The summary cache is the standard
-dashboard input.
+Prepared caches contain reusable canonical data, while summary caches contain
+the smaller CSV files that serve as the standard dashboard input.
 
 The processor also keeps diagnostic status. A table or summary can be:
 
@@ -82,15 +81,14 @@ The processor also keeps diagnostic status. A table or summary can be:
 - unavailable because an optional input is missing
 - failed, with a recorded diagnostic
 
-This behavior lets the dashboard show partial results. One unavailable optional
-table or summary does not stop the complete workflow.
+This status information lets the dashboard show partial results instead of
+stopping the entire workflow when an optional table or summary is unavailable.
 
-"Empty" and "unavailable" have different meanings. Empty means that the input
-and calculation were valid, but the result has zero rows. Unavailable means
-that a required table or column was absent. It can also mean that a declared
-operation could not execute. Failed means that the configured failure policy
-recorded an exception. Keep the availability metadata when you copy `RunData`.
-A check of only `DataFrame.is_empty()` removes this information.
+"Empty" and "unavailable" have different meanings. An empty result is valid but
+has zero rows. An unavailable result is missing a required table or column, or
+its declared operation could not run. A failed result means that the configured
+failure policy recorded an exception. Preserve the availability metadata when
+you copy `RunData`; checking only `DataFrame.is_empty()` loses this distinction.
 
 ### Example: Follow One Metric
 
@@ -105,14 +103,14 @@ final_trips.csv
   -> page reads the table through self.data.summary(...)
 ```
 
-Each boundary has one owner. Prepare resolves source file names and aliases.
-The summary defines the aggregate. The cache validates the stored contract.
-The page controls the presentation. Thus, a page must not open a raw file or
-repeat a weighted aggregation. Chapter 44 gives the code for this example.
+Each boundary has one owner: prepare resolves source file names and aliases,
+the summary defines the aggregate, the cache validates the stored contract, and
+the page controls presentation. A page should therefore neither open a raw file
+nor repeat a weighted aggregation. Chapter 44 gives the code for this example.
 
 ## Extension Checklist
 
-To add processor behavior, do these steps:
+To add processor behavior:
 
 1. Decide whether the new data belongs in prepared tables, skimjoin output, or
    a summary table.

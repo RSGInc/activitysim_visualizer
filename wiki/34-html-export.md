@@ -1,7 +1,6 @@
 # 34 - HTML Export
 
-HTML export writes a standalone dashboard file. You can open this file without
-a Python server.
+HTML export writes a standalone dashboard that opens without a Python server.
 
 ```text
 registered dashboard pages
@@ -49,13 +48,13 @@ uv run activitysim-viz --config local_config.yaml
 ```
 
 This command writes `artifacts/exports/dashboard.html`. Relative export paths
-start from `root`. An absolute path specifies a different location. Set
-`pipeline.dashboard_mode` to `live` to start the dashboard from the same
-configuration.
+start from `root`; use an absolute path for a different location. To start the
+live dashboard from the same configuration, set `pipeline.dashboard_mode` to
+`live`.
 
-The command also writes `artifacts/exports/dashboard.diagnostics.json`. This
-sidecar file records export warnings and size or state analysis. The HTML file
-does not require the sidecar file.
+The command also writes `artifacts/exports/dashboard.diagnostics.json`, a
+sidecar file that records export warnings and size or state analysis. The HTML
+file does not depend on this sidecar.
 
 For one override, use `--export-html [PATH]`. If you do not give a path, the
 command uses the configured output path. If that path is absent, it uses
@@ -90,9 +89,8 @@ browser runtime lives under `dashboard/export/js_runtime/`.
 
 ## Selector Variants
 
-The exporter creates page interactivity before it writes the file. It processes
-configured selector values and renders page regions. It converts the regions
-to export data and stores them as variants.
+Before writing the file, the exporter processes configured selector values,
+renders page regions, and stores those regions as export-data variants.
 
 These rules apply:
 
@@ -124,8 +122,8 @@ Live mode and export use the same page registration graph for metadata:
 - `self.selector(...)` registers custom widgets.
 - `self.section(...)` defines refresh and export-region boundaries.
 
-Make sure that a section renderer gives the same result for a specified
-selector state. Set `export=False` on a section that must stay static in the
+Make sure a section renderer gives the same result for a specified selector
+state. Set `export=False` on a section that must stay static in the
 exported shell. Set `exportable=False` on a live-only selector. Do not add an
 export-only registry. Do not copy selector metadata to the page definition.
 
@@ -157,11 +155,11 @@ trip_table = self.section(
 )
 ```
 
-HTML export omits a section if its `export_data_mode` is `optional` or
-`required`. These values identify whether the feature is optional or required
-in live mode. Summary-only sections use the default `export_data_mode="none"`.
-Export can include these sections. On a mixed page, put prepared data and
-summary data in separate sections. Export can then include the summary section.
+HTML export omits sections whose `export_data_mode` is `optional` or `required`;
+these values indicate whether a prepared-data feature is optional or required
+in live mode. Summary-only sections use the default
+`export_data_mode="none"` and can be exported. On a mixed page, separate the
+prepared-data and summary-data sections so the latter can remain in the export.
 
 ## Important Files
 
@@ -187,13 +185,13 @@ summary data in separate sections. Export can then include the summary section.
 | `build_export_html_document(runs, config, summary_runs=None) -> str` | Build, serialize, and validate a complete HTML document in memory. Useful for tests and callers that need the string. |
 | `write_export_html_document(output_path, runs, config, summary_runs=None) -> Path` | Build the payload and stream JSON into a temporary HTML file.<br>Write the diagnostics sidecar through a temporary file.<br>Replace each destination only after the temporary file is complete.<br>This is the standard workflow method. |
 
-Payload construction cleans NumPy and Pandas values before JSON encoding.
-Nonfinite numeric values become JSON `null`. Timestamps become ISO strings.
-The exporter escapes closing script tags. The writer streams the JSON and does
-not create a second payload string or final HTML string. This decreases peak
-memory use for exports with many selector states. A conversion, shell, write,
-or finalization failure raises an `ExportBuildError`. The error identifies the
-failed phase, and the writer removes temporary files.
+Payload construction cleans NumPy and Pandas values before JSON encoding:
+nonfinite numbers become JSON `null`, timestamps become ISO strings, and closing
+script tags are escaped. The writer streams the JSON without creating a second
+payload or final HTML string, which reduces peak memory use for exports with
+many selector states. If conversion, shell creation, writing, or finalization
+fails, an `ExportBuildError` identifies the phase and the writer removes its
+temporary files.
 
 ## Changing Export Runtime Behavior
 

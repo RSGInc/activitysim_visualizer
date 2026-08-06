@@ -6,15 +6,15 @@ missing-data diagnostics, and export metadata.
 
 ## Page Lifecycle
 
-Each page subclasses `DashboardPage` and implements `build_page()`. This method
-declares selectors and sections one time. It returns a stable Panel layout.
+Each page subclasses `DashboardPage` and implements `build_page()`, which
+declares selectors and sections once and returns a stable Panel layout.
 
 `DashboardPage.__init__()` creates `self.data`, page state, and the component
-registries. It then calls `build_page()`. Thus, a standard page must not define
-its own `__init__`. If a page requires special initialization, call
-`super().__init__(state, config)`. Create attributes for `build_page()` before
-that call. Put declarations in `build_page()`. Do not put an `__init__` method
-in an implementation mixin.
+registries before calling `build_page()`. A standard page therefore does not
+need its own `__init__`. If special initialization is necessary, create any
+attributes needed by `build_page()` before calling
+`super().__init__(state, config)`. Keep declarations in `build_page()` and never
+put an `__init__` method in an implementation mixin.
 
 The main author-facing objects are:
 
@@ -87,7 +87,7 @@ The page-facing data API is:
 | `self.data.summary_series(id, weighting=None)` | Specialized skim-summary view that retains summary-series metadata. |
 
 `RunTables` is iterable and indexable as `(run_label, DataFrame)` pairs. Its
-public fluent/query surface is:
+public query interface is:
 
 | API | Behavior |
 |---|---|
@@ -148,8 +148,8 @@ self.purpose = self.select(
 )
 ```
 
-The framework calls an option provider before it renders dependent sections.
-It repairs stale values. `default` can be `"first"`, `"last"`, or a callable.
+Before rendering dependent sections, the framework calls an option provider and
+repairs stale values. `default` can be `"first"`, `"last"`, or a callable.
 Use `self.selector(...)` only for a custom checkbox, numeric input, or other
 widget that `select(...)` cannot define.
 
@@ -165,9 +165,9 @@ chart = self.section(
 )
 ```
 
-A section renderer can return one Panel `Viewable` or a list or tuple of
-`Viewable` objects. It must not change the stable section container. The
-lifecycle replaces the container content after each render.
+A section renderer can return one Panel `Viewable`, or a list or tuple of
+`Viewable` objects. The lifecycle replaces the container content after each
+render, so the renderer must not replace the stable section container itself.
 
 For a large page, use `self.feature("comparison")` to give a name to one
 workflow. Feature component IDs become `comparison.metric`, `comparison.body`,
@@ -175,9 +175,9 @@ and similar names. Features use the same lifecycle and export behavior as the
 parent page.
 
 Large controllers can also use private implementation mixins in a `_<page>/`
-package. Mixins organize source responsibilities. `PageFeature` organizes live
-components. A page can use both. Give each mixin one purpose. Do not give it an
-`__init__` method. Keep pure transforms as functions. Do not change page or
+package. Mixins organize source responsibilities, while `PageFeature` organizes
+live components; a page can use both. Give each mixin one purpose and no
+`__init__` method. Keep pure transforms as functions, and preserve page and
 component IDs during a source-only refactor.
 
 ### Large-Page Implementation Mixins
@@ -216,8 +216,8 @@ class ExamplePage(
 ```
 
 Each mixin method receives the final `ExamplePage` instance. Python resolves
-methods from left to right through the declared bases. It resolves
-`DashboardPage` last. Mixins are not standalone pages. Do not instantiate them.
+methods from left to right through the declared bases, with `DashboardPage`
+last. Mixins are not standalone pages and should not be instantiated.
 
 Keep this pattern narrow:
 
@@ -228,9 +228,9 @@ Keep this pattern narrow:
 - keep stateless pure functions outside mixins
 - preserve page, selector, section, and export IDs during source-only refactors
 
-Mixins organize Python source. `PageFeature` organizes registered live
-components. They have different purposes. Use one page class until the
-composition, domain, transformation, and rendering boundaries are stable.
+Mixins organize Python source, while `PageFeature` organizes registered live
+components. Use one page class until the composition, domain, transformation,
+and rendering boundaries are stable.
 
 ## Shared Helpers
 

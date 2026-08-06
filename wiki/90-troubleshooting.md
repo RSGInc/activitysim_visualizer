@@ -1,17 +1,17 @@
 # 90 - Troubleshooting
 
-Use this chapter when a run, cache, page, or export does not operate correctly.
+Use this chapter when a run, cache, page, or export does not behave as expected.
 
 ## Initial checks
 
-1. Make sure that you used the correct configuration path.
+1. Make sure you used the correct configuration path.
 2. Find the selected pipeline steps and dashboard mode in the log.
 3. Identify whether the problem occurs in prepare, summarize, dashboard, or export.
 4. Inspect `<root>/<run-key>/manifest.json` for summary state and
    `<root>/<run-key>/prepared_tables/manifest.json` for final prepared/skimjoin
    state (see the [cache layout](12-running-workflows.md#artifact-and-cache-paths)).
 5. Use `--explain-cache` to examine reuse and rebuild decisions. If you
-   must rebuild, list only the applicable step in `pipeline.refresh`.
+   must rebuild, list only the relevant step in `pipeline.refresh`.
 
 ## Symptoms
 
@@ -46,10 +46,10 @@ uv run activitysim-viz --config local_config.yaml --refresh-summary-cache
 uv run activitysim-viz --config local_config.yaml --refresh-caches
 ```
 
-If only dashboard presentation changed, a refresh is usually not necessary.
-The system automatically checks raw-file, skim-file, and applicable
-configuration identities. Use a manual refresh only to override a valid cache
-decision. Use `pipeline.refresh` for repeatable runs. A prepare refresh
+If only dashboard presentation changed, a refresh is usually unnecessary. The
+system automatically checks raw-file, skim-file, and relevant configuration
+identities. Use a manual refresh only to override a valid cache decision, and
+use `pipeline.refresh` for repeatable runs. A prepare refresh
 invalidates skimjoin and summary output. A skimjoin refresh keeps
 `base_prepared_tables`. A summary refresh keeps final prepared data.
 
@@ -67,7 +67,7 @@ the required input tables and columns.
 
 ### Worked Triage: A Page Says Data Is Unavailable
 
-Use this procedure if Trip Mode shows the standard unavailable card:
+If Trip Mode shows the standard unavailable card, follow these steps:
 
 1. Find `trip_mode` in chapter 31. It requires
    `trip_mode_by_tour_purpose_and_tour_mode`.
@@ -81,9 +81,9 @@ Use this procedure if Trip Mode shows the standard unavailable card:
    with `pipeline.refresh: [summarize]`.
 6. If the summary is valid, make sure that the page's `columns=` request agrees
    with the cached schema.
-7. Make sure that the selected weighting mode exists.
+7. Make sure the selected weighting mode exists.
 
-This sequence examines the declared contracts in reverse order. It prevents
+This sequence works backward through the declared contracts and avoids
 unnecessary cache refreshes when the problem is an input or schema mismatch.
 
 ## Skimjoin Problems
@@ -108,27 +108,27 @@ Common corrections:
 
 ## Export Problems
 
-If live mode operates correctly but export fails, do these steps:
+If live mode works but export fails:
 
-1. Make sure that export page selection includes the page.
-2. Make sure that standard selection lists use `self.select(...)`.
-3. Make sure that custom widgets use `self.selector(...)`.
-4. Make sure that `self.section(...)` registers the applicable content.
+1. Make sure export page selection includes the page.
+2. Make sure standard selection lists use `self.select(...)`.
+3. Make sure custom widgets use `self.selector(...)`.
+4. Make sure `self.section(...)` registers the relevant content.
 5. Check browser console errors.
 6. Inspect the adjacent `<export-stem>.diagnostics.json` sidecar.
 7. Try `?debug_export=1`.
 
-Export cannot reproduce all Python callbacks. It can change only between stored
+Export cannot reproduce every Python callback; it can only switch among stored
 states and registered selector variants.
 
 ## Create a small test case
 
-Create the smallest test case:
+Reduce the problem to the smallest test case:
 
 1. one run
 2. one page or one summary
 3. one weighting mode
 4. fresh cache root
-5. A copy of the applicable log text and manifest diagnostics.
+5. A copy of the relevant log text and manifest diagnostics.
 
-This test case usually identifies the applicable subsystem.
+This usually identifies the responsible subsystem.

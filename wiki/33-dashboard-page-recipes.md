@@ -1,6 +1,6 @@
 # 33 - Dashboard Page Recipes
 
-Use the smallest page structure that supplies the required behavior. Each
+Use the smallest page structure that provides the required behavior. Each
 discoverable page module contains one class with a `@dashboard_page(...)`
 decorator.
 
@@ -80,9 +80,9 @@ def render_chart(self):
     )
 ```
 
-The framework refreshes options and dependent sections. Use
-`self.selector(...)` only for a custom widget. Keep the label-to-raw mapping.
-This mapping prevents display labels from entering data filters.
+The framework refreshes both options and dependent sections. Use
+`self.selector(...)` only for a custom widget, and keep the label-to-raw mapping
+so display labels do not enter data filters.
 
 ## Recipe 3: Multi-Workflow Page
 
@@ -138,10 +138,10 @@ class RawTripDemoPage(DashboardPage):
         )
 ```
 
-Load prepared data through `self.data`. Show a standard card for unavailable
-data. Use disaggregate data only when necessary. Use summaries for repeated
-aggregate views. See `raw_trip_demo.py`, the skim pages, and parking location
-for current required and optional patterns.
+Load prepared data through `self.data`, and show a standard card when it is
+unavailable. Reserve disaggregate data for cases that need it; use summaries
+for repeated aggregate views. See `raw_trip_demo.py`, the skim pages, and
+parking location for current required and optional patterns.
 
 Mark each section that reads prepared data with
 `export_data_mode="optional"` or `"required"`. Standalone export does not load

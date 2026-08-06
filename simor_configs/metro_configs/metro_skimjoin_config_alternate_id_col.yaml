@@ -1,8 +1,8 @@
 project:
   skim_files:
-    - C:\Users\wesley.darling\project_data\new_odot_skims\Metro_skims\*.omx
-    - C:\Users\wesley.darling\project_data\odot_skims\maz_stop_walk.csv
-    - C:\Users\wesley.darling\project_data\odot_skims\maz_maz_walk.csv
+    - 'C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\*.omx'
+    - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\maz_stop_walk.csv
+    - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\maz_maz_walk.csv
   network_los_file: C:\Users\wesley.darling\project_data\odot_skims\network_los.yaml
   # project.trips_table / project.tours_table / project.output_dir are used by the
   # standalone skimjoin CLI only. Integrated runtime skimjoin reads prepared
@@ -11,7 +11,7 @@ project:
   # trips_table: C:\Users\wesley.darling\projects\activitysim_visualizer\artifacts\prepared_cache\override\trips.parquet
   # tours_table: C:\Users\wesley.darling\Downloads\viz\viz\output\tour.csv
   # tours_table: C:\Users\wesley.darling\projects\activitysim_visualizer\artifacts\prepared_cache\override\tours.parquet
-  # output_dir: will_output
+  # output_dir: metro_output
   
 
 activitysim:

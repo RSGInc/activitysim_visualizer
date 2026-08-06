@@ -1,7 +1,7 @@
 # 21 - Prepared Tables
 
 Prepared tables are the canonical form of ActivitySim output. They remove
-differences in raw file names. They supply stable fields to summaries and
+differences in raw file names and provide stable fields for summaries and
 dashboard pages.
 
 ## Prepare Data Flow
@@ -80,43 +80,43 @@ frequently use these fields:
 Use the prepared field when it exists. Do not search for raw names in a summary
 or page.
 
-This list is an introduction. It does not mean that each table has each field.
-For a specified summary, the generated catalog in chapter 24 gives the required
+This introductory list does not imply that every table has every field. For a
+specific summary, the generated catalog in chapter 24 lists the required
 prepared columns. At runtime, `@summary` requirements and prepared-table
-availability metadata control whether a calculation can execute.
+availability metadata determine whether a calculation can run.
 
 ## Inspecting An Exact Prepared Schema
 
-The repository does not contain a list of all columns from one sample prepared
-cache. Raw model extensions and optional input make this list model-specific.
-Input changes can also make the list incorrect.
+The repository does not treat the columns in one sample prepared cache as a
+fixed schema. Raw model extensions, optional inputs, and other input changes
+make that list model-specific.
 
-For the applicable cache, do these steps:
+To inspect a cache:
 
 1. Read the run's `manifest.json`. Find the prepared-table files and the
    recorded availability status.
-2. Examine the Parquet or CSV schema for the applicable table.
+2. Examine the Parquet or CSV schema for the relevant table.
 3. Use `processor.models.RunData` names at runtime and the file/config names in
    [Prepared Table Names](#prepared-table-names).
 4. Use the generated [Summary Catalog](24-summary-catalog.md) to find the exact
    prepared columns required by each registered summary.
 
-Add stable fields to the applicable prepare enrichment module. Add a prepare
-test for each field. A row count or column in only one regional model describes
-that data set. It is not part of the portable visualizer contract.
+Add stable fields to the relevant prepare enrichment module, with a prepare
+test for each field. A row count or column found in only one regional model
+describes that data set, not the portable visualizer contract.
 
 ## Adding A Prepared Column
 
 For a complete example, see
 [Add A Column To An Existing Prepared Table](41-data-extension-cookbook.md#worked-example-add-a-column-to-an-existing-prepared-table).
 
-Use this procedure when many summaries or pages require the same derived field.
-Also use it when the field is part of canonical model-output normalization.
+Use this approach when many summaries or pages need the same derived field, or
+when the field is part of canonical model-output normalization.
 
 Checklist:
 
 1. Choose the owning enrichment module.
-2. Add the Polars expression or transformation in the applicable stage.
+2. Add the Polars expression or transformation in the relevant stage.
 3. If the input is optional, keep the table usable when source columns are missing.
 4. Add final type/cast behavior if the field must be stable.
 5. Add or update tests that prepare a minimal run and assert the new column.

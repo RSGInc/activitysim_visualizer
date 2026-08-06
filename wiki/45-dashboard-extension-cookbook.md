@@ -1,9 +1,9 @@
 # 45 - Dashboard Extension Cookbook
 
-This chapter gives examples for a page, page group, selector, custom widget,
-table, and reusable figure. The examples use the declarative page lifecycle.
-Selectors control option domains. Sections control refresh dependencies. Pages
-read data through `self.data`.
+This chapter gives examples of a page, page group, selector, custom widget,
+table, and reusable figure. They use the declarative page lifecycle: selectors
+control option domains, sections control refresh dependencies, and pages read
+data through `self.data`.
 
 ## Worked Example: Add A Page To An Existing Group
 
@@ -56,8 +56,8 @@ class TripModeTotalsPage(DashboardPage):
         )
 ```
 
-Discovery imports public child modules automatically. Do not edit a central
-page list. The decorator defines the identity and data requirements.
+Discovery imports public child modules automatically, so there is no central
+page list to edit. The decorator defines identity and data requirements.
 
 Enable the page explicitly while developing:
 
@@ -108,9 +108,8 @@ def purpose_options(self):
     return options
 ```
 
-The option provider executes before the framework renders a dependent section. If
-available options change, the framework uses the `default` policy to repair an
-invalid selection.
+The option provider runs before the framework renders a dependent section. If
+the available options change, the `default` policy repairs an invalid selection.
 
 Use the raw value for the filter. Do not use its display label:
 
@@ -159,12 +158,12 @@ if self.hide_auto.value:
 ```
 
 Registration connects the widget to refresh and HTML export. A widget created
-directly in the layout is not part of this lifecycle. Register it with
+directly in the layout is outside this lifecycle, so register it with
 `self.select()` or `self.selector()`.
 
 ## Add A Figure With The Existing Plotter
 
-Pages must usually use `self.plot`:
+Pages should normally use `self.plot`:
 
 ```python
 chart = self.plot.bar(
@@ -263,7 +262,7 @@ def area_figure(
 
 That module already uses `ChartTables`, `ChartValueMode`, `go`, and `np`. The
 explicit `value_mode` keeps `"dashboard"`, count, and share behavior consistent
-with existing figure types. `_require_columns` gives an error for the applicable
+with existing figure types. `_require_columns` gives an error for the affected
 run. `RenderContext.color()` keeps the configured run-color mapping.
 
 The adapter shape is:
@@ -325,9 +324,9 @@ return data_table(
 )
 ```
 
-It creates one run tab for each frame. It applies shared column titles and
+It creates one run tab for each frame and applies shared column titles and
 numeric formatting. Use a page-local `Tabulator` only when the shared table
-contract cannot supply the required interaction.
+contract cannot provide the required interaction.
 
 ## Add A New Page Group
 

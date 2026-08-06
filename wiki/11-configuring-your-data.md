@@ -1,7 +1,6 @@
 # 11 - Configuring Your Data
 
-Select an input type and give each run a label. Use one of these three
-configurations.
+Choose one of the three input types below, and give each run a label.
 
 ## Raw ActivitySim Output
 
@@ -17,7 +16,7 @@ runs:
     label: Build
 ```
 
-The dashboard shows this label.
+The dashboard uses the label to identify the run.
 
 ### File Names
 
@@ -59,13 +58,13 @@ columns:
   trip_mode: mode
 ```
 
-The prepare step copies the selected source to the canonical visualizer
-column. See the [complete column list](13-configuration-reference.md#columns)
-in chapter 13.
+The prepare step copies the first available source into the canonical
+visualizer column. See the
+[complete column list](13-configuration-reference.md#columns) in chapter 13.
 
 ## Already-Prepared Tables
 
-Use `prepared_table_map` for canonical tables from a different process. This
+Use `prepared_table_map` for canonical tables created by another process. That
 process can prepare, skimjoin, or filter the tables:
 
 ```yaml
@@ -79,14 +78,15 @@ runs:
       land_use: prepared/land_use.parquet
 ```
 
-Each path must end in `.csv` or `.parquet`. A relative path starts from the
+Each path must end in `.csv` or `.parquet`. Relative paths start from the
 configuration file directory. The tables must contain the canonical prepared
-columns that the summaries require. The visualizer does not run raw prepare or
-integrated skimjoin for this run.
+columns required by the summaries. For this type of run, the visualizer skips
+raw preparation and integrated skimjoin.
 
 ## Dashboard-Ready Summary Tables
 
-Use `summary_table_map` for registered summary tables from a different process:
+Use `summary_table_map` for registered summary tables created by another
+process:
 
 ```yaml
 runs:
@@ -96,10 +96,10 @@ runs:
       traffic_count_comparisons: summaries/traffic_counts.parquet
 ```
 
-Each key must occur in the [Summary Catalog](24-summary-catalog.md). Each file
-must have the registered columns in the specified order. A run can contain
-only external summaries. External summaries can also replace selected
-summaries from raw or prepared data.
+Each key must appear in the [Summary Catalog](24-summary-catalog.md), and each
+file must have the registered columns in the specified order. A run can contain
+only external summaries, or external summaries can replace selected summaries
+from raw or prepared data.
 
 ## Weights
 
@@ -121,12 +121,11 @@ runs:
     trip_weight_col: trip_weight
 ```
 
-If you do not set weight columns, prepare uses the configured sample-rate
-column when it is available. If this column is not available, prepare uses
-`1.0`.
+If you do not set weight columns, the prepare step uses the configured
+sample-rate column when available and otherwise uses `1.0`.
 
-If the output tables contain more weights, add a named column mode. Do not
-duplicate the run or write Python for this configuration:
+If the output tables contain other weights, add a named column mode instead of
+duplicating the run or writing Python:
 
 ```yaml
 weighting:
@@ -142,7 +141,7 @@ summarize:
   weighting_modes: [weighted, unweighted, calibrated]
 ```
 
-The visualizer validates the named sources. It copies the weights to applicable
+The visualizer validates the named sources and copies the weights to relevant
 tours, days, vehicles, and skimjoin sidecar tables. See
 [43 - Weighting And Hosting Extensions](43-weighting-hosting-extensions.md#worked-example-add-a-weighting-mode)
 for the rules.

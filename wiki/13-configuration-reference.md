@@ -1,13 +1,12 @@
 # 13 - Configuration Reference
 
-This page describes each field in the main ActivitySim Visualizer configuration
-file. For an introduction, read
-[11 - Configuring Your Data](11-configuring-your-data.md). See
-[`config.yaml`](../config.yaml) for the canonical example.
+This page is a field-by-field reference for the main ActivitySim Visualizer
+configuration. For an introduction, read
+[11 - Configuring Your Data](11-configuring-your-data.md); for the canonical
+example, see [`config.yaml`](../config.yaml).
 
-This page describes the current canonical configuration. Unknown and removed
-keys cause a validation error. When possible, the error gives the canonical
-replacement.
+Unknown and removed keys cause a validation error, which gives the canonical
+replacement when one is available.
 
 ## Reading This Reference
 
@@ -134,8 +133,8 @@ runs:
 
 ## `weighting`
 
-`weighting.modes` defines named alternatives by pointing at columns already
-present in prepared household, person, or trip tables.
+`weighting.modes` defines named alternatives that use columns already present
+in prepared household, person, or trip tables.
 
 | Field | Type | Default | Impact | Notes |
 |---|---|---|---|---|
@@ -202,12 +201,12 @@ pipeline:
 
 The visualizer stores `segment` output in summary bundles. Use
 `refresh: [summarize]` to rebuild segmented output. Dashboard rendering does
-not have a persistent processor cache. Thus, dashboard is not a refresh target.
+not have a persistent processor cache, so dashboard is not a refresh target.
 
 ## `runs`
 
-Each run entry describes one scenario. Always set `label` when possible. This
-value becomes the display name and identifies the run in cache and debug output.
+Each run entry describes one scenario. Set `label` whenever possible; it becomes
+the display name and identifies the run in cache and debug output.
 
 | Field | Type | Default | Impact | Notes |
 |---|---|---|---|---|
@@ -264,8 +263,8 @@ runs:
 ## `files` And `fallback_files`
 
 `files` maps logical table IDs to raw ActivitySim output file names. If a value
-has no extension, the reader first searches for `.parquet`. It then searches
-for `.csv` in each run directory.
+has no extension, the reader searches each run directory for `.parquet` first
+and then `.csv`.
 
 | Table id | Default stem |
 |---|---|
@@ -280,7 +279,7 @@ for `.csv` in each run directory.
 
 `fallback_files` supports only these optional table IDs: `day`, `vehicles`,
 `joint_tour_participants`, and `land_use`. Each value must be an explicit
-`.parquet` or `.csv` path.
+`.parquet` or `.csv` path. Use `fallback_files` when multiple runs share input files.
 
 ```yaml
 files:
@@ -311,8 +310,8 @@ zones:
 
 ## `columns`
 
-Most `columns` values can be one string or an ordered list of possible source
-column names. The visualizer uses the first available column. It reads the
+Most `columns` values can be a single string or an ordered list of possible
+source names. The visualizer uses the first available column and reads the
 scalar fields at the start of the table as single names.
 
 | Field | Default | Impact | Purpose |
@@ -464,7 +463,7 @@ main visualizer config
        project/activitysim/defaults/modes: defines the actual lookup rules
 ```
 
-The `skimjoin.defaults.config_path` value does not start skimjoin. The
+Setting `skimjoin.defaults.config_path` does not start skimjoin; the
 `pipeline.steps` list must also contain `prepare` and `skimjoin`.
 
 | Field | Type | Default | Impact | Notes |
@@ -623,11 +622,11 @@ Use a page ID or a nested group and page ID as an export page override key.
 Selector keys depend on the page. A selector value can be `default`, `all`, one
 string, or a list of strings. Set `parts.*.enabled` to hide named export parts.
 
-Export uses the page set from `dashboard.live.pages`.
-`dashboard.export.pages` is an override mapping, not an allow-list. An entry
-for one page does not remove other pages. To remove pages, set `enabled: false`
-or use `exclude_pages` or `exclude_groups`. Export cannot add a page that the
-live configuration did not select. Find valid IDs in these locations:
+Export starts with the page set from `dashboard.live.pages`.
+`dashboard.export.pages` is an override mapping, not an allow-list, so an entry
+for one page does not remove the others. To remove pages, set `enabled: false`
+or use `exclude_pages` or `exclude_groups`. Export cannot add a page omitted by
+the live configuration. Find valid IDs in these locations:
 
 - page and group IDs: the generated catalog in chapter 31;
 - selector IDs: `self.select(...)` and `self.selector(...)` calls on the page;

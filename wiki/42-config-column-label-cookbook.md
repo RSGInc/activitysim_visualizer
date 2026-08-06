@@ -1,8 +1,7 @@
 # 42 - Config, Columns, And Labels
 
-This chapter shows the complete path of one YAML value. The path includes
-validation, typed configuration, cache identity, prepared data, and dashboard
-presentation.
+This chapter follows one YAML value through validation, typed configuration,
+cache identity, prepared data, and dashboard presentation.
 
 ## First Decide Which Boundary Owns The Setting
 
@@ -13,9 +12,9 @@ presentation.
 | labels, ordering, colors, or page appearance | `display` or `dashboard` | Presentation |
 | which workflow executes | `pipeline` | Runtime plan; include data effects in the owning signature too |
 
-Do not add a setting only to `Config`. Add validation, normalization, a typed
-field, and cache signature ownership. Also add a consumer, an example, and
-tests.
+A new setting needs more than a field on `Config`. Add validation,
+normalization, a typed field, cache-signature ownership, a consumer, an example,
+and tests.
 
 ## Worked Example: Add A New Config Item
 
@@ -63,8 +62,7 @@ class Config:
     show_zero_categories: bool
 ```
 
-Downstream code must read `config.show_zero_categories`. It must not read the
-raw YAML mapping.
+Downstream code reads `config.show_zero_categories`, not the raw YAML mapping.
 
 ### 3. Put It In The Correct Signature
 
@@ -91,8 +89,8 @@ if config.show_zero_categories:
     chart_data = complete_category_rows(chart_data, expected_categories)
 ```
 
-Use a shared helper if several pages require the setting. Keep behavior for one
-page on that page.
+Use a shared helper when several pages need the setting; keep page-specific
+behavior on the page itself.
 
 ### 5. Document And Test It
 
@@ -101,7 +99,7 @@ incorrect type. Also test signature ownership and visible consumer behavior.
 
 The examples below use module-local helpers named `_write_config()` and
 `_raw_run()`. These helpers are not repository-wide pytest fixtures. Define a
-small helper in the applicable test module, or use its existing configuration
+small helper in the relevant test module, or use its existing configuration
 and run factory. `extra_lines` and `column_lines` are example helper arguments.
 They are not public configuration APIs.
 
@@ -137,7 +135,7 @@ _ALIAS_COLUMN_DEFAULTS = {
 }
 ```
 
-The loader gets `CANONICAL_COLUMN_KEYS` from this mapping. Thus,
+The loader gets `CANONICAL_COLUMN_KEYS` from this mapping, so
 `columns.area_type` becomes valid automatically. Add the typed field to
 `Config`:
 
@@ -185,8 +183,8 @@ Add the candidate list to the `columns` mapping returned by
 "area_type": list(config.col_area_type),
 ```
 
-The summary signature includes the prepared column payload. Thus, this change
-also invalidates applicable summary caches.
+The summary signature includes the prepared column payload, so this change also
+invalidates the affected summary caches.
 
 ### 4. Test Precedence And Materialization
 
@@ -258,8 +256,9 @@ def selected_employment_status_raw(self):
     return self._employment_status_by_label.get(self.employment_status.value)
 ```
 
-The widget shows `Full time`. The data filter continues to use raw value `2`.
-Thus, display text does not change joins, selector state, or summary contracts.
+The widget shows `Full time`, while the data filter continues to use raw value
+`2`. Display text therefore does not change joins, selector state, or summary
+contracts.
 
 ### Add A Label Column For A Figure
 
@@ -285,7 +284,7 @@ return self.plot.bar(
 
 If many pages use the category, put mapping logic in
 `dashboard/helpers/category_helpers.py`. If the mapping changes canonical
-summary values, put it under `summarize.category_normalization`. The applicable
+summary values, put it under `summarize.category_normalization`. The relevant
 summary logic must apply it.
 
 ### Test Raw And Display Behavior Separately

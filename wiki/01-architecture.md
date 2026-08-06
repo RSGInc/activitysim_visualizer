@@ -6,7 +6,7 @@
 2. Build and cache summary tables.
 3. Render those summaries in a live Panel dashboard or a standalone HTML export.
 
-The codebase has a separate subsystem for each job.
+Each job has its own subsystem.
 
 The configuration has top-level sections such as `pipeline`, `dashboard`,
 `display`, `summarize`, `segment`, and `skimjoin`.
@@ -54,9 +54,9 @@ run.py
 ```
 
 The runtime passes one resolved `WorkflowPlan` to these operations.
-`run_prepare_workflow()` returns `PreparedRunsArtifact`.
-`run_summary_workflow()` returns `SummaryRunsArtifact`. The runtime workflows
-control the cache policy. Processor functions only transform tables.
+`run_prepare_workflow()` returns `PreparedRunsArtifact`, and
+`run_summary_workflow()` returns `SummaryRunsArtifact`. Runtime workflows own
+the cache policy; processor functions only transform tables.
 
 ## Core Runtime Contracts
 
@@ -82,7 +82,7 @@ accepts `account`, `app_id`, `title`, and `verify`. The runtime does not store
 or use these values.
 
 If a feature adds a configuration key or changes configuration behavior,
-update the README and the applicable wiki chapters in the same change.
+update the README and the related wiki chapters in the same change.
 
 `Config.pipeline` is the canonical home for workflow defaults. Today the
 logical step names are:
@@ -99,11 +99,11 @@ resolves `segment` in the summarize workflow.
 
 ### `RunData`
 
-`processor.models.RunData` is the prepared-data contract. Summary builders and
-prepared-data dashboard pages use this contract. Summary code must use
-canonical prepared columns. It must not estimate the names of raw ActivitySim
-columns. The `processor/prepare/` subsystem creates the canonical fields and
-contains the prepared-table cache helpers.
+`processor.models.RunData` is the prepared-data contract used by summary
+builders and prepared-data dashboard pages. Summary code uses canonical
+prepared columns and never guesses the names of raw ActivitySim columns. The
+`processor/prepare/` subsystem creates these canonical fields and contains the
+prepared-table cache helpers.
 
 ### `@summary` and the summary catalog
 
@@ -115,7 +115,7 @@ declaration defines:
 - its ordered output schema and prepared-input prerequisites
 - default build status
 
-`processor.summarize.catalog` imports the applicable domain modules. It
+`processor.summarize.catalog` imports the relevant domain modules. It
 collects the declarations in a repeatable order and rejects duplicate IDs. The
 system validates the columns, column order, and data types of each successful
 builder result. The `summarize.failure_policy` setting controls unexpected
@@ -158,8 +158,8 @@ The framework now owns:
 - export selector metadata
 - export region metadata
 
-The same selector and section registration graph controls live refresh and
-export behavior. Separate page metadata does not control these behaviors.
+The same selector and section registration graph controls both live refresh and
+export behavior; separate page metadata does not.
 
 The page authoring model includes the shared helpers in `dashboard/helpers/`:
 
@@ -170,7 +170,7 @@ The page authoring model includes the shared helpers in `dashboard/helpers/`:
 - `comparison_helpers.py` centralizes percent-error formatting and base-run comparisons
 
 For page-local table changes, `dashboard.data_access.RunTables` applies one
-query to every run and keeps the run labels. Pages must use its
+query to every run while preserving the run labels. Pages should use its
 `where`, `with_columns`, `group`, `select`, `sort`, `join`, `requiring`,
 `drop_empty`, and `map` operations when possible. Do not write equivalent loops
 through run and data frame pairs.
@@ -181,9 +181,9 @@ that one page family shares. Put more general logic in `dashboard/helpers/`.
 
 ## Public Python APIs
 
-Import these facades when you extend or embed the visualizer. A file that a
-facade does not export is an implementation detail. A cookbook can identify an
-exception as an extension point.
+Use these facades when you extend or embed the visualizer. Files they do not
+export are implementation details unless a cookbook identifies a specific
+extension point.
 
 | Import surface | Public contract |
 |---|---|
@@ -201,8 +201,8 @@ The normalized config value objects exported alongside `Config` are
 `ExportHTMLSettings`, `ExportSelectorRequest`,
 `PrepareNonMotorizedDistanceSkimSettings`, `SegmentationDefinition`,
 `PreparedColumnSegmentationSource`, `CsvLookupSegmentationSource`, and
-`StudentTypeConfig`. They are read-only runtime contracts. YAML normalization
-supplies user input. Do not assemble a `Config` manually.
+`StudentTypeConfig`. These are read-only runtime contracts populated through
+YAML normalization; do not assemble a `Config` manually.
 
 The workflow facade also exports `effective_processor_config()`,
 `run_entries_with_keys()`, `prepared_cache_root()`, `summary_cache_root()`,
@@ -213,12 +213,12 @@ dashboard facade exports `DashboardPreparedRunProvider` and
 `RegisteredPageSelector`, `RegisteredPageSection`, and `SectionContent`
 declaration records.
 
-Chapter 32 describes the page-facing `PageData` and `RunTables` API. Chapter 35
-describes chart keywords. Chapter 23 describes the `@summary` contract. The
-subsystem sections above describe workflow arguments and artifacts. Public code must pass
-an explicit `WorkflowPlan` when the required behavior differs from the loaded
-configuration. The plan records logical steps, runtime boundaries, dashboard
-mode, and refresh targets.
+Chapter 32 describes the page-facing `PageData` and `RunTables` API, chapter 35
+covers chart keywords, and chapter 23 defines the `@summary` contract. The
+subsystem sections above describe workflow arguments and artifacts. When public
+code needs behavior that differs from the loaded configuration, it must pass an
+explicit `WorkflowPlan` that records logical steps, runtime boundaries,
+dashboard mode, and refresh targets.
 
 ## Repository Map
 

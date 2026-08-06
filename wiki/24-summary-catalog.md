@@ -1,22 +1,21 @@
 # 24 - Summary Catalog
 
-This page is the data dictionary for the summary CSV tables from the Output
-Processor. It describes all registered summary tables. For each table, it
-defines a row, gives analysis uses, and defines each output field. The generated
-developer inventory is at the end of the page. Use it as the authoritative list
-of file names, schemas, builders, and input requirements.
+This page is the data dictionary for summary CSV tables from the Output
+Processor. It explains what one row represents, how each table is used, and
+what each output field means. The generated developer inventory at the end is
+the authoritative list of file names, schemas, builders, and input requirements.
 
 ## How to Interpret the Tables
 
 - Count, volume, mileage, and boarding fields are numeric measures. In a
-  weighted cache, they are sums of `finalweight`. In an unweighted cache, the
-  workflow uses unit weights. Thus, a `Float64` count can be a fractional
-  population estimate. It is not always a row count.
+  weighted cache, they are sums of `finalweight`; in an unweighted cache, the
+  workflow uses unit weights. A `Float64` count can therefore be a fractional
+  population estimate rather than a row count.
 - The workflow calculates rate, percentage, mean, standard deviation, median,
   and percentile fields from the weighted observations for that table.
 - Values such as `all_geographies`, `all_person_types`, `all_tour_purposes`,
-  `all_tour_modes`, `All Modes`, `All Auto`, and `Daily` are rollups. Do not add
-  a rollup to its component rows. Use the rollup or the detail level, but not both.
+  `all_tour_modes`, `All Modes`, `All Auto`, and `Daily` are rollups. Use either
+  the rollup or its component rows, but do not add them together.
 - `geography_type` names the configured spatial system, such as MAZ, TAZ,
   county, MPO, or a custom geography. `geography_id` is the identifier in that
   system. Each table description identifies the home, work, school,
@@ -37,11 +36,11 @@ of file names, schemas, builders, and input requirements.
 
 ## Build Status
 
-The standard summarize workflow builds **85** tables. The other **15** tables
-have `Default build = no`. The two skim ECDF tables are optional products. An
-external process supplies the 13 validation contracts through
-`summary_table_map`. The visualizer does not calculate them from `RunData`.
-This page and the generated inventory describe all 100 contracts.
+The standard summarize workflow builds **85** tables. Of the **15** tables with
+`Default build = no`, two are optional skim ECDF products and 13 are validation
+contracts supplied by an external process through `summary_table_map`. The
+visualizer does not calculate those contracts from `RunData`. This page and the
+generated inventory describe all 100 contracts.
 
 ## Analytical Table Reference
 
@@ -113,15 +112,15 @@ for a missing distance value.
 | `daily_activity_pattern_by_person_type` | Daily activity pattern alternatives by person type, including an all-person-types rollup. Use it to compare mandatory, nonmandatory, and home-stay behavior. | `person_type`: person-type code or rollup.<br>`daily_activity_pattern`: prepared CDAP/activity-pattern category.<br>`person_count`: weighted people in the pattern. |
 | `mandatory_tour_frequency_by_person_type` | Positive mandatory-tour-frequency choice by person type, plus an all-person-types rollup. Use it to analyze how many mandatory tours travelers make. The table excludes people with a choice of zero. | `person_type`: person-type code or rollup.<br>`mandatory_tour_frequency`: prepared positive mandatory-tour frequency alternative.<br>`person_count`: weighted people choosing that frequency. |
 | `nonmandatory_tour_frequency_by_person_type` | Count of individual nonmandatory tours plus joint-tour participation per person, grouped as 0, 1, 2, or 3+, by person type and for all types. Use it to compare discretionary travel propensity. | `person_type`: person-type code or rollup.<br>`nonmandatory_tour_frequency`: combined nonmandatory-tour category `0`, `1`, `2`, or `3+`.<br>`person_count`: weighted people in the category. |
-| `tour_rates_by_person_type_and_tour_purpose` | Tours per weighted person-day by person type and tour purpose, plus all-person-types rates. Use it to compare tour-generation rates while controlling for population composition. | `person_type`: person-type code or rollup.<br>`tour_purpose`: prepared tour-purpose category.<br>`tour_rate`: weighted tours divided by weighted persons for the applicable person type. |
-| `trip_rates_by_person_type_and_trip_purpose` | Trips per weighted person by person type and trip purpose, plus all-person-types rates. Use it to compare trip-generation rates across demographic markets. | `person_type`: person-type code or rollup.<br>`trip_purpose`: destination purpose of the trip.<br>`trip_rate`: weighted trips divided by weighted persons for the applicable person type. |
+| `tour_rates_by_person_type_and_tour_purpose` | Tours per weighted person-day by person type and tour purpose, plus all-person-types rates. Use it to compare tour-generation rates while controlling for population composition. | `person_type`: person-type code or rollup.<br>`tour_purpose`: prepared tour-purpose category.<br>`tour_rate`: weighted tours divided by weighted persons for that person type. |
+| `trip_rates_by_person_type_and_trip_purpose` | Trips per weighted person by person type and trip purpose, plus all-person-types rates. Use it to compare trip-generation rates across demographic markets. | `person_type`: person-type code or rollup.<br>`trip_purpose`: destination purpose of the trip.<br>`trip_rate`: weighted trips divided by weighted persons for that person type. |
 
 ### School Escorting
 
-`direction` values identify outbound and inbound tour halves. Some tables also
-include `both`. This value counts tours or households with escorts in both
-halves. The `all_directions` value sums escort incidences by direction. It can
-count the same tour two times. Do not use these values as equivalents.
+`direction` values identify outbound and inbound tour halves. In some tables,
+`both` counts tours or households with escorts in both halves. By contrast,
+`all_directions` sums escort incidences by direction and can count the same tour
+twice. Do not treat these values as equivalent.
 
 | Summary table | Information and analytical use | Fields |
 |---|---|---|
@@ -160,8 +159,8 @@ count the same tour two times. Do not use these values as equivalents.
 ### Vehicles Allocated to Tours
 
 These tables decode vehicle-type strings for occupancy conditions 1, 2, and 3+.
-They describe modeled allocation incidences. They do not describe the unique
-household vehicle inventory.
+They describe modeled allocation incidences, not the unique household vehicle
+inventory.
 
 | Summary table | Information and analytical use | Fields |
 |---|---|---|
@@ -220,8 +219,8 @@ applicable records. Each table also includes an all-modes group.
 
 ### Processor-Built Validation Summaries
 
-Some assignment tables accept optional tables attached to `RunData`. The result
-is valid but empty when the optional assignment input is absent.
+Some assignment tables accept optional tables attached to `RunData`. If the
+optional assignment input is absent, the result is valid but empty.
 
 | Summary table | Information and analytical use | Fields |
 |---|---|---|

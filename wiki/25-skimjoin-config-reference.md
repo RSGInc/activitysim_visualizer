@@ -1,8 +1,8 @@
 # 25 - Skimjoin Config Reference
 
-This page describes each field in the standalone skimjoin configuration file.
-The main visualizer `skimjoin` step uses this file. For a workflow introduction,
-read [22 - Skimjoin](22-skimjoin.md). See this canonical example:
+This page is a field-by-field reference for the standalone skimjoin
+configuration used by the main visualizer. For a workflow introduction, read
+[22 - Skimjoin](22-skimjoin.md). For a complete example, see
 [`example_skimjoin_config.yaml`](../example_skimjoin_config.yaml).
 
 The skimjoin configuration answers four questions:
@@ -43,7 +43,7 @@ modes:
     distance: SOV_DIST
 ```
 
-`time: SOV_TIME` has the same result as:
+`time: SOV_TIME` is equivalent to:
 
 ```yaml
 time:
@@ -142,9 +142,8 @@ modes:
         - matrix: SOV_TIME__MD
 ```
 
-Fallbacks execute after the primary lookup. They apply to rows for which the earlier
-step did not supply a valid value. Fallback steps use the same final output
-column.
+Fallbacks run after the primary lookup and apply only to rows that do not yet
+have a valid value. Every fallback step uses the same final output column.
 
 ### Tour Aggregation
 
@@ -159,7 +158,7 @@ tour_aggregation:
     skim_auto_time: true
 ```
 
-Mode rules also create tour lookups directly. Tour lookup output gets an
+Mode rules can also create tour lookups directly. Their output receives an
 `_outbound` or `_inbound` suffix.
 
 ## Top-Level Sections
@@ -214,8 +213,8 @@ Column names cannot be blank.
 
 ## `defaults`
 
-Each mode, segment, and component uses these defaults. A value nearer to the
-rule overrides a default.
+Each mode, segment, and component inherits these defaults. A value closer to
+the rule takes precedence.
 
 | Field | Type | Default | Allowed values | Notes |
 |---|---|---|---|---|
@@ -298,9 +297,9 @@ Each dimension entry has these fields:
 | `values_from_network_los` | boolean | `false` | Only supported for `PERIOD`. Requires `project.network_los_file`. |
 | `values` | mapping | `{}` | Raw source value to matrix-name token. The loader normalizes keys and values to strings. |
 
-If `values` is empty, skimjoin converts the raw source value to a string. It
-then puts the string in the matrix name. If `values` is present, each observed
-value must have a mapping.
+If `values` is empty, skimjoin converts the raw source value to a string and
+inserts it into the matrix name. If `values` is present, every observed value
+must have a mapping.
 
 ```yaml
 dimensions:
@@ -324,8 +323,8 @@ dimensions:
 
 ## `ignore_modes`
 
-`ignore_modes` lists trip modes that do not require a matching `modes` rule.
-Use this list for modes that do not require skim enrichment.
+`ignore_modes` lists trip modes that do not need skim enrichment and therefore
+do not require a matching `modes` rule.
 
 ```yaml
 ignore_modes:
@@ -410,7 +409,7 @@ modes:
 ```
 
 If multiple rules write the same output for the same rows, set `combine: sum`
-on all applicable rules. Without this setting, validation reports an output
+on all affected rules. Without this setting, validation reports an output
 collision.
 
 ## `when` Filters
@@ -436,7 +435,7 @@ to all its components. A child filter can replace the same column key.
 
 Use `segment_on` when one mode requires different lookup rules for different
 source values. Each key under `segments` is a value from the `segment_on`
-column. Skimjoin adds the applicable `when` filter for each segment.
+column. Skimjoin adds the corresponding `when` filter for each segment.
 
 ```yaml
 modes:
@@ -455,15 +454,15 @@ modes:
           destination: DTAZ
 ```
 
-Validation makes sure that each observed value for a covered mode has a segment
+Validation checks that every observed value for a covered mode has a segment
 block.
 
 ## `fallbacks`
 
 Fallback entries use the same string or mapping format as primary component
-rules. Skimjoin tries them in list order after a prior step fails. A fallback
-uses the parent component output unless it sets an output. All steps in a
-fallback chain must use the same final output.
+rules. Skimjoin tries them in list order after a previous step fails. A fallback
+uses the parent component output unless it sets its own, and all steps in the
+chain must use the same final output.
 
 ```yaml
 modes:
@@ -486,8 +485,8 @@ Skimjoin writes fallback reports to `fallback_lookup_report`.
 | `key` | `matrix`, `key_column` | Reads a keyed sidecar table by one source column. |
 
 For CSV skim files, the inventory code finds key and value columns from the file
-structure. It can also find origin and destination columns. For OMX files, OD
-lookups use the configured `zone_mapping` lookup name.
+structure and can also identify origin and destination columns. For OMX files,
+OD lookups use the configured `zone_mapping` lookup name.
 
 ```yaml
 modes:
@@ -509,7 +508,7 @@ By default, each component creates trip and tour lookup rules:
 | Outbound tours | `activitysim.tour_mode_column` | `outbound_tour_source_column` | `output_outbound` |
 | Inbound tours | `activitysim.tour_mode_column` | `inbound_tour_source_column` | `output_inbound` |
 
-Set `apply_to: trips` or `apply_to: tours` to execute a component on only one target
+Set `apply_to: trips` or `apply_to: tours` to run a component on only one target
 table.
 
 ## `tour_aggregation`

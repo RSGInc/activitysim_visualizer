@@ -1,6 +1,6 @@
 # 10 - Getting Started
 
-Use this procedure to start a local dashboard from a repository clone.
+Follow these steps to start a local dashboard from a repository clone.
 
 ## 1. Install
 
@@ -18,8 +18,7 @@ uv sync --locked --link-mode=copy
 
 ## 2. Create A Small Config
 
-Create `local_config.yaml`. This file defines the input and the required
-output:
+Create `local_config.yaml` to define the input and output:
 
 ```yaml
 root: artifacts
@@ -54,10 +53,10 @@ file can be CSV or Parquet.
 If your files have different names, read
 [File Names](11-configuring-your-data.md#raw-activitysim-output).
 
-`root` is the artifact directory. The visualizer writes summary caches in this
-directory. It also resolves relative export paths from this directory. Keep
-the export path in the configuration for a live workflow. You can then create
-HTML by changing only `pipeline.dashboard_mode` from `live` to `export`.
+`root` is the artifact directory, where the visualizer writes summary caches
+and resolves relative export paths. Keep the export path in the configuration
+for a live workflow. To create HTML later, you only need to change
+`pipeline.dashboard_mode` from `live` to `export`.
 
 ## 3. Run The Config
 
@@ -65,25 +64,25 @@ HTML by changing only `pipeline.dashboard_mode` from `live` to `export`.
 uv run activitysim-viz --config local_config.yaml
 ```
 
-The first execution prepares data and builds summaries. It then starts the dashboard
-at [http://localhost:5006](http://localhost:5006). Later executions use valid caches.
+On the first run, the visualizer prepares the data, builds the summaries, and
+starts the dashboard at [http://localhost:5006](http://localhost:5006). Later
+runs reuse valid caches.
 
 To stop the server, press `Ctrl+C`.
 
-Use this command for live dashboards, HTML exports, and processor-only
-workflows. Change the `pipeline` and `dashboard` sections to select the
-workflow.
+The command is the same for live dashboards, HTML exports, and processor-only
+workflows. Select the workflow in the `pipeline` and `dashboard` sections.
 
 ## If the first execution fails
 
-Do these checks:
+Check the following:
 
-1. Make sure that each `runs[*].dir` exists.
-2. Make sure that each required table is a `.csv` or `.parquet` file.
-3. Make sure that `zones.use_maz`, `maz_col`, and `taz_col` agree with the model.
+1. Make sure each `runs[*].dir` exists.
+2. Make sure each required table is a `.csv` or `.parquet` file.
+3. Make sure `zones.use_maz`, `maz_col`, and `taz_col` agree with the model.
 4. Find the missing file or column in the log.
 
-Then use [Troubleshooting](90-troubleshooting.md).
+For more help, see [Troubleshooting](90-troubleshooting.md).
 
 ## Next
 

@@ -1,22 +1,22 @@
 # ActivitySim Visualizer
 
-Use ActivitySim Visualizer to examine [ActivitySim](https://activitysim.github.io/)
-output in an interactive dashboard. You can examine one model run, compare
-multiple runs, or compare model output with survey results.
+ActivitySim Visualizer turns [ActivitySim](https://activitysim.github.io/)
+output into an interactive dashboard. Use it to examine one model run, compare
+multiple runs, or compare model results with survey data.
 
 ActivitySim Visualizer can:
 
 - prepare and summarize household, person, tour, and trip output;
 - compare travel patterns, model choices, and validation measures for multiple runs;
-- use valid cached results to decrease the start time; and
-- start a local dashboard or create a standalone HTML file.
+- reuse valid cached results for faster startup; and
+- launch a local dashboard or create a standalone HTML file.
 
 ## Quick Start
 
 ### 1. Install the project
 
-In the repository root, use `uv` to create the environment. This command also
-installs the locked dependencies:
+From the repository root, use `uv` to create the environment and install the
+locked dependencies:
 
 ```bash
 uv sync --locked
@@ -30,8 +30,8 @@ uv sync --locked --link-mode=copy
 
 ### 2. Create a configuration
 
-Copy `config.yaml` to `local_config.yaml`. In the new file, set each `runs.dir`
-value to an ActivitySim output directory:
+Copy `config.yaml` to `local_config.yaml`, then set each `runs.dir` value to an
+ActivitySim output directory:
 
 ```yaml
 runs:
@@ -55,11 +55,12 @@ zones, see [Getting Started](wiki/10-getting-started.md) and
 uv run activitysim-viz --config local_config.yaml
 ```
 
-The first execution prepares the input and builds the required summary tables. It
-then starts a local server at [http://localhost:5006](http://localhost:5006).
-Later executions use valid caches. To stop the server, press `Ctrl+C`.
+On the first run, the visualizer prepares the input, builds the required summary
+tables, and starts a local server at
+[http://localhost:5006](http://localhost:5006). Later runs reuse valid caches.
+Press `Ctrl+C` to stop the server.
 
-If data is missing or the first execution fails, use
+If data is missing or the first run fails, see
 [Troubleshooting](wiki/90-troubleshooting.md).
 
 ## How It Works
@@ -71,9 +72,8 @@ ActivitySim outputs
   -> display a live dashboard or export standalone HTML
 ```
 
-The configuration selects the input, workflow steps, output location, and
-dashboard mode. Use the same start command for each workflow. Change the YAML
-configuration to change the workflow.
+The YAML configuration selects the input, workflow steps, output location, and
+dashboard mode. The start command stays the same for every workflow.
 
 | Goal | Where to learn more |
 |---|---|
@@ -90,7 +90,7 @@ configuration to change the workflow.
 
 The [wiki home](wiki/00-home.md) is the main documentation index.
 
-For standard use, read these chapters in sequence:
+For a standard setup, read these chapters in order:
 
 1. [Getting Started](wiki/10-getting-started.md)
 2. [Configuring Your Data](wiki/11-configuring-your-data.md)
@@ -108,8 +108,8 @@ Other user references:
 ## For Contributors
 
 Start with [Architecture](wiki/01-architecture.md) and
-[Developer Workflows](wiki/40-developer-workflows.md). Use these task-specific
-guides:
+[Developer Workflows](wiki/40-developer-workflows.md), then use the guide for
+your task:
 
 - [extending prepared data](wiki/41-data-extension-cookbook.md);
 - [adding a summary function](wiki/44-summary-function-cookbook.md);
@@ -118,7 +118,7 @@ guides:
 - [skim enrichment](wiki/22-skimjoin.md); and
 - [testing](wiki/46-testing.md).
 
-Execute focused tests during development. To execute all tests, use this command:
+Run focused tests during development. To run the full test suite, use:
 
 ```bash
 uv run pytest --basetemp .pytest_tmp

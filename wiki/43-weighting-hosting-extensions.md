@@ -1,8 +1,8 @@
 # 43 - Weighting And Hosting Extensions
 
-Weighting and hosting affect multiple runtime boundaries. The configuration
-controls standard alternative weights. Use the Python registry for calculations
-that column selection cannot define. Hosting is a limited extension point.
+Weighting and hosting cross several runtime boundaries. Configuration handles
+standard alternative weights, while the Python registry supports calculations
+that column selection cannot express. Hosting remains a limited extension point.
 
 ## Worked Example: Add A Weighting Mode
 
@@ -33,9 +33,9 @@ summarize:
   weighting_modes: [weighted, unweighted, calibrated]
 ```
 
-`label` is optional. If you omit it, the loader creates a label from the mode
-ID. You must configure at least one column. The supported source tables are
-`households`, `persons`, and `trips`.
+`label` is optional; if omitted, the loader creates one from the mode ID. You
+must configure at least one column from a supported source table:
+`households`, `persons`, or `trips`.
 
 This function differs from the three weight fields on a run. `hh_weight_col`,
 `person_weight_col`, and `trip_weight_col` select the primary `weighted`
@@ -59,9 +59,9 @@ Configure only the levels that differ. For example, a mode that contains only
 `trips` changes trips and tours. Household, person, day, and vehicle weights
 keep their primary prepared values.
 
-The workflow validates source columns for each prepared run before summaries
-start. An incorrect name causes an error that identifies the missing table and
-column. It does not select a different weight. Prepare usually keeps raw
+Before summaries start, the workflow validates source columns for each prepared
+run. An incorrect name produces an error identifying the missing table and
+column; it does not select a different weight. Prepare usually preserves raw
 ActivitySim columns. If you use `prepared_table_map`, include the named source
 columns in those prepared files.
 
@@ -129,8 +129,8 @@ def register_weighting_modes(registry: WeightingModeRegistry) -> None:
 ```
 
 `map_run_data_tables()` copies the complete `RunData` and transforms each data
-frame. It keeps availability metadata, diagnostics, skims, and skimjoin
-artifacts. A transform must return a new `RunData`. It must not change its input.
+frame while preserving availability metadata, diagnostics, skims, and skimjoin
+artifacts. A transform must return a new `RunData` without changing its input.
 
 The registration fields are:
 
@@ -161,10 +161,9 @@ summarize:
   weighting_modes: [weighted, unweighted, capped]
 ```
 
-Module imports execute code. Thus, treat a configuration with extensions
-as trusted configuration. Summary cache identity includes extension settings.
-It also includes each selected definition version, requirements, and external
-summary policy.
+Module imports execute code, so treat any configuration with extensions as
+trusted. Summary cache identity includes the extension settings along with each
+selected definition's version, requirements, and external summary policy.
 
 An installed package can advertise the same registration function with a
 Python entry point instead:
@@ -233,7 +232,7 @@ uv run --with pytest pytest --basetemp .pytest_tmp tests/test_dashboard_live.py 
 
 ## Worked Example: Connect A Hosting Script
 
-The first hosting extension must be a small deployment entry point. Use the
+The first hosting extension should be a small deployment entry point. Use the
 existing configuration, cache loader, page requirements, and `build_dashboard()`.
 Do not duplicate prepare or summarize logic.
 
@@ -293,7 +292,7 @@ provider SDK can receive `dashboard` from the same script. Put secrets and
 deployment IDs in environment variables or provider configuration. Do not put
 them in the main visualizer YAML.
 
-This method has these properties:
+This approach has the following properties:
 
 - hosting imports a ready-to-serve object instead of calling blocking
   `pn.serve()`;
@@ -307,7 +306,7 @@ at startup, call the public prepare and summarize workflows before
 
 ## Option B: Make `dashboard_mode: host` A Core Adapter
 
-Use this method only when one hosting provider must be a supported runtime mode.
+Use this approach only when one hosting provider must be a supported runtime mode.
 
 1. Add a typed `HostSettings` model in `runtime/config/models.py`.
 2. Normalize `dashboard.host` in a focused parser and pass it into `Config`.
