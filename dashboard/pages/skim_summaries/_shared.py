@@ -27,9 +27,9 @@ SKIM_FAMILY_ORDER = (
 )
 SKIM_FAMILY_MODE_MAP = {
     "Auto Skims": ("SOV", "HOV2", "HOV3"),
-    "Transit Skims": ("WALK_TRANSIT", "PNR_TRANSIT", "KNR_TRANSIT"),
+    "Transit Skims": ("WALK_TRANSIT", "BIKE_TRANSIT", "PNR_TRANSIT", "KNR_TRANSIT"),
     "Walk Skims": ("WALK",),
-    "Bike Skims": ("BIKE", "EBIKE", "ESCOOTER", "BIKE_TRANSIT"),
+    "Bike Skims": ("BIKE", "EBIKE", "ESCOOTER"),
 }
 SUMMARY_METRIC_COLUMNS = [
     "n_total",
@@ -463,7 +463,7 @@ def family_stats_table(
     direction_suffix = None if direction is None else f"_{direction.lower()}"
     target_columns = ["skim_name", mode_column, *SUMMARY_METRIC_COLUMNS]
     filtered_list: list[tuple[str, pl.DataFrame]] = []
-    for label, _, df in nonempty_series(data_list):
+    for label, series, df in nonempty_series(data_list):
         family_definition = family_definitions_by_label.get(label, {}).get(family)
         family_modes = family_definition.get("modes", ()) if family_definition else ()
         configured_outputs = (
@@ -486,9 +486,19 @@ def family_stats_table(
             & (pl.col(mode_column) != ALL_MODES)
         )
         if configured_outputs:
-            filtered = filtered.filter(
-                pl.col("component").is_in(list(configured_outputs))
+            outputs_by_mode = _configured_outputs_by_mode(
+                config,
+                series,
+                target_table=target_table,
             )
+            mode_output_filters = []
+            for mode in family_modes:
+                mode_outputs = outputs_by_mode.get(mode)
+                mode_filter = pl.col(mode_column) == mode
+                if mode_outputs:
+                    mode_filter &= pl.col("component").is_in(sorted(mode_outputs))
+                mode_output_filters.append(mode_filter)
+            filtered = filtered.filter(pl.any_horizontal(mode_output_filters))
         if direction_suffix is not None:
             filtered = filtered.filter(
                 pl.col("component").str.ends_with(direction_suffix)

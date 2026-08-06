@@ -93,6 +93,7 @@ class CalculationNote:
     method_text: str | None = None
     sources: tuple[str, ...] = ()
     source_filters: tuple[str, ...] = ()
+    column_definitions: tuple[str, ...] = ()
 
 
 def _nonempty_text(value: object, *, field: str) -> str:
@@ -117,6 +118,7 @@ def _parse_note(
         "method_text",
         "sources",
         "source_filters",
+        "column_definitions",
     }
     unexpected = sorted(set(raw_note) - allowed_fields)
     if unexpected:
@@ -176,6 +178,16 @@ def _parse_note(
         for item in raw_source_filters
     )
 
+    raw_column_definitions = raw_note.get("column_definitions", [])
+    if not isinstance(raw_column_definitions, list):
+        raise ValueError(
+            f"Calculation note {note_id!r}.column_definitions must be a list."
+        )
+    column_definitions = tuple(
+        _nonempty_text(item, field=f"{note_id!r}.column_definitions item")
+        for item in raw_column_definitions
+    )
+
     raw_details = raw_note.get("details", {})
     if not isinstance(raw_details, dict):
         raise ValueError(f"Calculation note {note_id!r}.details must be a mapping.")
@@ -205,6 +217,7 @@ def _parse_note(
         method_text=method_text,
         sources=sources,
         source_filters=source_filters,
+        column_definitions=column_definitions,
     )
 
 
@@ -285,6 +298,16 @@ def render_calculation_note_html(note: CalculationNote) -> str:
         sections.append(
             "<div class='calculation-note-section'>"
             "<strong>Summary filters / eligibility:</strong>"
+            f"<ul>{rendered_items}</ul>"
+            "</div>"
+        )
+    if note.column_definitions:
+        rendered_items = "".join(
+            f"<li>{html.escape(item)}</li>" for item in note.column_definitions
+        )
+        sections.append(
+            "<div class='calculation-note-section'>"
+            "<strong>Table columns:</strong>"
             f"<ul>{rendered_items}</ul>"
             "</div>"
         )

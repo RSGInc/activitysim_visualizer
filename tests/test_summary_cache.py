@@ -29,8 +29,9 @@ from dashboard.pages.daily_travel.daily_activity_pattern import (
 from dashboard.pages.daily_travel.escorted_tours import EscortedToursPage
 from dashboard.pages.joint_travel import JointTravelPage
 from dashboard.pages.overview import OverviewPage
-from dashboard.pages.skim_summaries.trip_skims import TripSkimsPage
+from dashboard.pages.skim_summaries._shared import family_stats_table, skim_family_for_mode
 from dashboard.pages.skim_summaries.tour_skims import TourSkimsPage
+from dashboard.pages.skim_summaries.trip_skims import TripSkimsPage
 from dashboard.pages.tour_summaries.tour_mode import (
     TourModePage as TourSummariesTourModePage,
 )
@@ -59,7 +60,7 @@ from dashboard.pages.validation.traffic import TrafficValidationPage
 from dashboard.pages.validation.transit import TransitValidationPage
 from dashboard.pages.validation.regional import RegionalValidationPage
 from dashboard.pages.validation.vmt import VMTValidationPage
-from dashboard.data_access import DashboardPreparedRunProvider
+from dashboard.data_access import DashboardPreparedRunProvider, DashboardSummarySeries
 from dashboard.state import DashboardState
 from dashboard.page_registry import all_page_definitions, page_definitions_for_group
 from processor.models import RunData
@@ -2559,6 +2560,53 @@ def test_skim_summaries_group_lists_tour_skims_before_trip_skims() -> None:
         "tour_skims",
         "trip_skims",
     ]
+
+
+def test_bike_transit_uses_transit_skim_family() -> None:
+    assert skim_family_for_mode("BIKE_TRANSIT") == "Transit Skims"
+    assert skim_family_for_mode("EBIKE") == "Bike Skims"
+
+
+def test_skim_family_tables_only_show_outputs_configured_for_each_mode(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    _attach_test_skimjoin_config(config)
+    normalized = config.skimjoin.normalized_config
+    series = DashboardSummarySeries(label="Base", summaries_by_mode={})
+    for target_table, mode_column, direction_suffix in (
+        ("trips", "trip_mode", ""),
+        ("tours", "tour_mode", "_outbound"),
+    ):
+        lookups = getattr(normalized, f"{target_table[:-1]}_lookups")
+        lookups.extend(
+            [
+                SimpleNamespace(mode="BIKE", output=f"skim_bike_distance{direction_suffix}"),
+                SimpleNamespace(mode="BIKE", output=f"skim_bike_logsum{direction_suffix}"),
+                SimpleNamespace(mode="EBIKE", output=f"skim_bike_distance{direction_suffix}"),
+            ]
+        )
+        stats = pl.DataFrame(
+            {
+                "component": [
+                    f"skim_bike_distance{direction_suffix}",
+                    f"skim_bike_logsum{direction_suffix}",
+                ],
+                mode_column: ["EBIKE", "EBIKE"],
+                "n_valid": [2.0, 0.0],
+            }
+        )
+
+        result = family_stats_table(
+            config,
+            [("Base", series, stats)],
+            family="Bike Skims",
+            mode_column=mode_column,
+            target_table=target_table,
+            direction="outbound" if direction_suffix else None,
+        )[0][1]
+
+        assert result["skim_name"].to_list() == ["TAZ Skim Bike Distance (mi)"]
 
 
 def test_trip_skims_page_uses_family_selector_and_two_digit_precision_summary_table(

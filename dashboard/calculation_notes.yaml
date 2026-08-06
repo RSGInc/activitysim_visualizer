@@ -561,6 +561,18 @@ notes:
     method_text: For each skim component and mode, the summary scans the prepared values once to calculate valid count, missing and zero shares, minimum, maximum, mean, median, and standard deviation.
     sources: [skimjoin_trip_component_stats]
     summary: The table reports descriptive statistics for the selected trip skim family and scenario.
+    column_definitions:
+      - "Skim Name: Display name of the selected skim component, including its unit when known."
+      - "Trip Mode: Mode represented by the row."
+      - "Total: Total trip weight in weighted mode, or number of trip records in unweighted mode, before missing skim values are removed."
+      - "Valid: Trip weight or record count with a nonmissing skim value."
+      - "Mean: Weighted arithmetic mean of valid values; in unweighted mode, the ordinary arithmetic mean."
+      - "Std Dev: Weighted population standard deviation of valid values; in unweighted mode, the population standard deviation."
+      - "Min / Max: Smallest and largest valid skim values."
+      - "Median: Weighted median of valid values; in unweighted mode, the ordinary median."
+      - "Mode: Skim value with the greatest total weight or record count; ties use the smaller value."
+      - "Zero Share: Share of valid trip weight or records whose skim value equals zero."
+      - "Missing Share: Share of total trip weight or records whose skim value is missing."
     details:
       Aggregation:
         - Prepared skim statistics provide the valid count, missing share, zero share, minimum, maximum, mean, median, and standard deviation for each component and mode.
@@ -585,6 +597,18 @@ notes:
     method_text: For each directional skim component and mode, the summary calculates valid count, missing and zero shares, minimum, maximum, mean, median, and standard deviation from prepared tour values.
     sources: [skimjoin_tour_component_stats]
     summary: The table reports descriptive statistics for the selected tour skim family, direction, and scenario.
+    column_definitions:
+      - "Skim Name: Display name of the selected directional skim component, including its unit when known."
+      - "Tour Mode: Mode represented by the row."
+      - "Total: Total tour weight in weighted mode, or number of tour records in unweighted mode, before missing skim values are removed."
+      - "Valid: Tour weight or record count with a nonmissing skim value."
+      - "Mean: Weighted arithmetic mean of valid values; in unweighted mode, the ordinary arithmetic mean."
+      - "Std Dev: Weighted population standard deviation of valid values; in unweighted mode, the population standard deviation."
+      - "Min / Max: Smallest and largest valid skim values."
+      - "Median: Weighted median of valid values; in unweighted mode, the ordinary median."
+      - "Mode: Skim value with the greatest total weight or record count; ties use the smaller value."
+      - "Zero Share: Share of valid tour weight or records whose skim value equals zero."
+      - "Missing Share: Share of total tour weight or records whose skim value is missing."
     details:
       Aggregation:
         - Prepared skim statistics provide the valid count, missing share, zero share, minimum, maximum, mean, median, and standard deviation for each component and mode.
