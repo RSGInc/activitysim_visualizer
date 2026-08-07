@@ -148,6 +148,13 @@ def component_display_name(
         "skim_transit_tiv_inbound": "Transit In-Vehicle Time (min)",
         "skim_bike_distance": "TAZ Skim Bike Distance (mi)",
         "skim_bike_maz_distance": "MAZ Network Bike Distance (mi)",
+        "skim_bike_transit_distance_bus": (
+            "Total Bike Distance - Local Bus (mi) (Estimated from Walk Skims)"
+        ),
+        "skim_bike_transit_distance_premium": (
+            "Total Bike Distance - Premium Transit (mi) "
+            "(Estimated from Walk Skims)"
+        ),
     }
     if value in special_labels:
         return special_labels[value]

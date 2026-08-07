@@ -2,8 +2,8 @@
 # Adapt this file for each model deployment.
 # Only the sections you need are required — see comments for which are optional.
 
-name: "Metro Settings"
-root: ../../simor_project_outputs/metro_outputs # relative to the config's location 
+name: "SKATS Settings"
+root: ../../simor_project_outputs/skats_outputs # relative to the config's location 
 log_level: INFO
 
 pipeline:
@@ -37,7 +37,7 @@ files:
 # Optional shared fallback files for optional inputs that may be missing in some
 # run folders. These must be explicit .csv or .parquet paths.
 fallback_files:
-  land_use: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\land_use.csv
+  land_use: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\skats_data\land_use.csv
 
 # ---------------------------------------------------------------------------
 # Runs to compare
@@ -52,15 +52,15 @@ fallback_files:
 # If none of the above are set and sample_rate is not in columns, all weights = 1.
 # ---------------------------------------------------------------------------
 runs:
-  - dir:              C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\survey_data
+  - dir:              C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\skats_data\survey_data
     label:            Survey
     hh_weight_col:     hh_weight
     person_weight_col: person_weight
     trip_weight_col:   linked_trip_weight
     skimjoin:
-      config_path: metro_skimjoin_config_alternate_id_col.yaml
+      config_path: skats_skimjoin_config_alternate_id_col.yaml
 
-  - dir:              C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data
+  - dir:              C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\skats_data
     label:            Override
     hh_weight_col:     hh_weight
     person_weight_col: person_weight
@@ -71,6 +71,14 @@ runs:
       tours:                   override_tours
       trips:                   override_trips
       joint_tour_participants: override_joint_tour_participants
+  #   # skimjoin:
+    #   config_path: will_skimjoin_config.yaml
+    #   skim_files:
+    #     - C:\Users\wesley.darling\project_data\odot_skims\*.omx
+    #     - C:\Users\wesley.darling\project_data\odot_skims\maz_stop_walk.csv
+    #     - C:\Users\wesley.darling\project_data\odot_skims\maz_maz_walk.csv
+    #   network_los_file: C:\Users\wesley.darling\project_data\odot_skims\network_los.yaml
+
 
 # ---------------------------------------------------------------------------
 # Zone system
@@ -110,10 +118,10 @@ prepare:
   validation:
     relationship_checks: warn
   distance_skim:
-    file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\autoSkims__MD.omx       # path relative to run directory, or absolute
+    file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\skats_data\autoSkims__MD.omx       # path relative to run directory, or absolute
     matrix: SOV_H_DIST__MD
   non_motorized_distance_skim:
-    file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\maz_maz_walk.csv
+    file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\skats_data\maz_maz_walk.csv
     matrix: null
   time_periods:
     network_los_file: C:\Users\wesley.darling\project_data\odot_skims\network_los.yaml
@@ -147,13 +155,13 @@ skimjoin:
   # Create optional long-form trip/tour tables with skim values for alternate modes.
   create_hypothetical_skim_tables: true
   defaults:
-    config_path: metro_skimjoin_config.yaml
+    config_path: skats_skimjoin_config.yaml
     skim_files:
-      - 'C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\*.omx'
-      - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\maz_stop_walk.csv
-      - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\maz_maz_walk.csv
-      - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\bike_maz_logsums_commute.csv
-      - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\bike_maz_logsums_noncommute.csv
+      - 'C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\skats_data\*.omx'
+      - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\skats_data\maz_stop_walk.csv
+      - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\skats_data\maz_maz_walk.csv
+      - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\skats_data\bike_maz_logsums_commute.csv
+      - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\skats_data\bike_maz_logsums_noncommute.csv
     network_los_file: C:\Users\wesley.darling\project_data\odot_skims\network_los.yaml
 
 segment:
@@ -181,6 +189,22 @@ segment:
           label: Call
           values: ["call"]
 
+    person_sex:
+      include_full: false
+      persist_segmented_prepared_tables: false
+      allow_overlapping: false
+      on_empty_segment: warn
+      source:
+        type: prepared_column
+        source_table: per
+        column: SEX
+      segments:
+        - id: male
+          label: Male
+          values: [1]
+        - id: female
+          label: Female
+          values: [2]
 
 summarize:
   weighting_modes: [unweighted, weighted]
@@ -198,24 +222,39 @@ summarize:
     # Configured mappings create columns such as home_geo__school_district,
     # work_geo__county, or land_use_geo__district.
     aggregations:
+      county:
+        source_zone_system: maz
+        file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\skats_data\land_use.csv
+        zone_id_col: MAZ
+        geography_col: COUNTY
+      city_code:
+        source_zone_system: maz
+        file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\skats_data\land_use.csv
+        zone_id_col: MAZ
+        geography_col: CITY
+      urban_growth_boundary:
+        source_zone_system: maz
+        file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\skats_data\land_use.csv
+        zone_id_col: MAZ
+        geography_col: UGB
       regional_district:
         source_zone_system: maz
-        file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\land_use.csv
+        file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\skats_data\land_use.csv
         zone_id_col: MAZ
-        geography_col: DISTRICT9
+        geography_col: DISTRICT06
       school_district_k8:
         source_zone_system: maz
-        file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\land_use.csv
+        file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\skats_data\land_use.csv
         zone_id_col: MAZ
-        geography_col: DIST_Kto8
+        geography_col: DIST_KTO8
       school_district_9_12:
         source_zone_system: maz
-        file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\land_use.csv
+        file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\skats_data\land_use.csv
         zone_id_col: MAZ
-        geography_col: DIST_9to12
+        geography_col: DIST_9TO12
 
 dashboard:
-  title: "Metro Estimation Visualizer"
+  title: "SKATS Estimation Visualizer"
   enable_maz_geographies: false
   live:
     pages:

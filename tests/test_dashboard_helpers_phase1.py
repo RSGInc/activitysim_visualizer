@@ -55,10 +55,31 @@ from dashboard.helpers.time_distance_helpers import (
     timebin_label,
 )
 from dashboard.page_base import DashboardPage
+from dashboard.pages.skim_summaries._shared import component_display_name
 from dashboard.pages.trip_summaries.parking_location import parking_scatter_data
 from dashboard.state import DashboardState
 from processor.models import RunData
 from test_export_html import _full_summary_run, _write_config
+
+
+@pytest.mark.parametrize(
+    ("component", "expected"),
+    [
+        (
+            "skim_bike_transit_distance_bus",
+            "Total Bike Distance - Local Bus (mi) (Estimated from Walk Skims)",
+        ),
+        (
+            "skim_bike_transit_distance_premium",
+            "Total Bike Distance - Premium Transit (mi) (Estimated from Walk Skims)",
+        ),
+    ],
+)
+def test_component_display_name_labels_estimated_bike_transit_distances(
+    component: str,
+    expected: str,
+) -> None:
+    assert component_display_name(component) == expected
 
 
 def test_run_table_view_filters_transforms_and_joins_by_run_label() -> None:

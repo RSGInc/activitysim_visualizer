@@ -3,6 +3,8 @@
 #     - 'C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\*.omx'
 #     - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\maz_stop_walk.csv
 #     - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\maz_maz_walk.csv
+#     - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\bike_maz_logsums_commute.csv
+#     - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\bike_maz_logsums_noncommute.csv
 
 #   network_los_file: C:\Users\wesley.darling\project_data\odot_skims\network_los.yaml
 
@@ -36,7 +38,6 @@ zone_mapping:
   lookup_name: taz
   file_lookup_names:
     fares.omx: zone_number
-    'bike_taz_logsums_*.omx': TAZ
   missing_zone_policy: error
 
 dimensions:
@@ -424,19 +425,48 @@ modes:
       matrix: maz_stop_walk__walk_dist_premium_transit
   BIKE:
     output_prefix: skim_bike_
-    distance: "bike_taz_logsums_{BIKE_PURPOSE}.omx::distance_{BIKE_PURPOSE}"
-    logsum: "bike_taz_logsums_{BIKE_PURPOSE}.omx::logsum_{BIKE_PURPOSE}"
+    maz_distance:
+      output: skim_bike_maz_distance
+      origin: o_maz
+      destination: d_maz
+      matrix: "bike_maz_logsums_{BIKE_PURPOSE}__distance_{BIKE_PURPOSE}"
+    logsum:
+      origin: o_maz
+      destination: d_maz
+      matrix: "bike_maz_logsums_{BIKE_PURPOSE}__logsum_{BIKE_PURPOSE}"
   EBIKE:
     output_prefix: skim_bike_
-    distance: "bike_taz_logsums_{BIKE_PURPOSE}.omx::distance_{BIKE_PURPOSE}"
+    maz_distance:
+      output: skim_bike_maz_distance
+      origin: o_maz
+      destination: d_maz
+      matrix: "bike_maz_logsums_{BIKE_PURPOSE}__distance_{BIKE_PURPOSE}"
   BIKE_TRANSIT:
     output_prefix: skim_
-    bike_distance:
-      output: skim_bike_distance
-      matrix: "bike_taz_logsums_{BIKE_PURPOSE}.omx::distance_{BIKE_PURPOSE}"
-    bike_logsum:
-      output: skim_bike_logsum
-      matrix: "bike_taz_logsums_{BIKE_PURPOSE}.omx::logsum_{BIKE_PURPOSE}"
+    bike_o_maz_stop_distance_bus:
+      output: skim_bike_transit_distance_bus
+      combine: sum
+      lookup: key
+      key_column: o_maz
+      matrix: maz_stop_walk__walk_dist_local_bus
+    bike_d_maz_stop_distance_bus:
+      output: skim_bike_transit_distance_bus
+      combine: sum
+      lookup: key
+      key_column: d_maz
+      matrix: maz_stop_walk__walk_dist_local_bus
+    bike_o_maz_stop_distance_premium:
+      output: skim_bike_transit_distance_premium
+      combine: sum
+      lookup: key
+      key_column: o_maz
+      matrix: maz_stop_walk__walk_dist_premium_transit
+    bike_d_maz_stop_distance_premium:
+      output: skim_bike_transit_distance_premium
+      combine: sum
+      lookup: key
+      key_column: d_maz
+      matrix: maz_stop_walk__walk_dist_premium_transit
     transit_auxiliary_walk_time: "WTW_AUX__{PERIOD}"
     transit_brt_ivtt: "WTW_BRT__{PERIOD}"
     transit_bus_ivtt: "WTW_BUS__{PERIOD}"

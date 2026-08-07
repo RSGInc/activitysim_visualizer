@@ -1,0 +1,109 @@
+project:
+  skim_files:
+    - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\lcog_data\maz_stop_walk.csv
+    - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\lcog_data\maz_maz_walk.csv
+    - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\lcog_data\bike_maz_logsums_commute.csv
+    - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\lcog_data\bike_maz_logsums_noncommute.csv
+  network_los_file: C:\Users\wesley.darling\project_data\odot_skims\network_los.yaml
+
+activitysim:
+  trip_mode_column: trip_mode
+  trip_id_column: trip_id
+  tour_mode_column: tour_mode
+  tour_id_column: tour_id
+  outbound_column: outbound
+
+defaults:
+  origin: o_maz
+  destination: d_maz
+  output_prefix: skim_
+  sentinel_values:
+    - 9999
+    - 999999
+
+dimensions:
+  BIKE_PURPOSE:
+    source_columns:
+      trip_source_column: tour_purpose
+      outbound_tour_source_column: tour_purpose
+      inbound_tour_source_column: tour_purpose
+    values:
+      work: commute
+      school: commute
+      univ: commute
+      atwork: noncommute
+      business: noncommute
+      eat: noncommute
+      eatout: noncommute
+      escort: noncommute
+      loop: noncommute
+      maint: noncommute
+      othdiscr: noncommute
+      othmaint: noncommute
+      shopping: noncommute
+      social: noncommute
+
+ignore_modes:
+  - ESCOOTER
+  - HOV2
+  - HOV3
+  - KNR_TRANSIT
+  - MISSING
+  - OTHER
+  - PNR_TRANSIT
+  - SCHOOLBUS
+  - SOV
+  - TAXI
+  - TNC_SHARED
+  - TNC_SINGLE
+  - WALK_TRANSIT
+
+modes:
+  WALK:
+    output_prefix: skim_walk_
+    distance: maz_maz_walk__DISTWALK
+    actual: maz_maz_walk__actual
+  BIKE:
+    output_prefix: skim_bike_
+    maz_distance:
+      output: skim_bike_maz_distance
+      origin: o_maz
+      destination: d_maz
+      matrix: "bike_maz_logsums_{BIKE_PURPOSE}__distance_{BIKE_PURPOSE}"
+    logsum:
+      origin: o_maz
+      destination: d_maz
+      matrix: "bike_maz_logsums_{BIKE_PURPOSE}__logsum_{BIKE_PURPOSE}"
+  EBIKE:
+    output_prefix: skim_bike_
+    maz_distance:
+      output: skim_bike_maz_distance
+      origin: o_maz
+      destination: d_maz
+      matrix: "bike_maz_logsums_{BIKE_PURPOSE}__distance_{BIKE_PURPOSE}"
+  BIKE_TRANSIT:
+    output_prefix: skim_
+    bike_o_maz_stop_distance_bus:
+      output: skim_bike_transit_distance_bus
+      combine: sum
+      lookup: key
+      key_column: o_maz
+      matrix: maz_stop_walk__walk_dist_local_bus
+    bike_d_maz_stop_distance_bus:
+      output: skim_bike_transit_distance_bus
+      combine: sum
+      lookup: key
+      key_column: d_maz
+      matrix: maz_stop_walk__walk_dist_local_bus
+    bike_o_maz_stop_distance_premium:
+      output: skim_bike_transit_distance_premium
+      combine: sum
+      lookup: key
+      key_column: o_maz
+      matrix: maz_stop_walk__walk_dist_premium_transit
+    bike_d_maz_stop_distance_premium:
+      output: skim_bike_transit_distance_premium
+      combine: sum
+      lookup: key
+      key_column: d_maz
+      matrix: maz_stop_walk__walk_dist_premium_transit

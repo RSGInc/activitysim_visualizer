@@ -1,10 +1,10 @@
 project:
   skim_files:
-    - 'C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\*.omx'
-    - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\maz_stop_walk.csv
-    - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\maz_maz_walk.csv
-    - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\bike_maz_logsums_commute.csv
-    - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\bike_maz_logsums_noncommute.csv
+    - 'C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\skats_data\*.omx'
+    - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\skats_data\maz_stop_walk.csv
+    - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\skats_data\maz_maz_walk.csv
+    - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\skats_data\bike_maz_logsums_commute.csv
+    - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\skats_data\bike_maz_logsums_noncommute.csv
   network_los_file: C:\Users\wesley.darling\project_data\odot_skims\network_los.yaml
   # project.trips_table / project.tours_table / project.output_dir are used by the
   # standalone skimjoin CLI only. Integrated runtime skimjoin reads prepared
@@ -13,7 +13,7 @@ project:
   # trips_table: C:\Users\wesley.darling\projects\activitysim_visualizer\artifacts\prepared_cache\override\trips.parquet
   # tours_table: C:\Users\wesley.darling\Downloads\viz\viz\output\tour.csv
   # tours_table: C:\Users\wesley.darling\projects\activitysim_visualizer\artifacts\prepared_cache\override\tours.parquet
-  # output_dir: metro_output
+  # output_dir: skats_output
   
 
 activitysim:
@@ -23,8 +23,6 @@ activitysim:
   tour_mode_column: tour_mode
   tour_id_column: tour_id
   outbound_column: outbound
-
-# Integrated runtime currently supports OMX skim inputs only.
 
 defaults:
   origin: OTAZ
@@ -78,6 +76,7 @@ dimensions:
 
 ignore_modes:
   - ESCOOTER
+  - KNR_TRANSIT
   - MISSING
   - OTHER
 
@@ -97,58 +96,6 @@ modes:
     time: "SR3_{VOT}_TIME__{PERIOD}"
     cost: "SR3_{VOT}_COST__{PERIOD}"
     distance: "SR3_{VOT}_DIST__{PERIOD}"
-  KNR_TRANSIT:
-    output_prefix: skim_
-    segment_on: outbound
-    segments:
-      true:
-        auto_time: "KTW_ACC__{PERIOD}"
-        auto_distance: "KTW_TDD__{PERIOD}"
-        transit_auxiliary_walk_time: "KTW_AUX__{PERIOD}"
-        transit_brt_ivtt: "KTW_BRT__{PERIOD}"
-        transit_bus_ivtt: "KTW_BUS__{PERIOD}"
-        transit_commuter_rail_ivtt: "KTW_CRT__{PERIOD}"
-        walk_time: "KTW_EGR__{PERIOD}"
-        transit_first_wait_time: "KTW_FWT__{PERIOD}"
-        transit_light_rail_ivtt: "KTW_LRT__{PERIOD}"
-        transit_tiv: "KTW_TIV__{PERIOD}"
-        transit_num_transfers: "KTW_XFR__{PERIOD}"
-        transit_transfer_wait_time: "KTW_XWT__{PERIOD}"
-        transit_fare: "fare__{PERIOD}"
-        d_maz_stop_walk_bus:
-          output: skim_transit_d_maz_stop_walk_bus
-          lookup: key
-          key_column: d_maz
-          matrix: maz_stop_walk__walk_dist_local_bus
-        d_maz_stop_walk_premium:
-          output: skim_transit_d_maz_stop_walk_premium
-          lookup: key
-          key_column: d_maz
-          matrix: maz_stop_walk__walk_dist_premium_transit  
-      false:
-        walk_time: "WTK_ACC__{PERIOD}"
-        transit_auxiliary_walk_time: "WTK_AUX__{PERIOD}"
-        transit_brt_ivtt: "WTK_BRT__{PERIOD}"
-        transit_bus_ivtt: "WTK_BUS__{PERIOD}"
-        transit_commuter_rail_ivtt: "WTK_CRT__{PERIOD}"
-        auto_time: "WTK_EGR__{PERIOD}"
-        auto_distance: "WTK_TDD__{PERIOD}"
-        transit_first_wait_time: "WTK_FWT__{PERIOD}"
-        transit_light_rail_ivtt: "WTK_LRT__{PERIOD}"
-        transit_tiv: "WTK_TIV__{PERIOD}"
-        transit_num_transfers: "WTK_XFR__{PERIOD}"
-        transit_transfer_wait_time: "WTK_XWT__{PERIOD}"
-        transit_fare: "fare__{PERIOD}"
-        o_maz_stop_walk_bus:
-          output: skim_transit_o_maz_stop_walk_bus
-          lookup: key
-          key_column: o_maz
-          matrix: maz_stop_walk__walk_dist_local_bus
-        o_maz_stop_walk_premium:
-          output: skim_transit_o_maz_stop_walk_premium
-          lookup: key
-          key_column: o_maz
-          matrix: maz_stop_walk__walk_dist_premium_transit
   PNR_TRANSIT:
     output_prefix: skim_
     segment_on: outbound
