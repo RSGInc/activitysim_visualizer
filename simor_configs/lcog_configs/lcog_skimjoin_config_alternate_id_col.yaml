@@ -24,6 +24,8 @@ defaults:
 
 zone_mapping:
   lookup_name: taz
+  file_lookup_names:
+    fares.omx: taz
   missing_zone_policy: error
 
 dimensions:
@@ -100,6 +102,7 @@ modes:
         transit_tiv: "KTW_TIV__{PERIOD}"
         transit_num_transfers: "KTW_XFR__{PERIOD}"
         transit_transfer_wait_time: "KTW_XWT__{PERIOD}"
+        transit_fare: "fare__{PERIOD}"
         transit_d_maz_stop_walk_bus:
           output: skim_transit_d_maz_stop_walk_bus
           lookup: key
@@ -123,6 +126,7 @@ modes:
         transit_tiv: "WTK_TIV__{PERIOD}"
         transit_num_transfers: "WTK_XFR__{PERIOD}"
         transit_transfer_wait_time: "WTK_XWT__{PERIOD}"
+        transit_fare: "fare__{PERIOD}"
         transit_o_maz_stop_walk_bus:
           output: skim_transit_o_maz_stop_walk_bus
           lookup: key
@@ -150,6 +154,7 @@ modes:
         transit_tiv: "KTW_TIV__{PERIOD}"
         transit_num_transfers: "KTW_XFR__{PERIOD}"
         transit_transfer_wait_time: "KTW_XWT__{PERIOD}"
+        transit_fare: "fare__{PERIOD}"
         transit_d_maz_stop_walk_bus:
           output: skim_transit_d_maz_stop_walk_bus
           lookup: key
@@ -173,6 +178,7 @@ modes:
         transit_tiv: "WTK_TIV__{PERIOD}"
         transit_num_transfers: "WTK_XFR__{PERIOD}"
         transit_transfer_wait_time: "WTK_XWT__{PERIOD}"
+        transit_fare: "fare__{PERIOD}"
         transit_o_maz_stop_walk_bus:
           output: skim_transit_o_maz_stop_walk_bus
           lookup: key
@@ -261,6 +267,7 @@ modes:
     transit_tiv: "WTW_TIV__{PERIOD}"
     transit_num_transfers: "WTW_XFR__{PERIOD}"
     transit_transfer_wait_time: "WTW_XWT__{PERIOD}"
+    transit_fare: "fare__{PERIOD}"
     transit_o_maz_stop_walk_bus:
       output: skim_transit_o_maz_stop_walk_bus
       lookup: key
@@ -334,3 +341,4 @@ modes:
     transit_tiv: "WTW_TIV__{PERIOD}"
     transit_num_transfers: "WTW_XFR__{PERIOD}"
     transit_transfer_wait_time: "WTW_XWT__{PERIOD}"
+    transit_fare: "fare__{PERIOD}"
