@@ -241,8 +241,11 @@ generated asset as the source change.
 | Hosted page loads but controls disconnect | Verify reverse-proxy WebSocket upgrades and `--allow-websocket-origin`. |
 | Hosted startup has no runs | Use an explicit config path and persistent compatible caches; fail deployment on missing required data. |
 | Permission error during hosting | Use read-only caches for serve-only deployment; grant writes only if startup deliberately builds artifacts. |
+| Posit Connect Cloud export differs from live mode | Test the local HTML export first; the hosted static file contains only export-supported pages, sections, and selector states. |
 
-For deployment commands and requirements, see
+For static HTML publishing, see
+[17 - Publish An Export With Posit Connect Cloud](17-posit-connect-cloud.md).
+For live-server deployment commands and requirements, see
 [43 - Weighting And Hosting Extensions](43-weighting-hosting-extensions.md#worked-example-connect-a-hosting-script).
 
 ## Create a small test case

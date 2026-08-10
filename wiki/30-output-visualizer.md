@@ -168,6 +168,7 @@ When adding visual output:
 ## Related Chapters
 
 - [16 - Dashboard User Guide](16-dashboard-user-guide.md)
+- [17 - Publish An Export With Posit Connect Cloud](17-posit-connect-cloud.md)
 - [31 - Dashboard Page Contract](31-dashboard-pages.md)
 - [32 - Figures and Widgets](32-figures-and-widgets.md)
 - [33 - Dashboard Page Recipes](33-dashboard-page-recipes.md)

@@ -31,6 +31,9 @@ After the dashboard starts, use the
 [Dashboard User Guide](16-dashboard-user-guide.md) to choose an analysis and
 interpret its controls and results.
 
+To publish a standalone dashboard at no cost, see
+[17 - Publish An Export With Posit Connect Cloud](17-posit-connect-cloud.md).
+
 Use [14 - Input Data Contract](14-input-data-contract.md) when you need exact
 table, key, relationship, or bypass-prepare rules. Use
 [15 - Cache And Manifest Reference](15-cache-manifest-reference.md) when you
@@ -73,6 +76,7 @@ default value; you do not need to read it from beginning to end.
 - [14 - Input Data Contract](14-input-data-contract.md)
 - [15 - Cache And Manifest Reference](15-cache-manifest-reference.md)
 - [16 - Dashboard User Guide](16-dashboard-user-guide.md)
+- [17 - Publish An Export With Posit Connect Cloud](17-posit-connect-cloud.md)
 
 ### Output Processor
 

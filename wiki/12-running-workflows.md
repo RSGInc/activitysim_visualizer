@@ -147,6 +147,10 @@ Dashboard modes:
 - `host`: reserved extension point. It writes a warning to the log and starts
   the standard live server. It does not publish to a hosting provider.
 
+To host an exported dashboard as a public static file, use
+[17 - Publish An Export With Posit Connect Cloud](17-posit-connect-cloud.md).
+That workflow uses `dashboard_mode: export`, not `host`.
+
 ## Artifact And Cache Paths
 
 The visualizer stores prepared and summary caches under the configured `root`.

@@ -56,6 +56,10 @@ The command also writes `artifacts/exports/dashboard.diagnostics.json`, a
 sidecar file that records export warnings and size or state analysis. The HTML
 file does not depend on this sidecar.
 
+After you verify the exported HTML, you can publish it with the free public
+workflow in
+[17 - Publish An Export With Posit Connect Cloud](17-posit-connect-cloud.md).
+
 The sidecar distinguishes rendered, partial, and skipped visualization inputs
 for every exported dashboard state and region variant. It also reports raw,
 valid, aliased, and pruned selector combinations plus estimated JSON bytes by
@@ -227,6 +231,7 @@ Checklist:
 
 ## Related Chapters
 
+- [17 - Publish An Export With Posit Connect Cloud](17-posit-connect-cloud.md)
 - [30 - Output Visualizer](30-output-visualizer.md)
 - [32 - Figures and Widgets](32-figures-and-widgets.md)
 - [90 - Troubleshooting](90-troubleshooting.md)

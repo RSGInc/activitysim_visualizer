@@ -239,6 +239,11 @@ uv run --with pytest pytest --basetemp .pytest_tmp tests/test_dashboard_live.py 
 
 ## Worked Example: Connect A Hosting Script
 
+This section is for developers who need to deploy the live Python/Panel
+application. To publish an existing standalone HTML export instead, use
+[17 - Publish An Export With Posit Connect Cloud](17-posit-connect-cloud.md).
+Static publishing does not require a hosting adapter or server-side caches.
+
 The first hosting extension should be a small deployment entry point. Use the
 existing configuration, cache loader, page requirements, and `build_dashboard()`.
 Do not duplicate prepare or summarize logic.
@@ -399,6 +404,7 @@ These layers must operate locally, in export, and with a future host.
 ## Related Chapters
 
 - [12 - Running Workflows](12-running-workflows.md)
+- [17 - Publish An Export With Posit Connect Cloud](17-posit-connect-cloud.md)
 - [34 - HTML Export](34-html-export.md)
 - [40 - Developer Workflows](40-developer-workflows.md)
 - [41 - Data Extension Cookbook](41-data-extension-cookbook.md)

@@ -103,7 +103,10 @@ For a standard setup, read these chapters in order:
 Other user references:
 
 - [Output Visualizer](wiki/30-output-visualizer.md) explains the dashboard.
-- [Dashboard User Guide](wiki/16-dashboard-user-guide.md) lists the available analyses and explains how to interpret them.
+- [Dashboard User Guide](wiki/16-dashboard-user-guide.md) lists the available
+  analyses and explains how to interpret them.
+- [Posit Connect Cloud](wiki/17-posit-connect-cloud.md) explains how to publish
+  a standalone dashboard with the free public plan.
 - [Input Data Contract](wiki/14-input-data-contract.md) defines source and canonical table boundaries.
 - [Cache And Manifest Reference](wiki/15-cache-manifest-reference.md) explains stored identities and diagnostics.
 - [HTML Export](wiki/34-html-export.md) explains how to create an offline file.
