@@ -2189,9 +2189,12 @@ def test_resolve_page_definitions_rejects_duplicate_configured_page_ids(
 
 
 def test_build_dashboard_uses_expected_default_page_order(tmp_path: Path) -> None:
-    config = _write_config(tmp_path)
+    logo_path = tmp_path / "logo.png"
+    logo_path.write_bytes(b"logo")
+    config = _write_config(tmp_path, dashboard_logo=logo_path.name)
     template = build_dashboard([], config, summary_runs=[_full_summary_run()])
 
+    assert template.logo == config.dashboard_logo
     assert [
         page.name for page in template._dashboard_pages
     ] == EXPECTED_DEFAULT_PAGE_TITLES

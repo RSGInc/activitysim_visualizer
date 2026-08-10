@@ -281,9 +281,23 @@
       context.plotManager.scheduleResize();
     });
 
+    const brandChildren = [];
+    if (context.payload.logo) {
+      brandChildren.push(
+        el("img", {
+          className: "export-logo",
+          attrs: {
+            src: context.payload.logo,
+            alt: context.payload.title + " logo",
+          },
+        })
+      );
+    }
+    brandChildren.push(el("h1", { text: context.payload.title }));
+
     const headerChildren = [
       el("div", { className: "export-header-top" }, [
-        el("h1", { text: context.payload.title }),
+        el("div", { className: "export-brand" }, brandChildren),
         railToggle,
       ]),
     ];

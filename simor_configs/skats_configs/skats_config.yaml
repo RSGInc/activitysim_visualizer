@@ -13,7 +13,7 @@ pipeline:
     # - segment
     - summarize # will automatically overwrite summaries with a stale cache
     - dashboard
-  dashboard_mode: live # live | export | host 
+  dashboard_mode: export # live | export | host 
   refresh: [] # list stages here only when a forced rebuild is required
 
 # ---------------------------------------------------------------------------
@@ -255,6 +255,7 @@ summarize:
 
 dashboard:
   title: "SKATS Estimation Visualizer"
+  logo: ../assets/skats_logo_white_bg.png
   enable_maz_geographies: false
   live:
     pages:
@@ -271,7 +272,7 @@ dashboard:
       #   - vmt
       #   - regional_validation
   export:
-    output_path: exports/dashboard.html
+    output_path: ../../simor_project_outputs/exports/skats_dashboard.html
     # summary series are baked into one exported HTML file.
     # `dashboard.export.pages` modifies matching live pages; it is not an
     # inclusion list. Omit selector overrides to export all widget states.
@@ -520,12 +521,16 @@ display:
         mu: Multi-Unit Truck
 
   run_colors:
+    - "#264653"
+    - "#2A9D8F"
+    - "#457B9D"
+    - "#6A4C93"
     - "#3A86FF" # Blue
-    - "#8338EC" # Purple
-    - "#FF006E"  # Pink
-    - "#FB5607"  # Orange
     - "#06D6A0"  # Mint
+    - "#FF006E"  # Pink
     - "#FFBE0B" # Yellow
+    - "#8338EC" # Purple
+    - "#FB5607"  # Orange   
     # - "#ff7f0e"
     # - "#2ca02c"
     # - "#d62728"

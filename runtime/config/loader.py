@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import mimetypes
 from pathlib import Path
 from typing import TypeVar
 
@@ -47,6 +48,28 @@ from runtime.weighting import (
 )
 
 ConfigT = TypeVar("ConfigT", bound=Config)
+
+
+def _normalize_dashboard_logo(raw_value, *, config_dir: Path) -> str | None:
+    if raw_value is None:
+        return None
+    if not isinstance(raw_value, str) or not raw_value.strip():
+        raise ValueError("dashboard.logo must be a non-empty image path when provided.")
+
+    logo_path = Path(raw_value.strip())
+    if not logo_path.is_absolute():
+        logo_path = config_dir / logo_path
+    logo_path = logo_path.resolve()
+    if not logo_path.is_file():
+        raise ValueError(f"dashboard.logo file does not exist: {logo_path}")
+
+    media_type, _ = mimetypes.guess_type(logo_path.name)
+    if media_type is None or not media_type.startswith("image/"):
+        raise ValueError(
+            f"dashboard.logo must reference a recognized image file: {logo_path}"
+        )
+    return str(logo_path)
+
 
 def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> ConfigT:
     config_path = Path(path).resolve()
@@ -182,6 +205,10 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
     )
 
     dashboard_title = dashboard_cfg.get("title", "ActivitySim Visualizer")
+    dashboard_logo = _normalize_dashboard_logo(
+        dashboard_cfg.get("logo"),
+        config_dir=config_path.parent,
+    )
     log_level = str(raw.get("log_level", "INFO")).strip().upper()
     if log_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
         raise ValueError(
@@ -271,6 +298,7 @@ def load_config_from_yaml(path: str | Path, *, cls: type[ConfigT] = Config) -> C
         presentation_config_digest="",
         name=raw.get("name", ""),
         dashboard_title=str(dashboard_title),
+        dashboard_logo=dashboard_logo,
         log_level=log_level,
         pipeline=pipeline,
         dashboard_pages=dashboard_pages,

@@ -28,6 +28,7 @@ def _write_config(
     tmp_path: Path,
     *,
     dashboard_pages: list[object] | None | object = ...,
+    dashboard_logo: str | None = None,
     weighting_modes: list[str] | None = None,
     modes_lines: list[str] | None = None,
     geography_lines: list[str] | None = None,
@@ -54,6 +55,8 @@ def _write_config(
             '  title: "Test Dashboard"',
         ]
     )
+    if dashboard_logo is not None:
+        lines.append(f"  logo: {json.dumps(dashboard_logo)}")
     if dashboard_pages is ...:
         dashboard_pages = [page_id for page_id, _ in EXPECTED_DEFAULT_PAGES]
     if dashboard_pages is not None:
@@ -930,6 +933,7 @@ def test_config_defaults_when_optional_sections_are_absent(
     )
     assert config.weighting_modes == ["weighted", "unweighted"]
     assert config.dashboard_title == "ActivitySim Visualizer"
+    assert config.dashboard_logo is None
     assert config.dashboard_pages is None
     assert config.run_colors == [
         "#1f77b4",
@@ -944,6 +948,35 @@ def test_config_defaults_when_optional_sections_are_absent(
     assert config.export_html.dashboard.weighting == ["weighted", "unweighted"]
     assert config.export_html.dashboard.values == ["percent", "count"]
     assert config.export_html.pages == {}
+
+
+def test_build_export_html_document_embeds_configured_logo(tmp_path: Path) -> None:
+    logo_path = tmp_path / "assets" / "logo.png"
+    logo_path.parent.mkdir()
+    logo_path.write_bytes(b"logo")
+    config = _write_config(
+        tmp_path,
+        dashboard_pages=["overview"],
+        dashboard_logo="assets/logo.png",
+        weighting_modes=["weighted"],
+        export_html_lines=[
+            "dashboard:",
+            "  weighting: [weighted]",
+            "  values: [percent]",
+        ],
+    )
+
+    document = build_export_html_document(
+        [],
+        config,
+        summary_runs=[_full_summary_run()],
+    )
+    payload = _extract_payload(document)
+
+    assert payload["logo"] == "data:image/png;base64,bG9nbw=="
+    assert "assets/logo.png" not in document
+
+
 def test_export_html_config_rejects_invalid_or_empty_values(tmp_path: Path) -> None:
     with pytest.raises(
         ValueError, match="Unsupported dashboard.export.dashboard.weighting"
@@ -1129,6 +1162,7 @@ def test_build_export_html_document_serializes_dashboard_states_and_pages(
     payload = _extract_payload(html)
 
     assert payload["schema_version"] == EXPORT_SCHEMA_VERSION
+    assert payload["logo"] is None
     assert payload["runs_loaded"] == [{"label": "Base", "color": "#1f77b4"}]
     assert payload["chrome"] == {
         "layout": "left_rail",

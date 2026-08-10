@@ -659,6 +659,7 @@ summarize:
 | Field | Type | Default | Allowed values | Impact | Notes |
 |---|---|---|---|---|---|
 | `title` | string | `ActivitySim Visualizer` | any string | Presentation | Dashboard title. |
+| `logo` | path string | none | recognized image file | Presentation | Optional logo shown in the live dashboard and embedded in standalone HTML exports. Relative paths resolve from the config file. |
 | `include_notes` | boolean | `true` | `true`, `false` | Presentation | Show expandable calculation notes beneath annotated charts and tables. |
 | `enable_maz_geographies` | boolean | `false` | `true`, `false` | Presentation | Enables MAZ geography options in dashboard pages that support them. |
 | `live.pages` | list | all/default page registry behavior | page or group ids | Presentation | Live dashboard page selection. |

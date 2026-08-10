@@ -185,6 +185,7 @@ class PageExportSupportPayload(TypedDict):
 
 class ExportPayload(TypedDict):
     title: str
+    logo: str | None
     runs_loaded: list[dict[str, str]]
     chrome: ExportChrome
     dashboard_controls: DashboardControlsPayload

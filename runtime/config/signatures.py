@@ -300,6 +300,7 @@ def segmentation_unit_signature_payload(
 def presentation_signature_payload(config: Config) -> dict[str, Any]:
     return {
         "dashboard_title": config.dashboard_title,
+        "dashboard_logo": config.dashboard_logo,
         "log_level": config.log_level,
         "dashboard_pages": (
             [

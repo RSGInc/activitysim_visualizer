@@ -38,6 +38,22 @@ body {
   gap: 16px;
 }
 
+.export-brand {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+}
+
+.export-logo {
+  display: block;
+  flex: 0 0 auto;
+  width: auto;
+  max-width: min(280px, 35vw);
+  max-height: 72px;
+  object-fit: contain;
+}
+
 .export-header h1 {
   margin: 0;
   font-size: 30px;
@@ -575,6 +591,16 @@ table.export-table thead th {
 
   .export-layout {
     grid-template-columns: 1fr;
+  }
+
+  .export-header-top {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .export-logo {
+    max-width: min(220px, 45vw);
+    max-height: 56px;
   }
 
   .page-panel {

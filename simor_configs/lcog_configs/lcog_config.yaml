@@ -228,6 +228,7 @@ summarize:
 
 dashboard:
   title: "LCOG Estimation Visualizer"
+  logo: ../assets/lcog_logo.jpg
   enable_maz_geographies: false
   live:
     pages:

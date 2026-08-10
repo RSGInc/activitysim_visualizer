@@ -216,6 +216,7 @@ summarize:
 
 dashboard:
   title: "Metro Estimation Visualizer"
+  logo: ../assets/metro_logo.png
   enable_maz_geographies: false
   live:
     pages:

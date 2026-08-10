@@ -125,6 +125,7 @@ def validate_canonical_config(raw: Mapping[str, object]) -> None:
         field_name="dashboard",
         allowed={
             "title",
+            "logo",
             "live",
             "export",
             "host",

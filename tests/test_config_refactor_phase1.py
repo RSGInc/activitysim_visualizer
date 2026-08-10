@@ -284,6 +284,35 @@ def test_dashboard_host_placeholder_rejects_unknown_fields(tmp_path: Path) -> No
         )
 
 
+def test_dashboard_logo_resolves_relative_to_config_file(tmp_path: Path) -> None:
+    logo_path = tmp_path / "assets" / "logo.png"
+    logo_path.parent.mkdir()
+    logo_path.write_bytes(b"logo")
+
+    config = _write_config(
+        tmp_path,
+        [
+            "dashboard:",
+            "  logo: assets/logo.png",
+            "runs: []",
+        ],
+    )
+
+    assert config.dashboard_logo == str(logo_path.resolve())
+
+
+def test_dashboard_logo_rejects_missing_file(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="dashboard.logo file does not exist"):
+        _write_config(
+            tmp_path,
+            [
+                "dashboard:",
+                "  logo: missing.png",
+                "runs: []",
+            ],
+        )
+
+
 @pytest.mark.parametrize(
     ("lines", "message"),
     [

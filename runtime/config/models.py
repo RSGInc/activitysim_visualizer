@@ -350,6 +350,7 @@ class Config:
     presentation_config_digest: str
     name: str
     dashboard_title: str
+    dashboard_logo: str | None
     log_level: str
     pipeline: PipelineSettings
     dashboard_pages: list[DashboardPageConfigEntry] | None
