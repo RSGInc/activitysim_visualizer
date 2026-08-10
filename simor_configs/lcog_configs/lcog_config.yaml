@@ -110,6 +110,9 @@ prepare:
     file_format: parquet
   validation:
     relationship_checks: warn
+  distance_skim:
+    file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\lcog_data\autoSkims__MD.omx       # path relative to run directory, or absolute
+    matrix: SOV_H_DIST__MD
   non_motorized_distance_skim:
     file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\lcog_data\maz_maz_walk.csv
     matrix: null
@@ -147,6 +150,7 @@ skimjoin:
   defaults:
     config_path: lcog_skimjoin_config.yaml
     skim_files:
+      - 'C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\lcog_data\*.omx'
       - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\lcog_data\maz_stop_walk.csv
       - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\lcog_data\maz_maz_walk.csv
       - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\lcog_data\bike_maz_logsums_commute.csv
@@ -488,11 +492,11 @@ display:
         su: Single-Unit Truck
         mu: Multi-Unit Truck
 
-  # run_colors:
-  #   - "#298c8c" # Teal
-  #   - "#a00000" # Red
-  #   - "#b8b8b8"  # Light gray
-  #   - "#384860"  # Dark blue-gray
+  run_colors:
+    - "#298c8c" # Teal
+    - "#a00000" # Red
+    - "#b8b8b8"  # Light gray
+    - "#384860"  # Dark blue-gray
   #   - "#ff7f0e"  # Orange
     # - "#1f77b4"
     # - "#ff7f0e"

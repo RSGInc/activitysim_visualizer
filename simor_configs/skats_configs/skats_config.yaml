@@ -519,13 +519,13 @@ display:
         su: Single-Unit Truck
         mu: Multi-Unit Truck
 
-  # run_colors:
-  #   - "#298c8c" # Teal
-  #   - "#a00000" # Red
-  #   - "#b8b8b8"  # Light gray
-  #   - "#384860"  # Dark blue-gray
-  #   - "#ff7f0e"  # Orange
-    # - "#1f77b4"
+  run_colors:
+    - "#3A86FF" # Blue
+    - "#8338EC" # Purple
+    - "#FF006E"  # Pink
+    - "#FB5607"  # Orange
+    - "#06D6A0"  # Mint
+    - "#FFBE0B" # Yellow
     # - "#ff7f0e"
     # - "#2ca02c"
     # - "#d62728"

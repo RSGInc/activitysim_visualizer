@@ -35,7 +35,7 @@ defaults:
 zone_mapping:
   lookup_name: taz
   file_lookup_names:
-    fares.omx: zone_number
+    fares.omx: taz
   missing_zone_policy: error
 
 dimensions:
@@ -76,9 +76,11 @@ dimensions:
 
 ignore_modes:
   - ESCOOTER
+  # SKATS has WTW skims only and no prepared drive-transit parking-zone field.
   - KNR_TRANSIT
   - MISSING
   - OTHER
+  - PNR_TRANSIT
 
 modes:
   SOV:
@@ -96,181 +98,6 @@ modes:
     time: "SR3_{VOT}_TIME__{PERIOD}"
     cost: "SR3_{VOT}_COST__{PERIOD}"
     distance: "SR3_{VOT}_DIST__{PERIOD}"
-  PNR_TRANSIT:
-    output_prefix: skim_
-    segment_on: outbound
-    segments:
-      true:
-        auto_time:
-          matrix: "SOV_{VOT}_TIME__{PERIOD}"
-          origin: OTAZ
-          destination: pnr_taz
-        auto_distance:
-          matrix: "SOV_{VOT}_DIST__{PERIOD}"
-          origin: OTAZ
-          destination: pnr_taz
-        auto_cost:
-          matrix: "SOV_{VOT}_COST__{PERIOD}"
-          origin: OTAZ
-          destination: pnr_taz
-        access_walk_time:
-          output: skim_walk_time
-          combine: sum
-          matrix: "WTW_ACC__{PERIOD}"
-          origin: pnr_taz
-          destination: DTAZ
-        transit_auxiliary_walk_time:
-          matrix: "WTW_AUX__{PERIOD}"
-          origin: pnr_taz
-          destination: DTAZ
-        transit_brt_ivtt:
-          matrix: "WTW_BRT__{PERIOD}"
-          origin: pnr_taz
-          destination: DTAZ
-        transit_bus_ivtt:
-          matrix: "WTW_BUS__{PERIOD}"
-          origin: pnr_taz
-          destination: DTAZ
-        transit_commuter_rail_ivtt:
-          matrix: "WTW_CRT__{PERIOD}"
-          origin: pnr_taz
-          destination: DTAZ
-        egress_walk_time:
-          output: skim_walk_time
-          combine: sum
-          matrix: "WTW_EGR__{PERIOD}"
-          origin: pnr_taz
-          destination: DTAZ
-        transit_first_wait_time:
-          matrix: "WTW_FWT__{PERIOD}"
-          origin: pnr_taz
-          destination: DTAZ
-        transit_light_rail_ivtt:
-          matrix: "WTW_LRT__{PERIOD}"
-          origin: pnr_taz
-          destination: DTAZ
-        transit_tiv:
-          matrix: "WTW_TIV__{PERIOD}"
-          origin: pnr_taz
-          destination: DTAZ
-        transit_num_transfers:
-          matrix: "WTW_XFR__{PERIOD}"
-          origin: pnr_taz
-          destination: DTAZ
-        transit_transfer_wait_time:
-          matrix: "WTW_XWT__{PERIOD}"
-          origin: pnr_taz
-          destination: DTAZ
-        transit_fare:
-          matrix: "fare__{PERIOD}"
-          origin: pnr_taz
-          destination: DTAZ
-        transit_o_maz_stop_walk_bus:
-          output: skim_transit_o_maz_stop_walk_bus
-          lookup: key
-          key_column: pnr_zone_id
-          matrix: maz_stop_walk__walk_dist_local_bus
-        transit_d_maz_stop_walk_bus:
-          output: skim_transit_d_maz_stop_walk_bus
-          lookup: key
-          key_column: d_maz
-          matrix: maz_stop_walk__walk_dist_local_bus
-        transit_o_maz_stop_walk_premium:
-          output: skim_transit_o_maz_stop_walk_premium
-          lookup: key
-          key_column: pnr_zone_id
-          matrix: maz_stop_walk__walk_dist_premium_transit
-        transit_d_maz_stop_walk_premium:
-          output: skim_transit_d_maz_stop_walk_premium
-          lookup: key
-          key_column: d_maz
-          matrix: maz_stop_walk__walk_dist_premium_transit
-      false:
-        auto_time:
-          matrix: "SOV_{VOT}_TIME__{PERIOD}"
-          origin: pnr_taz
-          destination: DTAZ
-        auto_distance:
-          matrix: "SOV_{VOT}_DIST__{PERIOD}"
-          origin: pnr_taz
-          destination: DTAZ
-        auto_cost:
-          matrix: "SOV_{VOT}_COST__{PERIOD}"
-          origin: pnr_taz
-          destination: DTAZ
-        access_walk_time:
-          output: skim_walk_time
-          combine: sum
-          matrix: "WTW_ACC__{PERIOD}"
-          origin: OTAZ
-          destination: pnr_taz
-        transit_auxiliary_walk_time:
-          matrix: "WTW_AUX__{PERIOD}"
-          origin: OTAZ
-          destination: pnr_taz
-        transit_brt_ivtt:
-          matrix: "WTW_BRT__{PERIOD}"
-          origin: OTAZ
-          destination: pnr_taz
-        transit_bus_ivtt:
-          matrix: "WTW_BUS__{PERIOD}"
-          origin: OTAZ
-          destination: pnr_taz
-        transit_commuter_rail_ivtt:
-          matrix: "WTW_CRT__{PERIOD}"
-          origin: OTAZ
-          destination: pnr_taz
-        egress_walk_time:
-          output: skim_walk_time
-          combine: sum
-          matrix: "WTW_EGR__{PERIOD}"
-          origin: OTAZ
-          destination: pnr_taz
-        transit_first_wait_time:
-          matrix: "WTW_FWT__{PERIOD}"
-          origin: OTAZ
-          destination: pnr_taz
-        transit_light_rail_ivtt:
-          matrix: "WTW_LRT__{PERIOD}"
-          origin: OTAZ
-          destination: pnr_taz
-        transit_tiv:
-          matrix: "WTW_TIV__{PERIOD}"
-          origin: OTAZ
-          destination: pnr_taz
-        transit_num_transfers:
-          matrix: "WTW_XFR__{PERIOD}"
-          origin: OTAZ
-          destination: pnr_taz
-        transit_transfer_wait_time:
-          matrix: "WTW_XWT__{PERIOD}"
-          origin: OTAZ
-          destination: pnr_taz
-        transit_fare:
-          matrix: "fare__{PERIOD}"
-          origin: OTAZ
-          destination: pnr_taz
-        transit_o_maz_stop_walk_bus:
-          output: skim_transit_o_maz_stop_walk_bus
-          lookup: key
-          key_column: o_maz
-          matrix: maz_stop_walk__walk_dist_local_bus
-        transit_d_maz_stop_walk_bus:
-          output: skim_transit_d_maz_stop_walk_bus
-          lookup: key
-          key_column: pnr_zone_id
-          matrix: maz_stop_walk__walk_dist_local_bus
-        transit_o_maz_stop_walk_premium:
-          output: skim_transit_o_maz_stop_walk_premium
-          lookup: key
-          key_column: o_maz
-          matrix: maz_stop_walk__walk_dist_premium_transit
-        transit_d_maz_stop_walk_premium:
-          output: skim_transit_d_maz_stop_walk_premium
-          lookup: key
-          key_column: pnr_zone_id
-          matrix: maz_stop_walk__walk_dist_premium_transit
-        
   SCHOOLBUS:
     output_prefix: skim_
     access_walk_time: 
