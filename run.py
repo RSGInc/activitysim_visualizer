@@ -648,6 +648,7 @@ def main() -> None:
                 explicit_cache_dirs=args.from_csvs,
                 run_entries=run_entries,
                 required_summary_ids=dashboard_requirements.required_summary_ids,
+                optional_summary_ids=dashboard_requirements.optional_summary_ids,
             )
             required_run_keys = [summary_run.run_key for summary_run in summary_runs]
 
