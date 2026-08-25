@@ -19,6 +19,7 @@ from processor.prepare.cache import load_prepared_run_cache, write_prepared_run_
 from processor.skimjoin.annotate.tours import annotate_tours
 from processor.skimjoin.annotate.trips import annotate_trips
 from processor.skimjoin.config.validation import ConfigValidationError, load_config, validate_config
+from processor.skimjoin.hypothetical_sidecars import build_hypothetical_sidecars
 from processor.skimjoin.inventory import inventory_skim_files
 from processor.skimjoin.pipeline import apply_skimjoin
 from processor.skimjoin.runtime_execution import _validate_runtime_inventory
@@ -2123,6 +2124,151 @@ def test_annotate_trips_can_return_fallback_lookup_report(tmp_path: Path) -> Non
         }
     ]
 
+    fast_annotated, fast_lookup_summary, fast_missing = annotate_trips(
+        trips,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+        collect_reports=False,
+    )
+    assert fast_annotated.to_dicts() == annotated.to_dicts()
+    assert fast_lookup_summary.is_empty()
+    assert fast_missing.is_empty()
+
+
+def test_annotate_trips_can_skip_discarded_reports(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    _write_omx(skim_path)
+    _write_skimjoin_config(tmp_path, skim_file=skim_path)
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1],
+            "trip_mode": ["SOV"],
+            "OTAZ": [101],
+            "DTAZ": [102],
+        }
+    )
+    inventory = inventory_skim_files(normalized.skim_files)
+
+    def _unexpected_report(*args, **kwargs):
+        raise AssertionError("report builder should not run")
+
+    monkeypatch.setattr(
+        "processor.skimjoin.annotate.engine._build_lookup_summary_frame",
+        _unexpected_report,
+    )
+    monkeypatch.setattr(
+        "processor.skimjoin.annotate.engine._concat_missing_frames",
+        _unexpected_report,
+    )
+    monkeypatch.setattr(
+        "processor.skimjoin.annotate.engine._build_fallback_lookup_report",
+        _unexpected_report,
+    )
+
+    annotated, lookup_summary, missing = annotate_trips(
+        trips,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+        collect_reports=False,
+    )
+
+    assert annotated["skim_time"].to_list() == [2.0]
+    assert lookup_summary.is_empty()
+    assert missing.is_empty()
+
+
+def test_hypothetical_sidecars_use_report_free_mode_specific_annotations(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    _write_omx(skim_path)
+    _write_skimjoin_config(
+        tmp_path,
+        skim_file=skim_path,
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  SOV:",
+            "    time: SOV_TIME",
+            "  WALK:",
+            "    time: SOV_TIME",
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+    inventory = inventory_skim_files(normalized.skim_files)
+    calls: list[tuple[str, str, set[str], bool, bool]] = []
+
+    def _annotate(frame, _normalized, _inventory, **kwargs):
+        mode_column = "trip_mode" if "trip_mode" in frame.columns else "tour_mode"
+        table_name = "trips" if mode_column == "trip_mode" else "tours"
+        mode = str(frame.item(0, mode_column))
+        rules = kwargs["rules"]
+        calls.append(
+            (
+                table_name,
+                mode,
+                {str(rule.mode) for rule in rules},
+                kwargs["collect_reports"],
+                kwargs["include_fallback_report"],
+            )
+        )
+        outputs = sorted({str(rule.output) for rule in rules})
+        return (
+            frame.with_columns(
+                *[pl.lit(float(index + 1)).alias(output) for index, output in enumerate(outputs)]
+            ),
+            pl.DataFrame(),
+            pl.DataFrame(),
+        )
+
+    monkeypatch.setattr(
+        "processor.skimjoin.hypothetical_sidecars.annotate_trips",
+        _annotate,
+    )
+    monkeypatch.setattr(
+        "processor.skimjoin.hypothetical_sidecars.annotate_tours",
+        _annotate,
+    )
+
+    trip_sidecar, tour_sidecar = build_hypothetical_sidecars(
+        trips=pl.DataFrame(
+            {
+                "trip_id": [1],
+                "trip_mode": ["SOV"],
+                "finalweight": [2.0],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [10],
+                "tour_mode": ["WALK"],
+                "finalweight": [3.0],
+            }
+        ),
+        normalized=normalized,
+        inventory=inventory,
+    )
+
+    assert not trip_sidecar.is_empty()
+    assert not tour_sidecar.is_empty()
+    assert calls == [
+        ("trips", "SOV", {"SOV"}, False, False),
+        ("trips", "WALK", {"WALK"}, False, False),
+        ("tours", "SOV", {"SOV"}, False, False),
+        ("tours", "WALK", {"WALK"}, False, False),
+    ]
+
 
 def test_annotate_trips_primary_lookup_success_does_not_emit_fallback_report(
     tmp_path: Path,
@@ -2554,6 +2700,17 @@ def test_annotate_tours_produces_directional_outputs_and_reuses_segmentation(
         "skim_time_outbound",
     ]
     assert missing.is_empty()
+
+    fast_annotated, fast_lookup_summary, fast_missing = annotate_tours(
+        tours,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+        collect_reports=False,
+    )
+    assert fast_annotated.to_dicts() == annotated.to_dicts()
+    assert fast_lookup_summary.is_empty()
+    assert fast_missing.is_empty()
 
 
 def test_annotate_tours_runs_without_any_trip_inputs_or_trip_skim_columns(

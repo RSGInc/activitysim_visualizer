@@ -4,7 +4,7 @@ import polars as pl
 
 from processor.skimjoin.annotate.engine import annotate_lookup_table
 from processor.skimjoin.config.normalize import TOUR_DIRECTION_COLUMN
-from processor.skimjoin.config.schema import NormalizedConfig
+from processor.skimjoin.config.schema import NormalizedConfig, NormalizedLookupRule
 from processor.skimjoin.skimstore.base import SkimStore
 
 
@@ -15,6 +15,9 @@ def annotate_tours(
     trips: pl.DataFrame | None = None,
     skim_store: SkimStore | None = None,
     include_fallback_report: bool = False,
+    *,
+    rules: list[NormalizedLookupRule] | None = None,
+    collect_reports: bool = True,
 ) -> (
     tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]
     | tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]
@@ -40,12 +43,13 @@ def annotate_tours(
     return annotate_lookup_table(
         tours_with_ids,
         source_table=contexts,
-        rules=normalized.tour_lookups,
+        rules=rules if rules is not None else normalized.tour_lookups,
         normalized=normalized,
         inventory=inventory,
         mode_column=normalized.activitysim.tour_mode_column,
         skim_store=skim_store,
         include_fallback_report=include_fallback_report,
+        collect_reports=collect_reports,
         table_name="tours",
     )
 

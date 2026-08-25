@@ -12,6 +12,8 @@ _PLACEHOLDER_RE = re.compile(r"{([A-Za-z_][A-Za-z0-9_]*)}")
 def _resolve_rule_work_items(
     rule: NormalizedLookupRule,
     subset: pl.DataFrame,
+    *,
+    include_errors: bool = True,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     work = _base_rule_work_frame(rule, subset)
     missing_reason_expr = pl.lit(None, dtype=pl.String)
@@ -36,14 +38,20 @@ def _resolve_rule_work_items(
         _matrix_name_expr(rule.matrix, rule.dimensions_used).alias("matrix_name")
     )
 
-    errors = work.filter(pl.col("__missing_reason").is_not_null()).select(
-        pl.col("_row_id").cast(pl.Int64),
-        pl.col("rule_name"),
-        pl.col("trip_id"),
-        pl.col("lookup_origin").cast(pl.Int64, strict=False).alias("origin"),
-        pl.col("lookup_destination").cast(pl.Int64, strict=False).alias("destination"),
-        pl.lit(None, dtype=pl.String).alias("matrix_name"),
-        pl.col("__missing_reason").alias("reason"),
+    errors = (
+        work.filter(pl.col("__missing_reason").is_not_null()).select(
+            pl.col("_row_id").cast(pl.Int64),
+            pl.col("rule_name"),
+            pl.col("trip_id"),
+            pl.col("lookup_origin").cast(pl.Int64, strict=False).alias("origin"),
+            pl.col("lookup_destination")
+            .cast(pl.Int64, strict=False)
+            .alias("destination"),
+            pl.lit(None, dtype=pl.String).alias("matrix_name"),
+            pl.col("__missing_reason").alias("reason"),
+        )
+        if include_errors
+        else pl.DataFrame()
     )
 
     valid = work.filter(pl.col("__missing_reason").is_null()).select(

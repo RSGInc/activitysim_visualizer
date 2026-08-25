@@ -6,7 +6,7 @@ import polars as pl
 
 from processor.skimjoin.annotate.tours import annotate_tours
 from processor.skimjoin.annotate.trips import annotate_trips
-from processor.skimjoin.config.schema import NormalizedConfig
+from processor.skimjoin.config.schema import NormalizedConfig, NormalizedLookupRule
 from processor.skimjoin.skimstore.base import SkimStore
 
 TRIP_HYPOTHETICAL_SIDECAR_SCHEMA = {
@@ -72,7 +72,8 @@ def _build_trip_hypothetical_sidecar(
 
     frames: list[pl.DataFrame] = []
     for mode in _lookup_modes(normalized.trip_lookups):
-        outputs = _outputs_for_mode(normalized.trip_lookups, mode)
+        mode_rules = _rules_for_mode(normalized.trip_lookups, mode)
+        outputs = _outputs_for_mode(mode_rules, mode)
         if not outputs:
             continue
         hypothetical_input = trips.with_columns(
@@ -85,6 +86,8 @@ def _build_trip_hypothetical_sidecar(
             inventory,
             skim_store=skim_store,
             include_fallback_report=False,
+            rules=mode_rules,
+            collect_reports=False,
         )
         frames.append(
             _melt_trip_outputs(
@@ -116,7 +119,8 @@ def _build_tour_hypothetical_sidecar(
 
     frames: list[pl.DataFrame] = []
     for mode in _lookup_modes(normalized.tour_lookups):
-        outputs = _outputs_for_mode(normalized.tour_lookups, mode)
+        mode_rules = _rules_for_mode(normalized.tour_lookups, mode)
+        outputs = _outputs_for_mode(mode_rules, mode)
         if not outputs:
             continue
         hypothetical_input = tours.with_columns(
@@ -129,6 +133,8 @@ def _build_tour_hypothetical_sidecar(
             inventory,
             skim_store=skim_store,
             include_fallback_report=False,
+            rules=mode_rules,
+            collect_reports=False,
         )
         frames.append(
             _melt_tour_outputs(
@@ -147,6 +153,13 @@ def _lookup_modes(rules) -> list[str]:
 
 def _outputs_for_mode(rules, mode: str) -> list[str]:
     return sorted({str(rule.output) for rule in rules if str(rule.mode) == str(mode)})
+
+
+def _rules_for_mode(
+    rules: list[NormalizedLookupRule],
+    mode: str,
+) -> list[NormalizedLookupRule]:
+    return [rule for rule in rules if str(rule.mode) == str(mode)]
 
 
 def _melt_trip_outputs(
