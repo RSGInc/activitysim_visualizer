@@ -80,17 +80,24 @@ def inventory_hdf5_file(path: str | Path) -> list[MatrixRecord]:
 
 def inventory_csv_file(path: str | Path) -> list[MatrixRecord]:
     path = Path(path)
-    table = pl.read_csv(path)
-    if table.width < 2:
+    scan = pl.scan_csv(path)
+    schema = scan.collect_schema()
+    columns = schema.names()
+    if len(columns) < 2:
         raise ValueError(f"CSV skim file must contain one key column and at least one value column: {path}")
+    height = int(
+        scan.select(pl.len().cast(pl.Int64).alias("height"))
+        .collect(engine="streaming")
+        .item()
+    )
 
-    if _looks_like_od_csv(table.columns):
-        origin_column = table.columns[0]
-        destination_column = table.columns[1]
+    if _looks_like_od_csv(columns):
+        origin_column = columns[0]
+        destination_column = columns[1]
         value_columns = [
             column
-            for column in table.columns[2:]
-            if table.schema[column].is_numeric()
+            for column in columns[2:]
+            if schema[column].is_numeric()
         ]
         if not value_columns:
             raise ValueError(f"CSV O-D skim file must contain at least one numeric value column: {path}")
@@ -101,9 +108,9 @@ def inventory_csv_file(path: str | Path) -> list[MatrixRecord]:
                     file_path=str(path),
                     matrix_path=value_column,
                     matrix_name=f"{path.stem}__{value_column}",
-                    shape_rows=int(table.height),
+                    shape_rows=height,
                     shape_cols=1,
-                    dtype=str(table.schema[value_column]),
+                    dtype=str(schema[value_column]),
                     source_kind="od_table",
                     value_column_name=value_column,
                     origin_column_name=origin_column,
@@ -112,11 +119,11 @@ def inventory_csv_file(path: str | Path) -> list[MatrixRecord]:
             )
         return rows
 
-    key_column = table.columns[0]
+    key_column = columns[0]
     value_columns = [
         column
-        for column in table.columns[1:]
-        if table.schema[column].is_numeric()
+        for column in columns[1:]
+        if schema[column].is_numeric()
     ]
     if not value_columns:
         raise ValueError(f"CSV skim file must contain at least one numeric value column: {path}")
@@ -128,9 +135,9 @@ def inventory_csv_file(path: str | Path) -> list[MatrixRecord]:
                 file_path=str(path),
                 matrix_path=value_column,
                 matrix_name=f"{path.stem}__{value_column}",
-                shape_rows=int(table.height),
+                shape_rows=height,
                 shape_cols=1,
-                dtype=str(table.schema[value_column]),
+                dtype=str(schema[value_column]),
                 source_kind="keyed_column",
                 key_column_name=key_column,
                 value_column_name=value_column,
