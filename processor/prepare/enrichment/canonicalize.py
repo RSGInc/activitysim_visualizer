@@ -14,6 +14,174 @@ from processor.prepare.enrichment.types import _PrepareState
 from runtime.config import Config
 
 
+_CATEGORY_MAPPING_TABLE_ATTRIBUTES = {
+    "households": "hh",
+    "persons": "per",
+    "day": "day",
+    "tours": "tours",
+    "trips": "trips",
+    "vehicles": "vehicles",
+    "joint_tour_participants": "joint_participants",
+    "land_use": "land_use",
+}
+
+
+def _apply_prepare_category_mappings(
+    state: _PrepareState, config: Config
+) -> _PrepareState:
+    run_mapping = config.prepare_category_mappings.mapping_for_run(state.label)
+    if run_mapping is None:
+        return state
+
+    for table_name, column_mappings in run_mapping.items():
+        attribute = _CATEGORY_MAPPING_TABLE_ATTRIBUTES[table_name]
+        table = getattr(state, attribute)
+        for target_column, spec in column_mappings.items():
+            metric_id = f"category_mappings.{table_name}.{target_column}"
+            if spec.source_column not in table.columns:
+                state.prepare_diagnostics[metric_id] = {
+                    "total": 0,
+                    "unresolved": 0,
+                    "status": "source_column_missing",
+                    "source_column": spec.source_column,
+                }
+                continue
+
+            source_text = pl.col(spec.source_column).cast(pl.Utf8)
+            if spec.output_type == "boolean":
+                preserve_source = (
+                    spec.preserve_unmapped
+                    and table.schema.get(spec.source_column) == pl.Boolean
+                )
+                default = (
+                    pl.col(spec.source_column)
+                    if preserve_source
+                    else pl.lit(None, dtype=pl.Boolean)
+                )
+                mapped = source_text.replace_strict(
+                    spec.mapping,
+                    default=default,
+                    return_dtype=pl.Boolean,
+                )
+            else:
+                default = source_text if spec.preserve_unmapped else pl.lit(None)
+                mapped = source_text.replace_strict(
+                    spec.mapping,
+                    default=default,
+                    return_dtype=pl.Utf8,
+                )
+
+            source_values = table.select(
+                source_text.alias("_source_value")
+            ).filter(pl.col("_source_value").is_not_null())
+            unmatched = source_values.filter(
+                ~pl.col("_source_value").is_in(list(spec.mapping))
+            )
+            unmatched_values = (
+                unmatched.select("_source_value")
+                .unique(maintain_order=True)
+                .head(20)
+                .to_series()
+                .to_list()
+            )
+            state.prepare_diagnostics[metric_id] = {
+                "total": source_values.height,
+                "unresolved": unmatched.height,
+                "unresolved_share": (
+                    float(unmatched.height) / float(source_values.height)
+                    if source_values.height
+                    else 0.0
+                ),
+                "source_column": spec.source_column,
+                "unmatched_values": unmatched_values,
+            }
+            table = table.with_columns(mapped.alias(target_column))
+        setattr(state, attribute, table)
+    return state
+
+
+def _toc_model_period_expr(hour_column: str, minute_column: str) -> pl.Expr:
+    hour = pl.col(hour_column).cast(pl.Int64, strict=False)
+    minute = pl.col(minute_column).cast(pl.Int64, strict=False)
+    minutes_after_3_am = (hour * 60 + minute - 180 + 1440) % 1440
+    return (
+        pl.when(hour.is_between(0, 23) & minute.is_between(0, 59))
+        .then((minutes_after_3_am // 30) + 1)
+        .otherwise(None)
+        .cast(pl.Int32)
+    )
+
+
+def _is_toc_raw_survey(state: _PrepareState) -> bool:
+    return (
+        {"num_people", "num_vehicles"}.issubset(state.hh.columns)
+        and {"can_drive", "person_type"}.issubset(state.per.columns)
+        and {
+            "tour_start_hour",
+            "tour_start_minute",
+            "tour_end_hour",
+            "tour_end_minute",
+            "tour_mode",
+            "tour_purpose",
+            "duration_minutes",
+            "distance_miles",
+        }.issubset(state.tours.columns)
+        and {
+            "linked_trip_mode",
+            "d_purpose_category",
+            "depart_hour",
+            "depart_minute",
+            "distance_miles",
+        }.issubset(state.trips.columns)
+    )
+
+
+def _normalize_toc_raw_survey(
+    state: _PrepareState, config: Config
+) -> _PrepareState:
+    if (
+        config.prepare_category_mappings.mapping_for_run(state.label) is None
+        or not _is_toc_raw_survey(state)
+    ):
+        return state
+
+    state.hh = state.hh.with_columns(
+        pl.col("num_people").alias("hhsize"),
+        pl.col("num_vehicles").alias("auto_ownership"),
+    )
+    state.tours = state.tours.with_columns(
+        _toc_model_period_expr("tour_start_hour", "tour_start_minute").alias("start"),
+        _toc_model_period_expr("tour_start_hour", "tour_start_minute").alias(
+            "start_hour"
+        ),
+        _toc_model_period_expr("tour_end_hour", "tour_end_minute").alias("end"),
+        _toc_model_period_expr("tour_end_hour", "tour_end_minute").alias("end_hour"),
+        pl.col("duration_minutes")
+        .cast(pl.Float64, strict=False)
+        .truediv(30.0)
+        .ceil()
+        .clip(1, 48)
+        .cast(pl.Int32)
+        .alias("tourdur"),
+        pl.col("distance_miles").cast(pl.Float64, strict=False).alias("SKIMDIST"),
+    )
+    if "joint_num_participants" in state.tours.columns:
+        state.tours = state.tours.with_columns(
+            pl.col("joint_num_participants")
+            .cast(pl.Int64, strict=False)
+            .alias("number_of_participants")
+        )
+
+    state.trips = state.trips.with_columns(
+        _toc_model_period_expr("depart_hour", "depart_minute").alias("depart"),
+        pl.col("distance_miles").cast(pl.Float64, strict=False).alias("od_dist"),
+        pl.col("distance_miles")
+        .cast(pl.Float64, strict=False)
+        .alias("prepared_non_motorized_distance"),
+    )
+    return state
+
+
 def _canonicalize_households(hh: pl.DataFrame, config: Config) -> pl.DataFrame:
     hh = _materialize_column(
         hh,
@@ -355,6 +523,7 @@ def _canonicalize_land_use(land_use: pl.DataFrame, config: Config) -> pl.DataFra
 def _canonicalize_identifiers_and_core_columns(
     state: _PrepareState, config: Config
 ) -> _PrepareState:
+    state = _apply_prepare_category_mappings(state, config)
     state.hh = _canonicalize_households(state.hh, config)
     state.per = _canonicalize_persons(state.per, config)
     state.day = _canonicalize_day(state.day, config)
@@ -365,4 +534,4 @@ def _canonicalize_identifiers_and_core_columns(
         state.joint_participants, config
     )
     state.land_use = _canonicalize_land_use(state.land_use, config)
-    return state
+    return _normalize_toc_raw_survey(state, config)

@@ -131,6 +131,26 @@ def prepare_signature_payload(config: Config) -> dict[str, Any]:
             "failure_policy": config.skimjoin.failure_policy,
         },
         "prepare": {
+            "category_mappings": {
+                run_name: {
+                    table_name: {
+                        target_column: {
+                            "source": spec.source_column,
+                            "output_type": spec.output_type,
+                            "preserve_unmapped": spec.preserve_unmapped,
+                            "mapping": {
+                                key: value
+                                for key, value in sorted(spec.mapping.items())
+                            },
+                        }
+                        for target_column, spec in sorted(column_mappings.items())
+                    }
+                    for table_name, column_mappings in sorted(table_mappings.items())
+                }
+                for run_name, table_mappings in sorted(
+                    config.prepare_category_mappings.mappings.items()
+                )
+            },
             "auto_sufficiency": {
                 "basis": config.prepare_auto_sufficiency.basis,
             },

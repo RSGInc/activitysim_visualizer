@@ -180,6 +180,34 @@ class PrepareVotBinsSettings:
 
 
 @dataclass(frozen=True)
+class PrepareCategoryColumnMapping:
+    """One raw-to-canonical categorical column mapping."""
+
+    source_column: str
+    mapping: dict[str, object] = field(default_factory=dict)
+    output_type: Literal["string", "boolean"] = "string"
+    preserve_unmapped: bool = True
+
+
+@dataclass(frozen=True)
+class PrepareCategoryMappingsSettings:
+    """Run-aware categorical mappings applied before prepare enrichment."""
+
+    mappings: dict[
+        str, dict[str, dict[str, PrepareCategoryColumnMapping]]
+    ] = field(default_factory=dict)
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.mappings)
+
+    def mapping_for_run(
+        self, run_label: str
+    ) -> dict[str, dict[str, PrepareCategoryColumnMapping]] | None:
+        return self.mappings.get(normalize_run_selector_key(run_label))
+
+
+@dataclass(frozen=True)
 class PrepareAutoSufficiencySettings:
     """Configurable household comparison basis for AUTOSUFF derivation."""
 
@@ -368,6 +396,7 @@ class Config:
     export_html: ExportHTMLSettings
     skimjoin: SkimjoinSettings
     prepare_vot_bins: PrepareVotBinsSettings
+    prepare_category_mappings: PrepareCategoryMappingsSettings
     prepare_auto_sufficiency: PrepareAutoSufficiencySettings
     prepare_time_periods: PrepareTimePeriodsSettings
     prepare_non_motorized_distance_skim: PrepareNonMotorizedDistanceSkimSettings

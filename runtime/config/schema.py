@@ -276,6 +276,7 @@ def validate_canonical_config(raw: Mapping[str, object]) -> None:
             "output",
             "validation",
             "distance_skim",
+            "category_mappings",
             "vot_bins",
             "time_periods",
             "non_motorized_distance_skim",

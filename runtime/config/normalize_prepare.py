@@ -20,11 +20,122 @@ from .constants import (
 )
 from .models import (
     Config,
+    PrepareCategoryColumnMapping,
+    PrepareCategoryMappingsSettings,
     PrepareNonMotorizedDistanceSkimSettings,
     PrepareTimePeriodsSettings,
     PrepareVotBinsSettings,
 )
 from .normalize_skimjoin import normalize_run_skimjoin_overrides, resolve_run_skimjoin_settings
+
+
+_CATEGORY_MAPPING_TABLES = {
+    "households",
+    "persons",
+    "day",
+    "tours",
+    "trips",
+    "vehicles",
+    "joint_tour_participants",
+    "land_use",
+}
+
+
+def normalize_prepare_category_mappings(
+    raw_value,
+    *,
+    field_name: str,
+) -> PrepareCategoryMappingsSettings:
+    """Normalize run-aware raw-to-canonical category mappings."""
+    if raw_value in (None, {}):
+        return PrepareCategoryMappingsSettings()
+    if not isinstance(raw_value, dict):
+        raise ValueError(f"{field_name} must be a mapping when provided.")
+
+    mappings: dict[
+        str, dict[str, dict[str, PrepareCategoryColumnMapping]]
+    ] = {}
+    for raw_run_name, raw_tables in raw_value.items():
+        run_name = normalize_run_selector_key(str(raw_run_name))
+        if run_name in mappings:
+            raise ValueError(
+                f"{field_name} contains duplicate run key {raw_run_name!r} after normalization."
+            )
+        if not isinstance(raw_tables, dict):
+            raise ValueError(f"{field_name}.{raw_run_name} must be a mapping.")
+
+        table_mappings: dict[str, dict[str, PrepareCategoryColumnMapping]] = {}
+        for raw_table_name, raw_columns in raw_tables.items():
+            table_name = str(raw_table_name).strip()
+            table_field = f"{field_name}.{raw_run_name}.{table_name}"
+            if table_name not in _CATEGORY_MAPPING_TABLES:
+                raise ValueError(
+                    f"{table_field} uses unsupported table id {table_name!r}."
+                )
+            if not isinstance(raw_columns, dict):
+                raise ValueError(f"{table_field} must be a mapping.")
+
+            column_mappings: dict[str, PrepareCategoryColumnMapping] = {}
+            for raw_target, raw_spec in raw_columns.items():
+                target = str(raw_target).strip()
+                column_field = f"{table_field}.{target}"
+                if not target:
+                    raise ValueError(f"{table_field} contains an empty target column.")
+                if not isinstance(raw_spec, dict):
+                    raise ValueError(f"{column_field} must be a mapping.")
+
+                source_raw = raw_spec.get("source", target)
+                if not isinstance(source_raw, str) or not source_raw.strip():
+                    raise ValueError(f"{column_field}.source must be a non-empty string.")
+                source = source_raw.strip()
+
+                output_type = str(raw_spec.get("output_type", "string")).strip().lower()
+                if output_type not in {"string", "boolean"}:
+                    raise ValueError(
+                        f"{column_field}.output_type must be 'string' or 'boolean'."
+                    )
+                preserve_unmapped = raw_spec.get("preserve_unmapped", True)
+                if not isinstance(preserve_unmapped, bool):
+                    raise ValueError(
+                        f"{column_field}.preserve_unmapped must be true or false."
+                    )
+
+                raw_mapping = raw_spec.get("mapping")
+                if not isinstance(raw_mapping, dict) or not raw_mapping:
+                    raise ValueError(f"{column_field}.mapping must be a non-empty mapping.")
+                if output_type == "boolean":
+                    invalid_values = [
+                        value
+                        for value in raw_mapping.values()
+                        if value is not None and not isinstance(value, bool)
+                    ]
+                    if invalid_values:
+                        raise ValueError(
+                            f"{column_field}.mapping values must be true, false, or null "
+                            "when output_type is 'boolean'."
+                        )
+                    normalized_mapping = {
+                        str(source_value): mapped_value
+                        for source_value, mapped_value in raw_mapping.items()
+                    }
+                else:
+                    normalized_mapping = {
+                        str(source_value): (
+                            None if mapped_value is None else str(mapped_value)
+                        )
+                        for source_value, mapped_value in raw_mapping.items()
+                    }
+
+                column_mappings[target] = PrepareCategoryColumnMapping(
+                    source_column=source,
+                    mapping=normalized_mapping,
+                    output_type=output_type,
+                    preserve_unmapped=preserve_unmapped,
+                )
+            table_mappings[table_name] = column_mappings
+        mappings[run_name] = table_mappings
+
+    return PrepareCategoryMappingsSettings(mappings=mappings)
 
 
 def normalize_prepare_vot_bins(
