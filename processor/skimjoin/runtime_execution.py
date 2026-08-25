@@ -10,6 +10,7 @@ import polars as pl
 from processor.models import RunData
 from processor.skimjoin.annotate.tours import annotate_tours
 from processor.skimjoin.annotate.trips import annotate_trips
+from processor.skimjoin.csv_demand import plan_csv_od_demands
 from processor.skimjoin.hypothetical_sidecars import build_hypothetical_sidecars
 from processor.skimjoin.inventory import (
     inventory_skim_files,
@@ -70,6 +71,13 @@ def _run_integrated_skimjoin(
 ) -> _RuntimeSkimjoinResult:
     inventory = _resolved_runtime_inventory(normalized)
     skim_store = OmxSkimStore()
+    plan_csv_od_demands(
+        trips=rd.trips,
+        tours=rd.tours,
+        normalized=normalized,
+        inventory=inventory,
+        skim_store=skim_store,
+    )
     trip_outputs = annotate_trips_fn(
         rd.trips,
         normalized,

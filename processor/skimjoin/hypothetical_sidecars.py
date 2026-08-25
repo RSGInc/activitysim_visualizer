@@ -7,6 +7,7 @@ import polars as pl
 from processor.skimjoin.annotate.tours import lookup_tour_output_values
 from processor.skimjoin.annotate.trips import lookup_trip_output_values
 from processor.skimjoin.config.schema import NormalizedConfig, NormalizedLookupRule
+from processor.skimjoin.csv_demand import plan_csv_od_demands
 from processor.skimjoin.skimstore.base import SkimStore
 
 TRIP_HYPOTHETICAL_SIDECAR_SCHEMA = {
@@ -38,6 +39,14 @@ def build_hypothetical_sidecars(
     skim_store: SkimStore | None = None,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Build long-form hypothetical skim sidecars for trips and tours."""
+    if skim_store is not None:
+        plan_csv_od_demands(
+            trips=trips,
+            tours=tours,
+            normalized=normalized,
+            inventory=inventory,
+            skim_store=skim_store,
+        )
     trip_sidecar = _build_trip_hypothetical_sidecar(
         trips=trips,
         normalized=normalized,

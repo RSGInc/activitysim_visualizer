@@ -19,6 +19,8 @@ class SkimStore:
         self._od_table_frame_cache: dict[tuple[str, str, str, str], pl.DataFrame] = {}
         self._od_csv_cache: dict[tuple[str, str, str], pl.DataFrame] = {}
         self._od_csv_columns: dict[tuple[str, str, str], set[str]] = {}
+        self._od_csv_demands: dict[tuple[str, str, str], pl.DataFrame] = {}
+        self._od_csv_demand_planned = False
 
     def plan_csv_tables(
         self,
@@ -54,6 +56,21 @@ class SkimStore:
                     str(row["destination_column_name"]),
                 )
                 self._od_csv_columns.setdefault(key, set()).add(value_column)
+
+    def has_planned_od_csv_tables(self) -> bool:
+        return bool(self._od_csv_columns)
+
+    def set_complete_od_csv_demand(
+        self,
+        *,
+        demand: pl.DataFrame,
+    ) -> None:
+        for key in self._od_csv_columns:
+            self._od_csv_demands[key] = demand
+        self._od_csv_demand_planned = True
+
+    def od_csv_demand_planned(self) -> bool:
+        return self._od_csv_demand_planned
 
     def get_matrix(self, file_path: str, matrix_path: str) -> np.ndarray:
         key = (file_path, matrix_path)
@@ -308,7 +325,7 @@ class SkimStore:
                 for cache_key, values in self._od_table_cache.items()
                 if cache_key[:3] != csv_key
             }
-            combined = (
+            scan = (
                 pl.scan_csv(file_path)
                 .select(
                     pl.col(origin_column_name)
@@ -326,6 +343,16 @@ class SkimStore:
                     pl.col("__lookup_origin").is_not_null()
                     & pl.col("__lookup_destination").is_not_null()
                 )
+            )
+            demand = self._od_csv_demands.get(csv_key)
+            if demand is not None:
+                scan = scan.join(
+                    demand.lazy(),
+                    on=["__lookup_origin", "__lookup_destination"],
+                    how="semi",
+                )
+            combined = (
+                scan
                 .group_by(
                     ["__lookup_origin", "__lookup_destination"],
                 )

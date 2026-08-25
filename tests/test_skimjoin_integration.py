@@ -2348,6 +2348,76 @@ def test_hypothetical_sidecars_preserve_values_nulls_and_schema(
     ]
 
 
+def test_hypothetical_sidecars_filter_csv_cache_to_required_od_pairs(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "maz_maz_walk.csv"
+    _write_csv_od_skim(
+        csv_path,
+        rows=[
+            {"OMAZ": 101, "DMAZ": 102, "DISTWALK": 0.5, "actual": 10.0},
+            {"OMAZ": 101, "DMAZ": 102, "DISTWALK": 0.6, "actual": 11.0},
+            {"OMAZ": 102, "DMAZ": 101, "DISTWALK": 0.75, "actual": 15.0},
+            {"OMAZ": 999, "DMAZ": 999, "DISTWALK": 9.0, "actual": 99.0},
+        ],
+    )
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[csv_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  WALK:",
+            "    distance:",
+            "      output: skim_walk_distance",
+            "      origin: o_maz",
+            "      destination: d_maz",
+            "      matrix: maz_maz_walk__DISTWALK",
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+    inventory = inventory_skim_files(normalized.skim_files)
+    skim_store = OmxSkimStore()
+
+    trip_sidecar, tour_sidecar = build_hypothetical_sidecars(
+        trips=pl.DataFrame(
+            {
+                "trip_id": [1],
+                "trip_mode": ["SOV"],
+                "o_maz": [101],
+                "d_maz": [102],
+                "OTAZ": [101],
+                "DTAZ": [102],
+                "finalweight": [2.0],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [10],
+                "tour_mode": ["SOV"],
+                "o_maz": [101],
+                "d_maz": [102],
+                "OTAZ": [101],
+                "DTAZ": [102],
+                "finalweight": [3.0],
+            }
+        ),
+        normalized=normalized,
+        inventory=inventory,
+        skim_store=skim_store,
+    )
+
+    assert trip_sidecar["value"].to_list() == [0.6]
+    assert tour_sidecar.sort("direction")["value"].to_list() == [0.75, 0.6]
+    cached = next(iter(skim_store._od_csv_cache.values()))
+    assert cached.height == 2
+    assert cached.select("__lookup_origin", "__lookup_destination").sort(
+        "__lookup_origin"
+    ).rows() == [(101.0, 102.0), (102.0, 101.0)]
+
+
 def test_annotate_trips_primary_lookup_success_does_not_emit_fallback_report(
     tmp_path: Path,
 ) -> None:
