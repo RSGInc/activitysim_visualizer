@@ -233,7 +233,7 @@ def _escort_link_targets(
     child_trip_purpose: str,
     target_col: str,
 ) -> pl.DataFrame:
-    if escorted_ids_col not in tours.columns:
+    if escorted_ids_col not in tours.columns or target_col not in trips.columns:
         return pl.DataFrame(
             schema={"tour_id": pl.Int64, "_target_values": pl.List(pl.Int64)}
         )
@@ -394,6 +394,7 @@ def _derive_escort_event_position_from_tour_links(state: _PrepareState) -> _Prep
         has_targets = (
             "_target_values" in candidates.columns
             and candidates.schema.get("_target_values") == pl.List(pl.Int64)
+            and location_col in candidates.columns
         )
         location_match_expr = (
             pl.col(location_col).cast(pl.Int64, strict=False).is_in(pl.col("_target_values"))

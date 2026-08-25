@@ -33,11 +33,15 @@ def license_holding_status(rd: RunData, config: Config) -> pl.DataFrame:
     if not required.issubset(set(rd.per.columns)):
         return license_holding_status.empty()
 
+    eligible_driver = (
+        pl.col("can_drive").cast(pl.Int64, strict=False).is_in([1, 3])
+        if "can_drive" in rd.per.columns
+        else pl.col("age") >= 16
+    )
     base = rd.per.filter(
         pl.col("person_type").is_not_null()
         & pl.col("has_license").is_not_null()
-        & pl.col("age").is_not_null()
-        & (pl.col("age") >= 16)
+        & eligible_driver
     ).with_columns(
         pl.col("person_type").cast(pl.Utf8),
         pl.when(pl.col("has_license"))

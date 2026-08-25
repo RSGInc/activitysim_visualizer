@@ -188,18 +188,30 @@ def _enrich_tours(
             state.label,
         )
 
+    number_hh_sources: list[pl.Expr] = []
+    participant_count_col = "_joint_participant_count"
     if (
         "tour_id" in state.tours.columns
         and "tour_id" in state.joint_participants.columns
         and state.joint_participants.schema.get("tour_id") != pl.Null
     ):
         party_size = state.joint_participants.group_by("tour_id").agg(
-            pl.len().alias("NUMBER_HH")
+            pl.len().cast(pl.Int64).alias(participant_count_col)
         )
         state.tours = state.tours.join(party_size, on="tour_id", how="left")
-    if "NUMBER_HH" not in state.tours.columns:
-        state.tours = state.tours.with_columns(pl.lit(1).alias("NUMBER_HH"))
-    state.tours = state.tours.with_columns(pl.col("NUMBER_HH").fill_null(1))
+        number_hh_sources.append(pl.col(participant_count_col))
+    if "number_of_participants" in state.tours.columns:
+        number_hh_sources.append(
+            pl.col("number_of_participants").cast(pl.Int64, strict=False)
+        )
+    if "NUMBER_HH" in state.tours.columns:
+        number_hh_sources.append(pl.col("NUMBER_HH").cast(pl.Int64, strict=False))
+    number_hh_sources.append(pl.lit(1, dtype=pl.Int64))
+    state.tours = state.tours.with_columns(
+        pl.coalesce(number_hh_sources).alias("NUMBER_HH")
+    )
+    if participant_count_col in state.tours.columns:
+        state.tours = state.tours.drop(participant_count_col)
 
     if (
         "start_hour" in state.tours.columns

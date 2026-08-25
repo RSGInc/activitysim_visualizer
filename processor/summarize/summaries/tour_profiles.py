@@ -37,15 +37,26 @@ def _tour_weights_for_summary(tours: pl.DataFrame) -> pl.DataFrame:
         "tour_count_all_households": pl.Float64,
     },
     required_columns={
-        "tours": ("tour_mode", "tour_purpose", "finalweight", "AUTOSUFF")
+        "tours": (
+            "tour_mode",
+            "tour_purpose",
+            "tour_category",
+            "NUMBER_HH",
+            "finalweight",
+            "AUTOSUFF",
+        )
     },
 )
 def tour_mode(rd: RunData, config: Config) -> pl.DataFrame:
-    required = {"tour_mode", "tour_purpose", "finalweight", "AUTOSUFF"}
-    if (
-        not required.issubset(set(rd.tours.columns))
-        or "tour_category" not in rd.tours.columns
-    ):
+    required = {
+        "tour_mode",
+        "tour_purpose",
+        "tour_category",
+        "NUMBER_HH",
+        "finalweight",
+        "AUTOSUFF",
+    }
+    if not required.issubset(set(rd.tours.columns)):
         return tour_mode.empty()
 
     purpose_col = _summary_purpose_column(rd.tours)
@@ -242,13 +253,13 @@ def at_work_sub_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
         "arrival_tour_count": pl.Float64,
         "duration_tour_count": pl.Float64,
     },
-    required_columns={"tours": ("tour_category", "tour_purpose", "finalweight")},
+    required_columns={
+        "tours": ("tour_category", "tour_purpose", "NUMBER_HH", "finalweight")
+    },
 )
 def tour_tod(rd: RunData, config: Config) -> pl.DataFrame:
-    if (
-        "tour_category" not in rd.tours.columns
-        or "tour_purpose" not in rd.tours.columns
-    ):
+    required = {"tour_category", "tour_purpose", "NUMBER_HH", "finalweight"}
+    if not required.issubset(set(rd.tours.columns)):
         return tour_tod.empty()
     purpose_col = _summary_purpose_column(rd.tours)
     if not purpose_col:
@@ -347,7 +358,7 @@ def tour_tod(rd: RunData, config: Config) -> pl.DataFrame:
         "tours": (
             "tour_purpose",
             "tour_category",
-            "number_of_participants",
+            "NUMBER_HH",
             "SKIMDIST",
             "finalweight",
         )
@@ -357,7 +368,7 @@ def tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     required = {
         "tour_purpose",
         "tour_category",
-        "number_of_participants",
+        "NUMBER_HH",
         "SKIMDIST",
         "finalweight",
     }
@@ -378,16 +389,8 @@ def tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
             .round(0)
             .alias("distance_miles_rounded"),
         )
+        .pipe(_tour_weights_for_summary)
         .with_columns(
-            pl.when(pl.col("tour_category").cast(pl.Utf8).str.to_lowercase() == "joint")
-            .then(
-                pl.col("finalweight")
-                * pl.coalesce(
-                    [pl.col("number_of_participants").cast(pl.Float64), pl.lit(1.0)]
-                )
-            )
-            .otherwise(pl.col("finalweight"))
-            .alias("adjusted_weight"),
             _rounded_distance_bin_expr("distance_miles_rounded"),
         )
     )
@@ -395,7 +398,7 @@ def tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     by_purpose = weighted_group_sum(
         base,
         ["distance_bin", "tour_purpose"],
-        weight_col="adjusted_weight",
+        weight_col="_tour_weight",
         output_col="tour_count",
     )
     all_purposes = _all_purpose_rollup(

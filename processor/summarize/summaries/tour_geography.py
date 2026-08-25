@@ -25,7 +25,7 @@ from runtime.config import Config
         "average_tour_distance": pl.Float64,
         "person_count": pl.Float64,
     },
-    required_columns={"per": ("finalweight",)},
+    required_columns={"per": ("finalweight", "home_zone_id")},
 )
 def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     ptype_col = "person_type" if "person_type" in rd.per.columns else None
@@ -40,7 +40,7 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
                 .is_in(["true", "1"])
             )
         )
-        if "is_worker" in rd.per.columns
+        if {"is_worker", "workplace_zone_id"}.issubset(rd.per.columns)
         else rd.per.head(0)
     )
 
@@ -56,7 +56,7 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
                 )
                 & (pl.col(ptype_col).cast(pl.Utf8) == "3")
             )
-            if "is_student" in rd.per.columns
+            if {"is_student", "school_zone_id"}.issubset(rd.per.columns)
             else rd.per.head(0)
         )
         schl_s = (
@@ -70,7 +70,7 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
                 )
                 & (pl.col(ptype_col).cast(pl.Utf8).cast(pl.Int32, strict=False) >= 6)
             )
-            if "is_student" in rd.per.columns
+            if {"is_student", "school_zone_id"}.issubset(rd.per.columns)
             else rd.per.head(0)
         )
     else:
