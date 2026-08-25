@@ -49,16 +49,7 @@ def _apply_output_columns(
     if results.is_empty():
         return trips
 
-    outputs_long = (
-        results.group_by(["_row_id", "output", "combine_method"], maintain_order=True)
-        .agg(
-            pl.when(pl.col("combine_method").first() == "sum")
-            .then(pl.col("value").sum())
-            .otherwise(pl.col("value").first())
-            .alias("value")
-        )
-        .select("_row_id", "output", "value")
-    )
+    outputs_long = _combined_output_values(results)
 
     outputs_wide = (
         outputs_long.pivot(
@@ -82,6 +73,23 @@ def _apply_output_columns(
             ]
         )
     return trips.join(outputs_wide, on="_row_id", how="left")
+
+
+def _combined_output_values(results: pl.DataFrame) -> pl.DataFrame:
+    if results.is_empty():
+        return pl.DataFrame(
+            schema={"_row_id": pl.Int64, "output": pl.String, "value": pl.Float64}
+        )
+    return (
+        results.group_by(["_row_id", "output", "combine_method"], maintain_order=True)
+        .agg(
+            pl.when(pl.col("combine_method").first() == "sum")
+            .then(pl.col("value").sum())
+            .otherwise(pl.col("value").first())
+            .alias("value")
+        )
+        .select("_row_id", "output", "value")
+    )
 
 
 def _empty_lookup_results_frame() -> pl.DataFrame:

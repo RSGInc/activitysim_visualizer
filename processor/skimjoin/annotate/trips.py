@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import polars as pl
 
-from processor.skimjoin.annotate.engine import annotate_lookup_table
+from processor.skimjoin.annotate.engine import (
+    annotate_lookup_table,
+    lookup_output_values,
+)
 from processor.skimjoin.config.schema import NormalizedConfig, NormalizedLookupRule
 from processor.skimjoin.skimstore.base import SkimStore
 
@@ -36,6 +39,25 @@ def annotate_trips(
         include_fallback_report=include_fallback_report,
         collect_reports=collect_reports,
         table_name="trips",
+    )
+
+
+def lookup_trip_output_values(
+    trips: pl.DataFrame,
+    normalized: NormalizedConfig,
+    inventory: pl.DataFrame,
+    *,
+    rules: list[NormalizedLookupRule],
+    skim_store: SkimStore | None = None,
+) -> pl.DataFrame:
+    trips_with_ids = trips.with_row_index("_row_id")
+    return lookup_output_values(
+        _trip_lookup_source(trips_with_ids, normalized),
+        rules=rules,
+        normalized=normalized,
+        inventory=inventory,
+        mode_column=normalized.activitysim.trip_mode_column,
+        skim_store=skim_store,
     )
 
 

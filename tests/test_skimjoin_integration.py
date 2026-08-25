@@ -19,7 +19,11 @@ from processor.prepare.cache import load_prepared_run_cache, write_prepared_run_
 from processor.skimjoin.annotate.tours import annotate_tours
 from processor.skimjoin.annotate.trips import annotate_trips
 from processor.skimjoin.config.validation import ConfigValidationError, load_config, validate_config
-from processor.skimjoin.hypothetical_sidecars import build_hypothetical_sidecars
+from processor.skimjoin.hypothetical_sidecars import (
+    TOUR_HYPOTHETICAL_SIDECAR_SCHEMA,
+    TRIP_HYPOTHETICAL_SIDECAR_SCHEMA,
+    build_hypothetical_sidecars,
+)
 from processor.skimjoin.inventory import inventory_skim_files
 from processor.skimjoin.pipeline import apply_skimjoin
 from processor.skimjoin.runtime_execution import _validate_runtime_inventory
@@ -2185,7 +2189,7 @@ def test_annotate_trips_can_skip_discarded_reports(
     assert missing.is_empty()
 
 
-def test_hypothetical_sidecars_use_report_free_mode_specific_annotations(
+def test_hypothetical_sidecars_use_mode_specific_long_lookup_values(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2207,9 +2211,9 @@ def test_hypothetical_sidecars_use_report_free_mode_specific_annotations(
     normalized = config.skimjoin.normalized_config
     assert normalized is not None
     inventory = inventory_skim_files(normalized.skim_files)
-    calls: list[tuple[str, str, set[str], bool, bool]] = []
+    calls: list[tuple[str, str, set[str]]] = []
 
-    def _annotate(frame, _normalized, _inventory, **kwargs):
+    def _lookup_values(frame, _normalized, _inventory, **kwargs):
         mode_column = "trip_mode" if "trip_mode" in frame.columns else "tour_mode"
         table_name = "trips" if mode_column == "trip_mode" else "tours"
         mode = str(frame.item(0, mode_column))
@@ -2219,26 +2223,24 @@ def test_hypothetical_sidecars_use_report_free_mode_specific_annotations(
                 table_name,
                 mode,
                 {str(rule.mode) for rule in rules},
-                kwargs["collect_reports"],
-                kwargs["include_fallback_report"],
             )
         )
         outputs = sorted({str(rule.output) for rule in rules})
-        return (
-            frame.with_columns(
-                *[pl.lit(float(index + 1)).alias(output) for index, output in enumerate(outputs)]
-            ),
-            pl.DataFrame(),
-            pl.DataFrame(),
+        return pl.DataFrame(
+            [
+                {"_row_id": row_id, "output": output, "value": float(index + 1)}
+                for index, output in enumerate(outputs)
+                for row_id in range(frame.height)
+            ]
         )
 
     monkeypatch.setattr(
-        "processor.skimjoin.hypothetical_sidecars.annotate_trips",
-        _annotate,
+        "processor.skimjoin.hypothetical_sidecars.lookup_trip_output_values",
+        _lookup_values,
     )
     monkeypatch.setattr(
-        "processor.skimjoin.hypothetical_sidecars.annotate_tours",
-        _annotate,
+        "processor.skimjoin.hypothetical_sidecars.lookup_tour_output_values",
+        _lookup_values,
     )
 
     trip_sidecar, tour_sidecar = build_hypothetical_sidecars(
@@ -2263,10 +2265,86 @@ def test_hypothetical_sidecars_use_report_free_mode_specific_annotations(
     assert not trip_sidecar.is_empty()
     assert not tour_sidecar.is_empty()
     assert calls == [
-        ("trips", "SOV", {"SOV"}, False, False),
-        ("trips", "WALK", {"WALK"}, False, False),
-        ("tours", "SOV", {"SOV"}, False, False),
-        ("tours", "WALK", {"WALK"}, False, False),
+        ("trips", "SOV", {"SOV"}),
+        ("trips", "WALK", {"WALK"}),
+        ("tours", "SOV", {"SOV"}),
+        ("tours", "WALK", {"WALK"}),
+    ]
+
+
+def test_hypothetical_sidecars_preserve_values_nulls_and_schema(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    _write_omx(skim_path)
+    _write_skimjoin_config(tmp_path, skim_file=skim_path)
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+
+    trip_sidecar, tour_sidecar = build_hypothetical_sidecars(
+        trips=pl.DataFrame(
+            {
+                "trip_id": [1, 2],
+                "trip_mode": ["WALK", "SOV"],
+                "OTAZ": [101, 999],
+                "DTAZ": [102, 102],
+                "finalweight": [2.0, 4.0],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [10],
+                "tour_mode": ["WALK"],
+                "OTAZ": [101],
+                "DTAZ": [102],
+                "finalweight": [3.0],
+            }
+        ),
+        normalized=normalized,
+        inventory=inventory_skim_files(normalized.skim_files),
+        skim_store=OmxSkimStore(),
+    )
+
+    assert trip_sidecar.schema == TRIP_HYPOTHETICAL_SIDECAR_SCHEMA
+    assert trip_sidecar.sort("trip_id").to_dicts() == [
+        {
+            "trip_id": 1,
+            "observed_mode": "WALK",
+            "hypothetical_mode": "SOV",
+            "component": "skim_time",
+            "value": 2.0,
+            "finalweight": 2.0,
+        },
+        {
+            "trip_id": 2,
+            "observed_mode": "SOV",
+            "hypothetical_mode": "SOV",
+            "component": "skim_time",
+            "value": None,
+            "finalweight": 4.0,
+        },
+    ]
+    assert tour_sidecar.schema == TOUR_HYPOTHETICAL_SIDECAR_SCHEMA
+    assert tour_sidecar.sort("component").to_dicts() == [
+        {
+            "tour_id": 10,
+            "observed_mode": "WALK",
+            "hypothetical_mode": "SOV",
+            "direction": "inbound",
+            "component": "skim_time_inbound",
+            "value": 3.0,
+            "finalweight": 3.0,
+        },
+        {
+            "tour_id": 10,
+            "observed_mode": "WALK",
+            "hypothetical_mode": "SOV",
+            "direction": "outbound",
+            "component": "skim_time_outbound",
+            "value": 2.0,
+            "finalweight": 3.0,
+        },
     ]
 
 

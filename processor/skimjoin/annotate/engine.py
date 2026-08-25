@@ -11,6 +11,7 @@ from processor.skimjoin.annotate.trip_lookup_reports import (
     _apply_output_columns,
     _apply_rule_sentinel_values,
     _build_lookup_summary_frame,
+    _combined_output_values,
     _concat_missing_frames,
     _empty_lookup_results_frame,
     _missing_report_schema,
@@ -25,6 +26,30 @@ from processor.skimjoin.annotate.trip_rule_selection import (
 from processor.skimjoin.annotate.trip_work_items import _resolve_rule_work_items
 from processor.skimjoin.config.schema import NormalizedConfig, NormalizedLookupRule
 from processor.skimjoin.skimstore.base import SkimStore
+
+
+def lookup_output_values(
+    source_table: pl.DataFrame,
+    *,
+    rules: list[NormalizedLookupRule],
+    normalized: NormalizedConfig,
+    inventory: pl.DataFrame,
+    mode_column: str,
+    skim_store: SkimStore | None = None,
+) -> pl.DataFrame:
+    if "_row_id" not in source_table.columns:
+        raise ValueError("source_table must include _row_id.")
+    if mode_column not in source_table.columns:
+        return _combined_output_values(pl.DataFrame())
+
+    resolved_results = _resolved_lookup_values_without_reports(
+        rules=rules,
+        mode_subsets=_partition_trips_by_mode(source_table, mode_column),
+        inventory=inventory,
+        normalized=normalized,
+        skim_store=skim_store or SkimStore(),
+    )
+    return _combined_output_values(resolved_results)
 
 
 def annotate_lookup_table(
