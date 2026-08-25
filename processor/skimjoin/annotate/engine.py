@@ -37,6 +37,8 @@ def lookup_output_values(
     mode_column: str,
     skim_store: SkimStore | None = None,
 ) -> pl.DataFrame:
+    skim_store = skim_store or SkimStore()
+    _plan_csv_tables(skim_store, inventory, normalized, rules)
     if "_row_id" not in source_table.columns:
         raise ValueError("source_table must include _row_id.")
     if mode_column not in source_table.columns:
@@ -47,7 +49,7 @@ def lookup_output_values(
         mode_subsets=_partition_trips_by_mode(source_table, mode_column),
         inventory=inventory,
         normalized=normalized,
-        skim_store=skim_store or SkimStore(),
+        skim_store=skim_store,
     )
     return _combined_output_values(resolved_results)
 
@@ -68,6 +70,7 @@ def annotate_lookup_table(
     pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame
 ]:
     skim_store = skim_store or SkimStore()
+    _plan_csv_tables(skim_store, inventory, normalized, rules)
     collect_reports = collect_reports or include_fallback_report
     if "_row_id" not in base_table.columns:
         base_table = base_table.with_row_index("_row_id")
@@ -137,6 +140,19 @@ def annotate_lookup_table(
             fallback_report,
         )
     return annotated.drop("_row_id"), lookup_summary, missing_report
+
+
+def _plan_csv_tables(
+    skim_store: SkimStore,
+    inventory: pl.DataFrame,
+    normalized: NormalizedConfig,
+    rules: list[NormalizedLookupRule],
+) -> None:
+    all_rules = [*normalized.trip_lookups, *normalized.tour_lookups, *rules]
+    skim_store.plan_csv_tables(
+        inventory,
+        matrix_templates={rule.matrix for rule in all_rules},
+    )
 
 
 def _resolved_lookup_values_without_reports(

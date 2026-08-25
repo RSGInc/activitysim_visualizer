@@ -2535,6 +2535,120 @@ def test_annotate_trips_supports_csv_od_lookup(tmp_path: Path) -> None:
     assert missing["destination"].to_list() == [101]
 
 
+def test_annotate_trips_scans_each_multi_value_csv_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    keyed_path = tmp_path / "maz_stop_walk.csv"
+    _write_csv_skim(
+        keyed_path,
+        rows=[
+            {
+                "maz": 101,
+                "walk_dist_local_bus": 0.25,
+                "walk_dist_premium_transit": None,
+                "unused": 100.0,
+            },
+            {
+                "maz": 101,
+                "walk_dist_local_bus": None,
+                "walk_dist_premium_transit": 0.6,
+                "unused": 200.0,
+            },
+        ],
+    )
+    od_path = tmp_path / "maz_maz_walk.csv"
+    _write_csv_od_skim(
+        od_path,
+        rows=[
+            {
+                "OMAZ": 101,
+                "DMAZ": 102,
+                "DISTWALK": 0.5,
+                "actual": None,
+                "unused": 100.0,
+            },
+            {
+                "OMAZ": 101,
+                "DMAZ": 102,
+                "DISTWALK": None,
+                "actual": 10.0,
+                "unused": 200.0,
+            },
+        ],
+    )
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[keyed_path, od_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  WALK:",
+            "    local_stop:",
+            "      output: skim_local_stop",
+            "      lookup: key",
+            "      key_column: o_maz",
+            "      matrix: maz_stop_walk__walk_dist_local_bus",
+            "    premium_stop:",
+            "      output: skim_premium_stop",
+            "      lookup: key",
+            "      key_column: o_maz",
+            "      matrix: maz_stop_walk__walk_dist_premium_transit",
+            "    walk_distance:",
+            "      output: skim_walk_distance",
+            "      origin: o_maz",
+            "      destination: d_maz",
+            "      matrix: maz_maz_walk__DISTWALK",
+            "    walk_actual:",
+            "      output: skim_walk_actual",
+            "      origin: o_maz",
+            "      destination: d_maz",
+            "      matrix: maz_maz_walk__actual",
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+    inventory = inventory_skim_files(normalized.skim_files)
+
+    scan_calls: list[Path] = []
+    original_scan_csv = pl.scan_csv
+
+    def tracked_scan_csv(source, *args, **kwargs):
+        scan_calls.append(Path(source))
+        return original_scan_csv(source, *args, **kwargs)
+
+    monkeypatch.setattr(pl, "scan_csv", tracked_scan_csv)
+    skim_store = OmxSkimStore()
+    annotated, _, missing = annotate_trips(
+        pl.DataFrame(
+            {
+                "trip_id": [1],
+                "trip_mode": ["WALK"],
+                "o_maz": [101],
+                "d_maz": [102],
+                "OTAZ": [101],
+                "DTAZ": [102],
+            }
+        ),
+        normalized,
+        inventory,
+        skim_store=skim_store,
+    )
+
+    assert annotated.select(
+        "skim_local_stop",
+        "skim_premium_stop",
+        "skim_walk_distance",
+        "skim_walk_actual",
+    ).row(0) == (0.25, 0.6, 0.5, 10.0)
+    assert missing.is_empty()
+    assert scan_calls.count(keyed_path) == 1
+    assert scan_calls.count(od_path) == 1
+    assert "unused" not in next(iter(skim_store._keyed_csv_cache.values())).columns
+    assert "unused" not in next(iter(skim_store._od_csv_cache.values())).columns
+
+
 def test_annotate_trips_resolves_placeholders_into_multiple_matrix_groups(
     tmp_path: Path,
 ) -> None:
