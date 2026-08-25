@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
 import polars as pl
+import pyarrow.parquet as pq
 
 from processor.skimjoin.annotate.tours import lookup_tour_output_values
 from processor.skimjoin.annotate.trips import lookup_trip_output_values
@@ -38,28 +43,42 @@ def build_hypothetical_sidecars(
     skim_store: SkimStore | None = None,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     """Build long-form hypothetical skim sidecars for trips and tours."""
-    trip_sidecar = _build_trip_hypothetical_sidecar(
-        trips=trips,
-        normalized=normalized,
-        inventory=inventory,
-        skim_store=skim_store,
-    )
-    tour_sidecar = _build_tour_hypothetical_sidecar(
-        tours=tours,
-        normalized=normalized,
-        inventory=inventory,
-        skim_store=skim_store,
-    )
-    return trip_sidecar, tour_sidecar
+    with TemporaryDirectory(prefix="skimjoin-hypothetical-") as temp_dir:
+        trip_path = Path(temp_dir) / "trip_hypothetical_skims.parquet"
+        tour_path = Path(temp_dir) / "tour_hypothetical_skims.parquet"
+        _write_sidecar_batches(
+            trip_path,
+            _trip_hypothetical_batches(
+                trips=trips,
+                normalized=normalized,
+                inventory=inventory,
+                skim_store=skim_store,
+            ),
+            schema=TRIP_HYPOTHETICAL_SIDECAR_SCHEMA,
+        )
+        _write_sidecar_batches(
+            tour_path,
+            _tour_hypothetical_batches(
+                tours=tours,
+                normalized=normalized,
+                inventory=inventory,
+                skim_store=skim_store,
+            ),
+            schema=TOUR_HYPOTHETICAL_SIDECAR_SCHEMA,
+        )
+        return (
+            _read_sidecar(trip_path, TRIP_HYPOTHETICAL_SIDECAR_SCHEMA),
+            _read_sidecar(tour_path, TOUR_HYPOTHETICAL_SIDECAR_SCHEMA),
+        )
 
 
-def _build_trip_hypothetical_sidecar(
+def _trip_hypothetical_batches(
     *,
     trips: pl.DataFrame,
     normalized: NormalizedConfig,
     inventory: pl.DataFrame,
     skim_store: SkimStore | None,
-) -> pl.DataFrame:
+) -> Iterator[pl.DataFrame]:
     mode_column = normalized.activitysim.trip_mode_column
     trip_id_column = normalized.activitysim.trip_id_column
     if (
@@ -68,9 +87,8 @@ def _build_trip_hypothetical_sidecar(
         or trip_id_column not in trips.columns
         or "finalweight" not in trips.columns
     ):
-        return pl.DataFrame(schema=TRIP_HYPOTHETICAL_SIDECAR_SCHEMA)
+        return
 
-    frames: list[pl.DataFrame] = []
     for mode in _lookup_modes(normalized.trip_lookups):
         mode_rules = _rules_for_mode(normalized.trip_lookups, mode)
         outputs = _outputs_for_mode(mode_rules, mode)
@@ -87,25 +105,25 @@ def _build_trip_hypothetical_sidecar(
             skim_store=skim_store,
             rules=mode_rules,
         )
-        frames.append(
-            _trip_sidecar_from_output_values(
-                hypothetical_input,
-                output_values,
-                outputs=outputs,
-                trip_id_column=trip_id_column,
-                hypothetical_mode=mode,
-            )
+        sidecar = _trip_sidecar_from_output_values(
+            hypothetical_input,
+            output_values,
+            outputs=outputs,
+            trip_id_column=trip_id_column,
+            hypothetical_mode=mode,
         )
-    return _concat_frames(frames, TRIP_HYPOTHETICAL_SIDECAR_SCHEMA)
+        if not sidecar.is_empty():
+            yield sidecar
+        del hypothetical_input, output_values, sidecar
 
 
-def _build_tour_hypothetical_sidecar(
+def _tour_hypothetical_batches(
     *,
     tours: pl.DataFrame,
     normalized: NormalizedConfig,
     inventory: pl.DataFrame,
     skim_store: SkimStore | None,
-) -> pl.DataFrame:
+) -> Iterator[pl.DataFrame]:
     mode_column = normalized.activitysim.tour_mode_column
     tour_id_column = normalized.activitysim.tour_id_column
     if (
@@ -114,9 +132,8 @@ def _build_tour_hypothetical_sidecar(
         or tour_id_column not in tours.columns
         or "finalweight" not in tours.columns
     ):
-        return pl.DataFrame(schema=TOUR_HYPOTHETICAL_SIDECAR_SCHEMA)
+        return
 
-    frames: list[pl.DataFrame] = []
     for mode in _lookup_modes(normalized.tour_lookups):
         mode_rules = _rules_for_mode(normalized.tour_lookups, mode)
         outputs = _outputs_for_mode(mode_rules, mode)
@@ -133,16 +150,16 @@ def _build_tour_hypothetical_sidecar(
             skim_store=skim_store,
             rules=mode_rules,
         )
-        frames.append(
-            _tour_sidecar_from_output_values(
-                hypothetical_input,
-                output_values,
-                outputs=outputs,
-                tour_id_column=tour_id_column,
-                hypothetical_mode=mode,
-            )
+        sidecar = _tour_sidecar_from_output_values(
+            hypothetical_input,
+            output_values,
+            outputs=outputs,
+            tour_id_column=tour_id_column,
+            hypothetical_mode=mode,
         )
-    return _concat_frames(frames, TOUR_HYPOTHETICAL_SIDECAR_SCHEMA)
+        if not sidecar.is_empty():
+            yield sidecar
+        del hypothetical_input, output_values, sidecar
 
 
 def _lookup_modes(rules) -> list[str]:
@@ -263,11 +280,32 @@ def _available_outputs(
     return [output for output in configured_outputs if output in present]
 
 
-def _concat_frames(
-    frames: list[pl.DataFrame],
+def _write_sidecar_batches(
+    path: Path,
+    batches: Iterable[pl.DataFrame],
+    *,
+    schema: dict[str, pl.DataType],
+) -> None:
+    writer: pq.ParquetWriter | None = None
+    try:
+        for batch in batches:
+            if batch.is_empty():
+                del batch
+                continue
+            table = batch.cast(schema, strict=False).to_arrow()
+            if writer is None:
+                writer = pq.ParquetWriter(path, table.schema)
+            writer.write_table(table)
+            del table, batch
+    finally:
+        if writer is not None:
+            writer.close()
+
+
+def _read_sidecar(
+    path: Path,
     schema: dict[str, pl.DataType],
 ) -> pl.DataFrame:
-    populated = [frame for frame in frames if not frame.is_empty()]
-    if not populated:
+    if not path.exists():
         return pl.DataFrame(schema=schema)
-    return pl.concat(populated, how="vertical_relaxed").cast(schema, strict=False)
+    return pl.read_parquet(path, low_memory=True).cast(schema, strict=False)
