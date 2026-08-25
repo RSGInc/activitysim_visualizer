@@ -35,6 +35,7 @@ SUMMARY_METRIC_COLUMNS = [
     "n_total",
     "n_valid",
     "mean",
+    "mean_nonzero",
     "std",
     "min",
     "max",
@@ -556,10 +557,19 @@ def family_stats_table(
     return filtered_list
 
 
-def skim_summary_precision_overrides() -> dict[str, int]:
+def skim_summary_decimal_places() -> dict[str, int]:
     return {
-        "n_total": 0,
-        "n_valid": 0,
+        "n_total": 3,
+        "n_valid": 3,
+        "mean": 1,
+        "mean_nonzero": 1,
+        "std": 1,
+        "min": 3,
+        "max": 3,
+        "median": 1,
+        "mode": 1,
+        "zero_share": 3,
+        "missing_share": 3,
     }
 
 

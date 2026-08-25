@@ -178,6 +178,27 @@ display:
         4: 2 School
         5: 1 Work + 1 School
 
+    daily_activity_pattern:
+      mapping:
+        M: Mandatory
+        N: Non-Mandatory
+        H: At-Home
+
+    tour_composition:
+      mapping:
+        adults: Adults
+        mixed: Mixed
+        children: Children
+
+    atwork_subtour_frequency_category:
+      mapping:
+        no_subtours: None
+        eat: 1 Eating Out
+        business1: 1 Business
+        maint: 1 Maintenance
+        business2: 2 Business
+        eat_business: 1 Eating Out + 1 Business
+
     stop_purpose:
       mapping:
         work: Work

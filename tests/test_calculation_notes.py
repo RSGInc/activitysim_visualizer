@@ -107,6 +107,9 @@ def test_skim_summary_notes_render_table_column_definitions() -> None:
 
     for rendered in (trip_note, tour_note):
         assert "<strong>Table columns:</strong>" in rendered
+        assert "Zero is a valid value." in rendered
+        assert "Mean Non-Zero:" in rendered
+        assert "including zeros" in rendered
         assert "Zero Share:" in rendered
         assert "Missing Share:" in rendered
 

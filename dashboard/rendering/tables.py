@@ -47,6 +47,43 @@ def format_numeric(value, *, precision: int | None = 2):
     return value
 
 
+def format_fixed_decimal(value, *, decimal_places: int):
+    if value is None:
+        return None
+    if isinstance(value, (bool, np.bool_)):
+        return value
+    if isinstance(value, (int, np.integer, float, np.floating)):
+        number = float(value)
+        if not math.isfinite(number):
+            return None
+        return f"{number:.{max(decimal_places, 0)}f}"
+    return value
+
+
+def format_fixed_decimal_frame(
+    frame: pl.DataFrame,
+    *,
+    decimal_places_by_column: dict[str, int] | None = None,
+) -> pl.DataFrame:
+    if not decimal_places_by_column:
+        return frame
+    expressions = []
+    for column, decimal_places in decimal_places_by_column.items():
+        dtype = frame.schema.get(column)
+        if dtype is None or not getattr(dtype, "is_numeric", lambda: False)():
+            continue
+        expressions.append(
+            pl.col(column).map_elements(
+                lambda value, places=decimal_places: format_fixed_decimal(
+                    value,
+                    decimal_places=places,
+                ),
+                return_dtype=pl.Utf8,
+            ).alias(column)
+        )
+    return frame.with_columns(expressions) if expressions else frame
+
+
 def format_numeric_frame(
     frame: pl.DataFrame,
     *,
@@ -95,6 +132,7 @@ _WORD_OVERRIDES = {
 _NAME_OVERRIDES = {
     "% Diff": "% Diff", "FACTYPE": "Facility Type",
     "From_Node": "From Node", "To_Node": "To Node",
+    "mean_nonzero": "Mean Non-Zero",
 }
 
 
@@ -152,6 +190,7 @@ def data_table(
     numeric_precision: int | None = 2,
     numeric_precision_by_column: dict[str, int] | None = None,
     column_sorters: dict[str, str] | None = None,
+    numeric_decimal_places_by_column: dict[str, int] | None = None,
 ) -> pn.viewable.Viewable:
     data = list(data)
     tabs = pn.Tabs()
@@ -162,7 +201,10 @@ def data_table(
             continue
         full_label = str(label)
         display = format_numeric_frame(
-            drop_index_columns(frame),
+            format_fixed_decimal_frame(
+                drop_index_columns(frame),
+                decimal_places_by_column=numeric_decimal_places_by_column,
+            ),
             numeric_precision=numeric_precision,
             numeric_precision_by_column=numeric_precision_by_column,
         )

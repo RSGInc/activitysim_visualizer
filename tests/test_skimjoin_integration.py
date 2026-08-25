@@ -1626,6 +1626,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "n_total": 1.0,
             "n_valid": 1.0,
             "mean": 2.0,
+            "mean_nonzero": 2.0,
             "std": 0.0,
             "min": 2.0,
             "max": 2.0,
@@ -1641,6 +1642,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "n_total": 1.0,
             "n_valid": 1.0,
             "mean": 2.0,
+            "mean_nonzero": 2.0,
             "std": 0.0,
             "min": 2.0,
             "max": 2.0,
@@ -1658,6 +1660,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "n_total": 1.0,
             "n_valid": 1.0,
             "mean": 3.0,
+            "mean_nonzero": 3.0,
             "std": 0.0,
             "min": 3.0,
             "max": 3.0,
@@ -1673,6 +1676,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "n_total": 1.0,
             "n_valid": 1.0,
             "mean": 2.0,
+            "mean_nonzero": 2.0,
             "std": 0.0,
             "min": 2.0,
             "max": 2.0,
@@ -1688,6 +1692,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "n_total": 1.0,
             "n_valid": 1.0,
             "mean": 3.0,
+            "mean_nonzero": 3.0,
             "std": 0.0,
             "min": 3.0,
             "max": 3.0,
@@ -1703,6 +1708,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "n_total": 1.0,
             "n_valid": 1.0,
             "mean": 2.0,
+            "mean_nonzero": 2.0,
             "std": 0.0,
             "min": 2.0,
             "max": 2.0,
@@ -3277,6 +3283,7 @@ def test_trip_skim_component_stats_follow_weighted_contract(tmp_path: Path) -> N
         "n_total": 6.0,
         "n_valid": 3.0,
         "mean": pytest.approx(20.0 / 3.0),
+        "mean_nonzero": 10.0,
         "std": pytest.approx(math.sqrt(200.0 / 9.0)),
         "min": 0.0,
         "max": 10.0,
@@ -3292,6 +3299,7 @@ def test_trip_skim_component_stats_follow_weighted_contract(tmp_path: Path) -> N
         "n_total": 6.0,
         "n_valid": 6.0,
         "mean": pytest.approx(20.0 / 6.0),
+        "mean_nonzero": pytest.approx(20.0 / 6.0),
         "std": pytest.approx(math.sqrt(8.0 / 9.0)),
         "min": 2.0,
         "max": 4.0,
@@ -3307,6 +3315,7 @@ def test_trip_skim_component_stats_follow_weighted_contract(tmp_path: Path) -> N
         "n_total": 8.0,
         "n_valid": 5.0,
         "mean": 6.0,
+        "mean_nonzero": 7.5,
         "std": pytest.approx(math.sqrt(14.0)),
         "min": 0.0,
         "max": 10.0,
@@ -3370,12 +3379,14 @@ def test_tour_skim_component_summaries_follow_unweighted_mode(tmp_path: Path) ->
     assert drive_time["n_total"] == 3.0
     assert drive_time["n_valid"] == 2.0
     assert drive_time["mean"] == 5.0
+    assert drive_time["mean_nonzero"] == 10.0
     assert drive_time["mode"] == 0.0
     assert drive_time["zero_share"] == 0.5
     assert drive_time["missing_share"] == pytest.approx(1.0 / 3.0)
     assert all_modes_time["n_total"] == 5.0
     assert all_modes_time["n_valid"] == 4.0
     assert all_modes_time["mean"] == 5.0
+    assert all_modes_time["mean_nonzero"] == pytest.approx(20.0 / 3.0)
     assert all_modes_time["mode"] == 5.0
     assert all_modes_time["zero_share"] == 0.25
     assert all_modes_time["missing_share"] == 0.2

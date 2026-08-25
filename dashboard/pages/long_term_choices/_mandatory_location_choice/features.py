@@ -498,6 +498,11 @@ class MandatoryLocationFeatureMixin:
                 data_table(
                     comparison_tables,
                     "Average Mandatory Tour Distance vs Base Run",
+                    numeric_decimal_places_by_column={
+                        "Average Mandatory Tour Distance": 1,
+                        "Base Run Average Mandatory Tour Distance": 1,
+                        "Difference": 1,
+                    },
                 ),
             )
         ]

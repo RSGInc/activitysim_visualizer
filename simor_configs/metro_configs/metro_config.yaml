@@ -172,7 +172,35 @@ prepare:
             16: OTHER
             995: MISSING
         tour_purpose:
-          mapping: &raw_statewide_purposes
+          mapping:
+            -1: othdiscr
+            1: loop
+            2: work
+            3: othmaint
+            4: school
+            5: othmaint
+            6: escort
+            7: shopping
+            8: eatout
+            9: social
+            10: othmaint
+            12: othdiscr
+            13: othdiscr
+            14: loop
+            995: null
+        tour_category:
+          mapping:
+            1: mandatory
+            2: non_mandatory
+            3: atwork
+            4: joint
+      trips:
+        trip_mode:
+          source: linked_trip_mode
+          mapping: *raw_statewide_tour_modes
+        trip_purpose:
+          source: d_purpose_category
+          mapping:
             -1: othdiscr
             1: home
             2: work
@@ -188,19 +216,6 @@ prepare:
             13: othdiscr
             14: home
             995: null
-        tour_category:
-          mapping:
-            1: mandatory
-            2: non_mandatory
-            3: atwork
-            4: joint
-      trips:
-        trip_mode:
-          source: linked_trip_mode
-          mapping: *raw_statewide_tour_modes
-        trip_purpose:
-          source: d_purpose_category
-          mapping: *raw_statewide_purposes
   output:
     file_format: parquet
   validation:

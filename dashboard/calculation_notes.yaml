@@ -563,15 +563,16 @@ notes:
 
   trip_skims.summary_table:
     method: descriptive_statistics
-    method_text: For each skim component and mode, the summary scans the prepared values once to calculate valid count, missing and zero shares, minimum, maximum, mean, median, and standard deviation.
+    method_text: For each skim component and mode, the summary calculates valid count, missing and zero shares, minimum, maximum, mean, mean excluding zeros, median, mode, and standard deviation.
     sources: [skimjoin_trip_component_stats]
     summary: The table reports descriptive statistics for the selected trip skim family and scenario.
     column_definitions:
       - "Skim Name: Display name of the selected skim component, including its unit when known."
       - "Trip Mode: Mode represented by the row."
       - "Total: Total trip weight in weighted mode, or number of trip records in unweighted mode, before missing skim values are removed."
-      - "Valid: Trip weight or record count with a nonmissing skim value."
-      - "Mean: Weighted arithmetic mean of valid values; in unweighted mode, the ordinary arithmetic mean."
+      - "Valid: Trip weight or record count with a nonmissing numeric skim value. Zero is a valid value."
+      - "Mean: Weighted arithmetic mean of valid values, including zeros; in unweighted mode, the ordinary arithmetic mean."
+      - "Mean Non-Zero: Weighted arithmetic mean of valid values that are not zero; in unweighted mode, the ordinary arithmetic mean of non-zero values. Blank when no valid non-zero values exist."
       - "Std Dev: Weighted population standard deviation of valid values; in unweighted mode, the population standard deviation."
       - "Min / Max: Smallest and largest valid skim values."
       - "Median: Weighted median of valid values; in unweighted mode, the ordinary median."
@@ -580,10 +581,11 @@ notes:
       - "Missing Share: Share of total trip weight or records whose skim value is missing."
     details:
       Aggregation:
-        - Prepared skim statistics provide the valid count, missing share, zero share, minimum, maximum, mean, median, and standard deviation for each component and mode.
+        - Prepared skim statistics provide the valid count, missing share, zero share, minimum, maximum, mean, mean excluding zeros, median, mode, and standard deviation for each component and mode.
       Filters:
         - Family and scenario selectors choose the skim components and whether chosen-mode or all-record values are summarized.
       Important details:
+        - Zero values are included in Mean and excluded only from Mean Non-Zero.
         - Walk distance, bike and e-bike distance, and bike logsum use one combined skimjoin output per mode and metric. The OMAZ-DMAZ lookup is attempted first; when it is unavailable, skimjoin falls back to the corresponding OTAZ-DTAZ OMX lookup.
         - Missing share for these combined outputs represents records unresolved by both the MAZ lookup and its TAZ fallback.
 
@@ -602,15 +604,16 @@ notes:
 
   tour_skims.summary_table:
     method: descriptive_statistics
-    method_text: For each directional skim component and mode, the summary calculates valid count, missing and zero shares, minimum, maximum, mean, median, and standard deviation from prepared tour values.
+    method_text: For each directional skim component and mode, the summary calculates valid count, missing and zero shares, minimum, maximum, mean, mean excluding zeros, median, mode, and standard deviation from prepared tour values.
     sources: [skimjoin_tour_component_stats]
     summary: The table reports descriptive statistics for the selected tour skim family, direction, and scenario.
     column_definitions:
       - "Skim Name: Display name of the selected directional skim component, including its unit when known."
       - "Tour Mode: Mode represented by the row."
       - "Total: Total tour weight in weighted mode, or number of tour records in unweighted mode, before missing skim values are removed."
-      - "Valid: Tour weight or record count with a nonmissing skim value."
-      - "Mean: Weighted arithmetic mean of valid values; in unweighted mode, the ordinary arithmetic mean."
+      - "Valid: Tour weight or record count with a nonmissing numeric skim value. Zero is a valid value."
+      - "Mean: Weighted arithmetic mean of valid values, including zeros; in unweighted mode, the ordinary arithmetic mean."
+      - "Mean Non-Zero: Weighted arithmetic mean of valid values that are not zero; in unweighted mode, the ordinary arithmetic mean of non-zero values. Blank when no valid non-zero values exist."
       - "Std Dev: Weighted population standard deviation of valid values; in unweighted mode, the population standard deviation."
       - "Min / Max: Smallest and largest valid skim values."
       - "Median: Weighted median of valid values; in unweighted mode, the ordinary median."
@@ -619,10 +622,11 @@ notes:
       - "Missing Share: Share of total tour weight or records whose skim value is missing."
     details:
       Aggregation:
-        - Prepared skim statistics provide the valid count, missing share, zero share, minimum, maximum, mean, median, and standard deviation for each component and mode.
+        - Prepared skim statistics provide the valid count, missing share, zero share, minimum, maximum, mean, mean excluding zeros, median, mode, and standard deviation for each component and mode.
       Filters:
         - Family, direction, and scenario selectors choose the displayed summary slice.
       Important details:
+        - Zero values are included in Mean and excluded only from Mean Non-Zero.
         - Walk distance, bike and e-bike distance, and bike logsum use one combined skimjoin output per mode and metric. The directional MAZ lookup is attempted first; when it is unavailable, skimjoin falls back to the corresponding directional TAZ OMX lookup.
         - Missing share for these combined outputs represents records unresolved by both the MAZ lookup and its TAZ fallback.
 

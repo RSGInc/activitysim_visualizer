@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from runtime.logging import get_logger
+from processor.cache_infra import read_manifest
 from processor.cache_identity import (
     build_run_fingerprint,
     build_run_keys,
@@ -94,6 +95,7 @@ def load_summary_runs_from_cache(
     explicit_cache_dirs: list[str] | None,
     run_entries: list[dict] | None,
     required_summary_ids: list[str] | tuple[str, ...] | None = None,
+    optional_summary_ids: list[str] | tuple[str, ...] = (),
 ) -> list[Any]:
     """Load validated summary caches for dashboard or export workflows."""
     from processor.summarize.external import (
@@ -114,6 +116,7 @@ def load_summary_runs_from_cache(
         if required_summary_ids is None
         else list(required_summary_ids)
     )
+    optional_summary_ids = list(optional_summary_ids)
     if not cache_dirs and not run_entries:
         raise ValueError("no summary cache directories were found to load.")
 
@@ -138,10 +141,11 @@ def load_summary_runs_from_cache(
                 config=config,
                 source_run_dir=entry.get("dir") or None,
             )
-        ids_for_cache = [
+        mapped_summary_ids = set(summary_table_map or {})
+        required_ids_for_cache = [
             summary_id
             for summary_id in required_summary_ids
-            if summary_id not in set(summary_table_map or {})
+            if summary_id not in mapped_summary_ids
         ]
         expectations = (
             shared.summary_cache_load_expectations(
@@ -158,6 +162,23 @@ def load_summary_runs_from_cache(
         )
         loaded_cache_runs: list[Any] = []
         try:
+            optional_ids_for_cache: list[str] = []
+            if optional_summary_ids and cache_dir.exists():
+                manifest = read_manifest(
+                    cache_dir,
+                    error_cls=summary_types.SummaryCacheError,
+                )
+                available_summary_ids = {
+                    str(summary_id)
+                    for summary_id in manifest.get("summary_ids", [])
+                }
+                optional_ids_for_cache = [
+                    summary_id
+                    for summary_id in optional_summary_ids
+                    if summary_id in available_summary_ids
+                    and summary_id not in mapped_summary_ids
+                ]
+            ids_for_cache = [*required_ids_for_cache, *optional_ids_for_cache]
             if ids_for_cache or not external_summary_run:
                 loaded_cache_runs = summary_cache.load_summary_run_bundle(
                     cache_dir,
