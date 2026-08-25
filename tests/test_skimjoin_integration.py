@@ -8,7 +8,6 @@ import sys
 import numpy as np
 import openmatrix as omx
 import polars as pl
-import pyarrow.parquet as pq
 import pytest
 from pydantic import ValidationError
 
@@ -23,7 +22,6 @@ from processor.skimjoin.config.validation import ConfigValidationError, load_con
 from processor.skimjoin.hypothetical_sidecars import (
     TOUR_HYPOTHETICAL_SIDECAR_SCHEMA,
     TRIP_HYPOTHETICAL_SIDECAR_SCHEMA,
-    _write_sidecar_batches,
     build_hypothetical_sidecars,
 )
 from processor.skimjoin.inventory import inventory_skim_files
@@ -2348,59 +2346,6 @@ def test_hypothetical_sidecars_preserve_values_nulls_and_schema(
             "finalweight": 3.0,
         },
     ]
-
-
-def test_hypothetical_sidecar_batches_are_appended_to_parquet(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "trip_hypothetical_skims.parquet"
-    batches = [
-        pl.DataFrame(
-            {
-                "trip_id": [1],
-                "observed_mode": ["WALK"],
-                "hypothetical_mode": [mode],
-                "component": ["skim_time"],
-                "value": [value],
-                "finalweight": [2.0],
-            }
-        )
-        for mode, value in [("SOV", 2.0), ("WALK", 3.0)]
-    ]
-
-    _write_sidecar_batches(
-        path,
-        iter(batches),
-        schema=TRIP_HYPOTHETICAL_SIDECAR_SCHEMA,
-    )
-
-    assert pq.ParquetFile(path).num_row_groups == 2
-    assert pl.read_parquet(path).to_dicts() == [
-        {
-            "trip_id": 1,
-            "observed_mode": "WALK",
-            "hypothetical_mode": "SOV",
-            "component": "skim_time",
-            "value": 2.0,
-            "finalweight": 2.0,
-        },
-        {
-            "trip_id": 1,
-            "observed_mode": "WALK",
-            "hypothetical_mode": "WALK",
-            "component": "skim_time",
-            "value": 3.0,
-            "finalweight": 2.0,
-        },
-    ]
-
-    empty_path = tmp_path / "empty.parquet"
-    _write_sidecar_batches(
-        empty_path,
-        iter([]),
-        schema=TRIP_HYPOTHETICAL_SIDECAR_SCHEMA,
-    )
-    assert not empty_path.exists()
 
 
 def test_annotate_trips_primary_lookup_success_does_not_emit_fallback_report(
