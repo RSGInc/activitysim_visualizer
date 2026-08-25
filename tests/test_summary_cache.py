@@ -2609,6 +2609,80 @@ def test_skim_family_tables_only_show_outputs_configured_for_each_mode(
         assert result["skim_name"].to_list() == ["Bike Distance (mi)"]
 
 
+def test_skim_family_tables_use_all_records_pairs_without_skimjoin_config(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    series = DashboardSummarySeries(label="Comparison", summaries_by_mode={})
+    for target_table, mode_column, direction_suffix in (
+        ("trips", "trip_mode", ""),
+        ("tours", "tour_mode", "_outbound"),
+    ):
+        auto_component = f"skim_auto_time{direction_suffix}"
+        transit_component = f"skim_transit_brt_ivtt{direction_suffix}"
+        walk_component = f"skim_walk_distance{direction_suffix}"
+        stats = pl.DataFrame(
+            {
+                "skim_scenario": [
+                    "chosen_mode",
+                    "chosen_mode",
+                    "chosen_mode",
+                    "chosen_mode",
+                    "chosen_mode",
+                    "all_records",
+                    "all_records",
+                ],
+                mode_column: [
+                    "SOV",
+                    "SOV",
+                    "HOV2",
+                    "WALK_TRANSIT",
+                    "WALK_TRANSIT",
+                    "SOV",
+                    "WALK_TRANSIT",
+                ],
+                "component": [
+                    auto_component,
+                    walk_component,
+                    walk_component,
+                    transit_component,
+                    auto_component,
+                    auto_component,
+                    transit_component,
+                ],
+                "n_valid": [5.0, 0.0, 0.0, 4.0, 0.0, 10.0, 10.0],
+            }
+        )
+        data = [("Comparison", series, stats)]
+
+        auto = family_stats_table(
+            config,
+            data,
+            family="Auto Skims",
+            mode_column=mode_column,
+            target_table=target_table,
+            direction="outbound" if direction_suffix else None,
+        )[0][1]
+        transit = family_stats_table(
+            config,
+            data,
+            family="Transit Skims",
+            mode_column=mode_column,
+            target_table=target_table,
+            direction="outbound" if direction_suffix else None,
+        )[0][1]
+
+        expected_auto_name = (
+            "Drive Time (min)" if target_table == "trips" else "Time (min)"
+        )
+        assert auto.select(mode_column, "skim_name").rows() == [
+            ("SOV", expected_auto_name)
+        ]
+        assert transit.select(mode_column, "skim_name").rows() == [
+            ("WALK_TRANSIT", "BRT In-Vehicle Time (min)")
+        ]
+
+
 def test_trip_skims_page_uses_family_selector_and_two_digit_precision_summary_table(
     tmp_path: Path,
 ) -> None:

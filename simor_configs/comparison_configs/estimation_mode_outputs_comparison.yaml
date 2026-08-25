@@ -20,6 +20,8 @@ runs:
       day: ../../simor_project_outputs/metro_outputs/estimation-mode-outputs/prepared_tables/day.parquet
       tours: ../../simor_project_outputs/metro_outputs/estimation-mode-outputs/prepared_tables/tours.parquet
       trips: ../../simor_project_outputs/metro_outputs/estimation-mode-outputs/prepared_tables/trips.parquet
+      trip_hypothetical_skims: ../../simor_project_outputs/metro_outputs/estimation-mode-outputs/prepared_tables/trip_hypothetical_skims.parquet
+      tour_hypothetical_skims: ../../simor_project_outputs/metro_outputs/estimation-mode-outputs/prepared_tables/tour_hypothetical_skims.parquet
       vehicles: ../../simor_project_outputs/metro_outputs/estimation-mode-outputs/prepared_tables/vehicles.parquet
       joint_tour_participants: ../../simor_project_outputs/metro_outputs/estimation-mode-outputs/prepared_tables/joint_tour_participants.parquet
       land_use: ../../simor_project_outputs/metro_outputs/estimation-mode-outputs/prepared_tables/land_use.parquet
@@ -31,6 +33,8 @@ runs:
       day: ../../simor_project_outputs/lcog_outputs/estimation-mode-outputs/prepared_tables/day.parquet
       tours: ../../simor_project_outputs/lcog_outputs/estimation-mode-outputs/prepared_tables/tours.parquet
       trips: ../../simor_project_outputs/lcog_outputs/estimation-mode-outputs/prepared_tables/trips.parquet
+      trip_hypothetical_skims: ../../simor_project_outputs/lcog_outputs/estimation-mode-outputs/prepared_tables/trip_hypothetical_skims.parquet
+      tour_hypothetical_skims: ../../simor_project_outputs/lcog_outputs/estimation-mode-outputs/prepared_tables/tour_hypothetical_skims.parquet
       vehicles: ../../simor_project_outputs/lcog_outputs/estimation-mode-outputs/prepared_tables/vehicles.parquet
       joint_tour_participants: ../../simor_project_outputs/lcog_outputs/estimation-mode-outputs/prepared_tables/joint_tour_participants.parquet
       land_use: ../../simor_project_outputs/lcog_outputs/estimation-mode-outputs/prepared_tables/land_use.parquet
@@ -42,6 +46,8 @@ runs:
       day: ../../simor_project_outputs/skats_outputs/estimation-mode-outputs/prepared_tables/day.parquet
       tours: ../../simor_project_outputs/skats_outputs/estimation-mode-outputs/prepared_tables/tours.parquet
       trips: ../../simor_project_outputs/skats_outputs/estimation-mode-outputs/prepared_tables/trips.parquet
+      trip_hypothetical_skims: ../../simor_project_outputs/skats_outputs/estimation-mode-outputs/prepared_tables/trip_hypothetical_skims.parquet
+      tour_hypothetical_skims: ../../simor_project_outputs/skats_outputs/estimation-mode-outputs/prepared_tables/tour_hypothetical_skims.parquet
       vehicles: ../../simor_project_outputs/skats_outputs/estimation-mode-outputs/prepared_tables/vehicles.parquet
       joint_tour_participants: ../../simor_project_outputs/skats_outputs/estimation-mode-outputs/prepared_tables/joint_tour_participants.parquet
       land_use: ../../simor_project_outputs/skats_outputs/estimation-mode-outputs/prepared_tables/land_use.parquet

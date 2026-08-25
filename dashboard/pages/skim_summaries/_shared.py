@@ -290,9 +290,34 @@ def _ignored_modes_for_series(
 def _configured_outputs_by_mode(
     config: Config,
     series: DashboardSummarySeries,
+    df: pl.DataFrame,
     *,
+    mode_column: str,
     target_table: str,
 ) -> dict[str, set[str]]:
+    required_columns = {"skim_scenario", mode_column, "component"}
+    if required_columns.issubset(df.columns):
+        summarized_pairs = (
+            df.select(
+                pl.col("skim_scenario").cast(pl.Utf8),
+                pl.col(mode_column).cast(pl.Utf8),
+                pl.col("component").cast(pl.Utf8),
+            )
+            .filter(
+                (pl.col("skim_scenario") == ALL_RECORDS_SCENARIO)
+                & pl.col(mode_column).is_not_null()
+                & (pl.col(mode_column) != ALL_MODES)
+                & pl.col("component").is_not_null()
+            )
+            .select(mode_column, "component")
+            .unique()
+        )
+        if not summarized_pairs.is_empty():
+            outputs_by_mode: dict[str, set[str]] = {}
+            for mode, component in summarized_pairs.iter_rows():
+                outputs_by_mode.setdefault(str(mode), set()).add(str(component))
+            return outputs_by_mode
+
     skimjoin_settings = _skimjoin_settings_for_series(config, series)
     normalized = getattr(skimjoin_settings, "normalized_config", None)
     if normalized is None:
@@ -317,6 +342,8 @@ def _skim_family_definitions(
         configured_outputs = _configured_outputs_by_mode(
             config,
             series,
+            df,
+            mode_column=mode_column,
             target_table=target_table,
         )
         ignored_modes = _ignored_modes_for_series(config, series)
@@ -341,11 +368,6 @@ def _skim_family_definitions(
                 for mode in configured_outputs
                 if mode != ALL_MODES and mode in available_modes
             ]
-            all_modes.extend(
-                mode
-                for mode in available_modes
-                if mode not in all_modes and mode != ALL_MODES
-            )
         elif configured_outputs:
             all_modes = [mode for mode in configured_outputs if mode != ALL_MODES]
         else:
@@ -496,16 +518,23 @@ def family_stats_table(
             outputs_by_mode = _configured_outputs_by_mode(
                 config,
                 series,
+                df,
+                mode_column=mode_column,
                 target_table=target_table,
             )
             mode_output_filters = []
             for mode in family_modes:
                 mode_outputs = outputs_by_mode.get(mode)
-                mode_filter = pl.col(mode_column) == mode
                 if mode_outputs:
-                    mode_filter &= pl.col("component").is_in(sorted(mode_outputs))
-                mode_output_filters.append(mode_filter)
-            filtered = filtered.filter(pl.any_horizontal(mode_output_filters))
+                    mode_output_filters.append(
+                        (pl.col(mode_column) == mode)
+                        & pl.col("component").is_in(sorted(mode_outputs))
+                    )
+            filtered = (
+                filtered.filter(pl.any_horizontal(mode_output_filters))
+                if mode_output_filters
+                else filtered.head(0)
+            )
         if direction_suffix is not None:
             filtered = filtered.filter(
                 pl.col("component").str.ends_with(direction_suffix)

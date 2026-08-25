@@ -58,8 +58,8 @@ runs:
 
 ### Prepared-Table Workflow
 
-Use `prepared_table_map` to load canonical prepared tables directly. The run
-does not do the raw prepare step.
+Use `prepared_table_map` to load canonical prepared tables and optional skim
+sidecars directly. The run does not do the raw prepare step.
 
 ```yaml
 pipeline:
@@ -72,6 +72,8 @@ runs:
       persons: C:\prepared\persons.parquet
       tours: C:\prepared\tours.parquet
       trips: C:\prepared\trips.parquet
+      trip_hypothetical_skims: C:\prepared\trip_hypothetical_skims.parquet
+      tour_hypothetical_skims: C:\prepared\tour_hypothetical_skims.parquet
       land_use: C:\prepared\land_use.parquet
 ```
 
@@ -224,7 +226,7 @@ the display name and identifies the run in cache and debug output.
 | `dir` | path string | none | Prepare | Raw ActivitySim output directory. Set this field unless `prepared_table_map` or `summary_table_map` supplies the run. |
 | `label` | string | folder name or `run` fallback | Summary, Presentation | Dashboard and cache-facing run name. Keep stable across reruns. |
 | `file_map` | mapping | inherits top-level `files` | Prepare | Per-run raw file stem overrides. Cannot be combined with `prepared_table_map`. |
-| `prepared_table_map` | mapping | none | Prepare, Summary | Explicit `.parquet` or `.csv` canonical prepared tables. Skips raw prepare for that run. |
+| `prepared_table_map` | mapping | none | Prepare, Summary | Explicit `.parquet` or `.csv` canonical prepared tables and optional skim sidecars. Skips raw prepare for that run. |
 | `summary_table_map` | mapping | none | Summary, Presentation | Maps registered summary IDs to dashboard-ready `.parquet` or `.csv` files. Use it alone or to replace generated summaries. |
 | `skim_file` | path string | `prepare.distance_skim.file` | Prepare, Summary | Per-run legacy distance-skim override. Relative paths resolve from this run's `dir`. |
 | `skimjoin` | mapping | inherits global `skimjoin` | Prepare | Per-run skimjoin path and hypothetical-sidecar overrides. |
@@ -232,10 +234,13 @@ the display name and identifies the run in cache and debug output.
 | `person_weight_col` | string | none | Prepare, Summary | Person source for the run's primary `weighted` mode. |
 | `trip_weight_col` | string | none | Prepare, Summary | Trip source for the run's primary `weighted` mode. |
 
-You can use these table IDs in `file_map` and `prepared_table_map`:
+You can use these canonical table IDs in `file_map` and `prepared_table_map`:
 
 `households`, `persons`, `day`, `tours`, `trips`, `vehicles`,
 `joint_tour_participants`, `land_use`.
+
+`prepared_table_map` additionally accepts the optional skim sidecar IDs
+`trip_hypothetical_skims` and `tour_hypothetical_skims`.
 
 Each `prepared_table_map` path must include `.parquet` or `.csv`. A relative
 path starts from the configuration file directory.

@@ -635,6 +635,7 @@ def load_custom_prepared_tables(
         )
 
     loaded_tables: dict[str, pl.DataFrame] = {}
+    sidecar_tables: dict[str, pl.DataFrame] = {}
     table_states: dict[str, str] = {}
     table_reasons: dict[str, str] = {}
     for attr_name, table_id, _ in PREPARED_TABLE_ATTRS:
@@ -668,6 +669,29 @@ def load_custom_prepared_tables(
         loaded_tables[attr_name] = table
         table_states[table_id] = "empty" if table.width == 0 else "available"
 
+    for attr_name, _ in SIDECAR_TABLE_ATTRS:
+        configured_path = prepared_table_map.get(attr_name)
+        if configured_path is None:
+            sidecar_tables[attr_name] = pl.DataFrame()
+            continue
+
+        path = Path(configured_path)
+        if not path.exists():
+            sidecar_tables[attr_name] = pl.DataFrame()
+            table_states[attr_name] = "unavailable"
+            table_reasons[attr_name] = f"Missing prepared sidecar file: {path}"
+            continue
+        try:
+            sidecar_tables[attr_name] = _read_table_file(path)
+        except Exception as exc:
+            sidecar_tables[attr_name] = pl.DataFrame()
+            table_states[attr_name] = "failed"
+            table_reasons[attr_name] = str(exc)
+            continue
+        table_states[attr_name] = (
+            "empty" if sidecar_tables[attr_name].width == 0 else "available"
+        )
+
     return attach_table_availability(
         RunData(
             label=label,
@@ -679,6 +703,8 @@ def load_custom_prepared_tables(
             tours=loaded_tables["tours"],
             trips=loaded_tables["trips"],
             vehicles=loaded_tables["vehicles"],
+            trip_hypothetical_skims=sidecar_tables["trip_hypothetical_skims"],
+            tour_hypothetical_skims=sidecar_tables["tour_hypothetical_skims"],
             joint_participants=loaded_tables["joint_participants"],
             land_use=loaded_tables["land_use"],
             skim_matrix=None,
