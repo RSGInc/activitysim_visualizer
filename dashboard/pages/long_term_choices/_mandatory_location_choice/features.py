@@ -222,6 +222,7 @@ class MandatoryLocationFeatureMixin:
                 self.distance_distribution_chart_data(
                     geo_level,
                     geography,
+                    summary_id=spec["summary_id"],
                     summary_data=spec["summary_data"],
                 ),
             )
@@ -279,19 +280,24 @@ class MandatoryLocationFeatureMixin:
         geo_level: str,
         geography: str,
         *,
+        summary_id: str,
         summary_data: list[tuple[str, pl.DataFrame]] | None,
     ) -> list[tuple[str, pl.DataFrame]] | None:
         """Return chart-ready mandatory distance data for one summary."""
         if summary_data is None:
             return None
+        summary_query_input = (summary_id, summary_data)
         filtered_summary = self.query(
             lambda: filter_selected_geography(
-                summary_data,
+                summary_query_input[1],
                 geo_level,
                 geography,
             )
         )
-        return self.query(lambda: distance_distribution_chart_data(filtered_summary))
+        chart_query_input = (summary_id, filtered_summary)
+        return self.query(
+            lambda: distance_distribution_chart_data(chart_query_input[1])
+        )
 
     def render_distance_distribution_chart(
         self,

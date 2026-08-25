@@ -118,7 +118,7 @@ def component_display_name(
         "skim_auto_time": "Drive Time (min)",
         "skim_auto_distance": "Drive Distance (mi)",
         "skim_auto_cost": "Drive Cost ($)",
-        "skim_walk_distance": "TAZ Skim Walk Distance (mi)",
+        "skim_walk_distance": "Walk Distance (mi)",
         "skim_walk_time": "Total Walk Access/Egress Time (min)",
         "skim_walk_maz_distance": "MAZ Network Walk Distance (mi)",
         "skim_walk_maz_actual": "MAZ Actual Walk Time (min)",
@@ -146,7 +146,7 @@ def component_display_name(
         "skim_walk_time_inbound": "Total Walk Access/Egress Time (min)",
         "skim_transit_tiv_outbound": "Transit In-Vehicle Time (min)",
         "skim_transit_tiv_inbound": "Transit In-Vehicle Time (min)",
-        "skim_bike_distance": "TAZ Skim Bike Distance (mi)",
+        "skim_bike_distance": "Bike Distance (mi)",
         "skim_bike_maz_distance": "MAZ Network Bike Distance (mi)",
         "skim_bike_transit_distance_bus": (
             "Total Bike Distance - Local Bus (mi) (Estimated from Walk Skims)"

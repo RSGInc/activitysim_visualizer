@@ -360,6 +360,8 @@ notes:
       Filters and display:
         - Distance-range controls limit the bins shown without recomputing the source summary.
         - Percent mode divides each displayed bin by the tour total for the selected purpose.
+      Important details:
+        - Raw Statewide Survey uses the survey's observed linked-tour `distance_miles`; attributed and model runs use the prepared network-skim tour distance.
 
   tour_distance.averages:
     method: rates_and_averages
@@ -520,6 +522,9 @@ notes:
     summary: This plot bins weighted trips by origin-to-destination distance.
     source_filters:
       - Trips without a tour purpose or usable trip distance are excluded.
+    details:
+      Important details:
+        - Raw Statewide Survey uses the survey's observed linked-trip `distance_miles`; attributed and model runs use the prepared origin-to-destination network distance.
 
   trip_stop_distance.out_of_direction:
     method: binned_values
@@ -578,6 +583,9 @@ notes:
         - Prepared skim statistics provide the valid count, missing share, zero share, minimum, maximum, mean, median, and standard deviation for each component and mode.
       Filters:
         - Family and scenario selectors choose the skim components and whether chosen-mode or all-record values are summarized.
+      Important details:
+        - Walk distance, bike and e-bike distance, and bike logsum use one combined skimjoin output per mode and metric. The OMAZ-DMAZ lookup is attempted first; when it is unavailable, skimjoin falls back to the corresponding OTAZ-DTAZ OMX lookup.
+        - Missing share for these combined outputs represents records unresolved by both the MAZ lookup and its TAZ fallback.
 
   trip_skims.distribution:
     method: direct_records
@@ -614,6 +622,9 @@ notes:
         - Prepared skim statistics provide the valid count, missing share, zero share, minimum, maximum, mean, median, and standard deviation for each component and mode.
       Filters:
         - Family, direction, and scenario selectors choose the displayed summary slice.
+      Important details:
+        - Walk distance, bike and e-bike distance, and bike logsum use one combined skimjoin output per mode and metric. The directional MAZ lookup is attempted first; when it is unavailable, skimjoin falls back to the corresponding directional TAZ OMX lookup.
+        - Missing share for these combined outputs represents records unresolved by both the MAZ lookup and its TAZ fallback.
 
   tour_skims.distributions:
     method: direct_records
@@ -788,6 +799,7 @@ notes:
       Important details:
         - Vehicle occupancy uses the number of tour participants when available and otherwise defaults to one.
         - Daily summary rows are preferred when all time periods are selected.
+        - Raw Statewide Survey VMT uses observed linked-trip distance because the statewide records do not have scenario MAZ/TAZ assignments for a regional auto skim lookup.
 
   vmt.non_motorized:
     method: vmt
@@ -804,7 +816,9 @@ notes:
         - Results are grouped by the selected home geography, income segment, household size, time period, or mode.
         - When geography is the breakdown, the chart shows the 25 geographies with the highest mileage.
       Important details:
-        - The distance source recorded in the prepared summary is used; this may be a trip distance or a configured skim distance.
+        - The combined walk skimjoin distance uses the MAZ walk lookup first and the TAZ walk OMX distance as its fallback; the configured prepared walk distance is used only if that combined output remains unavailable.
+        - The combined bicycle and e-bike skimjoin distance uses the MAZ bike lookup first and the purpose-appropriate TAZ bike OMX distance as its fallback; the configured prepared walk distance is used only if that combined output remains unavailable.
+        - Raw Statewide Survey uses observed linked-trip distance for walk, bicycle, and e-bike because its statewide records do not have scenario MAZ/TAZ assignments.
 
   vmt.external_travel:
     method: supplied_aggregation
@@ -941,11 +955,11 @@ notes:
       - Only households with at least two people are included.
 
   individual_choices.license:
-    method_text: Persons age 16 or older with a known license status are grouped by that status and summed with person weights.
+    method_text: Persons eligible to drive with a known license status are grouped by that status and summed with person weights.
     sources: [license_holding_status_distribution]
     summary: This plot sums person weights by driver's-license status.
     source_filters:
-      - Only persons age 16 or older with a known license status are included.
+      - Runs with person ages include only people age 16 or older; Raw Statewide Survey instead uses its direct `can_drive` eligibility response because its `age` field is categorical.
 
   individual_choices.bicycle_comfort:
     method_text: Persons with a bicycle-comfort response are grouped by the prepared comfort level and summed with person weights.
