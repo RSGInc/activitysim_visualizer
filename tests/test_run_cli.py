@@ -280,6 +280,67 @@ def test_main_dashboard_step_without_summarize_loads_cached_summaries_from_confi
     assert dashboard_calls == [{"runs": [], "summary_labels": ["Run A"]}]
 
 
+def test_main_dashboard_only_loads_optional_page_summaries(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    _write_cli_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+        dashboard_pages=["escorted_tours"],
+    )
+    loaded_optional_summary_ids: list[str] = []
+
+    def fake_load_summary_runs_from_cache(
+        *, required_summary_ids, optional_summary_ids, **kwargs
+    ):
+        loaded_optional_summary_ids.extend(optional_summary_ids)
+        all_summary_ids = [*required_summary_ids, *optional_summary_ids]
+        tables = {
+            summary_id: pl.DataFrame({"value": [1.0]})
+            for summary_id in all_summary_ids
+        }
+        return [
+            create_summary_run(
+                label="Run A",
+                run_key="run-a",
+                summaries_by_mode={"weighted": tables, "unweighted": tables},
+            )
+        ]
+
+    monkeypatch.setattr(
+        runtime_workflows,
+        "load_summary_runs_from_cache",
+        fake_load_summary_runs_from_cache,
+    )
+    monkeypatch.setattr(
+        runtime_workflows,
+        "run_dashboard_workflow",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "activitysim-viz",
+            "--config",
+            str(tmp_path / "config.yaml"),
+            "--dashboard",
+            "--no-show",
+        ],
+    )
+
+    run.main()
+
+    assert {
+        "student_school_escort_status_by_direction",
+        "student_households_by_student_count",
+        "households_with_school_escorting_by_student_count_and_direction",
+        "schoolkids_per_escorted_tour_by_student_count_and_direction",
+    }.issubset(loaded_optional_summary_ids)
+
+
 def test_main_uses_config_dashboard_step_for_live_dashboard_only_run(
     tmp_path: Path,
     monkeypatch,

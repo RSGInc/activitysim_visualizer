@@ -19,8 +19,8 @@ from dashboard import DashboardPage, dashboard_page
 from dashboard.page_base import SectionContent
 
 KPI_METRICS = [
-    ("person_count", "Population"),
-    ("household_count", "Households"),
+    ("person_count", "Population (person-days)"),
+    ("household_count", "Households (HH-days)"),
     ("auto_vmt", "VMT"),
     ("tour_count", "Tours"),
     ("trip_count", "Trips"),
@@ -251,12 +251,12 @@ class OverviewPage(DashboardPage):
                     self._kpi_card(
                         totals_list,
                         metric="person_count",
-                        label="Population",
+                        label="Population (person-days)",
                     ),
                     self._kpi_card(
                         totals_list,
                         metric="household_count",
-                        label="Households",
+                        label="Households (HH-days)",
                     ),
                     vmt_box,
                     sizing_mode="stretch_width",

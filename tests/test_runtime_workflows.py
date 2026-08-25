@@ -1101,6 +1101,51 @@ def test_dashboard_only_loads_non_default_summary_table_map_id(
     ]
 
 
+def test_dashboard_only_loads_available_optional_cache_summaries(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path, runs=[])
+    vmt_summary = pl.DataFrame(
+        {
+            "TOD": ["Daily"],
+            "SOV": [2.0],
+            "HOV2": [0.0],
+            "HOV3": [0.0],
+            "Truck": [0.0],
+            "Total": [2.0],
+        }
+    )
+    summary_run = create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode={
+            mode: {
+                "population_totals": pl.DataFrame({"person_count": [1.0]}),
+                "auto_vmt_validation_summary": vmt_summary,
+            }
+            for mode in config.weighting_modes
+        },
+    )
+    cache_dir = write_summary_run_cache(summary_run, config)
+
+    loaded = runtime_workflows.load_summary_runs_from_cache(
+        config=config,
+        cache_root=Path(config.summary_root),
+        explicit_cache_dirs=[str(cache_dir)],
+        run_entries=[],
+        required_summary_ids=("population_totals",),
+        optional_summary_ids=(
+            "auto_vmt_validation_summary",
+            "link_validation_summary",
+        ),
+    )
+
+    assert set(loaded[0].summaries_by_mode["weighted"]) == {
+        "population_totals",
+        "auto_vmt_validation_summary",
+    }
+
+
 def test_dashboard_only_respects_empty_required_summary_ids_for_optional_only_page(
     tmp_path: Path,
 ) -> None:

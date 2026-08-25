@@ -569,6 +569,7 @@ def _skim_summary_run():
                 "trip_mode": ["DRIVE", "WALK", "DRIVE"],
                 "n_valid": [10.0, 8.0, 12.0],
                 "mean": [15.0, 20.0, 7.0],
+                "mean_nonzero": [15.0, 20.0, 7.0],
                 "std": [1.5, 2.0, 0.7],
                 "min": [10.0, 15.0, 5.0],
                 "max": [20.0, 30.0, 9.0],
@@ -584,6 +585,7 @@ def _skim_summary_run():
                 "tour_mode": ["DRIVE", "WALK", "DRIVE"],
                 "n_valid": [6.0, 5.0, 7.0],
                 "mean": [25.0, 18.0, 11.0],
+                "mean_nonzero": [25.0, 18.0, 11.0],
                 "std": [2.5, 1.8, 1.1],
                 "min": [21.0, 14.0, 9.0],
                 "max": [30.0, 22.0, 13.0],
@@ -1704,7 +1706,7 @@ def test_build_export_html_document_keeps_grouped_tour_mode_chart_when_mode_grou
     assert any(
         node.get("kind") == "plotly"
         and node.get("figure", {}).get("layout", {}).get("title", {}).get("text")
-        == "Tour Mode - Zero Auto"
+        == "Tour Mode - Zero Auto Households"
         for node in variant_nodes
     )
     vehicle_nodes = _walk_nodes(region_nodes["tour_mode_vehicles"]["default_content"])

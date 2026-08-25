@@ -302,6 +302,20 @@ def _skim_summary_tables() -> tuple[dict[str, pl.DataFrame], dict[str, pl.DataFr
                     7.004,
                     18.5,
                 ],
+                "mean_nonzero": [
+                    15.126,
+                    3.452,
+                    99.111,
+                    1.827,
+                    12.233,
+                    1.604,
+                    28.06,
+                    8.887,
+                    34.221,
+                    28.781,
+                    7.004,
+                    18.5,
+                ],
                 "std": [
                     1.554,
                     0.882,
@@ -425,6 +439,15 @@ def _skim_summary_tables() -> tuple[dict[str, pl.DataFrame], dict[str, pl.DataFr
                 "n_total": [5.0, 5.0, 6.0, 4.0, 4.0, 3.0, 3.0],
                 "n_valid": [5.0, 4.0, 6.0, 4.0, 4.0, 3.0, 3.0],
                 "mean": [25.333, 21.112, 4.557, 41.221, 39.778, 9.115, 8.441],
+                "mean_nonzero": [
+                    25.333,
+                    21.112,
+                    4.557,
+                    41.221,
+                    39.778,
+                    9.115,
+                    8.441,
+                ],
                 "std": [2.111, 2.004, 0.631, 4.221, 3.992, 1.202, 1.103],
                 "min": [21.0, 17.0, 3.4, 35.0, 34.0, 7.0, 6.7],
                 "max": [29.0, 24.0, 5.3, 47.0, 45.0, 11.0, 10.2],
@@ -2683,7 +2706,7 @@ def test_skim_family_tables_use_all_records_pairs_without_skimjoin_config(
         ]
 
 
-def test_trip_skims_page_uses_family_selector_and_two_digit_precision_summary_table(
+def test_trip_skims_page_uses_family_selector_and_fixed_precision_summary_table(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -2713,8 +2736,13 @@ def test_trip_skims_page_uses_family_selector_and_two_digit_precision_summary_ta
     assert list(table.value.columns[:2]) == ["skim_name", "trip_mode"]
     assert set(table.value["trip_mode"].tolist()) == {"SOV", "HOV2", "HOV3"}
     assert "Bonus" not in table.value["skim_name"].tolist()
-    assert table.value["mean"].tolist() == ["3.5", "7", "15"]
-    assert table.value["n_valid"].tolist() == ["11", "10", "9"]
+    assert table.value["mean"].tolist() == ["3.5", "7.0", "15.1"]
+    assert table.value["mean_nonzero"].tolist() == ["3.5", "7.0", "15.1"]
+    assert table.titles["mean_nonzero"] == "Mean Non-Zero"
+    assert table.value["std"].tolist() == ["0.9", "1.0", "1.6"]
+    assert table.value["min"].tolist() == ["1.200", "5.000", "11.000"]
+    assert table.value["n_valid"].tolist() == ["11.000", "10.000", "9.000"]
+    assert table.value["zero_share"].tolist() == ["0.000", "0.000", "0.000"]
 
     if "Other Skims" in page.trip_family_sel.options:
         page.trip_family_sel.value = "Other Skims"
@@ -2761,6 +2789,7 @@ def test_trip_skim_family_respects_skimjoin_ignored_modes(
             "n_total": [4.0, 3.0, 2.0],
             "n_valid": [4.0, 3.0, 2.0],
             "mean": [6.0, 7.0, 8.0],
+            "mean_nonzero": [6.0, 7.0, 8.0],
             "std": [1.0, 1.0, 1.0],
             "min": [5.0, 6.0, 7.0],
             "max": [7.0, 8.0, 9.0],
@@ -2829,6 +2858,10 @@ def test_tour_skims_page_uses_family_and_direction_selectors_for_summary_table(
     assert list(table.value.columns[:2]) == ["skim_name", "tour_mode"]
     assert set(table.value["tour_mode"].tolist()) == {"SOV", "HOV2"}
     assert set(table.value["skim_name"].tolist()) == {"Cost ($)", "Time (min)"}
+    assert table.value["mean"].tolist() == ["4.6", "25.3"]
+    assert table.value["mean_nonzero"].tolist() == ["4.6", "25.3"]
+    assert table.value["n_valid"].tolist() == ["6.000", "5.000"]
+    assert table.value["min"].tolist() == ["3.400", "21.000"]
     assert "Outbound" == page.tour_direction_sel.value
 
     page.tour_family_sel.value = "Transit Skims"
@@ -3609,6 +3642,14 @@ def test_overview_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
     page.refresh(force=True)
 
     assert page.view.objects
+    kpi_titles = [card.title for card in _collect_cards(page._kpi_section)]
+    assert "Population (person-days)" in kpi_titles
+    assert "Households (HH-days)" in kpi_titles
+    percent_difference_table = _collect_tabulators(page._kpi_section)[0]
+    assert list(percent_difference_table.value["Metric"][:2]) == [
+        "Population (person-days)",
+        "Households (HH-days)",
+    ]
     household_plot = next(
         plot
         for plot in _collect_plotly_panes(page._demographics_section)
@@ -3798,9 +3839,9 @@ def test_tour_summaries_tour_mode_page_renders_main_chart_without_vehicle_summar
     ]
     assert chart_titles == [
         "Tour Mode - All",
-        "Tour Mode - Zero Auto",
-        "Tour Mode - Fewer Vehicles Than Drivers",
-        "Tour Mode - At Least As Many Vehicles as Drivers",
+        "Tour Mode - Zero Auto Households",
+        "Tour Mode - Households with Fewer Vehicles Than Drivers",
+        "Tour Mode - Households with At Least as Many Vehicles as Drivers",
     ]
     vehicle_cards = _collect_cards(page._vehicle_section)
     assert len(vehicle_cards) == 3
@@ -3895,8 +3936,9 @@ def test_tour_mode_auto_sufficiency_definitions_follow_configured_basis(
 
     markdown = auto_sufficiency_definitions_markdown(config)
 
-    assert "**Fewer Vehicles Than Workers**" in markdown
-    assert "**At Least As Many Vehicles as Workers**" in markdown
+    assert "**Zero Auto Households**" in markdown
+    assert "**Households with Fewer Vehicles Than Workers**" in markdown
+    assert "**Households with At Least as Many Vehicles as Workers**" in markdown
     assert "household has fewer vehicles than workers." in markdown
     assert "household has at least as many vehicles as workers." in markdown
 
@@ -5031,16 +5073,16 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
         "university",
     ]
     assert comparison_table["Average Mandatory Tour Distance"].tolist() == [
-        "8",
-        "4",
-        "10",
+        "8.0",
+        "4.0",
+        "10.0",
     ]
     assert comparison_table["Base Run Average Mandatory Tour Distance"].tolist() == [
-        "8",
-        "4",
-        "10",
+        "8.0",
+        "4.0",
+        "10.0",
     ]
-    assert comparison_table["Difference"].tolist() == ["0", "0", "0"]
+    assert comparison_table["Difference"].tolist() == ["0.0", "0.0", "0.0"]
     assert comparison_table["% Difference"].tolist() == ["0.00%", "0.00%", "0.00%"]
 
 
@@ -5209,16 +5251,16 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
         "% Difference",
     ]
     assert comparison_table["Average Mandatory Tour Distance"].tolist() == [
-        "8",
-        "4",
-        "10",
+        "8.0",
+        "4.0",
+        "10.0",
     ]
     assert comparison_table["Base Run Average Mandatory Tour Distance"].tolist() == [
-        "8",
-        "4",
-        "10",
+        "8.0",
+        "4.0",
+        "10.0",
     ]
-    assert comparison_table["Difference"].tolist() == ["0", "0", "0"]
+    assert comparison_table["Difference"].tolist() == ["0.0", "0.0", "0.0"]
     assert comparison_table["% Difference"].tolist() == ["0.00%", "0.00%", "0.00%"]
 
     page.geography_sel.value = "South"
