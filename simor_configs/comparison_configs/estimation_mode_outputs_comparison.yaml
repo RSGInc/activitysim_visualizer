@@ -1,0 +1,237 @@
+# Compare the final Estimation Mode Outputs from the three SIMOR model areas.
+
+name: "SIMOR Estimation Mode Outputs Comparison"
+root: ../../simor_project_outputs/comparison_outputs
+log_level: INFO
+
+pipeline:
+  steps:
+    - summarize
+    - dashboard
+  dashboard_mode: export
+  refresh: []
+
+runs:
+  # The area-specific dashboards must run first and produce these prepared tables.
+  - label: Metro
+    prepared_table_map:
+      households: ../../simor_project_outputs/metro_outputs/estimation-mode-outputs/prepared_tables/households.parquet
+      persons: ../../simor_project_outputs/metro_outputs/estimation-mode-outputs/prepared_tables/persons.parquet
+      day: ../../simor_project_outputs/metro_outputs/estimation-mode-outputs/prepared_tables/day.parquet
+      tours: ../../simor_project_outputs/metro_outputs/estimation-mode-outputs/prepared_tables/tours.parquet
+      trips: ../../simor_project_outputs/metro_outputs/estimation-mode-outputs/prepared_tables/trips.parquet
+      vehicles: ../../simor_project_outputs/metro_outputs/estimation-mode-outputs/prepared_tables/vehicles.parquet
+      joint_tour_participants: ../../simor_project_outputs/metro_outputs/estimation-mode-outputs/prepared_tables/joint_tour_participants.parquet
+      land_use: ../../simor_project_outputs/metro_outputs/estimation-mode-outputs/prepared_tables/land_use.parquet
+
+  - label: LCOG
+    prepared_table_map:
+      households: ../../simor_project_outputs/lcog_outputs/estimation-mode-outputs/prepared_tables/households.parquet
+      persons: ../../simor_project_outputs/lcog_outputs/estimation-mode-outputs/prepared_tables/persons.parquet
+      day: ../../simor_project_outputs/lcog_outputs/estimation-mode-outputs/prepared_tables/day.parquet
+      tours: ../../simor_project_outputs/lcog_outputs/estimation-mode-outputs/prepared_tables/tours.parquet
+      trips: ../../simor_project_outputs/lcog_outputs/estimation-mode-outputs/prepared_tables/trips.parquet
+      vehicles: ../../simor_project_outputs/lcog_outputs/estimation-mode-outputs/prepared_tables/vehicles.parquet
+      joint_tour_participants: ../../simor_project_outputs/lcog_outputs/estimation-mode-outputs/prepared_tables/joint_tour_participants.parquet
+      land_use: ../../simor_project_outputs/lcog_outputs/estimation-mode-outputs/prepared_tables/land_use.parquet
+
+  - label: SKATS
+    prepared_table_map:
+      households: ../../simor_project_outputs/skats_outputs/estimation-mode-outputs/prepared_tables/households.parquet
+      persons: ../../simor_project_outputs/skats_outputs/estimation-mode-outputs/prepared_tables/persons.parquet
+      day: ../../simor_project_outputs/skats_outputs/estimation-mode-outputs/prepared_tables/day.parquet
+      tours: ../../simor_project_outputs/skats_outputs/estimation-mode-outputs/prepared_tables/tours.parquet
+      trips: ../../simor_project_outputs/skats_outputs/estimation-mode-outputs/prepared_tables/trips.parquet
+      vehicles: ../../simor_project_outputs/skats_outputs/estimation-mode-outputs/prepared_tables/vehicles.parquet
+      joint_tour_participants: ../../simor_project_outputs/skats_outputs/estimation-mode-outputs/prepared_tables/joint_tour_participants.parquet
+      land_use: ../../simor_project_outputs/skats_outputs/estimation-mode-outputs/prepared_tables/land_use.parquet
+
+zones:
+  use_maz: true
+  maz_col: [MAZ, zone_id]
+  taz_col: TAZ
+
+columns:
+  household_id: [household_id, hh_id]
+  trip_id: [trip_id, linked_trip_id]
+  trip_mode: [trip_mode, linked_trip_mode]
+  trip_num: [trip_num, linked_trip_num]
+  tour_purpose: [primary_purpose, tour_type, purpose]
+
+prepare:
+  output:
+    file_format: parquet
+  validation:
+    relationship_checks: warn
+  time_periods:
+    network_los_file: C:\Users\wesley.darling\project_data\odot_skims\network_los.yaml
+    trip_period_number_column: depart
+    tour_start_period_number_column: start
+    tour_end_period_number_column: end
+  auto_sufficiency_basis: licensed_drivers
+  vot_bins:
+    source_column: income_segment
+    output_column: vot_bin
+    fallback_value: M
+    mappings:
+      metro: &estimation_vot_bins
+        1: L
+        2: L
+        3: M
+        4: M
+        5: H
+        6: H
+        995: M
+        999: M
+      lcog: *estimation_vot_bins
+      skats: *estimation_vot_bins
+
+summarize:
+  weighting_modes: [unweighted, weighted]
+  pnr_tour_modes:
+    - PNR_TRANSIT
+
+dashboard:
+  title: "SIMOR Estimation Mode Outputs Comparison"
+  enable_maz_geographies: false
+  live:
+    pages:
+      - overview
+      - long_term_choices
+      - daily_travel
+      - joint_travel
+      - tour_summaries
+      - trip_summaries
+      - skim_summaries
+  export:
+    output_path: ../../simor_project_outputs/exports/estimation_mode_outputs_comparison.html
+    exclude_pages:
+      - tour_distance
+      - trip_stop_distance
+    dashboard:
+      weighting: [unweighted]
+      values: [percent, count]
+    pages:
+      long_term_choices:
+        mandatory_location_choice:
+          geography_level: [All Geography Types]
+          geography: [All]
+
+display:
+  bar_hover_mode: all
+  density_hover_mode: all
+
+  # Color-blind-friendly Okabe-Ito colors, ordered to match the runs above.
+  run_colors:
+    - "#0072B2" # Metro: blue
+    - "#009E73" # LCOG: bluish green
+    - "#D55E00" # SKATS: vermillion
+
+  labels:
+    person_type:
+      mapping:
+        all_person_types: All Person Types
+        1: Full-time Worker
+        2: Part-time Worker
+        3: University Student
+        4: Non-worker Adult
+        5: Retired
+        6: Student
+        7: Preschool
+
+    transit_subsidy:
+      mapping:
+        0: No subsidy
+        1: Discounted
+        2: Free
+
+    license_holding_status:
+      mapping:
+        has_license: Has License
+        no_license: No License
+
+    transit_pass_ownership_status:
+      mapping:
+        has_transit_pass: Has Transit Pass
+        no_transit_pass: No Transit Pass
+
+    telecommute_frequency:
+      mapping:
+        1_day_week: 1 Day per Week
+        2_days_week: 2 Days per Week
+        3_days_week: 3 Days per Week
+        2_3_days_week: 2-3 Days per Week
+        4_days_week: 4+ Days per Week
+        No_Telecommute: No Telecommute
+
+    mandatory_tour_frequency:
+      mapping:
+        1: Work
+        3: School
+        2: 2 Work
+        4: 2 School
+        5: 1 Work + 1 School
+
+    stop_purpose:
+      mapping:
+        work: Work
+        school: School
+        escort: Escort
+        shopping: Shopping
+        othmaint: Other Maintenance
+        eatout: Eat Out
+        social: Social
+        othdiscr: Other Discretionary
+
+    mode:
+      mapping:
+        SOV: Drive Alone
+        HOV2: Shared Ride 2
+        HOV3: Shared Ride 3+
+        WALK: Walk
+        BIKE: Bike
+        EBIKE: E-Bike
+        ESCOOTER: E-Scooter
+        WALK_TRANSIT: Walk-Transit
+        BIKE_TRANSIT: Bike-Transit
+        PNR_TRANSIT: PNR-Transit
+        KNR_TRANSIT: KNR-Transit
+        TAXI: Taxi
+        TNC_SINGLE: TNC-Single
+        TNC_SHARED: TNC-Pool
+        SCHOOLBUS: School Bus
+
+    tour_purpose:
+      mapping:
+        all_tour_purposes: All Tour Purposes
+        work: Work
+        school: School
+        joint: Joint
+        escort: Escort
+        shopping: Shopping
+        othmaint: Other Maintenance
+        eatout: Eat Out
+        social: Social
+        othdiscr: Other Discretionary
+        atwork: At-Work
+        loop: Loop
+
+    trip_purpose:
+      mapping:
+        home: Home
+        work: Work
+        school: School
+        escort: Escort
+        shopping: Shopping
+        othmaint: Other Maintenance
+        eatout: Eat Out
+        social: Social
+        othdiscr: Other Discretionary
+        loop: Loop
+
+    tour_category:
+      mapping:
+        mandatory: Mandatory
+        joint: Joint
+        non_mandatory: Non-Mandatory
+        atwork: At-Work

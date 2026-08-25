@@ -169,6 +169,19 @@ def test_main_rejects_from_csvs_with_write_csvs(monkeypatch, capsys) -> None:
     assert captured.err == "Error: --from-csvs cannot be combined with --write-csvs.\n"
 
 
+def test_parse_args_accepts_explicit_log_path(monkeypatch, tmp_path: Path) -> None:
+    log_path = tmp_path / "scenario.log"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["activitysim-viz", "--log-path", str(log_path)],
+    )
+
+    args = run.parse_args()
+
+    assert args.log_path == str(log_path)
+
+
 def test_main_rejects_refresh_summary_cache_without_summarize(
     tmp_path: Path,
     monkeypatch,

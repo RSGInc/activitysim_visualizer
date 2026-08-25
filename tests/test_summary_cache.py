@@ -2606,7 +2606,7 @@ def test_skim_family_tables_only_show_outputs_configured_for_each_mode(
             direction="outbound" if direction_suffix else None,
         )[0][1]
 
-        assert result["skim_name"].to_list() == ["TAZ Skim Bike Distance (mi)"]
+        assert result["skim_name"].to_list() == ["Bike Distance (mi)"]
 
 
 def test_trip_skims_page_uses_family_selector_and_two_digit_precision_summary_table(
@@ -2668,8 +2668,8 @@ def test_trip_walk_skims_use_explicit_walk_distance_and_time_labels(
     assert table.value["skim_name"].tolist() == [
         "MAZ Actual Walk Time (min)",
         "MAZ Network Walk Distance (mi)",
-        "TAZ Skim Walk Distance (mi)",
         "Total Walk Access/Egress Time (min)",
+        "Walk Distance (mi)",
     ]
 
 
@@ -4917,6 +4917,12 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
     ]
     assert list(distance_plots[0].object.layout.xaxis.range) == [0.0, 40.0]
     assert list(distance_plots[0].object.data[0].y) == [60.0, 40.0]
+    assert list(distance_plots[1].object.data[0].x) == [1.0, 2.0]
+    assert list(distance_plots[1].object.data[0].y) == pytest.approx(
+        [83.33333333333334, 16.666666666666664]
+    )
+    assert list(distance_plots[2].object.data[0].x) == [1.0, 2.0]
+    assert list(distance_plots[2].object.data[0].y) == [60.0, 40.0]
     page.mandatory_distance_range.min_widget.value = 2.0
     page.mandatory_distance_range.max_widget.value = "10"
     page.refresh(force=True)

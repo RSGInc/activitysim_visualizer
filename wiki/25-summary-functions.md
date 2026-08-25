@@ -79,43 +79,25 @@ configuration IDs such as `households` or `persons`.
 
 ## Weighting
 
-Each prepared analysis table has its own `finalweight`. A builder uses the
-weight on the rows it aggregates; there is not one universal person weight used
-for every summary. For count outputs:
-
-- summing `run.per.finalweight` produces a weighted person count;
-- summing `run.trips.finalweight` produces a weighted trip count; and
-- summing `run.tours.finalweight` produces a weighted tour count.
-
-A trip's `finalweight` can be inherited from its person, but the result is still
-a weighted trip count because the factor is applied once to each trip row. For
-example, one person with a weight of `3.0` and four trip rows contributes `3.0`
-to a person count and `12.0` to a trip count.
-
-Builders do not select a weighting mode. The summary workflow supplies the
-appropriate prepared `RunData` for weighted and unweighted builds.
+Builders aggregate `finalweight`. They do not select a weighting mode. The
+summary workflow supplies the required prepared data for weighted and
+unweighted builds.
 
 ### Weight Resolution And Edge Cases
 
-The primary weighted mode assigns `finalweight` by table as follows:
+The primary weighted mode is prepared as follows:
 
 1. An explicit run-level household/person/trip weight column is cast to
    `Float64` on its table.
 2. If no explicit run weight is supplied at any level, a household
-   `sample_rate` produces `1 / sample_rate`; person and trip rows then inherit
-   that expansion factor through their relationships.
+   `sample_rate` produces `1 / sample_rate`.
 3. Otherwise, household weight defaults to `1.0` when no household source was
    selected. Supplying only a person or trip weight therefore disables
    household sample-rate expansion.
-4. Without an explicit person source, persons inherit household weights.
-   Without an explicit trip source, trips inherit person weights when possible,
-   then household weights when no person relationship is available. An
-   unmatched inherited row normally falls back to `1.0`.
-5. When an explicit trip weight is used, each trip keeps that weight and tour
-   weight is the mean trip weight for that `tour_id`. Otherwise, tours inherit
-   person weights when possible, then household weights.
-6. Day rows use `day_weight` when present, otherwise person or household
-   weights. Vehicle rows inherit household weights.
+4. Missing lower-level sources inherit through household/person/tour
+   relationships. An unmatched inherited row normally falls back to `1.0`.
+5. When an explicit trip weight is used, tour weight is the mean trip weight
+   for that `tour_id`.
 
 The unweighted mode changes existing `finalweight` columns to `1.0`; it does
 not add that column to a custom prepared table that omitted it. Named column
@@ -144,7 +126,7 @@ convert source values. Units are part of the source/prepared/summary contract:
 
 | Output kind | Unit rule |
 |---|---|
-| Counts and totals | `finalweight` on the rows being aggregated: person rows produce weighted persons, trip rows produce weighted trips, and tour rows produce weighted tours. Unweighted mode is row counts unless a builder applies occupancy/party logic. |
+| Counts and totals | `finalweight` expansion units; unweighted mode is row counts unless a builder applies occupancy/party logic. |
 | Rates and shares | Ratio of the builder's declared numerator and denominator; dimensionless unless the label states a per-person or per-day basis. |
 | Distance and VMT | Uses prepared distance values as supplied. Existing dashboard labels assume miles. Convert upstream or in prepare if the model uses another unit. |
 | Time | Uses prepared time/hour/period fields and configured time-period mapping. Skim time components keep the skim's unit. |

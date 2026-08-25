@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 from runtime.logging import configure_logging, get_logger, shutdown_logging
+from runtime.run_lock import RunLockError, acquire_run_lock, release_run_lock
 from dashboard.page_registry import (
     export_data_requirements,
     live_data_requirements,
@@ -123,6 +124,11 @@ def parse_args() -> argparse.Namespace:
         "--explain-cache",
         action="store_true",
         help="Print cache decisions for the configured pipeline and exit without running it.",
+    )
+    parser.add_argument(
+        "--log-path",
+        metavar="PATH",
+        help="Write the runtime log to PATH instead of the default shared log file.",
     )
     return parser.parse_args()
 
@@ -518,8 +524,22 @@ def main() -> None:
         sys.exit(1)
 
     config = runtime_workflows.load_runtime_config(args.config)
+    run_lock = None
     if not args.explain_cache:
-        log_path = configure_logging(config, level=_resolve_terminal_log_level(config))
+        try:
+            run_lock = acquire_run_lock(config.summary_root)
+        except RunLockError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+        try:
+            log_path = configure_logging(
+                config,
+                level=_resolve_terminal_log_level(config),
+                log_path=args.log_path,
+            )
+        except Exception:
+            release_run_lock(run_lock)
+            raise
         LOGGER.info("Starting ActivitySim Visualizer")
         LOGGER.info("Loading config: %s", args.config)
         LOGGER.info("Logging to %s", log_path)
@@ -692,6 +712,8 @@ def main() -> None:
         print(f"Error: {exc}", file=sys.stderr)
         shutdown_logging()
         sys.exit(1)
+    finally:
+        release_run_lock(run_lock)
 
     elapsed = (time.perf_counter() - t0) / 60
     LOGGER.info("Dashboard created in %.2f minutes.", elapsed)

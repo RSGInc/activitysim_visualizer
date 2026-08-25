@@ -298,6 +298,7 @@ operation, change the YAML so that the workflow remains reproducible.
 | `--port PORT` | Live-server port; default `5006`. |
 | `--no-show` | Start the live server without opening a browser. |
 | `--explain-cache` | Print the cache plan and exit without executing it. |
+| `--log-path PATH` | Write this process's runtime log to an explicit file instead of the default shared log. |
 
 If you use `--prepare`, `--summarize`, or `--dashboard`, these flags replace
 `pipeline.steps` with the selected main boundaries. They do not enable the
@@ -306,6 +307,23 @@ or `--write-csvs`. The `--write-csvs` and `--skip-summary-cache-write` flags
 require summarize. Each refresh flag requires its corresponding processor
 boundary. If the configuration omits dashboard, use `--export-html` with
 `--dashboard`.
+
+Each running visualizer process holds a lock in its configured output root. A
+second process targeting the same root exits before reading or writing caches.
+
+### SIMOR scenario runner
+
+The SIMOR runner exports the Metro, LCOG, and SKATS dashboards with bounded
+parallelism, then exports the comparison dashboard after all three succeed:
+
+```bash
+uv run python scripts/run_simor_scenarios.py
+```
+
+It defaults to two concurrent area builds and writes separate runtime and
+console logs under `simor_project_outputs/logs/scenario_runner/`. Use
+`--dry-run` to inspect commands, `--max-parallel 1` for sequential execution,
+or `--refresh-caches` to forward a full cache refresh to every build.
 
 ## Related Chapters
 

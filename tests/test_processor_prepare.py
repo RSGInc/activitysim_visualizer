@@ -46,7 +46,10 @@ from processor.summarize.summaries.long_term_distance import (
     univ_tlfd,
     work_tlfd,
 )
-from processor.summarize.summaries.long_term_person import telecommute
+from processor.summarize.summaries.long_term_person import (
+    license_holding_status,
+    telecommute,
+)
 from processor.summarize.summaries.long_term_vehicle import (
     vehicle_char_age,
     vehicle_char_body,
@@ -590,6 +593,211 @@ def test_processor_prepare_data_exposes_the_same_prepared_contract(
     assert prepared.land_use["employment_count"].to_list() == [7.0, 8.0]
 
 
+def test_processor_prepare_data_normalizes_toc_raw_statewide_survey(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        extra_lines=[
+            "prepare:",
+            "  category_mappings:",
+            "    raw_statewide_survey:",
+            "      persons:",
+            "        has_license:",
+            "          source: can_drive",
+            "          output_type: boolean",
+            "          preserve_unmapped: false",
+            "          mapping:",
+            "            1: true",
+            "            3: false",
+            "            995: false",
+            "      tours:",
+            "        tour_mode:",
+            "          mapping:",
+            "            2: WALK",
+            "            7: BIKE",
+            "            8: EBIKE",
+            "            13: SOV",
+            "        tour_purpose:",
+            "          mapping:",
+            "            2: work",
+            "            3: othmaint",
+            "            6: escort",
+            "            8: eatout",
+            "        tour_category:",
+            "          mapping:",
+            "            1: mandatory",
+            "            2: non_mandatory",
+            "            3: atwork",
+            "            4: joint",
+            "      trips:",
+            "        trip_mode:",
+            "          source: linked_trip_mode",
+            "          mapping:",
+            "            2: WALK",
+            "            7: BIKE",
+            "            13: SOV",
+            "            995: MISSING",
+            "        trip_purpose:",
+            "          source: d_purpose_category",
+            "          mapping:",
+            "            1: home",
+            "            6: escort",
+            "            14: home",
+            "            995: null",
+            "  vot_bins:",
+            "    source_column: income_segment",
+            "    output_column: vot_bin",
+            "    fallback_value: M",
+            "    mappings:",
+            "      raw_statewide_survey:",
+            "        2: L",
+        ],
+    )
+    category_mappings = config.prepare_category_mappings.mapping_for_run(
+        "Raw Statewide Survey"
+    )
+    assert category_mappings is not None
+    assert category_mappings["tours"]["tour_mode"].mapping["13"] == "SOV"
+    assert (
+        config.prepare_signature_payload()["prepare"]["category_mappings"]
+        ["raw-statewide-survey"]["persons"]["has_license"]["output_type"]
+        == "boolean"
+    )
+    raw = _raw_run()
+    raw.label = "Raw Statewide Survey"
+    raw.hh = pl.DataFrame(
+        {
+            "household_id": [1],
+            "num_people": [6],
+            "num_vehicles": [5],
+            "num_workers": [1],
+            "num_adults": [3],
+            "income_broad": [2],
+            "home_county": ["Lane"],
+            "home_mpo": ["Central Lane"],
+        }
+    )
+    raw.per = pl.DataFrame(
+        {
+            "person_id": [101, 102, 103],
+            "household_id": [1, 1, 1],
+            "person_type": [1, 4, 7],
+            "can_drive": [1, 3, 995],
+            "age": [45, 35, 10],
+        }
+    )
+    raw.tours = pl.DataFrame(
+        {
+            "tour_id": [1001, 1002, 1003, 1004],
+            "person_id": [101, 101, 102, 103],
+            "household_id": [1, 1, 1, 1],
+            "tour_purpose": [2, 6, 3, 8],
+            "tour_category": [1, 2, 3, 4],
+            "tour_mode": [13, 7, 2, 8],
+            "tour_start_hour": [3, 2, 19, 8],
+            "tour_start_minute": [0, 30, 56, 15],
+            "tour_end_hour": [4, 3, 20, 9],
+            "tour_end_minute": [0, 0, 30, 0],
+            "duration_minutes": [60, 30, 34, 90],
+            "distance_miles": [1.5, 2.5, 3.5, 4.5],
+            "joint_num_participants": [1, 1, 1, 3],
+            "stop_frequency": ["0out_0in"] * 4,
+            "school_esc_outbound": [None, "ride_share", None, None],
+            "school_esc_inbound": [None] * 4,
+            "out_escorted_tour_ids": [None, "1004", None, None],
+            "inb_escorted_tour_ids": [None] * 4,
+        }
+    )
+    raw.trips = pl.DataFrame(
+        {
+            "trip_id": [5001, 5002, 5003, 5004],
+            "tour_id": [1001, 1002, 1003, 1004],
+            "person_id": [101, 101, 102, 103],
+            "household_id": [1, 1, 1, 1],
+            "linked_trip_mode": [13, 7, 2, 995],
+            "d_purpose_category": [1, 14, 6, 995],
+            "depart_hour": [3, 2, 19, 8],
+            "depart_minute": [0, 30, 56, 15],
+            "distance_miles": [1.25, 2.25, 3.25, 4.25],
+            "outbound": [True, True, True, True],
+            "trip_num": [1, 1, 1, 1],
+        }
+    )
+
+    prepared = processor_prepare_data(raw, config)
+
+    assert prepared.hh["HHSIZE"].to_list() == [5]
+    assert prepared.hh["HHVEH"].to_list() == [4]
+    assert prepared.hh["LICENSEDDRIVERS"].to_list() == [1]
+    assert prepared.per["has_license"].to_list() == [True, False, False]
+
+    tours = prepared.tours.sort("tour_id")
+    assert tours["tour_mode"].to_list() == ["SOV", "BIKE", "WALK", "EBIKE"]
+    assert tours["tour_purpose"].to_list() == [
+        "work",
+        "escort",
+        "othmaint",
+        "eatout",
+    ]
+    assert tours["tour_category"].to_list() == [
+        "mandatory",
+        "non_mandatory",
+        "atwork",
+        "joint",
+    ]
+    assert tours["start"].to_list() == [1, 48, 34, 11]
+    assert tours["end"].to_list() == [3, 1, 36, 13]
+    assert tours["tourdur"].to_list() == [2, 1, 2, 3]
+    assert tours["SKIMDIST"].to_list() == [1.5, 2.5, 3.5, 4.5]
+    assert tours["NUMBER_HH"].to_list() == [1, 1, 1, 3]
+    assert tours["vot_bin"].to_list() == ["L", "L", "L", "L"]
+
+    trips = prepared.trips.sort("trip_id")
+    assert trips["trip_mode"].to_list() == ["SOV", "BIKE", "WALK", "MISSING"]
+    assert trips["trip_purpose"].to_list() == ["home", "home", "escort", None]
+    assert trips["depart"].to_list() == [1, 48, 34, 11]
+    assert trips["od_dist"].to_list() == [1.25, 2.25, 3.25, 4.25]
+    assert trips["prepared_non_motorized_distance"].to_list() == [
+        1.25,
+        2.25,
+        3.25,
+        4.25,
+    ]
+    assert trips["vot_bin"].to_list() == ["L", "L", "L", "L"]
+    assert set(license_holding_status(prepared, config)["license_holding_status"]) == {
+        "has_license",
+        "no_license",
+    }
+
+    raw.label = "Regional: Filtered & Attributed"
+    raw.tours = raw.tours.with_columns(
+        pl.Series("tour_mode", ["SOV", "BIKE", "WALK", "EBIKE"]),
+        pl.Series(
+            "tour_category",
+            ["mandatory", "non_mandatory", "atwork", "joint"],
+        ),
+        pl.Series(
+            "primary_purpose", ["work", "escort", "othmaint", "eatout"]
+        ),
+    )
+    labeled = processor_prepare_data(raw, config).tours.sort("tour_id")
+
+    assert labeled["tour_mode"].to_list() == ["SOV", "BIKE", "WALK", "EBIKE"]
+    assert labeled["tour_purpose"].to_list() == [
+        "work",
+        "escort",
+        "othmaint",
+        "eatout",
+    ]
+    assert labeled["tour_category"].to_list() == [
+        "mandatory",
+        "non_mandatory",
+        "atwork",
+        "joint",
+    ]
+
+
 def test_processor_prepare_data_derives_first_inbound_trip_depart_on_tours(
     tmp_path: Path,
 ) -> None:
@@ -955,6 +1163,67 @@ def test_processor_prepare_data_derives_num_joint_tours_from_joint_participants(
     prepared = processor_prepare_data(raw, config).per.sort("person_id")
 
     assert prepared["num_joint_tours"].to_list() == [2, 1]
+
+
+def test_processor_prepare_data_uses_joint_participant_count_with_tour_fallback(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    raw = _raw_run()
+    tours = pl.concat([raw.tours] * 3).with_columns(
+        pl.Series("tour_id", [1001, 1002, 1003]),
+        pl.Series("tour_category", ["joint", "joint", "joint"]),
+        pl.Series(
+            "number_of_participants",
+            [4, 3, None],
+            dtype=pl.Int64,
+        ),
+        pl.Series("SKIMDIST", [5.0, 10.0, 15.0]),
+    )
+    trips = pl.concat([raw.trips] * 3).with_columns(
+        pl.Series("trip_id", [5001, 5002, 5003]),
+        pl.Series("tour_id", [1001, 1002, 1003]),
+    )
+    raw = ProcessorRunData(
+        label=raw.label,
+        run_dir=raw.run_dir,
+        skim_file=raw.skim_file,
+        hh=raw.hh,
+        per=pl.concat(
+            [
+                raw.per,
+                raw.per.with_columns(
+                    pl.lit(102, dtype=raw.per.schema["person_id"]).alias("person_id"),
+                    pl.lit(2, dtype=raw.per.schema["ptype"]).alias("ptype"),
+                ),
+            ]
+        ),
+        tours=tours,
+        trips=trips,
+        joint_participants=pl.DataFrame(
+            {
+                "tour_id": [1001, 1001],
+                "person_id": [101, 102],
+            }
+        ),
+        land_use=raw.land_use,
+        skim_matrix=raw.skim_matrix,
+        skim_zone_map=raw.skim_zone_map,
+    )
+
+    prepared = processor_prepare_data(raw, config)
+
+    assert prepared.tours.sort("tour_id")["NUMBER_HH"].to_list() == [2, 3, 1]
+    assert prepared.trips.sort("tour_id")["num_participants"].to_list() == [2, 3, 1]
+
+    distance = tour_profiles.tour_distance(prepared, config).filter(
+        pl.col("tour_purpose") != "all_tour_purposes"
+    )
+    assert distance.select("distance_bin", "tour_count").to_dicts() == [
+        {"distance_bin": "5", "tour_count": 2.0},
+        {"distance_bin": "10", "tour_count": 3.0},
+        {"distance_bin": "15", "tour_count": 1.0},
+    ]
 
 
 def test_processor_prepare_data_uses_zone_id_as_maz_fallback_for_trip_skim_distance(
@@ -2955,6 +3224,30 @@ def test_mandatory_distance_summaries_include_configured_geography_levels(
             "person_count": 3.0,
         },
     ]
+
+
+def test_mandatory_distance_summary_requires_home_geography(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    prepared = ProcessorRunData(
+        label="Statewide",
+        run_dir="C:/runs/statewide",
+        skim_file=None,
+        hh=pl.DataFrame(),
+        per=pl.DataFrame({"finalweight": [1.0]}),
+        tours=pl.DataFrame(),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    assert missing_summary_inputs(avg_mand_tour_distance, prepared) == {
+        "per": "missing required columns: home_zone_id"
+    }
+    assert avg_mand_tour_distance(prepared, config).is_empty()
 
 
 def test_telecommute_summary_includes_configured_geography_levels(

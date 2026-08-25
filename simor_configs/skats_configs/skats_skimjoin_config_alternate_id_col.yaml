@@ -146,12 +146,14 @@ modes:
     distance: "SOV_{VOT}_DIST__{PERIOD}"
   WALK:
     output_prefix: skim_walk_
-    distance: WLK_DIST
-    maz_walk_distance:
-      output: skim_walk_maz_distance
+    distance:
       origin: o_maz
       destination: d_maz
       matrix: maz_maz_walk__DISTWALK
+      fallbacks:
+        - matrix: WLK_DIST
+          origin: OTAZ
+          destination: DTAZ
     maz_walk_actual:
       output: skim_walk_maz_actual
       origin: o_maz
@@ -199,22 +201,32 @@ modes:
       matrix: maz_stop_walk__walk_dist_premium_transit
   BIKE:
     output_prefix: skim_bike_
-    maz_distance:
-      output: skim_bike_maz_distance
+    distance:
       origin: o_maz
       destination: d_maz
       matrix: "bike_maz_logsums_{BIKE_PURPOSE}__distance_{BIKE_PURPOSE}"
+      fallbacks:
+        - matrix: "bike_taz_logsums_{BIKE_PURPOSE}.omx::distance_{BIKE_PURPOSE}"
+          origin: OTAZ
+          destination: DTAZ
     logsum:
       origin: o_maz
       destination: d_maz
       matrix: "bike_maz_logsums_{BIKE_PURPOSE}__logsum_{BIKE_PURPOSE}"
+      fallbacks:
+        - matrix: "bike_taz_logsums_{BIKE_PURPOSE}.omx::logsum_{BIKE_PURPOSE}"
+          origin: OTAZ
+          destination: DTAZ
   EBIKE:
     output_prefix: skim_bike_
-    maz_distance:
-      output: skim_bike_maz_distance
+    distance:
       origin: o_maz
       destination: d_maz
       matrix: "bike_maz_logsums_{BIKE_PURPOSE}__distance_{BIKE_PURPOSE}"
+      fallbacks:
+        - matrix: "bike_taz_logsums_{BIKE_PURPOSE}.omx::distance_{BIKE_PURPOSE}"
+          origin: OTAZ
+          destination: DTAZ
   BIKE_TRANSIT:
     output_prefix: skim_
     bike_o_maz_stop_distance_bus:

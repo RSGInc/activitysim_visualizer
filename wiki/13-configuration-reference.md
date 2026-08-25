@@ -404,6 +404,7 @@ columns:
 | `validation.relationship_checks` | string or `false` | `warn` | `off`, `warn`, `error`, or `false` for `off` | Prepare | Controls relationship-check failures during prepare. |
 | `distance_skim.file` | path string | none | OMX path | Prepare, Summary | Optional distance skim used by prepare. |
 | `distance_skim.matrix` | string | `SOV_DIST__MD` | matrix name | Prepare, Summary | Matrix read from `distance_skim.file`. |
+| `category_mappings` | mapping | `{}` | run, table, and column mappings | Prepare, Skimjoin, Summary | Converts run-specific categorical input values into canonical prepared columns before enrichment. |
 | `auto_sufficiency_basis` | string | `licensed_drivers` | `licensed_drivers`, `workers`, `adults` | Prepare, Summary | Basis for household auto-sufficiency derivation. |
 | `student_types` | list of mappings | `[]` | student-type definitions | Prepare, Summary | School/university enrollment definitions used by prepared fields and shadow-pricing summaries. |
 | `time_periods` | mapping | disabled | ActivitySim `network_los.yaml` source | Prepare, Summary | Derives canonical period labels for prepared tours and trips. |
@@ -432,6 +433,32 @@ prepare:
         1: L
         2: M
         3: H
+```
+
+`prepare.category_mappings` is keyed by normalized run label, table id, and
+target column. Each target requires a nonempty `mapping`; `source` defaults to
+the target column. Unmapped values are preserved unless
+`preserve_unmapped: false` is set. Output defaults to `string`; use
+`output_type: boolean` for mappings whose values are `true`, `false`, or
+`null`. Prepare records unmatched source values in its diagnostics.
+
+```yaml
+prepare:
+  category_mappings:
+    raw_survey:
+      tours:
+        tour_mode:
+          mapping:
+            1: WALK
+            2: BIKE
+      persons:
+        has_license:
+          source: can_drive
+          output_type: boolean
+          preserve_unmapped: false
+          mapping:
+            1: true
+            3: false
 ```
 
 `prepare.time_periods` accepts:

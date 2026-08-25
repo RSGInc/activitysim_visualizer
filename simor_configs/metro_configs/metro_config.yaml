@@ -13,7 +13,7 @@ pipeline:
     # - segment
     - summarize # will automatically overwrite summaries with a stale cache
     - dashboard
-  dashboard_mode: live # live | export | host 
+  dashboard_mode: export # live | export | host 
   refresh: [] # list stages here only when a forced rebuild is required
 
 # ---------------------------------------------------------------------------
@@ -37,7 +37,7 @@ files:
 # Optional shared fallback files for optional inputs that may be missing in some
 # run folders. These must be explicit .csv or .parquet paths.
 fallback_files:
-  land_use: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\land_use.csv
+  land_use: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_edb\final_land_use.csv
 
 # ---------------------------------------------------------------------------
 # Runs to compare
@@ -52,16 +52,34 @@ fallback_files:
 # If none of the above are set and sample_rate is not in columns, all weights = 1.
 # ---------------------------------------------------------------------------
 runs:
+
+  - dir:              C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\raw_statewide_survey
+    label:            Raw Statewide Survey
+    hh_weight_col:     hh_weight
+    person_weight_col: person_weight
+    trip_weight_col:   linked_trip_weight
+    file_map:
+      households:              toc_household
+      persons:                 toc_person
+      day:                     toc_day
+      tours:                   toc_tour
+      trips:                   toc_trip_linked
+      joint_tour_participants: toc_joint_tour_participants
+    skimjoin:
+      config_path: metro_skimjoin_config_alternate_id_col.yaml
+
   - dir:              C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\survey_data
-    label:            Survey
+    label:            "Regional: Filtered & Attributed"
     hh_weight_col:     hh_weight
     person_weight_col: person_weight
     trip_weight_col:   linked_trip_weight
     skimjoin:
       config_path: metro_skimjoin_config_alternate_id_col.yaml
 
+  
+
   - dir:              C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data
-    label:            Override
+    label:            Estimation Mode Inputs
     hh_weight_col:     hh_weight
     person_weight_col: person_weight
     trip_weight_col:   linked_trip_weight
@@ -71,6 +89,19 @@ runs:
       tours:                   override_tours
       trips:                   override_trips
       joint_tour_participants: override_joint_tour_participants
+
+  - dir:              C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_edb
+    label:            Estimation Mode Outputs
+    hh_weight_col:     hh_weight
+    person_weight_col: person_weight
+    file_map:
+      households:              final_households
+      persons:                 final_persons
+      tours:                   final_tours
+      trips:                   final_trips
+      vehicles:                final_vehicles
+      joint_tour_participants: final_joint_tour_participants
+      land_use:                final_land_use
 
 # ---------------------------------------------------------------------------
 # Zone system
@@ -89,6 +120,10 @@ zones:
 # Change only if your outputs use non-standard column names.
 # ---------------------------------------------------------------------------
 columns:
+  household_id:   [household_id, hh_id]
+  trip_id:        [trip_id, linked_trip_id]
+  trip_mode:      [trip_mode, linked_trip_mode]
+  trip_num:       [trip_num, linked_trip_num]
   ptype:          ptype           # person type column in persons file
   hhsize:         hhsize          # HH size column in households file
   auto_ownership: auto_ownership  # vehicle count column in households file
@@ -105,6 +140,67 @@ columns:
   # school_esc_inbound: [school_esc_inbound, inb_escort_type]
 
 prepare:
+  category_mappings:
+    raw_statewide_survey:
+      persons:
+        has_license:
+          source: can_drive
+          output_type: boolean
+          preserve_unmapped: false
+          mapping:
+            1: true
+            3: false
+            995: false
+      tours:
+        tour_mode:
+          mapping: &raw_statewide_tour_modes
+            1: SCHOOLBUS
+            2: WALK
+            3: WALK_TRANSIT
+            4: PNR_TRANSIT
+            5: KNR_TRANSIT
+            6: BIKE_TRANSIT
+            7: BIKE
+            8: EBIKE
+            9: ESCOOTER
+            10: TAXI
+            11: TNC_SINGLE
+            12: TNC_SHARED
+            13: SOV
+            14: HOV2
+            15: HOV3
+            16: OTHER
+            995: MISSING
+        tour_purpose:
+          mapping: &raw_statewide_purposes
+            -1: othdiscr
+            1: home
+            2: work
+            3: othmaint
+            4: school
+            5: othmaint
+            6: escort
+            7: shopping
+            8: eatout
+            9: social
+            10: othmaint
+            12: othdiscr
+            13: othdiscr
+            14: home
+            995: null
+        tour_category:
+          mapping:
+            1: mandatory
+            2: non_mandatory
+            3: atwork
+            4: joint
+      trips:
+        trip_mode:
+          source: linked_trip_mode
+          mapping: *raw_statewide_tour_modes
+        trip_purpose:
+          source: d_purpose_category
+          mapping: *raw_statewide_purposes
   output:
     file_format: parquet
   validation:
@@ -126,6 +222,15 @@ prepare:
     output_column: vot_bin
     fallback_value: M
     mappings:
+      raw_statewide_survey:
+        1: L
+        2: L
+        3: M
+        4: M
+        5: H
+        6: H
+        995: M
+        999: M
       survey:
         1: L
         2: L
@@ -135,6 +240,14 @@ prepare:
         6: H
         999: M
       override:
+        1: L
+        2: L
+        3: M
+        4: M
+        5: H
+        6: H
+        999: M
+      estimation:
         1: L
         2: L
         3: M
@@ -233,7 +346,7 @@ dashboard:
       #   - vmt
       #   - regional_validation
   export:
-    output_path: exports/dashboard.html
+    output_path: ../../simor_project_outputs/exports/metro_dashboard.html
     # summary series are baked into one exported HTML file.
     # `dashboard.export.pages` modifies matching live pages; it is not an
     # inclusion list. Omit selector overrides to export all widget states.
@@ -338,6 +451,8 @@ display:
     telecommute_frequency:
       mapping:
         1_day_week: 1 Day per Week
+        2_days_week: 2 Days per Week
+        3_days_week: 3 Days per Week
         2_3_days_week: 2-3 Days per Week
         4_days_week: 4+ Days per Week
         No_Telecommute: No Telecommute
