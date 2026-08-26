@@ -80,6 +80,7 @@ Regenerate the catalogs after you change:
 
 - `@summary(...)` declarations and contracts
 - `processor/summarize/catalog.py`
+- `scripts/summary_catalog_metadata.yaml`
 - dashboard page definitions
 - page data requirements
 

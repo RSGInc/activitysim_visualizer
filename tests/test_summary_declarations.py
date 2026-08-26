@@ -111,9 +111,17 @@ def test_wiki_summary_catalog_documents_build_status_and_all_fields() -> None:
 
     catalog = build_wiki_summary_catalog()
 
-    assert "| Summary ID | Filename | Default build |" in catalog
-    assert "| `population_totals` | `population_totals.csv` | yes |" in catalog
-    assert (
-        "| `auto_vmt_validation_summary` | "
-        "`auto_vmt_validation_summary.csv` | no |"
-    ) in catalog
+    assert "| Category | Summary / output file |" in catalog
+    population_row = next(
+        line for line in catalog.splitlines() if "`population_totals`<br>" in line
+    )
+    external_row = next(
+        line
+        for line in catalog.splitlines()
+        if "`auto_vmt_validation_summary`<br>" in line
+    )
+
+    assert "`population_totals.csv`" in population_row
+    assert "`person_count` (`Float64`): weighted persons." in population_row
+    assert "`auto_vmt_validation_summary.csv`" in external_row
+    assert "Default: no" in external_row

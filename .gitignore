@@ -247,3 +247,7 @@ plans/
 /simor_project_outputs/
 
 AGENTS.md
+
+.agents/
+old_r_based_visualizer/
+outside_summary_tables/

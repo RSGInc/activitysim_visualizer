@@ -161,22 +161,9 @@ in prepared household, person, or trip tables.
 | `modes.<id>.columns.persons` | string | none | Summary | Person source column; propagates to trips, tours, and days unless overridden. |
 | `modes.<id>.columns.trips` | string | none | Summary | Trip source column; tour weight becomes the mean selected trip weight by `tour_id`. |
 
-```yaml
-weighting:
-  modes:
-    calibrated:
-      label: Calibrated
-      columns:
-        households: calibrated_hh_weight
-        persons: calibrated_person_weight
-        trips: calibrated_trip_weight
-
-summarize:
-  weighting_modes: [weighted, unweighted, calibrated]
-```
-
 Each definition requires at least one supported source table. The visualizer
-validates named columns for each prepared run. See the
+validates named columns for each prepared run. For a complete configuration
+example and its propagation rules, see the
 [weighting cookbook](43-weighting-hosting-extensions.md#worked-example-add-a-weighting-mode).
 
 ## `extensions`
@@ -528,11 +515,9 @@ effective configuration needs:
 | `network_los.yaml` | Only when `dimensions.PERIOD.values_from_network_los` is `true`; set it in the main config or as `project.network_los_file`. |
 | Prepared trip and tour input | Supplied by the integrated prepare workflow. Do not set `project.trips_table`, `project.tours_table`, or `project.output_dir` for integrated use. |
 
-Paths in the main config resolve from the main config directory. Paths inside
-the standalone file resolve from that file's directory. Main-config skim and
-network values replace their `project` counterparts. Avoid the standalone
-top-level `skim_files` form when you need main-config overrides; use
-`project.skim_files` or omit the path from the standalone file.
+For path resolution, override precedence, and the standalone top-level
+`skim_files` caveat, see
+[Choose Where Paths Live](23-skimjoin-config-reference.md#choose-where-paths-live).
 
 | Field | Type | Default | Impact | Notes |
 |---|---|---|---|---|
@@ -551,10 +536,8 @@ contains `skimjoin`. The run-level
 path replaces the corresponding value in the selected standalone file.
 `create_hypothetical_skim_tables` inherits the global value when omitted.
 
-A run with no override block uses the complete global resolution. Once a run
-override requires the rules file to be reloaded, omitted skim and network path
-overrides come from that standalone file. Repeat a required global path in the
-run block if the standalone file does not contain it.
+The run-reload and omitted-path rules are documented in
+[Choose Where Paths Live](23-skimjoin-config-reference.md#choose-where-paths-live).
 
 To enable skimjoin globally, add it to `pipeline.steps`. Do not use the removed
 top-level `skimjoin.enabled` or `skimjoin.config_path` keys; `enabled` is only
@@ -735,11 +718,9 @@ Use a page ID or a nested group and page ID as an export page override key.
 Selector keys depend on the page. A selector value can be `default`, `all`, one
 string, or a list of strings. Set `parts.*.enabled` to hide named export parts.
 
-Export starts with the page set from `dashboard.live.pages`.
-`dashboard.export.pages` is an override mapping, not an allow-list, so an entry
-for one page does not remove the others. To remove pages, set `enabled: false`
-or use `exclude_pages` or `exclude_groups`. Export cannot add a page omitted by
-the live configuration. Find valid IDs in these locations:
+Export page selection, overrides, and exclusions follow the rules in
+[Enabling Pages](31-dashboard-pages.md#enabling-pages). Find valid IDs in these
+locations:
 
 - page and group IDs: the generated catalog in chapter 31;
 - selector IDs: `self.select(...)` and `self.selector(...)` calls on the page;

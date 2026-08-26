@@ -201,7 +201,8 @@ supply the view. This can occur with an old or external cache.
 
 ## 7. Regenerate And Verify
 
-Use these commands:
+Add the new summary's category, analytical use, and field descriptions to
+`scripts/summary_catalog_metadata.yaml`, then use these commands:
 
 ```bash
 uv run python scripts/generate_wiki_catalogs.py
@@ -241,7 +242,7 @@ make the summary unavailable. The builder must not fail.
 - Domain-specific empty conditions return `builder.empty()`.
 - Pure calculation and declaration behavior have focused tests.
 - The consuming page declares the ID.
-- Generated catalogs are current.
+- Summary metadata is complete and generated catalogs are current.
 
 ## Related Chapters
 

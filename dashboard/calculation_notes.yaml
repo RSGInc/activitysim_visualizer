@@ -888,18 +888,19 @@ notes:
     summary: This plot sums household weights by household size, combining households of five or more people into 5+.
 
   daily_activity.activity_pattern:
-    method_text: Prepared persons with a coordinated daily activity pattern are grouped by that pattern and summed with person weights.
+    method_text: When prepared persons contain coordinated daily activity pattern values, person records are grouped by that pattern and summed with person weights. Otherwise, prepared day records are joined to persons and every day record is summed with its person's weight.
     sources: [daily_activity_pattern_by_person_type]
-    summary: This plot sums person weights by coordinated daily activity pattern.
+    summary: This plot uses person-table activity patterns when available and otherwise uses day-table patterns without deduplicating day records.
     source_filters:
-      - Persons without a daily activity pattern are excluded.
+      - Records without a daily activity pattern are excluded.
 
   daily_activity.mandatory_tour_frequency:
-    method_text: Eligible persons are grouped by their mandatory-tour-frequency choice and summed with person weights; zero or missing choices are not included.
+    method_text: When the person table contains mandatory-tour-frequency choices, eligible persons are grouped by that choice and summed with person weights. Otherwise, work and school tours are counted for every person-day and mapped to the same choice alternatives before person weights are summed.
     sources: [mandatory_tour_frequency_by_person_type]
-    summary: This plot sums person weights by mandatory-tour-frequency choice.
+    summary: This plot sums person or person-day weights by mandatory-tour-frequency choice, deriving choices from observed mandatory tours when needed.
     source_filters:
-      - Only persons with a mandatory-tour-frequency choice greater than zero are included.
+      - Only person or person-day records with a mandatory-tour-frequency choice greater than zero are included.
+      - Derived counts outside the modeled alternatives (0 work/1 school, 0 work/2 school, 1 work/0 school, 2 work/0 school, and 1 work/1 school) are excluded.
 
   daily_activity.nonmandatory_tour_frequency:
     method_text: Non-mandatory tours are counted for each person, that person-level tour count becomes the frequency category, and person weights are summed within the resulting categories.
@@ -910,19 +911,19 @@ notes:
 
   daily_activity.tour_rate:
     method: rates_and_averages
-    method_text: Weighted tours are totaled by purpose and person type, then divided by the weighted number of people in that person-type group; combined groups are recalculated from totals.
+    method_text: Every eligible tour record contributes its prepared tour weight. Those weights are summed by purpose and person type, then divided by summed person weights; when the day table contains repeated person IDs, each reported person-day retains the person's weight in the denominator.
     sources: [tour_rates_by_person_type_and_tour_purpose]
-    summary: This plot divides weighted tours of each purpose by the weighted person population.
-    formula: tour rate = weighted tours ÷ weighted persons
+    summary: This plot divides the sum of tour-record weights by the sum of person or person-day weights, without deduplicating tours.
+    formula: tour rate = sum(tour finalweight) ÷ sum(person finalweight)
     source_filters:
       - Tours without a person or tour purpose and persons without a person type or weight are excluded.
 
   daily_activity.trip_rate:
     method: rates_and_averages
-    method_text: Weighted trips are totaled by purpose and person type, then divided by the weighted number of people in that person-type group; combined groups are recalculated from totals.
+    method_text: Every eligible trip record contributes its prepared trip weight. Those weights are summed by purpose and person type, then divided by summed person weights; when the day table contains repeated person IDs, each reported person-day retains the person's weight in the denominator.
     sources: [trip_rates_by_person_type_and_trip_purpose]
-    summary: This plot divides weighted trips of each purpose by the weighted person population.
-    formula: trip rate = weighted trips ÷ weighted persons
+    summary: This plot divides the sum of trip-record weights by the sum of person or person-day weights, without deduplicating trips.
+    formula: trip rate = sum(trip finalweight) ÷ sum(person finalweight)
     source_filters:
       - Trips without a person or trip purpose and persons without a person type are excluded.
 

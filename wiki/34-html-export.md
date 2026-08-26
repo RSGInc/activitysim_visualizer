@@ -72,11 +72,8 @@ command uses the configured output path. If that path is absent, it uses
 `<root>/exported_dashboard.html`. You must also select the dashboard step. Add
 `--dashboard` if `pipeline.steps` does not contain it.
 
-Export starts with the pages from `dashboard.live.pages`. The
-`dashboard.export.pages` mapping changes matching page selectors and parts. It
-does not select the page set. Use `enabled: false`, `exclude_pages`, or
-`exclude_groups` to remove pages. Export cannot add a page that the live
-configuration omits.
+For the live page set and export override/exclusion behavior, see
+[Enabling Pages](31-dashboard-pages.md#enabling-pages).
 
 ## Supported Runtime Behavior
 

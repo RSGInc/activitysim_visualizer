@@ -6,9 +6,12 @@ from pathlib import Path
 import sys
 from typing import Iterable
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 WIKI = ROOT / "wiki"
+SUMMARY_CATALOG_METADATA = Path(__file__).with_name("summary_catalog_metadata.yaml")
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -46,89 +49,117 @@ def _type_name(dtype: object) -> str:
     return str(dtype).replace("Datetime(", "Datetime(")
 
 
+def _summary_catalog_metadata() -> list[dict[str, object]]:
+    payload = yaml.safe_load(SUMMARY_CATALOG_METADATA.read_text(encoding="utf-8"))
+    return payload["categories"]
+
+
 def build_summary_catalog() -> str:
     from processor.summarize.catalog import SUMMARY_DEFINITIONS
 
+    definitions = {
+        definition.summary_id: definition for definition in SUMMARY_DEFINITIONS
+    }
     lines: list[str] = [
-        "_Generated from `processor.summarize.catalog.SUMMARY_DEFINITIONS`._",
+        "_Generated from `processor.summarize.catalog.SUMMARY_DEFINITIONS` and "
+        "`scripts/summary_catalog_metadata.yaml`._",
         "",
         f"Total registered summaries: **{len(SUMMARY_DEFINITIONS)}**",
         "",
-        "| Summary ID | Filename | Default build | Builder | Output schema | Required inputs |",
+        "| Category | Summary / output file | Information and analytical use | Output schema and field definitions | Build / builder | Required inputs |",
         "|---|---|---|---|---|---|",
     ]
 
-    for definition in sorted(
-        SUMMARY_DEFINITIONS, key=lambda item: item.summary_id
-    ):
-        contract = definition.contract
-        builder_name = (
-            f"{definition.builder.__module__}."
-            f"{getattr(definition.builder, '__name__', '<callable>')}"
-        )
-        schema = "<br>".join(
-            f"`{_escape_cell(name)}: {_escape_cell(_type_name(dtype))}`"
-            for name, dtype in contract.schema.items()
-        ) or "-"
-        required_parts: list[str] = []
-        if contract.required_tables:
-            required_parts.append("tables: " + _inline_list(contract.required_tables))
-        for table_name, columns in sorted(contract.required_columns.items()):
-            required_parts.append(
-                f"{_escape_cell(table_name)}: " + _inline_list(columns)
+    for category in _summary_catalog_metadata():
+        for metadata in category["summaries"]:
+            definition = definitions[metadata["id"]]
+            contract = definition.contract
+            builder_name = (
+                f"{definition.builder.__module__}."
+                f"{getattr(definition.builder, '__name__', '<callable>')}"
             )
-        required = "<br>".join(required_parts) if required_parts else "-"
+            schema = "<br>".join(
+                f"`{_escape_cell(name or chr(34) * 2)}` "
+                f"(`{_escape_cell(_type_name(dtype))}`): "
+                f"{_escape_cell(metadata['fields'][name])}"
+                for name, dtype in contract.schema.items()
+            ) or "-"
+            required_parts: list[str] = []
+            if contract.required_tables:
+                required_parts.append(
+                    "tables: " + _inline_list(contract.required_tables)
+                )
+            for table_name, columns in sorted(contract.required_columns.items()):
+                required_parts.append(
+                    f"{_escape_cell(table_name)}: " + _inline_list(columns)
+                )
+            required = "<br>".join(required_parts) if required_parts else "-"
+            build = (
+                "Default: "
+                + ("yes" if definition.build_by_default else "no")
+                + f"<br>`{_escape_cell(builder_name)}`"
+            )
 
-        lines.append(
-            "| "
-            + " | ".join(
-                [
-                    f"`{_escape_cell(definition.summary_id)}`",
-                    f"`{_escape_cell(definition.filename)}.csv`",
-                    "yes" if definition.build_by_default else "no",
-                    f"`{_escape_cell(builder_name)}`",
-                    schema,
-                    required,
-                ]
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        _escape_cell(category["name"]),
+                        f"`{_escape_cell(definition.summary_id)}`<br>"
+                        f"`{_escape_cell(definition.filename)}.csv`",
+                        _escape_cell(metadata["description"]),
+                        schema,
+                        build,
+                        required,
+                    ]
+                )
+                + " |"
             )
-            + " |"
-        )
 
     return "\n".join(lines)
 
 
 def _validate_summary_reference() -> None:
-    """Keep the hand-written analytical reference aligned with declarations."""
+    """Keep the analytical metadata aligned with runtime declarations."""
     from processor.summarize.catalog import SUMMARY_DEFINITIONS
 
-    path = WIKI / "26-summary-catalog.md"
-    reference = path.read_text(encoding="utf-8").split(
-        "<!-- GENERATED:SUMMARY-CATALOG START -->",
-        1,
-    )[0]
-    missing: list[str] = []
-    for definition in SUMMARY_DEFINITIONS:
-        prefix = f"| `{definition.summary_id}` |"
-        row = next(
-            (line for line in reference.splitlines() if line.startswith(prefix)),
-            "",
-        )
-        if not row:
-            missing.append(definition.summary_id)
-            continue
-        absent_fields = [
-            field_name
-            for field_name in definition.contract.schema
-            if field_name and f"`{field_name}`" not in row
-        ]
-        if absent_fields:
-            missing.append(
-                f"{definition.summary_id} fields: {', '.join(absent_fields)}"
-            )
+    definitions = {
+        definition.summary_id: definition for definition in SUMMARY_DEFINITIONS
+    }
+    metadata = [
+        summary
+        for category in _summary_catalog_metadata()
+        for summary in category["summaries"]
+    ]
+    metadata_ids = [summary["id"] for summary in metadata]
+    problems: list[str] = []
+    duplicate_ids = sorted(
+        summary_id
+        for summary_id in set(metadata_ids)
+        if metadata_ids.count(summary_id) > 1
+    )
+    if duplicate_ids:
+        problems.append("duplicate summaries: " + ", ".join(duplicate_ids))
 
-    if missing:
+    missing_ids = sorted(set(definitions) - set(metadata_ids))
+    extra_ids = sorted(set(metadata_ids) - set(definitions))
+    if missing_ids:
+        problems.append("missing summaries: " + ", ".join(missing_ids))
+    if extra_ids:
+        problems.append("unknown summaries: " + ", ".join(extra_ids))
+
+    for summary in metadata:
+        definition = definitions.get(summary["id"])
+        if definition is None:
+            continue
+        documented_fields = tuple(summary["fields"])
+        declared_fields = tuple(definition.contract.schema)
+        if documented_fields != declared_fields:
+            problems.append(f"{summary['id']} fields do not match its schema")
+
+    if problems:
         raise ValueError(
-            "Summary analytical reference is incomplete: " + "; ".join(missing)
+            "Summary analytical reference is incomplete: " + "; ".join(problems)
         )
 
 

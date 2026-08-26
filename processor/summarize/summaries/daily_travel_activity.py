@@ -13,6 +13,27 @@ from processor.summarize.summaries.summary_helpers import (
 from runtime.config import Config
 
 
+def _person_exposure_records(rd: RunData) -> pl.DataFrame:
+    persons = rd.per.filter(
+        pl.col("person_id").is_not_null()
+        & pl.col("person_type").is_not_null()
+        & pl.col("finalweight").is_not_null()
+    ).select(
+        "person_id",
+        pl.col("person_type").cast(pl.Utf8),
+        pl.col("finalweight").cast(pl.Float64).alias("person_weight"),
+    )
+
+    if not rd.day.is_empty() and "person_id" in rd.day.columns:
+        day_people = rd.day.filter(pl.col("person_id").is_not_null()).select(
+            "person_id"
+        )
+        if day_people.height > day_people["person_id"].n_unique():
+            return day_people.join(persons, on="person_id", how="inner")
+
+    return persons
+
+
 @summary(
     id="daily_activity_pattern_by_person_type",
     schema={
@@ -20,15 +41,36 @@ from runtime.config import Config
         "daily_activity_pattern": pl.Utf8,
         "person_count": pl.Float64,
     },
-    required_columns={"per": ("person_type", "cdap_activity", "finalweight")},
+    required_columns={"per": ("person_type", "finalweight")},
 )
 def dap_summary(rd: RunData, config: Config) -> pl.DataFrame:
     """DAP by person type. Columns: person_type, daily_activity_pattern, person_count"""
-    if "person_type" not in rd.per.columns or "cdap_activity" not in rd.per.columns:
+    person_activity_required = {"person_type", "cdap_activity", "finalweight"}
+    day_required = {"person_id", "cdap_activity"}
+    person_required = {"person_id", "person_type", "finalweight"}
+    if person_activity_required.issubset(rd.per.columns) and rd.per.select(
+        pl.col("cdap_activity").is_not_null().any()
+    ).item():
+        source = rd.per
+    elif (
+        not rd.day.is_empty()
+        and day_required.issubset(rd.day.columns)
+        and person_required.issubset(rd.per.columns)
+    ):
+        source = (
+            rd.day.filter(pl.col("cdap_activity").is_not_null())
+            .select("person_id", "cdap_activity")
+            .join(
+                rd.per.select("person_id", "person_type", "finalweight"),
+                on="person_id",
+                how="inner",
+            )
+        )
+    else:
         return dap_summary.empty()
 
     df = (
-        rd.per.filter(pl.col("cdap_activity").is_not_null())
+        source.filter(pl.col("cdap_activity").is_not_null())
         .group_by(["person_type", "cdap_activity"])
         .agg(person_count=pl.col("finalweight").sum())
         .rename({"cdap_activity": "daily_activity_pattern"})
@@ -57,19 +99,108 @@ def dap_summary(rd: RunData, config: Config) -> pl.DataFrame:
         "mandatory_tour_frequency": pl.Int32,
         "person_count": pl.Float64,
     },
-    required_columns={"per": ("person_type", "imf_choice", "finalweight")},
+    required_columns={"per": ("person_id", "person_type", "finalweight")},
 )
 def mandatory_tour_freq(rd: RunData, config: Config) -> pl.DataFrame:
     """Returns DataFrame: person_type, mandatory_tour_frequency, person_count."""
-    if "person_type" not in rd.per.columns or "imf_choice" not in rd.per.columns:
-        return mandatory_tour_freq.empty()
+    person_choice_required = {"person_type", "imf_choice", "finalweight"}
+    if person_choice_required.issubset(rd.per.columns) and rd.per.select(
+        pl.col("imf_choice").is_not_null().any()
+    ).item():
+        source = rd.per.select("person_type", "imf_choice", "finalweight")
+    else:
+        person_required = {"person_id", "person_type", "finalweight"}
+        day_required = {"person_id", "day_id"}
+        tour_required = {"person_id", "day_id"}
+        purpose_col = _summary_purpose_column(rd.tours)
+        if (
+            not person_required.issubset(rd.per.columns)
+            or not day_required.issubset(rd.day.columns)
+            or not tour_required.issubset(rd.tours.columns)
+            or not purpose_col
+        ):
+            return mandatory_tour_freq.empty()
+
+        mandatory_tours = rd.tours.filter(
+            pl.col("person_id").is_not_null()
+            & pl.col("day_id").is_not_null()
+            & pl.col(purpose_col).is_not_null()
+        )
+        if "tour_category" in mandatory_tours.columns:
+            mandatory_tours = mandatory_tours.filter(
+                pl.col("tour_category") == "mandatory"
+            )
+
+        tour_counts = mandatory_tours.group_by(["person_id", "day_id"]).agg(
+            (pl.col(purpose_col).cast(pl.Utf8).str.to_lowercase() == "work")
+            .sum()
+            .alias("_work_tours"),
+            (pl.col(purpose_col).cast(pl.Utf8).str.to_lowercase() == "school")
+            .sum()
+            .alias("_school_tours"),
+        )
+
+        source = (
+            rd.day.filter(
+                pl.col("person_id").is_not_null() & pl.col("day_id").is_not_null()
+            )
+            .select("person_id", "day_id")
+            .join(
+                rd.per.select("person_id", "person_type", "finalweight"),
+                on="person_id",
+                how="inner",
+            )
+            .join(tour_counts, on=["person_id", "day_id"], how="left")
+            .with_columns(
+                pl.col("_work_tours").fill_null(0),
+                pl.col("_school_tours").fill_null(0),
+            )
+            .with_columns(
+                pl.when(
+                    (pl.col("_work_tours") == 0)
+                    & (pl.col("_school_tours") == 0)
+                )
+                .then(pl.lit(0))
+                .when(
+                    (pl.col("_work_tours") == 1)
+                    & (pl.col("_school_tours") == 0)
+                )
+                .then(pl.lit(1))
+                .when(
+                    (pl.col("_work_tours") == 2)
+                    & (pl.col("_school_tours") == 0)
+                )
+                .then(pl.lit(2))
+                .when(
+                    (pl.col("_work_tours") == 0)
+                    & (pl.col("_school_tours") == 1)
+                )
+                .then(pl.lit(3))
+                .when(
+                    (pl.col("_work_tours") == 0)
+                    & (pl.col("_school_tours") == 2)
+                )
+                .then(pl.lit(4))
+                .when(
+                    (pl.col("_work_tours") == 1)
+                    & (pl.col("_school_tours") == 1)
+                )
+                .then(pl.lit(5))
+                .otherwise(None)
+                .alias("imf_choice")
+            )
+            .select("person_type", "imf_choice", "finalweight")
+        )
 
     df = (
-        rd.per.filter(pl.col("imf_choice") > 0)
+        source.filter(pl.col("imf_choice") > 0)
         .group_by(["person_type", "imf_choice"])
         .agg(person_count=pl.col("finalweight").sum())
         .rename({"imf_choice": "mandatory_tour_frequency"})
-        .with_columns(pl.col("person_type").cast(pl.Utf8).alias("person_type"))
+        .with_columns(
+            pl.col("person_type").cast(pl.Utf8).alias("person_type"),
+            pl.col("mandatory_tour_frequency").cast(pl.Int32),
+        )
         .select("person_type", "mandatory_tour_frequency", "person_count")
     )
 
@@ -168,12 +299,12 @@ def indiv_nm_summary(rd: RunData, config: Config) -> pl.DataFrame:
     },
     required_columns={
         "per": ("person_id", "person_type", "finalweight"),
-        "tours": ("person_id", "tour_purpose"),
+        "tours": ("person_id", "tour_purpose", "finalweight"),
     },
 )
 def tour_rate_per_person(rd: RunData, config: Config) -> pl.DataFrame:
     person_required = {"person_id", "person_type", "finalweight"}
-    tour_required = {"person_id", "tour_purpose"}
+    tour_required = {"person_id", "tour_purpose", "finalweight"}
 
     if not person_required.issubset(set(rd.per.columns)) or not tour_required.issubset(
         set(rd.tours.columns)
@@ -185,39 +316,30 @@ def tour_rate_per_person(rd: RunData, config: Config) -> pl.DataFrame:
         return tour_rate_per_person.empty()
 
     weighted_person_days = (
-        rd.per.filter(
-            pl.col("person_id").is_not_null()
-            & pl.col("person_type").is_not_null()
-            & pl.col("finalweight").is_not_null()
-        )
-        .select(
-            "person_id",
-            pl.col("person_type").cast(pl.Utf8),
-            pl.col("finalweight").cast(pl.Float64).alias("person_weight"),
-        )
+        _person_exposure_records(rd)
         .group_by("person_type")
         .agg(weighted_person_days=pl.col("person_weight").sum())
     )
 
     weighted_tours = (
         rd.tours.filter(
-            pl.col("person_id").is_not_null() & pl.col(purpose_col).is_not_null()
+            pl.col("person_id").is_not_null()
+            & pl.col(purpose_col).is_not_null()
+            & pl.col("finalweight").is_not_null()
         )
         .join(
             rd.per.filter(
                 pl.col("person_id").is_not_null()
                 & pl.col("person_type").is_not_null()
-                & pl.col("finalweight").is_not_null()
             ).select(
                 "person_id",
                 pl.col("person_type").cast(pl.Utf8),
-                pl.col("finalweight").cast(pl.Float64).alias("person_weight"),
             ),
             on="person_id",
             how="inner",
         )
         .group_by(["person_type", purpose_col])
-        .agg(weighted_tours=pl.col("person_weight").sum())
+        .agg(weighted_tours=pl.col("finalweight").cast(pl.Float64).sum())
         .rename({purpose_col: "tour_purpose"})
         .with_columns(pl.col("tour_purpose").cast(pl.Utf8))
     )
@@ -284,15 +406,17 @@ def trip_rate_per_person(rd: RunData, config: Config) -> pl.DataFrame:
         return trip_rate_per_person.empty()
 
     person_totals = (
-        rd.per.filter(pl.col("person_type").is_not_null())
+        _person_exposure_records(rd)
         .group_by("person_type")
-        .agg(person_count=pl.col("finalweight").sum())
+        .agg(person_count=pl.col("person_weight").sum())
         .with_columns(pl.col("person_type").cast(pl.Utf8))
     )
 
     trip_totals = (
         rd.trips.filter(
-            pl.col("person_id").is_not_null() & pl.col("trip_purpose").is_not_null()
+            pl.col("person_id").is_not_null()
+            & pl.col("trip_purpose").is_not_null()
+            & pl.col("finalweight").is_not_null()
         )
         .join(
             rd.per.select("person_id", "person_type"),

@@ -152,7 +152,9 @@ use the [Summary Function Cookbook](44-summary-function-cookbook.md).
    declared prerequisites cannot express.
 7. Add focused calculation and contract tests.
 8. Add the summary ID to a page's required or optional summaries when needed.
-9. Use `uv run python scripts/generate_wiki_catalogs.py`.
+9. Add the analytical description and field definitions to
+   `scripts/summary_catalog_metadata.yaml`.
+10. Use `uv run python scripts/generate_wiki_catalogs.py`.
 
 The catalog import rejects duplicate IDs. Standard summarize workflows build
 every declaration with `build_by_default=True`, regardless of enabled page
@@ -196,9 +198,10 @@ outputs, cache behavior, and dashboard selection.
 
 ## Summary Catalog
 
-The generated [26 - Summary Catalog](26-summary-catalog.md) lists each current
-declaration, output file name, builder, schema, and requirement. Regenerate the
-catalog after you change a summary declaration.
+The generated [26 - Summary Catalog](26-summary-catalog.md) combines each current
+declaration with the analytical descriptions in
+`scripts/summary_catalog_metadata.yaml`. Regenerate the catalog after you change
+either source.
 
 ## Related Chapters
 

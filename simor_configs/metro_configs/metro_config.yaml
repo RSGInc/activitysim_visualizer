@@ -57,7 +57,6 @@ runs:
     label:            Raw Statewide Survey
     hh_weight_col:     hh_weight
     person_weight_col: person_weight
-    trip_weight_col:   linked_trip_weight
     file_map:
       households:              toc_household
       persons:                 toc_person
@@ -72,7 +71,6 @@ runs:
     label:            "Regional: Filtered & Attributed"
     hh_weight_col:     hh_weight
     person_weight_col: person_weight
-    trip_weight_col:   linked_trip_weight
     skimjoin:
       config_path: metro_skimjoin_config_alternate_id_col.yaml
 
@@ -82,7 +80,6 @@ runs:
     label:            Estimation Mode Inputs
     hh_weight_col:     hh_weight
     person_weight_col: person_weight
-    trip_weight_col:   linked_trip_weight
     file_map:
       households:              override_households
       persons:                 override_persons
@@ -151,6 +148,51 @@ prepare:
             1: true
             3: false
             995: false
+        transit_pass_ownership:
+          source: transit_pass
+          output_type: boolean
+          preserve_unmapped: false
+          mapping:
+            1: false
+            3: false
+            4: false
+            7: true
+            8: true
+            9: true
+            995: null
+        telecommute_frequency:
+          source: telework_freq
+          preserve_unmapped: false
+          mapping:
+            1: 4_days_week
+            2: 4_days_week
+            3: 4_days_week
+            4: 3_days_week
+            5: 2_days_week
+            6: 1_day_week
+            7: No_Telecommute
+            8: No_Telecommute
+            995: null
+            996: null
+        work_from_home:
+          source: job_type
+          output_type: boolean
+          preserve_unmapped: false
+          mapping:
+            1: false
+            2: false
+            3: true
+            4: false
+            5: false
+            995: null
+      day:
+        cdap_activity:
+          source: daily_activity_pattern
+          preserve_unmapped: false
+          mapping:
+            1: M
+            2: N
+            3: H
       tours:
         tour_mode:
           mapping: &raw_statewide_tour_modes
@@ -216,6 +258,15 @@ prepare:
             13: othdiscr
             14: home
             995: null
+    regional_filtered_attributed:
+      day:
+        cdap_activity:
+          source: daily_activity_pattern
+          preserve_unmapped: false
+          mapping:
+            1: M
+            2: N
+            3: H
   output:
     file_format: parquet
   validation:

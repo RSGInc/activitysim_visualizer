@@ -104,8 +104,9 @@ The build test checks that the tracked generated asset matches the runtime
 source. If it fails, rebuild the asset and commit the generated change. Do not
 edit the asset directly.
 
-After changing summary declarations, schemas, page definitions, groups, or
-page data requirements, regenerate and test the catalogs:
+After changing summary declarations, schemas, summary catalog metadata, page
+definitions, groups, or page data requirements, regenerate and test the
+catalogs:
 
 ```powershell
 uv run python scripts/generate_wiki_catalogs.py
