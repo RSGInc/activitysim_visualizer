@@ -453,6 +453,26 @@ def _distance_bin_sort_expr(column: str = "distance_bin") -> pl.Expr:
     )
 
 
+def _ensure_zero_distance_bin(
+    df: pl.DataFrame,
+    *,
+    group_cols: list[str],
+    value_col: str,
+) -> pl.DataFrame:
+    """Add a zero-valued exact-zero bin for every represented group."""
+    if df.is_empty():
+        return df
+    zero_rows = df.select(group_cols).unique().with_columns(
+        pl.lit("0").alias("distance_bin"),
+        pl.lit(0.0).alias(value_col),
+    )
+    return (
+        pl.concat([df, zero_rows.select(df.columns)], how="vertical")
+        .group_by(["distance_bin", *group_cols])
+        .agg(pl.col(value_col).sum())
+    )
+
+
 def _trip_direction_expr(df: pl.DataFrame) -> pl.Expr | None:
     """Infer a standard outbound/inbound direction label from trip flags."""
     if "inbound" in df.columns:

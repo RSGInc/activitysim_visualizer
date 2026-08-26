@@ -121,6 +121,9 @@ def normalize_run_skimjoin_overrides(
             f"{field_name}.create_hypothetical_skim_tables."
         )
 
+    enabled = raw_value.get("enabled")
+    if enabled is not None and not isinstance(enabled, bool):
+        raise ValueError(f"{field_name}.enabled must be true or false when provided.")
     config_path = normalize_optional_path_string(
         raw_value.get("config_path"),
         field_name=f"{field_name}.config_path",
@@ -156,6 +159,7 @@ def normalize_run_skimjoin_overrides(
             f"{field_name}.create_hypothetical_skim_tables must be true or false when provided."
         )
     return RunSkimjoinOverrides(
+        enabled=enabled,
         config_path=config_path,
         skim_files=skim_files,
         network_los_file=network_los_file,
@@ -299,6 +303,16 @@ def resolve_run_skimjoin_settings(config: Config, run_entry: dict[str, Any]) -> 
             raw_overrides,
             field_name=f"runs[{run_label}].skimjoin",
             config_dir=Path(config.config_path).resolve().parent,
+        )
+
+    if overrides.enabled is False:
+        return replace(
+            config.skimjoin,
+            enabled=False,
+            config_digest=None,
+            normalized_config=None,
+            resolved_skim_files=(),
+            resolved_network_los_file=None,
         )
 
     effective_config_path = overrides.config_path or config.skimjoin.config_path

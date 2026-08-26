@@ -559,13 +559,13 @@ def family_stats_table(
 
 def skim_summary_decimal_places() -> dict[str, int]:
     return {
-        "n_total": 3,
-        "n_valid": 3,
+        "n_total": 0,
+        "n_valid": 0,
         "mean": 1,
         "mean_nonzero": 1,
         "std": 1,
-        "min": 3,
-        "max": 3,
+        "min": 1,
+        "max": 1,
         "median": 1,
         "mode": 1,
         "zero_share": 3,

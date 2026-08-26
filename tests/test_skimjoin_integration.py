@@ -575,6 +575,53 @@ def test_run_level_skimjoin_requires_resolvable_config_path_when_enabled(
         config_for_run(config, config.runs[0])
 
 
+def test_run_level_skimjoin_can_be_disabled_without_a_config_path(
+    tmp_path: Path,
+) -> None:
+    config = _write_main_config(
+        tmp_path,
+        skimjoin_enabled=True,
+        skimjoin_config_name=None,
+        run_skimjoin_lines=["enabled: false"],
+    )
+
+    resolved = config_for_run(config, config.runs[0])
+
+    assert config.skimjoin_step_enabled() is True
+    assert resolved.skimjoin.enabled is False
+    assert resolved.skimjoin_step_enabled() is False
+
+
+def test_run_level_skimjoin_enabled_cannot_override_the_global_pipeline(
+    tmp_path: Path,
+) -> None:
+    config = _write_main_config(
+        tmp_path,
+        skimjoin_enabled=False,
+        skimjoin_config_name=None,
+        run_skimjoin_lines=["enabled: true"],
+    )
+
+    resolved = config_for_run(config, config.runs[0])
+
+    assert resolved.skimjoin_step_enabled() is False
+
+
+def test_run_level_skimjoin_enabled_rejects_non_boolean_values(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"runs\[0\]\.skimjoin\.enabled must be true or false",
+    ):
+        _write_main_config(
+            tmp_path,
+            skimjoin_enabled=True,
+            skimjoin_config_name=None,
+            run_skimjoin_lines=["enabled: sometimes"],
+        )
+
+
 def test_run_level_skimjoin_missing_config_file_raises_clear_error(
     tmp_path: Path,
 ) -> None:
@@ -891,6 +938,66 @@ def test_prepare_workflow_supports_two_runs_with_different_skimjoin_config_files
     outputs = {label: prepared for label, prepared in result.runs}
     assert outputs["Run A"].trips["skim_time"].to_list() == [11.0]
     assert outputs["Run B"].trips["skim_time"].to_list() == [101.0]
+
+
+def test_prepare_workflow_can_skip_skimjoin_for_one_run(
+    tmp_path: Path,
+) -> None:
+    run_a_dir = tmp_path / "run_a"
+    run_b_dir = tmp_path / "run_b"
+    _write_prepare_run_inputs(run_a_dir)
+    _write_prepare_run_inputs(run_b_dir)
+
+    skim_path = tmp_path / "shared.omx"
+    _write_omx_with_lookup(
+        skim_path,
+        matrix_name="SOV_TIME",
+        lookup_name="taz",
+        values=np.array([[1.0, 12.0], [22.0, 32.0]]),
+    )
+    _write_skimjoin_config(tmp_path, skim_file=skim_path)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'name: "Mixed Skimjoin Test"',
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Mixed Skimjoin Test"',
+                "zones:",
+                "  use_maz: false",
+                "runs:",
+                f'  - dir: "{run_a_dir.as_posix()}"',
+                '    label: "Run A"',
+                "    skimjoin:",
+                "      enabled: false",
+                f'  - dir: "{run_b_dir.as_posix()}"',
+                '    label: "Run B"',
+                "skimjoin:",
+                "  defaults:",
+                "    config_path: skimjoin.yaml",
+                "pipeline:",
+                "  steps: [prepare, skimjoin]",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = Config.from_yaml(config_path)
+
+    prepared_root = runtime_workflows.prepared_cache_root(config, create=True)
+    result = runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=prepared_root,
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=False,
+    )
+
+    outputs = {label: prepared for label, prepared in result.runs}
+    assert "skim_time" not in outputs["Run A"].trips.columns
+    assert outputs["Run B"].trips["skim_time"].to_list() == [12.0]
+    assert result.fingerprints_by_key["run-a"]["skimjoin"] is None
+    assert result.fingerprints_by_key["run-b"]["skimjoin"]["enabled"] is True
 
 
 def test_prepare_workflow_supports_two_runs_sharing_one_skimjoin_config_with_different_skim_files(

@@ -66,7 +66,7 @@ runs:
       trips:                   toc_trip_linked
       joint_tour_participants: toc_joint_tour_participants
     skimjoin:
-      config_path: metro_skimjoin_config_alternate_id_col.yaml
+      enabled: false
 
   - dir:              C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\survey_data
     label:            "Regional: Filtered & Attributed"

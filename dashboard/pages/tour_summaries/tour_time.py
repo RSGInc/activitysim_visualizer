@@ -35,6 +35,7 @@ def tour_time_chart_data(
     def clock_profile(value_col: str) -> list[tuple[str, pl.DataFrame]]:
         return (
             filtered.select("time_bin", value_col)
+            .map(lambda frame: frame.filter(pl.col("time_bin") > 0))
             .sort("time_bin")
             .with_columns(
                 pl.col("time_bin")

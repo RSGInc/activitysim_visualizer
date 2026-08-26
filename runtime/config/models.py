@@ -159,6 +159,7 @@ class SkimjoinSettings:
 class RunSkimjoinOverrides:
     """Optional per-run skimjoin overrides resolved from the main config."""
 
+    enabled: bool | None = None
     config_path: str | None = None
     skim_files: tuple[str, ...] = ()
     network_los_file: str | None = None
@@ -524,7 +525,7 @@ class Config:
 
     def skimjoin_step_enabled(self) -> bool:
         """Return whether the active pipeline includes integrated skimjoin."""
-        return self.pipeline.has_step("skimjoin")
+        return self.pipeline.has_step("skimjoin") and self.skimjoin.enabled
 
     def summary_category_spec(self, category_id: str) -> CategorySpec | None:
         return self.summary_categories.get(str(category_id))

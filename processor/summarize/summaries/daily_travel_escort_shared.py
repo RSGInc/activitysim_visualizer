@@ -7,6 +7,7 @@ import polars as pl
 from processor.models import RunData
 from processor.summarize.summaries.summary_helpers import (
     _distance_bin_sort_expr,
+    _ensure_zero_distance_bin,
     _summary_purpose_column,
 )
 
@@ -222,7 +223,11 @@ def _sorted_distance_bins(
     value_col: str,
 ) -> pl.DataFrame:
     return (
-        df.with_columns(
+        _ensure_zero_distance_bin(
+            df,
+            group_cols=[direction_col],
+            value_col=value_col,
+        ).with_columns(
             pl.col("distance_bin").cast(pl.Utf8),
             pl.col(direction_col).cast(pl.Utf8),
             pl.col(value_col).cast(pl.Float64),

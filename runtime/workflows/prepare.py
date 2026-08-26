@@ -459,6 +459,10 @@ def run_prepare_workflow(
                 label,
             )
             continue
+        run_skimjoin = bool(
+            not entry.get("prepared_table_map")
+            and config_for_run(config, entry).skimjoin_step_enabled()
+        )
         metadata = _run_cache_metadata(entry=entry, run_key=run_key, config=config)
         prepared_loaded = _resolve_prepared_run(
             entry=entry,
@@ -469,7 +473,7 @@ def run_prepare_workflow(
             prefer_base_cache=prefer_base_cache,
             prefer_skimjoin_cache=prefer_skimjoin_cache,
             write_cache=write_cache,
-            run_skimjoin=config.skimjoin_step_enabled(),
+            run_skimjoin=run_skimjoin,
         )
         if prepared_loaded is None:
             continue

@@ -582,7 +582,7 @@ notes:
       - "Min / Max: Smallest and largest valid skim values."
       - "Median: Weighted median of valid values; in unweighted mode, the ordinary median."
       - "Mode: Skim value with the greatest total weight or record count; ties use the smaller value."
-      - "Zero Share: Share of valid trip weight or records whose skim value equals zero."
+      - "Zero Share: Among trips with a nonmissing numeric skim value, the share of their summed trip weight whose value equals zero in weighted mode, or the share of those trip records in unweighted mode."
       - "Missing Share: Share of total trip weight or records whose skim value is missing."
     details:
       Aggregation:
@@ -623,7 +623,7 @@ notes:
       - "Min / Max: Smallest and largest valid skim values."
       - "Median: Weighted median of valid values; in unweighted mode, the ordinary median."
       - "Mode: Skim value with the greatest total weight or record count; ties use the smaller value."
-      - "Zero Share: Share of valid tour weight or records whose skim value equals zero."
+      - "Zero Share: Among tours with a nonmissing numeric skim value, the share of their summed tour weight whose value equals zero in weighted mode, or the share of those tour records in unweighted mode."
       - "Missing Share: Share of total tour weight or records whose skim value is missing."
     details:
       Aggregation:

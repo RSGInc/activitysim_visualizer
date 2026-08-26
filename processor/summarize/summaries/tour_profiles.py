@@ -11,6 +11,7 @@ from processor.summarize.summaries.summary_helpers import (
     _all_purpose_rollup,
     _distance_bin_expr,
     _distance_bin_sort_expr,
+    _ensure_zero_distance_bin,
     _summary_purpose_column,
     weighted_group_sum,
 )
@@ -279,7 +280,7 @@ def tour_tod(rd: RunData, config: Config) -> pl.DataFrame:
             max_period = int(rd.tours["start_hour"].max())
         except Exception:
             max_period = 48
-    bins = list(range(1, 25 if max_period <= 24 else 49))
+    bins = list(range(0, 25 if max_period <= 24 else 49))
 
     def _hist(df: pl.DataFrame, col: str, filt) -> pl.DataFrame:
         if col not in df.columns:
@@ -288,7 +289,7 @@ def tour_tod(rd: RunData, config: Config) -> pl.DataFrame:
             df.filter(filt)
             .select([col, "_tour_weight"])
             .with_columns(pl.col(col).cast(pl.Int32).alias("time_bin"))
-            .filter(pl.col("time_bin").is_between(1, bins[-1]))
+            .filter(pl.col("time_bin").is_between(0, bins[-1]))
         )
         counts = sub.group_by("time_bin").agg(pl.col("_tour_weight").sum().alias("n"))
         return (
@@ -403,7 +404,11 @@ def tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
         value_col="tour_count",
     )
     return (
-        pl.concat([by_purpose, all_purposes], how="vertical")
+        _ensure_zero_distance_bin(
+            pl.concat([by_purpose, all_purposes], how="vertical"),
+            group_cols=["tour_purpose"],
+            value_col="tour_count",
+        )
         .with_columns(
             pl.col("distance_bin").cast(pl.Utf8),
             pl.col("tour_purpose").cast(pl.Utf8),

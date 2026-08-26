@@ -108,6 +108,8 @@ skimjoin:
 runs:
   - dir: C:\models\base\output
     label: Base
+    skimjoin:
+      enabled: false
   - dir: C:\models\build\output
     label: Build
     skimjoin:
@@ -117,6 +119,8 @@ runs:
 ```
 
 Runs without a `runs[*].skimjoin` block use the fully resolved global defaults.
+Set `runs[*].skimjoin.enabled: false` to skip enrichment for one run while
+leaving skimjoin enabled for the other runs.
 When a run has its own override block, put every path that varies or is required
 for that run in the block. Omitted skim and network paths fall back to the
 selected standalone skimjoin file, not to the other global path overrides.
@@ -505,7 +509,7 @@ lookup-rule schema.
 main visualizer config
   pipeline.steps: enables the integrated skimjoin stage
   skimjoin.defaults: selects the rules file and can supply shared data paths
-  runs[*].skimjoin: can select another rules file or supply run-specific paths
+  runs[*].skimjoin: can skip enrichment, select another rules file, or supply run-specific paths
     -> standalone skimjoin config
        activitysim/defaults/dimensions/modes: defines lookup behavior
        project: supplies paths only when the main config does not
@@ -538,8 +542,11 @@ top-level `skim_files` form when you need main-config overrides; use
 | `failure_policy` | string | `record` | Runtime, Prepare | `record` keeps a failed enrichment as diagnostics; `error` stops the run. |
 | `create_hypothetical_skim_tables` | boolean | `false` | Prepare | Enables configured hypothetical skim tables. |
 
-Run-level `runs[*].skimjoin` supports `config_path`, `skim_files`,
-`network_los_file`, and `create_hypothetical_skim_tables`. The run-level
+Run-level `runs[*].skimjoin` supports `enabled`, `config_path`, `skim_files`,
+`network_los_file`, and `create_hypothetical_skim_tables`. Set `enabled: false`
+to skip skimjoin for that run. When omitted, it inherits the global pipeline
+setting. `enabled: true` cannot enable skimjoin unless `pipeline.steps` also
+contains `skimjoin`. The run-level
 `config_path` replaces the global path. A supplied run-level skim or network
 path replaces the corresponding value in the selected standalone file.
 `create_hypothetical_skim_tables` inherits the global value when omitted.
@@ -549,8 +556,9 @@ override requires the rules file to be reloaded, omitted skim and network path
 overrides come from that standalone file. Repeat a required global path in the
 run block if the standalone file does not contain it.
 
-To enable skimjoin, add it to `pipeline.steps`. Do not use the removed
-`skimjoin.enabled` or `skimjoin.config_path` keys.
+To enable skimjoin globally, add it to `pipeline.steps`. Do not use the removed
+top-level `skimjoin.enabled` or `skimjoin.config_path` keys; `enabled` is only
+supported under `runs[*].skimjoin` as a per-run override.
 
 Integrated skim files must resolve to `.omx`, `.csv`, `.h5`, or `.hdf5`.
 

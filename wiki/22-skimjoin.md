@@ -46,6 +46,8 @@ skimjoin:
 runs:
   - dir: C:\models\base\output
     label: Base
+    skimjoin:
+      enabled: false
   - dir: C:\models\build\output
     label: Build
     skimjoin:
@@ -109,11 +111,14 @@ The effective integrated settings follow these rules:
    that run.
 2. Main-config `skim_files` and `network_los_file` replace the corresponding
    `project` values in the selected rules file.
-3. A run with no override block uses the fully resolved global defaults.
-4. When a run override causes the rules file to be reloaded, any omitted skim
+3. `runs[*].skimjoin.enabled: false` skips enrichment for that run. When
+   omitted, the run inherits the global pipeline setting; `true` cannot enable
+   skimjoin when the global pipeline omits the step.
+4. A run with no override block uses the fully resolved global defaults.
+5. When a run override causes the rules file to be reloaded, any omitted skim
    or network path comes from that file. Repeat a required global path in the
    run block if the rules file does not contain it.
-5. `network_los_file` is required only when
+6. `network_los_file` is required only when
    `dimensions.PERIOD.values_from_network_los` is `true`.
 
 For predictable overrides, keep integrated skim paths either in `project` or

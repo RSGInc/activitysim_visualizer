@@ -111,6 +111,8 @@ def test_skim_summary_notes_render_table_column_definitions() -> None:
         assert "Mean Non-Zero:" in rendered
         assert "including zeros" in rendered
         assert "Zero Share:" in rendered
+        assert "nonmissing numeric skim value" in rendered
+        assert "summed" in rendered
         assert "Missing Share:" in rendered
 
 

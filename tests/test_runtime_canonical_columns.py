@@ -1657,6 +1657,22 @@ def test_escorted_tour_summaries_exclude_child_person_types(tmp_path: Path) -> N
     trip_distance = daily_travel_escort_distributions.adult_escorted_trip_distance_distribution_by_direction(
         rd, config
     ).sort(["direction", "distance_bin"])
+    assert tour_distance.filter(pl.col("distance_bin") == "0").to_dict(
+        as_series=False
+    ) == {
+        "distance_bin": ["0", "0", "0"],
+        "direction": ["both", "inbound", "outbound"],
+        "tour_count": [0.0, 0.0, 0.0],
+    }
+    assert trip_distance.filter(pl.col("distance_bin") == "0").to_dict(
+        as_series=False
+    ) == {
+        "distance_bin": ["0", "0", "0"],
+        "direction": ["both", "inbound", "outbound"],
+        "trip_count": [0.0, 0.0, 0.0],
+    }
+    tour_distance = tour_distance.filter(pl.col("distance_bin") != "0")
+    trip_distance = trip_distance.filter(pl.col("distance_bin") != "0")
     stop_frequency = daily_travel_escort_distributions.adult_escort_trip_stop_frequency(
         rd, config
     ).sort(
@@ -1856,6 +1872,22 @@ def test_adult_escort_distance_distributions_filter_to_explicit_escort_types(
         rd, config
     ).sort(["direction", "distance_bin"])
 
+    assert tour_distance.filter(pl.col("distance_bin") == "0").to_dict(
+        as_series=False
+    ) == {
+        "distance_bin": ["0", "0", "0"],
+        "direction": ["both", "inbound", "outbound"],
+        "tour_count": [0.0, 0.0, 0.0],
+    }
+    assert trip_distance.filter(pl.col("distance_bin") == "0").to_dict(
+        as_series=False
+    ) == {
+        "distance_bin": ["0", "0", "0"],
+        "direction": ["both", "inbound", "outbound"],
+        "trip_count": [0.0, 0.0, 0.0],
+    }
+    tour_distance = tour_distance.filter(pl.col("distance_bin") != "0")
+    trip_distance = trip_distance.filter(pl.col("distance_bin") != "0")
     assert tour_distance.to_dict(as_series=False) == {
         "distance_bin": ["40+", "18", "40+", "12", "40+"],
         "direction": ["both", "inbound", "inbound", "outbound", "outbound"],

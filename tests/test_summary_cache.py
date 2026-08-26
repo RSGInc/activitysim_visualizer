@@ -2742,8 +2742,8 @@ def test_trip_skims_page_uses_family_selector_and_fixed_precision_summary_table(
     assert table.value["mean_nonzero"].tolist() == ["3.5", "7.0", "15.1"]
     assert table.titles["mean_nonzero"] == "Mean Non-Zero"
     assert table.value["std"].tolist() == ["0.9", "1.0", "1.6"]
-    assert table.value["min"].tolist() == ["1.200", "5.000", "11.000"]
-    assert table.value["n_valid"].tolist() == ["11.000", "10.000", "9.000"]
+    assert table.value["min"].tolist() == ["1.2", "5.0", "11.0"]
+    assert table.value["n_valid"].tolist() == ["11", "10", "9"]
     assert table.value["zero_share"].tolist() == ["0.000", "0.000", "0.000"]
 
     if "Other Skims" in page.trip_family_sel.options:
@@ -2862,8 +2862,8 @@ def test_tour_skims_page_uses_family_and_direction_selectors_for_summary_table(
     assert set(table.value["skim_name"].tolist()) == {"Cost ($)", "Time (min)"}
     assert table.value["mean"].tolist() == ["4.6", "25.3"]
     assert table.value["mean_nonzero"].tolist() == ["4.6", "25.3"]
-    assert table.value["n_valid"].tolist() == ["6.000", "5.000"]
-    assert table.value["min"].tolist() == ["3.400", "21.000"]
+    assert table.value["n_valid"].tolist() == ["6", "5"]
+    assert table.value["min"].tolist() == ["3.4", "21.0"]
     assert "Outbound" == page.tour_direction_sel.value
 
     page.tour_family_sel.value = "Transit Skims"
@@ -4103,8 +4103,8 @@ def test_internal_external_tours_geo_selector_uses_union_levels_across_tables(
         weighted={
             "internal_external_nonmandatory_tour_frequency_by_home_geography": pl.DataFrame(
                 {
-                    "geography_level": ["all_geographies", "maz", "district"],
-                    "home_geography": ["all_geographies", "1", "A"],
+                    "geography_type": ["all_geographies", "maz", "district"],
+                    "geography_id": ["all_geographies", "1", "A"],
                     "internal_tour_count": [5.0, 2.0, 3.0],
                     "external_tour_count": [2.0, 1.0, 1.0],
                 }
@@ -6166,16 +6166,17 @@ def test_tour_time_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None
             "tour_time_of_day_by_tour_purpose": pl.DataFrame(
                 {
                     "tour_purpose": [
+                        "work",
                         "all_tour_purposes",
                         "all_tour_purposes",
                         "work",
                         "work",
                         "work",
                     ],
-                    "time_bin": [1, 2, 1, 2, 48],
-                    "departure_tour_count": [5.0, 6.0, 3.0, 4.0, 0.0],
-                    "arrival_tour_count": [4.0, 5.0, 2.0, 3.0, 0.0],
-                    "duration_tour_count": [2.0, 3.0, 1.0, 2.0, 0.0],
+                    "time_bin": [0, 1, 2, 1, 2, 48],
+                    "departure_tour_count": [0.0, 5.0, 6.0, 3.0, 4.0, 0.0],
+                    "arrival_tour_count": [0.0, 4.0, 5.0, 2.0, 3.0, 0.0],
+                    "duration_tour_count": [2.0, 2.0, 3.0, 1.0, 2.0, 0.0],
                 }
             ),
         },
@@ -6199,6 +6200,8 @@ def test_tour_time_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None
     departure_hover = str(departure_chart.object.data[0].customdata[0])
     assert "Clock Time: 03:00" in departure_hover
     assert "start at 03:00" not in departure_hover
+    duration_chart = _collect_plotly_panes(page._body)[2]
+    assert list(duration_chart.object.data[0].x)[0] == 0.0
 
 
 def test_vehicle_ownership_type_live_page_uses_shared_summary_helpers(

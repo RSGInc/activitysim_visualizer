@@ -1167,6 +1167,85 @@ def test_processor_prepare_data_derives_num_joint_tours_from_joint_participants(
     assert prepared["num_joint_tours"].to_list() == [2, 1]
 
 
+def test_processor_prepare_data_derives_external_worker_flag(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    raw = _raw_run()
+    raw = ProcessorRunData(
+        label=raw.label,
+        run_dir=raw.run_dir,
+        skim_file=raw.skim_file,
+        hh=raw.hh,
+        per=pl.DataFrame(
+            {
+                "person_id": [101, 102, 103, 104],
+                "household_id": [1, 1, 1, 1],
+                "ptype": [1, 1, 1, 1],
+                "home_zone_id": [10, 10, 10, 10],
+                "is_worker": [True, True, True, False],
+                "work_from_home": [False, False, True, False],
+                "external_worker_identification": [False, True, True, True],
+            }
+        ),
+        tours=raw.tours,
+        trips=raw.trips,
+        joint_participants=raw.joint_participants,
+        land_use=raw.land_use,
+        skim_matrix=raw.skim_matrix,
+        skim_zone_map=raw.skim_zone_map,
+    )
+
+    prepared = processor_prepare_data(raw, config)
+
+    assert prepared.per.sort("person_id")["is_external_worker"].to_list() == [
+        False,
+        True,
+        False,
+        False,
+    ]
+
+
+def test_distance_and_duration_summaries_include_zero_bins(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    raw = _raw_run()
+    raw = ProcessorRunData(
+        label=raw.label,
+        run_dir=raw.run_dir,
+        skim_file=raw.skim_file,
+        hh=raw.hh,
+        per=raw.per,
+        tours=raw.tours.with_columns(
+            pl.lit(0).alias("duration"),
+            pl.lit(5.0).alias("SKIMDIST"),
+        ),
+        trips=raw.trips.with_columns(pl.lit(5.0).alias("od_dist")),
+        joint_participants=raw.joint_participants,
+        land_use=raw.land_use,
+        skim_matrix=raw.skim_matrix,
+        skim_zone_map=raw.skim_zone_map,
+    )
+
+    prepared = processor_prepare_data(raw, config)
+    duration = tour_profiles.tour_tod(prepared, config).filter(
+        (pl.col("tour_purpose") != "all_tour_purposes") & (pl.col("time_bin") == 0)
+    )
+    tour_distance = tour_profiles.tour_distance(prepared, config).filter(
+        pl.col("distance_bin") == "0"
+    )
+    trip_distance = trip_distributions.trip_distance(prepared, config).filter(
+        pl.col("distance_bin") == "0"
+    )
+
+    assert duration["duration_tour_count"].to_list() == [1.0]
+    assert duration["departure_tour_count"].to_list() == [0.0]
+    assert duration["arrival_tour_count"].to_list() == [0.0]
+    assert tour_distance.height == 2
+    assert "all_tour_purposes" in tour_distance["tour_purpose"].to_list()
+    assert tour_distance["tour_count"].to_list() == [0.0, 0.0]
+    assert trip_distance.height == 2
+    assert "all_tour_purposes" in trip_distance["tour_purpose"].to_list()
+    assert trip_distance["trip_count"].to_list() == [0.0, 0.0]
+
+
 def test_processor_prepare_data_uses_joint_participant_count_with_tour_fallback(
     tmp_path: Path,
 ) -> None:
@@ -1221,6 +1300,10 @@ def test_processor_prepare_data_uses_joint_participant_count_with_tour_fallback(
     distance = tour_profiles.tour_distance(prepared, config).filter(
         pl.col("tour_purpose") != "all_tour_purposes"
     )
+    assert distance.filter(pl.col("distance_bin") == "0")["tour_count"].to_list() == [
+        0.0
+    ]
+    distance = distance.filter(pl.col("distance_bin") != "0")
     assert distance.select("distance_bin", "tour_count").to_dicts() == [
         {"distance_bin": "5", "tour_count": 2.0},
         {"distance_bin": "10", "tour_count": 3.0},

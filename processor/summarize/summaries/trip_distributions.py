@@ -13,6 +13,7 @@ from processor.summarize.summaries.summary_helpers import (
     _distance_bin_expr,
     _distance_bin_labels,
     _distance_bin_sort_expr,
+    _ensure_zero_distance_bin,
     _summary_purpose_column as _trip_purpose_column,
     weighted_group_sum,
 )
@@ -182,7 +183,11 @@ def trip_distance(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
     return (
-        pl.concat([by_purpose, all_purposes], how="vertical")
+        _ensure_zero_distance_bin(
+            pl.concat([by_purpose, all_purposes], how="vertical"),
+            group_cols=["tour_purpose"],
+            value_col="trip_count",
+        )
         .with_columns(
             pl.col("distance_bin").cast(pl.Utf8),
             pl.col("tour_purpose").cast(pl.Utf8),
