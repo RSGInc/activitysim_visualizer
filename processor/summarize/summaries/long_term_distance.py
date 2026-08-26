@@ -6,17 +6,23 @@ import polars as pl
 
 from processor.models import RunData
 from processor.summarize.contracts import output_schema, summary
-from processor.summarize.summaries.long_term_shared import _student_filter_expr
+from processor.summarize.summaries.long_term_shared import (
+    _internal_non_wfh_workers,
+    _student_filter_expr,
+)
 from processor.summarize.summaries.summary_helpers import (
     _configured_geography_columns,
     _configured_geography_dimensions,
+    _distance_bin_expr,
+    _distance_bin_labels,
+    _distance_bin_sort_expr,
 )
 from runtime.config import Config
 
 
 @output_schema(
     schema={
-        "distance_bin": pl.Int32,
+        "distance_bin": pl.Utf8,
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
         "person_count": pl.Float64,
@@ -24,10 +30,8 @@ from runtime.config import Config
 )
 def tlfd(rd: RunData, config: Config) -> dict[str, pl.DataFrame]:
     def _bin_dist(df: pl.DataFrame, dist_col: str) -> pl.DataFrame:
-        return df.with_columns(
-            pl.col(dist_col).fill_null(0.0).clip(0, 9999)
-        ).with_columns(
-            pl.col(dist_col).cast(pl.Int32).clip(0, 51).alias("distance_bin")
+        return df.with_columns(_distance_bin_expr(dist_col, cap_value=51)).filter(
+            pl.col("distance_bin").is_not_null()
         )
 
     def _make_tlfd(persons: pl.DataFrame, dist_col: str) -> pl.DataFrame:
@@ -48,8 +52,11 @@ def tlfd(rd: RunData, config: Config) -> dict[str, pl.DataFrame]:
             ),
             dist_col,
         )
+        if df.is_empty():
+            return empty
         distance_bins = pl.DataFrame(
-            {"distance_bin": list(range(0, 52))}, schema={"distance_bin": pl.Int32}
+            {"distance_bin": _distance_bin_labels(51)},
+            schema={"distance_bin": pl.Utf8},
         )
 
         outputs: list[pl.DataFrame] = []
@@ -112,24 +119,14 @@ def tlfd(rd: RunData, config: Config) -> dict[str, pl.DataFrame]:
 
         return (
             pl.concat(outputs, how="vertical")
-            .sort(["geography_type", "geography_id", "distance_bin"])
+            .with_columns(_distance_bin_sort_expr().alias("_sort_distance"))
+            .sort(["geography_type", "geography_id", "_sort_distance"])
+            .drop("_sort_distance")
             .select("distance_bin", "geography_type", "geography_id", "person_count")
         )
 
     ptype_col = "person_type" if "person_type" in rd.per.columns else None
-    workers = (
-        rd.per.filter(
-            (pl.col("workplace_zone_id") > 0)
-            & (
-                pl.col("is_worker")
-                .cast(pl.Utf8)
-                .str.to_lowercase()
-                .is_in(["true", "1"])
-            )
-        )
-        if "is_worker" in rd.per.columns
-        else rd.per.head(0)
-    )
+    workers = _internal_non_wfh_workers(rd.per)
 
     if ptype_col is not None:
         univ = (
@@ -164,12 +161,22 @@ def tlfd(rd: RunData, config: Config) -> dict[str, pl.DataFrame]:
 @summary(
     id="work_location_distance_distribution_by_geography",
     schema={
-        "distance_bin": pl.Int32,
+        "distance_bin": pl.Utf8,
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
         "person_count": pl.Float64,
     },
-    required_columns={"per": ("distance_to_work", "finalweight")},
+    required_columns={
+        "per": (
+            "distance_to_work",
+            "external_workplace_zone_id",
+            "finalweight",
+            "is_external_worker",
+            "is_worker",
+            "work_from_home",
+            "workplace_zone_id",
+        )
+    },
 )
 def work_tlfd(rd: RunData, config: Config) -> pl.DataFrame:
     return tlfd(rd, config)["work"]
@@ -178,7 +185,7 @@ def work_tlfd(rd: RunData, config: Config) -> pl.DataFrame:
 @summary(
     id="university_location_distance_distribution_by_geography",
     schema={
-        "distance_bin": pl.Int32,
+        "distance_bin": pl.Utf8,
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
         "person_count": pl.Float64,
@@ -192,7 +199,7 @@ def univ_tlfd(rd: RunData, config: Config) -> pl.DataFrame:
 @summary(
     id="school_location_distance_distribution_by_geography",
     schema={
-        "distance_bin": pl.Int32,
+        "distance_bin": pl.Utf8,
         "geography_type": pl.Utf8,
         "geography_id": pl.Utf8,
         "person_count": pl.Float64,

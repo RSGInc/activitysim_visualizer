@@ -410,14 +410,46 @@ def aggregate_weighted_average_across_geographies(
     return pl.concat(outputs, how="vertical")
 
 
-def _rounded_distance_bin_expr(distance_col: str) -> pl.Expr:
-    """Return the common 0-decimal distance bin label expression with 40+ cap."""
-    rounded = pl.col(distance_col).cast(pl.Float64).round(0)
+POSITIVE_SUBMILE_DISTANCE_BIN = ">0-<1"
+
+
+def _distance_bin_labels(cap_value: int = 40) -> list[str]:
+    """Return the common exact-zero, sub-mile, whole-mile, and terminal bins."""
+    return [
+        "0",
+        POSITIVE_SUBMILE_DISTANCE_BIN,
+        *[str(value) for value in range(1, cap_value)],
+        f"{cap_value}+",
+    ]
+
+
+def _distance_bin_expr(distance_col: str, *, cap_value: int = 40) -> pl.Expr:
+    """Bin usable distances without combining exact zero and sub-mile values."""
+    distance = pl.col(distance_col).cast(pl.Float64, strict=False)
     return (
-        pl.when(rounded >= 40)
-        .then(pl.lit("40+"))
-        .otherwise(rounded.cast(pl.Int64, strict=False).cast(pl.Utf8))
+        pl.when(~distance.is_finite() | (distance < 0))
+        .then(pl.lit(None, dtype=pl.Utf8))
+        .when(distance == 0)
+        .then(pl.lit("0"))
+        .when(distance < 1)
+        .then(pl.lit(POSITIVE_SUBMILE_DISTANCE_BIN))
+        .when(distance >= cap_value)
+        .then(pl.lit(f"{cap_value}+"))
+        .otherwise(distance.floor().cast(pl.Int64, strict=False).cast(pl.Utf8))
         .alias("distance_bin")
+    )
+
+
+def _distance_bin_sort_expr(column: str = "distance_bin") -> pl.Expr:
+    """Sort the common distance-bin labels by their numeric axis position."""
+    label = pl.col(column).cast(pl.Utf8)
+    numeric = label.str.replace(r"\+$", "").cast(pl.Float64, strict=False)
+    return (
+        pl.when(label == POSITIVE_SUBMILE_DISTANCE_BIN)
+        .then(pl.lit(0.5))
+        .when(numeric.is_null())
+        .then(pl.lit(float("inf")))
+        .otherwise(numeric)
     )
 
 

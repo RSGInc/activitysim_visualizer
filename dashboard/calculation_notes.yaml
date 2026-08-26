@@ -179,6 +179,7 @@ notes:
       Aggregation:
         - Each chart uses its purpose-specific mandatory location distance summary.
         - Counts in matching distance bins are summed after applying the geography filter.
+        - Exact zero distances use the `0` bin; positive distances below one mile use `>0-<1`; remaining bins use whole-mile lower bounds.
       Filters and display:
         - The distance-range controls limit the bins shown without changing the underlying summary totals.
         - Percent mode normalizes the displayed purpose distribution within each run.
@@ -207,6 +208,7 @@ notes:
         - Mandatory average-distance rows are filtered by geography and arranged by tour purpose.
       Important details:
         - The first loaded run supplies the base average for each row.
+        - Work averages exclude workers who work from home and workers assigned to external workplaces.
 
   shadow_pricing.workplace_plot:
     method: aligned_comparison
@@ -302,6 +304,7 @@ notes:
       Aggregation:
         - Chauffeur tour counts are filtered by direction and grouped by chauffeur person type.
         - Tour and trip distances are filtered by direction and summed into distance bins.
+        - Exact zero distances use the `0` bin, while positive distances below one mile use `>0-<1`.
       Filters and display:
         - Distance-range controls limit the bins shown.
         - Percent mode normalizes each displayed distribution within a run.
@@ -357,6 +360,7 @@ notes:
     details:
       Aggregation:
         - Weighted or unweighted tour counts are summed within each distance bin.
+        - Exact zero distances use the `0` bin; positive distances below one mile use `>0-<1`; remaining bins use whole-mile lower bounds.
       Filters and display:
         - Distance-range controls limit the bins shown without recomputing the source summary.
         - Percent mode divides each displayed bin by the tour total for the selected purpose.
@@ -511,6 +515,7 @@ notes:
     details:
       Aggregation:
         - Weighted or unweighted counts are summed within the distance bins supplied by each summary.
+        - Exact zero distances use the `0` bin; positive distances below one mile use `>0-<1`; remaining bins use whole-mile lower bounds.
       Filters and display:
         - Distance-range controls limit the bins shown for both charts.
         - Percent mode normalizes the trip and stop distributions independently.
@@ -1043,7 +1048,9 @@ notes:
     sources: [work_location_distance_distribution_by_geography]
     summary: This plot bins weighted workers by distance from home to their assigned workplace.
     source_filters:
-      - Only workers assigned to a workplace zone greater than zero are included.
+      - Only workers assigned to an internal workplace zone greater than zero are included.
+      - Workers who work from home and workers with an external workplace flag or external workplace zone are excluded.
+      - Workers without a usable nonnegative home-to-work distance are excluded.
 
   mandatory_location.university_distance:
     method: binned_values
@@ -1051,7 +1058,7 @@ notes:
     sources: [university_location_distance_distribution_by_geography]
     summary: This plot bins weighted university students by distance from home to their assigned school.
     source_filters:
-      - Only students assigned to a school zone greater than zero and coded as person type 3 are included.
+      - Only students assigned to a school zone greater than zero, coded as person type 3, and with a usable nonnegative distance are included.
 
   mandatory_location.school_distance:
     method: binned_values
@@ -1059,7 +1066,7 @@ notes:
     sources: [school_location_distance_distribution_by_geography]
     summary: This plot bins weighted school students by distance from home to their assigned school.
     source_filters:
-      - Only students assigned to a school zone greater than zero and coded as person type 6 or higher are included.
+      - Only students assigned to a school zone greater than zero, coded as person type 6 or higher, and with a usable nonnegative distance are included.
 
   mandatory_location.worker_status_table:
     method: rates_and_averages
@@ -1133,6 +1140,9 @@ notes:
     summary: This plot bins weighted chauffeur tours by tour distance for the selected direction.
     source_filters:
       - Tours must have a usable tour distance and an explicit escort label for the selected direction.
+    details:
+      Important details:
+        - The `0` bin contains only exact zeros; positive sub-mile distances use `>0-<1`.
 
   escorted_tours.trip_distance:
     method: binned_values
@@ -1141,6 +1151,9 @@ notes:
     summary: This plot bins weighted chauffeur trips by trip distance for the selected direction.
     source_filters:
       - Trips must have a usable distance and belong to a tour with an explicit escort label for the selected direction.
+    details:
+      Important details:
+        - The `0` bin contains only exact zeros; positive sub-mile distances use `>0-<1`.
 
   tour_purpose.category:
     method_text: Tours with a broad category are grouped by that category and summed with tour weights.

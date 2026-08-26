@@ -3150,6 +3150,9 @@ def test_mandatory_distance_summaries_include_configured_geography_levels(
                 "workplace_zone_id": [30, 30, None],
                 "school_zone_id": [None, 20, 30],
                 "is_worker": [True, True, False],
+                "work_from_home": [False, False, False],
+                "is_external_worker": [False, False, False],
+                "external_workplace_zone_id": [-1, -1, -1],
                 "is_student": [False, True, True],
                 "person_type": ["1", "7", "3"],
                 "distance_to_work": [0.5, 20.0, None],
@@ -3173,22 +3176,22 @@ def test_mandatory_distance_summaries_include_configured_geography_levels(
     assert work_distance.filter(
         (pl.col("geography_type") == "county")
         & (pl.col("geography_id") == "West")
-        & (pl.col("distance_bin") == 0)
+        & (pl.col("distance_bin") == ">0-<1")
     )["person_count"].to_list() == [1.0]
     assert work_distance.filter(
         (pl.col("geography_type") == "county")
         & (pl.col("geography_id") == "East")
-        & (pl.col("distance_bin") == 20)
+        & (pl.col("distance_bin") == "20")
     )["person_count"].to_list() == [2.0]
     assert school_distance.filter(
         (pl.col("geography_type") == "county")
         & (pl.col("geography_id") == "East")
-        & (pl.col("distance_bin") == 5)
+        & (pl.col("distance_bin") == "5")
     )["person_count"].to_list() == [2.0]
     assert university_distance.filter(
         (pl.col("geography_type") == "county")
         & (pl.col("geography_id") == "East")
-        & (pl.col("distance_bin") == 15)
+        & (pl.col("distance_bin") == "15")
     )["person_count"].to_list() == [3.0]
     assert mandatory_distance.filter(
         (pl.col("mandatory_tour_purpose") == "work")
@@ -3250,6 +3253,56 @@ def test_mandatory_distance_summary_requires_home_geography(
         "per": "missing required columns: home_zone_id"
     }
     assert avg_mand_tour_distance(prepared, config).is_empty()
+
+
+def test_work_distance_summaries_exclude_wfh_external_and_unresolved_workers(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    prepared = ProcessorRunData(
+        label="Prepared",
+        run_dir="C:/runs/prepared",
+        skim_file=None,
+        hh=pl.DataFrame(),
+        per=pl.DataFrame(
+            {
+                "person_id": [1, 2, 3, 4, 5, 6],
+                "home_zone_id": [1, 1, 1, 1, 1, 1],
+                "workplace_zone_id": [10, 10, 10, 10, 10, 10],
+                "is_worker": [True, True, True, True, True, True],
+                "work_from_home": [False, False, True, False, False, False],
+                "is_external_worker": [False, False, False, True, False, False],
+                "external_workplace_zone_id": [-1, -1, -1, -1, 2100, -1],
+                "distance_to_work": [0.0, 0.5, 5.0, 10.0, 20.0, None],
+                "finalweight": [1.0, 2.0, 4.0, 8.0, 16.0, 32.0],
+            }
+        ),
+        tours=pl.DataFrame(),
+        trips=pl.DataFrame(),
+        joint_participants=pl.DataFrame(),
+        land_use=pl.DataFrame(),
+        skim_matrix=None,
+        skim_zone_map=None,
+    )
+
+    distribution = work_tlfd(prepared, config).filter(
+        pl.col("geography_type") == "all_geographies"
+    )
+    average = avg_mand_tour_distance(prepared, config).filter(
+        (pl.col("mandatory_tour_purpose") == "work")
+        & (pl.col("geography_type") == "all_geographies")
+    )
+
+    assert distribution.filter(pl.col("distance_bin").is_in(["0", ">0-<1"])).select(
+        "distance_bin", "person_count"
+    ).to_dicts() == [
+        {"distance_bin": "0", "person_count": 1.0},
+        {"distance_bin": ">0-<1", "person_count": 2.0},
+    ]
+    assert distribution["person_count"].sum() == 3.0
+    assert average.select("average_tour_distance", "person_count").to_dicts() == [
+        {"average_tour_distance": 1.0 / 3.0, "person_count": 3.0}
+    ]
 
 
 def test_telecommute_summary_includes_configured_geography_levels(

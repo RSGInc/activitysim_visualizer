@@ -2080,7 +2080,9 @@ def test_trip_stop_distance_live_page_uses_shared_summary_helpers(
     assert page.trip_stop_distance_range.current_range() == (0.0, 40.0)
     assert list(stop_ood_plot.object.data[0].x) == [0.0, 1.0, 40.0]
     assert list(stop_ood_plot.object.layout.xaxis.ticktext) == [
-        *[str(value) for value in range(0, 40, 2)],
+        "0",
+        ">0-<1",
+        *[str(value) for value in range(2, 40, 2)],
         "40+",
     ]
     assert list(stop_ood_plot.object.layout.xaxis.range) == [0.0, 40.0]
@@ -3336,7 +3338,9 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
     assert page.escort_distance_range.current_range() == (0.0, 40.0)
     assert list(distance_plot.object.layout.xaxis.range) == [0.0, 40.0]
     assert list(distance_plot.object.layout.xaxis.ticktext) == [
-        *[str(value) for value in range(0, 40, 2)],
+        "0",
+        ">0-<1",
+        *[str(value) for value in range(2, 40, 2)],
         "40+",
     ]
     page.escort_distance_range.min_widget.value = 10.0
@@ -5010,6 +5014,7 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
     assert list(distance_plots[0].object.data[0].x) == [1.0, 40.0]
     assert list(distance_plots[0].object.layout.xaxis.ticktext) == [
         "0",
+        ">0-<1",
         "2",
         "4",
         "6",
@@ -5900,7 +5905,9 @@ def test_tour_distance_chart_casts_distance_bins_consistently_across_runs(
     assert traces["A"] == [0.0, 1.0]
     assert traces["B"] == [0.0]
     assert list(plot.object.layout.xaxis.ticktext) == [
-        *[str(value) for value in range(0, 40, 2)],
+        "0",
+        ">0-<1",
+        *[str(value) for value in range(2, 40, 2)],
         "40+",
     ]
     assert list(plot.object.layout.xaxis.range) == [0.0, 40.0]

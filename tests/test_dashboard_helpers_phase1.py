@@ -16,6 +16,7 @@ from dashboard.rendering import (
 )
 from dashboard.data_access import RunTables
 from dashboard.helpers.category_helpers import (
+    cap_numeric_category_frame,
     column_value_intersection,
     common_column_options,
     complete_category_counts,
@@ -195,7 +196,7 @@ def test_category_helpers_support_intersection_normalization_and_numeric_sort(
         value_cols=("count",),
     )
     sorted_bins = (
-        pl.DataFrame({"bin": ["40+", "2", "10"]})
+        pl.DataFrame({"bin": ["40+", "2", ">0-<1", "10"]})
         .with_columns(numeric_like_sort_expr("bin").alias("_sort"))
         .sort("_sort")
         .drop("_sort")["bin"]
@@ -207,7 +208,25 @@ def test_category_helpers_support_intersection_normalization_and_numeric_sort(
     assert mapping["10"] == "10"
     assert normalized[0][1]["category"].to_list() == ["Unspecified", "Worker"]
     assert completed[0][1]["count"].to_list() == [0, 2, 1]
-    assert sorted_bins == ["2", "10", "40+"]
+    assert sorted_bins == [">0-<1", "2", "10", "40+"]
+
+    capped_distance = cap_numeric_category_frame(
+        pl.DataFrame(
+            {
+                "bin": ["0", ">0-<1", "39", "40", "51+"],
+                "count": [1, 2, 3, 4, 5],
+            }
+        ),
+        category="bin",
+        cap_value=40,
+        value_cols=("count",),
+    )
+    assert capped_distance.to_dicts() == [
+        {"bin": "0", "count": 1},
+        {"bin": ">0-<1", "count": 2},
+        {"bin": "39", "count": 3},
+        {"bin": "40+", "count": 9},
+    ]
 
 
 def test_geography_helpers_normalize_and_build_options(tmp_path: Path) -> None:

@@ -1712,7 +1712,7 @@ def test_escorted_tour_summaries_exclude_child_person_types(tmp_path: Path) -> N
         "tour_count": [3.0, 3.0, 2.0, 3.0],
     }
     assert trip_distance.to_dict(as_series=False) == {
-        "distance_bin": ["40+", "9", "40+", "5", "9"],
+        "distance_bin": ["40+", "8", "40+", "5", "8"],
         "direction": [
             "both",
             "both",
@@ -1857,12 +1857,12 @@ def test_adult_escort_distance_distributions_filter_to_explicit_escort_types(
     ).sort(["direction", "distance_bin"])
 
     assert tour_distance.to_dict(as_series=False) == {
-        "distance_bin": ["40+", "19", "40+", "12", "40+"],
+        "distance_bin": ["40+", "18", "40+", "12", "40+"],
         "direction": ["both", "inbound", "inbound", "outbound", "outbound"],
         "tour_count": [3.0, 5.0, 3.0, 2.0, 3.0],
     }
     assert trip_distance.to_dict(as_series=False) == {
-        "distance_bin": ["40+", "9", "40+", "5", "9"],
+        "distance_bin": ["40+", "8", "40+", "5", "8"],
         "direction": [
             "both",
             "both",

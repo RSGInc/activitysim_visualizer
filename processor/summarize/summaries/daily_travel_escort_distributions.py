@@ -14,7 +14,7 @@ from processor.summarize.summaries.daily_travel_escort_shared import (
     _sorted_distance_bins,
 )
 from processor.summarize.summaries.summary_helpers import (
-    _rounded_distance_bin_expr,
+    _distance_bin_expr,
     _summary_purpose_column,
     _trip_direction_expr,
 )
@@ -44,8 +44,10 @@ def adult_escorted_tour_distance_distribution_by_direction(
     if escorted.is_empty():
         return adult_escorted_tour_distance_distribution_by_direction.empty()
 
-    base = escorted.filter(pl.col("SKIMDIST").is_not_null()).with_columns(
-        _rounded_distance_bin_expr("SKIMDIST")
+    base = (
+        escorted.filter(pl.col("SKIMDIST").is_not_null())
+        .with_columns(_distance_bin_expr("SKIMDIST"))
+        .filter(pl.col("distance_bin").is_not_null())
     )
     if base.is_empty():
         return adult_escorted_tour_distance_distribution_by_direction.empty()
@@ -105,9 +107,13 @@ def adult_escorted_trip_distance_distribution_by_direction(
     ):
         return adult_escorted_trip_distance_distribution_by_direction.empty()
 
-    base = trips.filter(pl.col("od_dist").is_not_null()).with_columns(
-        direction_expr,
-        _rounded_distance_bin_expr("od_dist"),
+    base = (
+        trips.filter(pl.col("od_dist").is_not_null())
+        .with_columns(
+            direction_expr,
+            _distance_bin_expr("od_dist"),
+        )
+        .filter(pl.col("distance_bin").is_not_null())
     )
     if base.is_empty():
         return adult_escorted_trip_distance_distribution_by_direction.empty()

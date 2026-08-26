@@ -6,6 +6,7 @@ import polars as pl
 
 from processor.models import RunData
 from processor.summarize.contracts import summary
+from processor.summarize.summaries.long_term_shared import _internal_non_wfh_workers
 from processor.summarize.summaries.summary_helpers import (
     aggregate_counts_across_geographies,
     _configured_geography_columns,
@@ -30,19 +31,7 @@ from runtime.config import Config
 def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     ptype_col = "person_type" if "person_type" in rd.per.columns else None
 
-    workers = (
-        rd.per.filter(
-            (pl.col("workplace_zone_id") > 0)
-            & (
-                pl.col("is_worker")
-                .cast(pl.Utf8)
-                .str.to_lowercase()
-                .is_in(["true", "1"])
-            )
-        )
-        if {"is_worker", "workplace_zone_id"}.issubset(rd.per.columns)
-        else rd.per.head(0)
-    )
+    workers = _internal_non_wfh_workers(rd.per)
 
     if ptype_col is not None:
         univ_s = (

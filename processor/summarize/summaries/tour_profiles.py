@@ -9,7 +9,8 @@ from processor.summarize.contracts import summary
 from processor.summarize.summaries.summary_helpers import (
     ALL_TOUR_PURPOSES,
     _all_purpose_rollup,
-    _rounded_distance_bin_expr,
+    _distance_bin_expr,
+    _distance_bin_sort_expr,
     _summary_purpose_column,
     weighted_group_sum,
 )
@@ -384,15 +385,10 @@ def tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
         )
         .with_columns(
             pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"),
-            pl.col("SKIMDIST")
-            .cast(pl.Float64)
-            .round(0)
-            .alias("distance_miles_rounded"),
         )
         .pipe(_tour_weights_for_summary)
-        .with_columns(
-            _rounded_distance_bin_expr("distance_miles_rounded"),
-        )
+        .with_columns(_distance_bin_expr("SKIMDIST"))
+        .filter(pl.col("distance_bin").is_not_null())
     )
 
     by_purpose = weighted_group_sum(
@@ -412,10 +408,7 @@ def tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
             pl.col("distance_bin").cast(pl.Utf8),
             pl.col("tour_purpose").cast(pl.Utf8),
             pl.col("tour_count").cast(pl.Float64),
-            pl.when(pl.col("distance_bin") == "40+")
-            .then(999)
-            .otherwise(pl.col("distance_bin").cast(pl.Int64, strict=False))
-            .alias("_sort_distance"),
+            _distance_bin_sort_expr().alias("_sort_distance"),
         )
         .select("distance_bin", "tour_purpose", "tour_count", "_sort_distance")
         .sort(["_sort_distance", "tour_purpose"])
