@@ -5,8 +5,10 @@ from types import SimpleNamespace
 import polars as pl
 
 from processor.models import RunData
+from processor.summarize.cache_types import strip_weights
 from processor.summarize.summaries.daily_travel_activity import (
     dap_summary,
+    indiv_nm_summary,
     mandatory_tour_freq,
     tour_rate_per_person,
     trip_rate_per_person,
@@ -23,6 +25,7 @@ def _run(
     day: pl.DataFrame | None = None,
     tours: pl.DataFrame | None = None,
     trips: pl.DataFrame | None = None,
+    joint_participants: pl.DataFrame | None = None,
 ) -> RunData:
     return RunData(
         label="Test",
@@ -33,7 +36,9 @@ def _run(
         day=day if day is not None else pl.DataFrame(),
         tours=tours if tours is not None else pl.DataFrame(),
         trips=trips if trips is not None else pl.DataFrame(),
-        joint_participants=pl.DataFrame(),
+        joint_participants=(
+            joint_participants if joint_participants is not None else pl.DataFrame()
+        ),
         land_use=pl.DataFrame(),
         skim_matrix=None,
         skim_zone_map=None,
@@ -62,23 +67,23 @@ def test_dap_summary_uses_person_day_activity_patterns_when_available() -> None:
     )
 
     assert result.to_dicts() == [
-        {"person_type": "1", "daily_activity_pattern": "M", "person_count": 10.0},
-        {"person_type": "1", "daily_activity_pattern": "N", "person_count": 10.0},
-        {"person_type": "2", "daily_activity_pattern": "H", "person_count": 20.0},
+        {"person_type": "1", "daily_activity_pattern": "M", "person_count": 1.0},
+        {"person_type": "1", "daily_activity_pattern": "N", "person_count": 2.0},
+        {"person_type": "2", "daily_activity_pattern": "H", "person_count": 3.0},
         {
             "person_type": "all_person_types",
             "daily_activity_pattern": "H",
-            "person_count": 20.0,
+            "person_count": 3.0,
         },
         {
             "person_type": "all_person_types",
             "daily_activity_pattern": "M",
-            "person_count": 10.0,
+            "person_count": 1.0,
         },
         {
             "person_type": "all_person_types",
             "daily_activity_pattern": "N",
-            "person_count": 10.0,
+            "person_count": 2.0,
         },
     ]
 
@@ -129,6 +134,36 @@ def test_dap_summary_prefers_person_activity_patterns_when_both_exist() -> None:
     ]
 
 
+def test_dap_summary_falls_back_rowwise_and_uses_each_day_weight() -> None:
+    result = dap_summary(
+        _run(
+            per=pl.DataFrame(
+                {
+                    "person_id": [1, 2],
+                    "person_type": ["1", "2"],
+                    "cdap_activity": ["M", None],
+                    "finalweight": [100.0, 200.0],
+                }
+            ),
+            day=pl.DataFrame(
+                {
+                    "person_id": [1, 2, 2],
+                    "day_id": [11, 21, 22],
+                    "cdap_activity": ["N", "H", "N"],
+                    "finalweight": [10.0, 3.0, 4.0],
+                }
+            ),
+        ),
+        _config(),
+    )
+
+    assert result.filter(pl.col("person_type") != "all_person_types").to_dicts() == [
+        {"person_type": "1", "daily_activity_pattern": "M", "person_count": 100.0},
+        {"person_type": "2", "daily_activity_pattern": "H", "person_count": 3.0},
+        {"person_type": "2", "daily_activity_pattern": "N", "person_count": 4.0},
+    ]
+
+
 def test_mandatory_tour_frequency_falls_back_to_person_day_tour_counts() -> None:
     result = mandatory_tour_freq(
         _run(
@@ -161,6 +196,135 @@ def test_mandatory_tour_frequency_falls_back_to_person_day_tour_counts() -> None
         {"person_type": "1", "mandatory_tour_frequency": 1, "person_count": 0.5},
         {"person_type": "1", "mandatory_tour_frequency": 3, "person_count": 0.5},
         {"person_type": "2", "mandatory_tour_frequency": 2, "person_count": 2.0},
+    ]
+
+
+def test_mandatory_frequency_falls_back_rowwise_and_uses_day_weight() -> None:
+    result = mandatory_tour_freq(
+        _run(
+            per=pl.DataFrame(
+                {
+                    "person_id": [1, 2],
+                    "person_type": ["1", "2"],
+                    "imf_choice": [1, None],
+                    "finalweight": [100.0, 200.0],
+                }
+            ),
+            day=pl.DataFrame(
+                {
+                    "person_id": [1, 2, 2],
+                    "day_id": [11, 21, 22],
+                    "finalweight": [10.0, 3.0, 4.0],
+                }
+            ),
+            tours=pl.DataFrame(
+                {
+                    "person_id": [1, 2, 2, 2],
+                    "day_id": [11, 21, 21, 22],
+                    "tour_purpose": ["school", "work", "work", "school"],
+                    "tour_category": ["mandatory"] * 4,
+                }
+            ),
+        ),
+        _config(),
+    )
+
+    assert result.filter(pl.col("person_type") != "all_person_types").to_dicts() == [
+        {"person_type": "1", "mandatory_tour_frequency": 1, "person_count": 100.0},
+        {"person_type": "2", "mandatory_tour_frequency": 2, "person_count": 3.0},
+        {"person_type": "2", "mandatory_tour_frequency": 3, "person_count": 4.0},
+    ]
+
+
+def test_nonmandatory_frequency_uses_person_days_and_joint_participant_days() -> None:
+    result = indiv_nm_summary(
+        _run(
+            per=pl.DataFrame(
+                {
+                    "person_id": [1, 2],
+                    "person_type": ["1", "2"],
+                    "finalweight": [100.0, 200.0],
+                }
+            ),
+            day=pl.DataFrame(
+                {
+                    "person_id": [1, 1, 2],
+                    "day_id": [11, 12, 21],
+                    "finalweight": [2.0, 3.0, 5.0],
+                }
+            ),
+            tours=pl.DataFrame(
+                {
+                    "tour_id": [101, 102, 201, 202],
+                    "person_id": [1, 1, 1, 1],
+                    "day_id": [11, 11, 12, 12],
+                    "tour_category": [
+                        "non_mandatory",
+                        "non_mandatory",
+                        "joint",
+                        "joint",
+                    ],
+                }
+            ),
+            joint_participants=pl.DataFrame(
+                {
+                    "tour_id": [201, 202],
+                    "person_id": [1, 1],
+                }
+            ),
+        ),
+        _config(),
+    )
+
+    assert result.filter(pl.col("person_type") != "all_person_types").to_dicts() == [
+        {
+            "person_type": "1",
+            "nonmandatory_tour_frequency": "2",
+            "person_count": 5.0,
+        },
+        {
+            "person_type": "2",
+            "nonmandatory_tour_frequency": "0",
+            "person_count": 5.0,
+        },
+    ]
+
+
+def test_nonmandatory_frequency_uses_person_fallback_when_joint_day_is_unsafe() -> None:
+    result = indiv_nm_summary(
+        _run(
+            per=pl.DataFrame(
+                {
+                    "person_id": [1],
+                    "person_type": ["1"],
+                    "finalweight": [7.0],
+                }
+            ),
+            day=pl.DataFrame(
+                {
+                    "person_id": [1, 1],
+                    "day_id": [11, 12],
+                    "finalweight": [2.0, 3.0],
+                }
+            ),
+            tours=pl.DataFrame(
+                {
+                    "person_id": [1, 1],
+                    "day_id": [11, 12],
+                    "tour_category": ["non_mandatory", "non_mandatory"],
+                }
+            ),
+            joint_participants=pl.DataFrame({"person_id": [1]}),
+        ),
+        _config(),
+    )
+
+    assert result.filter(pl.col("person_type") != "all_person_types").to_dicts() == [
+        {
+            "person_type": "1",
+            "nonmandatory_tour_frequency": "3+",
+            "person_count": 7.0,
+        }
     ]
 
 
@@ -197,13 +361,119 @@ def test_daily_rates_sum_every_activity_weight_and_retain_person_day_rows() -> N
 
     tour_result = tour_rate_per_person(run, _config())
     trip_result = trip_rate_per_person(run, _config())
+    unweighted_tour_result = tour_rate_per_person(strip_weights(run), _config())
+    unweighted_trip_result = trip_rate_per_person(strip_weights(run), _config())
 
-    assert tour_result.filter(pl.col("person_type") == "all_person_types").to_dicts() == [
+    assert tour_result.filter(
+        pl.col("person_type") == "all_person_types"
+    ).to_dicts() == [
         {"person_type": "all_person_types", "tour_purpose": "work", "tour_rate": 9 / 7}
     ]
-    assert trip_result.filter(pl.col("person_type") == "all_person_types").to_dicts() == [
+    assert trip_result.filter(
+        pl.col("person_type") == "all_person_types"
+    ).to_dicts() == [
         {"person_type": "all_person_types", "trip_purpose": "work", "trip_rate": 12 / 7}
     ]
+    assert unweighted_tour_result.filter(
+        pl.col("person_type") == "all_person_types"
+    ).to_dicts() == [
+        {"person_type": "all_person_types", "tour_purpose": "work", "tour_rate": 1.0}
+    ]
+    assert unweighted_trip_result.filter(
+        pl.col("person_type") == "all_person_types"
+    ).to_dicts() == [
+        {
+            "person_type": "all_person_types",
+            "trip_purpose": "work",
+            "trip_rate": 4 / 3,
+        }
+    ]
+
+
+def test_daily_rates_use_multiday_weights_without_deduplicating_days() -> None:
+    run = _run(
+        per=pl.DataFrame(
+            {
+                "person_id": [1],
+                "person_type": ["1"],
+                "finalweight": [100.0],
+            }
+        ),
+        day=pl.DataFrame(
+            {
+                "person_id": [1, 1],
+                "day_id": [11, 12],
+                "finalweight": [2.0, 3.0],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "person_id": [1, 1],
+                "tour_purpose": ["work", "work"],
+                "finalweight": [2.0, 3.0],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "person_id": [1, 1, 1, 1],
+                "trip_purpose": ["work", "work", "work", "work"],
+                "finalweight": [2.0, 2.0, 3.0, 3.0],
+            }
+        ),
+    )
+
+    tour_result = tour_rate_per_person(run, _config()).filter(
+        pl.col("person_type") == "all_person_types"
+    )
+    trip_result = trip_rate_per_person(run, _config()).filter(
+        pl.col("person_type") == "all_person_types"
+    )
+
+    assert tour_result["tour_rate"].to_list() == [1.0]
+    assert trip_result["trip_rate"].to_list() == [2.0]
+
+
+def test_daily_rates_use_day_rows_even_when_person_ids_are_unique() -> None:
+    run = _run(
+        per=pl.DataFrame(
+            {
+                "person_id": [1, 2],
+                "person_type": ["1", "1"],
+                "finalweight": [0.5, 2.0],
+            }
+        ),
+        day=pl.DataFrame(
+            {
+                "person_id": [1],
+                "day_id": [11],
+                "finalweight": [0.5],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "person_id": [1],
+                "tour_purpose": ["work"],
+                "finalweight": [0.5],
+            }
+        ),
+        trips=pl.DataFrame(
+            {
+                "person_id": [1, 1],
+                "trip_purpose": ["work", "home"],
+                "finalweight": [0.5, 0.5],
+            }
+        ),
+    )
+
+    tour_result = tour_rate_per_person(run, _config()).filter(
+        pl.col("person_type") == "all_person_types"
+    )
+    trip_result = trip_rate_per_person(run, _config()).filter(
+        pl.col("person_type") == "all_person_types"
+    )
+
+    assert tour_result["tour_rate"].to_list() == [1.0]
+    assert trip_result["trip_rate"].to_list() == [1.0, 1.0]
 
 
 def _config():

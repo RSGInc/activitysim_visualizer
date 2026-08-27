@@ -610,6 +610,45 @@ def _enrich_trips(
             config=config,
             metric_id="trips.AUTOSUFF",
         )
+
+    boundary_required = {"tour_id", "origin", "destination", "outbound", "trip_num"}
+    if boundary_required.issubset(state.trips.columns) and {
+        "tour_id",
+        "origin",
+    }.issubset(state.tours.columns):
+        boundaries = state.trips.group_by(["tour_id", "outbound"]).agg(
+            pl.col("trip_num").min().alias("_first_trip_num"),
+            pl.col("trip_num").max().alias("_last_trip_num"),
+        )
+        state.trips = (
+            state.trips.join(boundaries, on=["tour_id", "outbound"], how="left")
+            .join(
+                state.tours.select(
+                    "tour_id",
+                    pl.col("origin").alias("_tour_origin"),
+                ).unique("tour_id"),
+                on="tour_id",
+                how="left",
+            )
+            .with_columns(
+                pl.when(
+                    pl.col("outbound").cast(pl.Boolean, strict=False)
+                    & (pl.col("trip_num") == pl.col("_first_trip_num"))
+                )
+                .then(pl.coalesce("_tour_origin", "origin"))
+                .otherwise(pl.col("origin"))
+                .alias("origin"),
+                pl.when(
+                    ~pl.col("outbound").cast(pl.Boolean, strict=False)
+                    & (pl.col("trip_num") == pl.col("_last_trip_num"))
+                )
+                .then(pl.coalesce("_tour_origin", "destination"))
+                .otherwise(pl.col("destination"))
+                .alias("destination"),
+            )
+            .drop("_first_trip_num", "_last_trip_num", "_tour_origin")
+        )
+
     if config.use_maz and {"origin", "destination"}.issubset(state.trips.columns):
         state.trips = state.trips.with_columns(
             pl.col("origin").alias("o_maz"),

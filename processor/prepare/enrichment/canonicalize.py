@@ -139,10 +139,7 @@ def _is_toc_raw_survey(state: _PrepareState) -> bool:
 def _normalize_toc_raw_survey(
     state: _PrepareState, config: Config
 ) -> _PrepareState:
-    if (
-        config.prepare_category_mappings.mapping_for_run(state.label) is None
-        or not _is_toc_raw_survey(state)
-    ):
+    if not _is_toc_raw_survey(state):
         return state
 
     state.hh = state.hh.with_columns(
@@ -156,13 +153,6 @@ def _normalize_toc_raw_survey(
         ),
         _toc_model_period_expr("tour_end_hour", "tour_end_minute").alias("end"),
         _toc_model_period_expr("tour_end_hour", "tour_end_minute").alias("end_hour"),
-        pl.col("duration_minutes")
-        .cast(pl.Float64, strict=False)
-        .truediv(30.0)
-        .ceil()
-        .clip(1, 48)
-        .cast(pl.Int32)
-        .alias("tourdur"),
         pl.col("distance_miles").cast(pl.Float64, strict=False).alias("SKIMDIST"),
     )
     if "joint_num_participants" in state.tours.columns:

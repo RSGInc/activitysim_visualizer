@@ -218,6 +218,9 @@ def summary_cache_load_expectations(
         trip_weight_col=None
         if (uses_custom_prepared_tables or uses_summary_table_map_only)
         else entry.get("trip_weight_col") or None,
+        day_weight_col=None
+        if (uses_custom_prepared_tables or uses_summary_table_map_only)
+        else entry.get("day_weight_col", "day_weight"),
     )
     expected_run_fingerprint = summary_run_fingerprint(
         base_run_fingerprint,
@@ -440,6 +443,9 @@ def run_cache_metadata(
         trip_weight_col=None
         if (uses_custom_prepared_tables or uses_summary_table_map_only)
         else entry.get("trip_weight_col") or None,
+        day_weight_col=None
+        if (uses_custom_prepared_tables or uses_summary_table_map_only)
+        else entry.get("day_weight_col", "day_weight"),
     )
     prepared_manifest_identity = None
     if not uses_summary_table_map_only:

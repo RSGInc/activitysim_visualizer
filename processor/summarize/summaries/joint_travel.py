@@ -5,6 +5,163 @@ import polars as pl
 from runtime.config import Config
 from processor.models import RunData
 from processor.summarize.contracts import summary
+from processor.summarize.summaries.summary_helpers import (
+    household_tour_weight_expr,
+    joint_party_size_expr,
+)
+
+
+JTF_PURPOSE_ALIASES = (
+    ("shopping", "shop", "joint_shopping"),
+    ("othmaint", "maintenance", "maint", "other_maintenance", "joint_othmaint"),
+    ("eatout", "eating_out", "eat", "joint_eatout"),
+    ("social", "visiting", "visit", "joint_social"),
+    (
+        "othdiscr",
+        "other_discretionary",
+        "discretionary",
+        "joint_othdiscr",
+    ),
+)
+
+JTF_NAMES = (
+    "No Joint Tours",
+    "1 Shopping",
+    "1 Maintenance",
+    "1 Eating Out",
+    "1 Visiting",
+    "1 Other Discretionary",
+    "2 Shopping",
+    "1 Shopping / 1 Maintenance",
+    "1 Shopping / 1 Eating Out",
+    "1 Shopping / 1 Visiting",
+    "1 Shopping / 1 Other Discretionary",
+    "2 Maintenance",
+    "1 Maintenance / 1 Eating Out",
+    "1 Maintenance / 1 Visiting",
+    "1 Maintenance / 1 Other Discretionary",
+    "2 Eating Out",
+    "1 Eating Out / 1 Visiting",
+    "1 Eating Out / 1 Other Discretionary",
+    "2 Visiting",
+    "1 Visiting / 1 Other Discretionary",
+    "2 Other Discretionary",
+)
+
+# Each tuple is (alternative code, minimum count in each fixed purpose slot).
+JTF_ALTERNATIVES = (
+    (2, 1, 0, 0, 0, 0),
+    (3, 0, 1, 0, 0, 0),
+    (4, 0, 0, 1, 0, 0),
+    (5, 0, 0, 0, 1, 0),
+    (6, 0, 0, 0, 0, 1),
+    (7, 2, 0, 0, 0, 0),
+    (8, 1, 1, 0, 0, 0),
+    (9, 1, 0, 1, 0, 0),
+    (10, 1, 0, 0, 1, 0),
+    (11, 1, 0, 0, 0, 1),
+    (12, 0, 2, 0, 0, 0),
+    (13, 0, 1, 1, 0, 0),
+    (14, 0, 1, 0, 1, 0),
+    (15, 0, 1, 0, 0, 1),
+    (16, 0, 0, 2, 0, 0),
+    (17, 0, 0, 1, 1, 0),
+    (18, 0, 0, 1, 0, 1),
+    (19, 0, 0, 0, 2, 0),
+    (20, 0, 0, 0, 1, 1),
+    (21, 0, 0, 0, 0, 2),
+)
+
+
+def _has_multiday_household_history(rd: RunData) -> bool:
+    """Return whether prepared days span multiple diary days per household."""
+    required = {"household_id", "day_num"}
+    if rd.day.is_empty() or not required.issubset(rd.day.columns):
+        return False
+    return not (
+        rd.day.filter(
+            pl.col("household_id").is_not_null() & pl.col("day_num").is_not_null()
+        )
+        .group_by("household_id")
+        .agg(pl.col("day_num").n_unique().alias("_day_count"))
+        .filter(pl.col("_day_count") > 1)
+        .is_empty()
+    )
+
+
+def _valid_identifier(column: str) -> pl.Expr:
+    text = pl.col(column).cast(pl.Utf8, strict=False).str.strip_chars()
+    numeric = pl.col(column).cast(pl.Float64, strict=False)
+    return (
+        text.is_not_null()
+        & (text != "")
+        & (
+            numeric.is_null()
+            | (numeric.is_finite() & (numeric > 0) & (numeric != 995))
+        )
+    )
+
+
+def _joint_identity_expr(df: pl.DataFrame, *, row_fallback: str | None = None) -> pl.Expr:
+    candidates: list[pl.Expr] = []
+    for prefix, column in (("joint:", "joint_tour_id"), ("tour:", "tour_id")):
+        if column in df.columns:
+            candidates.append(
+                pl.when(_valid_identifier(column)).then(
+                    pl.concat_str(pl.lit(prefix), pl.col(column).cast(pl.Utf8))
+                )
+            )
+    if row_fallback is not None:
+        candidates.append(
+            pl.concat_str(pl.lit("row:"), pl.col(row_fallback).cast(pl.Utf8))
+        )
+    if not candidates:
+        return pl.lit(None, dtype=pl.Utf8)
+    return pl.coalesce(candidates)
+
+
+def _household_observations(rd: RunData) -> tuple[pl.DataFrame, list[str]]:
+    hhsize_col = "HHSIZE" if "HHSIZE" in rd.hh.columns else "hhsize"
+    hh_columns = ["household_id", "finalweight"]
+    if hhsize_col in rd.hh.columns:
+        hh_columns.append(hhsize_col)
+    households = rd.hh.select(hh_columns)
+    if hhsize_col in households.columns and hhsize_col != "HHSIZE":
+        households = households.rename({hhsize_col: "HHSIZE"})
+
+    if _has_multiday_household_history(rd):
+        keys = ["household_id", "day_num"]
+        observations = (
+            rd.day.filter(
+                pl.col("household_id").is_not_null()
+                & pl.col("day_num").is_not_null()
+            )
+            .select(keys)
+            .unique()
+            .join(households, on="household_id", how="inner")
+        )
+        return observations, keys
+    return households, ["household_id"]
+
+
+def _unique_joint_tours(rd: RunData, observation_keys: list[str]) -> pl.DataFrame:
+    if not {"household_id", *observation_keys}.issubset(rd.tours.columns):
+        return pl.DataFrame()
+    if "tour_category" not in rd.tours.columns:
+        return rd.tours.head(0)
+    return (
+        rd.tours.filter(
+            pl.col("tour_category").cast(pl.Utf8).str.strip_chars().str.to_lowercase()
+            == "joint"
+        )
+        .with_row_index("_joint_row")
+        .with_columns(
+            _joint_identity_expr(rd.tours, row_fallback="_joint_row").alias(
+                "_joint_identity"
+            )
+        )
+        .unique([*observation_keys, "_joint_identity"], maintain_order=True)
+    )
 
 
 @summary(
@@ -18,30 +175,6 @@ from processor.summarize.contracts import summary
 )
 def joint_tour_freq(rd: RunData, config: Config | None = None) -> pl.DataFrame:
     """Returns DataFrame: jtf_code, jtf_label, household_count."""
-    JTF_NAMES = [
-        "No Joint Tours",
-        "1 Shopping",
-        "1 Maintenance",
-        "1 Eating Out",
-        "1 Visiting",
-        "1 Other Discretionary",
-        "2 Shopping",
-        "2 Maintenance",
-        "2 Eating Out",
-        "2 Visiting",
-        "2 Other Discretionary",
-        "1 Shopping / 1 Maintenance",
-        "1 Shopping / 1 Eating Out",
-        "1 Shopping / 1 Visiting",
-        "1 Shopping / 1 Other Discretionary",
-        "1 Maintenance / 1 Eating Out",
-        "1 Maintenance / 1 Visiting",
-        "1 Maintenance / 1 Other Discretionary",
-        "1 Eating Out / 1 Visiting",
-        "1 Eating Out / 1 Other Discretionary",
-        "1 Visiting / 1 Other Discretionary",
-    ]
-
     jtf_lookup = pl.DataFrame(
         {
             "jtf_code": list(range(1, 22)),
@@ -53,71 +186,34 @@ def joint_tour_freq(rd: RunData, config: Config | None = None) -> pl.DataFrame:
         },
     )
 
-    if "tour_category" not in rd.tours.columns:
-        return jtf_lookup.with_columns(pl.lit(0.0).alias("household_count"))
-
-    joint_tours = rd.tours.filter(pl.col("tour_category") == "joint")
-    if "tour_purpose" not in joint_tours.columns:
-        return jtf_lookup.with_columns(pl.lit(0.0).alias("household_count"))
-    # Map purpose strings to slot letters (a-e for up to 5 NM purposes)
-    nm_purposes = joint_tours["tour_purpose"].drop_nulls().unique().sort().to_list()
-    # Take up to 5 most common (for JTF coding)
-    purpose_slots = {p: f"j{i}" for i, p in enumerate(nm_purposes[:5])}
-    slot_cols = [f"j{i}" for i in range(len(purpose_slots))]
-
-    hh_joint = pl.DataFrame({"household_id": rd.hh["household_id"]})
-
-    for purp, slot in purpose_slots.items():
-        counts = (
-            joint_tours.filter(pl.col("tour_purpose") == purp)
-            .group_by("household_id")
-            .agg(pl.len().cast(pl.Int64).alias(slot))
-        )
-        hh_joint = hh_joint.join(counts, on="household_id", how="left").with_columns(
-            pl.col(slot).fill_null(0)
-        )
-
-    for slot in slot_cols:
-        if slot not in hh_joint.columns:
+    observations, observation_keys = _household_observations(rd)
+    joint_tours = _unique_joint_tours(rd, observation_keys)
+    if joint_tours.width == 0 and _has_multiday_household_history(rd):
+        return joint_tour_freq.empty()
+    hh_joint = observations.select(observation_keys)
+    normalized_purpose = (
+        pl.col("tour_purpose").cast(pl.Utf8).str.strip_chars().str.to_lowercase()
+    )
+    slot_cols = [f"j{i}" for i in range(len(JTF_PURPOSE_ALIASES))]
+    for slot, aliases in zip(slot_cols, JTF_PURPOSE_ALIASES, strict=True):
+        if "tour_purpose" in joint_tours.columns:
+            counts = (
+                joint_tours.filter(normalized_purpose.is_in(aliases))
+                .group_by(observation_keys)
+                .agg(pl.len().cast(pl.Int64).alias(slot))
+            )
+            hh_joint = hh_joint.join(
+                counts, on=observation_keys, how="left"
+            ).with_columns(pl.col(slot).fill_null(0))
+        else:
             hh_joint = hh_joint.with_columns(pl.lit(0).alias(slot))
 
-    all_hh = rd.hh.select(["household_id", "finalweight"])
-    hh_joint = all_hh.join(hh_joint, on="household_id", how="left")
-
-    for slot in slot_cols:
-        if slot in hh_joint.columns:
-            hh_joint = hh_joint.with_columns(pl.col(slot).fill_null(0))
-
-    # TODO: JTF coding is simplified; verify category assignment matches formal ActivitySim joint tour frequency definitions.
-
-    # Code JTF (simplified: 1=none, 2-6=single, 7-11=two same, 12-21=two different)
+    hh_joint = observations.join(hh_joint, on=observation_keys, how="left")
+    hh_joint = hh_joint.with_columns(pl.col(slot).fill_null(0) for slot in slot_cols)
 
     hh_joint = hh_joint.with_columns(pl.lit(1).alias("jtf"))
 
-    codes = [
-        (2, 1, 0, 0, 0, 0),
-        (3, 0, 1, 0, 0, 0),
-        (4, 0, 0, 1, 0, 0),
-        (5, 0, 0, 0, 1, 0),
-        (6, 0, 0, 0, 0, 1),
-        (7, 2, 0, 0, 0, 0),
-        (8, 0, 2, 0, 0, 0),
-        (9, 0, 0, 2, 0, 0),
-        (10, 0, 0, 0, 2, 0),
-        (11, 0, 0, 0, 0, 2),
-        (12, 1, 1, 0, 0, 0),
-        (13, 1, 0, 1, 0, 0),
-        (14, 1, 0, 0, 1, 0),
-        (15, 1, 0, 0, 0, 1),
-        (16, 0, 1, 1, 0, 0),
-        (17, 0, 1, 0, 1, 0),
-        (18, 0, 1, 0, 0, 1),
-        (19, 0, 0, 1, 1, 0),
-        (20, 0, 0, 1, 0, 1),
-        (21, 0, 0, 0, 1, 1),
-    ]
-
-    for code, *vals in codes:
+    for code, *vals in JTF_ALTERNATIVES:
         conds = []
         for i, v in enumerate(vals):
             col = f"j{i}"
@@ -176,16 +272,18 @@ def joint_tours_hhsize(rd: RunData, config: Config | None = None) -> pl.DataFram
     ):
         return joint_tours_hhsize.empty()
 
+    observations, observation_keys = _household_observations(rd)
+    if not set(observation_keys).issubset(rd.tours.columns):
+        return joint_tours_hhsize.empty()
     joint_tour_hhs = (
-        rd.tours.filter(pl.col("tour_category") == "joint")
-        .select("household_id")
+        _unique_joint_tours(rd, observation_keys)
+        .select(observation_keys)
         .unique()
         .with_columns(has_joint_tour=pl.lit(True))
     )
 
     return (
-        rd.hh.select(["household_id", "HHSIZE", "finalweight"])
-        .join(joint_tour_hhs, on="household_id", how="left")
+        observations.join(joint_tour_hhs, on=observation_keys, how="left")
         .with_columns(has_joint_tour=pl.col("has_joint_tour").fill_null(False))
         .group_by("HHSIZE")
         .agg(
@@ -209,38 +307,50 @@ def joint_tours_hhsize(rd: RunData, config: Config | None = None) -> pl.DataFram
     required_columns={"tours": ("tour_category", "NUMBER_HH", "finalweight")},
 )
 def joint_party_size(rd: RunData, config: Config | None = None) -> pl.DataFrame:
-    """Joint tour party size distribution (capped at 5+). Columns: party_size (1-5), joint_tour_count."""
+    """Joint tour party size distribution, with sizes of 5 or more capped at 5."""
     if "tour_category" not in rd.tours.columns or "NUMBER_HH" not in rd.tours.columns:
         return joint_party_size.empty()
 
-    joint_tours = rd.tours.filter(pl.col("tour_category") == "joint")
+    joint_tours = (
+        rd.tours.filter(
+            pl.col("tour_category").cast(pl.Utf8).str.to_lowercase() == "joint"
+        )
+        .with_columns(
+            joint_party_size_expr(rd.tours).alias("_party_size"),
+            household_tour_weight_expr(
+                rd.tours,
+                output_col="_household_tour_weight",
+            ),
+        )
+        .filter(pl.col("_party_size").is_not_null())
+    )
 
     if joint_tours.is_empty():
         return joint_party_size.empty()
 
     df = (
-        joint_tours.group_by("NUMBER_HH")
-        .agg(joint_tour_count=pl.col("finalweight").sum())
-        .sort("NUMBER_HH")
+        joint_tours.group_by("_party_size")
+        .agg(joint_tour_count=pl.col("_household_tour_weight").sum())
+        .sort("_party_size")
     )
 
-    cap5 = df.filter(pl.col("NUMBER_HH") >= 5)["joint_tour_count"].sum()
+    cap5 = df.filter(pl.col("_party_size") >= 5)["joint_tour_count"].sum()
 
-    df = df.filter(pl.col("NUMBER_HH") < 5).with_columns(
-        pl.col("NUMBER_HH").cast(pl.Int32)
+    df = df.filter(pl.col("_party_size") < 5).with_columns(
+        pl.col("_party_size").cast(pl.Int32)
     )
 
     cap_row = pl.DataFrame(
         {
-            "NUMBER_HH": pl.Series([5], dtype=pl.Int32),
+            "_party_size": pl.Series([5], dtype=pl.Int32),
             "joint_tour_count": pl.Series([cap5 or 0.0], dtype=pl.Float64),
         }
     )
 
     return (
         pl.concat([df, cap_row])
-        .sort("NUMBER_HH")
-        .rename({"NUMBER_HH": "party_size"})
+        .sort("_party_size")
+        .rename({"_party_size": "party_size"})
         .select(
             pl.col("party_size").cast(pl.Int32),
             pl.col("joint_tour_count").cast(pl.Float64),
@@ -271,8 +381,14 @@ def joint_composition(rd: RunData, config: Config | None = None) -> pl.DataFrame
         return joint_composition.empty()
 
     return (
-        joint_tours.group_by(comp_col)
-        .agg(joint_tour_count=pl.col("finalweight").sum())
+        joint_tours.with_columns(
+            household_tour_weight_expr(
+                joint_tours,
+                output_col="_household_tour_weight",
+            )
+        )
+        .group_by(comp_col)
+        .agg(joint_tour_count=pl.col("_household_tour_weight").sum())
         .rename({comp_col: "tour_composition"})
         .sort("tour_composition")
     )
@@ -286,38 +402,39 @@ def joint_composition(rd: RunData, config: Config | None = None) -> pl.DataFrame
         "joint_tour_count": pl.Float64,
     },
     required_columns={
-        "tours": (
-            "tour_category",
-            "composition",
-            "number_of_participants",
-            "finalweight",
-        )
+        "tours": ("tour_category", "finalweight")
     },
 )
 def joint_composition_by_party_size(rd: RunData, config: Config) -> pl.DataFrame:
-    required = {
-        "tour_category",
-        "composition",
-        "number_of_participants",
-        "finalweight",
-    }
-    if not required.issubset(set(rd.tours.columns)):
+    if not {"tour_category", "finalweight"}.issubset(rd.tours.columns):
         return joint_composition_by_party_size.empty()
 
+    joint_tours = rd.tours.filter(
+        pl.col("tour_category").cast(pl.Utf8).str.to_lowercase() == "joint"
+    )
+    comp_col = (
+        "composition" if "composition" in joint_tours.columns else "tour_composition"
+    )
+    if comp_col not in joint_tours.columns:
+        return joint_composition_by_party_size.empty()
     return (
-        rd.tours.filter(
-            pl.col("tour_category").cast(pl.Utf8).str.to_lowercase() == "joint"
+        joint_tours.with_columns(
+            joint_party_size_expr(joint_tours).alias("_party_size"),
+            household_tour_weight_expr(
+                joint_tours,
+                output_col="_household_tour_weight",
+            ),
         )
         .filter(
-            pl.col("composition").is_not_null()
-            & pl.col("number_of_participants").is_not_null()
+            pl.col(comp_col).is_not_null()
+            & pl.col("_party_size").is_not_null()
         )
-        .group_by(["composition", "number_of_participants"])
-        .agg(joint_tour_count=pl.col("finalweight").sum())
+        .group_by([comp_col, "_party_size"])
+        .agg(joint_tour_count=pl.col("_household_tour_weight").sum())
         .rename(
             {
-                "composition": "tour_composition",
-                "number_of_participants": "party_size",
+                comp_col: "tour_composition",
+                "_party_size": "party_size",
             }
         )
         .with_columns(
@@ -338,24 +455,99 @@ def joint_composition_by_party_size(rd: RunData, config: Config) -> pl.DataFrame
         "total_person_count": pl.Float64,
     },
     required_columns={
-        "per": ("household_id", "num_joint_tours", "finalweight"),
-        "hh": ("household_id", "hhsize"),
+        "per": ("household_id", "person_id", "finalweight"),
+        "hh": ("household_id",),
     },
 )
 def joint_participation_person_by_hhsize(rd: RunData, config: Config) -> pl.DataFrame:
-    person_required = {"household_id", "num_joint_tours", "finalweight"}
-    hh_required = {"household_id", "hhsize"}
-
-    if not person_required.issubset(set(rd.per.columns)) or not hh_required.issubset(
-        set(rd.hh.columns)
-    ):
+    person_required = {"household_id", "person_id", "finalweight"}
+    hhsize_col = "HHSIZE" if "HHSIZE" in rd.hh.columns else "hhsize"
+    if not person_required.issubset(rd.per.columns) or hhsize_col not in rd.hh.columns:
         return joint_participation_person_by_hhsize.empty()
 
-    persons_with_hhsize = rd.per.join(
-        rd.hh.select("household_id", "hhsize"),
-        on="household_id",
-        how="left",
-    ).filter(pl.col("hhsize").is_not_null())
+    if _has_multiday_household_history(rd) and {
+        "household_id",
+        "person_id",
+        "day_num",
+    }.issubset(rd.day.columns):
+        person_weights = rd.per.select(
+            "person_id",
+            pl.col("finalweight").cast(pl.Float64).alias("_person_weight"),
+        ).unique("person_id")
+        day_weight = (
+            pl.col("finalweight").cast(pl.Float64).alias("_day_weight")
+            if "finalweight" in rd.day.columns
+            else pl.lit(None, dtype=pl.Float64).alias("_day_weight")
+        )
+        persons_with_hhsize = (
+            rd.day.select("household_id", "person_id", "day_num", day_weight)
+            .filter(
+                pl.col("person_id").is_not_null() & pl.col("day_num").is_not_null()
+            )
+            .unique(["person_id", "day_num"])
+            .join(person_weights, on="person_id", how="inner")
+            .with_columns(
+                pl.coalesce("_day_weight", "_person_weight").alias("finalweight")
+            )
+            .join(
+                rd.hh.select(
+                    "household_id", pl.col(hhsize_col).alias("hhsize")
+                ),
+                on="household_id",
+                how="left",
+            )
+        )
+
+        tour_days = _unique_joint_tours(rd, ["household_id", "day_num"])
+        if "_joint_identity" not in tour_days.columns:
+            return joint_participation_person_by_hhsize.empty()
+        tour_days = tour_days.select("_joint_identity", "day_num").unique()
+        if (
+            tour_days.group_by("_joint_identity")
+            .agg(pl.col("day_num").n_unique().alias("_day_count"))
+            .filter(pl.col("_day_count") != 1)
+            .height
+        ):
+            return joint_participation_person_by_hhsize.empty()
+        participants = (
+            rd.joint_participants.with_columns(
+                _joint_identity_expr(rd.joint_participants).alias("_joint_identity")
+            )
+            .filter(
+                pl.col("person_id").is_not_null()
+                & pl.col("_joint_identity").is_not_null()
+            )
+            .join(tour_days, on="_joint_identity", how="inner")
+            .select("person_id", "day_num")
+            .unique()
+            .with_columns(_has_joint_tour=pl.lit(True))
+        )
+        persons_with_hhsize = persons_with_hhsize.join(
+            participants, on=["person_id", "day_num"], how="left"
+        ).with_columns(pl.col("_has_joint_tour").fill_null(False))
+    else:
+        if "num_joint_tours" in rd.per.columns:
+            participation = (pl.col("num_joint_tours") > 0).fill_null(False)
+        elif "person_id" in rd.joint_participants.columns:
+            participation = pl.col("person_id").is_in(
+                rd.joint_participants.select("person_id").drop_nulls().to_series()
+            )
+        else:
+            participation = pl.lit(False)
+        persons_with_hhsize = (
+            rd.per.join(
+                rd.hh.select(
+                    "household_id", pl.col(hhsize_col).alias("hhsize")
+                ),
+                on="household_id",
+                how="left",
+            )
+            .with_columns(
+                participation.alias("_has_joint_tour")
+            )
+        )
+
+    persons_with_hhsize = persons_with_hhsize.filter(pl.col("hhsize").is_not_null())
 
     if persons_with_hhsize.is_empty():
         return joint_participation_person_by_hhsize.empty()
@@ -365,9 +557,7 @@ def joint_participation_person_by_hhsize(rd: RunData, config: Config) -> pl.Data
     )
 
     joint_tour_people = (
-        persons_with_hhsize.filter(
-            pl.col("num_joint_tours").is_not_null() & (pl.col("num_joint_tours") > 0)
-        )
+        persons_with_hhsize.filter(pl.col("_has_joint_tour"))
         .group_by("hhsize")
         .agg(joint_tour_person_weight=pl.col("finalweight").sum())
     )
@@ -405,19 +595,20 @@ def joint_participation_person_by_hhsize(rd: RunData, config: Config) -> pl.Data
 def jtf_by_hhsize(rd: RunData, config: Config | None = None) -> pl.DataFrame:
     """Joint tour count category (0/1/2+) by HH size as proportions.
     Returns DataFrame: jtf, household_size, household_percent."""
-    hh = rd.hh
-
-    if "tour_category" not in rd.tours.columns or "HHSIZE" not in hh.columns:
+    if "tour_category" not in rd.tours.columns or "HHSIZE" not in rd.hh.columns:
         return jtf_by_hhsize.empty()
 
-    joint_tours = rd.tours.filter(pl.col("tour_category") == "joint")
+    observations, observation_keys = _household_observations(rd)
+    if not set(observation_keys).issubset(rd.tours.columns):
+        return jtf_by_hhsize.empty()
+    joint_tours = _unique_joint_tours(rd, observation_keys)
 
-    jt_counts = joint_tours.group_by("household_id").agg(
+    jt_counts = joint_tours.group_by(observation_keys).agg(
         pl.len().cast(pl.Int64).alias("jtours")
     )
 
     hh2 = (
-        hh.join(jt_counts, on="household_id", how="left")
+        observations.join(jt_counts, on=observation_keys, how="left")
         .with_columns(pl.col("jtours").fill_null(0))
         .with_columns(
             pl.when(pl.col("jtours") == 0)

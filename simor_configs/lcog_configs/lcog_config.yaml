@@ -48,6 +48,8 @@ fallback_files:
 #   person_weight_col: explicit person weight column in final_persons
 #   trip_weight_col:   explicit trip weight column in final_trips
 #                      (tour weight = average of its trips' weights when set)
+#   day_weight_col:    explicit day-table weight column; set to null to inherit
+#                      the corresponding person weight
 #
 # If none of the above are set and sample_rate is not in columns, all weights = 1.
 # ---------------------------------------------------------------------------
@@ -70,6 +72,7 @@ runs:
     label:            "Regional: Filtered & Attributed"
     hh_weight_col:     hh_weight
     person_weight_col: person_weight
+    day_weight_col:    null
     skimjoin:
       config_path: lcog_skimjoin_config_alternate_id_col.yaml
 

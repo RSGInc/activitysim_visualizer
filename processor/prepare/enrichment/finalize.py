@@ -105,6 +105,7 @@ def _cast_tours(tours: pl.DataFrame) -> pl.DataFrame:
                 "pnr_taz": pl.Int32,
                 "income_segment": pl.Int64,
                 "vot_bin": pl.Utf8,
+                "tour_distance": pl.Float64,
                 "SKIMDIST": pl.Float64,
                 "NUMBER_HH": pl.Int32,
                 "AUTOSUFF": pl.Int32,

@@ -137,6 +137,55 @@ When you add a summary, state the unit in its column name, page axis/tooltip, or
 calculation note. Do not combine runs whose underlying distance, time, or cost
 units differ without normalizing them first.
 
+### Joint travel and tour-distance conventions
+
+Legacy-compatible summaries distinguish person travel from unique travel
+records:
+
+- every eligible source row contributes under its active weight; builders do
+  not discard repeated rows merely because identifiers match;
+- person-level tour/trip rates, mode counts, and population travel totals
+  expand only records categorized as joint;
+- when joint-participant rows are available, person-tour and person-trip
+  summaries use the sum of every matching participant's person weight; valid
+  scalar party-size expansion is only the fallback;
+- household-tour summaries (including tour purpose/category, joint party and
+  composition, stop frequency, time-of-day, duration, and distance) do not
+  expand joint tours by party size. When a verified survey group stores one row
+  per participant, every row is retained with `1 / party size` representation
+  weight so the complete group contributes one household tour; and
+- a usable participant count is greater than zero and less than `995`.
+  Invalid, missing, and sentinel counts fall back to one when a person-level
+  record must still be counted, while party-size descriptive summaries exclude
+  them.
+
+This fractional household-tour representation is not record deduplication: the
+source rows and their attributes remain in the calculation. If participant rows
+report different time or distance values for the same joint-tour identifier,
+the histogram shows their fractional mixture rather than silently selecting one
+participant as the canonical record.
+
+Daily tour rates exclude at-work subtours. Tour-distance summaries prefer an
+explicit prepared `tour_distance` and use `SKIMDIST` as its row-level or table-
+level fallback. Generic `distance_miles` is not automatically treated as a
+primary-destination tour distance because it may be full traveled tour length.
+Summaries that are explicitly skim-based continue to use `SKIMDIST`.
+
+Daily activity summaries use a non-null person-table DAP or mandatory-frequency
+choice for that person, then fall back only for remaining persons to all
+eligible day rows and their day weights. Nonmandatory frequency is classified
+per person-day for genuinely multi-day inputs only when all individual tours
+and joint participations can be assigned to a day without guessing. If those
+keys are incomplete or ambiguous, the summary retains the one-day/person
+fallback rather than discarding unmatched rows.
+
+Joint-tour frequency (JTF) is a one-day household choice. A prepared run whose
+day table spans multiple diary days per household is therefore marked
+unavailable for JTF and household-size-by-JTF summaries; the builder does not
+pool a week of survey choices into one artificial daily alternative. Producing
+a survey JTF later will require an explicit, documented household-day joint-tour
+purpose field because participant rows can disagree on purpose.
+
 ## Adding A Summary Function
 
 For an example with a calculation, contract test, catalog, and page connection,

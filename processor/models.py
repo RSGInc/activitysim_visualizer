@@ -60,7 +60,7 @@ class RunData:
 
     - tours: ``tour_purpose``, ``tour_mode``, ``tour_category``, ``start_hour``,
       ``end_hour``, ``tourdur``, ``num_ob_stops``, ``num_ib_stops``,
-      ``num_tot_stops``, ``SKIMDIST``, ``AUTOSUFF``, ``NUMBER_HH``,
+      ``num_tot_stops``, ``tour_distance``, ``SKIMDIST``, ``AUTOSUFF``, ``NUMBER_HH``,
       ``finalweight``
     - trips: ``tour_purpose``, ``trip_purpose``, ``tour_mode``, ``trip_mode``,
       ``depart_hour``, ``stops``, ``out_dir_dist``, ``od_dist``,
@@ -85,6 +85,7 @@ class RunData:
     hh_weight_col: Optional[str] = None
     person_weight_col: Optional[str] = None
     trip_weight_col: Optional[str] = None
+    day_weight_col: Optional[str] = "day_weight"
     day: pl.DataFrame = field(default_factory=pl.DataFrame)
     vehicles: pl.DataFrame = field(default_factory=pl.DataFrame)
     trip_hypothetical_skims: pl.DataFrame = field(default_factory=pl.DataFrame)
@@ -161,6 +162,7 @@ def map_run_data_tables(
         hh_weight_col=None if clear_weight_columns else run.hh_weight_col,
         person_weight_col=None if clear_weight_columns else run.person_weight_col,
         trip_weight_col=None if clear_weight_columns else run.trip_weight_col,
+        day_weight_col=None if clear_weight_columns else run.day_weight_col,
         table_availability_metadata=TableAvailabilityMetadata(
             states=dict(run.table_availability_metadata.states),
             diagnostics=dict(run.table_availability_metadata.diagnostics),
@@ -210,6 +212,7 @@ def prune_prepared_run(
         hh_weight_col=prepared_run.hh_weight_col,
         person_weight_col=prepared_run.person_weight_col,
         trip_weight_col=prepared_run.trip_weight_col,
+        day_weight_col=prepared_run.day_weight_col,
         table_availability_metadata=TableAvailabilityMetadata(
             states=dict(prepared_run.table_availability_metadata.states),
             diagnostics=dict(prepared_run.table_availability_metadata.diagnostics),

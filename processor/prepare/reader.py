@@ -124,6 +124,7 @@ def read_run(
     hh_weight_col: Optional[str] = None,
     person_weight_col: Optional[str] = None,
     trip_weight_col: Optional[str] = None,
+    day_weight_col: Optional[str] = "day_weight",
 ) -> RunData:
     """Read ActivitySim outputs and optionally the OMX skim for one run."""
     run_dir = Path(run_dir)
@@ -239,6 +240,7 @@ def read_run(
             hh_weight_col=hh_weight_col or None,
             person_weight_col=person_weight_col or None,
             trip_weight_col=trip_weight_col or None,
+            day_weight_col=day_weight_col,
         ),
         table_states=table_states,
         table_reasons=table_reasons,

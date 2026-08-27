@@ -13,13 +13,13 @@ categories:
       person_type_label: configured readable label for the code.
       person_count: weighted people of that type.
   - id: population_totals
-    description: One run-level control-total row for people, households, tours, trips, and intermediate stops. Use it for reasonableness checks and top-level comparisons; the measures use their own table weights and are not additive to one another.
+    description: One run-level control-total row for people, households, person-tours, person-trips, and person-stops. Joint tour and trip records use the sum of all matching participant person weights when available and valid party-size expansion only as a fallback; sentinel, missing, or nonpositive fallback counts resolve to one. Use it for reasonableness checks and top-level comparisons; the measures use their own table weights and are not additive to one another.
     fields:
       person_count: weighted persons.
       household_count: weighted households.
-      tour_count: weighted tours.
-      trip_count: weighted trips.
-      stop_count: weighted trip records flagged as intermediate stops.
+      tour_count: weighted person-tours; joint records are participant-expanded.
+      trip_count: weighted person-trips; joint records are participant-expanded.
+      stop_count: weighted person-trip records flagged as intermediate stops; joint records are participant-expanded.
 - name: Person Attributes and Long-Term Choices
   summaries:
   - id: license_holding_status_distribution
@@ -217,35 +217,35 @@ categories:
 - name: Daily Activity Patterns and Travel Rates
   summaries:
   - id: daily_activity_pattern_by_person_type
-    description: Daily activity pattern alternatives by person type, using person-table CDAP values when available and otherwise retaining observed day records, including an all-person-types rollup. Use it to compare mandatory, nonmandatory, and home-stay behavior.
+    description: Daily activity pattern alternatives by person type, using each person's non-null person-table CDAP value and falling back only for remaining persons to all observed day rows with day weights when available, including an all-person-types rollup. No day rows are deduplicated. Use it to compare mandatory, nonmandatory, and home-stay behavior.
     fields:
       person_type: person-type code or rollup.
       daily_activity_pattern: prepared CDAP/activity-pattern category.
       person_count: weighted people or observed person-days in the pattern.
   - id: mandatory_tour_frequency_by_person_type
-    description: Positive mandatory-tour-frequency choice by person type, using the prepared person choice when available and otherwise deriving it from work and school tours by person-day, plus an all-person-types rollup. Use it to analyze how many mandatory tours travelers make. The table excludes records with a choice of zero.
+    description: Positive mandatory-tour-frequency choice by person type, using each person's non-null prepared choice and falling back only for remaining persons to choices derived from work and school tours on every person-day, with day weights when available, plus an all-person-types rollup. Use it to analyze how many mandatory tours travelers make. The table excludes records with a choice of zero.
     fields:
       person_type: person-type code or rollup.
       mandatory_tour_frequency: prepared or tour-derived positive mandatory-tour frequency alternative.
       person_count: weighted people or person-days choosing that frequency.
   - id: nonmandatory_tour_frequency_by_person_type
-    description: Count of individual nonmandatory tours plus joint-tour participation per person, grouped as 0, 1, 2, or 3+, by person type and for all types. Use it to compare discretionary travel propensity.
+    description: Count of individual nonmandatory tours plus joint-tour participation, grouped as 0, 1, 2, or 3+, by person type and for all types. Genuinely multi-day inputs are classified per person-day only when every tour and participant has a safe day key; otherwise the one-day/person fallback is retained rather than dropping records or guessing keys. Use it to compare discretionary travel propensity.
     fields:
       person_type: person-type code or rollup.
       nonmandatory_tour_frequency: combined nonmandatory-tour category `0`, `1`, `2`, or `3+`.
-      person_count: weighted people in the category.
+      person_count: weighted people or person-days in the category.
   - id: tour_rates_by_person_type_and_tour_purpose
-    description: Weighted tour records per weighted person-day by person type and tour purpose, plus all-person-types rates. Use it to compare tour-generation rates while controlling for population composition.
+    description: Person-tours per person-day by person type and tour purpose under the selected weighting mode, plus all-person-types rates. Every eligible source row contributes and at-work subtours are excluded. Joint tours are attributed using each known participant's person weight or expanded by a valid party size when participant records are unavailable. Use it to compare tour-generation rates while controlling for population composition.
     fields:
       person_type: person-type code or rollup.
       tour_purpose: prepared tour-purpose category.
-      tour_rate: sum of prepared tour weights across all eligible records, divided by summed person or person-day weights for that person type.
+      tour_rate: sum of eligible person-tour weights, divided by summed person or person-day weights for that person type.
   - id: trip_rates_by_person_type_and_trip_purpose
-    description: Weighted trip records per weighted person-day by person type and trip purpose, plus all-person-types rates. Use it to compare trip-generation rates across demographic markets.
+    description: Person-trips per person-day by person type and trip purpose under the selected weighting mode, plus all-person-types rates. Every eligible source row contributes. Joint trips are attributed using each known participant's person weight or expanded by a valid party size when participant records are unavailable. Use it to compare trip-generation rates across demographic markets.
     fields:
       person_type: person-type code or rollup.
       trip_purpose: destination purpose of the trip.
-      trip_rate: sum of prepared trip weights across all eligible records, divided by summed person or person-day weights for that person type.
+      trip_rate: sum of eligible person-trip weights, divided by summed person or person-day weights for that person type.
 - name: School Escorting
   summaries:
   - id: escorted_tour_totals
@@ -323,7 +323,7 @@ categories:
 - name: Joint Travel
   summaries:
   - id: jtf_distribution
-    description: Households across 21 joint-tour-frequency alternatives describing zero, one, or two joint tours and their purpose combination. Use it to validate joint-tour generation. The current builder uses a simplified purpose-slot coding, so confirm local purpose ordering before treating codes as formal ActivitySim alternatives.
+    description: One-day households across the legacy 21 joint-tour-frequency alternatives describing zero, one, or two joint tours and their purpose combination. The fixed purposes are shopping, maintenance, eating out, visiting/social, and other discretionary. Runs spanning multiple diary days per household are unavailable rather than pooled into a weekly choice. Use it to validate joint-tour generation consistently across compatible runs.
     fields:
       jtf_code: integer alternative 1--21.
       jtf_label: readable frequency/purpose-combination label.
@@ -335,17 +335,17 @@ categories:
       household_count: weighted households of that size.
       joint_tour_hh_count: weighted unique households of that size with a joint tour.
   - id: joint_tour_party_size_distribution
-    description: Joint tours by number of household participants, with parties of five or more stored in bin 5. Use it to assess joint-tour occupancy.
+    description: Household joint tours by valid participant count, with parties of five or more stored in bin 5. Verified survey participant-row groups retain every row at a fractional representation weight that sums to one household tour; ordinary model joint-tour rows retain full weight. Sentinel values of 995 or greater, missing values, and nonpositive values are excluded. Use it to assess joint-tour occupancy.
     fields:
       party_size: household participants; value 5 represents `5+`.
       joint_tour_count: weighted joint tours in the party-size bin.
   - id: joint_tour_composition_distribution
-    description: Joint tours by prepared party-composition category. Use it to compare adult-only, child-inclusive, and other modeled compositions.
+    description: Household joint tours by prepared party-composition category. Verified participant-row representations retain every row fractionally so each complete group contributes one household tour. Use it to compare adult-only, child-inclusive, and other modeled compositions.
     fields:
       tour_composition: prepared joint-party composition.
       joint_tour_count: weighted joint tours in the category.
   - id: joint_tour_composition_by_party_size
-    description: Joint tours jointly classified by party composition and exact participant count. Use it to study how household makeup and group size interact.
+    description: Household joint tours jointly classified by party composition and exact valid participant count. Verified participant-row representations retain every row fractionally so each complete group contributes one household tour. Sentinel values of 995 or greater, missing values, and nonpositive values are excluded. Use it to study how household makeup and group size interact.
     fields:
       tour_composition: prepared party-composition category.
       party_size: number of tour participants.
@@ -357,7 +357,7 @@ categories:
       joint_tour_person_count: weighted people with `num_joint_tours > 0`.
       total_person_count: weighted people in households of that size.
   - id: household_jtp_by_household_size_and_jtf
-    description: For households of size two or more, household-weighted percentage distribution across 0, 1, and 2+ joint tours within each household size. Use it to compare joint-tour propensity independent of household-size totals.
+    description: For one-day households of size two or more, household-weighted percentage distribution across 0, 1, and 2+ joint tours within each household size. Multi-day household diaries are unavailable rather than pooled. Use it to compare joint-tour propensity independent of household-size totals across compatible runs.
     fields:
       jtf: joint-tour count category `0`, `1`, or `2+`.
       household_size: household size as a category.
@@ -365,12 +365,12 @@ categories:
 - name: Basic Tour Distributions
   summaries:
   - id: tour_category_distribution
-    description: Tours by ActivitySim category, such as mandatory, nonmandatory, at-work, or joint. Use it for high-level tour-system composition.
+    description: Household-tour-unit counts by ActivitySim category, such as mandatory, nonmandatory, at-work, or joint. Verified participant-row representations of one joint tour are retained fractionally rather than collapsed. Use it for high-level tour-system composition.
     fields:
       tour_category: prepared tour category.
       tour_count: weighted tours in the category.
   - id: tour_purpose_distribution
-    description: Tours by configured summary purpose. Use it to compare the volume and share of work, school, escort, shopping, and other travel.
+    description: Household-tour-unit counts by configured summary purpose. Verified participant-row representations of one joint tour are retained fractionally rather than collapsed. Use it to compare the volume and share of work, school, escort, shopping, and other travel.
     fields:
       tour_purpose: canonical summary tour purpose.
       tour_count: weighted tours for that purpose.
@@ -397,16 +397,16 @@ categories:
 - name: Tour Mode, Stops, Time, and Distance
   summaries:
   - id: tour_mode_by_tour_purpose_and_auto_sufficiency
-    description: Tour-mode counts by purpose and household auto sufficiency, with all-purpose rows. The calculation expands joint tours by household participants, `NUMBER_HH`. Use it to compare mode choice across vehicle-availability markets.
+    description: Person-tour mode counts by purpose and household auto sufficiency, with all-purpose rows. Joint records use the sum of all matching participant person weights when available and valid party-size expansion only as a fallback; sentinel, missing, or nonpositive fallback sizes resolve to one. Use it to compare mode choice across vehicle-availability markets.
     fields:
       tour_mode: prepared tour mode.
       tour_purpose: tour purpose or `all_tour_purposes`.
-      tour_count_zero_auto: weighted tours from zero-auto households.
-      tour_count_auto_deficient: weighted tours from households with fewer autos than workers.
-      tour_count_auto_sufficient: weighted tours from auto-sufficient households.
+      tour_count_zero_auto: weighted person-tours from zero-auto households.
+      tour_count_auto_deficient: weighted person-tours from households with fewer autos than workers.
+      tour_count_auto_sufficient: weighted person-tours from auto-sufficient households.
       tour_count_all_households: sum of the three auto-sufficiency counts.
   - id: tour_stop_frequency_by_tour_purpose
-    description: Tours jointly classified by purpose and outbound, inbound, and total intermediate-stop counts. Use it to measure tour complexity and stop-generation patterns.
+    description: Household-tour-unit counts jointly classified by purpose and outbound, inbound, and total intermediate-stop counts. Verified participant-row joint-tour groups retain every row at fractional weight summing to one tour. Use it to measure tour complexity and stop-generation patterns.
     fields:
       tour_purpose: canonical tour purpose.
       outbound_stop_count: outbound stops capped at 3.
@@ -419,7 +419,7 @@ categories:
       atwork_subtour_frequency_category: prepared at-work subtour-frequency category.
       atwork_subtour_count: weighted parent work tours choosing the category.
   - id: tour_time_of_day_by_tour_purpose
-    description: Dense departure, arrival, and duration profiles by tour purpose plus all-purpose totals. The calculation expands joint tours by household participants, `NUMBER_HH`. Use it to compare scheduling and duration distributions.
+    description: Dense household-tour-unit departure, arrival, and duration profiles by tour purpose plus all-purpose totals. Every eligible row is retained; verified participant-row representations of one joint tour contribute fractionally so their combined weight equals one tour. Use it to compare scheduling and duration distributions.
     fields:
       time_bin: ActivitySim period index.
       tour_purpose: tour purpose or `all_tour_purposes`.
@@ -427,11 +427,11 @@ categories:
       arrival_tour_count: weighted tours ending in the bin.
       duration_tour_count: weighted tours whose prepared duration falls in the bin.
   - id: tour_distance_by_tour_purpose
-    description: Tours by lower-bound skim-distance bin and purpose, plus all-purpose totals. The calculation expands joint tours by household participants, `NUMBER_HH`. Use it for purpose-specific length-frequency distributions.
+    description: Nonmandatory, joint, and at-work household-tour-unit records by lower-bound distance bin and purpose, plus all-purpose totals; mandatory tours are excluded to match the legacy distribution. Distance prefers an explicit `tour_distance` and falls back to `SKIMDIST`; generic `distance_miles` is not automatically assumed to have the same meaning. Every row is retained, with verified participant-row joint-tour groups contributing fractional weight that sums to one tour.
     fields:
       distance_bin: exact `0`, positive sub-mile `>0-<1`, whole-mile lower bound, or `40+`.
       tour_purpose: purpose or `all_tour_purposes`.
-      tour_count: sum of participant-adjusted tour weight in the bin.
+      tour_count: sum of eligible household-tour representation weight in the bin.
 - name: Tour Geography
   summaries:
   - id: average_mandatory_tour_distance_by_purpose_and_geography
@@ -443,12 +443,12 @@ categories:
       average_tour_distance: mean person-level mandatory distance weighted by `per.finalweight`.
       person_count: sum of `per.finalweight` for people contributing to the mean.
   - id: average_nonmandatory_tour_distance_by_purpose_and_geography
-    description: Weighted average skim distance for individual nonmandatory tours by purpose and traveler home geography, plus regional rows. Use it to compare discretionary travel reach.
+    description: Weighted average direct-first distance for individual nonmandatory tours by purpose and traveler home geography, plus regional rows. A supplied tour distance is preferred and `SKIMDIST` is the fallback. Use it to compare discretionary travel reach.
     fields:
       nonmandatory_tour_purpose: nonmandatory purpose.
       geography_type: home-geography system or rollup.
       geography_id: home-geography identifier or rollup.
-      average_tour_distance: mean tour skim distance weighted by `tours.finalweight`.
+      average_tour_distance: mean direct-first tour distance weighted by `tours.finalweight`.
       tour_count: sum of `tours.finalweight` for tours contributing to the mean.
   - id: internal_external_nonmandatory_tour_frequency_by_home_geography
     description: Internal and external nonmandatory tours by traveler home geography, plus regional totals. Use it to calculate external-tour shares and locate households producing external discretionary travel.
@@ -466,24 +466,24 @@ categories:
 - name: Trip Purpose, Mode, and Parking
   summaries:
   - id: trip_purpose_distribution
-    description: Trip destination purpose cross-classified by parent tour purpose, with all-tour-purpose rows. Use it to analyze activity chains within different kinds of tours.
+    description: Person-trip destination purpose cross-classified by parent tour purpose, with all-tour-purpose rows. Joint records use the sum of all matching participant person weights when available and valid party-size expansion only as a fallback. Use it to analyze activity chains within different kinds of tours.
     fields:
       tour_purpose: parent tour purpose or `all_tour_purposes`.
       trip_purpose: destination purpose of the trip leg.
-      trip_count: weighted trips in the combination.
+      trip_count: weighted person-trips in the combination.
   - id: stop_destination_purpose_by_tour_purpose
-    description: Intermediate-stop destination purposes by parent tour purpose. Use it to understand what activities are chained into tours.
+    description: Person-stop destination purposes by parent tour purpose. Joint records use the sum of all matching participant person weights when available and valid party-size expansion only as a fallback. Use it to understand what activities are chained into tours.
     fields:
       stop_destination_purpose: destination purpose of trip records flagged as stops.
       tour_purpose: parent tour purpose.
-      stop_count: weighted intermediate stops in the combination.
+      stop_count: weighted person-stops in the combination.
   - id: trip_mode_by_tour_purpose_and_tour_mode
-    description: Trip-mode counts by parent tour purpose and main tour mode, including all-purpose, all-tour-mode, and grand rollups. Use it to examine access/egress and mode combinations within tours.
+    description: Person-trip mode counts by parent tour purpose and main tour mode, including all-purpose, all-tour-mode, and grand rollups. Joint records use the sum of all matching participant person weights when available; valid party-size expansion is the fallback, and sentinel, missing, or nonpositive party sizes fall back to one. Use it to examine access/egress and mode combinations within tours.
     fields:
       tour_purpose: parent purpose or `all_tour_purposes`.
       tour_mode: main tour mode or `all_tour_modes`.
       trip_mode: mode of the individual trip leg.
-      trip_count: weighted trips in the combination.
+      trip_count: weighted person-trips in the combination.
   - id: parking_locations
     description: Auto-trip parking events by configured parking geography. Use it to map modeled parking demand and compare locations across runs.
     fields:
@@ -493,24 +493,24 @@ categories:
 - name: Trip Time and Distance
   summaries:
   - id: trip_departure_time_by_purpose
-    description: Dense departure-period profiles for all trips and for intermediate stops, by parent tour purpose and for all purposes. Use it to compare trip timing with stop timing.
+    description: Dense person-trip and person-stop departure-period profiles by parent tour purpose and for all purposes. Joint records use all matching participant person weights when available and valid party-size expansion only as a fallback. Use it to compare trip timing with stop timing.
     fields:
       tour_purpose: parent purpose or `all_tour_purposes`.
       time_bin: prepared trip departure period index.
-      departure_trip_count: weighted trips departing in the bin.
-      departure_stop_count: weighted departing trip records flagged as intermediate stops.
+      departure_trip_count: weighted person-trips departing in the bin.
+      departure_stop_count: weighted departing person-stops.
   - id: trip_distance_by_purpose
-    description: Trips by lower-bound OD-distance bin and parent tour purpose, plus all-purpose totals. The calculation multiplies `trips.finalweight` by `num_participants` (defaulting a null participant count to `1.0`), so joint travel is person-trip-like. Use it for purpose-specific trip length distributions.
+    description: Person-trips by lower-bound OD-distance bin and parent tour purpose, plus all-purpose totals. Joint records use the sum of all matching participant person weights when available; valid party-size expansion is the fallback, non-joint trips contribute once, and sentinel, missing, or nonpositive fallback sizes resolve to one. Use it for purpose-specific trip length distributions.
     fields:
       distance_bin: exact `0`, positive sub-mile `>0-<1`, whole-mile lower bound, or `40+`.
       tour_purpose: parent purpose or `all_tour_purposes`.
       trip_count: sum of participant-adjusted trip weight in the bin.
   - id: stop_out_of_direction_distance_by_tour_purpose
-    description: Intermediate stops by lower-bound out-of-direction-distance bin, with a dense distribution for each purpose and all purposes. Use it to quantify detour burden from stop-making.
+    description: Person-stops by lower-bound out-of-direction-distance bin, with a dense distribution for each purpose and all purposes. Joint records use all matching participant person weights when available and valid party-size expansion only as a fallback. Use it to quantify detour burden from stop-making.
     fields:
       distance_bin: exact `0`, positive sub-mile `>0-<1`, whole-mile lower bound, or `40+`.
       tour_purpose: parent purpose or `all_tour_purposes`.
-      stop_count: weighted intermediate stops in the bin.
+      stop_count: weighted person-stops in the bin.
 - name: Skimjoin Diagnostics
   summaries:
   - id: skimjoin_trip_component_stats
@@ -598,11 +598,11 @@ categories:
       access_mode: mode used to access transit.
       transfer_rate: assigned boardings divided by linked trips; null for a zero linked-trip denominator.
   - id: auto_vmt_totals
-    description: One run-level personal-auto VMT total. Each eligible auto trip contributes `od_dist * trips.finalweight / num_participants`; occupancy defaults to `1` when unavailable. Use it for overview controls and scenario comparison.
+    description: One run-level personal-auto VMT total using the same eligible records, distance source, and legacy-compatible occupancy calculation as the detailed personal-auto VMT summary. Every eligible row is retained. Household-level joint rows use one vehicle, while repeated person-level joint rows use their fixed auto-mode occupancy. A prepared auto skim is preferred; otherwise eligible non-drive-transit trips use `od_dist`. Use it for overview controls and scenario comparison.
     fields:
       auto_vmt: total weighted personal-auto vehicle miles traveled.
   - id: auto_vmt_by_home_geography_income_hhsize_time_period
-    description: Personal-auto VMT and trip counts by home geography, income, household size, time period, and auto mode, with daily rows derived from detailed periods. Use it for equity, temporal, modal, and spatial VMT analysis.
+    description: Personal-auto VMT and trip counts by home geography, income, household size, time period, and auto mode. When component periods exist, Daily rows are derived only from those non-Daily rows and replace any stale source Daily row; Daily-only groups are retained. Use it for equity, temporal, modal, and spatial VMT analysis.
     fields:
       geography_type: home-geography system or `all_geographies`.
       geography_id: home-geography identifier or rollup.
@@ -610,7 +610,7 @@ categories:
       household_size: prepared household size or fallback rollup.
       time_period: configured period or `Daily`.
       mode: trip mode or `All Auto` fallback.
-      auto_vmt: sum of distance times `trips.finalweight`, divided by occupancy.
+      auto_vmt: sum of distance times `trips.finalweight`, divided by legacy-compatible vehicle occupancy.
       trip_count: sum of `trips.finalweight` for eligible auto trips.
       distance_source: provenance of the distance used, such as a skim or OD-distance field.
       time_period_source: provenance of the time-period assignment.

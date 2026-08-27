@@ -137,6 +137,8 @@ def _compute_day_weights(
     day: pl.DataFrame,
     per: pl.DataFrame,
     hh: pl.DataFrame,
+    *,
+    day_weight_col: str | None,
 ) -> pl.DataFrame:
     result = day
     if _has_columns(day, "person_id") and _has_columns(per, "person_id", "finalweight"):
@@ -153,11 +155,11 @@ def _compute_day_weights(
             how="left",
         )
 
-    if "day_weight" in day.columns:
+    if day_weight_col and day_weight_col in day.columns:
         result = result.with_columns(
             pl.coalesce(
                 [
-                    pl.col("day_weight").cast(pl.Float64),
+                    pl.col(day_weight_col).cast(pl.Float64),
                     pl.col("_pw") if "_pw" in result.columns else pl.lit(None),
                     pl.col("_hw") if "_hw" in result.columns else pl.lit(None),
                     pl.lit(1.0),
@@ -265,6 +267,7 @@ def compute_weights(
     hh_weight_col: Optional[str] = None,
     person_weight_col: Optional[str] = None,
     trip_weight_col: Optional[str] = None,
+    day_weight_col: Optional[str] = "day_weight",
 ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame]:
     """Compute and attach ``finalweight`` to prepared tables."""
     explicit_weight_supplied = any([hh_weight_col, person_weight_col, trip_weight_col])
@@ -285,7 +288,12 @@ def compute_weights(
         hh,
         trip_weight_col=trip_weight_col,
     )
-    day = _compute_day_weights(day, per, hh)
+    day = _compute_day_weights(
+        day,
+        per,
+        hh,
+        day_weight_col=day_weight_col,
+    )
     tours = _compute_tour_weights(
         tours,
         trips,
@@ -309,6 +317,7 @@ def _apply_weights(state: _PrepareState, config: Config) -> _PrepareState:
         hh_weight_col=state.hh_weight_col,
         person_weight_col=state.person_weight_col,
         trip_weight_col=state.trip_weight_col,
+        day_weight_col=state.day_weight_col,
     )
     LOGGER.info("[prepare_data] Weights ready for '%s'", state.label)
     return state

@@ -17,6 +17,29 @@ ALL_HOUSEHOLD_SIZES = "all_household_sizes"
 ALL_AUTO_MODES = "All Auto"
 DAILY_TIME_PERIOD = "Daily"
 NON_MOTORIZED_MODES = {"WALK", "BIKE", "EBIKE"}
+AUTO_OCCUPANCY_ONE_MODES = {
+    "AUTO SOV",
+    "DRIVEALONE",
+    "DRIVE_ALONE",
+    "PNR_TRANSIT",
+    "SOV",
+    "TAXI",
+    "TNC_SINGLE",
+}
+AUTO_OCCUPANCY_TWO_MODES = {
+    "AUTO 2 PERSON",
+    "HOV2",
+    "KNR_TRANSIT",
+    "SHARED2",
+    "SHARED_2",
+}
+AUTO_OCCUPANCY_THREE_PLUS_MODES = {
+    "AUTO 3+ PERSON",
+    "HOV3",
+    "SHARED3",
+    "SHARED_3",
+}
+INVALID_PARTICIPANT_CODE = 995.0
 
 
 # TODO: Update with actual fields from Visum outputs/traffic count inputs
@@ -414,44 +437,16 @@ def transit_transfer_rate(rd: RunData, config: Config) -> pl.DataFrame:
     schema={
         "auto_vmt": pl.Float64,
     },
-    required_columns={"trips": ("trip_mode", "od_dist", "finalweight")},
+    required_columns={"trips": ("trip_mode", "finalweight")},
 )
 def auto_vmt_totals(rd: RunData, config: Config) -> pl.DataFrame:
     """Returns single-row DataFrame with column: auto_vmt."""
-    trips_df = rd.trips
-
-    if (
-        "trip_mode" not in trips_df.columns
-        or "od_dist" not in trips_df.columns
-        or "finalweight" not in trips_df.columns
-    ):
-        return pl.DataFrame([{"auto_vmt": 0.0}], schema={"auto_vmt": pl.Float64})
-
-    auto_modes: list[str] | None = None
-    if config is not None and config.mode_groups and "Auto" in config.mode_groups:
-        auto_modes = config.mode_groups["Auto"]
-
-    if auto_modes is not None:
-        auto_filter = pl.col("trip_mode").cast(pl.Utf8).is_in(auto_modes)
-    else:
-        auto_filter = (
-            pl.col("trip_mode")
-            .cast(pl.Utf8)
-            .str.to_uppercase()
-            .str.contains("DRIVE|SHARED|SOV|HOV|AUTO")
-        )
-
-    auto_trips = trips_df.filter(auto_filter)
-
-    occupancy_expr = (
-        pl.col("num_participants").fill_null(1).clip(lower_bound=1)
-        if "num_participants" in auto_trips.columns
-        else pl.lit(1)
+    distance_selection = _auto_vmt_base(rd, config)
+    auto_vmt = (
+        distance_selection[0]["auto_vmt"].sum()
+        if distance_selection is not None
+        else 0.0
     )
-
-    auto_vmt = auto_trips.with_columns(
-        (pl.col("od_dist") * pl.col("finalweight") / occupancy_expr).alias("auto_vmt_w")
-    )["auto_vmt_w"].sum()
 
     return pl.DataFrame(
         [{"auto_vmt": float(auto_vmt) if auto_vmt else 0.0}],
@@ -459,60 +454,137 @@ def auto_vmt_totals(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
 
-def _auto_mode_filter(config: Config | None) -> pl.Expr:
+def _auto_mode_filter(
+    config: Config | None,
+    *,
+    include_drive_transit: bool,
+) -> pl.Expr:
     auto_modes: list[str] | None = None
     if config is not None and config.mode_groups and "Auto" in config.mode_groups:
         auto_modes = config.mode_groups["Auto"]
 
+    mode = pl.col("trip_mode").cast(pl.Utf8).str.to_uppercase()
     if auto_modes is not None:
-        return pl.col("trip_mode").cast(pl.Utf8).is_in(auto_modes)
-    return (
-        pl.col("trip_mode")
+        configured_modes = [str(value).upper() for value in auto_modes]
+        eligible = mode.is_in(configured_modes)
+    else:
+        eligible = mode.str.contains("DRIVE|SHARED|SOV|HOV|AUTO|TAXI|TNC")
+
+    if include_drive_transit:
+        eligible = eligible | mode.str.contains("PNR|KNR")
+    else:
+        eligible = eligible & ~mode.str.contains("PNR|KNR")
+    return eligible
+
+
+def _auto_occupancy_expr(columns: list[str]) -> pl.Expr:
+    mode = pl.col("trip_mode").cast(pl.Utf8).str.to_uppercase()
+    if "num_participants" in columns:
+        participants = pl.col("num_participants").cast(pl.Float64, strict=False)
+        fallback_occupancy = (
+            pl.when(
+                participants.is_not_null()
+                & participants.is_finite()
+                & (participants > 0)
+                & (participants < INVALID_PARTICIPANT_CODE)
+            )
+            .then(participants)
+            .otherwise(1.0)
+        )
+    else:
+        fallback_occupancy = pl.lit(1.0)
+
+    joint_record = (
+        pl.col("tour_category")
         .cast(pl.Utf8)
-        .str.to_uppercase()
-        .str.contains("DRIVE|SHARED|SOV|HOV|AUTO|TAXI|TNC")
+        .str.to_lowercase()
+        .eq("joint")
+        .fill_null(False)
+        if "tour_category" in columns
+        else pl.lit(False)
+    )
+    person_level_joint = (
+        joint_record
+        & pl.col("joint_trip_id").is_not_null()
+        & (pl.len().over(["tour_category", "joint_trip_id"]) > 1)
+        if "joint_trip_id" in columns and "tour_category" in columns
+        else pl.lit(False)
+    )
+    household_joint = joint_record & ~person_level_joint
+    chauffeur_escort_event = (
+        pl.col("escort_event_role").is_not_null()
+        if "escort_event_role" in columns
+        else pl.lit(False)
+    )
+
+    return (
+        pl.when(household_joint | chauffeur_escort_event)
+        .then(1.0)
+        .when(mode.is_in(sorted(AUTO_OCCUPANCY_ONE_MODES)))
+        .then(1.0)
+        .when(mode.is_in(sorted(AUTO_OCCUPANCY_TWO_MODES)))
+        .then(2.0)
+        .when(mode.is_in(sorted(AUTO_OCCUPANCY_THREE_PLUS_MODES)))
+        .then(3.33)
+        .otherwise(fallback_occupancy)
     )
 
 
-def _distance_base(
+def _auto_vmt_base(
     rd: RunData,
     config: Config | None,
 ) -> tuple[pl.DataFrame, str] | None:
     trips = rd.trips
-    if "finalweight" not in trips.columns:
+    if "finalweight" not in trips.columns or "trip_mode" not in trips.columns:
         return None
 
     if (
         "skim_auto_distance" in trips.columns
-        and trips["skim_auto_distance"].is_not_null().any()
+        and trips.filter(
+            _auto_mode_filter(config, include_drive_transit=True)
+            & pl.col("skim_auto_distance").is_not_null()
+        ).height
+        > 0
     ):
         LOGGER.info(
-            "[vmt_by_segment] Run %r using distance_source=skim_auto_distance",
+            "[auto_vmt] Run %r using distance_source=skim_auto_distance",
             rd.label,
         )
-        return (
-            trips.filter(pl.col("skim_auto_distance").is_not_null()).with_columns(
-                pl.col("skim_auto_distance").cast(pl.Float64).alias("_vmt_distance")
-            ),
-            "skim_auto_distance",
+        base = trips.filter(
+            _auto_mode_filter(config, include_drive_transit=True)
+            & pl.col("skim_auto_distance").is_not_null()
+        ).with_columns(
+            pl.col("skim_auto_distance").cast(pl.Float64).alias("_vmt_distance")
         )
-
-    if "od_dist" not in trips.columns or "trip_mode" not in trips.columns:
+        distance_source = "skim_auto_distance"
+    elif "od_dist" in trips.columns:
+        LOGGER.info(
+            "[auto_vmt] Run %r using distance_source=od_dist",
+            rd.label,
+        )
+        base = trips.filter(
+            _auto_mode_filter(config, include_drive_transit=False)
+            & pl.col("od_dist").is_not_null()
+        ).with_columns(pl.col("od_dist").cast(pl.Float64).alias("_vmt_distance"))
+        distance_source = "od_dist"
+    else:
         LOGGER.warning(
-            "[vmt_by_segment] Run %r has no usable auto distance source.",
+            "[auto_vmt] Run %r has no usable auto distance source.",
             rd.label,
         )
         return None
 
-    LOGGER.info(
-        "[vmt_by_segment] Run %r using distance_source=od_dist",
-        rd.label,
-    )
     return (
-        trips.filter(
-            _auto_mode_filter(config) & pl.col("od_dist").is_not_null()
-        ).with_columns(pl.col("od_dist").cast(pl.Float64).alias("_vmt_distance")),
-        "od_dist",
+        base.with_columns(_auto_occupancy_expr(base.columns).alias("_occupancy"))
+        .with_columns(
+            (
+                pl.col("_vmt_distance")
+                * pl.col("finalweight").cast(pl.Float64)
+                / pl.col("_occupancy")
+            ).alias("auto_vmt")
+        )
+        .filter(pl.col("auto_vmt").is_not_null()),
+        distance_source,
     )
 
 
@@ -636,8 +708,7 @@ def _with_derived_daily_vmt_rows(
         groups_with_period_rows, on=group_cols, how="anti"
     )
     derived_daily_rows = (
-        df.join(groups_with_period_rows, on=group_cols, how="inner")
-        .group_by(group_cols)
+        non_daily.group_by(group_cols)
         .agg(
             pl.col(value_col).sum().alias(value_col),
             pl.col("trip_count").sum().alias("trip_count"),
@@ -666,13 +737,13 @@ def _with_derived_daily_vmt_rows(
         "distance_source": pl.Utf8,
         "time_period_source": pl.Utf8,
     },
-    required_columns={"trips": ("finalweight",)},
+    required_columns={"trips": ("trip_mode", "finalweight")},
 )
 def auto_vmt_by_home_geography_income_hhsize_time_period(
     rd: RunData,
     config: Config,
 ) -> pl.DataFrame:
-    distance_selection = _distance_base(rd, config)
+    distance_selection = _auto_vmt_base(rd, config)
     if distance_selection is None:
         return auto_vmt_by_home_geography_income_hhsize_time_period.empty()
 
@@ -719,12 +790,6 @@ def auto_vmt_by_home_geography_income_hhsize_time_period(
         if "hhsize" in base.columns
         else pl.lit(ALL_HOUSEHOLD_SIZES)
     )
-    occupancy_expr = (
-        pl.col("num_participants").fill_null(1).clip(lower_bound=1)
-        if "num_participants" in base.columns
-        else pl.lit(1)
-    )
-
     base = (
         base.with_columns(*income_exprs)
         .with_columns(
@@ -740,13 +805,7 @@ def auto_vmt_by_home_geography_income_hhsize_time_period(
                 if "trip_mode" in base.columns
                 else pl.lit(ALL_AUTO_MODES)
             ).alias("mode"),
-            (
-                pl.col("_vmt_distance")
-                * pl.col("finalweight").cast(pl.Float64)
-                / occupancy_expr
-            ).alias("auto_vmt"),
         )
-        .filter(pl.col("auto_vmt").is_not_null())
     )
 
     geography_dimensions: list[tuple[str, str | None]] = [

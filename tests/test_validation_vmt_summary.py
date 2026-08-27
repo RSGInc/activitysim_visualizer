@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 
 import polars as pl
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -288,6 +289,174 @@ def test_auto_vmt_segment_summary_uses_daily_and_dimension_fallbacks() -> None:
             "time_period_source": "daily",
         }
     ]
+
+
+def test_derived_daily_vmt_uses_period_rows_and_preserves_daily_only_groups() -> None:
+    period_rows = pl.DataFrame(
+        {
+            "geography_type": ["home_taz"] * 4,
+            "geography_id": ["101"] * 4,
+            "income_segment": ["2"] * 4,
+            "household_size": ["3"] * 4,
+            "time_period": ["AM", "PM", "Daily", "Daily"],
+            "mode": ["SOV", "SOV", "SOV", "HOV2"],
+            "auto_vmt": [10.0, 20.0, 999.0, 7.0],
+            "trip_count": [1.0, 2.0, 99.0, 4.0],
+            "distance_source": ["od_dist"] * 4,
+            "time_period_source": ["trip_period"] * 4,
+        }
+    )
+
+    result = validation._with_derived_daily_vmt_rows(period_rows).sort(
+        ["mode", "time_period"]
+    )
+
+    assert result.select(
+        "mode", "time_period", "auto_vmt", "trip_count"
+    ).to_dicts() == [
+        {
+            "mode": "HOV2",
+            "time_period": "Daily",
+            "auto_vmt": 7.0,
+            "trip_count": 4.0,
+        },
+        {"mode": "SOV", "time_period": "AM", "auto_vmt": 10.0, "trip_count": 1.0},
+        {
+            "mode": "SOV",
+            "time_period": "Daily",
+            "auto_vmt": 30.0,
+            "trip_count": 3.0,
+        },
+        {"mode": "SOV", "time_period": "PM", "auto_vmt": 20.0, "trip_count": 2.0},
+    ]
+
+
+def test_auto_vmt_summaries_share_legacy_occupancy_and_daily_total() -> None:
+    rd = _run_data(
+        trips=pl.DataFrame(
+            {
+                "trip_mode": [
+                    "SOV",
+                    "HOV2",
+                    "HOV3",
+                    "KNR_TRANSIT",
+                    "PNR_TRANSIT",
+                    "HOV3",
+                    "HOV2",
+                    "TNC_SHARED",
+                    "AUTO_PASSENGER",
+                    "WALK",
+                ],
+                "skim_auto_distance": [
+                    10.0,
+                    12.0,
+                    9.99,
+                    8.0,
+                    5.0,
+                    7.0,
+                    6.0,
+                    6.0,
+                    4.0,
+                    None,
+                ],
+                "od_dist": [99.0] * 10,
+                "trip_period": ["AM"] * 5 + ["PM"] * 5,
+                "tour_category": [
+                    "mandatory",
+                    "mandatory",
+                    "mandatory",
+                    "mandatory",
+                    "mandatory",
+                    "joint",
+                    "mandatory",
+                    "non_mandatory",
+                    "non_mandatory",
+                    "non_mandatory",
+                ],
+                "escort_event_role": [
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    "dropoff",
+                    None,
+                    None,
+                    None,
+                ],
+                "num_participants": [995.0] * 8 + [0.0, 1.0],
+                "finalweight": [1.0] * 10,
+            }
+        )
+    )
+
+    total = validation.auto_vmt_totals(rd, None)["auto_vmt"][0]
+    detailed = validation.auto_vmt_by_home_geography_income_hhsize_time_period(
+        rd, None
+    )
+    detailed_daily_total = (
+        detailed.filter(
+            (pl.col("geography_type") == "all_geographies")
+            & (pl.col("time_period") == "Daily")
+        )["auto_vmt"].sum()
+    )
+
+    assert total == pytest.approx(51.0)
+    assert detailed_daily_total == pytest.approx(total)
+
+
+def test_auto_vmt_invalid_participant_codes_fall_back_to_one() -> None:
+    rd = _run_data(
+        trips=pl.DataFrame(
+            {
+                "trip_mode": ["AUTO_PASSENGER"] * 5,
+                "od_dist": [5.0] * 5,
+                "num_participants": [995.0, None, 0.0, -2.0, 4.0],
+                "finalweight": [1.0] * 5,
+            }
+        )
+    )
+
+    result = validation.auto_vmt_totals(rd, None)
+
+    assert result["auto_vmt"][0] == pytest.approx(21.25)
+
+
+def test_auto_vmt_od_distance_does_not_count_full_drive_transit_trip() -> None:
+    rd = _run_data(
+        trips=pl.DataFrame(
+            {
+                "trip_mode": ["SOV", "KNR_TRANSIT", "PNR_TRANSIT"],
+                "od_dist": [10.0, 50.0, 60.0],
+                "num_participants": [1.0, 2.0, 1.0],
+                "finalweight": [1.0, 1.0, 1.0],
+            }
+        )
+    )
+
+    result = validation.auto_vmt_totals(rd, None)
+
+    assert result["auto_vmt"][0] == pytest.approx(10.0)
+
+
+def test_auto_vmt_preserves_person_level_joint_rows_and_applies_mode_occupancy() -> None:
+    rd = _run_data(
+        trips=pl.DataFrame(
+            {
+                "trip_mode": ["HOV2", "HOV2", "HOV3", "HOV3", "HOV3"],
+                "tour_category": ["joint"] * 5,
+                "joint_trip_id": [10, 10, 20, 20, 20],
+                "od_dist": [10.0, 10.0, 9.99, 9.99, 9.99],
+                "num_participants": [1.0] * 5,
+                "finalweight": [1.0] * 5,
+            }
+        )
+    )
+
+    result = validation.auto_vmt_totals(rd, None)
+
+    assert result["auto_vmt"][0] == pytest.approx(19.0)
 
 
 def test_non_motorized_vmt_summary_prefers_skimjoin_distances() -> None:

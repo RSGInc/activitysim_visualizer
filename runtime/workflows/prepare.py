@@ -243,6 +243,7 @@ def _build_prepared_run(
         hh_weight_col=entry.get("hh_weight_col") or None,
         person_weight_col=entry.get("person_weight_col") or None,
         trip_weight_col=entry.get("trip_weight_col") or None,
+        day_weight_col=entry.get("day_weight_col", "day_weight"),
     )
     prepared_run = prepare_data(prepared_run, run_config)
     if run_skimjoin:

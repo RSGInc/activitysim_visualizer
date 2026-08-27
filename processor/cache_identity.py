@@ -41,6 +41,7 @@ def build_run_fingerprint(
     hh_weight_col: str | None,
     person_weight_col: str | None,
     trip_weight_col: str | None,
+    day_weight_col: str | None = "day_weight",
 ) -> dict[str, object]:
     """Return the run inputs that determine whether cache data is reusable."""
     return {
@@ -58,6 +59,7 @@ def build_run_fingerprint(
         "hh_weight_col": hh_weight_col,
         "person_weight_col": person_weight_col,
         "trip_weight_col": trip_weight_col,
+        "day_weight_col": day_weight_col,
     }
 
 

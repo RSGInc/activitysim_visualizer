@@ -32,8 +32,8 @@ from processor.prepare.availability import (
 from processor.prepare.writer import write_all
 from runtime.config import Config
 
-SCHEMA_VERSION = 9
-SUPPORTED_SCHEMA_VERSIONS = {2, 3, 4, 5, 6, 7, 8, 9}
+SCHEMA_VERSION = 11
+SUPPORTED_SCHEMA_VERSIONS = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
 SUPPORTED_FILE_FORMATS = ("parquet", "csv")
 PREPARED_TABLE_ATTRS: tuple[tuple[str, str, str], ...] = (
     ("hh", "households", "households"),
@@ -336,6 +336,7 @@ def write_prepared_run_cache(
         "hh_weight_col": rd.hh_weight_col,
         "person_weight_col": rd.person_weight_col,
         "trip_weight_col": rd.trip_weight_col,
+        "day_weight_col": rd.day_weight_col,
         "run_fingerprint": run_fingerprint or {},
         "identity": {
             "raw_inputs": dict((run_fingerprint or {}).get("raw_file_identities", {})),
@@ -517,6 +518,7 @@ def load_prepared_run_cache(
             hh_weight_col=manifest.get("hh_weight_col"),
             person_weight_col=manifest.get("person_weight_col"),
             trip_weight_col=manifest.get("trip_weight_col"),
+            day_weight_col=manifest.get("day_weight_col", "day_weight"),
             prepare_diagnostics=dict(manifest.get("prepare_diagnostics", {})),
             skimjoin_manifest={
                 "skimjoin_enabled": bool(manifest.get("skimjoin_enabled", False)),

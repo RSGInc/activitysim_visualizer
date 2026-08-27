@@ -33,6 +33,7 @@ class _PrepareState:
     hh_weight_col: str | None
     person_weight_col: str | None
     trip_weight_col: str | None
+    day_weight_col: str | None
     table_states: dict[str, str]
     table_reasons: dict[str, str]
     prepare_diagnostics: dict[str, object]
@@ -57,6 +58,7 @@ class _PrepareState:
             hh_weight_col=run.hh_weight_col,
             person_weight_col=run.person_weight_col,
             trip_weight_col=run.trip_weight_col,
+            day_weight_col=run.day_weight_col,
             table_states=table_availability(run),
             table_reasons=table_unavailable_reasons(run),
             prepare_diagnostics=dict(run.prepare_diagnostics),
@@ -82,6 +84,7 @@ class _PrepareState:
                 hh_weight_col=self.hh_weight_col,
                 person_weight_col=self.person_weight_col,
                 trip_weight_col=self.trip_weight_col,
+                day_weight_col=self.day_weight_col,
                 prepare_diagnostics=dict(self.prepare_diagnostics),
             ),
             table_states=self.table_states,

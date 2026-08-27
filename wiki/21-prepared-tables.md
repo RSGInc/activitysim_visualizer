@@ -78,12 +78,25 @@ frequently use these fields:
 - purpose and mode fields: `tour_purpose`, `trip_purpose`, `tour_mode`, `trip_mode`
 - time fields: `start_hour`, `end_hour`, `depart_hour`
 - stop fields: `num_ob_stops`, `num_ib_stops`, `num_tot_stops`, `stops`
-- distance/geography fields: `SKIMDIST`, `OTAZ`, `DTAZ`, `HGEO`, `WGEO`
+- distance/geography fields: `tour_distance`, `SKIMDIST`, `OTAZ`, `DTAZ`, `HGEO`, `WGEO`
 - household/person aliases: `HHVEH`, `HHSIZE`, `AUTOSUFF`, `NUMBER_HH`
 - aggregation weight: `finalweight`
 
 Use the prepared field when it exists. Do not search for raw names in a summary
 or page.
+
+For tours, `tour_distance` preserves a supplied `tour_distance` value and fills
+only its missing values from `SKIMDIST`.
+`SKIMDIST` remains the configured network-skim distance used by summaries that
+specifically require skim-based travel. Generic `distance_miles` is not
+automatically treated as a primary-destination tour distance because it may
+describe the full traveled tour. The Raw Statewide Survey normalizer is an
+explicit exception: it prepares that survey's reported linked-tour
+`distance_miles` as `SKIMDIST` because no scenario skim join is available.
+Existing tour-distance comparison summaries use `SKIMDIST` explicitly rather
+than switching metrics when `tour_distance` happens to be present. Prepared
+caches created before schema version 11 must be refreshed for the current
+weight, endpoint, duration, and joint-composition preparation rules.
 
 This introductory list does not imply that every table has every field. For a
 specific summary, the generated catalog in chapter 26 lists the required

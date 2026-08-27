@@ -40,7 +40,7 @@ not a hard-coded version number. A shortened example is:
 
 ```json
 {
-  "schema_version": 9,
+  "schema_version": 11,
   "source": "activitysim-visualizer-prepared-cache",
   "label": "Base",
   "run_key": "base",

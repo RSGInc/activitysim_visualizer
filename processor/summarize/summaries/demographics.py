@@ -4,6 +4,9 @@ import polars as pl
 from runtime.config import Config
 from processor.models import RunData
 from processor.summarize.contracts import summary
+from processor.summarize.summaries.summary_helpers import (
+    attach_person_travel_weight,
+)
 
 
 @summary(
@@ -77,16 +80,34 @@ def person_type(rd: RunData, config: Config) -> pl.DataFrame:
     },
 )
 def population_totals(rd: RunData, config: Config | None = None) -> pl.DataFrame:
+    tour_count = attach_person_travel_weight(
+        rd,
+        rd.tours,
+        participant_col="NUMBER_HH",
+        output_col="person_tour_weight",
+    )["person_tour_weight"].sum()
+    trip_count = attach_person_travel_weight(
+        rd,
+        rd.trips,
+        participant_col="num_participants",
+        output_col="person_trip_weight",
+    )["person_trip_weight"].sum()
+    stops = rd.trips.filter(pl.col("stops") == 1)
+    stop_count = attach_person_travel_weight(
+        rd,
+        stops,
+        participant_col="num_participants",
+        output_col="person_stop_weight",
+    )["person_stop_weight"].sum()
+
     return pl.DataFrame(
         [
             {
                 "person_count": float(rd.per["finalweight"].sum()),
                 "household_count": float(rd.hh["finalweight"].sum()),
-                "tour_count": float(rd.tours["finalweight"].sum()),
-                "trip_count": float(rd.trips["finalweight"].sum()),
-                "stop_count": float(
-                    rd.trips.filter(pl.col("stops") == 1)["finalweight"].sum()
-                ),
+                "tour_count": float(tour_count),
+                "trip_count": float(trip_count),
+                "stop_count": float(stop_count),
             }
         ]
     )

@@ -25,10 +25,174 @@ from runtime.config import Config
 LOGGER = get_logger("processor.prepare")
 
 
+def _identifier_expr(column: str) -> pl.Expr:
+    return (
+        pl.col(column)
+        .cast(pl.Float64, strict=False)
+        .cast(pl.Int64, strict=False)
+        .cast(pl.Utf8)
+    )
+
+
+def _canonical_tour_origins(tours: pl.DataFrame, hh: pl.DataFrame) -> pl.DataFrame:
+    if tours.is_empty() or "origin" not in tours.columns:
+        return tours
+
+    result = tours
+    if {"household_id", "home_zone_id"}.issubset(hh.columns) and "household_id" in result.columns:
+        result = result.join(
+            hh.select(
+                "household_id",
+                pl.col("home_zone_id").alias("_home_tour_origin"),
+            ).unique("household_id"),
+            on="household_id",
+            how="left",
+        )
+    else:
+        result = result.with_columns(pl.lit(None).alias("_home_tour_origin"))
+
+    parent_origin_columns: list[str] = []
+    for parent_id, tour_id in (
+        ("parent_tour_id", "tour_id"),
+        ("survey_parent_tour_id", "survey_tour_id"),
+    ):
+        if not {parent_id, tour_id, "destination"}.issubset(tours.columns):
+            continue
+        key_col = f"_parent_key_{len(parent_origin_columns)}"
+        origin_col = f"_parent_tour_origin_{len(parent_origin_columns)}"
+        parent_destinations = (
+            tours.filter(pl.col(tour_id).is_not_null())
+            .select(
+                _identifier_expr(tour_id).alias(key_col),
+                pl.col("destination").alias(origin_col),
+            )
+            .filter(pl.col(key_col).is_not_null())
+            .unique(key_col)
+        )
+        result = (
+            result.with_columns(_identifier_expr(parent_id).alias(key_col))
+            .join(parent_destinations, on=key_col, how="left")
+            .drop(key_col)
+        )
+        parent_origin_columns.append(origin_col)
+
+    category = (
+        pl.col("tour_category").cast(pl.Utf8).str.strip_chars().str.to_lowercase()
+        if "tour_category" in result.columns
+        else pl.lit("")
+    )
+    parent_origins = [pl.col(column) for column in parent_origin_columns]
+    parent_origins.append(pl.col("origin"))
+    result = result.with_columns(
+        pl.when(category.is_in(["atwork", "at_work"]))
+        .then(pl.coalesce(parent_origins))
+        .otherwise(pl.coalesce("_home_tour_origin", "origin"))
+        .alias("origin")
+    )
+    return result.drop(["_home_tour_origin", *parent_origin_columns])
+
+
+def _derive_joint_composition(
+    tours: pl.DataFrame,
+    joint_participants: pl.DataFrame,
+    persons: pl.DataFrame,
+) -> pl.DataFrame:
+    person_type_col = next(
+        (
+            column
+            for column in ("person_type", "ptype", "PERTYPE")
+            if column in persons.columns
+        ),
+        None,
+    )
+    age_col = next(
+        (column for column in ("age", "age_app", "age_fv") if column in persons.columns),
+        None,
+    )
+    if (
+        tours.is_empty()
+        or joint_participants.is_empty()
+        or (person_type_col is None and age_col is None)
+        or "person_id" not in persons.columns
+        or "person_id" not in joint_participants.columns
+    ):
+        return tours
+
+    adult_sources: list[pl.Expr] = []
+    if person_type_col is not None:
+        person_type = pl.col(person_type_col).cast(pl.Int64, strict=False)
+        adult_sources.append(
+            pl.when(person_type.is_between(1, 5))
+            .then(pl.lit(True))
+            .when(person_type.is_between(6, 8))
+            .then(pl.lit(False))
+            .otherwise(None)
+        )
+    if age_col is not None:
+        age = pl.col(age_col).cast(pl.Float64, strict=False)
+        adult_sources.append(
+            pl.when(age.is_between(0, 994)).then(age >= 18).otherwise(None)
+        )
+
+    participant_adulthood = joint_participants.join(
+        persons.select(
+            "person_id",
+            pl.coalesce(adult_sources).alias("_participant_is_adult"),
+        ).unique("person_id"),
+        on="person_id",
+        how="left",
+    ).filter(pl.col("_participant_is_adult").is_not_null())
+
+    result = tours
+    derived_columns: list[str] = []
+    for identifier in ("joint_tour_id", "tour_id"):
+        if identifier not in result.columns or identifier not in participant_adulthood.columns:
+            continue
+        key_col = f"_composition_key_{len(derived_columns)}"
+        composition_col = f"_derived_composition_{len(derived_columns)}"
+        compositions = (
+            participant_adulthood.filter(pl.col(identifier).is_not_null())
+            .with_columns(_identifier_expr(identifier).alias(key_col))
+            .filter(pl.col(key_col).is_not_null())
+            .unique([key_col, "person_id"])
+            .group_by(key_col)
+            .agg(
+                pl.col("_participant_is_adult").min().alias("_all_adults"),
+                pl.col("_participant_is_adult").max().alias("_any_adults"),
+            )
+            .with_columns(
+                pl.when(pl.col("_all_adults"))
+                .then(pl.lit("adults"))
+                .when(~pl.col("_any_adults"))
+                .then(pl.lit("children"))
+                .otherwise(pl.lit("mixed"))
+                .alias(composition_col)
+            )
+            .select(key_col, composition_col)
+        )
+        result = (
+            result.with_columns(_identifier_expr(identifier).alias(key_col))
+            .join(compositions, on=key_col, how="left")
+            .drop(key_col)
+        )
+        derived_columns.append(composition_col)
+
+    if not derived_columns:
+        return result
+    sources = []
+    if "composition" in result.columns:
+        sources.append(pl.col("composition").cast(pl.Utf8))
+    sources.extend(pl.col(column) for column in derived_columns)
+    return result.with_columns(pl.coalesce(sources).alias("composition")).drop(
+        derived_columns
+    )
+
+
 def _enrich_tours(
     state: _PrepareState, config: Config, zone_context: _ZoneContext
 ) -> _PrepareState:
     autosuff_ref_col = autosuff_reference_column(config)
+    state.tours = _canonical_tour_origins(state.tours, state.hh)
     hh_income_source = _resolve_source_column(state.hh, config.col_income_segment)
     if hh_income_source is not None:
         hh_income = state.hh.select(
@@ -188,6 +352,15 @@ def _enrich_tours(
             state.label,
         )
 
+    if "SKIMDIST" in state.tours.columns:
+        if "tour_distance" in state.tours.columns:
+            state.tours = state.tours.with_columns(
+                pl.coalesce(
+                    pl.col("tour_distance").cast(pl.Float64, strict=False),
+                    pl.col("SKIMDIST"),
+                ).alias("tour_distance")
+            )
+
     number_hh_sources: list[pl.Expr] = []
     participant_count_col = "_joint_participant_count"
     if (
@@ -213,13 +386,17 @@ def _enrich_tours(
     if participant_count_col in state.tours.columns:
         state.tours = state.tours.drop(participant_count_col)
 
-    if (
-        "start_hour" in state.tours.columns
-        and "end_hour" in state.tours.columns
-        and "tourdur" not in state.tours.columns
-    ):
+    state.tours = _derive_joint_composition(
+        state.tours,
+        state.joint_participants,
+        state.per,
+    )
+
+    if "start_hour" in state.tours.columns and "end_hour" in state.tours.columns:
         state.tours = state.tours.with_columns(
-            (pl.col("end_hour") - pl.col("start_hour")).alias("tourdur")
+            (pl.col("end_hour") - pl.col("start_hour") + 1)
+            .clip(1, 48)
+            .alias("tourdur")
         )
 
     state.tours = _attach_first_inbound_trip_depart(state.tours, state.trips)
