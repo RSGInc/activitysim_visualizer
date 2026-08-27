@@ -323,7 +323,9 @@ uv run python scripts/run_simor_scenarios.py
 It defaults to two concurrent area builds and writes separate runtime and
 console logs under `simor_project_outputs/logs/scenario_runner/`. Use
 `--dry-run` to inspect commands, `--max-parallel 1` for sequential execution,
-or `--refresh-caches` to forward a full cache refresh to every build.
+or `--refresh-caches` to forward a full cache refresh to every build. Use
+`--no-skimjoin` to run prepare, summarize, and HTML export while skipping the
+skimjoin step.
 
 ## Related Chapters
 

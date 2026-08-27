@@ -67,6 +67,20 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Pass --refresh-caches to every dashboard build.",
     )
+    pipeline_mode = parser.add_mutually_exclusive_group()
+    pipeline_mode.add_argument(
+        "--exports-only",
+        action="store_true",
+        help="Pass --dashboard --export-html to every dashboard build.",
+    )
+    pipeline_mode.add_argument(
+        "--no-skimjoin",
+        action="store_true",
+        help=(
+            "Run prepare, summarize, and HTML export while skipping the "
+            "skimjoin step."
+        ),
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -81,6 +95,8 @@ def _build_job(
     config_path: Path,
     run_log_dir: Path,
     refresh_caches: bool,
+    exports_only: bool,
+    no_skimjoin: bool,
 ) -> ScenarioJob:
     runtime_log = run_log_dir / f"{name}.runtime.log"
     console_log = run_log_dir / f"{name}.console.log"
@@ -94,6 +110,12 @@ def _build_job(
     ]
     if refresh_caches:
         command.append("--refresh-caches")
+    if exports_only:
+        command.extend(("--dashboard", "--export-html"))
+    if no_skimjoin:
+        command.extend(
+            ("--prepare", "--summarize", "--dashboard", "--export-html")
+        )
     return ScenarioJob(
         name=name,
         config_path=config_path,
@@ -211,6 +233,8 @@ def run_scenarios(args: argparse.Namespace) -> int:
             config_path=config_path,
             run_log_dir=run_log_dir,
             refresh_caches=args.refresh_caches,
+            exports_only=args.exports_only,
+            no_skimjoin=args.no_skimjoin,
         )
         for name, config_path in AREA_CONFIGS
     ]
@@ -219,6 +243,8 @@ def run_scenarios(args: argparse.Namespace) -> int:
         config_path=COMPARISON_CONFIG[1],
         run_log_dir=run_log_dir,
         refresh_caches=args.refresh_caches,
+        exports_only=args.exports_only,
+        no_skimjoin=args.no_skimjoin,
     )
 
     print(

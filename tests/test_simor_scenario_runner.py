@@ -12,6 +12,8 @@ def _args(tmp_path: Path, *, dry_run: bool = False) -> Namespace:
         max_parallel=2,
         log_root=tmp_path / "logs",
         refresh_caches=False,
+        exports_only=False,
+        no_skimjoin=False,
         dry_run=dry_run,
     )
 
@@ -85,3 +87,47 @@ def test_dry_run_does_not_create_log_directory(
 
     assert runner.run_scenarios(_args(tmp_path, dry_run=True)) == 0
     assert not (tmp_path / "logs").exists()
+
+
+def test_exports_only_flags_are_passed_to_all_jobs(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _configure_test_scenarios(monkeypatch, tmp_path)
+    args = _args(tmp_path)
+    args.exports_only = True
+    commands: list[tuple[str, ...]] = []
+
+    def fake_run_batch(jobs, *, max_parallel, poll_interval=0.25):
+        commands.extend(job.command for job in jobs)
+        return True
+
+    monkeypatch.setattr(runner, "_run_batch", fake_run_batch)
+
+    assert runner.run_scenarios(args) == 0
+    assert len(commands) == 4
+    assert all(command[-2:] == ("--dashboard", "--export-html") for command in commands)
+
+
+def test_no_skimjoin_flags_are_passed_to_all_jobs(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _configure_test_scenarios(monkeypatch, tmp_path)
+    args = _args(tmp_path)
+    args.no_skimjoin = True
+    commands: list[tuple[str, ...]] = []
+
+    def fake_run_batch(jobs, *, max_parallel, poll_interval=0.25):
+        commands.extend(job.command for job in jobs)
+        return True
+
+    monkeypatch.setattr(runner, "_run_batch", fake_run_batch)
+
+    assert runner.run_scenarios(args) == 0
+    assert len(commands) == 4
+    assert all(
+        command[-4:]
+        == ("--prepare", "--summarize", "--dashboard", "--export-html")
+        for command in commands
+    )
