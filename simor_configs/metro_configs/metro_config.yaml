@@ -37,7 +37,7 @@ files:
 # Optional shared fallback files for optional inputs that may be missing in some
 # run folders. These must be explicit .csv or .parquet paths.
 fallback_files:
-  land_use: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_edb\final_land_use.csv
+  land_use: U:/projects/clients/Oregon_HTS/SimOR/resident/outputs/estimation_metro/final_land_use.csv
 
 # ---------------------------------------------------------------------------
 # Runs to compare
@@ -55,7 +55,7 @@ fallback_files:
 # ---------------------------------------------------------------------------
 runs:
 
-  - dir:              C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\raw_statewide_survey
+  - dir:              U:/projects/clients/Oregon_HTS/hts_pyprocess/template/oregon/or_statewide_out
     label:            Raw Statewide Survey
     hh_weight_col:     hh_weight
     person_weight_col: person_weight
@@ -69,7 +69,7 @@ runs:
     skimjoin:
       enabled: false
 
-  - dir:              C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\survey_data
+  - dir:              U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/metro/data_full/survey_data
     label:            "Regional: Filtered & Attributed"
     hh_weight_col:     hh_weight
     person_weight_col: person_weight
@@ -79,7 +79,7 @@ runs:
 
   
 
-  - dir:              C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data
+  - dir:              U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/metro/data_full
     label:            Estimation Mode Inputs
     hh_weight_col:     hh_weight
     person_weight_col: person_weight
@@ -90,7 +90,7 @@ runs:
       trips:                   override_trips
       joint_tour_participants: override_joint_tour_participants
 
-  - dir:              C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_edb
+  - dir:              U:/projects/clients/Oregon_HTS/SimOR/resident/outputs/estimation_metro
     label:            Estimation Mode Outputs
     hh_weight_col:     hh_weight
     person_weight_col: person_weight
@@ -275,13 +275,13 @@ prepare:
   validation:
     relationship_checks: warn
   distance_skim:
-    file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\autoSkims__MD.omx       # path relative to run directory, or absolute
+    file: U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/metro/data_full/autoSkims__MD.omx       # path relative to run directory, or absolute
     matrix: SOV_H_DIST__MD
   non_motorized_distance_skim:
-    file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\maz_maz_walk.csv
+    file: U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/metro/data_full/maz_maz_walk.csv
     matrix: null
   time_periods:
-    network_los_file: C:\Users\wesley.darling\project_data\odot_skims\network_los.yaml
+    network_los_file: U:/projects/clients/Oregon_HTS/SimOR/resident/configs/network_los.yaml
     trip_period_number_column: depart
     tour_start_period_number_column: start
     tour_end_period_number_column: end
@@ -331,12 +331,12 @@ skimjoin:
   defaults:
     config_path: metro_skimjoin_config.yaml
     skim_files:
-      - 'C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\*.omx'
-      - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\maz_stop_walk.csv
-      - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\maz_maz_walk.csv
-      - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\bike_maz_logsums_commute.csv
-      - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\bike_maz_logsums_noncommute.csv
-    network_los_file: C:\Users\wesley.darling\project_data\odot_skims\network_los.yaml
+      - 'U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/metro/data_full/*.omx'
+      - U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/metro/data_full/maz_stop_walk.csv
+      - U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/metro/data_full/maz_maz_walk.csv
+      - U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/metro/data_full/bike_maz_logsums_commute.csv
+      - U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/metro/data_full/bike_maz_logsums_noncommute.csv
+    network_los_file: U:/projects/clients/Oregon_HTS/SimOR/resident/configs/network_los.yaml
 
 segment:
   dashboard:
@@ -382,17 +382,17 @@ summarize:
     aggregations:
       regional_district:
         source_zone_system: maz
-        file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\land_use.csv
+        file: U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/metro/data_full/land_use.csv
         zone_id_col: MAZ
         geography_col: DISTRICT9
       school_district_k8:
         source_zone_system: maz
-        file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\land_use.csv
+        file: U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/metro/data_full/land_use.csv
         zone_id_col: MAZ
         geography_col: DIST_Kto8
       school_district_9_12:
         source_zone_system: maz
-        file: C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\metro_data\land_use.csv
+        file: U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/metro/data_full/land_use.csv
         zone_id_col: MAZ
         geography_col: DIST_9to12
 

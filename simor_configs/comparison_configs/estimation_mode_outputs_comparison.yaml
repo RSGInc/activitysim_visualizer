@@ -70,7 +70,7 @@ prepare:
   validation:
     relationship_checks: warn
   time_periods:
-    network_los_file: C:\Users\wesley.darling\project_data\odot_skims\network_los.yaml
+    network_los_file: U:/projects/clients/Oregon_HTS/SimOR/resident/configs/network_los.yaml
     trip_period_number_column: depart
     tour_start_period_number_column: start
     tour_end_period_number_column: end

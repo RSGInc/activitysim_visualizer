@@ -1,11 +1,11 @@
 project:
   skim_files:
-    - 'C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\lcog_data\*.omx'
-    - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\lcog_data\maz_stop_walk.csv
-    - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\lcog_data\maz_maz_walk.csv
-    - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\lcog_data\bike_maz_logsums_commute.csv
-    - C:\Users\wesley.darling\OneDrive - Resource Systems Group, Inc\odot_joint_estimation_data\lcog_data\bike_maz_logsums_noncommute.csv
-  network_los_file: C:\Users\wesley.darling\project_data\odot_skims\network_los.yaml
+    - 'U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/lcog/data_full/*.omx'
+    - U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/lcog/data_full/maz_stop_walk.csv
+    - U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/lcog/data_full/maz_maz_walk.csv
+    - U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/lcog/data_full/bike_maz_logsums_commute.csv
+    - U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/lcog/data_full/bike_maz_logsums_noncommute.csv
+  network_los_file: U:/projects/clients/Oregon_HTS/SimOR/resident/configs/network_los.yaml
 
 activitysim:
   trip_mode_column: trip_mode
