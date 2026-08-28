@@ -396,8 +396,8 @@ Use at least these commands:
 
 ```bash
 uv run python scripts/generate_wiki_catalogs.py
-uv run --with pytest pytest --basetemp .pytest_tmp tests/test_page_authoring.py tests/test_page_registry_contract.py
-uv run --with pytest pytest --basetemp .pytest_tmp tests/test_figure_builders.py tests/test_export_payload.py
+uv run pytest --basetemp .pytest_tmp tests/test_page_authoring.py tests/test_page_registry_contract.py
+uv run pytest --basetemp .pytest_tmp tests/test_figure_builders.py tests/test_export_payload.py
 ```
 
 ## Review Checklist

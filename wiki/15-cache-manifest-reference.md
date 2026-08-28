@@ -84,7 +84,7 @@ Important fields:
 | `unavailable_tables`, `failed_tables` | Compatibility views of the same table diagnostics. |
 | `source_file_map`, `run_fingerprint` | Resolved raw input mapping, file identities, skims, run weights, and run-level overrides. |
 | `identity` | Compact upstream identity used by later stages. |
-| `hh_weight_col`, `person_weight_col`, `trip_weight_col` | Primary run-level source weight fields. |
+| `hh_weight_col`, `person_weight_col`, `trip_weight_col`, `day_weight_col` | Primary run-level source weight fields. |
 | `prepare_diagnostics` | Recorded preparation warnings and relationship results. |
 | `skimjoin_*` | Enabled/status/config/input identity, applied outputs, skipped rules, warning/fallback counts, failure detail, and sidecar row counts. |
 

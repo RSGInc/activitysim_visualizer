@@ -12,7 +12,8 @@ The skimjoin configuration answers four questions:
 2. Which prepared trip and tour columns supply modes, IDs, dimensions, and OD
    lookup columns?
 3. Which matrix or sidecar table must skimjoin read for each mode and component?
-4. Which policy applies when matrices, OD pairs, or dimension values are missing?
+4. Which missing-data settings are inherited, and what current execution
+   limitation applies?
 
 ## Choose Where Paths Live
 
@@ -232,6 +233,7 @@ have a valid value. Every fallback step uses the same final output column.
 | `dimensions` | mapping | `{}` | Placeholder definitions for matrix names. |
 | `ignore_modes` | list | `[]` | Trip modes allowed to have no lookup rules. |
 | `modes` | mapping | required | Mode-specific lookup rules. |
+| `tour_aggregation` | mapping | built-in defaults | Accepted by the typed schema but unused. See [Unsupported Tour Aggregation](#unsupported-tour-aggregation). |
 
 The Pydantic schema rejects unknown keys in typed sections.
 
@@ -291,8 +293,8 @@ the rule takes precedence.
 | `origin` | string | `origin` | source column | Origin column for OD lookups. |
 | `destination` | string | `destination` | source column | Destination column for OD lookups. |
 | `output_prefix` | string | `skim_` | any string | Prefix used when a component does not set `output`. |
-| `missing_matrix_policy` | string | `error` | `error`, `warn`, `set_null` | Policy for absent matrices or matrix names that skimjoin cannot resolve. |
-| `missing_od_policy` | string | `error` | `error`, `warn`, `set_null` | Policy for missing/out-of-bounds OD values. |
+| `missing_matrix_policy` | string | `error` | `error`, `warn`, `set_null` | Accepted and inherited for absent matrices but currently unenforced. See [Missing Policy Execution](#missing-policy-execution). |
+| `missing_od_policy` | string | `error` | `error`, `warn`, `set_null` | Accepted and inherited for missing/out-of-bounds OD values but currently unenforced during annotation. See [Missing Policy Execution](#missing-policy-execution). |
 | `sentinel_values` | list of numbers | `[]` | numeric list | Skimjoin treats lookup results equal to these values as missing. |
 
 ```yaml
@@ -341,7 +343,7 @@ modes:
 |---|---|---|---|---|
 | `lookup_name` | string or null | `null` | OMX mapping name | Default mapping name used for OMX OD matrices. |
 | `file_lookup_names` | mapping | `{}` | file pattern to lookup name | Overrides `lookup_name` for matching file paths or file names. Patterns use shell-style matching. |
-| `missing_zone_policy` | string | `error` | `error`, `warn`, `set_null` | Policy for missing zone mappings. |
+| `missing_zone_policy` | string | `error` | `error`, `warn`, `set_null` | Accepted but currently unenforced. |
 
 ```yaml
 zone_mapping:
@@ -453,12 +455,12 @@ A component rule can be a matrix-name string or a mapping.
 | `output` | string | `output_prefix` + component name | output column | Final output column. Tour lookup outputs also receive `_outbound` or `_inbound`. |
 | `lookup` | string | `od` | `od`, `key` | Lookup type. |
 | `key_column` | string | none | source column | Required when `lookup: key`. |
-| `origin` | string | inherited | source column | Origin column for OD lookup, or key value when `lookup: key` and `key_column` is absent. |
+| `origin` | string | inherited | source column | Origin column for OD lookup. |
 | `destination` | string | inherited | source column | Destination column for OD lookup. Ignored for `lookup: key`. |
 | `when` | mapping | inherited/merged | equality or `in` filters | Additional row filters. |
 | `dimensions` | mapping | inherited/merged | dimension definitions | Component-specific placeholder definitions. |
-| `missing_matrix_policy` | string | inherited | `error`, `warn`, `set_null` | Component missing-matrix policy. |
-| `missing_od_policy` | string | inherited | `error`, `warn`, `set_null` | Component missing-OD policy. |
+| `missing_matrix_policy` | string | inherited | `error`, `warn`, `set_null` | Accepted and inherited but currently unenforced during annotation. |
+| `missing_od_policy` | string | inherited | `error`, `warn`, `set_null` | Accepted and inherited but currently unenforced during annotation. |
 | `sentinel_values` | list of numbers | inherited | numeric list | Component sentinel values. |
 | `combine` | string | `replace` | `replace`, `sum` | How to combine overlapping outputs for a row. |
 | `apply_to` | string | `both` | `trips`, `tours`, `both` | Whether the component creates trip rules, tour rules, or both. |
@@ -479,8 +481,9 @@ modes:
 ```
 
 If multiple rules write the same output for the same rows, set `combine: sum`
-on all affected rules. Without this setting, validation reports an output
-collision.
+on all affected rules. The standalone strict validator reports an output
+collision without this setting. Integrated loading does not run that check;
+overlapping `replace` rules can proceed and keep the first resolved value.
 
 ## `when` Filters
 
@@ -604,8 +607,28 @@ OTAZ,DTAZ,time,distance
 
 For `auto_md.csv`, refer to these values as `auto_md__time` and
 `auto_md__distance`. CSV rows need not form a complete square matrix; an
-unlisted pair follows the configured missing-OD policy. Non-numeric columns
-after the key or OD pair are ignored by the inventory.
+unlisted pair remains unresolved and is eligible for fallback. Non-numeric
+columns after the key or OD pair are ignored by the inventory.
+
+Keys and OD identifiers must be numeric or castable to `Float64`; null keys
+and pairs are discarded. If a keyed CSV repeats one key, or an OD CSV repeats
+one pair, each value column independently uses the last non-null value in file
+order.
+
+Any other first-two-header combination is inventoried as a keyed CSV on its
+first column, even when the rows otherwise look like OD data. Rename an
+OD-shaped file's first two headers to a recognized pair before configuring an
+OD lookup.
+
+The integrated workflow plans CSV reads from all configured matrix templates.
+It selects only referenced value columns and restricts OD CSVs to a
+conservative union of non-null pairs from every configured trip OD column pair
+present in prepared trips and both directional-tour OD column pairs present in
+prepared tours. Mode and `when` filters do not narrow this read-time union.
+Keyed CSVs still retain every non-null key. The loaded physical CSV layouts are
+shared across trip, tour, and hypothetical-sidecar lookups for that run.
+Standalone annotation selects planned value columns but does not have the
+integrated run-wide OD demand plan.
 
 ### OMX, HDF5, And H5 Layouts
 
@@ -617,8 +640,16 @@ file exposes that name, use `filename.omx::SOV_TIME`.
 
 OD matrix row and column positions are resolved with the selected OMX mapping.
 Set `zone_mapping.lookup_name`, or use `file_lookup_names` when files use
-different mappings. Matrix dimensions and mapping positions must agree; a
-missing zone follows `zone_mapping.missing_zone_policy`.
+different mappings. Prepared origin and destination identifiers are cast to
+`Int64`; use integer zone IDs. An identifier absent from an existing selected
+mapping produces an unresolved lookup. A configured mapping name absent from
+the OMX file instead raises an error and can fail the skimjoin stage.
+
+Without an OMX mapping, a lookup batch is treated as zero-based only when at
+least one origin or destination is zero and all identifiers fit the matrix.
+Otherwise identifiers are treated as one-based. Configure a mapping to avoid
+this heuristic. Each selected OMX/HDF5/H5 dataset is loaded in full on first
+use and cached by file and dataset path.
 
 ## Trip And Tour Rules
 
@@ -642,7 +673,8 @@ During integrated prepare, skimjoin writes these report artifacts:
 | `skim_lookup_summary` | Successful lookup counts and output summaries. |
 | `missing_lookup_report` | Missing matrix, missing OD, missing dimension, and skipped lookup details. |
 | `fallback_lookup_report` | Fallback attempts and outcomes. |
-| `skipped_rule_report` | Rules skipped by missing source columns or other selection conditions. |
+| `skipped_rule_report` | Rules skipped because a trip source column or mode column is missing. |
+| `tour_aggregation_summary` | On a successful run, currently contains the ordinary direct-tour lookup summary rather than a trip-to-tour aggregation. |
 | `failure_report` | Runtime failure detail when skimjoin cannot complete. |
 
 The files are under
@@ -672,22 +704,52 @@ The final prepared manifest also stores compact run-level fields:
 
 | Manifest field | Meaning |
 |---|---|
+| `skimjoin_enabled` | Whether integrated skimjoin was enabled for the run. |
 | `skimjoin_status` | Completed, recorded failure, or other packaged execution state. |
 | `skimjoin_config_digest` | Identity of normalized lookup behavior. |
 | `skimjoin_resolved_network_los_file` | Effective network LOS path, if used. |
-| `skimjoin_applied_outputs` | Enriched trip/tour output names. |
+| `skimjoin_applied_outputs` | Every final trip/tour column whose name contains `skim_`. This can include a pre-existing column and omits a new custom-named output without that text. |
 | `skimjoin_skipped_rules` | Compact skipped-rule records. |
 | `skimjoin_warning_count`, `skimjoin_fallback_count` | Aggregate diagnostic counts. |
 | `skimjoin_fallback_outputs` | Outputs that used fallback values. |
+| `skimjoin_hypothetical_sidecars_enabled` | Whether hypothetical sidecars were requested. |
+| `skimjoin_trip_hypothetical_rows`, `skimjoin_tour_hypothetical_rows` | Written sidecar row counts. |
 | `skimjoin_failure_detail` | Recorded exception detail under record policy. |
 
-Policies:
+The `skimjoin_applied_outputs` name filter can leave
+`skimjoin_status: no_outputs` after a custom-named output was successfully
+written, or produce `applied` from only a pre-existing `skim_` column. This is
+a current manifest implementation gap; inspect the prepared table and lookup
+summary rather than treating the status as proof that a new lookup resolved.
 
-| Policy | Behavior |
-|---|---|
-| `error` | Treat the missing condition as a validation/runtime failure where enforced. |
-| `warn` | Record warning/missing report rows and continue. |
-| `set_null` | Write null for the missing value and continue. |
+## Missing Policy Execution
+
+The schema accepts and inherits `missing_matrix_policy`, `missing_od_policy`,
+and `zone_mapping.missing_zone_policy`, but current annotation does not branch
+on those values. During integrated and standalone annotation, `error`, `warn`,
+and `set_null` therefore behave alike: an unresolved lookup can proceed to a
+fallback, otherwise it is reported and remains null or absent.
+
+For a viable rule that matches at least one row, the standalone `validate`
+command treats a referenced missing matrix as a validation failure. It consults
+`missing_od_policy` only for direct OMX/HDF5/H5 matrix-bound checks: `error`
+adds a failure, `warn` adds a warning, and `set_null` adds neither. That bounds
+check compares raw origin and destination values with matrix shape without
+applying the configured OMX mapping, so mapped external zone IDs can be
+reported out of bounds even when the mapping is valid. No current execution
+path consults `missing_zone_policy`. These are implementation gaps, not
+supported policy differences. They do not affect the main visualizer
+`skimjoin.failure_policy`, which separately controls whole-stage exceptions.
+
+## Unsupported Tour Aggregation
+
+The typed rules schema accepts an unused `tour_aggregation` block with `method`,
+`aggregations`, and `directional_outputs`, but current annotation ignores it.
+Direct tours are annotated through the normal tour rules, and the legacy
+trip-to-tour aggregation helper raises an unsupported-operation error. Do not
+configure this block as an active feature. The successful
+`tour_aggregation_summary` report currently duplicates the ordinary direct-tour
+lookup summary; its empty/failure schema is still a different legacy schema.
 
 ## Related Chapters
 

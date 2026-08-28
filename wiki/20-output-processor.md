@@ -48,6 +48,8 @@ The key runtime object is `RunData` in
 | `joint_participants` | Joint tour participants. |
 | `land_use` | Prepared land-use/geography table. |
 | `skim_matrix` | Optional distance skim support. |
+| `trip_hypothetical_skims` | Optional long-form hypothetical trip skim values. |
+| `tour_hypothetical_skims` | Optional long-form hypothetical directional tour skim values. |
 | `skimjoin_artifacts` | Optional skimjoin manifest and QA reports. |
 
 Summary builders and prepared-data dashboard pages must use this prepared

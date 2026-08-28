@@ -149,31 +149,60 @@ Integrated skimjoin has six main stages:
    schema.
 2. **Normalize rules.** Mode, segment, component, dimension, target-table,
    missing-data, and fallback settings become ordered trip and tour lookup
-   rules. Strict validation can report output collisions and invalid fallback
-   chains before annotation.
+   rules. The standalone strict validator can report output collisions and
+   invalid fallback chains before annotation.
 3. **Inventory skim inputs.** The runtime scans OMX, HDF5, and CSV inputs and
    records matrix names, qualified source names, shapes, lookup types, and key
-   columns. Duplicate file-qualified references are invalid.
+   columns. CSV schema is inferred lazily, and row count is collected with the
+   streaming engine. Duplicate file-qualified references are invalid.
 4. **Select rows for each rule.** A rule matches the configured trip or tour
    mode, then applies `when`, `segment_on`, target, and dimension conditions.
    Missing source columns can make a rule unusable and appear in diagnostics.
 5. **Resolve and execute lookups.** Dimension values fill matrix-name
-   placeholders. OD rules map origin and destination IDs through the configured
-   OMX lookup; key rules read keyed sidecar values. Sentinel and missing-data
-   policies determine whether invalid values fail, warn, or become null.
+   placeholders. OD rules read a selected OMX/HDF5 matrix or CSV OD table; key
+   rules read keyed CSV sidecars. Sentinel values and failed lookups remain
+   unresolved for a later fallback or the missing-data report.
 6. **Package enriched data and diagnostics.** Successful output columns replace
    the prepared `RunData.trips` and `RunData.tours` tables. The runtime stores a
    manifest, lookup reports, and optional hypothetical sidecars in the final
    prepared cache.
 
-Fallback rules run in order only for rows that still lack a valid value. Rules
-that write the same output can overlap only when all of them use
-`combine: sum`; otherwise validation reports an output collision.
+Fallback rules run in order only for rows that still lack a valid value. The
+standalone strict validator rejects overlapping outputs unless every affected
+rule uses `combine: sum`. Integrated loading does not currently run that
+table-aware collision check; overlapping `replace` rules can proceed and keep
+the first resolved value.
 
 Tour lookups use two directional contexts derived from each prepared tour. The
 inbound context swaps origin and destination fields, and dimension settings can
 name separate outbound and inbound source columns. This produces direct tour
 lookup outputs with `_outbound` and `_inbound` suffixes.
+
+## CSV Join And Memory Behavior
+
+Before integrated annotation starts, skimjoin expands the configured matrix
+templates against the CSV inventory and plans only the referenced numeric value
+columns. It also collects one union of non-null origin/destination pairs from
+every configured trip OD column pair present in prepared trips and from both
+directional tour OD column pairs present in prepared tours. Each OD CSV is then
+scanned lazily, semi-joined to that demand union, grouped, and collected with
+the streaming engine. Polars frame joins apply the cached values to lookup work
+rows, and the same skim store is reused for trip, tour, and
+hypothetical-sidecar lookups in that run.
+
+This optimization has explicit limits. A keyed CSV has no OD pair by which to
+filter demand, so skimjoin reads every non-null key while still selecting only
+the planned value columns. OMX, HDF5, and H5 inputs load the complete selected
+two-dimensional dataset on first use and cache it for later lookups.
+
+CSV key, origin, and destination identifiers must be numeric because both
+source and lookup identifiers are cast to `Float64` for joins. When a CSV
+contains duplicate rows for one key or OD pair, each value column uses the last
+non-null value in source order. A pair with no usable value follows the
+fallback chain and remains unresolved; observed annotation records it, while
+hypothetical-sidecar lookup deliberately suppresses reports. See
+[Missing Policy Execution](23-skimjoin-config-reference.md#missing-policy-execution)
+for the current policy limitation.
 
 ## Configuration sections
 
@@ -188,6 +217,7 @@ A skimjoin configuration contains these sections:
 | `dimensions` | Time period or other dimensions used to resolve matrix names. |
 | `ignore_modes` | Trip modes allowed to have no lookup rules. |
 | `modes` | Mode-specific lookup rules. |
+| `tour_aggregation` | Accepted settings that current execution does not use. |
 
 The optional `project` section contains paths, not lookup behavior. Main-config
 defaults or run overrides can supply the integrated skim paths instead.
@@ -203,7 +233,8 @@ Checklist:
 1. Make sure prepared trips or tours contain the required lookup columns.
 2. Add or update a lookup rule in the skimjoin config.
 3. Select an output name. Use the `skim_` prefix unless the interface requires a different prefix.
-4. Set the missing-matrix and missing-OD policies.
+4. Review the missing-matrix and missing-OD settings and the current
+   [execution limitation](23-skimjoin-config-reference.md#missing-policy-execution).
 5. Add fallback lookup rules only when a valid fallback value is available.
 6. Set `apply_to` when the component belongs only on trips or tours.
 7. Add or update a summary in `processor/summarize/summaries/skimjoin.py` if the
@@ -219,7 +250,8 @@ Hypothetical sidecars rerun each configured mode's lookup rules against every
 eligible observed row. They do not change the observed trip or tour mode and
 do not replace the annotated prepared tables. They provide long-form values
 for comparisons such as “what would this trip's auto time be under each
-configured mode?”
+configured mode?” Sidecars process one hypothetical mode at a time and reuse
+the observed annotation's skim cache.
 
 | Trip sidecar field | Type | Meaning |
 |---|---|---|
@@ -234,7 +266,11 @@ The tour sidecar has the same structure with `tour_id` and one additional
 `direction` field. `direction` is `outbound` or `inbound` when the component
 ends with the corresponding suffix; it is null for unsuffixed outputs.
 Sidecars are empty unless the prepared source contains the configured ID and
-mode columns plus `finalweight`.
+mode columns plus `finalweight`. Those fields are necessary but do not
+guarantee rows: a component enters the sidecar only when that hypothetical
+mode resolves it for at least one source row. Other rows for an included
+component can be null, and a sidecar can remain empty when no component
+resolves.
 
 ## Standalone Skimjoin CLI
 
@@ -284,7 +320,7 @@ Common causes:
 | No skim columns appear | `pipeline.steps`, resolved config path, run overrides, and skim file glob resolution. |
 | Rule skipped | Source mode, `when` clause, ignored modes, and required dimensions. |
 | Missing matrix | Matrix naming pattern, dimensions, network LOS periods, and OMX contents. |
-| Missing OD values | Origin/destination columns, zone mapping, sentinel values, and missing OD policy. |
+| Missing OD values | Origin/destination columns, zone mapping, and sentinel values. Current annotation records unresolved rows regardless of the configured missing-OD policy. |
 | Tours missing values | `apply_to`, tour mode, outbound/inbound source columns, dimensions, and OD columns. |
 
 With `failure_policy: record`, an integrated failure keeps the original
@@ -305,6 +341,7 @@ summaries without requiring raw preparation to run again. Use
 | Main/run override resolution | `runtime/config/normalize_skimjoin.py` |
 | Config normalization | `processor/skimjoin/config/normalize.py` |
 | Skim inventory | `processor/skimjoin/inventory.py` |
+| Integrated CSV OD demand planning | `processor/skimjoin/csv_demand.py` |
 | Skim store behavior | `processor/skimjoin/skimstore/` |
 | Trip annotation | `processor/skimjoin/annotate/trips.py` |
 | Tour annotation | `processor/skimjoin/annotate/tours.py` |

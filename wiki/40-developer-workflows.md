@@ -67,7 +67,7 @@ Run focused tests for the subsystem you changed:
 Common command:
 
 ```bash
-uv run --with pytest pytest --basetemp .pytest_tmp
+uv run pytest --basetemp .pytest_tmp
 ```
 
 During development, use the smallest relevant test group. The

@@ -323,17 +323,17 @@ categories:
 - name: Joint Travel
   summaries:
   - id: jtf_distribution
-    description: One-day households across the legacy 21 joint-tour-frequency alternatives describing zero, one, or two joint tours and their purpose combination. The fixed purposes are shopping, maintenance, eating out, visiting/social, and other discretionary. Runs spanning multiple diary days per household are unavailable rather than pooled into a weekly choice. Use it to validate joint-tour generation consistently across compatible runs.
+    description: Household observations across the legacy 21 joint-tour-frequency labels, selected by minimum counts in five fixed purpose slots covering shopping, maintenance, eating out, visiting/social, and other discretionary. Purposes outside those slots do not affect the label, and counts above a label's threshold are not rejected, so the labels are not strict total-tour counts. When the day table shows a genuinely multi-day diary and tours contain `day_num`, observations use `(household_id, day_num)`; null or unmatched tour days do not contribute. Without the tour day column, the result is empty rather than pooled into a weekly choice. On a one-day input, the declaration does not require tours, so an unavailable tour table can instead classify every household as `No Joint Tours`; verify tour availability before using that result. Use it to validate compatible joint-tour generation inputs.
     fields:
       jtf_code: integer alternative 1--21.
-      jtf_label: readable frequency/purpose-combination label.
-      household_count: weighted households assigned to the alternative.
+      jtf_label: readable minimum-frequency/purpose-combination label.
+      household_count: sum of `hh.finalweight` across households or household-day observations assigned to the alternative.
   - id: joint_tours_by_household_size
-    description: All households and households making at least one joint tour by household size. Use the two counts to calculate joint-tour participation rates.
+    description: All household observations and observations making at least one joint tour by household size. A genuinely multi-day diary uses household-days when tours contain `day_num`; null or unmatched tour days do not contribute, and a missing tour day column produces an empty result rather than pooling days. Valid shared joint-tour or tour IDs collapse repeated records; records without either valid ID remain distinct. Use the two counts to calculate joint-tour participation rates.
     fields:
       household_size: number of household members.
-      household_count: weighted households of that size.
-      joint_tour_hh_count: weighted unique households of that size with a joint tour.
+      household_count: sum of `hh.finalweight` across households or household-day observations of that size.
+      joint_tour_hh_count: sum of `hh.finalweight` for those observations with a joint tour.
   - id: joint_tour_party_size_distribution
     description: Household joint tours by valid participant count, with parties of five or more stored in bin 5. Verified survey participant-row groups retain every row at a fractional representation weight that sums to one household tour; ordinary model joint-tour rows retain full weight. Sentinel values of 995 or greater, missing values, and nonpositive values are excluded. Use it to assess joint-tour occupancy.
     fields:
@@ -351,17 +351,17 @@ categories:
       party_size: number of tour participants.
       joint_tour_count: weighted joint tours in the combination.
   - id: person_jtp_by_household_size
-    description: All people and people participating in one or more joint tours by household size. Use the two counts to calculate person-level participation rates.
+    description: All person observations and observations participating in one or more joint tours by household size. When a multi-day input has person-day records and each joint-tour identity maps to one day, the observations are person-days and participation comes from linked joint participants. A missing or ambiguous tour-day mapping produces an empty result; if the day table lacks household, person, or day fields, the person-level fallback remains. The multi-day path's participant-table limitations are documented in chapter 25. Use the two counts to calculate participation rates.
     fields:
       household_size: size of the person's household.
-      joint_tour_person_count: weighted people with `num_joint_tours > 0`.
-      total_person_count: weighted people in households of that size.
+      joint_tour_person_count: sum of the applicable person or day weight for people or person-days participating in a joint tour.
+      total_person_count: sum of the applicable person or day weight for people or person-days in households of that size.
   - id: household_jtp_by_household_size_and_jtf
-    description: For one-day households of size two or more, household-weighted percentage distribution across 0, 1, and 2+ joint tours within each household size. Multi-day household diaries are unavailable rather than pooled. Use it to compare joint-tour propensity independent of household-size totals across compatible runs.
+    description: For household observations of size two or more, weighted percentage distribution across 0, 1, and 2+ joint-tour identities within each household size. A genuinely multi-day diary uses household-days when tours contain `day_num`; null or unmatched tour days do not contribute, and a missing tour day column produces an empty result rather than pooling days. Valid shared joint-tour or tour IDs collapse repeated records; records without either valid ID remain distinct. Use it to compare joint-tour propensity independent of household-size totals across compatible runs.
     fields:
       jtf: joint-tour count category `0`, `1`, or `2+`.
       household_size: household size as a category.
-      household_percent: percent of weighted households of that size in the JTF category.
+      household_percent: percent of summed `hh.finalweight` for household observations of that size in the JTF category.
 - name: Basic Tour Distributions
   summaries:
   - id: tour_category_distribution
@@ -427,7 +427,7 @@ categories:
       arrival_tour_count: weighted tours ending in the bin.
       duration_tour_count: weighted tours whose prepared duration falls in the bin.
   - id: tour_distance_by_tour_purpose
-    description: Nonmandatory, joint, and at-work household-tour-unit records by lower-bound distance bin and purpose, plus all-purpose totals; mandatory tours are excluded to match the legacy distribution. Distance prefers an explicit `tour_distance` and falls back to `SKIMDIST`; generic `distance_miles` is not automatically assumed to have the same meaning. Every row is retained, with verified participant-row joint-tour groups contributing fractional weight that sums to one tour.
+    description: Nonmandatory, joint, and at-work household-tour-unit records by lower-bound `SKIMDIST` bin and purpose, plus all-purpose totals; mandatory tours are excluded to match the legacy distribution. The metric is fixed to prepared origin-to-primary-destination `SKIMDIST` and does not switch to `tour_distance` or generic `distance_miles`. Every row is retained, with verified participant-row joint-tour groups contributing fractional weight that sums to one tour.
     fields:
       distance_bin: exact `0`, positive sub-mile `>0-<1`, whole-mile lower bound, or `40+`.
       tour_purpose: purpose or `all_tour_purposes`.
@@ -443,12 +443,12 @@ categories:
       average_tour_distance: mean person-level mandatory distance weighted by `per.finalweight`.
       person_count: sum of `per.finalweight` for people contributing to the mean.
   - id: average_nonmandatory_tour_distance_by_purpose_and_geography
-    description: Weighted average direct-first distance for individual nonmandatory tours by purpose and traveler home geography, plus regional rows. A supplied tour distance is preferred and `SKIMDIST` is the fallback. Use it to compare discretionary travel reach.
+    description: Weighted average prepared origin-to-primary-destination `SKIMDIST` for individual nonmandatory tours by purpose and traveler home geography, plus regional rows. The metric does not switch to `tour_distance` or generic `distance_miles`. Use it to compare discretionary travel reach.
     fields:
       nonmandatory_tour_purpose: nonmandatory purpose.
       geography_type: home-geography system or rollup.
       geography_id: home-geography identifier or rollup.
-      average_tour_distance: mean direct-first tour distance weighted by `tours.finalweight`.
+      average_tour_distance: mean prepared `SKIMDIST` weighted by `tours.finalweight`.
       tour_count: sum of `tours.finalweight` for tours contributing to the mean.
   - id: internal_external_nonmandatory_tour_frequency_by_home_geography
     description: Internal and external nonmandatory tours by traveler home geography, plus regional totals. Use it to calculate external-tour shares and locate households producing external discretionary travel.

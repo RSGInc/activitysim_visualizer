@@ -35,6 +35,7 @@ Top-level fields:
 |---|---|---|
 | `schema_version` | `str` | Versioned schema identifier checked by the browser runtime before rendering |
 | `title` | `str` | Dashboard title shown in the export header |
+| `logo` | `str \| None` | Configured dashboard logo embedded as a data URI |
 | `runs_loaded` | `list[dict[str, str]]` | Run labels and colors used for the export legend |
 | `chrome` | `ExportChrome` | Shell layout metadata and dashboard-control enablement flags |
 | `dashboard_controls` | `DashboardControlsPayload` | Exported dashboard-wide weighting and values options |

@@ -193,7 +193,7 @@ Panel.
 Use the focused plotting target during development:
 
 ```bash
-pytest tests/test_figure_builders.py
+uv run pytest --basetemp .pytest_tmp tests/test_figure_builders.py
 ```
 
 Test page query behavior in `tests/test_page_authoring.py`. Run the complete

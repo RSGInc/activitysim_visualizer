@@ -137,7 +137,7 @@ def test_external_emissions_loads(tmp_path, config):
 Use these commands:
 
 ```bash
-uv run --with pytest pytest --basetemp .pytest_tmp tests/test_summary_declarations.py tests/test_runtime_workflows.py
+uv run pytest --basetemp .pytest_tmp tests/test_summary_declarations.py tests/test_runtime_workflows.py
 uv run python scripts/generate_wiki_catalogs.py
 ```
 
@@ -314,8 +314,8 @@ At a minimum, test these items:
 Useful suites:
 
 ```bash
-uv run --with pytest pytest --basetemp .pytest_tmp tests/test_processor_prepare.py tests/test_prepare_cache.py
-uv run --with pytest pytest --basetemp .pytest_tmp tests/test_runtime_workflows.py tests/test_page_registry_contract.py
+uv run pytest --basetemp .pytest_tmp tests/test_processor_prepare.py tests/test_prepare_cache.py
+uv run pytest --basetemp .pytest_tmp tests/test_runtime_workflows.py tests/test_page_registry_contract.py
 ```
 
 ## Completion Checklist

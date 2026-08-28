@@ -114,7 +114,7 @@ foreign-key relationships:
 | joint participants | `tour_id` | tours | `tour_id` |
 
 A check is skipped when a table or key column is unavailable. With
-`prepare.validation.relationships: warn`, orphan rows produce warnings. With
+`prepare.validation.relationship_checks: warn`, orphan rows produce warnings. With
 `error`, they stop the workflow. Direct aggregations can still count an orphan
 row, while an aggregation that joins to the parent can drop it. Fixing keys is
 therefore preferable to suppressing the check.
@@ -125,11 +125,14 @@ therefore preferable to suppressing the check.
 does not run canonicalization, enrichment, weighting, geography mapping, or
 integrated skimjoin. Supply canonical fields and types yourself.
 
-The accepted keys are the eight config/file table IDs in the inventory above.
-Omitted optional tables are marked `unavailable`. Omitted core tables are
-represented as empty tables. Files that do not exist are `unavailable`; files
-that cannot be read are `failed`. These states and their details flow into
-summary and page diagnostics.
+The accepted base keys are the eight config/file table IDs in the inventory
+above. The map also accepts `trip_hypothetical_skims` and
+`tour_hypothetical_skims`; their long-form contracts are documented in
+[Adding A Skim Output](22-skimjoin.md#adding-a-skim-output). Omitted optional
+base tables are marked `unavailable`. Omitted core tables are represented as
+empty tables. Files that do not exist are `unavailable`; files that cannot be
+read are `failed`. These states and their details flow into summary and page
+diagnostics.
 
 Before using custom prepared tables, verify:
 

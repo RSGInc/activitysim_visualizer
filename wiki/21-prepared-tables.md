@@ -18,9 +18,10 @@ reader
   -> zone context
   -> household/person enrichment
   -> student enrollment
-  -> day and vehicle preparation
+  -> day preparation
   -> tour enrichment
   -> trip enrichment
+  -> vehicle preparation
   -> non-motorized distance and time-period enrichment
   -> VOT bins
   -> final casts
@@ -65,7 +66,10 @@ with domain boundaries in `processor/prepare/enrichment/domains.py`.
 | no file-map ID | `skim` | Optional `skim_matrix` support exposed as a special prepared requirement. |
 
 Use configuration and file IDs in `files`, `file_map`, and
-`prepared_table_map`. Use runtime names to access `RunData` and in
+`prepared_table_map`. The prepared map additionally accepts
+`trip_hypothetical_skims` and `tour_hypothetical_skims`; these load the
+matching `RunData` sidecar attributes and are not base prepared-table names for
+summary requirements. Use runtime names to access `RunData` and in
 `@summary(required_columns=...)`. Examples are `run.per` and
 `required_columns={"per": ("person_type",)}`.
 
@@ -99,9 +103,58 @@ caches created before schema version 11 must be refreshed for the current
 weight, endpoint, duration, and joint-composition preparation rules.
 
 This introductory list does not imply that every table has every field. For a
-specific summary, the generated catalog in chapter 26 lists the required
-prepared columns. At runtime, `@summary` requirements and prepared-table
+specific summary, the generated catalog in chapter 26 lists the declared
+mechanical prerequisites. A builder can also resolve alternative column names
+or apply conditional requirements that the declaration does not express. At
+runtime, `@summary` requirements, builder checks, and prepared-table
 availability metadata determine whether a calculation can run.
+
+### Schema 11 Tour Rules
+
+Current tour and trip preparation applies these canonical rules:
+
+- When tours already contain `origin`, a home-based tour uses its household
+  `home_zone_id` there when that value is available. An `atwork` or `at_work`
+  tour instead uses its parent tour's `destination` when the parent identifiers
+  resolve. Otherwise the supplied tour origin remains the fallback. This stage
+  does not create `origin` when that column is absent.
+- When trips contain `tour_id`, `origin`, `destination`, `outbound`, and
+  `trip_num`, and tours contain `tour_id` and `origin`, the first outbound trip
+  begins at the prepared tour origin and the last inbound trip ends there.
+  Other trip endpoints are left unchanged.
+- When `start_hour` and `end_hour` are available, `tourdur` is the inclusive
+  difference, `end_hour - start_hour + 1`, clipped to 1 through 48 periods.
+- Missing joint-tour `composition` is derived as `adults`, `children`, or
+  `mixed` from unique participant records. Person types 1 through 5 are adults
+  and 6 through 8 are children; age 18 is the fallback boundary. The age
+  fallback accepts any numeric value from 0 through 994 and does not detect age
+  category codes, so use it only when the source stores age in years. A
+  supplied composition takes precedence.
+- `NUMBER_HH` uses the joint-participant row count when available, then
+  `number_of_participants`, then a supplied `NUMBER_HH`, and finally 1.
+
+### Raw Statewide Survey Adapter
+
+Prepare recognizes the included raw statewide-survey layout by its columns,
+not by the run label. The adapter runs only when all of these signature fields
+are present:
+
+| Raw table | Required signature fields |
+|---|---|
+| households | `num_people`, `num_vehicles` |
+| persons | `can_drive`, `person_type` |
+| tours | `tour_start_hour`, `tour_start_minute`, `tour_end_hour`, `tour_end_minute`, `tour_mode`, `tour_purpose`, `duration_minutes`, `distance_miles` |
+| trips | `linked_trip_mode`, `d_purpose_category`, `depart_hour`, `depart_minute`, `distance_miles` |
+
+For that layout, prepare maps household size and vehicle count, converts clock
+times to the 48 half-hour model periods that start at 3:00 a.m., writes tour
+`distance_miles` to `SKIMDIST`, and writes trip `distance_miles` to `od_dist`
+and `prepared_non_motorized_distance`. When present,
+`joint_num_participants` becomes `number_of_participants`.
+
+The adapter does not define the survey's category meanings. Use
+`prepare.category_mappings`, keyed by normalized run label, to map license,
+mode, purpose, category, or other raw codes into canonical prepared values.
 
 ## Inspecting An Exact Prepared Schema
 
@@ -116,8 +169,9 @@ To inspect a cache:
 2. Examine the Parquet or CSV schema for the relevant table.
 3. Use `processor.models.RunData` names at runtime and the file/config names in
    [Prepared Table Names](#prepared-table-names).
-4. Use the generated [Summary Catalog](26-summary-catalog.md) to find the exact
-   prepared columns required by each registered summary.
+4. Use the generated [Summary Catalog](26-summary-catalog.md) to find each
+   summary's declared prerequisite columns, then read its description for
+   builder-level alternatives or conditional requirements.
 
 Add stable fields to the relevant prepare enrichment module, with a prepare
 test for each field. A row count or column found in only one regional model

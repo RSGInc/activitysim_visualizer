@@ -37,10 +37,13 @@ summarize:
 must configure at least one column from a supported source table:
 `households`, `persons`, or `trips`.
 
-This function differs from the three weight fields on a run. `hh_weight_col`,
+This function differs from the four weight fields on a run. `hh_weight_col`,
 `person_weight_col`, and `trip_weight_col` select the primary `weighted`
-definition during prepare. `weighting.modes` keeps that primary definition. It
-adds named alternatives for comparison in one dashboard.
+definition for those source levels during prepare. `day_weight_col` selects a
+day-specific source and defaults to `day_weight`; null day values inherit from
+persons or households. Declarative named modes accept household, person, and
+trip sources and propagate those choices to days. `weighting.modes` keeps the
+primary definition and adds named alternatives for comparison in one dashboard.
 
 ### 2. Understand Propagation
 
@@ -232,9 +235,9 @@ At a minimum, verify these behaviors:
 Useful suites:
 
 ```bash
-uv run --with pytest pytest --basetemp .pytest_tmp tests/test_weighting_registry.py
-uv run --with pytest pytest --basetemp .pytest_tmp tests/test_config_refactor_phase1.py tests/test_summary_cache.py
-uv run --with pytest pytest --basetemp .pytest_tmp tests/test_dashboard_live.py tests/test_export_payload.py
+uv run pytest --basetemp .pytest_tmp tests/test_weighting_registry.py
+uv run pytest --basetemp .pytest_tmp tests/test_config_refactor_phase1.py tests/test_summary_cache.py
+uv run pytest --basetemp .pytest_tmp tests/test_dashboard_live.py tests/test_export_payload.py
 ```
 
 ## Worked Example: Connect A Hosting Script

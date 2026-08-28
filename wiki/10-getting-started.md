@@ -46,9 +46,11 @@ dashboard:
 ```
 
 Set the two `dir` values to ActivitySim output directories. The default
-input names are `final_households`, `final_persons`, `final_tours`,
-`final_trips`, `final_joint_tour_participants`, and `final_land_use`. Each input
-file can be CSV or Parquet.
+input names are `final_households`, `final_persons`, `final_day`,
+`final_tours`, `final_trips`, `final_vehicles`,
+`final_joint_tour_participants`, and `final_land_use`. Day, vehicle, joint
+participant, and land-use tables are optional. Each input file can be CSV or
+Parquet.
 
 If your files have different names, read
 [File Names](11-configuring-your-data.md#raw-activitysim-output).

@@ -308,8 +308,10 @@ require summarize. Each refresh flag requires its corresponding processor
 boundary. If the configuration omits dashboard, use `--export-html` with
 `--dashboard`.
 
-Each running visualizer process holds a lock in its configured output root. A
-second process targeting the same root exits before reading or writing caches.
+Each executing visualizer workflow holds a lock in its configured output root.
+A second executing process targeting the same root exits before reading or
+writing caches. `--explain-cache` is the exception: it skips the lock, reads
+cache manifests, prints the plan, and exits without workflow writes.
 
 ### SIMOR scenario runner
 
@@ -321,11 +323,16 @@ uv run python scripts/run_simor_scenarios.py
 ```
 
 It defaults to two concurrent area builds and writes separate runtime and
-console logs under `simor_project_outputs/logs/scenario_runner/`. Use
-`--dry-run` to inspect commands, `--max-parallel 1` for sequential execution,
-or `--refresh-caches` to forward a full cache refresh to every build. Use
-`--no-skimjoin` to run prepare, summarize, and HTML export while skipping the
-skimjoin step.
+console logs under `simor_project_outputs/logs/scenario_runner/`.
+
+| Flag | Behavior |
+|---|---|
+| `--dry-run` | Print the staged area and comparison commands without running them. |
+| `--max-parallel N` | Set concurrent area builds; the default is `2`. The comparison still starts only after every area succeeds. |
+| `--log-root PATH` | Set the parent directory for timestamped per-scenario runtime and console logs. |
+| `--refresh-caches` | Forward a full cache refresh to every dashboard build. Do not combine this with `--exports-only`, because refresh requires processor boundaries. |
+| `--exports-only` | Run dashboard and HTML export from existing valid caches, without processor steps. This cannot be combined with `--refresh-caches` or `--no-skimjoin`. |
+| `--no-skimjoin` | Run prepare, summarize, and HTML export while skipping skimjoin. This cannot be combined with `--exports-only`. |
 
 ## Related Chapters
 

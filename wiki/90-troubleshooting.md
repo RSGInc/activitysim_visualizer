@@ -37,6 +37,7 @@ Use this chapter when a run, cache, page, or export does not behave as expected.
 | Dashboard starts instead of exporting | `dashboard_mode` is live or a CLI override selected live mode | Set `pipeline.dashboard_mode: export`, or use `--dashboard --export-html`. |
 | `dashboard_mode: host` does not publish | Core host mode is a placeholder | Use the explicit Panel hosting script in chapter 43. |
 | Port is already in use | Another server owns the selected port | Stop that process or use `--port <other-port>`. |
+| Another visualizer process is already using the output root | A live process holds that root's cross-process lock; the persistent `.activitysim_visualizer.lock` file alone is normal | Wait for or stop the owning process, or configure a different `root`. Deleting the file does not release a lock held by a live process. |
 
 Configuration validation is strict at documented typed boundaries but some
 extension/nested mappings are intentionally free-form. If a nested setting has
@@ -57,7 +58,8 @@ load test rather than assuming it was applied.
 
 Use [14 - Input Data Contract](14-input-data-contract.md) to identify the
 expected keys and relationship checks. Use chapter 26 to work backward from one
-unavailable summary to its exact prepared columns.
+unavailable summary to its declared prerequisite columns and documented
+builder-level conditions.
 
 ## Weighting, Totals, And Units
 
@@ -68,7 +70,8 @@ household weights without checking propagation.
 | Symptom | Likely reason | Check |
 |---|---|---|
 | Weighted equals unweighted | No source weight/sample rate, all source weights are one, or a mapped external summary was copied to both modes | Prepared `finalweight`, run weight fields, `summary_table_map` behavior |
-| Household totals are not sample-expanded | Any explicit run weight field disables automatic household sample-rate expansion | `hh_weight_col`, `person_weight_col`, `trip_weight_col`, `columns.sample_rate` |
+| Household totals are not sample-expanded | Any explicit household, person, or trip run weight field disables automatic household sample-rate expansion | `hh_weight_col`, `person_weight_col`, `trip_weight_col`, `columns.sample_rate` |
+| Person-day totals use an unexpected weight | `day_weight_col` defaults to `day_weight`; non-null day values take precedence over inherited person or household weights | Inspect the day source and set `day_weight_col: null` when it is only a placeholder. |
 | Some rows disappear from weighted totals | Null source weights or builder filters | Null/nonfinite weight counts and summary requirements |
 | Negative or infinite result | Negative weights, zero sample rate, or zero weighted denominator | Validate finite nonnegative weights and positive sample rates upstream |
 | Distance/time/cost differs by a fixed factor | Runs or skims use different units | Prepared source columns and skim documentation; the visualizer does not convert units |
@@ -154,8 +157,9 @@ Common corrections:
 - correct `network_los_file`
 - align `activitysim` source columns with prepared tables
 - add missing dimension values
-- change missing matrix/OD policy only after confirming the missing data is
-  expected
+- resolve unexpected missing matrix/OD rows at the source; current annotation
+  records them identically for every configured missing policy (see
+  [Missing Policy Execution](23-skimjoin-config-reference.md#missing-policy-execution))
 
 Also inspect `config_normalized.yaml` to verify the effective rules and paths.
 For CSV skims, confirm whether the file was inventoried as a keyed table or an
@@ -236,6 +240,7 @@ generated asset as the source change.
 | Symptom | First action |
 |---|---|
 | First run is slow | Separate prepare, skimjoin, summarize, and dashboard timings; later valid runs should reuse caches. |
+| Skimjoin uses more memory than expected | Confirm a CSV OD file starts with a recognized OD header pair and that rules reference only needed value columns. Integrated OD CSVs retain demanded pairs; keyed CSVs retain every key, and selected OMX/HDF5/H5 datasets load in full. |
 | Export is very large or slow to open | Inspect `size_analysis.page_peaks` and `region_peaks`; reduce exported weighting/value/selector states. |
 | Live server uses much more memory than export | Check enabled prepared-data pages and concurrent Panel sessions. Prepared runs can be loaded for live-only features. |
 | Hosted page loads but controls disconnect | Verify reverse-proxy WebSocket upgrades and `--allow-websocket-origin`. |

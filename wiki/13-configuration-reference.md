@@ -224,6 +224,7 @@ the display name and identifies the run in cache and debug output.
 | `hh_weight_col` | string | none | Prepare, Summary | Household source for the run's primary `weighted` mode. |
 | `person_weight_col` | string | none | Prepare, Summary | Person source for the run's primary `weighted` mode. |
 | `trip_weight_col` | string | none | Prepare, Summary | Trip source for the run's primary `weighted` mode. |
+| `day_weight_col` | string or null | `day_weight` | Prepare, Summary | Day source for the run's primary `weighted` mode. Non-null source values take precedence, then missing values inherit person, household, or `1.0`. Set null to ignore a placeholder day-weight column. |
 
 You can use these canonical table IDs in `file_map` and `prepared_table_map`:
 

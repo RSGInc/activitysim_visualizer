@@ -179,7 +179,7 @@ prepared-data and summary-data sections so the latter can remain in the export.
 | `dashboard/export/selector_states.py` | Resolves selector domains, configured values, and scoped widget state. |
 | `dashboard/export/traversal.py` | Projects registered page components onto the export traversal contract. |
 | `dashboard/export/serializer.py` | Converts Panel objects to export nodes. |
-| `dashboard/export/types.py` | Defines payload and node dataclasses. |
+| `dashboard/export/types.py` | Defines payload and node `TypedDict` contracts. |
 | `dashboard/export/runtime_assets.py` | Loads CSS and JavaScript runtime assets. |
 | `dashboard/export/js_runtime/` | Readable browser runtime source. |
 | `dashboard/export/assets/export_runtime.js` | Built browser runtime embedded in exports. |

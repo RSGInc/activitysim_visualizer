@@ -2,7 +2,7 @@
 
 `activitysim_visualizer` has three main jobs:
 
-1. Read and normalize raw ActivitySim outputs.
+1. Read and normalize raw ActivitySim outputs, with optional skim enrichment.
 2. Build and cache summary tables.
 3. Render those summaries in a live Panel dashboard or a standalone HTML export.
 
@@ -208,7 +208,8 @@ extension point.
 The normalized config value objects exported alongside `Config` are
 `CategorySpec`, `PipelineSettings`, `ExportDashboardSettings`,
 `ExportHTMLSettings`, `ExportSelectorRequest`,
-`PrepareNonMotorizedDistanceSkimSettings`, `SegmentationDefinition`,
+`PrepareCategoryMappingsSettings`, `PrepareNonMotorizedDistanceSkimSettings`,
+`SegmentationDefinition`,
 `PreparedColumnSegmentationSource`, `CsvLookupSegmentationSource`, and
 `StudentTypeConfig`. These are read-only runtime contracts populated through
 YAML normalization; do not assemble a `Config` manually.
@@ -239,6 +240,7 @@ activitysim_visualizer/
 |   |-- config/                 # canonical schema, normalizers, models, signatures
 |   |-- workflows/              # prepare/summarize/dashboard orchestration and artifacts
 |   |-- logging.py
+|   |-- run_lock.py
 |   `-- weighting.py
 |-- processor/
 |   |-- analysis_units.py
@@ -315,7 +317,9 @@ activitysim_visualizer/
 |   `-- pages/
 |-- scripts/
 |   |-- generate_wiki_catalogs.py
-|   `-- generate_validation_demo_fixtures.py
+|   |-- generate_validation_demo_fixtures.py
+|   |-- run_simor_scenarios.py
+|   `-- summary_catalog_metadata.yaml
 |-- wiki/
 `-- tests/
 ```

@@ -7,6 +7,7 @@ multiple runs, or compare model results with survey data.
 ActivitySim Visualizer can:
 
 - prepare and summarize household, person, tour, and trip output;
+- optionally add skim-derived trip and tour measures from OMX, HDF5, or CSV inputs;
 - compare travel patterns, model choices, and validation measures for multiple runs;
 - reuse valid cached results for faster startup; and
 - launch a local dashboard or create a standalone HTML file.
@@ -41,13 +42,18 @@ runs:
     label: Build
 ```
 
-The default file names are `final_households`, `final_persons`, `final_tours`,
-`final_trips`, `final_joint_tour_participants`, and `final_land_use`. The
-visualizer accepts CSV and Parquet input files.
+The default file names are `final_households`, `final_persons`, `final_day`,
+`final_tours`, `final_trips`, `final_vehicles`,
+`final_joint_tour_participants`, and `final_land_use`. Day, vehicle, joint
+participant, and land-use tables are optional. The visualizer accepts CSV and
+Parquet input files.
 
 For a small example configuration and instructions for nonstandard files or
 zones, see [Getting Started](wiki/10-getting-started.md) and
 [Configuring Your Data](wiki/11-configuring-your-data.md).
+
+For the included Metro, LCOG, and SKATS configurations, use the
+[SimOR Quick Start](simor_configs/README.md).
 
 ### 3. Start the visualizer
 
@@ -68,6 +74,7 @@ If data is missing or the first run fails, see
 ```text
 ActivitySim outputs
   -> prepare canonical tables
+  -> optionally join skim-derived trip and tour values
   -> summarize travel measures
   -> display a live dashboard or export standalone HTML
 ```
@@ -79,6 +86,7 @@ dashboard mode. The start command stays the same for every workflow.
 |---|---|
 | Use raw ActivitySim output directories | [Configuring Your Data](wiki/11-configuring-your-data.md#raw-activitysim-output) |
 | Use already-prepared tables | [Already-Prepared Tables](wiki/11-configuring-your-data.md#already-prepared-tables) |
+| Add skim-derived trip and tour fields | [Skimjoin](wiki/22-skimjoin.md) |
 | Use dashboard-ready summary tables | [Dashboard-Ready Summary Tables](wiki/11-configuring-your-data.md#dashboard-ready-summary-tables) |
 | Run only the processor | [Processor-Only Workflow](wiki/12-running-workflows.md#configure-a-processor-only-workflow) |
 | Create a standalone HTML dashboard | [HTML Export](wiki/34-html-export.md) |

@@ -17,7 +17,7 @@ The fields on one run can be combined only when their boundaries make sense:
 | `prepared_table_map` plus `summary_table_map` | Supplied canonical tables | Skipped | Available | Available for unmapped IDs | The same mapped table replaces its ID for full and segmented units. |
 | `--from-csvs <cache-dir>` | Existing manifested cache bundle | Already complete | Already complete | Not run | Loads the bundle; it is not a loose-file mapping. |
 
-`file_map`, `skim_file`, and the three run weight fields apply to raw `dir`
+`file_map`, `skim_file`, and the run weight fields apply to raw `dir`
 input. `file_map` cannot be combined with `prepared_table_map`. A
 `summary_table_map` entry is mode-independent: built-in weighted and unweighted
 modes copy it, while declarative named modes reject it because they cannot
@@ -47,11 +47,15 @@ The default files are:
 files:
   households: final_households
   persons: final_persons
+  day: final_day
   tours: final_tours
   trips: final_trips
+  vehicles: final_vehicles
   joint_tour_participants: final_joint_tour_participants
   land_use: final_land_use
 ```
+
+The day, vehicle, joint-participant, and land-use tables are optional.
 
 A name without an extension selects a `.parquet` or `.csv` file. Use `file_map`
 to set nonstandard file names for one run:
@@ -148,10 +152,20 @@ runs:
     hh_weight_col: household_weight
     person_weight_col: person_weight
     trip_weight_col: trip_weight
+    day_weight_col: diary_day_weight
 ```
 
-If you do not set weight columns, the prepare step uses the configured
-sample-rate column when available and otherwise uses `1.0`.
+If none of the household, person, or trip weight fields is set, prepare uses
+the configured household sample-rate column when available and otherwise
+starts with `1.0`. Setting any of those three fields disables automatic
+household sample-rate expansion. Tables without their own source inherit a
+related person or household weight when possible.
+
+`day_weight_col` defaults to `day_weight`. When that column exists on the day
+table, each non-null value is authoritative; null values fall back to the
+matching person weight, then household weight, then `1.0`. Set
+`day_weight_col: null` to ignore a placeholder day-weight column and inherit
+person or household weights for every day row.
 
 If the output tables contain other weights, add a named column mode instead of
 duplicating the run or writing Python:

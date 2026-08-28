@@ -89,8 +89,9 @@ The primary weighted mode is prepared as follows:
 
 1. An explicit run-level household/person/trip weight column is cast to
    `Float64` on its table.
-2. If no explicit run weight is supplied at any level, a household
-   `sample_rate` produces `1 / sample_rate`.
+2. If no explicit household, person, or trip run weight is supplied, a
+   household `sample_rate` produces `1 / sample_rate`. `day_weight_col` does
+   not disable this household expansion.
 3. Otherwise, household weight defaults to `1.0` when no household source was
    selected. Supplying only a person or trip weight therefore disables
    household sample-rate expansion.
@@ -98,6 +99,9 @@ The primary weighted mode is prepared as follows:
    relationships. An unmatched inherited row normally falls back to `1.0`.
 5. When an explicit trip weight is used, tour weight is the mean trip weight
    for that `tour_id`.
+6. `day_weight_col` defaults to `day_weight`. A non-null day source is
+   authoritative; missing values inherit person weight, then household weight,
+   then `1.0`. Set the field to null to ignore the source for every day row.
 
 The unweighted mode changes existing `finalweight` columns to `1.0`; it does
 not add that column to a custom prepared table that omitted it. Named column
@@ -165,11 +169,35 @@ report different time or distance values for the same joint-tour identifier,
 the histogram shows their fractional mixture rather than silently selecting one
 participant as the canonical record.
 
-Daily tour rates exclude at-work subtours. Tour-distance summaries prefer an
-explicit prepared `tour_distance` and use `SKIMDIST` as its row-level or table-
-level fallback. Generic `distance_miles` is not automatically treated as a
-primary-destination tour distance because it may be full traveled tour length.
-Summaries that are explicitly skim-based continue to use `SKIMDIST`.
+Daily tour rates exclude at-work subtours. The tour-distance histogram and
+nonmandatory average both use prepared `SKIMDIST` for every run. They do not
+fall back to `tour_distance` or generic `distance_miles`, because either can
+represent full traveled tour length instead of origin-to-primary-destination
+distance.
+
+Both builders currently check for `SKIMDIST` inside the function but omit it
+from their `@summary(required_columns=...)` declarations. Chapter 26 therefore
+under-reports that prerequisite. Treat this as a summary-contract
+implementation gap until the declarations include the field.
+
+The generated Required Inputs column contains declared mechanical
+prerequisites, not every builder-level condition. For example, the joint-tour
+composition builders need `composition` or `tour_composition`; the
+composition-by-party-size builder also needs `number_of_participants` or
+`NUMBER_HH`; and person participation by household size needs `HHSIZE` or
+`hhsize`. These alternative requirements are resolved inside their builders.
+
+Daily tour and trip rate denominators use every attributable day row when a
+nonempty day table with `person_id` is available, and their numerators retain
+only travelers whose `person_id` occurs in that exposure set. A false
+`surveyable` value excludes a person even when a day table is present. Without
+day rows, every remaining prepared person represents one modeled day.
+
+The current numerator gate uses `person_id`, not `(person_id, day_id)`. It can
+therefore retain activity from a different day for a person who has at least
+one eligible day. This is an implementation gap for multi-day inputs that reuse
+person identifiers; inputs with a unique person identifier per day do not
+expose it.
 
 Daily activity summaries use a non-null person-table DAP or mandatory-frequency
 choice for that person, then fall back only for remaining persons to all
@@ -179,12 +207,43 @@ and joint participations can be assigned to a day without guessing. If those
 keys are incomplete or ambiguous, the summary retains the one-day/person
 fallback rather than discarding unmatched rows.
 
-Joint-tour frequency (JTF) is a one-day household choice. A prepared run whose
-day table spans multiple diary days per household is therefore marked
-unavailable for JTF and household-size-by-JTF summaries; the builder does not
-pool a week of survey choices into one artificial daily alternative. Producing
-a survey JTF later will require an explicit, documented household-day joint-tour
-purpose field because participant rows can disagree on purpose.
+Joint-tour frequency and household participation use household observations.
+For a genuinely multi-day diary, the observation key is
+`(household_id, day_num)` when tours carry the matching day column. The current
+implementation does not validate those tour days against the day table: null
+or unmatched values simply do not contribute. Repeated records collapse first
+by a valid `joint_tour_id`, then a valid `tour_id`; a row with neither becomes
+its own identity. If the tour day column is absent, the result is empty rather
+than pooling a week into one choice. One-day inputs continue to use one
+observation per household.
+
+The legacy JTF labels use minimum thresholds for only shopping, maintenance,
+eating out, visiting/social, and other discretionary. Joint purposes outside
+those five counters are ignored, and a count above a threshold can still
+receive its two-tour label. A household-day with only an outside purpose can
+therefore appear as `No Joint Tours`. These are current implementation gaps,
+not documented recoding rules for new inputs.
+
+The JTF summary declaration requires only the household table. On a one-day
+input, an unavailable or zero-column tour table can therefore produce a
+plausible all-`No Joint Tours` result instead of an unavailable summary. Check
+tour availability before accepting that distribution.
+
+Person joint-tour participation similarly uses person-days when the day table
+identifies household, person, and day and every unique joint tour maps to one
+day. It uses the day weight when available and otherwise the person weight. An
+absent or ambiguous tour-day mapping produces an empty result. If the day table
+lacks household, person, or day fields, the existing person-level participation
+fallback remains. Once the multi-day branch is selected, it also assumes a
+schemaful joint-participant table: a zero-column table can fail the builder and
+a schemaful empty table yields zero participating person-days instead of using
+the person-level fallback.
+
+The Joint Travel page currently labels these charts as households or people
+even when a multi-day run contributes household-day or person-day
+observations. The Daily Activity Pattern page likewise labels person-day
+frequency distributions as persons. Treat those static axes as a dashboard UI
+gap and use the catalog's unit description when interpreting multi-day runs.
 
 ## Adding A Summary Function
 

@@ -11,7 +11,9 @@ The main data flow is:
 ```text
 ActivitySim outputs
   -> Output Processor
-  -> prepared tables and summary caches
+  -> canonical prepared tables
+  -> optional skimjoin enrichment
+  -> summary caches
   -> Output Visualizer
   -> live dashboard or standalone HTML export
 ```

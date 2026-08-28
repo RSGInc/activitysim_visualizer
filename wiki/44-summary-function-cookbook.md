@@ -206,7 +206,7 @@ Add the new summary's category, analytical use, and field descriptions to
 
 ```bash
 uv run python scripts/generate_wiki_catalogs.py
-uv run --with pytest pytest --basetemp .pytest_tmp tests/test_summary_declarations.py tests/test_page_registry_contract.py
+uv run pytest --basetemp .pytest_tmp tests/test_summary_declarations.py tests/test_page_registry_contract.py
 ```
 
 Make sure the new ID appears in chapter 26. After connecting it to a page, make
