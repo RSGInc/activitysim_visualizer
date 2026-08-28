@@ -20,6 +20,7 @@ from processor.cache_identity import (
     build_run_fingerprint,
     build_run_keys,
     file_identity,
+    optional_file_identity,
     slugify,
 )
 from processor.models import RunData
@@ -90,9 +91,14 @@ def build_prepared_manifest_identity(
     }
     if source_type == "custom_prepared_table_map":
         normalized_table_map = dict(sorted((prepared_table_map or {}).items()))
+        sidecar_table_ids = {attr_name for attr_name, _ in SIDECAR_TABLE_ATTRS}
         identity["prepared_table_map"] = normalized_table_map
         identity["prepared_table_fingerprints"] = {
-            table_id: file_identity(path)
+            table_id: (
+                optional_file_identity(path)
+                if table_id in sidecar_table_ids
+                else file_identity(path)
+            )
             for table_id, path in normalized_table_map.items()
         }
     else:
@@ -213,17 +219,22 @@ def _write_sidecar_tables(
     *,
     file_format: str,
 ) -> dict[str, str]:
-    sidecar_frames = {
-        attr_name: getattr(rd, attr_name)
-        for attr_name, _ in SIDECAR_TABLE_ATTRS
-        if isinstance(getattr(rd, attr_name), pl.DataFrame)
-        and not getattr(rd, attr_name).is_empty()
-    }
+    filenames = _sidecar_file_map(file_format)
+    sidecar_frames: dict[str, pl.DataFrame] = {}
+    for attr_name, _ in SIDECAR_TABLE_ATTRS:
+        frame = getattr(rd, attr_name)
+        if isinstance(frame, pl.DataFrame) and not frame.is_empty():
+            sidecar_frames[attr_name] = frame
+            continue
+
+        stale_path = cache_dir / filenames[attr_name]
+        if stale_path.is_file():
+            stale_path.unlink()
+
     if not sidecar_frames:
         return {}
 
     cache_dir.mkdir(parents=True, exist_ok=True)
-    filenames = _sidecar_file_map(file_format)
     for attr_name, frame in sidecar_frames.items():
         path = cache_dir / filenames[attr_name]
         if file_format == "parquet":

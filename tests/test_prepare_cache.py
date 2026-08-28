@@ -20,6 +20,7 @@ from processor.prepare.availability import (
 )
 from processor.prepare.cache import (
     PreparedCacheError,
+    build_prepared_manifest_identity,
     build_run_fingerprint,
     load_custom_prepared_tables,
     load_prepared_run_cache,
@@ -407,6 +408,29 @@ def test_prepared_cache_round_trip_creates_default_layout(tmp_path: Path) -> Non
     assert loaded.trip_weight_col == "trip_weight"
 
 
+def test_prepared_cache_removes_stale_hypothetical_skim_sidecars(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    prepared = _prepared_run(config)
+    prepared.trip_hypothetical_skims = pl.DataFrame({"trip_id": [5001]})
+    prepared.tour_hypothetical_skims = pl.DataFrame({"tour_id": [1001]})
+
+    entry = write_prepared_run_cache(prepared, config, run_key="base")
+    trip_path = entry.cache_dir / "trip_hypothetical_skims.parquet"
+    tour_path = entry.cache_dir / "tour_hypothetical_skims.parquet"
+    assert trip_path.exists()
+    assert tour_path.exists()
+
+    prepared.trip_hypothetical_skims = pl.DataFrame()
+    prepared.tour_hypothetical_skims = pl.DataFrame()
+    entry = write_prepared_run_cache(prepared, config, run_key="base")
+
+    assert entry.manifest["sidecar_files"] == {}
+    assert not trip_path.exists()
+    assert not tour_path.exists()
+
+
 def test_prepared_cache_round_trips_skimjoin_resolved_network_los(
     tmp_path: Path,
 ) -> None:
@@ -692,6 +716,27 @@ def test_load_custom_prepared_tables_reports_missing_configured_sidecar(
     assert table_unavailable_reasons(loaded)["trip_hypothetical_skims"] == (
         f"Missing prepared sidecar file: {missing_path}"
     )
+
+
+def test_prepared_manifest_identity_allows_missing_custom_sidecar(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    prepared_map = _write_custom_prepared_tables(tmp_path / "prepared")
+    missing_path = tmp_path / "prepared" / "missing_tour_hypothetical_skims.parquet"
+    prepared_map["tour_hypothetical_skims"] = str(missing_path)
+
+    identity = build_prepared_manifest_identity(
+        run_key="base",
+        config=config,
+        run_fingerprint={},
+        source_type="custom_prepared_table_map",
+        prepared_table_map=prepared_map,
+    )
+
+    fingerprints = identity["prepared_table_fingerprints"]
+    assert fingerprints["tour_hypothetical_skims"] is None
+    assert fingerprints["trip_hypothetical_skims"]["size"] > 0
 
 
 def test_load_custom_prepared_tables_retries_csv_with_full_schema_inference(
