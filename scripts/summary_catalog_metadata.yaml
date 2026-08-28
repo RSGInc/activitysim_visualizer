@@ -1,3 +1,245 @@
+required_inputs:
+  hh:
+    description: Prepared household table.
+    fields:
+      HHSIZE:
+        type: Int32
+        description: Household person count clipped to 1 through 5, where 5 represents households of five or more people.
+      HHVEH:
+        type: Int32
+        description: Household vehicle count clipped to 0 through 4 for standard summary categories.
+      av_ownership:
+        type: Boolean-like
+        description: Whether the household owns an autonomous vehicle.
+      finalweight:
+        type: Float64
+        description: Household expansion weight from the configured weight, inverse sample rate, or 1.0 fallback.
+      household_id:
+        type: Int64
+        description: Canonical household identifier used to join people, tours, trips, days, and vehicles.
+  joint_participants:
+    description: Prepared joint-tour participant table.
+    fields:
+      person_id:
+        type: Int64
+        description: Canonical identifier of a person participating in a joint tour.
+  land_use:
+    description: Prepared land-use and zone-attribute table.
+    fields:
+      MAZ:
+        type: Int64
+        description: Canonical micro-analysis-zone identifier.
+      employment_count:
+        type: Float64
+        description: Employment opportunities associated with the zone.
+      enrollment_count:
+        type: Float64
+        description: Enrollment opportunities associated with the zone and student type.
+      student_type:
+        type: String
+        description: Student or enrollment market segment.
+  per:
+    description: Prepared person table.
+    fields:
+      age:
+        type: integer
+        description: Person age in years.
+      bike_comfort:
+        type: category
+        description: Modeled bicycle-comfort alternative.
+      distance_to_school:
+        type: Float64
+        description: Prepared home-to-school distance in the configured distance units.
+      distance_to_work:
+        type: Float64
+        description: Prepared home-to-work distance in the configured distance units.
+      external_workplace_zone_id:
+        type: identifier
+        description: Assigned external workplace zone identifier.
+      finalweight:
+        type: Float64
+        description: Person expansion weight from the configured person weight, inherited household weight, or 1.0 fallback.
+      free_parking_at_work:
+        type: Boolean-like or category
+        description: Free-workplace-parking eligibility or modeled alternative.
+      has_license:
+        type: Boolean-like
+        description: Whether the person holds a driver's license.
+      home_zone_id:
+        type: identifier
+        description: Prepared home-zone identifier.
+      household_id:
+        type: Int64
+        description: Canonical household identifier for the person.
+      is_external_worker:
+        type: Boolean-like
+        description: Whether the person's assigned workplace is external to the modeled area.
+      is_student:
+        type: Boolean-like
+        description: Whether the person is classified as a student.
+      is_worker:
+        type: String
+        description: Whether the person is classified as a worker.
+      person_id:
+        type: Int64
+        description: Canonical person identifier.
+      person_type:
+        type: source-compatible category
+        description: ActivitySim person-type code.
+      school_zone_id:
+        type: identifier
+        description: Assigned school-zone identifier.
+      student_type:
+        type: String
+        description: Prepared school or enrollment market segment.
+      telecommute_frequency:
+        type: category
+        description: Modeled telecommute-frequency alternative.
+      transit_pass_ownership:
+        type: Boolean-like
+        description: Whether the person owns a transit pass.
+      transit_pass_subsidy:
+        type: category
+        description: Modeled transit-pass-subsidy alternative.
+      work_from_home:
+        type: String
+        description: Whether the worker has a home workplace.
+      workplace_zone_id:
+        type: identifier
+        description: Assigned internal workplace-zone identifier.
+  tours:
+    description: Prepared tour table.
+    fields:
+      AUTOSUFF:
+        type: Int32
+        description: Prepared household auto-sufficiency category for the tour.
+      NUMBER_HH:
+        type: Int32
+        description: Joint-party size from participant rows, number_of_participants, an existing NUMBER_HH value, or a fallback of one.
+      SKIMDIST:
+        type: Float64
+        description: Prepared tour distance in the configured skim distance units.
+      atwork_subtour_frequency:
+        type: category
+        description: Modeled at-work subtour-frequency alternative.
+      destination:
+        type: identifier
+        description: Tour destination-zone identifier.
+      finalweight:
+        type: Float64
+        description: Tour expansion weight inherited from trips, persons, households, or a 1.0 fallback according to available configured weights.
+      household_id:
+        type: Int64
+        description: Canonical household identifier associated with the tour.
+      is_external_tour:
+        type: Boolean-like
+        description: Whether the tour destination is external to the modeled area.
+      num_escortees:
+        type: Int64
+        description: Number of students escorted on the tour.
+      num_ib_stops:
+        type: Int32
+        description: Number of inbound intermediate stops parsed from stop_frequency.
+      num_ob_stops:
+        type: Int32
+        description: Number of outbound intermediate stops parsed from stop_frequency.
+      num_tot_stops:
+        type: Int32
+        description: Total intermediate stops on the tour.
+      person_id:
+        type: Int64
+        description: Canonical person identifier associated with an individual tour.
+      school_esc_inbound:
+        type: String
+        description: Inbound school-escort alternative or status.
+      school_esc_outbound:
+        type: String
+        description: Outbound school-escort alternative or status.
+      tour_category:
+        type: String
+        description: Tour category such as mandatory, nonmandatory, joint, or at-work.
+      tour_id:
+        type: Int64
+        description: Canonical tour identifier.
+      tour_mode:
+        type: String
+        description: Main mode selected for the tour.
+      tour_purpose:
+        type: String
+        description: Primary purpose of the tour.
+      vehicle_occup_1:
+        type: vehicle-type code
+        description: Vehicle type allocated to single-occupant auto tours.
+      vehicle_occup_2:
+        type: vehicle-type code
+        description: Vehicle type allocated to two-occupant auto tours.
+      vehicle_occup_3.5:
+        type: vehicle-type code
+        description: Vehicle type allocated to auto tours with three or more occupants.
+  trips:
+    description: Prepared trip table.
+    fields:
+      escort_event_role:
+        type: String
+        description: Adult escort-event role assigned to the trip.
+      escort_stops_after_event:
+        type: Int32
+        description: Stops occurring after the associated escort event.
+      escort_stops_before_event:
+        type: Int32
+        description: Stops occurring before the associated escort event.
+      finalweight:
+        type: Float64
+        description: Trip expansion weight from the configured trip weight, inherited person or household weight, or 1.0 fallback.
+      num_participants:
+        type: Int32
+        description: Number of travelers represented by a joint trip record.
+      od_dist:
+        type: Float64
+        description: Origin-to-destination trip distance from the configured distance skim or supported survey distance, in source units.
+      out_dir_dist:
+        type: Float64
+        description: Additional distance caused by visiting the stop rather than traveling directly to the half-tour endpoint.
+      parking_zone:
+        type: Int64
+        description: Zone where the auto trip parks.
+      person_id:
+        type: Int64
+        description: Canonical person identifier associated with the trip.
+      stops:
+        type: Int32
+        description: Intermediate-stop indicator, 1 before the last trip on a half-tour and 0 for the final leg.
+      tour_id:
+        type: Int64
+        description: Canonical identifier of the parent tour.
+      tour_mode:
+        type: String
+        description: Main mode of the parent tour.
+      tour_purpose:
+        type: String
+        description: Primary purpose of the parent tour.
+      trip_mode:
+        type: String
+        description: Mode used for the trip leg.
+      trip_purpose:
+        type: String
+        description: Destination purpose of the trip leg.
+  vehicles:
+    description: Prepared household-vehicle table.
+    fields:
+      body_type:
+        type: String
+        description: Vehicle body-style category parsed from vehicle_type.
+      finalweight:
+        type: Float64
+        description: Vehicle expansion weight inherited from the owning household or set to 1.0 when unavailable.
+      fuel_type:
+        type: String
+        description: Vehicle fuel or powertrain category parsed from vehicle_type.
+      vehicle_age:
+        type: Int64
+        description: Vehicle age in years parsed from vehicle_type.
+
 categories:
 - name: Population and Demographics
   summaries:

@@ -106,9 +106,12 @@ class RegionalValidationPage(DashboardPage):
 Use `required_summary_ids` only if the table is necessary for the primary page
 view.
 
-Add the table's category, analytical use, and field descriptions to
-`scripts/summary_catalog_metadata.yaml` so chapter 26 can combine them with the
-registered contract.
+Add the table's category, analytical use, and output-field descriptions to
+`scripts/summary_catalog_metadata.yaml` so chapter 26 and the standalone user
+reference can combine them with the registered contract. Add shared input-field
+metadata there if the declaration introduces a new prepared requirement. When
+adding a prepared table or stable prepared field, also update
+`scripts/processor_output_catalog_metadata.yaml`.
 
 Tests must verify registration, strict schema validation, loading, and page
 requirements:

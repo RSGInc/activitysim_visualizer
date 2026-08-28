@@ -1,0 +1,398 @@
+prepared_outputs:
+  - runtime_name: hh
+    table_id: households
+    filename: households
+    description: >-
+      One row per household. This core prepared table preserves the ActivitySim
+      household record and adds stable weights, household-size and vehicle-count
+      aliases, auto-sufficiency inputs, and home-geography fields. Use it for
+      household controls, demographic profiles, vehicle availability, and
+      residential geography analysis. The cache file is always present, but it
+      contains an empty sentinel when the source table is unavailable or empty.
+    fields:
+      home_zone_id:
+        type: source-compatible identifier
+        description: Household home-zone identifier, normally a MAZ when MAZ processing is enabled.
+      WORKERS:
+        type: Int32
+        description: Number of workers copied from the configured household worker-count field.
+      LICENSEDDRIVERS:
+        type: Int32
+        description: Licensed household members derived from person records when license data are available.
+      ADULTS:
+        type: Int32
+        description: Number of adults copied from the configured household adult-count field.
+      home_taz:
+        type: source-compatible identifier
+        description: TAZ corresponding to home_zone_id; copied directly in TAZ models or looked up from land use in MAZ models.
+      HGEO:
+        type: String
+        description: Legacy configured home-geography label used by compatible summaries.
+      home_geo__<name>:
+        type: String
+        description: Home-geography identifier for each configured named geography aggregation.
+
+  - runtime_name: per
+    table_id: persons
+    filename: persons
+    description: >-
+      One row per person. This core table preserves ActivitySim person attributes
+      and choices and supplies canonical identifiers, worker/student indicators,
+      home/work/school geography, mandatory-distance measures, and analysis
+      weights. Use it for population segmentation, long-term choice analysis,
+      accessibility, and person-level rates. The cache file is always present,
+      with an empty sentinel when the source is unavailable or empty.
+    fields:
+      is_university:
+        type: Boolean-like source value
+        description: Prepared university-student indicator selected from the configured source alias.
+      adult:
+        type: String
+        description: Prepared adult-status value used when deriving household auto-sufficiency inputs.
+      mandatory_tour_frequency:
+        type: String
+        description: Mandatory-tour-frequency choice used directly by summaries when available.
+      imf_choice:
+        type: integer
+        description: Legacy numeric mandatory-tour-frequency code derived from named ActivitySim alternatives.
+      num_joint_tours:
+        type: Int32
+        description: Number of unique joint tours linked to the person through the joint-participant table.
+      home_taz:
+        type: source-compatible identifier
+        description: TAZ corresponding to the person's home zone.
+      work_taz:
+        type: source-compatible identifier
+        description: TAZ corresponding to the person's internal workplace zone.
+      school_taz:
+        type: source-compatible identifier
+        description: TAZ corresponding to the person's school zone.
+      HGEO:
+        type: String
+        description: Legacy configured home-geography label.
+      WGEO:
+        type: String
+        description: Legacy configured workplace-geography label.
+      home_geo__<name>:
+        type: String
+        description: Home-geography identifier for each configured named geography aggregation.
+      work_geo__<name>:
+        type: String
+        description: Workplace-geography identifier for each configured named geography aggregation.
+      school_geo__<name>:
+        type: String
+        description: School-geography identifier for each configured named geography aggregation.
+
+  - runtime_name: day
+    table_id: day
+    filename: day
+    description: >-
+      Optional person-day or household-day records retained from multi-day model
+      or survey output. Use this table for daily activity-pattern and frequency
+      analysis where a person can contribute more than one observed day. An
+      empty sentinel is written when no day table is available.
+    fields:
+      day_id:
+        type: Int64
+        description: Canonical day-record identifier when supplied.
+      household_id:
+        type: Int64
+        description: Household identifier for the observed day when supplied.
+      person_id:
+        type: Int64
+        description: Person identifier for the observed day when supplied.
+      person_type:
+        type: String
+        description: Person type retained from the source or joined from the prepared person table.
+      travel_date:
+        type: String
+        description: Source travel-date label when available.
+      day_num:
+        type: Int32
+        description: Sequential day number within the person's or household's observation period.
+      travel_dow:
+        type: Int32
+        description: Source day-of-week code when available.
+      daily_activity_pattern:
+        type: String
+        description: Daily activity-pattern alternative, such as mandatory, nonmandatory, or home.
+      day_weight:
+        type: source-compatible number
+        description: Configured source day weight retained for provenance when available.
+      finalweight:
+        type: Float64
+        description: Day expansion weight from day, person, or household weights, with a 1.0 fallback.
+
+  - runtime_name: tours
+    table_id: tours
+    filename: tours
+    description: >-
+      One row per source tour representation. This core table preserves
+      ActivitySim tour choices and adds standardized purpose, household context,
+      stop counts, joint-party size, distance, time-period, and geography fields.
+      Use it for tour frequency, mode, destination, scheduling, stop-pattern,
+      joint-travel, and vehicle-allocation analysis. Some ActivitySim outputs
+      repeat joint tours by participant; summary descriptions state when those
+      rows are fractionally adjusted. The cache file is always present.
+    fields:
+      person_type:
+        type: source-compatible category
+        description: Person type copied from a configured tour-table alias when present.
+      summary_tour_purpose:
+        type: String
+        description: Purpose normalized to the configured summary-purpose categories.
+      origin:
+        type: source-compatible identifier
+        description: Tour origin zone; home-based and at-work origins are repaired from household or parent-tour context when possible.
+      start_hour:
+        type: Int32
+        description: Tour start period, using the source period system or the survey adapter's 48-period conversion.
+      end_hour:
+        type: Int32
+        description: Tour end period in the same period system as start_hour.
+      start_period:
+        type: String
+        description: Configured named network period corresponding to the tour start period.
+      end_period:
+        type: String
+        description: Configured named network period corresponding to the tour end period.
+      first_inbound_trip_depart:
+        type: Int32
+        description: Departure period of the first inbound trip on the tour when it can be derived.
+      first_inbound_trip_period:
+        type: String
+        description: Named network period of the first inbound trip.
+      tourdur:
+        type: Int32
+        description: Inclusive tour duration, end_hour minus start_hour plus one, clipped to 1 through 48 periods.
+      stop_frequency:
+        type: source-compatible category
+        description: ActivitySim stop-frequency choice retained from the configured source field.
+      composition:
+        type: String
+        description: Joint-party composition retained from the source or derived as adults, children, or mixed from participant attributes.
+      income_segment:
+        type: Int64
+        description: Household income segment copied to the tour when available.
+      o_maz:
+        type: Int64
+        description: Tour-origin MAZ copied from origin when MAZ processing is enabled.
+      d_maz:
+        type: Int64
+        description: Tour-destination MAZ copied from destination when MAZ processing is enabled.
+      OTAZ:
+        type: Int32
+        description: Origin TAZ copied or looked up from the origin MAZ.
+      DTAZ:
+        type: Int32
+        description: Destination TAZ copied or looked up from the destination MAZ.
+      pnr_zone_id:
+        type: Int64
+        description: Park-and-ride lot or zone selected for a drive-transit tour when supplied.
+      pnr_taz:
+        type: Int32
+        description: TAZ corresponding to pnr_zone_id.
+      origin_geo__<name>:
+        type: String
+        description: Origin-geography identifier for each configured named geography aggregation.
+      destination_geo__<name>:
+        type: String
+        description: Destination-geography identifier for each configured named geography aggregation.
+      tour_distance:
+        type: Float64
+        description: Supplied tour distance with missing values filled from SKIMDIST when both fields are available.
+      vot_bin:
+        type: String
+        description: Configured value-of-time category used to select segmented skims.
+      <configured skim output>:
+        type: normally Float64
+        description: Skimjoin result whose name, units, direction, and mode applicability are defined by the normalized skimjoin configuration.
+
+  - runtime_name: trips
+    table_id: trips
+    filename: trips
+    description: >-
+      One row per source trip representation. This core table preserves
+      ActivitySim trip choices and adds parent-tour context, canonical endpoints,
+      distances, periods, stop indicators, escort-event positions, geography,
+      and weights. Use it for trip and stop rates, mode and purpose analysis,
+      parking demand, time-of-day profiles, VMT, and travel-impedance analysis.
+      Joint records may represent several travelers; summary descriptions state
+      how participant expansion is applied. The cache file is always present.
+    fields:
+      household_id:
+        type: Int64
+        description: Canonical household identifier associated with the trip.
+      trip_id:
+        type: Int64
+        description: Canonical trip identifier.
+      summary_tour_purpose:
+        type: String
+        description: Parent-tour purpose normalized to configured summary-purpose categories.
+      tour_category:
+        type: String
+        description: Category of the parent tour, filled from the prepared tour table when necessary.
+      origin:
+        type: source-compatible identifier
+        description: Trip origin zone; tour-boundary endpoints are repaired from the prepared tour origin when possible.
+      destination:
+        type: source-compatible identifier
+        description: Trip destination zone; tour-boundary endpoints are repaired from the prepared tour origin when possible.
+      outbound:
+        type: Boolean-like source value
+        description: Direction flag indicating the outbound half of the tour.
+      inbound:
+        type: Int32
+        description: Derived inverse direction indicator, 1 for inbound records and 0 otherwise.
+      trip_num:
+        type: Int32
+        description: Sequential trip number within a tour direction.
+      max_trip_num:
+        type: integer
+        description: Largest trip number on the same tour half, used to identify intermediate stops.
+      depart_hour:
+        type: Int32
+        description: Trip departure period; defaults to one only when no departure field is available.
+      trip_period:
+        type: String
+        description: Configured named network period corresponding to the trip departure period.
+      income_segment:
+        type: Int64
+        description: Household income segment copied to the trip when available.
+      AUTOSUFF:
+        type: Int32
+        description: Parent-household auto-sufficiency category under the configured comparison basis.
+      o_maz:
+        type: Int64
+        description: Trip-origin MAZ copied from origin when MAZ processing is enabled.
+      d_maz:
+        type: Int64
+        description: Trip-destination MAZ copied from destination when MAZ processing is enabled.
+      OTAZ:
+        type: Int32
+        description: Origin TAZ copied or looked up from the origin MAZ.
+      DTAZ:
+        type: Int32
+        description: Destination TAZ copied or looked up from the destination MAZ.
+      pnr_zone_id:
+        type: Int64
+        description: Park-and-ride zone inherited from the parent tour when supplied.
+      pnr_taz:
+        type: Int32
+        description: TAZ corresponding to pnr_zone_id.
+      origin_parking_zone:
+        type: Int64
+        description: Parking zone associated with the trip origin when supplied.
+      origin_geo__<name>:
+        type: String
+        description: Origin-geography identifier for each configured named geography aggregation.
+      destination_geo__<name>:
+        type: String
+        description: Destination-geography identifier for each configured named geography aggregation.
+      prepared_non_motorized_distance:
+        type: Float64
+        description: Optional walk/bicycle/e-bike distance from the configured non-motorized skim source.
+      escort_event_trip_num:
+        type: Int32
+        description: Trip number at which the matched escort event occurs.
+      escort_event_match_status:
+        type: String
+        description: Whether escort-event matching was matched, ambiguous, or unmatched.
+      vot_bin:
+        type: String
+        description: Configured value-of-time category used to select segmented skims.
+      <configured skim output>:
+        type: normally Float64
+        description: Skimjoin result whose name, units, lookup direction, and mode applicability are defined by the normalized skimjoin configuration.
+
+  - runtime_name: vehicles
+    table_id: vehicles
+    filename: vehicles
+    description: >-
+      Optional one-row-per-household-vehicle table. It preserves ActivitySim
+      vehicle records and decodes the standard compound vehicle type into body,
+      age, and fuel attributes. Use it for fleet composition, vehicle technology,
+      energy, emissions, and vehicle-allocation analysis. An empty sentinel is
+      written when no vehicle table is available.
+    fields:
+      household_id:
+        type: Int64
+        description: Canonical identifier of the household that owns the vehicle.
+      vehicle_id:
+        type: Int64
+        description: Canonical vehicle identifier.
+      vehicle_num:
+        type: Int32
+        description: Sequential vehicle number within the household.
+      vehicle_type:
+        type: String
+        description: Source vehicle-type choice, commonly encoded as body type, age, and fuel type separated by underscores.
+
+  - runtime_name: joint_participants
+    table_id: joint_tour_participants
+    filename: joint_tour_participants
+    description: >-
+      Optional participation records linking people to fully joint tours. The
+      usual grain is one person-tour participation, although additional source
+      attributes are retained. Use it to determine joint-tour party size,
+      composition, and person participation without treating a household tour
+      as independent person tours. An empty sentinel is written when the source
+      table is unavailable.
+    fields:
+      tour_id:
+        type: Int64
+        description: Canonical identifier of the joint tour.
+
+  - runtime_name: land_use
+    table_id: land_use
+    filename: land_use
+    description: >-
+      Optional zone and land-use attribute table, normally one row per source
+      MAZ or TAZ before any enrollment overlays are added. It supports zone
+      translation, named geography joins, employment and enrollment controls,
+      parking capacity, and destination-based analysis. When configured student
+      markets are expanded, additional zone/student-type rows carry enrollment
+      counts. An empty sentinel is written when land use is unavailable.
+    fields:
+      TAZ:
+        type: Int64
+        description: Canonical transportation-analysis-zone identifier.
+      EMPLOYMENT:
+        type: Float64
+        description: Canonical total employment copied from the configured land-use employment field.
+      land_use_geo__<name>:
+        type: String
+        description: Geography identifier for each configured named land-use aggregation.
+
+conditional_sidecars:
+  - attribute: trip_hypothetical_skims
+    filename: trip_hypothetical_skims
+    description: >-
+      Optional long-form trip skim values evaluated under configured modes other
+      than each trip's observed mode. One row represents a trip, hypothetical
+      mode, and skim component. Use it to compare travel impedance across modal
+      alternatives without duplicating the full prepared trip table. It is
+      written only when hypothetical skim tables are enabled and populated.
+    fields:
+      trip_id: Canonical identifier of the evaluated trip.
+      observed_mode: Mode selected in the source trip record.
+      hypothetical_mode: Alternative mode used for the skim lookup.
+      component: Configured skim output name, which determines the value's units and interpretation.
+      value: Skim value for the trip and hypothetical mode; null when the lookup is unresolved.
+      finalweight: Expansion weight inherited from the prepared trip record.
+  - attribute: tour_hypothetical_skims
+    filename: tour_hypothetical_skims
+    description: >-
+      Optional long-form tour skim values evaluated under configured modes other
+      than each tour's observed mode. One row represents a tour, hypothetical
+      mode, direction, and skim component. Use it to compare outbound, inbound,
+      and combined tour impedance across modal alternatives. It is written only
+      when hypothetical skim tables are enabled and populated.
+    fields:
+      tour_id: Canonical identifier of the evaluated tour.
+      observed_mode: Main mode selected in the source tour record.
+      hypothetical_mode: Alternative mode used for the skim lookup.
+      direction: Outbound or inbound for directional components; null for nondirectional components.
+      component: Configured skim output name, which determines the value's units and interpretation.
+      value: Skim value for the tour, direction, and hypothetical mode; null when unresolved.
+      finalweight: Expansion weight inherited from the prepared tour record.

@@ -105,8 +105,9 @@ source. If it fails, rebuild the asset and commit the generated change. Do not
 edit the asset directly.
 
 After changing summary declarations, schemas, summary catalog metadata, page
-definitions, groups, or page data requirements, regenerate and test the
-catalogs:
+definitions, groups, or page data requirements, regenerate and test the wiki
+catalogs and standalone processor output reference. Changes to prepared-output
+or sidecar contracts also require regeneration:
 
 ```powershell
 uv run python scripts/generate_wiki_catalogs.py

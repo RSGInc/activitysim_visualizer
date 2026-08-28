@@ -74,12 +74,14 @@ During development, use the smallest relevant test group. The
 [Testing](46-testing.md) chapter describes the fast and full markers and gives
 the required release test commands.
 
-## Generated Wiki Catalogs
+## Generated Documentation Catalogs
 
 Regenerate the catalogs after you change:
 
 - `@summary(...)` declarations and contracts
 - `processor/summarize/catalog.py`
+- prepared-cache and hypothetical-sidecar contracts
+- `scripts/processor_output_catalog_metadata.yaml`
 - `scripts/summary_catalog_metadata.yaml`
 - dashboard page definitions
 - page data requirements
@@ -91,7 +93,8 @@ uv run python scripts/generate_wiki_catalogs.py
 ```
 
 Comments identify generated sections. Do not edit the text between those
-markers by hand.
+markers by hand. Processor contracts and metadata generate both the detailed
+wiki catalog and `reference/processor-output-table-reference.md`.
 
 ## Documentation Maintenance
 

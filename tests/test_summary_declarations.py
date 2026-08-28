@@ -13,7 +13,9 @@ from processor.models import RunData
 from processor.summarize.catalog import build_summary_catalog
 from processor.summarize.contracts import SummaryResultError, summary
 from scripts.generate_wiki_catalogs import (
+    _validate_processor_output_reference,
     _validate_summary_reference,
+    build_processor_output_reference,
     build_summary_catalog as build_wiki_summary_catalog,
 )
 
@@ -111,7 +113,12 @@ def test_wiki_summary_catalog_documents_build_status_and_all_fields() -> None:
 
     catalog = build_wiki_summary_catalog()
 
-    assert "| Category | Summary / output file |" in catalog
+    assert "### Population and Demographics" in catalog
+    assert "Related dashboard pages: Overview." in catalog
+    assert (
+        "| Summary Table | Information and Analytical Use | "
+        "Required Tables/Fields | Output Fields | Summary Function |"
+    ) in catalog
     population_row = next(
         line for line in catalog.splitlines() if "`population_totals`<br>" in line
     )
@@ -122,6 +129,65 @@ def test_wiki_summary_catalog_documents_build_status_and_all_fields() -> None:
     )
 
     assert "`population_totals.csv`" in population_row
+    assert "`per`: Prepared person table." in population_row
+    assert "`finalweight` (`Float64`): Person expansion weight" in population_row
     assert "`person_count` (`Float64`): weighted persons." in population_row
     assert "`auto_vmt_validation_summary.csv`" in external_row
-    assert "Default: no" in external_row
+    assert "Default build: **no**" in external_row
+    assert sum(line.startswith("| `") for line in catalog.splitlines()) == 100
+
+
+def test_processor_output_reference_covers_each_output_boundary() -> None:
+    _validate_processor_output_reference()
+    reference = build_processor_output_reference()
+
+    assert "## 1. Prepared Output Tables" in reference
+    assert "## 2. Summary Output Tables" in reference
+    assert "### Population and Demographics" in reference
+    assert "## 3. Hypothetical All-Modes Skim Tables" in reference
+    assert "## 4. Externally Supplied Table Schemas" in reference
+    assert "**These tables are not created by the processor.**" in reference
+    assert "### `households` Prepared Table" in reference
+    assert "_Processor runtime name: `hh`._" in reference
+    assert "| Field | Type | Description |" in reference
+    assert "| Summary Table | Information and Analytical Use | Fields |" in reference
+    assert (
+        "Every summary table is saved as a CSV file named "
+        "`<summary_table>.csv`." in reference
+    )
+    assert "Required Tables/Fields" not in reference
+    assert "Summary Function" not in reference
+    household_row = next(
+        line for line in reference.splitlines() if line.startswith("| `household_id`")
+    )
+    population_row = next(
+        line
+        for line in reference.splitlines()
+        if line.startswith("| `population_totals` |")
+    )
+    sidecar_row = next(
+        line
+        for line in reference.splitlines()
+        if line.startswith("| `trip_hypothetical_skims` |")
+    )
+    external_row = next(
+        line
+        for line in reference.splitlines()
+        if line.startswith("| `auto_vmt_validation_summary` |")
+    )
+    assert "| `household_id` | `Int64` |" in household_row
+    assert "`population_totals.csv`" not in population_row
+    assert "`person_count` (`Float64`): weighted persons." in population_row
+    assert "`trip_id` (`Int64`)" in sidecar_row
+    assert "`auto_vmt_validation_summary.csv`" not in external_row
+    assert "skim_lookup_summary.csv" not in reference
+
+    summary_section, remainder = reference.split(
+        "## 2. Summary Output Tables", maxsplit=1
+    )[1].split("## 3. Hypothetical All-Modes Skim Tables", maxsplit=1)
+    sidecar_section, external_section = remainder.split(
+        "## 4. Externally Supplied Table Schemas", maxsplit=1
+    )
+    assert sum(line.startswith("| `") for line in summary_section.splitlines()) == 87
+    assert sum(line.startswith("| `") for line in sidecar_section.splitlines()) == 2
+    assert sum(line.startswith("| `") for line in external_section.splitlines()) == 13

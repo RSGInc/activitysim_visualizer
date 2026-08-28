@@ -318,8 +318,11 @@ activitysim_visualizer/
 |-- scripts/
 |   |-- generate_wiki_catalogs.py
 |   |-- generate_validation_demo_fixtures.py
+|   |-- processor_output_catalog_metadata.yaml
 |   |-- run_simor_scenarios.py
 |   `-- summary_catalog_metadata.yaml
+|-- reference/
+|   `-- processor-output-table-reference.md
 |-- wiki/
 `-- tests/
 ```

@@ -109,6 +109,10 @@ or apply conditional requirements that the declaration does not express. At
 runtime, `@summary` requirements, builder checks, and prepared-table
 availability metadata determine whether a calculation can run.
 
+The standalone `reference/processor-output-table-reference.md` provides the
+user-facing field dictionary for canonical and processor-derived prepared
+outputs, summary outputs, and optional hypothetical-skim sidecars.
+
 ### Schema 11 Tour Rules
 
 Current tour and trip preparation applies these canonical rules:

@@ -201,8 +201,11 @@ supply the view. This can occur with an old or external cache.
 
 ## 7. Regenerate And Verify
 
-Add the new summary's category, analytical use, and field descriptions to
-`scripts/summary_catalog_metadata.yaml`, then use these commands:
+Add the new summary's category, analytical use, and output-field descriptions to
+`scripts/summary_catalog_metadata.yaml`. Add shared input-field metadata when
+the declaration introduces a new prepared requirement. Update
+`scripts/processor_output_catalog_metadata.yaml` for any new prepared output,
+then use these commands:
 
 ```bash
 uv run python scripts/generate_wiki_catalogs.py

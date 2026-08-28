@@ -92,7 +92,10 @@ The table-specific finalizer casts known canonical numeric fields to integer or
 Columns not owned by the canonical contract keep their source types. See
 [21 - Prepared Tables](21-prepared-tables.md) for the enrichment stages and
 [26 - Summary Catalog](26-summary-catalog.md) for the exact fields required by
-each summary.
+each summary. The standalone
+`reference/processor-output-table-reference.md` documents the canonical and
+processor-derived prepared fields for incorporation into user-facing output
+documentation.
 
 ## Prepared Relationship Checks
 
