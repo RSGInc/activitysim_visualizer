@@ -53,7 +53,7 @@ zones, see [Getting Started](wiki/10-getting-started.md) and
 [Configuring Your Data](wiki/11-configuring-your-data.md).
 
 For the included Metro, LCOG, and SKATS configurations, use the
-[SimOR Quick Start](simor_configs/README.md).
+[SimOR Quick Start](SIMOR_QUICK_START_GUIDE.md).
 
 ### 3. Start the visualizer
 
