@@ -27,7 +27,9 @@ STOP_SEGMENT_LABELS = {
 }
 STUDENT_ESCORT_DESCRIPTION = (
     "Student school tours by escort type. `Both Directions` means the same child "
-    "school tour is escorted in both outbound and inbound directions."
+    "school tour is escorted in both outbound and inbound directions. `Outbound` "
+    "means the home-to-school direction is escorted, and `Inbound` means the "
+    "school-to-home direction is escorted."
 )
 HOUSEHOLD_ESCORT_DESCRIPTION = (
     "Households with school escorting by number of students per household. "
