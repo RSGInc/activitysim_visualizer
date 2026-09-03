@@ -5157,10 +5157,27 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
                         "school_district",
                         "school_district",
                         "school_district",
+                        "region",
+                        "region",
+                        "region",
                     ],
-                    "geography_id": ["North", "North", "South"],
-                    "telecommute_frequency": ["never", "often", "never"],
-                    "person_count": [7.0, 5.0, 4.0],
+                    "geography_id": [
+                        "North",
+                        "North",
+                        "South",
+                        "Metro",
+                        "Metro",
+                        "Rural",
+                    ],
+                    "telecommute_frequency": [
+                        "never",
+                        "often",
+                        "never",
+                        "never",
+                        "often",
+                        "never",
+                    ],
+                    "person_count": [7.0, 5.0, 4.0, 6.0, 2.0, 2.0],
                 }
             ),
             "average_mandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
@@ -5188,6 +5205,7 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
     page.refresh(force=True)
 
     assert "School District" in list(page.geo_level_sel.options)
+    assert "Region" in list(page.geo_level_sel.options)
     assert list(page.geography_sel.options) == ["All Geographies"]
     page.geo_level_sel.value = "School District"
     page.refresh(force=True)
@@ -5278,6 +5296,29 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
     )
     assert list(south_telecommute_plot.object.data[0].x) == ["never", "often"]
     assert list(south_telecommute_plot.object.data[0].y) == [100.0, 0.0]
+
+    page.geo_level_sel.value = "Region"
+    page.refresh(force=True)
+    assert list(page.geography_sel.options) == ["All Regions", "Metro", "Rural"]
+    region_remote_work_plots = _collect_plotly_panes(page._remote_work_section)
+    region_telecommute_plot = next(
+        plot
+        for plot in region_remote_work_plots
+        if plot.object.layout.title.text == "Telecommute Rate"
+    )
+    assert list(region_telecommute_plot.object.data[0].x) == ["never", "often"]
+    assert list(region_telecommute_plot.object.data[0].y) == [80.0, 20.0]
+
+    page.geography_sel.value = "Rural"
+    page.refresh(force=True)
+    rural_remote_work_plots = _collect_plotly_panes(page._remote_work_section)
+    rural_telecommute_plot = next(
+        plot
+        for plot in rural_remote_work_plots
+        if plot.object.layout.title.text == "Telecommute Rate"
+    )
+    assert list(rural_telecommute_plot.object.data[0].x) == ["never", "often"]
+    assert list(rural_telecommute_plot.object.data[0].y) == [100.0, 0.0]
 
 
 def test_mandatory_location_choice_reuses_collected_data_on_selector_changes(
