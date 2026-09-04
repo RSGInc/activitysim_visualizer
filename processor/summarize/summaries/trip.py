@@ -10,6 +10,7 @@ from processor.summarize.summaries.summary_helpers import (
     _all_purpose_rollup as _all_tour_purpose_rollup,
     _configured_geography_dimensions,
     _summary_purpose_column as _trip_purpose_column,
+    attach_person_travel_weight,
     weighted_group_sum,
 )
 from runtime.config import Config
@@ -33,10 +34,15 @@ def trip_purpose(rd: RunData, config: Config) -> pl.DataFrame:
         return trip_purpose.empty()
 
     base = (
-        rd.trips.filter(pl.col("trip_purpose").is_not_null())
+        attach_person_travel_weight(
+            rd,
+            rd.trips.filter(pl.col("trip_purpose").is_not_null()),
+            participant_col="num_participants",
+            output_col="person_trip_weight",
+        )
         .filter(pl.col(purpose_col).is_not_null())
         .group_by([purpose_col, "trip_purpose"])
-        .agg(trip_count=pl.col("finalweight").sum())
+        .agg(trip_count=pl.col("person_trip_weight").sum())
         .rename({purpose_col: "tour_purpose"})
         .with_columns(
             pl.col("tour_purpose").cast(pl.Utf8),
@@ -78,12 +84,17 @@ def stop_purpose_by_tour_purpose(rd: RunData, config: Config) -> pl.DataFrame:
         return stop_purpose_by_tour_purpose.empty()
 
     return (
-        rd.trips.filter(pl.col("stops") == 1)
+        attach_person_travel_weight(
+            rd,
+            rd.trips.filter(pl.col("stops") == 1),
+            participant_col="num_participants",
+            output_col="person_trip_weight",
+        )
         .filter(
             pl.col(purpose_col).is_not_null() & pl.col("trip_purpose").is_not_null()
         )
         .group_by([purpose_col, "trip_purpose"])
-        .agg(stop_count=pl.col("finalweight").sum())
+        .agg(stop_count=pl.col("person_trip_weight").sum())
         .rename(
             {
                 purpose_col: "tour_purpose",
@@ -119,19 +130,23 @@ def trip_mode(rd: RunData, config: Config) -> pl.DataFrame:
     if not purpose_col:
         return trip_mode.empty()
 
-    base = (
+    base = attach_person_travel_weight(
+        rd,
         rd.trips.filter(
             pl.col(purpose_col).is_not_null()
             & pl.col("tour_mode").is_not_null()
             & pl.col("trip_mode").is_not_null()
-        )
-        .pipe(
-            weighted_group_sum,
-            [purpose_col, "tour_mode", "trip_mode"],
-            weight_col="finalweight",
-            output_col="trip_count",
-        )
-        .rename({purpose_col: "tour_purpose"})
+        ),
+        participant_col="num_participants",
+        output_col="person_trip_weight",
+    ).pipe(
+        weighted_group_sum,
+        [purpose_col, "tour_mode", "trip_mode"],
+        weight_col="person_trip_weight",
+        output_col="trip_count",
+    )
+    base = (
+        base.rename({purpose_col: "tour_purpose"})
         .select(
             pl.col("tour_purpose").cast(pl.Utf8),
             pl.col("tour_mode").cast(pl.Utf8),

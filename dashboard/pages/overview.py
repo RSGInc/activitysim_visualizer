@@ -7,10 +7,10 @@ import polars as pl
 
 from dashboard.rendering import (
     to_pandas,
-    column_titles,
     drop_index_columns,
     format_numeric_frame,
 )
+from dashboard.rendering.tables import column_title_metadata
 from dashboard.helpers.comparison_helpers import (
     build_base_run_percent_difference_table,
 )
@@ -19,8 +19,8 @@ from dashboard import DashboardPage, dashboard_page
 from dashboard.page_base import SectionContent
 
 KPI_METRICS = [
-    ("person_count", "Population"),
-    ("household_count", "Households"),
+    ("person_count", "Population (person-days)"),
+    ("household_count", "Households (HH-days)"),
     ("auto_vmt", "VMT"),
     ("tour_count", "Tours"),
     ("trip_count", "Trips"),
@@ -182,11 +182,13 @@ class OverviewPage(DashboardPage):
             drop_index_columns(pct_df),
             numeric_precision=2,
         )
+        titles, header_tooltips = column_title_metadata(display_df.columns)
         return pn.widgets.Tabulator(
             to_pandas(display_df),
             sizing_mode="stretch_width",
             height=260,
-            titles=column_titles(display_df.columns),
+            titles=titles,
+            header_tooltips=header_tooltips,
             show_index=False,
         )
 
@@ -249,12 +251,12 @@ class OverviewPage(DashboardPage):
                     self._kpi_card(
                         totals_list,
                         metric="person_count",
-                        label="Population",
+                        label="Population (person-days)",
                     ),
                     self._kpi_card(
                         totals_list,
                         metric="household_count",
-                        label="Households",
+                        label="Households (HH-days)",
                     ),
                     vmt_box,
                     sizing_mode="stretch_width",
@@ -303,7 +305,7 @@ class OverviewPage(DashboardPage):
     def render_demographics(self) -> SectionContent:
         """Render the demographic distribution charts."""
         if not self.state.run_labels:
-            return []
+            return [self.no_runs_message()]
 
         ptype_result, hhsize_result = self._demographic_results()
         return [

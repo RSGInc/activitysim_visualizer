@@ -1,0 +1,690 @@
+# ActivitySim Visualizer Configuration
+# Adapt this file for each model deployment.
+# Only the sections you need are required — see comments for which are optional.
+
+name: "LCOG Settings"
+root: ../../simor_project_outputs/lcog_outputs # relative to the config's location 
+log_level: INFO
+
+pipeline:
+  steps:
+    - prepare
+    - skimjoin
+    # - segment
+    - summarize # will automatically overwrite summaries with a stale cache
+    - dashboard
+  dashboard_mode: export # live | export | host 
+  refresh: [] # list stages here only when a forced rebuild is required
+
+# ---------------------------------------------------------------------------
+# ActivitySim output file names
+# Use stems (no extension) for automatic format detection: the reader will try
+# .parquet first, then .csv.  You may also specify an explicit extension to
+# force a particular format (e.g. final_households.csv or final_tours.parquet).
+# ---------------------------------------------------------------------------
+files:
+  households:              household
+  persons:                 person
+  day:                     day
+  tours:                   tour
+  trips:                   trip_linked
+  vehicles:                vehicles
+  joint_tour_participants: joint_tour_participants
+  land_use:                land_use
+
+  
+
+# Optional shared fallback files for optional inputs that may be missing in some
+# run folders. These must be explicit .csv or .parquet paths.
+fallback_files:
+  land_use: U:/projects/clients/Oregon_HTS/SimOR/resident/outputs/estimation_lcog/final_land_use.csv
+
+# ---------------------------------------------------------------------------
+# Runs to compare
+# Each entry specifies a run directory, a display label, and optional overrides.
+#
+# Weight columns (all optional — leave as null or omit to use default rules):
+#   hh_weight_col:     explicit household weight column in final_households
+#   person_weight_col: explicit person weight column in final_persons
+#   trip_weight_col:   explicit trip weight column in final_trips
+#                      (tour weight = average of its trips' weights when set)
+#   day_weight_col:    explicit day-table weight column; set to null to inherit
+#                      the corresponding person weight
+#
+# If none of the above are set and sample_rate is not in columns, all weights = 1.
+# ---------------------------------------------------------------------------
+runs:
+  - dir:              U:/projects/clients/Oregon_HTS/hts_pyprocess/template/oregon/or_statewide_out
+    label:            Raw Statewide Survey
+    hh_weight_col:     hh_weight
+    person_weight_col: person_weight
+    file_map:
+      households:              toc_household
+      persons:                 toc_person
+      day:                     toc_day
+      tours:                   toc_tour
+      trips:                   toc_trip_linked
+      joint_tour_participants: toc_joint_tour_participants
+    skimjoin:
+      enabled: false
+
+  - dir:              U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/lcog/data_full/survey_data
+    label:            "Regional: Filtered & Attributed"
+    hh_weight_col:     hh_weight
+    person_weight_col: person_weight
+    day_weight_col:    null
+    skimjoin:
+      config_path: lcog_skimjoin_config_alternate_id_col.yaml
+
+  - dir:              U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/lcog/data_full/
+    label:            Estimation Mode Inputs
+    hh_weight_col:     hh_weight
+    person_weight_col: person_weight
+    file_map:
+      households:              override_households
+      persons:                 override_persons
+      tours:                   override_tours
+      trips:                   override_trips
+      joint_tour_participants: override_joint_tour_participants
+
+  - dir:              U:/projects/clients/Oregon_HTS/SimOR/resident/outputs/estimation_lcog/
+    label:            Estimation Mode Outputs
+    hh_weight_col:     hh_weight
+    person_weight_col: person_weight
+    file_map:
+      households:              final_households
+      persons:                 final_persons
+      tours:                   final_tours
+      trips:                   final_trips
+      vehicles:                final_vehicles
+      joint_tour_participants: final_joint_tour_participants
+      land_use:                final_land_use
+
+
+# ---------------------------------------------------------------------------
+# Zone system
+# Set use_maz: false for TAZ-only models (zone IDs in outputs are already TAZs).
+# For 2-zone (MAZ+TAZ) models, specify which columns in final_land_use
+# hold the MAZ and TAZ IDs.
+# ---------------------------------------------------------------------------
+zones:
+  use_maz:  true         # false = TAZ-only model, no MAZ→TAZ conversion needed
+  maz_col:  [MAZ, zone_id]      # column in final_land_use containing MAZ IDs
+  taz_col:  TAZ           # column in final_land_use containing TAZ IDs
+
+
+# ---------------------------------------------------------------------------
+# Column names in the ActivitySim output files
+# Change only if your outputs use non-standard column names.
+# ---------------------------------------------------------------------------
+columns:
+  household_id:   [household_id, hh_id]
+  trip_id:        [trip_id, linked_trip_id]
+  trip_mode:      [trip_mode, linked_trip_mode]
+  trip_num:       [trip_num, linked_trip_num]
+  ptype:          ptype           # person type column in persons file
+  hhsize:         hhsize          # HH size column in households file
+  auto_ownership: auto_ownership  # vehicle count column in households file
+  num_workers:    num_workers     # workers per HH in households file
+  num_adults:     num_adults      # adults per HH in households file
+  # income_segment: [income_segment, income_broad]  # OPTIONAL household income segment/level column for trip enrichment
+  # Prefer a readable purpose column per run. Some survey-style outputs store
+  # numeric codes in primary_purpose/tour_purpose and labels in tour_type.
+  tour_purpose: [primary_purpose, tour_type, purpose]
+  # sample_rate: sample_rate     # OPTIONAL override; if omitted, code auto-detects
+                                 # a households column literally named 'sample_rate'.
+                                 # finalweight = 1/sample_rate (unless explicit run weight columns are provided)
+  # school_esc_outbound: [school_esc_outbound, out_escort_type]
+  # school_esc_inbound: [school_esc_inbound, inb_escort_type]
+
+prepare:
+  category_mappings:
+    raw_statewide_survey:
+      persons:
+        has_license:
+          source: can_drive
+          output_type: boolean
+          preserve_unmapped: false
+          mapping:
+            1: true
+            3: false
+            995: false
+        transit_pass_ownership:
+          source: transit_pass
+          output_type: boolean
+          preserve_unmapped: false
+          mapping:
+            1: false
+            3: false
+            4: false
+            7: true
+            8: true
+            9: true
+            995: null
+        telecommute_frequency:
+          source: telework_freq
+          preserve_unmapped: false
+          mapping:
+            1: 4_days_week
+            2: 4_days_week
+            3: 4_days_week
+            4: 3_days_week
+            5: 2_days_week
+            6: 1_day_week
+            7: No_Telecommute
+            8: No_Telecommute
+            995: null
+            996: null
+        work_from_home:
+          source: job_type
+          output_type: boolean
+          preserve_unmapped: false
+          mapping:
+            1: false
+            2: false
+            3: true
+            4: false
+            5: false
+            995: null
+      day:
+        cdap_activity:
+          source: daily_activity_pattern
+          preserve_unmapped: false
+          mapping:
+            1: M
+            2: N
+            3: H
+      tours:
+        tour_mode:
+          mapping: &raw_statewide_tour_modes
+            1: SCHOOLBUS
+            2: WALK
+            3: WALK_TRANSIT
+            4: PNR_TRANSIT
+            5: KNR_TRANSIT
+            6: BIKE_TRANSIT
+            7: BIKE
+            8: EBIKE
+            9: ESCOOTER
+            10: TAXI
+            11: TNC_SINGLE
+            12: TNC_SHARED
+            13: SOV
+            14: HOV2
+            15: HOV3
+            16: OTHER
+            995: MISSING
+        tour_purpose:
+          mapping:
+            -1: othdiscr
+            1: loop
+            2: work
+            3: othmaint
+            4: school
+            5: othmaint
+            6: escort
+            7: shopping
+            8: eatout
+            9: social
+            10: othmaint
+            12: othdiscr
+            13: othdiscr
+            14: loop
+            995: null
+        tour_category:
+          mapping:
+            1: mandatory
+            2: non_mandatory
+            3: atwork
+            4: joint
+      trips:
+        trip_mode:
+          source: linked_trip_mode
+          mapping: *raw_statewide_tour_modes
+        trip_purpose:
+          source: d_purpose_category
+          mapping:
+            -1: othdiscr
+            1: home
+            2: work
+            3: othmaint
+            4: school
+            5: othmaint
+            6: escort
+            7: shopping
+            8: eatout
+            9: social
+            10: othmaint
+            12: othdiscr
+            13: othdiscr
+            14: home
+            995: null
+    regional_filtered_attributed:
+      day:
+        cdap_activity:
+          source: daily_activity_pattern
+          preserve_unmapped: false
+          mapping:
+            1: M
+            2: N
+            3: H
+  output:
+    file_format: parquet
+  validation:
+    relationship_checks: warn
+  distance_skim:
+    file: U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/lcog/data_full/autoSkims__MD.omx       # path relative to run directory, or absolute
+    matrix: SOV_H_DIST__MD
+  non_motorized_distance_skim:
+    file: U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/lcog/data_full/maz_maz_walk.csv
+    matrix: null
+  time_periods:
+    network_los_file: U:/projects/clients/Oregon_HTS/SimOR/resident/configs/network_los.yaml
+    trip_period_number_column: depart
+    tour_start_period_number_column: start
+    tour_end_period_number_column: end
+  auto_sufficiency_basis: licensed_drivers # licensed_drivers | workers | adults
+  vot_bins:
+    source_column: income_segment
+    output_column: vot_bin
+    fallback_value: M
+    mappings:
+      raw_statewide_survey:
+        1: L
+        2: L
+        3: M
+        4: M
+        5: H
+        6: H
+        995: M
+        999: M
+      survey:
+        1: L
+        2: L
+        3: M
+        4: M
+        5: H
+        6: H
+        999: M
+      override:
+        1: L
+        2: L
+        3: M
+        4: M
+        5: H
+        6: H
+        999: M
+      estimation:
+        1: L
+        2: L
+        3: M
+        4: M
+        5: H
+        6: H
+        999: M
+
+skimjoin:
+  # Create optional long-form trip/tour tables with skim values for alternate modes.
+  create_hypothetical_skim_tables: true
+  defaults:
+    config_path: lcog_skimjoin_config.yaml
+    skim_files:
+      - 'U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/lcog/data_full/*.omx'
+      - U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/lcog/data_full/maz_stop_walk.csv
+      - U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/lcog/data_full/maz_maz_walk.csv
+      - U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/lcog/data_full/bike_maz_logsums_commute.csv
+      - U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/lcog/data_full/bike_maz_logsums_noncommute.csv
+    network_los_file: U:/projects/clients/Oregon_HTS/SimOR/resident/configs/network_los.yaml
+
+segment:
+  dashboard:
+    segmentation_type: person_sex
+    visibility: segments_only   # full_only | segments_only | full_and_segments
+  definitions:
+    signup_platform:
+      include_full: true
+      persist_segmented_prepared_tables: false
+      allow_overlapping: false
+      on_empty_segment: warn
+      source:
+        type: prepared_column 
+        source_table: hh
+        column: signup_platform
+      segments:
+        - id: rmove
+          label: RMove
+          values: ["rmove"]
+        - id: browser
+          label: Browser
+          values: ["browser"]
+        - id: call
+          label: Call
+          values: ["call"]
+
+    person_sex:
+      include_full: false
+      persist_segmented_prepared_tables: false
+      allow_overlapping: false
+      on_empty_segment: warn
+      source:
+        type: prepared_column
+        source_table: per
+        column: SEX
+      segments:
+        - id: male
+          label: Male
+          values: [1]
+        - id: female
+          label: Female
+          values: [2]
+
+summarize:
+  weighting_modes: [unweighted, weighted]
+  pnr_tour_modes:
+    - PNR_TRANSIT
+  # OPTIONAL summary-time grouping for outputs with a tour_purpose dimension
+  # group_joint_tour_purposes: true
+  # group_atwork_tour_purposes: true
+  # group_school_tour_purposes: true
+  # Controls additional mapped geography aggregations only. Summaries may still
+  # emit all_geographies totals, and native prepared home geographies such as
+  # home_taz, home_county, and home_mpo can appear when those columns exist.
+  geography:
+    enabled: true
+    # Configured mappings create columns such as home_geo__school_district,
+    # work_geo__county, or land_use_geo__district.
+    aggregations:
+      school_district_k8:
+        source_zone_system: maz
+        file: U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/lcog/data_full/land_use.csv
+        zone_id_col: MAZ
+        geography_col: DIST_KTO8
+      school_district_9_12:
+        source_zone_system: maz
+        file: U:/projects/clients/Oregon_HTS/SimOR/resident/model_data/lcog/data_full/land_use.csv
+        zone_id_col: MAZ
+        geography_col: DIST_9TO12
+
+dashboard:
+  title: "LCOG Estimation Visualizer"
+  logo: ../assets/lcog_logo.jpg
+  enable_maz_geographies: false
+  live:
+    pages:
+      - overview
+      - long_term_choices
+      - daily_travel
+      - joint_travel
+      - tour_summaries
+      - trip_summaries
+      - skim_summaries
+      # - validation:
+      #   - traffic
+      #   - transit
+      #   - vmt
+      #   - regional_validation
+  export:
+    output_path: ../../simor_project_outputs/exports/lcog_dashboard.html
+    # summary series are baked into one exported HTML file.
+    # `dashboard.export.pages` modifies matching live pages; it is not an
+    # inclusion list. Omit selector overrides to export all widget states.
+    # Export segmentation defaults to segmentation.dashboard when omitted.
+    # Use full_only, segments_only, or full_and_segments to choose which
+    dashboard:
+      weighting: [unweighted]
+      # segmentation_type: signup_platform
+      # segmentation_visibility: segments_only
+    pages:
+      long_term_choices:
+        mandatory_location_choice:
+          geography_level:
+            - All Geography Types
+            - County
+            - MPO
+            # omit TAZ
+      #     parts:
+            # commuting_flows:
+            #   enabled: false
+            
+        # shadow_pricing:
+          # enabled: true
+          # geography_level: [all]
+          # student_type: [all]
+          # parts:
+          #   workplace_table:
+          #     enabled: false
+          #   school_table:
+          #     enabled: false
+      # tour_summaries:
+      #   internal_external_tours:
+      #     enabled: false
+      validation:
+        vmt:
+          personal_auto_vmt_breakdown: all
+          personal_auto_vmt_geography_type: all
+          personal_auto_vmt_geography: default
+          personal_auto_vmt_time_period: default
+          personal_auto_vmt_mode: default
+          personal_auto_vmt_income_segment: default
+          personal_auto_vmt_household_size: default
+          non_motorized_vmt_breakdown: all
+          non_motorized_vmt_geography_type: all
+          non_motorized_vmt_geography: default
+          non_motorized_vmt_time_period: default
+          non_motorized_vmt_mode: default
+          non_motorized_vmt_income_segment: default
+          non_motorized_vmt_household_size: default
+
+          external_travel_metric: all
+          external_travel_breakdown: all
+          external_travel_trip_purpose: default
+          external_travel_time_period: default
+
+          demo_commercial_metric: all
+          demo_commercial_breakdown: all
+          demo_commercial_vehicle_type: default
+          demo_commercial_time_period: default
+  host:
+    account: my-connect-cloud-account
+    # app_id: 12345
+    # title: Estimation Mode Comparison Visualizer
+    # First hosted publish may open a browser for Posit Connect Cloud login.
+    # Later runs usually reuse saved local rsconnect metadata.
+    verify: true
+
+
+# Summary-affecting regrouping/normalization belongs under summarize.category_normalization.
+# Cosmetic labels and ordering belong under display.labels.
+display:
+  bar_hover_mode: all # closest | all
+  density_hover_mode: all # closest | all
+  labels:
+    person_type:
+      mapping:
+        all_person_types: All Person Types
+        1: Full-time worker
+        2: Part-time worker
+        3: University student
+        4: Non-worker adult
+        5: Retired
+        6: Student
+        7: Preschool
+
+    transit_subsidy:
+      mapping:
+        0: No subsidy
+        1: Discounted
+        2: Free
+
+    license_holding_status:
+      mapping:
+        has_license: Has License
+        no_license: No License
+
+    transit_pass_ownership_status:
+      mapping:
+        has_transit_pass: Has Transit Pass
+        no_transit_pass: No Transit Pass
+
+    telecommute_frequency:
+      mapping:
+        1_day_week: 1 Day per Week
+        2_days_week: 2 Days per Week
+        3_days_week: 3 Days per Week
+        2_3_days_week: 2-3 Days per Week
+        4_days_week: 4+ Days per Week
+        No_Telecommute: No Telecommute
+
+    mode:
+      mapping:
+        SOV: Drive Alone
+        HOV2: Shared Ride 2
+        HOV3: Shared Ride 3+
+        WALK: Walk
+        BIKE: Bike
+        EBIKE: E-Bike
+        ESCOOTER: E-Scooter
+        WALK_TRANSIT: Walk-Transit
+        BIKE_TRANSIT: Bike-Transit
+        PNR_TRANSIT: PNR-Transit
+        KNR_TRANSIT: KNR-Transit
+        TAXI: Taxi
+        TNC_SINGLE: TNC-Single
+        TNC_SHARED: TNC-Pool
+        SCHOOLBUS: School Bus
+
+
+    # escort:
+    #   mapping:
+    #     not_escorted: No Escort
+    #     pure_escort: Pure Escort
+    #     ride_share: Ride Share
+    #     0: No Escort
+    #     1: Pure Escort
+    #     2: Ride Share
+    #     "": No Escort
+
+    tour_purpose:
+      mapping:
+        all_tour_purposes: All Tour Purposes
+        work: Work
+        school: School
+        joint: Joint
+        escort: Escort
+        shopping: Shopping
+        othmaint: Other Maintenance
+        eatout: Eat Out
+        social: Social
+        othdiscr: Other Discretionary
+        atwork: At-Work
+        loop: Loop
+
+    trip_purpose:
+      mapping:
+        home: Home
+        work: Work
+        school: School
+        escort: Escort
+        shopping: Shopping
+        othmaint: Other Maintenance
+        eatout: Eat Out
+        social: Social
+        othdiscr: Other Discretionary
+        loop: Loop
+
+    stop_purpose:
+      mapping:
+        work: Work
+        school: School
+        escort: Escort
+        shopping: Shopping
+        othmaint: Other Maintenance
+        eatout: Eat Out
+        social: Social
+        othdiscr: Other Discretionary
+
+    tour_composition:
+      mapping:
+        adults: Adults
+        mixed: Mixed
+        children: Children
+
+    tour_category:
+      mapping:
+        mandatory: Mandatory
+        joint: Joint
+        non_mandatory: Non-Mandatory
+        atwork: At-Work
+
+    atwork_subtour_frequency_category:
+      mapping:
+        no_subtours: None
+        eat: 1 Eating Out
+        business1: 1 Business
+        maint: 1 Maintenance
+        business2: 2 Business
+        eat_business: 1 Eating Out + 1 Business
+
+    geography:
+      mapping:
+        all_geographies: All Geographies
+        county: County
+        home_county: County
+        home_mpo: MPO
+        home_taz: TAZ
+        district: District
+        taz: TAZ
+        maz: MAZ
+        school_district: School District
+  
+    mandatory_tour_frequency:
+      # mapping:
+      #   work1: Work
+      #   school1: School
+      #   work2: 2 Work
+      #   school2: 2 School
+      #   work_and_school: 1 Work + 1 School
+      mapping:
+        1: Work
+        3: School
+        2: 2 Work
+        4: 2 School
+        5: 1 Work + 1 School
+
+    daily_activity_pattern:
+      mapping:
+        M : Mandatory
+        N : Non-Mandatory
+        H : At-Home
+
+    facility_type:
+      mapping:
+        1: "Interstate"
+        3: "Principal Arterial"
+        4: "Minor Arterial"
+        5: "Major Collector"
+        6: "Minor Collector"
+        7: "Local Road"
+        30: "Ramp"
+        998: "Bike/Walk"
+
+    commercial_vehicle_type:
+      mapping:
+        car: Car
+        su: Single-Unit Truck
+        mu: Multi-Unit Truck
+
+  run_colors:
+    - "#298c8c" # Teal
+    - "#a00000" # Red
+    - "#b8b8b8"  # Light gray
+    - "#384860"  # Dark blue-gray
+  #   - "#ff7f0e"  # Orange
+    # - "#1f77b4"
+    # - "#ff7f0e"
+    # - "#2ca02c"
+    # - "#d62728"
+    # - "#9467bd"
+    # - "#8c564b"
+    # - "#e377c2"
+    # - "#7f7f7f"

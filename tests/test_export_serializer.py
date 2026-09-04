@@ -68,11 +68,25 @@ def test_serialize_viewable_supports_plotly_and_table_nodes() -> None:
 
     assert plot_payload["kind"] == "plotly"
     assert plot_payload["figure"]["data"][0]["type"] == "bar"
+    assert "aspect_ratio" not in plot_payload
     assert table_payload == {
         "kind": "table",
         "columns": ["Alpha Value", "beta", "Gamma Value"],
         "rows": [{"Alpha Value": "1.2", "beta": "x", "Gamma Value": "2"}],
     }
+
+
+def test_serialize_viewable_preserves_numeric_plotly_aspect_ratio() -> None:
+    pane = pn.pane.Plotly(
+        go.Figure(data=[go.Scatter(x=[1], y=[1])], layout={"height": 400}),
+        sizing_mode="scale_width",
+        aspect_ratio=1.0,
+    )
+
+    payload = serialize_viewable(pane, disable_widgets=True)
+
+    assert payload["height"] == 400
+    assert payload["aspect_ratio"] == 1.0
 
 
 def test_serialize_viewable_supports_widget_nodes_with_export_metadata() -> None:
@@ -237,6 +251,31 @@ def test_sanitize_export_payload_removes_nan_and_infinity() -> None:
         "numpy_nan": None,
         "numpy_inf": None,
         "nested": [1.0, 2.5, None],
+    }
+
+
+def test_serialize_viewable_preserves_shortened_tab_and_column_tooltips() -> None:
+    tabs = pn.Tabs(
+        (
+            "Regional Transportat…050 North",
+            pn.widgets.Tabulator(
+                pd.DataFrame({"long_column": [1]}),
+                titles={"long_column": "Long Column…Title"},
+                header_tooltips={"long_column": "Long Column Full Title"},
+            ),
+        )
+    )
+    tabs._run_label_full_titles = (
+        "Regional Transportation Scenario Baseline 2050 North",
+    )
+
+    payload = serialize_viewable(tabs, disable_widgets=True)
+
+    assert payload["tabs"][0]["full_title"] == (
+        "Regional Transportation Scenario Baseline 2050 North"
+    )
+    assert payload["tabs"][0]["content"]["column_tooltips"] == {
+        "Long Column…Title": "Long Column Full Title"
     }
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 
@@ -11,6 +12,7 @@ from processor.skimjoin.config.schema import (
     NormalizedConfig,
     NormalizedLookupRule,
 )
+from processor.skimjoin.inventory import qualified_matrix_reference
 
 
 class ConfigValidationError(ValueError):
@@ -120,18 +122,32 @@ def _inventory_by_name(
         ]
     ).to_dicts()
     inventory_by_name: dict[str, dict[str, object]] = {}
-    duplicate_names: list[str] = []
+    name_counts = Counter(str(row["matrix_name"]) for row in matrix_rows)
+    qualified_counts = Counter(
+        qualified_matrix_reference(row["file_path"], str(row["matrix_name"]))
+        for row in matrix_rows
+    )
+    ambiguous_sources: dict[str, list[str]] = {}
     for row in matrix_rows:
         matrix_name = str(row["matrix_name"])
-        if matrix_name in inventory_by_name:
-            duplicate_names.append(matrix_name)
-            continue
-        inventory_by_name[matrix_name] = row
+        qualified_name = qualified_matrix_reference(row["file_path"], matrix_name)
+        inventory_by_name.setdefault(qualified_name, row)
+        if name_counts[matrix_name] == 1:
+            inventory_by_name[matrix_name] = row
+        else:
+            ambiguous_sources.setdefault(matrix_name, []).append(qualified_name)
+    for matrix_name, sources in ambiguous_sources.items():
+        inventory_by_name[matrix_name] = {
+            "__ambiguous_sources": sorted(set(sources))
+        }
     failures = []
-    if duplicate_names:
+    duplicate_qualified_names = sorted(
+        name for name, count in qualified_counts.items() if count > 1
+    )
+    if duplicate_qualified_names:
         failures.append(
-            "Duplicate matrix names in skim inventory: "
-            + ", ".join(sorted(set(duplicate_names)))
+            "Duplicate file-qualified matrix references in skim inventory: "
+            + ", ".join(duplicate_qualified_names)
         )
     return inventory_by_name, failures
 
@@ -318,17 +334,25 @@ def _validate_target_table(
             failures.extend(f"{rule.name}: {message}" for message in combo_failures)
             for combo in combos:
                 matrix_name = str(combo["matrix_name"])
-                if matrix_name not in inventory_by_name:
+                inventory_record = inventory_by_name.get(matrix_name)
+                if inventory_record is None:
                     failures.append(
                         f"{rule.name}: referenced matrix {matrix_name!r} was not found in skim inventory"
                     )
                     continue
+                ambiguous_sources = inventory_record.get("__ambiguous_sources")
+                if ambiguous_sources:
+                    failures.append(
+                        f"{rule.name}: ambiguous matrix reference {matrix_name!r}; qualify it with one of: "
+                        + ", ".join(str(source) for source in ambiguous_sources)
+                    )
+                    continue
                 if (
-                    str(inventory_by_name[matrix_name]["source_kind"]) == "od_matrix"
+                    str(inventory_record["source_kind"]) == "od_matrix"
                     and rule.lookup == "od"
                 ):
-                    shape_rows = int(inventory_by_name[matrix_name]["shape_rows"])
-                    shape_cols = int(inventory_by_name[matrix_name]["shape_cols"])
+                    shape_rows = int(inventory_record["shape_rows"])
+                    shape_cols = int(inventory_record["shape_cols"])
                     zone_failures, zone_warnings = _validate_od_bounds(
                         rule,
                         combo["rows"],
@@ -641,6 +665,9 @@ def _referenced_matrices(
             combos, _ = _rule_matrix_combinations(rule, subset)
             for combo in combos:
                 matrix_name = str(combo["matrix_name"])
-                if matrix_name in inventory_by_name:
+                inventory_record = inventory_by_name.get(matrix_name)
+                if inventory_record is not None and not inventory_record.get(
+                    "__ambiguous_sources"
+                ):
                     referenced.add(matrix_name)
     return referenced

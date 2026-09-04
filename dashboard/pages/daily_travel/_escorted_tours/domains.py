@@ -30,7 +30,7 @@ class EscortedToursDomainMixin:
             "school_escorted_tours_by_escort_type_and_direction",
             "weighted",
         )
-        if data is None:
+        if not data:
             return ["Both Directions"]
         return direction_options(data)
 

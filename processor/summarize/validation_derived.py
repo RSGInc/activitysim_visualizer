@@ -149,7 +149,7 @@ def _fit_group(
         intercept=float(intercept),
         r_squared=float(r_squared),
         equation_label=_equation_label(slope, intercept),
-        r_squared_label=f"R^2 = {r_squared:.2f}",
+        r_squared_label=f"R² = {r_squared:.2f}",
     )
     return base
 

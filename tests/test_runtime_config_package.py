@@ -65,9 +65,7 @@ def test_repository_example_configs_match_current_schemas() -> None:
     assert config.pipeline.steps == ("summarize", "dashboard")
     assert config.pipeline.dashboard_mode == "live"
     assert config.skimjoin.enabled is False
-    assert config.skimjoin.config_path == str(
-        (ROOT / "example_skimjoin_config.yaml").resolve()
-    )
+    assert config.skimjoin.config_path is None
     assert config.include_notes is True
     assert config.missing_data_display == "card"
 

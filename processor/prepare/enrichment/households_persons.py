@@ -5,7 +5,10 @@ from __future__ import annotations
 from runtime.logging import get_logger
 import polars as pl
 
-from processor.prepare.enrichment.autosuff import derive_household_autosuff_counts
+from processor.prepare.enrichment.autosuff import (
+    _truthy_expr,
+    derive_household_autosuff_counts,
+)
 from processor.prepare.enrichment.columns import _has_columns
 from processor.prepare.enrichment.types import _PrepareState, _ZoneContext
 from processor.prepare.enrichment.zones import (
@@ -21,6 +24,24 @@ from runtime.config import Config
 
 LOGGER = get_logger("processor.prepare")
 NATIVE_HOME_GEOGRAPHY_COLUMNS = ("home_county", "home_mpo")
+
+
+def _derive_external_worker_flag(state: _PrepareState) -> None:
+    """Derive the canonical external-worker flag from existing worker fields."""
+    required = {"is_worker", "work_from_home", "external_worker_identification"}
+    if "is_external_worker" in state.per.columns or not required.issubset(
+        state.per.columns
+    ):
+        return
+    state.per = state.per.with_columns(
+        (
+            _truthy_expr("is_worker")
+            & ~_truthy_expr("work_from_home")
+            & _truthy_expr("external_worker_identification")
+        )
+        .fill_null(False)
+        .alias("is_external_worker")
+    )
 
 
 def _add_configured_geographies(
@@ -150,6 +171,7 @@ def _enrich_persons(
     state: _PrepareState, config: Config, zone_context: _ZoneContext
 ) -> None:
     _derive_num_joint_tours(state)
+    _derive_external_worker_flag(state)
 
     if (
         "home_zone_id" not in state.per.columns

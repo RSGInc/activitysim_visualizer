@@ -169,6 +169,19 @@ def test_main_rejects_from_csvs_with_write_csvs(monkeypatch, capsys) -> None:
     assert captured.err == "Error: --from-csvs cannot be combined with --write-csvs.\n"
 
 
+def test_parse_args_accepts_explicit_log_path(monkeypatch, tmp_path: Path) -> None:
+    log_path = tmp_path / "scenario.log"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["activitysim-viz", "--log-path", str(log_path)],
+    )
+
+    args = run.parse_args()
+
+    assert args.log_path == str(log_path)
+
+
 def test_main_rejects_refresh_summary_cache_without_summarize(
     tmp_path: Path,
     monkeypatch,
@@ -265,6 +278,67 @@ def test_main_dashboard_step_without_summarize_loads_cached_summaries_from_confi
     run.main()
 
     assert dashboard_calls == [{"runs": [], "summary_labels": ["Run A"]}]
+
+
+def test_main_dashboard_only_loads_optional_page_summaries(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    _write_cli_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+        dashboard_pages=["escorted_tours"],
+    )
+    loaded_optional_summary_ids: list[str] = []
+
+    def fake_load_summary_runs_from_cache(
+        *, required_summary_ids, optional_summary_ids, **kwargs
+    ):
+        loaded_optional_summary_ids.extend(optional_summary_ids)
+        all_summary_ids = [*required_summary_ids, *optional_summary_ids]
+        tables = {
+            summary_id: pl.DataFrame({"value": [1.0]})
+            for summary_id in all_summary_ids
+        }
+        return [
+            create_summary_run(
+                label="Run A",
+                run_key="run-a",
+                summaries_by_mode={"weighted": tables, "unweighted": tables},
+            )
+        ]
+
+    monkeypatch.setattr(
+        runtime_workflows,
+        "load_summary_runs_from_cache",
+        fake_load_summary_runs_from_cache,
+    )
+    monkeypatch.setattr(
+        runtime_workflows,
+        "run_dashboard_workflow",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "activitysim-viz",
+            "--config",
+            str(tmp_path / "config.yaml"),
+            "--dashboard",
+            "--no-show",
+        ],
+    )
+
+    run.main()
+
+    assert {
+        "student_school_escort_status_by_direction",
+        "student_households_by_student_count",
+        "households_with_school_escorting_by_student_count_and_direction",
+        "schoolkids_per_escorted_tour_by_student_count_and_direction",
+    }.issubset(loaded_optional_summary_ids)
 
 
 def test_main_uses_config_dashboard_step_for_live_dashboard_only_run(
@@ -1021,6 +1095,77 @@ def test_main_refresh_summary_cache_rebuilds_and_rewrites_run_cache(
     assert (summary_cache_dir / "manifest.json").exists()
 
 
+def test_main_refresh_summary_cache_preserves_prepared_cache(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_cli_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+    )
+    fingerprint = build_run_fingerprint(
+        label="Run A",
+        run_dir=config.runs[0]["dir"],
+        skim_file=None,
+        hh_weight_col=None,
+        person_weight_col=None,
+        trip_weight_col=None,
+    )
+    prepared_entry = write_prepared_run_cache(
+        _fake_run_data("Run A", str(run_dir)),
+        config,
+        run_key="run-a",
+        run_fingerprint=fingerprint,
+    )
+    write_summary_run_cache(
+        _simple_summary_run("Run A", "run-a"),
+        config,
+        run_fingerprint=fingerprint,
+        prepared_manifest_identity=_prepared_identity(
+            config=config,
+            run_key="run-a",
+            label="Run A",
+            run_dir=config.runs[0]["dir"],
+        ),
+    )
+    summary_build_calls: list[str] = []
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("summary refresh must preserve the prepared cache")
+        ),
+        prepare_data=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("summary refresh must not rerun preparation")
+        ),
+    )
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
+        lambda rd, config, **kwargs: (
+            summary_build_calls.append(rd.label),
+            _simple_summary_mode_build(rd.label, Path(rd.run_dir).name),
+        )[1],
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "activitysim-viz",
+            "--config",
+            str(tmp_path / "config.yaml"),
+            "--summarize",
+            "--refresh-summary-cache",
+        ],
+    )
+
+    run.main()
+
+    assert prepared_entry.cache_dir.exists()
+    assert summary_build_calls == ["Run A"]
+
+
 def test_main_refresh_prepared_cache_rebuilds_prepared_tables_before_summarize(
     tmp_path: Path,
     monkeypatch,
@@ -1089,6 +1234,37 @@ def test_main_refresh_prepared_cache_rebuilds_prepared_tables_before_summarize(
     assert summary_build_calls == ["Run A"]
     assert not stale_marker.exists()
     assert (prepared_dir / "run-a" / "prepared_tables" / "manifest.json").exists()
+
+
+def test_explain_cache_reports_plan_without_creating_cache_root(
+    tmp_path: Path,
+    monkeypatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_cli_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+    )
+    cache_root = Path(config.summary_root)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "activitysim-viz",
+            "--config",
+            str(tmp_path / "config.yaml"),
+            "--explain-cache",
+        ],
+    )
+
+    run.main()
+
+    output = capsys.readouterr().out
+    assert "Pipeline plan — Run A" in output
+    assert "prepare    REBUILD" in output
+    assert "summarize  REBUILD" in output
+    assert not cache_root.exists()
 
 
 def test_main_uses_cache_hit_for_one_run_and_raw_fallback_for_another(

@@ -59,6 +59,7 @@ def _load_summary_run_from_cache(
     run_key: str,
     run_fingerprint: dict[str, object],
     prepared_manifest_identity: dict[str, object],
+    analysis_units: list[AnalysisUnit] | None = None,
 ) -> SummaryCacheInspection | None:
     """Load one summary run from cache when valid."""
     try:
@@ -72,33 +73,65 @@ def _load_summary_run_from_cache(
             expected_prepared_manifest_identity=prepared_manifest_identity,
             expected_label=label,
             expected_run_key=run_key,
+            expected_analysis_units=analysis_units,
         )
-        reusable_summary_ids = list(inspection["reusable_summary_ids"])
-        stale_summary_ids = list(inspection["stale_summary_ids"])
+        reusable_by_unit = {
+            str(unit_key): tuple(summary_ids)
+            for unit_key, summary_ids in dict(
+                inspection["reusable_summary_ids_by_unit"]
+            ).items()
+        }
+        stale_by_unit = {
+            str(unit_key): tuple(summary_ids)
+            for unit_key, summary_ids in dict(
+                inspection["stale_summary_ids_by_unit"]
+            ).items()
+        }
+        obsolete_unit_keys = tuple(inspection["obsolete_unit_keys"])
         cached_runs = (
             summary_cache.load_summary_run_bundle(
                 cache_dir,
                 config,
                 expected_modes=config.weighting_modes,
-                expected_summary_ids=reusable_summary_ids,
-                expected_summary_config_digest=config.summary_config_digest,
+                expected_summary_ids_by_unit={
+                    unit_key: list(summary_ids)
+                    for unit_key, summary_ids in reusable_by_unit.items()
+                    if summary_ids
+                },
+                # Per-summary digests were validated by the inspection above.
+                # Requiring the bundle-wide digest here would discard otherwise
+                # reusable tables whenever only one builder changed.
+                expected_summary_config_digest=None,
                 expected_run_fingerprint=run_fingerprint,
                 expected_prepared_manifest_identity=prepared_manifest_identity,
                 expected_label=label,
                 expected_run_key=run_key,
             )
-            if reusable_summary_ids
+            if any(reusable_by_unit.values())
             else []
         )
+        stale_count = sum(len(summary_ids) for summary_ids in stale_by_unit.values())
+        reusable_count = sum(
+            len(summary_ids) for summary_ids in reusable_by_unit.values()
+        )
         LOGGER.info(
-            "Loaded reusable summary cache tables for run %r: %s",
+            "Pipeline decision for %r / summarize: %s (%s)",
             label,
-            ", ".join(reusable_summary_ids) if reusable_summary_ids else "(none)",
+            "REUSE" if not stale_count and not obsolete_unit_keys else "REBUILD",
+            (
+                "all analysis-unit summary tables reusable"
+                if not stale_count and not obsolete_unit_keys
+                else (
+                    f"{stale_count} stale; {reusable_count} reusable; "
+                    f"{len(obsolete_unit_keys)} obsolete analysis units"
+                )
+            ),
         )
         return SummaryCacheInspection(
             runs=tuple(cached_runs),
-            reusable_summary_ids=tuple(reusable_summary_ids),
-            stale_summary_ids=tuple(stale_summary_ids),
+            reusable_summary_ids_by_unit=reusable_by_unit,
+            stale_summary_ids_by_unit=stale_by_unit,
+            obsolete_unit_keys=obsolete_unit_keys,
         )
     except summary_types.SummaryCacheError as exc:
         LOGGER.info("Cache miss for %r: %s", label, exc)
@@ -167,9 +200,8 @@ def _merge_summary_runs(
     *,
     cached_runs: list[Any],
     rebuilt_runs: list[Any],
+    analysis_units: list[AnalysisUnit],
 ) -> list[Any]:
-    if not cached_runs:
-        return rebuilt_runs
     cached_by_segment = {
         (run.segmentation_type, run.segment_id): run for run in cached_runs
     }
@@ -177,9 +209,14 @@ def _merge_summary_runs(
         (run.segmentation_type, run.segment_id): run for run in rebuilt_runs
     }
     merged: list[Any] = []
-    for segment_key in rebuilt_by_segment:
-        rebuilt = rebuilt_by_segment[segment_key]
+    for unit in analysis_units:
+        segment_key = (unit.segmentation_type, unit.segment_id)
+        rebuilt = rebuilt_by_segment.get(segment_key)
         cached = cached_by_segment.get(segment_key)
+        if rebuilt is None:
+            if cached is not None:
+                merged.append(cached)
+            continue
         if cached is None:
             merged.append(rebuilt)
             continue
@@ -286,6 +323,30 @@ def run_summary_workflow(
         run_keys.append(run_key)
         run_fingerprints_by_key[run_key] = run_fingerprint
         cached_run = None
+        analysis_units: list[AnalysisUnit] | None = None
+        prepared_loaded: tuple[str, RunData] | None = None
+        has_buildable_inputs = bool(entry.get("dir") or entry.get("prepared_table_map"))
+
+        if config.segmentation.enabled and has_buildable_inputs:
+            prepare_artifact = run_prepare_workflow(
+                config=config,
+                prepared_root=prepared_root,
+                run_entries=[entry],
+                prefer_cache=prepared_prefer_cache,
+                write_cache=True,
+                existing=prepare_artifact,
+                plan=plan,
+            )
+            if run_key in prepare_artifact.by_key:
+                prepared_loaded = prepare_artifact.by_key[run_key]
+                existing_prepared_runs_by_key = dict(prepare_artifact.by_key)
+                prepared_runs_by_key[run_key] = prepared_loaded
+                analysis_units = build_analysis_units_for_run(
+                    run_key=run_key,
+                    run_name=label,
+                    prepared_run=prepared_loaded[1],
+                    config=config,
+                )
 
         if prefer_cache:
             cached_run = _load_summary_run_from_cache(
@@ -295,10 +356,13 @@ def run_summary_workflow(
                 run_key=run_key,
                 run_fingerprint=run_fingerprint,
                 prepared_manifest_identity=prepared_manifest_identity,
+                analysis_units=analysis_units,
             )
             if cached_run is not None:
-                stale_summary_ids = list(cached_run.stale_summary_ids)
-                if not stale_summary_ids:
+                if (
+                    not any(cached_run.stale_summary_ids_by_unit.values())
+                    and not cached_run.obsolete_unit_keys
+                ):
                     summary_runs.extend(
                         merge_summary_table_map_run(
                             list(cached_run.runs),
@@ -309,18 +373,13 @@ def run_summary_workflow(
                     if cached_prepared_run is not None:
                         prepared_runs_by_key[run_key] = cached_prepared_run
                     continue
+        else:
+            LOGGER.info(
+                "Pipeline decision for %r / summarize: REBUILD — refresh requested or cache reuse disabled",
+                label,
+            )
 
         cached_summary_runs = list(cached_run.runs) if cached_run else []
-        summary_ids_to_build = list(summary_builder.DEFAULT_SUMMARY_IDS)
-        if cached_run is not None:
-            summary_ids_to_build = list(cached_run.stale_summary_ids)
-        summary_ids_to_build = [
-            summary_id
-            for summary_id in summary_ids_to_build
-            if summary_id not in external_summary_ids
-        ]
-
-        has_buildable_inputs = bool(entry.get("dir") or entry.get("prepared_table_map"))
         if not has_buildable_inputs:
             run_summary_runs = merge_summary_table_map_run(
                 cached_summary_runs,
@@ -346,16 +405,19 @@ def run_summary_workflow(
             )
             continue
 
-        prepare_artifact = run_prepare_workflow(
-            config=config,
-            prepared_root=prepared_root,
-            run_entries=[entry],
-            prefer_cache=prepared_prefer_cache,
-            write_cache=True,
-            existing=prepare_artifact,
-            plan=plan,
-        )
-        if run_key not in prepare_artifact.by_key:
+        if prepared_loaded is None:
+            prepare_artifact = run_prepare_workflow(
+                config=config,
+                prepared_root=prepared_root,
+                run_entries=[entry],
+                prefer_cache=prepared_prefer_cache,
+                write_cache=True,
+                existing=prepare_artifact,
+                plan=plan,
+            )
+            if run_key in prepare_artifact.by_key:
+                prepared_loaded = prepare_artifact.by_key[run_key]
+        if prepared_loaded is None:
             run_summary_runs = merge_summary_table_map_run(
                 cached_summary_runs,
                 external_summary_run,
@@ -379,19 +441,35 @@ def run_summary_workflow(
                 label,
             )
             continue
-        prepared_loaded = prepare_artifact.by_key[run_key]
         existing_prepared_runs_by_key = dict(prepare_artifact.by_key)
         prepared_runs_by_key[run_key] = prepared_loaded
 
-        analysis_units = build_analysis_units_for_run(
-            run_key=run_key,
-            run_name=label,
-            prepared_run=prepared_loaded[1],
-            config=config,
-        )
+        if analysis_units is None:
+            analysis_units = build_analysis_units_for_run(
+                run_key=run_key,
+                run_name=label,
+                prepared_run=prepared_loaded[1],
+                config=config,
+            )
         run_summary_runs = []
-        if summary_ids_to_build:
-            for unit in analysis_units:
+        for unit in analysis_units:
+            unit_key = summary_cache.analysis_unit_key(
+                segmentation_type=unit.segmentation_type,
+                segment_id=unit.segment_id,
+            )
+            summary_ids_to_build = (
+                list(summary_builder.DEFAULT_SUMMARY_IDS)
+                if cached_run is None
+                else list(
+                    cached_run.stale_summary_ids_by_unit.get(unit_key, ())
+                )
+            )
+            summary_ids_to_build = [
+                summary_id
+                for summary_id in summary_ids_to_build
+                if summary_id not in external_summary_ids
+            ]
+            if summary_ids_to_build:
                 summaries_by_mode, summary_metadata_by_mode = _build_summary_tables_for_run(
                     prepared_run=unit.prepared_run,
                     config=config,
@@ -418,13 +496,12 @@ def run_summary_workflow(
                         source_run_dir=str(unit.prepared_run.run_dir),
                     )
                 )
-        if cached_summary_runs and run_summary_runs:
+        if cached_summary_runs or run_summary_runs:
             run_summary_runs = _merge_summary_runs(
                 cached_runs=cached_summary_runs,
                 rebuilt_runs=run_summary_runs,
+                analysis_units=analysis_units,
             )
-        elif cached_summary_runs:
-            run_summary_runs = cached_summary_runs
         run_summary_runs = merge_summary_table_map_run(
             run_summary_runs,
             external_summary_run,

@@ -82,8 +82,11 @@ def test_vmt_export_content_includes_dropdown_availability_note() -> None:
 @pytest.mark.full_export
 def test_build_export_payload_has_stable_top_level_contract() -> None:
     tmp_path = _workspace_tmp_dir("payload_contract")
+    logo_path = tmp_path / "logo.png"
+    logo_path.write_bytes(b"logo")
     config = _write_config(
         tmp_path,
+        dashboard_logo=logo_path.name,
         export_html_lines=[
             "dashboard:",
             "  weighting: all",
@@ -96,6 +99,7 @@ def test_build_export_payload_has_stable_top_level_contract() -> None:
     assert list(payload) == [
         "schema_version",
         "title",
+        "logo",
         "runs_loaded",
         "chrome",
         "dashboard_controls",
@@ -106,6 +110,7 @@ def test_build_export_payload_has_stable_top_level_contract() -> None:
         "client_runtime",
     ]
     assert payload["schema_version"] == EXPORT_SCHEMA_VERSION
+    assert payload["logo"] == "data:image/png;base64,bG9nbw=="
     assert payload["client_runtime"] == EXPORT_CLIENT_RUNTIME
     assert (
         payload["page_export_support"]["client_side_runtime"]

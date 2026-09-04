@@ -1,0 +1,1010 @@
+required_inputs:
+  hh:
+    description: Prepared household table.
+    fields:
+      HHSIZE:
+        type: Int32
+        description: Household person count clipped to 1 through 5, where 5 represents households of five or more people.
+      HHVEH:
+        type: Int32
+        description: Household vehicle count clipped to 0 through 4 for standard summary categories.
+      av_ownership:
+        type: Boolean-like
+        description: Whether the household owns an autonomous vehicle.
+      finalweight:
+        type: Float64
+        description: Household expansion weight from the configured weight, inverse sample rate, or 1.0 fallback.
+      household_id:
+        type: Int64
+        description: Canonical household identifier used to join people, tours, trips, days, and vehicles.
+  joint_participants:
+    description: Prepared joint-tour participant table.
+    fields:
+      person_id:
+        type: Int64
+        description: Canonical identifier of a person participating in a joint tour.
+  land_use:
+    description: Prepared land-use and zone-attribute table.
+    fields:
+      MAZ:
+        type: Int64
+        description: Canonical micro-analysis-zone identifier.
+      employment_count:
+        type: Float64
+        description: Employment opportunities associated with the zone.
+      enrollment_count:
+        type: Float64
+        description: Enrollment opportunities associated with the zone and student type.
+      student_type:
+        type: String
+        description: Student or enrollment market segment.
+  per:
+    description: Prepared person table.
+    fields:
+      age:
+        type: integer
+        description: Person age in years.
+      bike_comfort:
+        type: category
+        description: Modeled bicycle-comfort alternative.
+      distance_to_school:
+        type: Float64
+        description: Prepared home-to-school distance in the configured distance units.
+      distance_to_work:
+        type: Float64
+        description: Prepared home-to-work distance in the configured distance units.
+      external_workplace_zone_id:
+        type: identifier
+        description: Assigned external workplace zone identifier.
+      finalweight:
+        type: Float64
+        description: Person expansion weight from the configured person weight, inherited household weight, or 1.0 fallback.
+      free_parking_at_work:
+        type: Boolean-like or category
+        description: Free-workplace-parking eligibility or modeled alternative.
+      has_license:
+        type: Boolean-like
+        description: Whether the person holds a driver's license.
+      home_zone_id:
+        type: identifier
+        description: Prepared home-zone identifier.
+      household_id:
+        type: Int64
+        description: Canonical household identifier for the person.
+      is_external_worker:
+        type: Boolean-like
+        description: Whether the person's assigned workplace is external to the modeled area.
+      is_student:
+        type: Boolean-like
+        description: Whether the person is classified as a student.
+      is_worker:
+        type: String
+        description: Whether the person is classified as a worker.
+      person_id:
+        type: Int64
+        description: Canonical person identifier.
+      person_type:
+        type: source-compatible category
+        description: ActivitySim person-type code.
+      school_zone_id:
+        type: identifier
+        description: Assigned school-zone identifier.
+      student_type:
+        type: String
+        description: Prepared school or enrollment market segment.
+      telecommute_frequency:
+        type: category
+        description: Modeled telecommute-frequency alternative.
+      transit_pass_ownership:
+        type: Boolean-like
+        description: Whether the person owns a transit pass.
+      transit_pass_subsidy:
+        type: category
+        description: Modeled transit-pass-subsidy alternative.
+      work_from_home:
+        type: String
+        description: Whether the worker has a home workplace.
+      workplace_zone_id:
+        type: identifier
+        description: Assigned internal workplace-zone identifier.
+  tours:
+    description: Prepared tour table.
+    fields:
+      AUTOSUFF:
+        type: Int32
+        description: Prepared household auto-sufficiency category for the tour.
+      NUMBER_HH:
+        type: Int32
+        description: Joint-party size from participant rows, number_of_participants, an existing NUMBER_HH value, or a fallback of one.
+      SKIMDIST:
+        type: Float64
+        description: Prepared tour distance in the configured skim distance units.
+      atwork_subtour_frequency:
+        type: category
+        description: Modeled at-work subtour-frequency alternative.
+      destination:
+        type: identifier
+        description: Tour destination-zone identifier.
+      finalweight:
+        type: Float64
+        description: Tour expansion weight inherited from trips, persons, households, or a 1.0 fallback according to available configured weights.
+      household_id:
+        type: Int64
+        description: Canonical household identifier associated with the tour.
+      is_external_tour:
+        type: Boolean-like
+        description: Whether the tour destination is external to the modeled area.
+      num_escortees:
+        type: Int64
+        description: Number of students escorted on the tour.
+      num_ib_stops:
+        type: Int32
+        description: Number of inbound intermediate stops parsed from stop_frequency.
+      num_ob_stops:
+        type: Int32
+        description: Number of outbound intermediate stops parsed from stop_frequency.
+      num_tot_stops:
+        type: Int32
+        description: Total intermediate stops on the tour.
+      person_id:
+        type: Int64
+        description: Canonical person identifier associated with an individual tour.
+      school_esc_inbound:
+        type: String
+        description: Inbound school-escort alternative or status.
+      school_esc_outbound:
+        type: String
+        description: Outbound school-escort alternative or status.
+      tour_category:
+        type: String
+        description: Tour category such as mandatory, nonmandatory, joint, or at-work.
+      tour_id:
+        type: Int64
+        description: Canonical tour identifier.
+      tour_mode:
+        type: String
+        description: Main mode selected for the tour.
+      tour_purpose:
+        type: String
+        description: Primary purpose of the tour.
+      vehicle_occup_1:
+        type: vehicle-type code
+        description: Vehicle type allocated to single-occupant auto tours.
+      vehicle_occup_2:
+        type: vehicle-type code
+        description: Vehicle type allocated to two-occupant auto tours.
+      vehicle_occup_3.5:
+        type: vehicle-type code
+        description: Vehicle type allocated to auto tours with three or more occupants.
+  trips:
+    description: Prepared trip table.
+    fields:
+      escort_event_role:
+        type: String
+        description: Adult escort-event role assigned to the trip.
+      escort_stops_after_event:
+        type: Int32
+        description: Stops occurring after the associated escort event.
+      escort_stops_before_event:
+        type: Int32
+        description: Stops occurring before the associated escort event.
+      finalweight:
+        type: Float64
+        description: Trip expansion weight from the configured trip weight, inherited person or household weight, or 1.0 fallback.
+      num_participants:
+        type: Int32
+        description: Number of travelers represented by a joint trip record.
+      od_dist:
+        type: Float64
+        description: Origin-to-destination trip distance from the configured distance skim or supported survey distance, in source units.
+      out_dir_dist:
+        type: Float64
+        description: Additional distance caused by visiting the stop rather than traveling directly to the half-tour endpoint.
+      parking_zone:
+        type: Int64
+        description: Zone where the auto trip parks.
+      person_id:
+        type: Int64
+        description: Canonical person identifier associated with the trip.
+      stops:
+        type: Int32
+        description: Intermediate-stop indicator, 1 before the last trip on a half-tour and 0 for the final leg.
+      tour_id:
+        type: Int64
+        description: Canonical identifier of the parent tour.
+      tour_mode:
+        type: String
+        description: Main mode of the parent tour.
+      tour_purpose:
+        type: String
+        description: Primary purpose of the parent tour.
+      trip_mode:
+        type: String
+        description: Mode used for the trip leg.
+      trip_purpose:
+        type: String
+        description: Destination purpose of the trip leg.
+  vehicles:
+    description: Prepared household-vehicle table.
+    fields:
+      body_type:
+        type: String
+        description: Vehicle body-style category parsed from vehicle_type.
+      finalweight:
+        type: Float64
+        description: Vehicle expansion weight inherited from the owning household or set to 1.0 when unavailable.
+      fuel_type:
+        type: String
+        description: Vehicle fuel or powertrain category parsed from vehicle_type.
+      vehicle_age:
+        type: Int64
+        description: Vehicle age in years parsed from vehicle_type.
+
+categories:
+- name: Population and Demographics
+  summaries:
+  - id: household_size_distribution
+    description: Household totals by modeled household size. Use it to profile household composition, calculate size shares, and compare population-synthesis results across runs.
+    fields:
+      household_size: number of people in the household.
+      household_count: weighted households in that size category.
+  - id: person_type_distribution
+    description: Person totals by ActivitySim person type, with a display label. Use it to compare demographic market segments and as a denominator for person-type travel rates.
+    fields:
+      person_type: stable person-type code.
+      person_type_label: configured readable label for the code.
+      person_count: weighted people of that type.
+  - id: population_totals
+    description: One run-level control-total row for people, households, person-tours, person-trips, and person-stops. Joint tour and trip records use the sum of all matching participant person weights when available and valid party-size expansion only as a fallback; sentinel, missing, or nonpositive fallback counts resolve to one. Use it for reasonableness checks and top-level comparisons; the measures use their own table weights and are not additive to one another.
+    fields:
+      person_count: weighted persons.
+      household_count: weighted households.
+      tour_count: weighted person-tours; joint records are participant-expanded.
+      trip_count: weighted person-trips; joint records are participant-expanded.
+      stop_count: weighted person-trip records flagged as intermediate stops; joint records are participant-expanded.
+- name: Person Attributes and Long-Term Choices
+  summaries:
+  - id: license_holding_status_distribution
+    description: Licensed and unlicensed people age 16 or older by person type, including an all-person-types rollup. Use it to assess access to driving and explain auto-mode availability.
+    fields:
+      person_type: person-type code or `all_person_types` rollup.
+      license_holding_status: '`has_license` or `no_license`.'
+      person_type_label: configured readable person-type label.
+      person_count: weighted people in the group.
+  - id: bicycle_comfort_level_distribution
+    description: Bicycle comfort categories by person type, including an all-person-types rollup. Use it to understand the population assumed willing to use different bicycle facilities.
+    fields:
+      person_type: person-type code or rollup.
+      bicycle_comfort_level: prepared bicycle-comfort category.
+      person_type_label: configured readable person-type label.
+      person_count: weighted people in the group.
+  - id: transit_pass_ownership_by_person_type
+    description: Transit-pass ownership status by person type, including an all-person-types rollup. Use it to evaluate transit market eligibility and pass-ownership model results.
+    fields:
+      person_type: person-type code or rollup.
+      transit_pass_ownership_status: '`has_transit_pass` or `no_transit_pass`.'
+      person_type_label: configured readable person-type label.
+      person_count: weighted people in the group.
+  - id: transit_subsidy_by_person_type
+    description: Transit-pass subsidy alternatives for workers, by person type and with an all-person-types rollup. Use it to examine employer or institutional transit-benefit assumptions.
+    fields:
+      person_type: person-type code or rollup.
+      transit_subsidy_status: prepared subsidy alternative code.
+      transit_subsidy_label: configured readable subsidy label.
+      person_type_label: configured readable person-type label.
+      person_count: weighted eligible workers in the group.
+  - id: telecommute_frequency_distribution
+    description: Non-work-from-home workers by telecommute-frequency category and home geography, plus an all-geographies rollup. Use it to analyze recurring telecommuting among workers who still have an external workplace.
+    fields:
+      geography_type: home-geography system or rollup.
+      geography_id: home-geography identifier or rollup value.
+      telecommute_frequency: prepared telecommute-frequency alternative.
+      person_count: weighted workers in the group.
+- name: Household Vehicles and Vehicle Characteristics
+  summaries:
+  - id: autonomous_vehicle_ownership_totals
+    description: One run-level total of households modeled as owning an autonomous vehicle. Use it to report scenario penetration and compare AV-ownership assumptions.
+    fields:
+      household_with_autonomous_vehicle_count: weighted households with `av_ownership` true.
+  - id: auto_ownership_distribution
+    description: Household totals jointly classified by household size and vehicle count; household sizes of five or more are grouped as `5+`. Use it to assess motorization and auto sufficiency.
+    fields:
+      household_size: household-size category, with `5+` as the terminal group.
+      household_vehicle_count: vehicles available to the household.
+      household_count: weighted households in the joint category.
+  - id: vehicle_age_distribution
+    description: Household vehicles by age, with ages 20 and older grouped as `20+`. Use it for fleet turnover, emissions, and technology analyses.
+    fields:
+      age: vehicle age in years or `20+`.
+      vehicle_count: weighted vehicles in the age category.
+  - id: vehicle_fuel_type_distribution
+    description: Household vehicles by prepared fuel or powertrain type. Use it for fleet composition, energy, and emissions analysis.
+    fields:
+      fuel_type: prepared vehicle fuel/powertrain category.
+      vehicle_count: weighted vehicles of that type.
+  - id: vehicle_body_type_distribution
+    description: Household vehicles by prepared body type. Use it to characterize the light-duty fleet and support occupancy or emissions comparisons.
+    fields:
+      body_type: prepared vehicle body-style category.
+      vehicle_count: weighted vehicles of that type.
+- name: Long-Term Geography, Location, and Shadow Pricing
+  summaries:
+  - id: work_from_home_rate_by_geography
+    description: All workers and work-from-home workers by home geography, plus a regional rollup. Divide the WFH count by the worker count to calculate the WFH rate and map its spatial pattern.
+    fields:
+      geography_type: home-geography system or rollup.
+      geography_id: home-geography identifier or rollup value.
+      worker_count: weighted workers living in the geography.
+      work_from_home_worker_count: weighted workers flagged as working from home.
+  - id: internal_external_worker_by_geography
+    description: Internal and external workers by home geography, plus a regional rollup. Use it to understand external-worker incidence and its residential distribution.
+    fields:
+      geography_type: home-geography system or rollup.
+      geography_id: home-geography identifier or rollup value.
+      internal_worker_count: weighted workers with an internal workplace.
+      external_worker_count: weighted workers classified as external.
+  - id: external_worker_workplace_locations
+    description: External workers by their external workplace geography, plus a regional rollup. Use it to analyze external commute orientation; the all-worker denominator is repeated to support share calculations.
+    fields:
+      geography_type: external-workplace geography system or rollup.
+      geography_id: external-workplace geography identifier or rollup value.
+      external_worker_count: weighted external workers assigned to that destination.
+      all_worker_count: weighted workers in the full run, repeated on every row.
+  - id: workplace_location_employment_comparison
+    description: Land-use employment and modeled worker workplace choices aligned by workplace geography. Use it to compare attraction targets with assigned workers and diagnose location-choice balance.
+    fields:
+      geography_type: workplace-geography system.
+      geography_id: workplace-geography identifier.
+      employment_count: employment opportunities from land use.
+      worker_count: weighted workers assigned to the geography.
+  - id: commuting_flows
+    description: Worker flows from home geography to workplace geography at matching configured geography levels, plus a regional total. Use it as an origin-destination matrix for commute sheds, self-containment, and interjurisdictional flows.
+    fields:
+      origin_geography_type: home-geography system.
+      origin_geography_id: home-geography identifier.
+      destination_geography_type: workplace-geography system.
+      destination_geography_id: workplace-geography identifier.
+      commuter_count: weighted workers in the OD pair.
+  - id: school_location_enrollment_comparison
+    description: Land-use enrollment and modeled student school locations aligned by geography and student type. Use it to compare school-location targets with assigned students.
+    fields:
+      geography_type: school-geography system.
+      geography_id: school-geography identifier.
+      student_type: prepared school/enrollment market segment.
+      enrollment_count: target enrollment from land use.
+      student_count: weighted students assigned to the geography and type.
+  - id: workplace_shadow_pricing_residuals
+    description: Zone-level workplace target-versus-modeled residuals. Use positive residuals to find over-assigned workplace geographies and negative residuals to find under-assigned ones.
+    fields:
+      geography_type: workplace-geography system.
+      geography_id: workplace-geography identifier.
+      target_count: land-use employment target.
+      modeled_count: weighted assigned workers.
+      residual_count: '`modeled_count - target_count`.'
+      absolute_residual_count: absolute residual magnitude.
+      percent_error: residual divided by target, times 100; null when target is zero.
+  - id: school_shadow_pricing_residuals
+    description: Zone-level school target-versus-modeled residuals by student type. Use it to diagnose school-location shadow-pricing convergence and segment-specific imbalance.
+    fields:
+      geography_type: school-geography system.
+      geography_id: school-geography identifier.
+      student_type: school/enrollment market segment.
+      target_count: land-use enrollment target.
+      modeled_count: weighted assigned students.
+      residual_count: modeled minus target.
+      absolute_residual_count: absolute residual magnitude.
+      percent_error: residual divided by target, times 100; null for zero targets.
+  - id: workplace_shadow_pricing_residual_histogram
+    description: Distribution of workplace residuals by geography system. Use it to assess convergence across all zones without inspecting each zone separately; zero residuals receive their own zero-width bin.
+    fields:
+      geography_type: workplace-geography system.
+      bin_start: inclusive lower residual bound.
+      bin_end: upper residual bound; both bounds are zero for the exact-zero bin.
+      geography_count: number of geography records in the bin.
+  - id: school_shadow_pricing_residual_histogram
+    description: Distribution of school residuals by geography system and student type. Use it to compare convergence across student markets.
+    fields:
+      geography_type: school-geography system.
+      student_type: school/enrollment market segment.
+      bin_start: lower residual bound.
+      bin_end: upper residual bound, or zero for the exact-zero bin.
+      geography_count: number of geography/student-type records in the bin.
+  - id: park_and_ride_location_residuals
+    description: Modeled park-and-ride tour use compared with lot capacity by lot geography. Use it to identify over-capacity or underused PNR locations.
+    fields:
+      geography_type: PNR-lot geography system.
+      geography_id: PNR-lot geography identifier.
+      pnr_tour_count: weighted PNR tours assigned to the location.
+      pnr_lot_capacity: supplied lot capacity target.
+      residual_count: tours minus capacity.
+      absolute_residual_count: absolute residual magnitude.
+      percent_error: residual divided by capacity, times 100; null for zero capacity.
+  - id: park_and_ride_location_residual_histogram
+    description: Distribution of PNR use-minus-capacity residuals by geography system. Use it for systemwide capacity-fit assessment.
+    fields:
+      geography_type: PNR-lot geography system.
+      bin_start: lower residual bound.
+      bin_end: upper residual bound, or zero for the exact-zero bin.
+      geography_count: number of PNR geography records in the bin.
+  - id: free_parking_eligibility_by_workplace_geography
+    description: Workers with and without free workplace parking by workplace geography. Use it to analyze parking-cost exposure and its effect on commute mode choice.
+    fields:
+      geography_type: workplace-geography system.
+      geography_id: workplace-geography identifier.
+      workers_without_free_parking_count: weighted workers not eligible for free parking.
+      workers_with_free_parking_count: weighted workers eligible for free parking.
+- name: Long-Term Location Distance
+  summaries:
+  - id: work_location_distance_distribution_by_geography
+    description: Internal, non-work-from-home workers with valid workplace locations by home geography and home-to-work distance. Use it for commute-length distributions and spatial comparisons.
+    fields:
+      distance_bin: exact-zero, positive-sub-mile, whole-mile lower-bound, or `51+` category.
+      geography_type: home-geography system or rollup.
+      geography_id: home-geography identifier or rollup value.
+      person_count: weighted workers in the bin.
+  - id: university_location_distance_distribution_by_geography
+    description: University students, identified by person type 3, by home geography and home-to-school distance. Use it to examine university travel markets and campus catchments.
+    fields:
+      distance_bin: exact-zero, positive-sub-mile, whole-mile lower-bound, or `51+` category.
+      geography_type: home-geography system or rollup.
+      geography_id: home-geography identifier or rollup value.
+      person_count: weighted university students in the bin.
+  - id: school_location_distance_distribution_by_geography
+    description: School students, identified by person types 6 and higher, by home geography and home-to-school distance. Use it for K--12 travel-distance and school-catchment analysis.
+    fields:
+      distance_bin: exact-zero, positive-sub-mile, whole-mile lower-bound, or `51+` category.
+      geography_type: home-geography system or rollup.
+      geography_id: home-geography identifier or rollup value.
+      person_count: weighted school students in the bin.
+- name: Daily Activity Patterns and Travel Rates
+  summaries:
+  - id: daily_activity_pattern_by_person_type
+    description: Daily activity pattern alternatives by person type, using each person's non-null person-table CDAP value and falling back only for remaining persons to all observed day rows with day weights when available, including an all-person-types rollup. No day rows are deduplicated. Use it to compare mandatory, nonmandatory, and home-stay behavior.
+    fields:
+      person_type: person-type code or rollup.
+      daily_activity_pattern: prepared CDAP/activity-pattern category.
+      person_count: weighted people or observed person-days in the pattern.
+  - id: mandatory_tour_frequency_by_person_type
+    description: Positive mandatory-tour-frequency choice by person type, using each person's non-null prepared choice and falling back only for remaining persons to choices derived from work and school tours on every person-day, with day weights when available, plus an all-person-types rollup. Use it to analyze how many mandatory tours travelers make. The table excludes records with a choice of zero.
+    fields:
+      person_type: person-type code or rollup.
+      mandatory_tour_frequency: prepared or tour-derived positive mandatory-tour frequency alternative.
+      person_count: weighted people or person-days choosing that frequency.
+  - id: nonmandatory_tour_frequency_by_person_type
+    description: Count of individual nonmandatory tours plus joint-tour participation, grouped as 0, 1, 2, or 3+, by person type and for all types. Genuinely multi-day inputs are classified per person-day only when every tour and participant has a safe day key; otherwise the one-day/person fallback is retained rather than dropping records or guessing keys. Use it to compare discretionary travel propensity.
+    fields:
+      person_type: person-type code or rollup.
+      nonmandatory_tour_frequency: combined nonmandatory-tour category `0`, `1`, `2`, or `3+`.
+      person_count: weighted people or person-days in the category.
+  - id: tour_rates_by_person_type_and_tour_purpose
+    description: Person-tours per person-day by person type and tour purpose under the selected weighting mode, plus all-person-types rates. Every eligible source row contributes and at-work subtours are excluded. Joint tours are attributed using each known participant's person weight or expanded by a valid party size when participant records are unavailable. Use it to compare tour-generation rates while controlling for population composition.
+    fields:
+      person_type: person-type code or rollup.
+      tour_purpose: prepared tour-purpose category.
+      tour_rate: sum of eligible person-tour weights, divided by summed person or person-day weights for that person type.
+  - id: trip_rates_by_person_type_and_trip_purpose
+    description: Person-trips per person-day by person type and trip purpose under the selected weighting mode, plus all-person-types rates. Every eligible source row contributes. Joint trips are attributed using each known participant's person weight or expanded by a valid party size when participant records are unavailable. Use it to compare trip-generation rates across demographic markets.
+    fields:
+      person_type: person-type code or rollup.
+      trip_purpose: destination purpose of the trip.
+      trip_rate: sum of eligible person-trip weights, divided by summed person or person-day weights for that person type.
+- name: School Escorting
+  summaries:
+  - id: escorted_tour_totals
+    description: One run-level total of adult-side tours with an outbound or inbound school-escort condition. Use it as the top-level escorted-tour control total.
+    fields:
+      tour_count: weighted distinct eligible tours with at least one escorted direction.
+  - id: school_escorted_tours_by_escort_type_and_direction
+    description: Adult-side escorted tours by escort arrangement and direction, with an `all_directions` incidence rollup. Use it to compare ride-share and pure-escort patterns.
+    fields:
+      escort_type: prepared escort arrangement label.
+      direction: '`outbound`, `inbound`, or `all_directions`.'
+      tour_count: weighted escorted-tour incidences.
+  - id: adult_escorted_tour_purposes_by_direction
+    description: Purposes of the adult tours that do school escorting, by direction and with an all-directions incidence rollup. Use it to see how escorting connects with work or other adult activities.
+    fields:
+      tour_purpose: adult tour's primary purpose.
+      direction: escorted half or `all_directions`.
+      tour_count: weighted escorted-tour incidences.
+  - id: adult_escorted_tours_by_person_type_and_direction
+    description: Adult-side escorted tours by the adult traveler's person type and escorted direction. Use it to identify who performs school escorting.
+    fields:
+      person_type: adult traveler person-type code.
+      direction: '`outbound`, `inbound`, or `both`.'
+      tour_count: weighted tours meeting that directional condition.
+  - id: student_school_escort_status_by_direction
+    description: Student school tours classified by normalized escort type for each direction and for tours escorted both ways. Use it to measure the student-side escort experience.
+    fields:
+      direction: '`outbound`, `inbound`, or `both`.'
+      escort_type: normalized escort arrangement, including unescorted alternatives where present.
+      tour_count: weighted student school tours in the group.
+  - id: student_households_by_student_count
+    description: Households by the number of school-age/student household members recognized by the escort logic. Use it as a denominator for household escort participation.
+    fields:
+      student_count: students in the household.
+      household_count: weighted households with that count.
+  - id: households_with_school_escorting_by_student_count_and_direction
+    description: Unique households with at least one escorted student school tour, by number of students and directional condition. Use it to calculate escort-participation rates by household composition.
+    fields:
+      student_count: students in the household.
+      direction: '`outbound`, `inbound`, or `both`.'
+      household_count: weighted unique households meeting the condition.
+  - id: schoolkids_per_escorted_tour_by_student_count_and_direction
+    description: Average number of escorted children on adult-side escorted tours by household student count and direction. Use it to analyze escorting efficiency and child grouping.
+    fields:
+      student_count: students in the adult traveler's household.
+      direction: '`outbound`, `inbound`, or `both`.'
+      avg_schoolkids_per_tour: weighted mean number of escortees per eligible tour.
+      tour_count: weighted eligible tours used as the mean denominator.
+  - id: adult_escorted_tour_distance_distribution_by_direction
+    description: Adult-side escorted tours by lower-bound tour-distance bin and directional escort condition. Use it to compare the length of outbound-only, inbound-only, and both-way escort tours.
+    fields:
+      distance_bin: exact `0`, positive sub-mile `>0-<1`, whole-mile lower bound, or `40+`.
+      direction: '`outbound`, `inbound`, or `both`.'
+      tour_count: weighted eligible tours in the bin.
+  - id: adult_escorted_trip_distance_distribution_by_direction
+    description: Trips on adult tours marked as escorted, by outbound or inbound half and lower-bound trip-distance bin. Use it to examine the trip-leg distance for escorting.
+    fields:
+      distance_bin: exact `0`, positive sub-mile `>0-<1`, whole-mile lower bound, or `40+`.
+      direction: '`outbound`, `inbound`, or `both` condition.'
+      trip_count: weighted eligible trips in the bin.
+  - id: adult_escort_event_stop_distribution
+    description: Intermediate stops before and after school drop-off or pickup on adult tours marked as escorted. Use it to analyze trip chains around escort events.
+    fields:
+      segment: one of `outbound_before_dropoff`, `outbound_after_dropoff`, `inbound_before_pickup`, or `inbound_after_pickup`.
+      stop_count: prepared count of stops in that segment.
+      tour_count: weighted escort-event records with that stop count.
+  - id: adult_escort_trip_stop_frequency
+    description: Adult-side escorted tours jointly classified by purpose and outbound, inbound, and total stop counts. Use it to compare stop-making complexity on escort tours.
+    fields:
+      tour_purpose: adult tour purpose.
+      outbound_stop_count: outbound stops capped at 3.
+      inbound_stop_count: inbound stops capped at 3.
+      total_stop_count: total stops capped at 6.
+      tour_count: weighted escorted tours in the combination.
+- name: Joint Travel
+  summaries:
+  - id: jtf_distribution
+    description: Household observations across the legacy 21 joint-tour-frequency labels, selected by minimum counts in five fixed purpose slots covering shopping, maintenance, eating out, visiting/social, and other discretionary. Purposes outside those slots do not affect the label, and counts above a label's threshold are not rejected, so the labels are not strict total-tour counts. When the day table shows a genuinely multi-day diary and tours contain `day_num`, observations use `(household_id, day_num)`; null or unmatched tour days do not contribute. Without the tour day column, the result is empty rather than pooled into a weekly choice. On a one-day input, the declaration does not require tours, so an unavailable tour table can instead classify every household as `No Joint Tours`; verify tour availability before using that result. Use it to validate compatible joint-tour generation inputs.
+    fields:
+      jtf_code: integer alternative 1--21.
+      jtf_label: readable minimum-frequency/purpose-combination label.
+      household_count: sum of `hh.finalweight` across households or household-day observations assigned to the alternative.
+  - id: joint_tours_by_household_size
+    description: All household observations and observations making at least one joint tour by household size. A genuinely multi-day diary uses household-days when tours contain `day_num`; null or unmatched tour days do not contribute, and a missing tour day column produces an empty result rather than pooling days. Valid shared joint-tour or tour IDs collapse repeated records; records without either valid ID remain distinct. Use the two counts to calculate joint-tour participation rates.
+    fields:
+      household_size: number of household members.
+      household_count: sum of `hh.finalweight` across households or household-day observations of that size.
+      joint_tour_hh_count: sum of `hh.finalweight` for those observations with a joint tour.
+  - id: joint_tour_party_size_distribution
+    description: Household joint tours by valid participant count, with parties of five or more stored in bin 5. Verified survey participant-row groups retain every row at a fractional representation weight that sums to one household tour; ordinary model joint-tour rows retain full weight. Sentinel values of 995 or greater, missing values, and nonpositive values are excluded. Use it to assess joint-tour occupancy.
+    fields:
+      party_size: household participants; value 5 represents `5+`.
+      joint_tour_count: weighted joint tours in the party-size bin.
+  - id: joint_tour_composition_distribution
+    description: Household joint tours by prepared party-composition category. Verified participant-row representations retain every row fractionally so each complete group contributes one household tour. Use it to compare adult-only, child-inclusive, and other modeled compositions.
+    fields:
+      tour_composition: prepared joint-party composition.
+      joint_tour_count: weighted joint tours in the category.
+  - id: joint_tour_composition_by_party_size
+    description: Household joint tours jointly classified by party composition and exact valid participant count. Verified participant-row representations retain every row fractionally so each complete group contributes one household tour. Sentinel values of 995 or greater, missing values, and nonpositive values are excluded. Use it to study how household makeup and group size interact.
+    fields:
+      tour_composition: prepared party-composition category.
+      party_size: number of tour participants.
+      joint_tour_count: weighted joint tours in the combination.
+  - id: person_jtp_by_household_size
+    description: All person observations and observations participating in one or more joint tours by household size. When a multi-day input has person-day records and each joint-tour identity maps to one day, the observations are person-days and participation comes from linked joint participants. A missing or ambiguous tour-day mapping produces an empty result; if the day table lacks household, person, or day fields, the person-level fallback remains. The multi-day path's participant-table limitations are documented in chapter 25. Use the two counts to calculate participation rates.
+    fields:
+      household_size: size of the person's household.
+      joint_tour_person_count: sum of the applicable person or day weight for people or person-days participating in a joint tour.
+      total_person_count: sum of the applicable person or day weight for people or person-days in households of that size.
+  - id: household_jtp_by_household_size_and_jtf
+    description: For household observations of size two or more, weighted percentage distribution across 0, 1, and 2+ joint-tour identities within each household size. A genuinely multi-day diary uses household-days when tours contain `day_num`; null or unmatched tour days do not contribute, and a missing tour day column produces an empty result rather than pooling days. Valid shared joint-tour or tour IDs collapse repeated records; records without either valid ID remain distinct. Use it to compare joint-tour propensity independent of household-size totals across compatible runs.
+    fields:
+      jtf: joint-tour count category `0`, `1`, or `2+`.
+      household_size: household size as a category.
+      household_percent: percent of summed `hh.finalweight` for household observations of that size in the JTF category.
+- name: Basic Tour Distributions
+  summaries:
+  - id: tour_category_distribution
+    description: Household-tour-unit counts by ActivitySim category, such as mandatory, nonmandatory, at-work, or joint. Verified participant-row representations of one joint tour are retained fractionally rather than collapsed. Use it for high-level tour-system composition.
+    fields:
+      tour_category: prepared tour category.
+      tour_count: weighted tours in the category.
+  - id: tour_purpose_distribution
+    description: Household-tour-unit counts by configured summary purpose. Verified participant-row representations of one joint tour are retained fractionally rather than collapsed. Use it to compare the volume and share of work, school, escort, shopping, and other travel.
+    fields:
+      tour_purpose: canonical summary tour purpose.
+      tour_count: weighted tours for that purpose.
+- name: Vehicles Allocated to Tours
+  summaries:
+  - id: allocated_vehicle_age_by_occupancy
+    description: Allocated vehicle ages by occupancy condition. Use it to analyze how fleet age is associated with single- and shared-occupant travel.
+    fields:
+      age: decoded vehicle age, with `20+` terminal.
+      occupancy: allocation condition `1`, `2`, or `3+`.
+      vehicle_count: weighted tour allocation incidences.
+  - id: allocated_vehicle_fuel_type_by_occupancy
+    description: Allocated vehicle fuel/powertrain type by occupancy condition. Use it for energy or emissions segmentation of auto travel.
+    fields:
+      fuel_type: decoded fuel/powertrain category.
+      occupancy: allocation condition `1`, `2`, or `3+`.
+      vehicle_count: weighted tour allocation incidences.
+  - id: allocated_vehicle_body_type_by_occupancy
+    description: Allocated vehicle body type by occupancy condition. Use it to relate party size to the modeled vehicle used.
+    fields:
+      body_type: decoded vehicle body-style category.
+      occupancy: allocation condition `1`, `2`, or `3+`.
+      vehicle_count: weighted tour allocation incidences.
+- name: Tour Mode, Stops, Time, and Distance
+  summaries:
+  - id: tour_mode_by_tour_purpose_and_auto_sufficiency
+    description: Person-tour mode counts by purpose and household auto sufficiency, with all-purpose rows. Joint records use the sum of all matching participant person weights when available and valid party-size expansion only as a fallback; sentinel, missing, or nonpositive fallback sizes resolve to one. Use it to compare mode choice across vehicle-availability markets.
+    fields:
+      tour_mode: prepared tour mode.
+      tour_purpose: tour purpose or `all_tour_purposes`.
+      tour_count_zero_auto: weighted person-tours from zero-auto households.
+      tour_count_auto_deficient: weighted person-tours from households with fewer autos than workers.
+      tour_count_auto_sufficient: weighted person-tours from auto-sufficient households.
+      tour_count_all_households: sum of the three auto-sufficiency counts.
+  - id: tour_stop_frequency_by_tour_purpose
+    description: Household-tour-unit counts jointly classified by purpose and outbound, inbound, and total intermediate-stop counts. Verified participant-row joint-tour groups retain every row at fractional weight summing to one tour. Use it to measure tour complexity and stop-generation patterns.
+    fields:
+      tour_purpose: canonical tour purpose.
+      outbound_stop_count: outbound stops capped at 3.
+      inbound_stop_count: inbound stops capped at 3.
+      total_stop_count: total stops capped at 6.
+      tour_count: weighted tours in the combination.
+  - id: atwork_subtour_frequency_distribution
+    description: Mandatory work tours by their at-work-subtour-frequency alternative. Use it to validate subtour generation from the workplace.
+    fields:
+      atwork_subtour_frequency_category: prepared at-work subtour-frequency category.
+      atwork_subtour_count: weighted parent work tours choosing the category.
+  - id: tour_time_of_day_by_tour_purpose
+    description: Dense household-tour-unit departure, arrival, and duration profiles by tour purpose plus all-purpose totals. Every eligible row is retained; verified participant-row representations of one joint tour contribute fractionally so their combined weight equals one tour. Use it to compare scheduling and duration distributions.
+    fields:
+      time_bin: ActivitySim period index.
+      tour_purpose: tour purpose or `all_tour_purposes`.
+      departure_tour_count: weighted tours starting in the bin.
+      arrival_tour_count: weighted tours ending in the bin.
+      duration_tour_count: weighted tours whose prepared duration falls in the bin.
+  - id: tour_distance_by_tour_purpose
+    description: Nonmandatory, joint, and at-work household-tour-unit records by lower-bound `SKIMDIST` bin and purpose, plus all-purpose totals; mandatory tours are excluded to match the legacy distribution. The metric is fixed to prepared origin-to-primary-destination `SKIMDIST` and does not switch to `tour_distance` or generic `distance_miles`. Every row is retained, with verified participant-row joint-tour groups contributing fractional weight that sums to one tour.
+    fields:
+      distance_bin: exact `0`, positive sub-mile `>0-<1`, whole-mile lower bound, or `40+`.
+      tour_purpose: purpose or `all_tour_purposes`.
+      tour_count: sum of eligible household-tour representation weight in the bin.
+- name: Tour Geography
+  summaries:
+  - id: average_mandatory_tour_distance_by_purpose_and_geography
+    description: Weighted average home-to-work or home-to-school distance for internal non-WFH workers, university students, and school students, by home geography and regionwide. Use it to compare mandatory destination accessibility.
+    fields:
+      mandatory_tour_purpose: '`work`, `university`, or `school`.'
+      geography_type: home-geography system or rollup.
+      geography_id: home-geography identifier or rollup.
+      average_tour_distance: mean person-level mandatory distance weighted by `per.finalweight`.
+      person_count: sum of `per.finalweight` for people contributing to the mean.
+  - id: average_nonmandatory_tour_distance_by_purpose_and_geography
+    description: Weighted average prepared origin-to-primary-destination `SKIMDIST` for individual nonmandatory tours by purpose and traveler home geography, plus regional rows. The metric does not switch to `tour_distance` or generic `distance_miles`. Use it to compare discretionary travel reach.
+    fields:
+      nonmandatory_tour_purpose: nonmandatory purpose.
+      geography_type: home-geography system or rollup.
+      geography_id: home-geography identifier or rollup.
+      average_tour_distance: mean prepared `SKIMDIST` weighted by `tours.finalweight`.
+      tour_count: sum of `tours.finalweight` for tours contributing to the mean.
+  - id: internal_external_nonmandatory_tour_frequency_by_home_geography
+    description: Internal and external nonmandatory tours by traveler home geography, plus regional totals. Use it to calculate external-tour shares and locate households producing external discretionary travel.
+    fields:
+      geography_type: home-geography system or rollup.
+      geography_id: home-geography identifier or rollup.
+      internal_nonmandatory_tour_count: weighted internal nonmandatory tours.
+      external_nonmandatory_tour_count: weighted external nonmandatory tours.
+  - id: external_nonmandatory_tour_locations
+    description: External nonmandatory tours by destination geography, plus a regional total. Use it to analyze external destination orientation and gateway demand.
+    fields:
+      geography_type: destination-geography system or rollup.
+      geography_id: destination-geography identifier or rollup.
+      external_nonmandatory_tour_count: weighted external nonmandatory tours ending there.
+- name: Trip Purpose, Mode, and Parking
+  summaries:
+  - id: trip_purpose_distribution
+    description: Person-trip destination purpose cross-classified by parent tour purpose, with all-tour-purpose rows. Joint records use the sum of all matching participant person weights when available and valid party-size expansion only as a fallback. Use it to analyze activity chains within different kinds of tours.
+    fields:
+      tour_purpose: parent tour purpose or `all_tour_purposes`.
+      trip_purpose: destination purpose of the trip leg.
+      trip_count: weighted person-trips in the combination.
+  - id: stop_destination_purpose_by_tour_purpose
+    description: Person-stop destination purposes by parent tour purpose. Joint records use the sum of all matching participant person weights when available and valid party-size expansion only as a fallback. Use it to understand what activities are chained into tours.
+    fields:
+      stop_destination_purpose: destination purpose of trip records flagged as stops.
+      tour_purpose: parent tour purpose.
+      stop_count: weighted person-stops in the combination.
+  - id: trip_mode_by_tour_purpose_and_tour_mode
+    description: Person-trip mode counts by parent tour purpose and main tour mode, including all-purpose, all-tour-mode, and grand rollups. Joint records use the sum of all matching participant person weights when available; valid party-size expansion is the fallback, and sentinel, missing, or nonpositive party sizes fall back to one. Use it to examine access/egress and mode combinations within tours.
+    fields:
+      tour_purpose: parent purpose or `all_tour_purposes`.
+      tour_mode: main tour mode or `all_tour_modes`.
+      trip_mode: mode of the individual trip leg.
+      trip_count: weighted person-trips in the combination.
+  - id: parking_locations
+    description: Auto-trip parking events by configured parking geography. Use it to map modeled parking demand and compare locations across runs.
+    fields:
+      geography_type: parking-geography system.
+      geography_id: valid positive parking-zone identifier at that geography.
+      trip_count: weighted trips parking there.
+- name: Trip Time and Distance
+  summaries:
+  - id: trip_departure_time_by_purpose
+    description: Dense person-trip and person-stop departure-period profiles by parent tour purpose and for all purposes. Joint records use all matching participant person weights when available and valid party-size expansion only as a fallback. Use it to compare trip timing with stop timing.
+    fields:
+      tour_purpose: parent purpose or `all_tour_purposes`.
+      time_bin: prepared trip departure period index.
+      departure_trip_count: weighted person-trips departing in the bin.
+      departure_stop_count: weighted departing person-stops.
+  - id: trip_distance_by_purpose
+    description: Person-trips by lower-bound OD-distance bin and parent tour purpose, plus all-purpose totals. Joint records use the sum of all matching participant person weights when available; valid party-size expansion is the fallback, non-joint trips contribute once, and sentinel, missing, or nonpositive fallback sizes resolve to one. Use it for purpose-specific trip length distributions.
+    fields:
+      distance_bin: exact `0`, positive sub-mile `>0-<1`, whole-mile lower bound, or `40+`.
+      tour_purpose: parent purpose or `all_tour_purposes`.
+      trip_count: sum of participant-adjusted trip weight in the bin.
+  - id: stop_out_of_direction_distance_by_tour_purpose
+    description: Person-stops by lower-bound out-of-direction-distance bin, with a dense distribution for each purpose and all purposes. Joint records use all matching participant person weights when available and valid party-size expansion only as a fallback. Use it to quantify detour burden from stop-making.
+    fields:
+      distance_bin: exact `0`, positive sub-mile `>0-<1`, whole-mile lower bound, or `40+`.
+      tour_purpose: parent purpose or `all_tour_purposes`.
+      stop_count: weighted person-stops in the bin.
+- name: Skimjoin Diagnostics
+  summaries:
+  - id: skimjoin_trip_component_stats
+    description: Weighted descriptive statistics for every numeric `skim_` component on trips, by trip mode and skim scenario. Use it to QA joined time, distance, and cost values and identify missing or zero-heavy components.
+    fields:
+      skim_scenario: chosen or hypothetical evaluation scenario.
+      trip_mode: trip mode or `All Modes`.
+      component: numeric skim column name.
+      n_total: total trip weight eligible for the component/mode group.
+      n_valid: trip weight with non-null component values, including zeros.
+      mean: weighted mean including zeros.
+      mean_nonzero: weighted mean excluding zeros.
+      std: weighted population standard deviation.
+      min: minimum observed value.
+      max: maximum observed value.
+      median: weighted 50th percentile.
+      mode: value with greatest total weight, using the smaller value on ties.
+      zero_share: valid weight at exactly zero divided by `n_valid`.
+      missing_share: missing weight divided by `n_total`.
+  - id: skimjoin_trip_component_ecdf
+    description: Optional 0th-through-100th weighted percentile curves for trip skim components by mode and scenario. Use it for distribution comparison when the compact stats table is insufficient.
+    fields:
+      skim_scenario: chosen or hypothetical scenario.
+      trip_mode: trip mode or `All Modes`.
+      component: numeric skim column name.
+      percentile: cumulative probability from 0.00 through 1.00 in 0.01 steps.
+      value: weighted quantile at that probability.
+      n_valid: total valid trip weight behind the curve.
+  - id: skimjoin_tour_component_stats
+    description: Weighted descriptive statistics for numeric tour `skim_` components by tour mode and scenario. Use it to QA tour-level round-trip or composite skims.
+    fields:
+      skim_scenario: chosen or hypothetical evaluation scenario.
+      tour_mode: tour mode or `All Modes`.
+      component: numeric skim column name.
+      n_total: total tour weight in scope.
+      n_valid: tour weight with a non-null value, including zeros.
+      mean: weighted mean including zeros.
+      mean_nonzero: weighted mean excluding zeros.
+      std: weighted population standard deviation.
+      min: minimum value.
+      max: maximum value.
+      median: weighted median.
+      mode: highest-weight value, smaller on ties.
+      zero_share: valid weight at zero divided by `n_valid`.
+      missing_share: missing weight divided by `n_total`.
+  - id: skimjoin_tour_component_ecdf
+    description: Optional weighted percentile curves for tour skim components by mode and scenario. Use it to compare complete tour-level distributions across runs.
+    fields:
+      skim_scenario: chosen or hypothetical scenario.
+      tour_mode: tour mode or `All Modes`.
+      component: numeric skim column name.
+      percentile: probability from 0.00 through 1.00.
+      value: weighted quantile at that probability.
+      n_valid: valid tour weight behind the curve.
+- name: Processor-Built Validation Summaries
+  summaries:
+  - id: traffic_count_comparisons
+    description: Observed and modeled traffic counts that agree at count-location, direction, and period level. Use it for count scatterplots, percent differences, RMSE, and facility calibration. The table keeps only keys in both sources.
+    fields:
+      count_location_id: traffic-count station/location identifier.
+      direction: observed/modeled direction label.
+      count_period: count time-period label.
+      observed_volume: summed observed count for the key.
+      modeled_volume: summed assigned volume for the matching key.
+  - id: screenline_flow_comparisons
+    description: Observed and modeled screenline flows matched by screenline, direction, and period, with a representative facility type. Use it for corridor-level flow validation and regression analysis.
+    fields:
+      screenline_id: screenline/cutline identifier.
+      direction: flow direction.
+      count_period: comparison period.
+      facility_type: supplied facility class, or `All` if absent.
+      observed_volume: summed observed flow.
+      modeled_volume: summed modeled flow for the matching key.
+  - id: transit_boardings_by_operator_and_technology
+    description: Assigned transit boardings summed by operator and transit technology. Use it to compare ridership scale across agencies and modes.
+    fields:
+      operator: supplied transit operator identifier or name.
+      technology: supplied transit mode/technology category.
+      boardings: total assigned unlinked passenger boardings.
+  - id: transit_transfer_rate
+    description: Assigned boardings divided by linked transit trips by operator, technology, and access mode. The value is boardings per linked trip, so values above one indicate transfers; subtract one if a transfers-per-trip measure is needed.
+    fields:
+      operator: transit operator.
+      technology: transit technology/mode.
+      access_mode: mode used to access transit.
+      transfer_rate: assigned boardings divided by linked trips; null for a zero linked-trip denominator.
+  - id: auto_vmt_totals
+    description: One run-level personal-auto VMT total using the same eligible records, distance source, and legacy-compatible occupancy calculation as the detailed personal-auto VMT summary. Every eligible row is retained. Household-level joint rows use one vehicle, while repeated person-level joint rows use their fixed auto-mode occupancy. A prepared auto skim is preferred; otherwise eligible non-drive-transit trips use `od_dist`. Use it for overview controls and scenario comparison.
+    fields:
+      auto_vmt: total weighted personal-auto vehicle miles traveled.
+  - id: auto_vmt_by_home_geography_income_hhsize_time_period
+    description: Personal-auto VMT and trip counts by home geography, income, household size, time period, and auto mode. When component periods exist, Daily rows are derived only from those non-Daily rows and replace any stale source Daily row; Daily-only groups are retained. Use it for equity, temporal, modal, and spatial VMT analysis.
+    fields:
+      geography_type: home-geography system or `all_geographies`.
+      geography_id: home-geography identifier or rollup.
+      income_segment: prepared household income segment or fallback rollup.
+      household_size: prepared household size or fallback rollup.
+      time_period: configured period or `Daily`.
+      mode: trip mode or `All Auto` fallback.
+      auto_vmt: sum of distance times `trips.finalweight`, divided by legacy-compatible vehicle occupancy.
+      trip_count: sum of `trips.finalweight` for eligible auto trips.
+      distance_source: provenance of the distance used, such as a skim or OD-distance field.
+      time_period_source: provenance of the time-period assignment.
+  - id: non_motorized_vmt_by_home_geography_income_hhsize_time_period
+    description: Walk, bicycle, and e-bike weighted miles and trip counts by home geography, income, household size, period, and mode, including derived daily rows. Use it for active-travel exposure and equity analysis.
+    fields:
+      geography_type: home-geography system or rollup.
+      geography_id: home-geography identifier or rollup.
+      income_segment: household income segment or fallback rollup.
+      household_size: household size or fallback rollup.
+      time_period: configured period or `Daily`.
+      mode: '`WALK`, `BIKE`, or `EBIKE` as available.'
+      non_motorized_vmt: distance times `trips.finalweight`; despite the VMT name, this is weighted traveler mileage.
+      trip_count: sum of `trips.finalweight` for eligible trips.
+      distance_source: prepared or skim distance source used for the mode.
+      time_period_source: provenance of the period assignment.
+  - id: commercial_vmt_totals
+    description: Commercial-vehicle VMT by vehicle type, split between internal and external travel. Use it for freight VMT totals and internal/external shares.
+    fields:
+      commercial_vehicle_type: supplied commercial vehicle/truck class.
+      external_vmt: VMT from records classified as external.
+      internal_vmt: VMT from records classified as internal.
+  - id: bicycle_vmt_by_facility_type
+    description: Bicycle VMT by facility type, read directly when supplied or calculated as assigned bicycle trips times link distance. Use it to evaluate bicycle use by facility class.
+    fields:
+      facility_type: supplied bicycle/network facility category.
+      bicycle_vmt: summed bicycle vehicle/traveler miles on that facility type.
+- name: Externally Supplied Validation Contracts
+  summaries:
+  - id: link_validation_summary
+    description: Modeled network link volumes with link endpoints and facility class. Use it to aggregate modeled flow by facility or inspect high-volume links.
+    fields:
+      id: link identifier.
+      From_Node: upstream node identifier.
+      To_Node: downstream node identifier.
+      FACTYPE: facility-type code.
+      am_vol: AM-period modeled link volume.
+      md_vol: midday modeled link volume.
+      pm_vol: PM-period modeled link volume.
+      day_vol: daily modeled link volume.
+  - id: count_location_counts_validation_summary
+    description: Observed traffic-count volumes by count location and facility class. Use it as the observed side of location-level modeled-versus-observed comparisons.
+    fields:
+      id: count-location identifier.
+      FACTYPE: facility-type code.
+      am_vol: observed AM volume.
+      md_vol: observed midday volume.
+      pm_vol: observed PM volume.
+      day_vol: observed daily volume.
+  - id: count_location_volumes_validation_summary
+    description: Modeled volumes at the traffic-count locations. Use it as the modeled side of location-level count comparisons.
+    fields:
+      id: count-location identifier matching the observed table.
+      FACTYPE: facility-type code.
+      am_vol: modeled AM volume.
+      md_vol: modeled midday volume.
+      pm_vol: modeled PM volume.
+      day_vol: modeled daily volume.
+  - id: count_location_scatter_validation_summary
+    description: Long-form observed/modeled point pairs already prepared for count scatterplots. Use it when the source workflow supplies paired values directly.
+    fields:
+      id: count-location identifier.
+      facility_type: facility class code or label.
+      period: comparison period.
+      observed_volume: observed traffic volume.
+      modeled_volume: modeled traffic volume.
+  - id: count_location_fit_validation_summary
+    description: Precomputed linear-fit diagnostics for observed-versus-modeled counts by facility type and period. Use it to draw regression lines and report calibration fit.
+    fields:
+      facility_type: facility class used for the fit.
+      period: time period used for the fit.
+      slope: fitted slope for modeled volume as a function of observed volume.
+      intercept: fitted modeled-volume intercept.
+      r_squared: coefficient of determination.
+      n_locations: paired count locations in the fit.
+      observed_min: minimum observed volume in the fitting data.
+      observed_max: maximum observed volume.
+      equation_label: preformatted regression-equation text.
+      r_squared_label: preformatted R-squared text.
+  - id: district_commuting_flows_validation_summary
+    description: Supplied district-to-district commute-flow matrix for Albany, Corvallis, Lebanon, and Philomath. Use it as a local validation/control matrix.
+    fields:
+      '': origin district or row label.
+      Albany: commuters to Albany.
+      Corvallis: commuters to Corvallis.
+      Lebanon: commuters to Lebanon.
+      Philomath: commuters to Philomath.
+      Total: row total across destinations.
+  - id: county_commuting_flows_validation_summary
+    description: Supplied county-to-county commute-flow matrix for Benton, Linn, and Marion counties. Use it as a regional commute-flow validation/control matrix.
+    fields:
+      '': origin county or row label.
+      Benton: commuters to Benton County.
+      Linn: commuters to Linn County.
+      Marion: commuters to Marion County.
+      Total: row total across destinations.
+  - id: commercial_vehicle_validation_summary
+    description: Supplied commercial-vehicle trip totals by time of day and vehicle class. Use it to compare commercial demand composition and daily profiles.
+    fields:
+      tod: time-of-day row label.
+      car: commercial-car/light-vehicle trips.
+      mu: multi-unit truck trips.
+      su: single-unit truck trips.
+      Total: total commercial trips across classes.
+  - id: commercial_vehicle_vmt_validation_summary
+    description: Supplied commercial-vehicle VMT by time of day and vehicle class. Use it to compare freight mileage composition and temporal patterns.
+    fields:
+      tod: time-of-day row label.
+      car: commercial-car/light-vehicle VMT.
+      mu: multi-unit truck VMT.
+      su: single-unit truck VMT.
+      Total: total commercial VMT across classes.
+  - id: external_trip_validation_summary
+    description: Supplied external trip totals by time of day and purpose/class. Use it to analyze gateway demand by travel market.
+    fields:
+      tod: time-of-day row label.
+      hbcoll: home-based college trips.
+      hbo: home-based other trips.
+      hbr: home-based recreation trips.
+      hbs: home-based shopping trips.
+      hbsch: home-based school trips.
+      hbw: home-based work trips.
+      nhbnw: non-home-based non-work trips.
+      nhbw: non-home-based work trips.
+      truck: truck trips.
+      Total: total external trips across purposes/classes.
+  - id: external_vmt_validation_summary
+    description: Supplied external VMT by time of day and purpose/class. Use it to identify which external markets contribute mileage.
+    fields:
+      tod: time-of-day row label.
+      hbcoll: home-based college VMT.
+      hbo: home-based other VMT.
+      hbr: home-based recreation VMT.
+      hbs: home-based shopping VMT.
+      hbsch: home-based school VMT.
+      hbw: home-based work VMT.
+      nhbnw: non-home-based non-work VMT.
+      nhbw: non-home-based work VMT.
+      truck: truck VMT.
+      Total: total external VMT across purposes/classes.
+  - id: auto_vmt_validation_summary
+    description: Supplied auto and truck VMT by time of day and occupancy class. Use it as an independent control for modeled VMT.
+    fields:
+      TOD: time-of-day row label.
+      SOV: single-occupant-vehicle VMT.
+      HOV2: two-occupant shared-ride VMT.
+      HOV3: three-or-more-occupant shared-ride VMT.
+      Truck: truck VMT.
+      Total: total VMT across listed classes.
+  - id: work_from_home_validation_summary
+    description: Supplied worker and work-from-home controls by district. Use it to compare modeled WFH counts or rates with external targets.
+    fields:
+      District: district name or identifier.
+      Workers: total workers in the district.
+      WFH: workers who work from home.

@@ -19,8 +19,14 @@ from processor.prepare.cache import load_prepared_run_cache, write_prepared_run_
 from processor.skimjoin.annotate.tours import annotate_tours
 from processor.skimjoin.annotate.trips import annotate_trips
 from processor.skimjoin.config.validation import ConfigValidationError, load_config, validate_config
+from processor.skimjoin.hypothetical_sidecars import (
+    TOUR_HYPOTHETICAL_SIDECAR_SCHEMA,
+    TRIP_HYPOTHETICAL_SIDECAR_SCHEMA,
+    build_hypothetical_sidecars,
+)
 from processor.skimjoin.inventory import inventory_skim_files
 from processor.skimjoin.pipeline import apply_skimjoin
+from processor.skimjoin.runtime_execution import _validate_runtime_inventory
 from processor.skimjoin.skimstore.omx import OmxSkimStore
 from processor.summarize import cache_types as summary_cache_types
 from processor.summarize import builder as summary_builder
@@ -569,6 +575,53 @@ def test_run_level_skimjoin_requires_resolvable_config_path_when_enabled(
         config_for_run(config, config.runs[0])
 
 
+def test_run_level_skimjoin_can_be_disabled_without_a_config_path(
+    tmp_path: Path,
+) -> None:
+    config = _write_main_config(
+        tmp_path,
+        skimjoin_enabled=True,
+        skimjoin_config_name=None,
+        run_skimjoin_lines=["enabled: false"],
+    )
+
+    resolved = config_for_run(config, config.runs[0])
+
+    assert config.skimjoin_step_enabled() is True
+    assert resolved.skimjoin.enabled is False
+    assert resolved.skimjoin_step_enabled() is False
+
+
+def test_run_level_skimjoin_enabled_cannot_override_the_global_pipeline(
+    tmp_path: Path,
+) -> None:
+    config = _write_main_config(
+        tmp_path,
+        skimjoin_enabled=False,
+        skimjoin_config_name=None,
+        run_skimjoin_lines=["enabled: true"],
+    )
+
+    resolved = config_for_run(config, config.runs[0])
+
+    assert resolved.skimjoin_step_enabled() is False
+
+
+def test_run_level_skimjoin_enabled_rejects_non_boolean_values(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"runs\[0\]\.skimjoin\.enabled must be true or false",
+    ):
+        _write_main_config(
+            tmp_path,
+            skimjoin_enabled=True,
+            skimjoin_config_name=None,
+            run_skimjoin_lines=["enabled: sometimes"],
+        )
+
+
 def test_run_level_skimjoin_missing_config_file_raises_clear_error(
     tmp_path: Path,
 ) -> None:
@@ -887,6 +940,66 @@ def test_prepare_workflow_supports_two_runs_with_different_skimjoin_config_files
     assert outputs["Run B"].trips["skim_time"].to_list() == [101.0]
 
 
+def test_prepare_workflow_can_skip_skimjoin_for_one_run(
+    tmp_path: Path,
+) -> None:
+    run_a_dir = tmp_path / "run_a"
+    run_b_dir = tmp_path / "run_b"
+    _write_prepare_run_inputs(run_a_dir)
+    _write_prepare_run_inputs(run_b_dir)
+
+    skim_path = tmp_path / "shared.omx"
+    _write_omx_with_lookup(
+        skim_path,
+        matrix_name="SOV_TIME",
+        lookup_name="taz",
+        values=np.array([[1.0, 12.0], [22.0, 32.0]]),
+    )
+    _write_skimjoin_config(tmp_path, skim_file=skim_path)
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'name: "Mixed Skimjoin Test"',
+                "root: summary_cache",
+                "dashboard:",
+                '  title: "Mixed Skimjoin Test"',
+                "zones:",
+                "  use_maz: false",
+                "runs:",
+                f'  - dir: "{run_a_dir.as_posix()}"',
+                '    label: "Run A"',
+                "    skimjoin:",
+                "      enabled: false",
+                f'  - dir: "{run_b_dir.as_posix()}"',
+                '    label: "Run B"',
+                "skimjoin:",
+                "  defaults:",
+                "    config_path: skimjoin.yaml",
+                "pipeline:",
+                "  steps: [prepare, skimjoin]",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    config = Config.from_yaml(config_path)
+
+    prepared_root = runtime_workflows.prepared_cache_root(config, create=True)
+    result = runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=prepared_root,
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=False,
+    )
+
+    outputs = {label: prepared for label, prepared in result.runs}
+    assert "skim_time" not in outputs["Run A"].trips.columns
+    assert outputs["Run B"].trips["skim_time"].to_list() == [12.0]
+    assert result.fingerprints_by_key["run-a"]["skimjoin"] is None
+    assert result.fingerprints_by_key["run-b"]["skimjoin"]["enabled"] is True
+
+
 def test_prepare_workflow_supports_two_runs_sharing_one_skimjoin_config_with_different_skim_files(
     tmp_path: Path,
 ) -> None:
@@ -1125,7 +1238,9 @@ def test_config_accepts_mixed_omx_and_csv_skim_inputs(tmp_path: Path) -> None:
     assert config.skimjoin.normalized_config is not None
 
 
-def test_validate_config_rejects_duplicate_matrix_names_across_sources(tmp_path: Path) -> None:
+def test_validate_config_rejects_ambiguous_unqualified_matrix_reference(
+    tmp_path: Path,
+) -> None:
     skim_path = tmp_path / "auto.omx"
     csv_path = tmp_path / "auto.csv"
     _write_omx(skim_path, matrix_name="auto__time")
@@ -1174,11 +1289,119 @@ def test_validate_config_rejects_duplicate_matrix_names_across_sources(tmp_path:
         },
     }
     inventory = inventory_skim_files([skim_path, csv_path])
-    trips = pl.read_parquet(tmp_path / "run" / "final_trips.parquet")
-    tours = pl.read_parquet(tmp_path / "run" / "final_tours.parquet")
+    trips = pl.read_parquet(tmp_path / "run" / "final_trips.parquet").with_columns(
+        pl.lit("WALK_TRANSIT").alias("trip_mode")
+    )
+    tours = pl.read_parquet(tmp_path / "run" / "final_tours.parquet").with_columns(
+        pl.lit("WALK_TRANSIT").alias("tour_mode"),
+        pl.lit(101).alias("o_maz"),
+        pl.lit(102).alias("d_maz"),
+    )
 
-    with pytest.raises(ConfigValidationError, match="Duplicate matrix names"):
+    with pytest.raises(ConfigValidationError, match="ambiguous matrix reference 'auto__time'"):
         validate_config(config_data, inventory, trips, tours=tours)
+
+
+def test_qualified_matrix_references_select_duplicate_names_by_file(
+    tmp_path: Path,
+) -> None:
+    commute_path = tmp_path / "bike_commute.omx"
+    noncommute_path = tmp_path / "bike_noncommute.omx"
+    _write_omx_with_lookup(
+        commute_path,
+        matrix_name="distance",
+        lookup_name="taz",
+        values=np.array([[1.0, 2.0], [3.0, 4.0]]),
+    )
+    _write_omx_with_lookup(
+        noncommute_path,
+        matrix_name="distance",
+        lookup_name="taz",
+        values=np.array([[10.0, 20.0], [30.0, 40.0]]),
+    )
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[commute_path, noncommute_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  BIKE:",
+            "    commute_distance:",
+            "      output: skim_bike_commute_distance",
+            '      matrix: "bike_commute.omx::distance"',
+            "    noncommute_distance:",
+            "      output: skim_bike_noncommute_distance",
+            '      matrix: "bike_noncommute.omx::distance"',
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+    inventory = inventory_skim_files(normalized.skim_files)
+    _validate_runtime_inventory(inventory)
+
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1],
+            "trip_mode": ["BIKE"],
+            "OTAZ": [101],
+            "DTAZ": [102],
+        }
+    )
+    annotated, lookup_summary, missing = annotate_trips(
+        trips,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+    )
+
+    assert annotated["skim_bike_commute_distance"].to_list() == [2.0]
+    assert annotated["skim_bike_noncommute_distance"].to_list() == [20.0]
+    assert sorted(lookup_summary["matrix_name"].to_list()) == [
+        "bike_commute.omx::distance",
+        "bike_noncommute.omx::distance",
+    ]
+    assert missing.is_empty()
+
+
+def test_annotate_trips_rejects_ambiguous_unqualified_matrix_reference(
+    tmp_path: Path,
+) -> None:
+    first_path = tmp_path / "first.omx"
+    second_path = tmp_path / "second.omx"
+    _write_omx(first_path, matrix_name="distance")
+    _write_omx(second_path, matrix_name="distance")
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[first_path, second_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  BIKE:",
+            "    distance:",
+            "      matrix: distance",
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+    inventory = inventory_skim_files(normalized.skim_files)
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1],
+            "trip_mode": ["BIKE"],
+            "OTAZ": [101],
+            "DTAZ": [102],
+        }
+    )
+
+    with pytest.raises(ValueError, match="Ambiguous matrix reference 'distance'"):
+        annotate_trips(
+            trips,
+            normalized,
+            inventory,
+            skim_store=OmxSkimStore(),
+        )
 
 
 def test_validate_config_allows_summed_output_overlap_but_rejects_replace_overlap(
@@ -1515,6 +1738,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "n_total": 1.0,
             "n_valid": 1.0,
             "mean": 2.0,
+            "mean_nonzero": 2.0,
             "std": 0.0,
             "min": 2.0,
             "max": 2.0,
@@ -1530,6 +1754,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "n_total": 1.0,
             "n_valid": 1.0,
             "mean": 2.0,
+            "mean_nonzero": 2.0,
             "std": 0.0,
             "min": 2.0,
             "max": 2.0,
@@ -1547,6 +1772,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "n_total": 1.0,
             "n_valid": 1.0,
             "mean": 3.0,
+            "mean_nonzero": 3.0,
             "std": 0.0,
             "min": 3.0,
             "max": 3.0,
@@ -1562,6 +1788,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "n_total": 1.0,
             "n_valid": 1.0,
             "mean": 2.0,
+            "mean_nonzero": 2.0,
             "std": 0.0,
             "min": 2.0,
             "max": 2.0,
@@ -1577,6 +1804,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "n_total": 1.0,
             "n_valid": 1.0,
             "mean": 3.0,
+            "mean_nonzero": 3.0,
             "std": 0.0,
             "min": 3.0,
             "max": 3.0,
@@ -1592,6 +1820,7 @@ def test_run_prepare_workflow_applies_mapping_aware_skimjoin(tmp_path: Path) -> 
             "n_total": 1.0,
             "n_valid": 1.0,
             "mean": 2.0,
+            "mean_nonzero": 2.0,
             "std": 0.0,
             "min": 2.0,
             "max": 2.0,
@@ -2012,6 +2241,295 @@ def test_annotate_trips_can_return_fallback_lookup_report(tmp_path: Path) -> Non
         }
     ]
 
+    fast_annotated, fast_lookup_summary, fast_missing = annotate_trips(
+        trips,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+        collect_reports=False,
+    )
+    assert fast_annotated.to_dicts() == annotated.to_dicts()
+    assert fast_lookup_summary.is_empty()
+    assert fast_missing.is_empty()
+
+
+def test_annotate_trips_can_skip_discarded_reports(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    _write_omx(skim_path)
+    _write_skimjoin_config(tmp_path, skim_file=skim_path)
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+    trips = pl.DataFrame(
+        {
+            "trip_id": [1],
+            "trip_mode": ["SOV"],
+            "OTAZ": [101],
+            "DTAZ": [102],
+        }
+    )
+    inventory = inventory_skim_files(normalized.skim_files)
+
+    def _unexpected_report(*args, **kwargs):
+        raise AssertionError("report builder should not run")
+
+    monkeypatch.setattr(
+        "processor.skimjoin.annotate.engine._build_lookup_summary_frame",
+        _unexpected_report,
+    )
+    monkeypatch.setattr(
+        "processor.skimjoin.annotate.engine._concat_missing_frames",
+        _unexpected_report,
+    )
+    monkeypatch.setattr(
+        "processor.skimjoin.annotate.engine._build_fallback_lookup_report",
+        _unexpected_report,
+    )
+
+    annotated, lookup_summary, missing = annotate_trips(
+        trips,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+        collect_reports=False,
+    )
+
+    assert annotated["skim_time"].to_list() == [2.0]
+    assert lookup_summary.is_empty()
+    assert missing.is_empty()
+
+
+def test_hypothetical_sidecars_use_mode_specific_long_lookup_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    _write_omx(skim_path)
+    _write_skimjoin_config(
+        tmp_path,
+        skim_file=skim_path,
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  SOV:",
+            "    time: SOV_TIME",
+            "  WALK:",
+            "    time: SOV_TIME",
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+    inventory = inventory_skim_files(normalized.skim_files)
+    calls: list[tuple[str, str, set[str]]] = []
+
+    def _lookup_values(frame, _normalized, _inventory, **kwargs):
+        mode_column = "trip_mode" if "trip_mode" in frame.columns else "tour_mode"
+        table_name = "trips" if mode_column == "trip_mode" else "tours"
+        mode = str(frame.item(0, mode_column))
+        rules = kwargs["rules"]
+        calls.append(
+            (
+                table_name,
+                mode,
+                {str(rule.mode) for rule in rules},
+            )
+        )
+        outputs = sorted({str(rule.output) for rule in rules})
+        return pl.DataFrame(
+            [
+                {"_row_id": row_id, "output": output, "value": float(index + 1)}
+                for index, output in enumerate(outputs)
+                for row_id in range(frame.height)
+            ]
+        )
+
+    monkeypatch.setattr(
+        "processor.skimjoin.hypothetical_sidecars.lookup_trip_output_values",
+        _lookup_values,
+    )
+    monkeypatch.setattr(
+        "processor.skimjoin.hypothetical_sidecars.lookup_tour_output_values",
+        _lookup_values,
+    )
+
+    trip_sidecar, tour_sidecar = build_hypothetical_sidecars(
+        trips=pl.DataFrame(
+            {
+                "trip_id": [1],
+                "trip_mode": ["SOV"],
+                "finalweight": [2.0],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [10],
+                "tour_mode": ["WALK"],
+                "finalweight": [3.0],
+            }
+        ),
+        normalized=normalized,
+        inventory=inventory,
+    )
+
+    assert not trip_sidecar.is_empty()
+    assert not tour_sidecar.is_empty()
+    assert calls == [
+        ("trips", "SOV", {"SOV"}),
+        ("trips", "WALK", {"WALK"}),
+        ("tours", "SOV", {"SOV"}),
+        ("tours", "WALK", {"WALK"}),
+    ]
+
+
+def test_hypothetical_sidecars_preserve_values_nulls_and_schema(
+    tmp_path: Path,
+) -> None:
+    skim_path = tmp_path / "skims.omx"
+    _write_omx(skim_path)
+    _write_skimjoin_config(tmp_path, skim_file=skim_path)
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+
+    trip_sidecar, tour_sidecar = build_hypothetical_sidecars(
+        trips=pl.DataFrame(
+            {
+                "trip_id": [1, 2],
+                "trip_mode": ["WALK", "SOV"],
+                "OTAZ": [101, 999],
+                "DTAZ": [102, 102],
+                "finalweight": [2.0, 4.0],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [10],
+                "tour_mode": ["WALK"],
+                "OTAZ": [101],
+                "DTAZ": [102],
+                "finalweight": [3.0],
+            }
+        ),
+        normalized=normalized,
+        inventory=inventory_skim_files(normalized.skim_files),
+        skim_store=OmxSkimStore(),
+    )
+
+    assert trip_sidecar.schema == TRIP_HYPOTHETICAL_SIDECAR_SCHEMA
+    assert trip_sidecar.sort("trip_id").to_dicts() == [
+        {
+            "trip_id": 1,
+            "observed_mode": "WALK",
+            "hypothetical_mode": "SOV",
+            "component": "skim_time",
+            "value": 2.0,
+            "finalweight": 2.0,
+        },
+        {
+            "trip_id": 2,
+            "observed_mode": "SOV",
+            "hypothetical_mode": "SOV",
+            "component": "skim_time",
+            "value": None,
+            "finalweight": 4.0,
+        },
+    ]
+    assert tour_sidecar.schema == TOUR_HYPOTHETICAL_SIDECAR_SCHEMA
+    assert tour_sidecar.sort("component").to_dicts() == [
+        {
+            "tour_id": 10,
+            "observed_mode": "WALK",
+            "hypothetical_mode": "SOV",
+            "direction": "inbound",
+            "component": "skim_time_inbound",
+            "value": 3.0,
+            "finalweight": 3.0,
+        },
+        {
+            "tour_id": 10,
+            "observed_mode": "WALK",
+            "hypothetical_mode": "SOV",
+            "direction": "outbound",
+            "component": "skim_time_outbound",
+            "value": 2.0,
+            "finalweight": 3.0,
+        },
+    ]
+
+
+def test_hypothetical_sidecars_filter_csv_cache_to_required_od_pairs(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "maz_maz_walk.csv"
+    _write_csv_od_skim(
+        csv_path,
+        rows=[
+            {"OMAZ": 101, "DMAZ": 102, "DISTWALK": 0.5, "actual": 10.0},
+            {"OMAZ": 101, "DMAZ": 102, "DISTWALK": 0.6, "actual": 11.0},
+            {"OMAZ": 102, "DMAZ": 101, "DISTWALK": 0.75, "actual": 15.0},
+            {"OMAZ": 999, "DMAZ": 999, "DISTWALK": 9.0, "actual": 99.0},
+        ],
+    )
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[csv_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  WALK:",
+            "    distance:",
+            "      output: skim_walk_distance",
+            "      origin: o_maz",
+            "      destination: d_maz",
+            "      matrix: maz_maz_walk__DISTWALK",
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+    inventory = inventory_skim_files(normalized.skim_files)
+    skim_store = OmxSkimStore()
+
+    trip_sidecar, tour_sidecar = build_hypothetical_sidecars(
+        trips=pl.DataFrame(
+            {
+                "trip_id": [1],
+                "trip_mode": ["SOV"],
+                "o_maz": [101],
+                "d_maz": [102],
+                "OTAZ": [101],
+                "DTAZ": [102],
+                "finalweight": [2.0],
+            }
+        ),
+        tours=pl.DataFrame(
+            {
+                "tour_id": [10],
+                "tour_mode": ["SOV"],
+                "o_maz": [101],
+                "d_maz": [102],
+                "OTAZ": [101],
+                "DTAZ": [102],
+                "finalweight": [3.0],
+            }
+        ),
+        normalized=normalized,
+        inventory=inventory,
+        skim_store=skim_store,
+    )
+
+    assert trip_sidecar["value"].to_list() == [0.6]
+    assert tour_sidecar.sort("direction")["value"].to_list() == [0.75, 0.6]
+    cached = next(iter(skim_store._od_csv_cache.values()))
+    assert cached.height == 2
+    assert cached.select("__lookup_origin", "__lookup_destination").sort(
+        "__lookup_origin"
+    ).rows() == [(101.0, 102.0), (102.0, 101.0)]
+
 
 def test_annotate_trips_primary_lookup_success_does_not_emit_fallback_report(
     tmp_path: Path,
@@ -2198,6 +2716,120 @@ def test_annotate_trips_supports_csv_od_lookup(tmp_path: Path) -> None:
     assert missing["reason"].to_list() == ["missing_od"]
     assert missing["origin"].to_list() == [999]
     assert missing["destination"].to_list() == [101]
+
+
+def test_annotate_trips_scans_each_multi_value_csv_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    keyed_path = tmp_path / "maz_stop_walk.csv"
+    _write_csv_skim(
+        keyed_path,
+        rows=[
+            {
+                "maz": 101,
+                "walk_dist_local_bus": 0.25,
+                "walk_dist_premium_transit": None,
+                "unused": 100.0,
+            },
+            {
+                "maz": 101,
+                "walk_dist_local_bus": None,
+                "walk_dist_premium_transit": 0.6,
+                "unused": 200.0,
+            },
+        ],
+    )
+    od_path = tmp_path / "maz_maz_walk.csv"
+    _write_csv_od_skim(
+        od_path,
+        rows=[
+            {
+                "OMAZ": 101,
+                "DMAZ": 102,
+                "DISTWALK": 0.5,
+                "actual": None,
+                "unused": 100.0,
+            },
+            {
+                "OMAZ": 101,
+                "DMAZ": 102,
+                "DISTWALK": None,
+                "actual": 10.0,
+                "unused": 200.0,
+            },
+        ],
+    )
+    _write_skimjoin_config(
+        tmp_path,
+        skim_files=[keyed_path, od_path],
+        include_default_mode=False,
+        extra_lines=[
+            "modes:",
+            "  WALK:",
+            "    local_stop:",
+            "      output: skim_local_stop",
+            "      lookup: key",
+            "      key_column: o_maz",
+            "      matrix: maz_stop_walk__walk_dist_local_bus",
+            "    premium_stop:",
+            "      output: skim_premium_stop",
+            "      lookup: key",
+            "      key_column: o_maz",
+            "      matrix: maz_stop_walk__walk_dist_premium_transit",
+            "    walk_distance:",
+            "      output: skim_walk_distance",
+            "      origin: o_maz",
+            "      destination: d_maz",
+            "      matrix: maz_maz_walk__DISTWALK",
+            "    walk_actual:",
+            "      output: skim_walk_actual",
+            "      origin: o_maz",
+            "      destination: d_maz",
+            "      matrix: maz_maz_walk__actual",
+        ],
+    )
+    config = _write_main_config(tmp_path, skimjoin_enabled=True)
+    normalized = config.skimjoin.normalized_config
+    assert normalized is not None
+    inventory = inventory_skim_files(normalized.skim_files)
+
+    scan_calls: list[Path] = []
+    original_scan_csv = pl.scan_csv
+
+    def tracked_scan_csv(source, *args, **kwargs):
+        scan_calls.append(Path(source))
+        return original_scan_csv(source, *args, **kwargs)
+
+    monkeypatch.setattr(pl, "scan_csv", tracked_scan_csv)
+    skim_store = OmxSkimStore()
+    annotated, _, missing = annotate_trips(
+        pl.DataFrame(
+            {
+                "trip_id": [1],
+                "trip_mode": ["WALK"],
+                "o_maz": [101],
+                "d_maz": [102],
+                "OTAZ": [101],
+                "DTAZ": [102],
+            }
+        ),
+        normalized,
+        inventory,
+        skim_store=skim_store,
+    )
+
+    assert annotated.select(
+        "skim_local_stop",
+        "skim_premium_stop",
+        "skim_walk_distance",
+        "skim_walk_actual",
+    ).row(0) == (0.25, 0.6, 0.5, 10.0)
+    assert missing.is_empty()
+    assert scan_calls.count(keyed_path) == 1
+    assert scan_calls.count(od_path) == 1
+    assert "unused" not in next(iter(skim_store._keyed_csv_cache.values())).columns
+    assert "unused" not in next(iter(skim_store._od_csv_cache.values())).columns
 
 
 def test_annotate_trips_resolves_placeholders_into_multiple_matrix_groups(
@@ -2443,6 +3075,17 @@ def test_annotate_tours_produces_directional_outputs_and_reuses_segmentation(
         "skim_time_outbound",
     ]
     assert missing.is_empty()
+
+    fast_annotated, fast_lookup_summary, fast_missing = annotate_tours(
+        tours,
+        normalized,
+        inventory,
+        skim_store=OmxSkimStore(),
+        collect_reports=False,
+    )
+    assert fast_annotated.to_dicts() == annotated.to_dicts()
+    assert fast_lookup_summary.is_empty()
+    assert fast_missing.is_empty()
 
 
 def test_annotate_tours_runs_without_any_trip_inputs_or_trip_skim_columns(
@@ -3166,6 +3809,7 @@ def test_trip_skim_component_stats_follow_weighted_contract(tmp_path: Path) -> N
         "n_total": 6.0,
         "n_valid": 3.0,
         "mean": pytest.approx(20.0 / 3.0),
+        "mean_nonzero": 10.0,
         "std": pytest.approx(math.sqrt(200.0 / 9.0)),
         "min": 0.0,
         "max": 10.0,
@@ -3181,6 +3825,7 @@ def test_trip_skim_component_stats_follow_weighted_contract(tmp_path: Path) -> N
         "n_total": 6.0,
         "n_valid": 6.0,
         "mean": pytest.approx(20.0 / 6.0),
+        "mean_nonzero": pytest.approx(20.0 / 6.0),
         "std": pytest.approx(math.sqrt(8.0 / 9.0)),
         "min": 2.0,
         "max": 4.0,
@@ -3196,6 +3841,7 @@ def test_trip_skim_component_stats_follow_weighted_contract(tmp_path: Path) -> N
         "n_total": 8.0,
         "n_valid": 5.0,
         "mean": 6.0,
+        "mean_nonzero": 7.5,
         "std": pytest.approx(math.sqrt(14.0)),
         "min": 0.0,
         "max": 10.0,
@@ -3259,12 +3905,14 @@ def test_tour_skim_component_summaries_follow_unweighted_mode(tmp_path: Path) ->
     assert drive_time["n_total"] == 3.0
     assert drive_time["n_valid"] == 2.0
     assert drive_time["mean"] == 5.0
+    assert drive_time["mean_nonzero"] == 10.0
     assert drive_time["mode"] == 0.0
     assert drive_time["zero_share"] == 0.5
     assert drive_time["missing_share"] == pytest.approx(1.0 / 3.0)
     assert all_modes_time["n_total"] == 5.0
     assert all_modes_time["n_valid"] == 4.0
     assert all_modes_time["mean"] == 5.0
+    assert all_modes_time["mean_nonzero"] == pytest.approx(20.0 / 3.0)
     assert all_modes_time["mode"] == 5.0
     assert all_modes_time["zero_share"] == 0.25
     assert all_modes_time["missing_share"] == 0.2

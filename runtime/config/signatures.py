@@ -131,6 +131,26 @@ def prepare_signature_payload(config: Config) -> dict[str, Any]:
             "failure_policy": config.skimjoin.failure_policy,
         },
         "prepare": {
+            "category_mappings": {
+                run_name: {
+                    table_name: {
+                        target_column: {
+                            "source": spec.source_column,
+                            "output_type": spec.output_type,
+                            "preserve_unmapped": spec.preserve_unmapped,
+                            "mapping": {
+                                key: value
+                                for key, value in sorted(spec.mapping.items())
+                            },
+                        }
+                        for target_column, spec in sorted(column_mappings.items())
+                    }
+                    for table_name, column_mappings in sorted(table_mappings.items())
+                }
+                for run_name, table_mappings in sorted(
+                    config.prepare_category_mappings.mappings.items()
+                )
+            },
             "auto_sufficiency": {
                 "basis": config.prepare_auto_sufficiency.basis,
             },
@@ -179,47 +199,14 @@ def prepare_signature_payload(config: Config) -> dict[str, Any]:
     }
 
 
+def base_prepare_signature_payload(config: Config) -> dict[str, Any]:
+    """Return preparation identity before optional skim enrichment."""
+    payload = prepare_signature_payload(config)
+    payload.pop("skimjoin", None)
+    return payload
+
+
 def summary_signature_payload(config: Config) -> dict[str, Any]:
-    segmentation_payload: dict[str, Any] = {"enabled": config.segmentation.enabled}
-    if config.segmentation.enabled:
-        segmentation_payload["definitions"] = [
-            {
-                "name": definition.name,
-                "include_full": definition.include_full,
-                "persist_segmented_prepared_tables": definition.persist_segmented_prepared_tables,
-                "allow_overlapping": definition.allow_overlapping,
-                "on_empty_segment": definition.on_empty_segment,
-                "source": (
-                    {
-                        "type": "prepared_column",
-                        "column": definition.source.column,
-                        "source_table": definition.source.source_table,
-                    }
-                    if isinstance(definition.source, PreparedColumnSegmentationSource)
-                    else {
-                        "type": "csv_lookup",
-                        "file": definition.source.file,
-                        "join_source_table": definition.source.join_source_table,
-                        "join_source_key_column": definition.source.join_source_key_column,
-                        "csv_key_column": definition.source.csv_key_column,
-                        "segment_value_column": definition.source.segment_value_column,
-                        "lookup_rows": [
-                            {"key": key, "value": value}
-                            for key, value in definition.source.lookup_rows
-                        ],
-                    }
-                ),
-                "segments": [
-                    {
-                        "id": segment.id,
-                        "label": segment.label,
-                        "values": list(segment.values),
-                    }
-                    for segment in definition.segments
-                ],
-            }
-            for definition in config.segmentation.definitions
-        ]
     return {
         "weighting_modes": [
             definition.signature_payload()
@@ -276,13 +263,64 @@ def summary_signature_payload(config: Config) -> dict[str, Any]:
         "prepare": {
             "vot_bins": prepare_signature_payload(config)["prepare"]["vot_bins"],
         },
-        "segmentation": segmentation_payload,
+    }
+
+
+def segmentation_unit_signature_payload(
+    config: Config,
+    *,
+    segmentation_type: str,
+    segment_id: str,
+) -> dict[str, Any]:
+    """Return the cache identity for one full or segmented analysis unit."""
+    if segmentation_type == "full" and segment_id == "full":
+        return {"segmentation_type": "full", "segment_id": "full"}
+
+    definition = config.segmentation.definition_by_name(segmentation_type)
+    if definition is None or definition.source is None:
+        return {"segmentation_type": segmentation_type, "segment_id": segment_id}
+    segment = next(
+        (candidate for candidate in definition.segments if candidate.id == segment_id),
+        None,
+    )
+    if segment is None:
+        return {"segmentation_type": segmentation_type, "segment_id": segment_id}
+
+    source = definition.source
+    if isinstance(source, PreparedColumnSegmentationSource):
+        source_payload: dict[str, Any] = {
+            "type": "prepared_column",
+            "column": source.column,
+            "source_table": source.source_table,
+        }
+    else:
+        segment_values = set(segment.values)
+        source_payload = {
+            "type": "csv_lookup",
+            "file": source.file,
+            "join_source_table": source.join_source_table,
+            "join_source_key_column": source.join_source_key_column,
+            "csv_key_column": source.csv_key_column,
+            "segment_value_column": source.segment_value_column,
+            "lookup_rows": [
+                {"key": key, "value": value}
+                for key, value in source.lookup_rows
+                if value in segment_values
+            ],
+        }
+    return {
+        "segmentation_type": segmentation_type,
+        "segment_id": segment.id,
+        "segment_label": segment.label,
+        "segment_values": list(segment.values),
+        "source": source_payload,
     }
 
 
 def presentation_signature_payload(config: Config) -> dict[str, Any]:
     return {
         "dashboard_title": config.dashboard_title,
+        "dashboard_logo": config.dashboard_logo,
         "log_level": config.log_level,
         "dashboard_pages": (
             [

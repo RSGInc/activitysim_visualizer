@@ -10,22 +10,27 @@ import plotly.graph_objects as go
 
 from dashboard.rendering import selector_row
 from dashboard.helpers.category_helpers import nonempty
+from dashboard.rendering.labels import (
+    attach_full_tab_titles,
+    display_label_map,
+    hover_label,
+)
 from dashboard import DashboardPage, dashboard_page
 
 TOTAL_FLOW_LABELS = {"total", "all", "all_geographies"}
 FLOW_COMPARISON_OPTIONS = [
+    "Modeled",
     "Observed",
     "Difference",
-    "Percent Difference",
-    "Absolute Percent Difference",
-    "Modeled",
+    "% Difference",
+    "Absolute % Difference",
 ]
 FLOW_VALUE_COLUMNS = {
     "Modeled": "modeled",
     "Observed": "observed",
     "Difference": "difference",
-    "Percent Difference": "percent_difference",
-    "Absolute Percent Difference": "absolute_percent_difference",
+    "% Difference": "percent_difference",
+    "Absolute % Difference": "absolute_percent_difference",
 }
 
 
@@ -37,11 +42,11 @@ class FlowOption:
 
 FLOW_OPTIONS = {
     "District flows": FlowOption(
-        summary_id="county_flows_validation_summary",
+        summary_id="district_commuting_flows_validation_summary",
         modeled_geography_types=("district", "home_district"),
     ),
     "County flows": FlowOption(
-        summary_id="county_flows_joja_validation_summary",
+        summary_id="county_commuting_flows_validation_summary",
         modeled_geography_types=("county", "home_county"),
     ),
 }
@@ -325,7 +330,11 @@ def flow_heatmap(
     title: str,
 ) -> pn.viewable.Viewable:
     tabs = pn.Tabs()
-    for label, df in nonempty(data_list):
+    runs = nonempty(data_list)
+    full_labels = [str(label) for label, _ in runs]
+    display_labels = display_label_map(full_labels)
+    for label, df in runs:
+        full_label = str(label)
         matrix = normalize_flow_matrix(df, include_totals=include_totals)
         destinations = [column for column in matrix.columns if column != "Origin"]
         z = matrix.select(destinations).to_numpy().tolist()
@@ -340,7 +349,8 @@ def flow_heatmap(
                 y=matrix["Origin"].cast(pl.Utf8).to_list(),
                 colorscale="Blues",
                 hovertemplate=(
-                    "Origin: %{y}<br>Destination: %{x}<br>Flow: %{z:,.0f}<extra></extra>"
+                    f"<b>{hover_label(full_label)}</b><br>Origin: %{{y}}<br>"
+                    "Destination: %{x}<br>Flow: %{z:,.0f}<extra></extra>"
                 ),
             )
         )
@@ -352,7 +362,13 @@ def flow_heatmap(
             margin=dict(l=70, r=20, t=80, b=70),
             font=dict(family="Inter, Segoe UI, Arial, sans-serif", size=12),
         )
-        tabs.append((label, pn.pane.Plotly(fig, sizing_mode="stretch_width")))
+        tabs.append(
+            (
+                display_labels[full_label],
+                pn.pane.Plotly(fig, sizing_mode="stretch_width"),
+            )
+        )
+    attach_full_tab_titles(tabs, full_labels)
     return tabs
 
 
@@ -365,7 +381,11 @@ def flow_comparison_heatmap(
     """Render aligned observed/modeled flow comparisons as heatmaps."""
     value_col = FLOW_VALUE_COLUMNS[metric]
     tabs = pn.Tabs()
-    for label, df in nonempty(data_list):
+    runs = nonempty(data_list)
+    full_labels = [str(label) for label, _ in runs]
+    display_labels = display_label_map(full_labels)
+    for label, df in runs:
+        full_label = str(label)
         if df.is_empty():
             continue
         origins = _flow_label_order(df["Origin"].to_list(), include_totals=True)
@@ -381,7 +401,7 @@ def flow_comparison_heatmap(
             [lookup.get((origin, destination)) for destination in destinations]
             for origin in origins
         ]
-        if metric in {"Percent Difference", "Absolute Percent Difference"}:
+        if metric in {"% Difference", "Absolute % Difference"}:
             text = [
                 ["" if value is None else f"{float(value):,.1f}%" for value in row]
                 for row in z
@@ -392,7 +412,7 @@ def flow_comparison_heatmap(
                 for row in z
             ]
         colorscale = (
-            "RdBu_r" if metric in {"Difference", "Percent Difference"} else "Blues"
+            "RdBu_r" if metric in {"Difference", "% Difference"} else "Blues"
         )
         z_values = [
             abs(float(value)) for row in z for value in row if value is not None
@@ -407,11 +427,12 @@ def flow_comparison_heatmap(
             "y": origins,
             "colorscale": colorscale,
             "hovertemplate": (
-                "Origin: %{y}<br>Destination: %{x}<br>"
+                f"<b>{hover_label(full_label)}</b><br>Origin: %{{y}}<br>"
+                "Destination: %{x}<br>"
                 f"{metric}: %{{text}}<extra></extra>"
             ),
         }
-        if metric in {"Difference", "Percent Difference"} and zmax is not None:
+        if metric in {"Difference", "% Difference"} and zmax is not None:
             heatmap_kwargs.update(zmid=0, zmin=-zmax, zmax=zmax)
         fig = go.Figure(data=go.Heatmap(**heatmap_kwargs))
         fig.update_layout(
@@ -422,7 +443,13 @@ def flow_comparison_heatmap(
             margin=dict(l=70, r=20, t=80, b=70),
             font=dict(family="Inter, Segoe UI, Arial, sans-serif", size=12),
         )
-        tabs.append((label, pn.pane.Plotly(fig, sizing_mode="stretch_width")))
+        tabs.append(
+            (
+                display_labels[full_label],
+                pn.pane.Plotly(fig, sizing_mode="stretch_width"),
+            )
+        )
+    attach_full_tab_titles(tabs, full_labels)
     return tabs
 
 
@@ -433,8 +460,8 @@ def flow_comparison_heatmap(
     order=55,
     default_enabled=False,
     optional_summary_ids=(
-        "county_flows_validation_summary",
-        "county_flows_joja_validation_summary",
+        "district_commuting_flows_validation_summary",
+        "county_commuting_flows_validation_summary",
         "commuting_flows",
     ),
 )
@@ -499,7 +526,7 @@ class RegionalValidationPage(DashboardPage):
             flow_option.summary_id,
             self.weighting_key,
         )
-        if observed_data is None:
+        if not observed_data:
             return self.data_not_available_card(
                 detail="External regional flow summaries are unavailable.",
                 missing_items=[flow_option.summary_id],
@@ -523,7 +550,7 @@ class RegionalValidationPage(DashboardPage):
             modeled_data,
             flow_option.modeled_geography_types,
         )
-        if modeled_data is None or geography_type is None:
+        if not modeled_data or geography_type is None:
             return self.data_not_available_card(
                 detail=(
                     "Modeled commuting flows are unavailable for the selected "

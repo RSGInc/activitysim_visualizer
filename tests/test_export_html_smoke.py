@@ -130,6 +130,10 @@ def test_export_runtime_assets_are_loaded_from_source_files() -> None:
     assert ".export-shell" in css
     assert ".export-error-panel" in css
     assert ".export-table-sort" in css
+    assert ".export-layout.rail-collapsed" in css
+    assert ".export-layout.rail-collapsed .export-rail" in css
+    assert ".export-logo" in css
+    assert '.widget-shell input[type="number"]:disabled' in css
     assert "function validatePayloadSchema(candidate)" in runtime_js
     assert "function renderPlot(node, context)" in runtime_js
     assert "function renderTable(node)" in runtime_js
@@ -138,6 +142,7 @@ def test_export_runtime_assets_are_loaded_from_source_files() -> None:
     assert "function getLeafPageId(currentPayload, currentState)" in runtime_js
     assert "function createRuntimeContext(config)" in runtime_js
     assert "function createRuntimeActions(context)" in runtime_js
+    assert 'className: "export-logo"' in runtime_js
     assert "Plotly.react" in runtime_js
     assert "__EXPORT_SCHEMA_VERSION__" not in runtime_js
 

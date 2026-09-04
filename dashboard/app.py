@@ -148,9 +148,11 @@ def build_dashboard(
 
     template = pn.template.FastListTemplate(
         title=config.dashboard_title,
+        logo=config.dashboard_logo or "",
         sidebar=sidebar_items,
         main=[main_content],
         theme="default",
+        theme_toggle=False,
         accent_base_color="#4E79A7",
         header_background="#4E79A7",
         sidebar_width=340,

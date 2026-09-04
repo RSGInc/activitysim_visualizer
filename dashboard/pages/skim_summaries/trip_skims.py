@@ -18,7 +18,7 @@ from dashboard.pages.skim_summaries._shared import (
     skim_scenario_available,
     resolve_distribution_range,
     skim_family_options,
-    skim_summary_precision_overrides,
+    skim_summary_decimal_places,
 )
 from dashboard.pages.skim_summaries._page_controls import (
     repair_selector_options,
@@ -263,7 +263,7 @@ class TripSkimsPage(DashboardPage):
             return [self.no_runs_message()]
 
         trip_stats = self._trip_summaries()
-        if trip_stats is None:
+        if not trip_stats:
             return [
                 self.data_not_available_card(
                     detail="Trip skim summaries require the precomputed skim trip statistics table.",
@@ -363,8 +363,7 @@ class TripSkimsPage(DashboardPage):
             trip_stats_data,
             title=f"Trip Summary Statistics - {family}",
             height=280,
-            numeric_precision=2,
-            numeric_precision_by_column=skim_summary_precision_overrides(),
+            numeric_decimal_places_by_column=skim_summary_decimal_places(),
         )
 
     def render_distribution_chart(

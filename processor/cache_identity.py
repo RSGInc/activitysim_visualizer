@@ -33,24 +33,33 @@ def build_run_fingerprint(
     label: str,
     run_dir: str | None,
     skim_file: str | None,
+    raw_file_identities: dict[str, dict[str, object] | None] | None = None,
+    skim_file_identity: dict[str, object] | None = None,
     skimjoin: dict[str, object] | None = None,
     file_map: dict[str, str] | None = None,
     fallback_file_map: dict[str, str] | None = None,
     hh_weight_col: str | None,
     person_weight_col: str | None,
     trip_weight_col: str | None,
+    day_weight_col: str | None = "day_weight",
 ) -> dict[str, object]:
     """Return the run inputs that determine whether cache data is reusable."""
     return {
         "label": label,
         "run_dir": str(run_dir) if run_dir is not None else None,
         "skim_file": str(skim_file) if skim_file is not None else None,
+        "skim_file_identity": skim_file_identity,
+        "raw_file_identities": {
+            key: value
+            for key, value in sorted((raw_file_identities or {}).items())
+        },
         "skimjoin": dict(sorted((skimjoin or {}).items())) if skimjoin else None,
         "file_map": dict(sorted((file_map or {}).items())),
         "fallback_file_map": dict(sorted((fallback_file_map or {}).items())),
         "hh_weight_col": hh_weight_col,
         "person_weight_col": person_weight_col,
         "trip_weight_col": trip_weight_col,
+        "day_weight_col": day_weight_col,
     }
 
 
@@ -65,4 +74,20 @@ def file_identity(path: str | Path) -> dict[str, object]:
     }
 
 
-__all__ = ["build_run_fingerprint", "build_run_keys", "file_identity", "slugify"]
+def optional_file_identity(path: str | Path | None) -> dict[str, object] | None:
+    """Return a file identity when the configured input currently exists."""
+    if path is None:
+        return None
+    resolved = Path(path).expanduser().resolve()
+    if not resolved.is_file():
+        return None
+    return file_identity(resolved)
+
+
+__all__ = [
+    "build_run_fingerprint",
+    "build_run_keys",
+    "file_identity",
+    "optional_file_identity",
+    "slugify",
+]

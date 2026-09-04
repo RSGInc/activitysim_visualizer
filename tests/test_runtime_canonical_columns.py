@@ -1657,6 +1657,22 @@ def test_escorted_tour_summaries_exclude_child_person_types(tmp_path: Path) -> N
     trip_distance = daily_travel_escort_distributions.adult_escorted_trip_distance_distribution_by_direction(
         rd, config
     ).sort(["direction", "distance_bin"])
+    assert tour_distance.filter(pl.col("distance_bin") == "0").to_dict(
+        as_series=False
+    ) == {
+        "distance_bin": ["0", "0", "0"],
+        "direction": ["both", "inbound", "outbound"],
+        "tour_count": [0.0, 0.0, 0.0],
+    }
+    assert trip_distance.filter(pl.col("distance_bin") == "0").to_dict(
+        as_series=False
+    ) == {
+        "distance_bin": ["0", "0", "0"],
+        "direction": ["both", "inbound", "outbound"],
+        "trip_count": [0.0, 0.0, 0.0],
+    }
+    tour_distance = tour_distance.filter(pl.col("distance_bin") != "0")
+    trip_distance = trip_distance.filter(pl.col("distance_bin") != "0")
     stop_frequency = daily_travel_escort_distributions.adult_escort_trip_stop_frequency(
         rd, config
     ).sort(
@@ -1712,7 +1728,7 @@ def test_escorted_tour_summaries_exclude_child_person_types(tmp_path: Path) -> N
         "tour_count": [3.0, 3.0, 2.0, 3.0],
     }
     assert trip_distance.to_dict(as_series=False) == {
-        "distance_bin": ["40+", "9", "40+", "5", "9"],
+        "distance_bin": ["40+", "8", "40+", "5", "8"],
         "direction": [
             "both",
             "both",
@@ -1856,13 +1872,29 @@ def test_adult_escort_distance_distributions_filter_to_explicit_escort_types(
         rd, config
     ).sort(["direction", "distance_bin"])
 
+    assert tour_distance.filter(pl.col("distance_bin") == "0").to_dict(
+        as_series=False
+    ) == {
+        "distance_bin": ["0", "0", "0"],
+        "direction": ["both", "inbound", "outbound"],
+        "tour_count": [0.0, 0.0, 0.0],
+    }
+    assert trip_distance.filter(pl.col("distance_bin") == "0").to_dict(
+        as_series=False
+    ) == {
+        "distance_bin": ["0", "0", "0"],
+        "direction": ["both", "inbound", "outbound"],
+        "trip_count": [0.0, 0.0, 0.0],
+    }
+    tour_distance = tour_distance.filter(pl.col("distance_bin") != "0")
+    trip_distance = trip_distance.filter(pl.col("distance_bin") != "0")
     assert tour_distance.to_dict(as_series=False) == {
-        "distance_bin": ["40+", "19", "40+", "12", "40+"],
+        "distance_bin": ["40+", "18", "40+", "12", "40+"],
         "direction": ["both", "inbound", "inbound", "outbound", "outbound"],
         "tour_count": [3.0, 5.0, 3.0, 2.0, 3.0],
     }
     assert trip_distance.to_dict(as_series=False) == {
-        "distance_bin": ["40+", "9", "40+", "5", "9"],
+        "distance_bin": ["40+", "8", "40+", "5", "8"],
         "direction": [
             "both",
             "both",
@@ -2180,7 +2212,7 @@ def test_prepare_data_uses_default_fallbacks_for_purpose_timing_and_employment(
     assert prepared.tours["tour_purpose"].to_list() == ["eatout"]
     assert prepared.tours["start_hour"].to_list() == [8]
     assert prepared.tours["end_hour"].to_list() == [10]
-    assert prepared.tours["tourdur"].to_list() == [2]
+    assert prepared.tours["tourdur"].to_list() == [3]
     assert prepared.trips["tour_purpose"].to_list() == ["eatout", "eatout"]
     assert prepared.trips["trip_purpose"].to_list() == ["shop", "home"]
     assert prepared.trips["depart_hour"].to_list() == [8, 9]
@@ -2414,7 +2446,7 @@ def test_prepare_data_materializes_canonical_summary_columns_from_config_overrid
     assert prepared.tours["tour_category"].to_list() == ["non-mandatory"]
     assert prepared.tours["start_hour"].to_list() == [8]
     assert prepared.tours["end_hour"].to_list() == [10]
-    assert prepared.tours["tourdur"].to_list() == [2]
+    assert prepared.tours["tourdur"].to_list() == [3]
     assert prepared.trips["trip_purpose"].to_list() == ["shop", "home"]
     assert prepared.trips["trip_mode"].to_list() == ["DRIVEALONE", "WALK"]
     assert prepared.trips["tour_purpose"].to_list() == ["eatout", "eatout"]

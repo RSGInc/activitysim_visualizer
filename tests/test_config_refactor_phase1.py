@@ -128,7 +128,7 @@ def test_new_config_layout_normalizes_to_existing_runtime_fields(tmp_path: Path)
             "    - summarize",
             "    - dashboard",
             "  dashboard_mode: export",
-            "  overwrite: true",
+            "  refresh: [summarize]",
             "dashboard:",
             '  title: "Refactor Dashboard"',
             "  live:",
@@ -192,7 +192,7 @@ def test_new_config_layout_normalizes_to_existing_runtime_fields(tmp_path: Path)
         "dashboard",
     )
     assert config.pipeline.dashboard_mode == "export"
-    assert config.pipeline.overwrite is True
+    assert config.pipeline.refresh == ("summarize",)
     assert config.dashboard_title == "Refactor Dashboard"
     assert [entry.page_id for entry in config.dashboard_pages or []] == [
         "overview",
@@ -284,6 +284,35 @@ def test_dashboard_host_placeholder_rejects_unknown_fields(tmp_path: Path) -> No
         )
 
 
+def test_dashboard_logo_resolves_relative_to_config_file(tmp_path: Path) -> None:
+    logo_path = tmp_path / "assets" / "logo.png"
+    logo_path.parent.mkdir()
+    logo_path.write_bytes(b"logo")
+
+    config = _write_config(
+        tmp_path,
+        [
+            "dashboard:",
+            "  logo: assets/logo.png",
+            "runs: []",
+        ],
+    )
+
+    assert config.dashboard_logo == str(logo_path.resolve())
+
+
+def test_dashboard_logo_rejects_missing_file(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="dashboard.logo file does not exist"):
+        _write_config(
+            tmp_path,
+            [
+                "dashboard:",
+                "  logo: missing.png",
+                "runs: []",
+            ],
+        )
+
+
 @pytest.mark.parametrize(
     ("lines", "message"),
     [
@@ -293,7 +322,9 @@ def test_dashboard_host_placeholder_rejects_unknown_fields(tmp_path: Path) -> No
         (["pipeline:", "  steps: [segment, dashboard]"], "without 'summarize'"),
         (["pipeline:", "  steps: [dashboard, summarize]"], "place 'dashboard' last"),
         (["pipeline:", "  dashboard_mode: deploy"], "dashboard_mode"),
-        (["pipeline:", "  overwrite: maybe"], "pipeline.overwrite"),
+        (["pipeline:", "  refresh: maybe"], "pipeline.refresh"),
+        (["pipeline:", "  refresh: [dashboard]"], "pipeline.refresh"),
+        (["pipeline:", "  overwrite: false"], "pipeline.overwrite"),
     ],
 )
 def test_pipeline_validation_rejects_invalid_configurations(
@@ -303,3 +334,21 @@ def test_pipeline_validation_rejects_invalid_configurations(
 ) -> None:
     with pytest.raises(ValueError, match=message):
         _write_config(tmp_path, [*lines, "runs: []"])
+
+
+def test_pipeline_refresh_all_expands_only_enabled_materialized_steps(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(
+        tmp_path,
+        [
+            "pipeline:",
+            "  steps: [prepare, skimjoin, summarize, dashboard]",
+            "  refresh: all",
+            "skimjoin:",
+            "  defaults:",
+            "runs: []",
+        ],
+    )
+
+    assert config.pipeline.refresh == ("prepare", "skimjoin", "summarize")

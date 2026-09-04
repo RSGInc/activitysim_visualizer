@@ -1,6 +1,6 @@
 # 40 - Developer Workflows
 
-This chapter is for contributors changing code or documentation.
+Use this chapter to find the right workflow when changing code or documentation.
 
 ## Codebase Map
 
@@ -40,6 +40,8 @@ activitysim_visualizer/
 | New raw-output normalization | [21 - Prepared Tables](21-prepared-tables.md) |
 | New prepared column | [21 - Prepared Tables](21-prepared-tables.md#adding-a-prepared-column) |
 | New skim-derived output | [22 - Skimjoin](22-skimjoin.md#adding-a-skim-output) |
+| New segmentation source or relationship | [24 - Segmentation](24-segmentation.md#implementation-and-extension-points) |
+| New custom geography behavior | [27 - Geography](27-geography.md#implementation-and-extension-points) |
 | New generated summary function/table | [44 - Summary Function Cookbook](44-summary-function-cookbook.md) |
 | New figure or table on existing page | [32 - Figures and Widgets](32-figures-and-widgets.md) |
 | New dashboard page | [33 - Dashboard Page Recipes](33-dashboard-page-recipes.md) |
@@ -54,7 +56,7 @@ activitysim_visualizer/
 
 ## Testing Guidance
 
-Use focused tests for the subsystem you changed:
+Run focused tests for the subsystem you changed:
 
 - prepare changes: minimal raw/prepared input tests and cache identity tests
 - skimjoin changes: config normalization, lookup behavior, reports
@@ -65,19 +67,22 @@ Use focused tests for the subsystem you changed:
 Common command:
 
 ```bash
-uv run --with pytest pytest --basetemp .pytest_tmp
+uv run pytest --basetemp .pytest_tmp
 ```
 
-Run narrower tests while iterating when possible.
-The [Testing](46-testing.md) chapter documents the fast/full marker split and
-the required release-boundary commands.
+During development, use the smallest relevant test group. The
+[Testing](46-testing.md) chapter describes the fast and full markers and gives
+the required release test commands.
 
-## Generated Wiki Catalogs
+## Generated Documentation Catalogs
 
-Regenerate catalogs after changing:
+Regenerate the catalogs after you change:
 
 - `@summary(...)` declarations and contracts
 - `processor/summarize/catalog.py`
+- prepared-cache and hypothetical-sidecar contracts
+- `scripts/processor_output_catalog_metadata.yaml`
+- `scripts/summary_catalog_metadata.yaml`
 - dashboard page definitions
 - page data requirements
 
@@ -87,19 +92,22 @@ Command:
 uv run python scripts/generate_wiki_catalogs.py
 ```
 
-Generated sections are marked with comments. Do not edit inside generated
-markers by hand.
+Comments identify generated sections. Do not edit the text between those
+markers by hand. Processor contracts and metadata generate both the detailed
+wiki catalog and `reference/processor-output-table-reference.md`.
 
 ## Documentation Maintenance
 
-When behavior changes, update docs in the same change:
+When behavior changes, update the documentation in the same change:
 
 | Change | Wiki updates |
 |---|---|
 | Config behavior | `11-configuring-your-data.md` and `13-configuration-reference.md` |
 | Prepare behavior | `21-prepared-tables.md` |
 | Skimjoin behavior | `22-skimjoin.md` |
-| Summary contract or registration | `23-summary-functions.md`, then regenerate catalogs |
+| Segmentation behavior | `24-segmentation.md` and `13-configuration-reference.md` |
+| Geography behavior | `27-geography.md` and `13-configuration-reference.md` |
+| Summary contract or registration | `25-summary-functions.md`, then regenerate catalogs |
 | Dashboard page API | `31-dashboard-pages.md`, `32-figures-and-widgets.md`, `33-dashboard-page-recipes.md` |
 | Export payload/runtime | `34-html-export.md` |
 | Export payload schema | `36-html-export-schema.md` |
@@ -110,8 +118,8 @@ When behavior changes, update docs in the same change:
 
 - The change follows the owning subsystem's existing patterns.
 - Config and cache behavior are explicit.
-- Missing optional inputs fail gracefully.
-- Summary/page requirements are declared where the runtime can see them.
+- Missing optional input gives a controlled result.
+- Declare summary and page requirements where the runtime can use them.
 - Tests cover the behavior rather than only the implementation detail.
 - Generated wiki catalogs are current.
 - The fast suite passes, and the `full_export` boundary passes when the change

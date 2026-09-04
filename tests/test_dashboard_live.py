@@ -469,7 +469,8 @@ def test_external_traffic_helpers_filter_period_and_facility_type(
             "Total Modeled Count": 440.0,
             "% Difference": "10.00%",
             "RMSE": 22.360679774997898,
-            "R^2": 0.875,
+            "RMSPE": "10.00%",
+            "R²": 0.875,
         }
     ]
 
@@ -490,7 +491,7 @@ def test_demo_count_fit_line_helper_builds_plot_data() -> None:
                         "observed_min": [10.0, 20.0],
                         "observed_max": [30.0, 40.0],
                         "equation_label": ["y = 2.00x + 5.00", "y = 3.00x + 7.00"],
-                        "r_squared_label": ["R^2 = 1.00", "R^2 = 0.90"],
+                        "r_squared_label": ["R² = 1.00", "R² = 0.90"],
                     }
                 ),
             )
@@ -499,11 +500,15 @@ def test_demo_count_fit_line_helper_builds_plot_data() -> None:
         facility_type="4",
     )
 
-    assert fit_lines[0][1].select("observed_volume", "modeled_volume").to_dicts() == [
-        {"observed_volume": 20.0, "modeled_volume": 67.0},
-        {"observed_volume": 40.0, "modeled_volume": 127.0},
-    ]
-    assert "y = 3.00x + 7.00" in fit_lines[0][1]["annotation"][0]
+    fit_frame = fit_lines[0][1]
+    assert fit_frame.height == 101
+    assert fit_frame.select("observed_volume", "modeled_volume").row(
+        0, named=True
+    ) == {"observed_volume": 20.0, "modeled_volume": 67.0}
+    assert fit_frame.select("observed_volume", "modeled_volume").row(
+        -1, named=True
+    ) == {"observed_volume": 40.0, "modeled_volume": 127.0}
+    assert "y = 3.00x + 7.00" in fit_frame["annotation"][0]
 
 
 def test_external_vmt_helper_reshapes_wide_tod_table() -> None:
@@ -2008,11 +2013,11 @@ def test_regional_validation_page_compares_county_flows_to_commuting_flows(
         run_key="base",
         summaries_by_mode={
             "weighted": {
-                "county_flows_joja_validation_summary": observed,
+                "county_commuting_flows_validation_summary": observed,
                 "commuting_flows": modeled,
             },
             "unweighted": {
-                "county_flows_joja_validation_summary": observed,
+                "county_commuting_flows_validation_summary": observed,
                 "commuting_flows": modeled,
             },
         },
@@ -2027,18 +2032,18 @@ def test_regional_validation_page_compares_county_flows_to_commuting_flows(
 
     assert list(page.flow_matrix_sel.options) == ["County flows"]
     assert list(page.comparison_metric_sel.options) == [
+        "Modeled",
         "Observed",
         "Difference",
-        "Percent Difference",
-        "Absolute Percent Difference",
-        "Modeled",
+        "% Difference",
+        "Absolute % Difference",
     ]
     chart = page.render_flow_section()
     tabs = chart.objects[0]
     plot = tabs.objects[0][0]
 
-    assert plot.object.layout.title.text == "Observed County flows"
-    assert plot.object.data[0].z == ([10.0, 5.0], [3.0, 20.0])
+    assert plot.object.layout.title.text == "Modeled County flows"
+    assert plot.object.data[0].z == ([12.0, 4.0], [3.0, 18.0])
 
     page.comparison_metric_sel.value = "Difference"
     chart = page.render_flow_section()
@@ -2154,7 +2159,10 @@ def test_data_requirements_for_pages_tracks_optional_summary_dependencies() -> N
     assert "commercial_vmt_totals" not in requirements.required_summary_ids
     assert "commercial_vmt_totals" not in requirements.optional_summary_ids
     assert "auto_vmt_validation_summary" not in requirements.optional_summary_ids
-    assert "county_flows_validation_summary" in requirements.optional_summary_ids
+    assert (
+        "district_commuting_flows_validation_summary"
+        in requirements.optional_summary_ids
+    )
     assert "commuting_flows" in requirements.optional_summary_ids
     assert "auto_vmt_validation_summary" not in requirements.summary_ids_for_pruning
 
@@ -2181,9 +2189,12 @@ def test_resolve_page_definitions_rejects_duplicate_configured_page_ids(
 
 
 def test_build_dashboard_uses_expected_default_page_order(tmp_path: Path) -> None:
-    config = _write_config(tmp_path)
+    logo_path = tmp_path / "logo.png"
+    logo_path.write_bytes(b"logo")
+    config = _write_config(tmp_path, dashboard_logo=logo_path.name)
     template = build_dashboard([], config, summary_runs=[_full_summary_run()])
 
+    assert template.logo == config.dashboard_logo
     assert [
         page.name for page in template._dashboard_pages
     ] == EXPECTED_DEFAULT_PAGE_TITLES

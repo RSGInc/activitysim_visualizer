@@ -18,7 +18,7 @@ from dashboard.pages.skim_summaries._shared import (
     skim_direction_options,
     skim_family_options,
     skim_scenario_available,
-    skim_summary_precision_overrides,
+    skim_summary_decimal_places,
     tour_component_base_options,
     tour_mode_options,
 )
@@ -313,7 +313,7 @@ class TourSkimsPage(DashboardPage):
         family = self.tour_family_sel.value
         direction = self.tour_direction_sel.value
 
-        if tour_stats is None:
+        if not tour_stats:
             return self.data_not_available_card(
                 detail="Tour skim summaries require the precomputed skim tour statistics table.",
                 missing_items=[TOUR_STATS_SUMMARY_ID],
@@ -348,8 +348,7 @@ class TourSkimsPage(DashboardPage):
             stats_data,
             title=f"Tour Summary Statistics - {family} / {direction}",
             height=280,
-            numeric_precision=2,
-            numeric_precision_by_column=skim_summary_precision_overrides(),
+            numeric_decimal_places_by_column=skim_summary_decimal_places(),
         )
 
     def render_summary_section(self):

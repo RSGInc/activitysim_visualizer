@@ -6,6 +6,7 @@ import polars as pl
 
 from processor.models import RunData
 from processor.summarize.contracts import summary
+from processor.summarize.summaries.long_term_shared import _internal_non_wfh_workers
 from processor.summarize.summaries.summary_helpers import (
     aggregate_counts_across_geographies,
     _configured_geography_columns,
@@ -25,24 +26,12 @@ from runtime.config import Config
         "average_tour_distance": pl.Float64,
         "person_count": pl.Float64,
     },
-    required_columns={"per": ("finalweight",)},
+    required_columns={"per": ("finalweight", "home_zone_id")},
 )
 def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
     ptype_col = "person_type" if "person_type" in rd.per.columns else None
 
-    workers = (
-        rd.per.filter(
-            (pl.col("workplace_zone_id") > 0)
-            & (
-                pl.col("is_worker")
-                .cast(pl.Utf8)
-                .str.to_lowercase()
-                .is_in(["true", "1"])
-            )
-        )
-        if "is_worker" in rd.per.columns
-        else rd.per.head(0)
-    )
+    workers = _internal_non_wfh_workers(rd.per)
 
     if ptype_col is not None:
         univ_s = (
@@ -56,7 +45,7 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
                 )
                 & (pl.col(ptype_col).cast(pl.Utf8) == "3")
             )
-            if "is_student" in rd.per.columns
+            if {"is_student", "school_zone_id"}.issubset(rd.per.columns)
             else rd.per.head(0)
         )
         schl_s = (
@@ -70,7 +59,7 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
                 )
                 & (pl.col(ptype_col).cast(pl.Utf8).cast(pl.Int32, strict=False) >= 6)
             )
-            if "is_student" in rd.per.columns
+            if {"is_student", "school_zone_id"}.issubset(rd.per.columns)
             else rd.per.head(0)
         )
     else:
@@ -186,7 +175,6 @@ def avg_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
             "person_id",
             "tour_category",
             "tour_purpose",
-            "SKIMDIST",
             "finalweight",
         ),
     },
@@ -197,19 +185,29 @@ def avg_non_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
         "person_id",
         "tour_category",
         "tour_purpose",
-        "SKIMDIST",
         "finalweight",
     }
     if not person_required.issubset(set(rd.per.columns)) or not tour_required.issubset(
         set(rd.tours.columns)
     ):
         return avg_non_mand_tour_distance.empty()
+    distance_col = "SKIMDIST"
+    if distance_col not in rd.tours.columns:
+        return avg_non_mand_tour_distance.empty()
 
+    category = (
+        pl.col("tour_category")
+        .cast(pl.Utf8)
+        .str.strip_chars()
+        .str.to_lowercase()
+        .str.replace_all("-", "_")
+        .str.replace_all(" ", "_")
+    )
     tours = rd.tours.filter(
-        (pl.col("tour_category").cast(pl.Utf8).str.to_lowercase() == "non_mandatory")
+        (category == "non_mandatory")
         & pl.col("person_id").is_not_null()
         & pl.col("tour_purpose").is_not_null()
-        & pl.col("SKIMDIST").is_not_null()
+        & pl.col(distance_col).is_not_null()
         & pl.col("finalweight").is_not_null()
     )
     purpose_col = _summary_purpose_column(rd.tours)
@@ -233,7 +231,7 @@ def avg_non_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
         .filter(pl.col("home_zone_id").is_not_null())
         .select(
             "tour_purpose",
-            "SKIMDIST",
+            distance_col,
             "finalweight",
             "home_zone_id",
             *_configured_geography_columns(
@@ -256,7 +254,7 @@ def avg_non_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
                 base_col="home_zone_id",
                 role_prefix="home",
             ),
-            value_col="SKIMDIST",
+            value_col=distance_col,
             output_col="average_tour_distance",
             group_cols=["tour_purpose"],
             count_col="tour_count",
@@ -273,7 +271,7 @@ def avg_non_mand_tour_distance(rd: RunData, config: Config) -> pl.DataFrame:
             base.group_by("tour_purpose")
             .agg(
                 average_tour_distance=(
-                    (pl.col("SKIMDIST") * pl.col("finalweight")).sum()
+                    (pl.col(distance_col) * pl.col("finalweight")).sum()
                     / pl.col("finalweight").sum()
                 ).cast(pl.Float64),
                 tour_count=pl.col("finalweight").sum().cast(pl.Float64),

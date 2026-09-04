@@ -4,7 +4,10 @@ import polars as pl
 
 from processor.models import RunData
 from processor.summarize.contracts import summary
-from processor.summarize.summaries.summary_helpers import _summary_purpose_column
+from processor.summarize.summaries.summary_helpers import (
+    _summary_purpose_column,
+    household_tour_weight_expr,
+)
 from runtime.config import Config
 
 
@@ -20,8 +23,14 @@ def tour_category(rd: RunData, config: Config) -> pl.DataFrame:
 
     return (
         rd.tours.filter(pl.col("tour_category").is_not_null())
+        .with_columns(
+            household_tour_weight_expr(
+                rd.tours,
+                output_col="_tour_weight",
+            )
+        )
         .group_by("tour_category")
-        .agg(tour_count=pl.col("finalweight").sum())
+        .agg(tour_count=pl.col("_tour_weight").sum())
         .with_columns(
             pl.col("tour_category").cast(pl.Utf8),
             pl.col("tour_count").cast(pl.Float64),
@@ -46,8 +55,14 @@ def tour_purpose(rd: RunData, config: Config) -> pl.DataFrame:
 
     return (
         rd.tours.filter(pl.col(purpose_col).is_not_null())
+        .with_columns(
+            household_tour_weight_expr(
+                rd.tours,
+                output_col="_tour_weight",
+            )
+        )
         .group_by(purpose_col)
-        .agg(tour_count=pl.col("finalweight").sum())
+        .agg(tour_count=pl.col("_tour_weight").sum())
         .with_columns(
             pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"),
             pl.col("tour_count").cast(pl.Float64),

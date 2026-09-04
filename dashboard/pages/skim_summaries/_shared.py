@@ -27,14 +27,15 @@ SKIM_FAMILY_ORDER = (
 )
 SKIM_FAMILY_MODE_MAP = {
     "Auto Skims": ("SOV", "HOV2", "HOV3"),
-    "Transit Skims": ("WALK_TRANSIT", "PNR_TRANSIT", "KNR_TRANSIT"),
+    "Transit Skims": ("WALK_TRANSIT", "BIKE_TRANSIT", "PNR_TRANSIT", "KNR_TRANSIT"),
     "Walk Skims": ("WALK",),
-    "Bike Skims": ("BIKE", "EBIKE", "ESCOOTER", "BIKE_TRANSIT"),
+    "Bike Skims": ("BIKE", "EBIKE", "ESCOOTER"),
 }
 SUMMARY_METRIC_COLUMNS = [
     "n_total",
     "n_valid",
     "mean",
+    "mean_nonzero",
     "std",
     "min",
     "max",
@@ -118,7 +119,7 @@ def component_display_name(
         "skim_auto_time": "Drive Time (min)",
         "skim_auto_distance": "Drive Distance (mi)",
         "skim_auto_cost": "Drive Cost ($)",
-        "skim_walk_distance": "TAZ Skim Walk Distance (mi)",
+        "skim_walk_distance": "Walk Distance (mi)",
         "skim_walk_time": "Total Walk Access/Egress Time (min)",
         "skim_walk_maz_distance": "MAZ Network Walk Distance (mi)",
         "skim_walk_maz_actual": "MAZ Actual Walk Time (min)",
@@ -146,8 +147,15 @@ def component_display_name(
         "skim_walk_time_inbound": "Total Walk Access/Egress Time (min)",
         "skim_transit_tiv_outbound": "Transit In-Vehicle Time (min)",
         "skim_transit_tiv_inbound": "Transit In-Vehicle Time (min)",
-        "skim_bike_distance": "TAZ Skim Bike Distance (mi)",
+        "skim_bike_distance": "Bike Distance (mi)",
         "skim_bike_maz_distance": "MAZ Network Bike Distance (mi)",
+        "skim_bike_transit_distance_bus": (
+            "Total Bike Distance - Local Bus (mi) (Estimated from Walk Skims)"
+        ),
+        "skim_bike_transit_distance_premium": (
+            "Total Bike Distance - Premium Transit (mi) "
+            "(Estimated from Walk Skims)"
+        ),
     }
     if value in special_labels:
         return special_labels[value]
@@ -283,9 +291,34 @@ def _ignored_modes_for_series(
 def _configured_outputs_by_mode(
     config: Config,
     series: DashboardSummarySeries,
+    df: pl.DataFrame,
     *,
+    mode_column: str,
     target_table: str,
 ) -> dict[str, set[str]]:
+    required_columns = {"skim_scenario", mode_column, "component"}
+    if required_columns.issubset(df.columns):
+        summarized_pairs = (
+            df.select(
+                pl.col("skim_scenario").cast(pl.Utf8),
+                pl.col(mode_column).cast(pl.Utf8),
+                pl.col("component").cast(pl.Utf8),
+            )
+            .filter(
+                (pl.col("skim_scenario") == ALL_RECORDS_SCENARIO)
+                & pl.col(mode_column).is_not_null()
+                & (pl.col(mode_column) != ALL_MODES)
+                & pl.col("component").is_not_null()
+            )
+            .select(mode_column, "component")
+            .unique()
+        )
+        if not summarized_pairs.is_empty():
+            outputs_by_mode: dict[str, set[str]] = {}
+            for mode, component in summarized_pairs.iter_rows():
+                outputs_by_mode.setdefault(str(mode), set()).add(str(component))
+            return outputs_by_mode
+
     skimjoin_settings = _skimjoin_settings_for_series(config, series)
     normalized = getattr(skimjoin_settings, "normalized_config", None)
     if normalized is None:
@@ -310,6 +343,8 @@ def _skim_family_definitions(
         configured_outputs = _configured_outputs_by_mode(
             config,
             series,
+            df,
+            mode_column=mode_column,
             target_table=target_table,
         )
         ignored_modes = _ignored_modes_for_series(config, series)
@@ -334,11 +369,6 @@ def _skim_family_definitions(
                 for mode in configured_outputs
                 if mode != ALL_MODES and mode in available_modes
             ]
-            all_modes.extend(
-                mode
-                for mode in available_modes
-                if mode not in all_modes and mode != ALL_MODES
-            )
         elif configured_outputs:
             all_modes = [mode for mode in configured_outputs if mode != ALL_MODES]
         else:
@@ -463,7 +493,7 @@ def family_stats_table(
     direction_suffix = None if direction is None else f"_{direction.lower()}"
     target_columns = ["skim_name", mode_column, *SUMMARY_METRIC_COLUMNS]
     filtered_list: list[tuple[str, pl.DataFrame]] = []
-    for label, _, df in nonempty_series(data_list):
+    for label, series, df in nonempty_series(data_list):
         family_definition = family_definitions_by_label.get(label, {}).get(family)
         family_modes = family_definition.get("modes", ()) if family_definition else ()
         configured_outputs = (
@@ -486,8 +516,25 @@ def family_stats_table(
             & (pl.col(mode_column) != ALL_MODES)
         )
         if configured_outputs:
-            filtered = filtered.filter(
-                pl.col("component").is_in(list(configured_outputs))
+            outputs_by_mode = _configured_outputs_by_mode(
+                config,
+                series,
+                df,
+                mode_column=mode_column,
+                target_table=target_table,
+            )
+            mode_output_filters = []
+            for mode in family_modes:
+                mode_outputs = outputs_by_mode.get(mode)
+                if mode_outputs:
+                    mode_output_filters.append(
+                        (pl.col(mode_column) == mode)
+                        & pl.col("component").is_in(sorted(mode_outputs))
+                    )
+            filtered = (
+                filtered.filter(pl.any_horizontal(mode_output_filters))
+                if mode_output_filters
+                else filtered.head(0)
             )
         if direction_suffix is not None:
             filtered = filtered.filter(
@@ -510,10 +557,19 @@ def family_stats_table(
     return filtered_list
 
 
-def skim_summary_precision_overrides() -> dict[str, int]:
+def skim_summary_decimal_places() -> dict[str, int]:
     return {
         "n_total": 0,
         "n_valid": 0,
+        "mean": 1,
+        "mean_nonzero": 1,
+        "std": 1,
+        "min": 1,
+        "max": 1,
+        "median": 1,
+        "mode": 1,
+        "zero_share": 3,
+        "missing_share": 3,
     }
 
 

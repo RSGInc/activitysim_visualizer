@@ -15,7 +15,7 @@ class WorkflowPlan:
     logical_steps: tuple[str, ...]
     runtime_steps: tuple[str, ...]
     dashboard_mode: str = "none"
-    overwrite: bool = False
+    refresh_steps: tuple[str, ...] = ()
 
     @classmethod
     def from_config(cls, config: Any) -> "WorkflowPlan":
@@ -36,11 +36,14 @@ class WorkflowPlan:
             logical_steps=logical_steps,
             runtime_steps=tuple(runtime_steps),
             dashboard_mode=str(config.pipeline.dashboard_mode).lower(),
-            overwrite=bool(config.pipeline.overwrite),
+            refresh_steps=tuple(config.pipeline.refresh),
         )
 
     def includes(self, step: str) -> bool:
         return step in self.logical_steps
+
+    def refreshes(self, step: str) -> bool:
+        return step in self.refresh_steps
 
 
 @dataclass
@@ -66,5 +69,8 @@ class SummaryCacheInspection:
     """Reusable cached summaries and the table ids that still need rebuilding."""
 
     runs: tuple[Any, ...] = ()
-    reusable_summary_ids: tuple[str, ...] = ()
-    stale_summary_ids: tuple[str, ...] = ()
+    reusable_summary_ids_by_unit: dict[str, tuple[str, ...]] = field(
+        default_factory=dict
+    )
+    stale_summary_ids_by_unit: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    obsolete_unit_keys: tuple[str, ...] = ()

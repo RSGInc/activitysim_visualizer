@@ -43,7 +43,17 @@ class VmtOverviewFeatureMixin:
             ),
         )
         if not overview_data:
-            return []
+            return [
+                self.data_not_available_card(
+                    detail="VMT overview summaries are unavailable.",
+                    missing_items=[
+                        PERSONAL_AUTO_VMT_SUMMARY_ID,
+                        NON_MOTORIZED_VMT_SUMMARY_ID,
+                        EXTERNAL_VMT_SUMMARY_ID,
+                        COMMERCIAL_VMT_SUMMARY_ID,
+                    ],
+                )
+            ]
         return [
             data_table(
                 overview_data,
@@ -64,7 +74,7 @@ class VmtOverviewFeatureMixin:
             "bicycle_vmt_by_facility_type",
             self.weighting_key,
         )
-        if bicycle_vmt is None:
+        if not bicycle_vmt:
             return self.data_not_available_card(
                 detail="Bicycle VMT summaries are unavailable.",
                 missing_items=["bicycle_vmt_by_facility_type"],
@@ -87,7 +97,7 @@ class VmtOverviewFeatureMixin:
 class SegmentedVmtFeatureMixin:
     def render_personal_auto_vmt_section(self) -> list[pn.viewable.Viewable]:
         if not self.state.run_labels:
-            return []
+            return [self.no_runs_message()]
         personal_vmt = self.data.summary(
             PERSONAL_AUTO_VMT_SUMMARY_ID,
             columns=PERSONAL_AUTO_VMT_REQUIRED_COLUMNS,
@@ -189,7 +199,7 @@ class SegmentedVmtFeatureMixin:
 
     def render_non_motorized_vmt_section(self) -> list[pn.viewable.Viewable]:
         if not self.state.run_labels:
-            return []
+            return [self.no_runs_message()]
         non_motorized_vmt = self.data.summary(
             NON_MOTORIZED_VMT_SUMMARY_ID,
             columns=NON_MOTORIZED_VMT_REQUIRED_COLUMNS,
@@ -301,15 +311,6 @@ class CommercialVmtFeatureMixin:
     def render_commercial_vmt_section(self):
         if not self.state.run_labels:
             return [self.no_runs_message()]
-        summary_ids = [
-            "commercial_vehicle_validation_summary",
-            "commercial_vehicle_vmt_validation_summary",
-        ]
-        if not any(
-            self.data.summary(summary_id, self.weighting_key)
-            for summary_id in summary_ids
-        ):
-            return []
         return [self.render_demo_commercial_chart()]
 
     def render_demo_commercial_chart(self) -> pn.viewable.Viewable:
@@ -319,7 +320,7 @@ class CommercialVmtFeatureMixin:
             else "commercial_vehicle_validation_summary"
         )
         data = self.data.summary(summary_id, self.weighting_key)
-        if data is None:
+        if not data:
             return self.data_not_available_card(
                 detail="Commercial vehicle summaries are unavailable.",
                 missing_items=[summary_id],
@@ -386,7 +387,7 @@ class ExternalVmtFeatureMixin:
             else "external_trip_validation_summary"
         )
         data = self.data.summary(summary_id, self.weighting_key)
-        if data is None:
+        if not data:
             return self.data_not_available_card(
                 detail="External travel summaries are unavailable.",
                 missing_items=[summary_id],
@@ -445,15 +446,6 @@ class ExternalVmtFeatureMixin:
         )
 
     def render_external_vmt_section(self) -> list[pn.viewable.Viewable]:
-        summary_ids = [
-            "external_trip_validation_summary",
-            "external_vmt_validation_summary",
-        ]
-        if not any(
-            self.data.summary(summary_id, self.weighting_key)
-            for summary_id in summary_ids
-        ):
-            return []
         content: list[pn.viewable.Viewable] = [
             self.render_external_travel_chart(),
         ]

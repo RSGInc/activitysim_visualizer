@@ -348,8 +348,8 @@ def test_validation_scaffold_summaries_are_registered_with_empty_contracts(
         "count_location_volumes_validation_summary",
         "count_location_scatter_validation_summary",
         "count_location_fit_validation_summary",
-        "county_flows_validation_summary",
-        "county_flows_joja_validation_summary",
+        "district_commuting_flows_validation_summary",
+        "county_commuting_flows_validation_summary",
         "commercial_vehicle_validation_summary",
         "commercial_vehicle_vmt_validation_summary",
         "external_trip_validation_summary",
@@ -754,6 +754,109 @@ def test_prepare_then_summary_does_not_rerun_skimjoin_for_existing_prepared_runs
     assert skimjoin_labels == ["Run A", "Run B"]
 
 
+def test_refresh_skimjoin_reuses_base_prepared_cache(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    config = _write_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+        extra_lines=[
+            "pipeline:",
+            "  steps: [prepare, skimjoin]",
+            "skimjoin:",
+            "  defaults:",
+        ],
+    )
+    read_labels: list[str] = []
+    prepare_labels: list[str] = []
+    skimjoin_labels: list[str] = []
+
+    def fake_resolve_skimjoin(config, entry):
+        return SkimjoinSettings(
+            enabled=True,
+            config_path="mock_skimjoin.yaml",
+            config_digest="mock-digest",
+        )
+
+    monkeypatch.setattr(
+        "runtime.config.resolve_run_skimjoin_settings",
+        fake_resolve_skimjoin,
+    )
+    monkeypatch.setattr(
+        "runtime.config.normalize_prepare.resolve_run_skimjoin_settings",
+        fake_resolve_skimjoin,
+    )
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: (
+            read_labels.append(label or Path(run_dir).name),
+            _fake_run_data(label or Path(run_dir).name, str(run_dir)),
+        )[1],
+        prepare_data=lambda rd, config: (
+            prepare_labels.append(rd.label),
+            rd,
+        )[1],
+    )
+    monkeypatch.setattr(
+        prepare_workflow,
+        "apply_skimjoin",
+        lambda rd, config: (skimjoin_labels.append(rd.label), rd)[1],
+    )
+
+    plan = _workflow_plan(config, skimjoin=True)
+    runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=True,
+        plan=plan,
+    )
+    refreshed_plan = replace(plan, refresh_steps=("skimjoin",))
+    runtime_workflows.run_prepare_workflow(
+        config=config,
+        prepared_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=True,
+        plan=refreshed_plan,
+    )
+
+    assert read_labels == ["Run A"]
+    assert prepare_labels == ["Run A"]
+    assert skimjoin_labels == ["Run A", "Run A"]
+    assert (
+        Path(config.summary_root) / "run-a" / "base_prepared_tables" / "manifest.json"
+    ).exists()
+
+
+def test_raw_input_file_identity_changes_run_fingerprint(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run_a"
+    run_dir.mkdir()
+    households = run_dir / "final_households.csv"
+    households.write_text("household_id\n1\n", encoding="utf-8")
+    config = _write_config(
+        tmp_path,
+        runs=[{"dir": str(run_dir), "label": "Run A"}],
+    )
+
+    first = prepare_workflow._run_cache_metadata(
+        entry=config.runs[0],
+        run_key="run-a",
+        config=config,
+    )["run_fingerprint"]
+    households.write_text("household_id\n1\n2\n", encoding="utf-8")
+    second = prepare_workflow._run_cache_metadata(
+        entry=config.runs[0],
+        run_key="run-a",
+        config=config,
+    )["run_fingerprint"]
+
+    assert first["raw_file_identities"] != second["raw_file_identities"]
+
+
 def test_run_summary_workflow_does_not_build_non_default_registered_summaries(
     tmp_path: Path,
     monkeypatch,
@@ -998,6 +1101,51 @@ def test_dashboard_only_loads_non_default_summary_table_map_id(
     ]
 
 
+def test_dashboard_only_loads_available_optional_cache_summaries(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path, runs=[])
+    vmt_summary = pl.DataFrame(
+        {
+            "TOD": ["Daily"],
+            "SOV": [2.0],
+            "HOV2": [0.0],
+            "HOV3": [0.0],
+            "Truck": [0.0],
+            "Total": [2.0],
+        }
+    )
+    summary_run = create_summary_run(
+        label="Base",
+        run_key="base",
+        summaries_by_mode={
+            mode: {
+                "population_totals": pl.DataFrame({"person_count": [1.0]}),
+                "auto_vmt_validation_summary": vmt_summary,
+            }
+            for mode in config.weighting_modes
+        },
+    )
+    cache_dir = write_summary_run_cache(summary_run, config)
+
+    loaded = runtime_workflows.load_summary_runs_from_cache(
+        config=config,
+        cache_root=Path(config.summary_root),
+        explicit_cache_dirs=[str(cache_dir)],
+        run_entries=[],
+        required_summary_ids=("population_totals",),
+        optional_summary_ids=(
+            "auto_vmt_validation_summary",
+            "link_validation_summary",
+        ),
+    )
+
+    assert set(loaded[0].summaries_by_mode["weighted"]) == {
+        "population_totals",
+        "auto_vmt_validation_summary",
+    }
+
+
 def test_dashboard_only_respects_empty_required_summary_ids_for_optional_only_page(
     tmp_path: Path,
 ) -> None:
@@ -1184,6 +1332,60 @@ def _segmented_run_data(label: str, run_dir: str) -> RunData:
         skim_matrix=None,
         skim_zone_map=None,
     )
+
+
+def _market_segmentation_lines(
+    segments: list[tuple[str, str, str]],
+) -> list[str]:
+    lines = [
+        "pipeline:",
+        "  steps: [segment, summarize]",
+        "segment:",
+        "  definitions:",
+        "    market:",
+        "      source:",
+        "        type: prepared_column",
+        "        source_table: hh",
+        "        column: market",
+        "      segments:",
+    ]
+    for segment_id, label, value in segments:
+        lines.extend(
+            [
+                f"        - id: {segment_id}",
+                f"          label: {label}",
+                f"          values: [{value}]",
+            ]
+        )
+    return lines
+
+
+def _recording_summary_builder(calls: list[tuple[str, ...]]):
+    def build(rd, config, summary_ids=None):
+        markets = (
+            tuple(sorted(rd.hh["market"].to_list()))
+            if "market" in rd.hh.columns
+            else ()
+        )
+        calls.append(markets)
+        requested = list(summary_ids or summary_builder.DEFAULT_SUMMARY_IDS)
+        tables = {
+            mode: {
+                summary_id: pl.DataFrame({"value": [float(rd.hh.height)]})
+                for summary_id in requested
+            }
+            for mode in config.weighting_modes
+        }
+        metadata = {
+            mode: {
+                summary_id: {"state": "available"}
+                for summary_id in requested
+            }
+            for mode in config.weighting_modes
+        }
+        return tables, metadata
+
+    return build
 
 def test_run_prepare_workflow_rebuilds_and_writes_prepared_cache_on_cache_miss(
     tmp_path: Path,
@@ -1435,6 +1637,201 @@ def test_run_summary_workflow_with_segment_step_builds_full_and_segmented_summar
         ("market", "urban"),
         ("market", "rural"),
     ]
+
+
+def test_enabling_segmentation_reuses_full_summaries_and_builds_only_segments(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    runs = [{"dir": str(run_dir), "label": "Run A"}]
+    config = _write_config(tmp_path, runs=runs)
+    read_calls: list[str] = []
+    build_calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
+        _recording_summary_builder(build_calls),
+    )
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: (
+            read_calls.append(label or Path(run_dir).name),
+            _segmented_run_data(label or Path(run_dir).name, str(run_dir)),
+        )[1],
+        prepare_data=lambda rd, config: rd,
+    )
+
+    runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=True,
+    )
+    build_calls.clear()
+    segmented_config = _write_config(
+        tmp_path,
+        runs=runs,
+        extra_lines=_market_segmentation_lines(
+            [("urban", "Urban", "Urban"), ("rural", "Rural", "Rural")]
+        ),
+    )
+
+    result = runtime_workflows.run_summary_workflow(
+        config=segmented_config,
+        cache_root=Path(segmented_config.summary_root),
+        run_entries=segmented_config.runs,
+        prefer_cache=True,
+        write_cache=True,
+    )
+
+    assert build_calls == [("Urban",), ("Rural",)]
+    assert read_calls == ["Run A"]
+    assert [(run.segmentation_type, run.segment_id) for run in result.runs] == [
+        ("full", "full"),
+        ("market", "urban"),
+        ("market", "rural"),
+    ]
+    build_calls.clear()
+
+    runtime_workflows.run_summary_workflow(
+        config=segmented_config,
+        cache_root=Path(segmented_config.summary_root),
+        run_entries=segmented_config.runs,
+        prefer_cache=False,
+        write_cache=True,
+    )
+
+    assert build_calls == [("Rural", "Urban"), ("Urban",), ("Rural",)]
+    assert read_calls == ["Run A"]
+
+
+def test_changing_one_segment_rebuilds_only_that_segment(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    runs = [{"dir": str(run_dir), "label": "Run A"}]
+    config = _write_config(
+        tmp_path,
+        runs=runs,
+        extra_lines=_market_segmentation_lines(
+            [("urban", "Urban", "Urban"), ("rural", "Rural", "Rural")]
+        ),
+    )
+    build_calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
+        _recording_summary_builder(build_calls),
+    )
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: _segmented_run_data(
+            label or Path(run_dir).name, str(run_dir)
+        ),
+        prepare_data=lambda rd, config: rd,
+    )
+    runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=True,
+    )
+    build_calls.clear()
+    changed_config = _write_config(
+        tmp_path,
+        runs=runs,
+        extra_lines=_market_segmentation_lines(
+            [("urban", "Urban households", "Urban"), ("rural", "Rural", "Rural")]
+        ),
+    )
+
+    result = runtime_workflows.run_summary_workflow(
+        config=changed_config,
+        cache_root=Path(changed_config.summary_root),
+        run_entries=changed_config.runs,
+        prefer_cache=True,
+        write_cache=True,
+    )
+
+    assert build_calls == [("Urban",)]
+    assert next(run for run in result.runs if run.segment_id == "urban").segment_label == (
+        "Urban households"
+    )
+
+
+def test_removing_segment_reuses_current_units_and_cleans_obsolete_cache(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    run_dir = tmp_path / "run_a"
+    runs = [{"dir": str(run_dir), "label": "Run A"}]
+    config = _write_config(
+        tmp_path,
+        runs=runs,
+        extra_lines=_market_segmentation_lines(
+            [("urban", "Urban", "Urban"), ("rural", "Rural", "Rural")]
+        ),
+    )
+    monkeypatch.setattr(summary_builder, "DEFAULT_SUMMARY_IDS", ["population_totals"])
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
+        _recording_summary_builder([]),
+    )
+    _patch_prepare_pipeline(
+        monkeypatch,
+        read_run=lambda run_dir, config, label=None, **kwargs: _segmented_run_data(
+            label or Path(run_dir).name, str(run_dir)
+        ),
+        prepare_data=lambda rd, config: rd,
+    )
+    runtime_workflows.run_summary_workflow(
+        config=config,
+        cache_root=Path(config.summary_root),
+        run_entries=config.runs,
+        prefer_cache=False,
+        write_cache=True,
+    )
+    changed_config = _write_config(
+        tmp_path,
+        runs=runs,
+        extra_lines=_market_segmentation_lines([("urban", "Urban", "Urban")]),
+    )
+    monkeypatch.setattr(
+        summary_builder,
+        "build_mode_summaries_with_metadata",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("no current analysis unit should be rebuilt")
+        ),
+    )
+
+    result = runtime_workflows.run_summary_workflow(
+        config=changed_config,
+        cache_root=Path(changed_config.summary_root),
+        run_entries=changed_config.runs,
+        prefer_cache=True,
+        write_cache=True,
+    )
+
+    assert [(run.segmentation_type, run.segment_id) for run in result.runs] == [
+        ("full", "full"),
+        ("market", "urban"),
+    ]
+    assert not (
+        Path(changed_config.summary_root)
+        / "run-a"
+        / "summary_tables"
+        / "weighted"
+        / "segments"
+        / "market"
+        / "rural"
+    ).exists()
 
 
 def test_run_prepare_workflow_loads_custom_prepared_tables_without_raw_prepare(
@@ -2340,7 +2737,7 @@ def test_resolve_requested_steps_uses_config_pipeline_defaults(tmp_path: Path) -
     ]
 
 
-def test_resolve_effective_plan_uses_pipeline_dashboard_mode_and_overwrite(
+def test_resolve_effective_plan_uses_pipeline_dashboard_mode_and_refresh(
     tmp_path: Path,
 ) -> None:
     config = _write_config(
@@ -2352,7 +2749,7 @@ def test_resolve_effective_plan_uses_pipeline_dashboard_mode_and_overwrite(
             "    - summarize",
             "    - dashboard",
             "  dashboard_mode: export",
-            "  overwrite: true",
+            "  refresh: [summarize]",
         ],
     )
 
@@ -2375,7 +2772,7 @@ def test_resolve_effective_plan_uses_pipeline_dashboard_mode_and_overwrite(
     assert plan.runtime_steps == ("summarize", "dashboard")
     assert plan.logical_steps == ("summarize", "dashboard")
     assert plan.dashboard_mode == "export"
-    assert plan.overwrite is True
+    assert plan.refresh_steps == ("summarize",)
 
 
 def test_resolve_effective_plan_drops_dashboard_when_config_dashboard_mode_is_none(

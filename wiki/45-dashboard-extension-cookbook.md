@@ -1,20 +1,22 @@
 # 45 - Dashboard Extension Cookbook
 
-This chapter gives worked examples for adding a page, page group, selector,
-custom widget, table, and reusable figure behavior. The examples use the
-current declarative page lifecycle: selectors own option domains, sections own
-refresh dependencies, and pages read data through `self.data`.
+This chapter gives examples of a page, page group, selector, custom widget,
+table, and reusable figure. They use the declarative page lifecycle: selectors
+control option domains, sections control refresh dependencies, and pages read
+data through `self.data`.
 
 ## Worked Example: Add A Page To An Existing Group
 
-Assume the registered summary `trips_by_mode` has columns `trip_mode` and
-`trip_count`. Create one discoverable leaf module:
+In this example, `trips_by_mode` is the worked example summary created in
+[44 - Summary Function Cookbook](44-summary-function-cookbook.md). It is not a
+built-in summary until you add that declaration. It has `trip_mode` and
+`trip_count` columns. Create one discoverable final module:
 
 ```text
 dashboard/pages/trip_summaries/trip_mode_totals.py
 ```
 
-The complete first version can stay small:
+The complete first version can be small:
 
 ```python
 from __future__ import annotations
@@ -56,8 +58,8 @@ class TripModeTotalsPage(DashboardPage):
         )
 ```
 
-Discovery imports public child modules automatically. Do not edit a central
-page list. The decorator is the single source for identity and data needs.
+Discovery imports public child modules automatically, so there is no central
+page list to edit. The decorator defines identity and data requirements.
 
 Enable the page explicitly while developing:
 
@@ -71,8 +73,8 @@ dashboard:
 
 ## Add A Dynamic Selector
 
-Suppose the summary instead contains `tour_purpose`, `trip_mode`, and
-`trip_count`. Add a purpose dropdown whose options come from the loaded data:
+In this example, the summary contains `tour_purpose`, `trip_mode`, and
+`trip_count`. Add a purpose list with options from the loaded data:
 
 ```python
 from dashboard.helpers.category_helpers import column_options
@@ -98,7 +100,7 @@ def build_page(self):
 
 
 def purpose_options(self):
-    data = self.data.summary("trips_by_mode_and_purpose")
+    data = self.data.summary("trip_mode_by_tour_purpose_and_tour_mode")
     options, self._purpose_by_label = column_options(
         data.to_list(),
         "tour_purpose",
@@ -108,15 +110,14 @@ def purpose_options(self):
     return options
 ```
 
-The option provider runs before a dependent section renders. If available
-options change, the framework repairs a stale selection using the selector's
-`default` policy.
+The option provider runs before the framework renders a dependent section. If
+the available options change, the `default` policy repairs an invalid selection.
 
-Filter with the raw value, not its display label:
+Use the raw value for the filter. Do not use its display label:
 
 ```python
 raw_purpose = self._purpose_by_label[self.purpose.value]
-data = self.data.summary("trips_by_mode_and_purpose")
+data = self.data.summary("trip_mode_by_tour_purpose_and_tour_mode")
 chart_data = self.query(
     lambda: data.where(tour_purpose=raw_purpose).select(
         "trip_mode", "trip_count"
@@ -124,8 +125,8 @@ chart_data = self.query(
 )
 ```
 
-`self.query()` derives its cache identity from global state, active section,
-declared selectors, callable location, and captured values. Do not invent a
+`self.query()` gets its cache identity from global state, the active section,
+declared selectors, callable location, and captured values. Do not create a
 page-local cache key.
 
 ## Add A Custom Widget
@@ -147,7 +148,7 @@ body = self.section(
 )
 ```
 
-Then apply its value inside the section query:
+Then use its value in the section query:
 
 ```python
 if self.hide_auto.value:
@@ -158,9 +159,9 @@ if self.hide_auto.value:
     )
 ```
 
-Registration is what connects the widget to refresh and HTML export. A widget
-created directly in the layout without `self.select()` or `self.selector()` is
-not part of that lifecycle.
+Registration connects the widget to refresh and HTML export. A widget created
+directly in the layout is outside this lifecycle, so register it with
+`self.select()` or `self.selector()`.
 
 ## Add A Figure With The Existing Plotter
 
@@ -178,11 +179,11 @@ chart = self.plot.bar(
 )
 ```
 
-This applies run colors, count/share state, layout conventions, and hover
-behavior. Available shared types are `bar`, `line`, `density`, and `scatter`.
+This method applies run colors, count or share state, layout rules, and hover
+behavior. The shared types are `bar`, `line`, `density`, and `scatter`.
 
-If one page needs a Plotly customization, build the figure through the escape
-hatch, mutate it, and wrap it:
+If one page requires a Plotly customization, build the figure through the
+figure API. Change it and put it in a Panel pane:
 
 ```python
 figure = self.plot.figure.bar(
@@ -195,13 +196,13 @@ figure.update_layout(legend_title_text="Model Run")
 return self.plot.panel(figure)
 ```
 
-Keep ordinary titles, axes, modes, category order, and sizing in the shared
-arguments rather than post-processing every page.
+Set standard titles, axes, modes, category order, and size with shared
+arguments. Do not make these changes separately on each page.
 
 ## Add A Reusable Figure Type
 
-When several pages need a genuinely new chart contract, add it to the shared
-renderer instead of copying Plotly construction.
+When several pages require a new chart contract, add it to the shared renderer.
+Do not copy the Plotly construction.
 
 For an area chart:
 
@@ -213,8 +214,8 @@ For an area chart:
 4. validate required columns with the same clear errors as other builders; and
 5. test the Plotly figure before testing Panel wrapping.
 
-Here is a complete minimal builder for `dashboard/rendering/figures.py`. It
-uses the existing internal helpers because it lives beside the other builders:
+This is a complete small builder for `dashboard/rendering/figures.py`. It uses
+the existing internal helpers with the other builders:
 
 ```python
 def area_figure(
@@ -261,11 +262,10 @@ def area_figure(
     return figure
 ```
 
-`ChartTables`, `ChartValueMode`, `go`, and `np` are already used by that
-module. The explicit `value_mode` keeps `"dashboard"`, forced count, and forced
-share behavior consistent with the existing figure types. `_require_columns`
-provides a run-specific error, while `RenderContext.color()` preserves the
-configured run-color mapping.
+That module already uses `ChartTables`, `ChartValueMode`, `go`, and `np`. The
+explicit `value_mode` keeps `"dashboard"`, count, and share behavior consistent
+with existing figure types. `_require_columns` gives an error for the affected
+run. `RenderContext.color()` keeps the configured run-color mapping.
 
 The adapter shape is:
 
@@ -280,7 +280,7 @@ class Plotter:
         return self.panel(self.figure.area(data, **kwargs))
 ```
 
-A focused test should inspect traces and layout:
+A focused test must examine traces and layout:
 
 ```python
 def test_area_figure_uses_run_labels_and_colors():
@@ -326,9 +326,9 @@ return data_table(
 )
 ```
 
-It produces one run tab per frame and applies shared column titles and numeric
-formatting. Use a page-local `Tabulator` only when the shared table contract
-cannot express the required interaction.
+It creates one run tab for each frame and applies shared column titles and
+numeric formatting. Use a page-local `Tabulator` only when the shared table
+contract cannot provide the required interaction.
 
 ## Add A New Page Group
 
@@ -356,11 +356,11 @@ GROUP = DashboardGroupDefinition(
 )
 ```
 
-Every child page declares `group_id="emissions"`. `default_page_id` must name
-one of those children. Private helper packages and modules begin with `_` so
-discovery ignores them.
+Each child page declares `group_id="emissions"`. `default_page_id` must specify
+one of these children. Start private helper package and module names with `_`.
+Discovery ignores these names.
 
-Users can enable the group's default pages or choose children:
+Users can enable the default group pages or select child pages:
 
 ```yaml
 dashboard:
@@ -374,8 +374,8 @@ dashboard:
 
 ## Test The Extension
 
-Test pure transforms separately from lifecycle wiring. Then add focused checks
-for declarations:
+Test pure transforms separately from lifecycle connections. Then add focused
+checks for declarations:
 
 ```python
 def test_trip_mode_page_declares_its_runtime_contract():
@@ -386,18 +386,18 @@ def test_trip_mode_page_declares_its_runtime_contract():
     assert definition.required_summary_ids == ("trips_by_mode",)
 ```
 
-For selector behavior, instantiate a small test page with `DashboardState`,
-change the option provider's domain, refresh, and assert that stale values are
-repaired. For figures, test `Plotter(RenderContext()).figure` so failures are
-independent of Panel. The full registry suites then prove discovery, unique
-IDs, requirements, and export protocol support.
+For selector behavior, create a small test page with `DashboardState`. Change
+the option provider domain and refresh the page. Verify that the framework
+repairs invalid values. For figures, test `Plotter(RenderContext()).figure`.
+This keeps failures independent of Panel. The full registry tests verify
+discovery, unique IDs, requirements, and export protocol support.
 
-Run at least:
+Use at least these commands:
 
 ```bash
 uv run python scripts/generate_wiki_catalogs.py
-uv run --with pytest pytest --basetemp .pytest_tmp tests/test_page_authoring.py tests/test_page_registry_contract.py
-uv run --with pytest pytest --basetemp .pytest_tmp tests/test_figure_builders.py tests/test_export_payload.py
+uv run pytest --basetemp .pytest_tmp tests/test_page_authoring.py tests/test_page_registry_contract.py
+uv run pytest --basetemp .pytest_tmp tests/test_figure_builders.py tests/test_export_payload.py
 ```
 
 ## Review Checklist
@@ -407,16 +407,16 @@ uv run --with pytest pytest --basetemp .pytest_tmp tests/test_figure_builders.py
 - Required and optional data match the visible workflows.
 - Summary reads declare the columns they consume.
 - Selectors own options; sections list every selector dependency.
-- Custom widgets are registered rather than inserted raw.
+- Register custom widgets. Do not insert them directly.
 - Pure transforms do not depend on Panel state.
-- Existing shared figures and tables are used before adding new renderers.
+- Use existing shared figures and tables before you add renderers.
 - Missing data produces a standard diagnostic card.
 - Live and export behavior use the same declarations.
 - Catalogs and focused tests are current.
 
 ## Related Chapters
 
-- [31 - Dashboard Pages](31-dashboard-pages.md)
+- [31 - Dashboard Page Contract](31-dashboard-pages.md)
 - [32 - Figures And Widgets](32-figures-and-widgets.md)
 - [33 - Dashboard Page Recipes](33-dashboard-page-recipes.md)
 - [34 - HTML Export](34-html-export.md)

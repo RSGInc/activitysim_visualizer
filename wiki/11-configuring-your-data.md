@@ -1,11 +1,31 @@
 # 11 - Configuring Your Data
 
-Most users only need to choose an input type and name their runs. Use one of the
-three patterns below.
+Choose one of the three input types below, and give each run a label. For exact
+table, key, relationship, and type rules, see
+[14 - Input Data Contract](14-input-data-contract.md).
+
+## Run Input Decision Matrix
+
+The fields on one run can be combined only when their boundaries make sense:
+
+| Run input | Prepare source | Skimjoin | Segmentation | Generated summaries | Mapped-summary behavior |
+|---|---|---|---|---|---|
+| `dir` | Raw CSV/Parquet files | Available when the step and paths are configured | Available | Available | Optional mapped IDs replace generated IDs. |
+| `prepared_table_map` | Supplied canonical tables; raw prepare is skipped | Skipped for this run | Available | Available | Optional mapped IDs replace generated IDs. |
+| `summary_table_map` only | None | Not available | Not available | Not available | Mapped IDs are the run's summaries. |
+| `dir` plus `summary_table_map` | Raw files | Available | Available | Available for unmapped IDs | The same mapped table replaces its ID for full and segmented units. |
+| `prepared_table_map` plus `summary_table_map` | Supplied canonical tables | Skipped | Available | Available for unmapped IDs | The same mapped table replaces its ID for full and segmented units. |
+| `--from-csvs <cache-dir>` | Existing manifested cache bundle | Already complete | Already complete | Not run | Loads the bundle; it is not a loose-file mapping. |
+
+`file_map`, `skim_file`, and the run weight fields apply to raw `dir`
+input. `file_map` cannot be combined with `prepared_table_map`. A
+`summary_table_map` entry is mode-independent: built-in weighted and unweighted
+modes copy it, while declarative named modes reject it because they cannot
+recalculate an aggregated file.
 
 ## Raw ActivitySim Output
 
-Use this when you have normal ActivitySim output folders:
+Use this configuration for standard ActivitySim output directories:
 
 ```yaml
 root: artifacts
@@ -17,7 +37,7 @@ runs:
     label: Build
 ```
 
-The label is what appears in the dashboard.
+The dashboard uses the label to identify the run.
 
 ### File Names
 
@@ -27,14 +47,18 @@ The default files are:
 files:
   households: final_households
   persons: final_persons
+  day: final_day
   tours: final_tours
   trips: final_trips
+  vehicles: final_vehicles
   joint_tour_participants: final_joint_tour_participants
   land_use: final_land_use
 ```
 
-A bare name accepts either `.parquet` or `.csv`. Override one unusual run with
-`file_map`:
+The day, vehicle, joint-participant, and land-use tables are optional.
+
+A name without an extension selects a `.parquet` or `.csv` file. Use `file_map`
+to set nonstandard file names for one run:
 
 ```yaml
 runs:
@@ -49,7 +73,8 @@ runs:
 
 ### Column Names
 
-If a model uses different column names, list the candidates in preferred order:
+If a model uses different column names, list the possible names in order of
+preference:
 
 ```yaml
 columns:
@@ -58,13 +83,14 @@ columns:
   trip_mode: mode
 ```
 
-Prepare converts the selected source to the visualizer's canonical column. See
-chapter 13 for the [complete column list](13-configuration-reference.md#columns).
+The prepare step copies the first available source into the canonical
+visualizer column. See the
+[complete column list](13-configuration-reference.md#columns) in chapter 13.
 
 ## Already-Prepared Tables
 
-Use `prepared_table_map` for canonical tables that were prepared, skimjoined,
-or filtered elsewhere:
+Use `prepared_table_map` for canonical tables created by another process. That
+process can prepare, skimjoin, or filter the tables:
 
 ```yaml
 runs:
@@ -77,14 +103,19 @@ runs:
       land_use: prepared/land_use.parquet
 ```
 
-Paths must end in `.csv` or `.parquet` and are relative to the config file.
-These tables must already use the canonical prepared columns expected by
-summaries. Raw prepare and integrated skimjoin are skipped for this run.
+Each path must end in `.csv` or `.parquet`. Relative paths start from the
+configuration file directory. The tables must contain the canonical prepared
+columns required by the summaries. For this type of run, the visualizer skips
+raw preparation and integrated skimjoin.
+
+The visualizer also skips canonicalization, derived columns, standard weight
+creation, and geography mapping. The supplied files must already satisfy those
+parts of the prepared contract.
 
 ## Dashboard-Ready Summary Tables
 
-Use `summary_table_map` when another process has already produced registered
-summary tables:
+Use `summary_table_map` for registered summary tables created by another
+process:
 
 ```yaml
 runs:
@@ -94,13 +125,18 @@ runs:
       traffic_count_comparisons: summaries/traffic_counts.parquet
 ```
 
-Keys must appear in the [Summary Catalog](24-summary-catalog.md). Files must
-match the registered columns exactly. A run may contain only outside summaries,
-or they may override selected summaries generated from raw/prepared data.
+Each key must appear in the [Summary Catalog](26-summary-catalog.md), and each
+file must have the registered columns in the specified order. A run can contain
+only external summaries, or external summaries can replace selected summaries
+from raw or prepared data.
+
+Mapped summary tables cannot be segmented or reweighted from their rows. When
+combined with buildable input, one mapped table is overlaid unchanged on every
+full or segmented analysis unit.
 
 ## Weights
 
-The normal modes are configured with:
+Configure the standard modes with:
 
 ```yaml
 summarize:
@@ -116,13 +152,23 @@ runs:
     hh_weight_col: household_weight
     person_weight_col: person_weight
     trip_weight_col: trip_weight
+    day_weight_col: diary_day_weight
 ```
 
-Otherwise prepare uses a configured sample-rate column when available, then
-falls back to `1.0`.
+If none of the household, person, or trip weight fields is set, prepare uses
+the configured household sample-rate column when available and otherwise
+starts with `1.0`. Setting any of those three fields disables automatic
+household sample-rate expansion. Tables without their own source inherit a
+related person or household weight when possible.
 
-If the same output tables contain an additional set of weights, add a named
-column mode instead of duplicating the run or writing Python:
+`day_weight_col` defaults to `day_weight`. When that column exists on the day
+table, each non-null value is authoritative; null values fall back to the
+matching person weight, then household weight, then `1.0`. Set
+`day_weight_col: null` to ignore a placeholder day-weight column and inherit
+person or household weights for every day row.
+
+If the output tables contain other weights, add a named column mode instead of
+duplicating the run or writing Python:
 
 ```yaml
 weighting:
@@ -138,8 +184,10 @@ summarize:
   weighting_modes: [weighted, unweighted, calibrated]
 ```
 
-The named sources are validated and propagated to tours, days, vehicles, and
-skimjoin sidecars as appropriate. See [43 - Weighting And Hosting Extensions](43-weighting-hosting-extensions.md#worked-example-add-a-weighting-mode) for the exact rules.
+The visualizer validates the named sources and copies the weights to relevant
+tours, days, vehicles, and skimjoin sidecar tables. See
+[43 - Weighting And Hosting Extensions](43-weighting-hosting-extensions.md#worked-example-add-a-weighting-mode)
+for the rules.
 
 ## Zones
 
@@ -164,10 +212,10 @@ zones:
 ## Optional Features
 
 - For skim enrichment, read [Skimjoin](22-skimjoin.md).
-- For custom geography aggregation, read the
-  [`summarize.geography` reference](13-configuration-reference.md#summarize).
-- For segmentation, read the
-  [`segment` reference](13-configuration-reference.md#segment).
+- To build the same summaries for configured subsets, read
+  [Segmentation](24-segmentation.md).
+- To add district, county, or other zone mappings, read
+  [Geography](27-geography.md).
 - For every accepted key and default, use the
   [Configuration Reference](13-configuration-reference.md).
 

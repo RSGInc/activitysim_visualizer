@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
+import shutil
 
 import polars as pl
 
@@ -147,6 +148,10 @@ def _summary_manifest(
         "summary_digests": summary_digests,
         "run_fingerprint": run_fingerprint or {},
         "prepared_manifest_identity": prepared_manifest_identity,
+        "identity": {
+            "upstream_prepared": prepared_manifest_identity,
+            "summary_config": config.summary_config_digest,
+        },
     }
 
 
@@ -252,7 +257,7 @@ def write_summary_run_bundle(
     output_root: str | Path | None = None,
     run_fingerprint: dict[str, object] | None = None,
     prepared_manifest_identity: dict[str, object] | None = None,
-    summary_digests: dict[str, str] | None = None,
+    summary_digests_by_unit: dict[str, dict[str, str]] | None = None,
     summary_filename_by_id: dict[str, str],
 ) -> Path:
     """Write one run cache directory containing full and segmented summary outputs."""
@@ -279,6 +284,8 @@ def write_summary_run_bundle(
     segmentation_type_entries: dict[str, dict[str, object]] = {}
 
     for summary_run in summary_runs:
+        unit_key = f"{summary_run.segmentation_type}::{summary_run.segment_id}"
+        unit_summary_digests = (summary_digests_by_unit or {}).get(unit_key, {})
         segment_states: dict[str, dict[str, str]] = {}
         segment_diagnostics: dict[str, dict[str, str]] = {}
         segment_digests: dict[str, dict[str, str]] = {}
@@ -297,13 +304,13 @@ def write_summary_run_bundle(
                 failed_summaries[mode] = list(mode_payload["failed_summaries"])
                 summary_diagnostics[mode] = dict(mode_payload["summary_diagnostics"])
                 manifest_summary_digests[mode] = {
-                    summary_id: (summary_digests or {}).get(summary_id, "")
+                    summary_id: unit_summary_digests.get(summary_id, "")
                     for summary_id in summary_ids
                 }
             segment_states[mode] = dict(mode_payload["summary_states"])
             segment_diagnostics[mode] = dict(mode_payload["summary_diagnostics"])
             segment_digests[mode] = {
-                summary_id: (summary_digests or {}).get(summary_id, "")
+                summary_id: unit_summary_digests.get(summary_id, "")
                 for summary_id in summary_ids
             }
             mode_dir = (
@@ -343,6 +350,27 @@ def write_summary_run_bundle(
                 summary_digests=segment_digests,
             )
         )
+
+    current_segment_keys = {
+        (run.segmentation_type, run.segment_id)
+        for run in summary_runs
+        if not run.is_full_segment
+    }
+    for mode in weighting_modes:
+        segments_root = run_dir / "summary_tables" / mode / "segments"
+        if not segments_root.exists():
+            continue
+        for segmentation_dir in segments_root.iterdir():
+            if not segmentation_dir.is_dir():
+                continue
+            for segment_dir in segmentation_dir.iterdir():
+                if segment_dir.is_dir() and (
+                    segmentation_dir.name,
+                    segment_dir.name,
+                ) not in current_segment_keys:
+                    shutil.rmtree(segment_dir)
+            if not any(segmentation_dir.iterdir()):
+                segmentation_dir.rmdir()
 
     manifest = _summary_manifest(
         summary_run=full_run,
@@ -625,6 +653,54 @@ def _segment_mode_dirs(
     return segment_dirs
 
 
+def _manifest_unit_metadata(
+    cache_dir: Path,
+    manifest: dict[str, object],
+    expected_modes: list[str],
+) -> dict[str, dict[str, object]]:
+    _, _, _, _, full_digests = _manifest_summary_metadata(manifest)
+    units: dict[str, dict[str, object]] = {
+        "full::full": {
+            "mode_dirs": {
+                mode: (
+                    cache_dir / "summary_tables" / mode
+                    if (cache_dir / "summary_tables" / mode).exists()
+                    else cache_dir / mode
+                )
+                for mode in expected_modes
+            },
+            "summary_digests": full_digests,
+        }
+    }
+    for raw_group in list(manifest.get("segmentation_types", [])):
+        group = dict(raw_group)
+        segmentation_type = str(group.get("segmentation_type", "full"))
+        for raw_segment in list(group.get("segments", [])):
+            segment = dict(raw_segment)
+            segment_id = str(segment.get("segment_id", "full"))
+            summary_roots = {
+                str(mode): str(path)
+                for mode, path in dict(segment.get("summary_roots", {})).items()
+            }
+            units[f"{segmentation_type}::{segment_id}"] = {
+                "mode_dirs": {
+                    mode: cache_dir
+                    / Path(summary_roots.get(mode, f"summary_tables/{mode}"))
+                    for mode in expected_modes
+                },
+                "summary_digests": {
+                    str(mode): {
+                        str(summary_id): str(digest)
+                        for summary_id, digest in dict(mode_digests).items()
+                    }
+                    for mode, mode_digests in dict(
+                        segment.get("summary_digests", {})
+                    ).items()
+                },
+            }
+    return units
+
+
 def inspect_summary_run_bundle(
     cache_dir: str | Path,
     config: Config,
@@ -637,6 +713,7 @@ def inspect_summary_run_bundle(
     expected_label: str | None = None,
     expected_run_key: str | None = None,
     expected_summary_digests: dict[str, str] | None = None,
+    expected_summary_digests_by_unit: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, object]:
     cache_dir = Path(cache_dir)
     manifest = read_manifest(cache_dir, error_cls=SummaryCacheError)
@@ -671,6 +748,54 @@ def inspect_summary_run_bundle(
         manifest_summary_digests,
     ) = _manifest_summary_metadata(manifest)
     expected_summary_digests = dict(expected_summary_digests or {})
+    if expected_summary_digests_by_unit is not None:
+        manifest_units = _manifest_unit_metadata(cache_dir, manifest, expected_modes)
+        reusable_by_unit: dict[str, list[str]] = {}
+        stale_by_unit: dict[str, list[str]] = {}
+        for unit_key, unit_expected_digests in expected_summary_digests_by_unit.items():
+            reusable_by_unit[unit_key] = []
+            stale_by_unit[unit_key] = []
+            unit_metadata = manifest_units.get(unit_key)
+            for summary_id in resolved_summary_ids:
+                if unit_metadata is None:
+                    stale_by_unit[unit_key].append(summary_id)
+                    continue
+                mode_dirs = dict(unit_metadata["mode_dirs"])
+                unit_manifest_digests = dict(unit_metadata["summary_digests"])
+                filename = summary_files.get(summary_id, f"{summary_id}.csv")
+                is_reusable = all(
+                    dict(unit_manifest_digests.get(mode, {})).get(summary_id)
+                    == unit_expected_digests.get(summary_id)
+                    and (mode_dirs[mode] / filename).exists()
+                    for mode in expected_modes
+                )
+                target = reusable_by_unit if is_reusable else stale_by_unit
+                target[unit_key].append(summary_id)
+
+        stale_summary_ids = [
+            summary_id
+            for summary_id in resolved_summary_ids
+            if any(
+                summary_id in unit_stale_ids
+                for unit_stale_ids in stale_by_unit.values()
+            )
+        ]
+        reusable_summary_ids = [
+            summary_id
+            for summary_id in resolved_summary_ids
+            if summary_id not in stale_summary_ids
+        ]
+        return {
+            "manifest": manifest,
+            "reusable_summary_ids": reusable_summary_ids,
+            "stale_summary_ids": stale_summary_ids,
+            "reusable_summary_ids_by_unit": reusable_by_unit,
+            "stale_summary_ids_by_unit": stale_by_unit,
+            "obsolete_unit_keys": sorted(
+                set(manifest_units) - set(expected_summary_digests_by_unit)
+            ),
+        }
+
     stale_summary_ids: list[str] = []
     reusable_summary_ids: list[str] = []
     segment_dirs = _segment_mode_dirs(cache_dir, manifest, expected_modes)
@@ -787,18 +912,26 @@ def load_summary_run_bundle(
     expected_prepared_manifest_identity: dict[str, object] | None = None,
     expected_label: str | None = None,
     expected_run_key: str | None = None,
+    expected_summary_ids_by_unit: dict[str, list[str]] | None = None,
     summary_spec_by_id: dict[str, object],
 ) -> list[SummaryRun]:
     """Load one run cache directory and return all persisted segment variants."""
     cache_dir = Path(cache_dir)
     manifest = read_manifest(cache_dir, error_cls=SummaryCacheError)
     if "segmentation_types" not in manifest and "segments" not in manifest:
+        full_summary_ids = (
+            expected_summary_ids_by_unit.get("full::full", [])
+            if expected_summary_ids_by_unit is not None
+            else expected_summary_ids
+        )
+        if expected_summary_ids_by_unit is not None and not full_summary_ids:
+            return []
         return [
             load_summary_run_cache(
                 cache_dir,
                 config,
                 expected_modes=expected_modes,
-                expected_summary_ids=expected_summary_ids,
+                expected_summary_ids=full_summary_ids,
                 expected_summary_config_digest=expected_summary_config_digest,
                 expected_run_fingerprint=expected_run_fingerprint,
                 expected_prepared_manifest_identity=expected_prepared_manifest_identity,
@@ -823,12 +956,21 @@ def load_summary_run_bundle(
         expected_label=expected_label,
         expected_run_key=expected_run_key,
     )
+    requested_summary_ids = expected_summary_ids
+    if expected_summary_ids_by_unit is not None:
+        requested_summary_ids = list(
+            dict.fromkeys(
+                summary_id
+                for unit_summary_ids in expected_summary_ids_by_unit.values()
+                for summary_id in unit_summary_ids
+            )
+        )
     expected_modes, expected_summary_ids = _validated_mode_and_summary_ids(
         manifest=manifest,
         config=config,
         cache_dir=cache_dir,
         expected_modes=expected_modes,
-        expected_summary_ids=expected_summary_ids,
+        expected_summary_ids=requested_summary_ids,
     )
     (
         summary_files,
@@ -839,16 +981,23 @@ def load_summary_run_bundle(
     ) = _manifest_summary_metadata(manifest)
 
     loaded_runs: list[SummaryRun] = []
+    full_expected_summary_ids = (
+        expected_summary_ids_by_unit.get("full::full", [])
+        if expected_summary_ids_by_unit is not None
+        else expected_summary_ids
+    )
     full_summaries_by_mode: dict[str, dict[str, pl.DataFrame]] = {}
     full_summary_metadata_by_mode: dict[str, dict[str, dict[str, object]]] = {}
     for mode in expected_modes:
+        if not full_expected_summary_ids:
+            break
         full_mode_dir = cache_dir / "summary_tables" / mode
         if not full_mode_dir.exists():
             full_mode_dir = cache_dir / mode
         mode_tables, mode_metadata = _load_mode_tables(
             mode_dir=full_mode_dir,
             mode=mode,
-            expected_summary_ids=expected_summary_ids,
+            expected_summary_ids=full_expected_summary_ids,
             summary_files=summary_files,
             empty_summaries=empty_summaries,
             manifest_summary_states=manifest_summary_states,
@@ -857,8 +1006,9 @@ def load_summary_run_bundle(
         )
         full_summaries_by_mode[mode] = mode_tables
         full_summary_metadata_by_mode[mode] = mode_metadata
-    loaded_runs.append(
-        SummaryRun(
+    if full_expected_summary_ids:
+        loaded_runs.append(
+            SummaryRun(
             label=str(manifest.get("label", cache_dir.name)),
             run_key=str(manifest.get("run_key", cache_dir.name)),
             summaries_by_mode=full_summaries_by_mode,
@@ -869,8 +1019,8 @@ def load_summary_run_bundle(
             is_full_segment=True,
             source_run_dir=manifest.get("source_run_dir"),
             manifest=manifest,
+            )
         )
-    )
     if "segmentation_types" in manifest:
         segment_groups = []
         for raw_group in list(manifest.get("segmentation_types", [])):
@@ -884,6 +1034,14 @@ def load_summary_run_bundle(
             for raw_segment in list(manifest.get("segments", []))
         ]
     for segmentation_type, segment in segment_groups:
+        unit_key = f"{segmentation_type}::{segment.get('segment_id', 'full')}"
+        unit_expected_summary_ids = (
+            expected_summary_ids_by_unit.get(unit_key, [])
+            if expected_summary_ids_by_unit is not None
+            else expected_summary_ids
+        )
+        if not unit_expected_summary_ids:
+            continue
         summary_roots = {
             str(mode): str(path)
             for mode, path in dict(segment.get("summary_roots", {})).items()
@@ -919,7 +1077,7 @@ def load_summary_run_bundle(
             mode_tables, mode_metadata = _load_mode_tables(
                 mode_dir=cache_dir / mode_root,
                 mode=mode,
-                expected_summary_ids=expected_summary_ids,
+                expected_summary_ids=unit_expected_summary_ids,
                 summary_files=summary_files,
                 empty_summaries=empty_summaries,
                 manifest_summary_states=manifest_summary_states,

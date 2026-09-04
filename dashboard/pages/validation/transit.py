@@ -8,7 +8,6 @@ import polars as pl
 from dashboard.rendering import selector_row
 from dashboard.data_access import RunTables
 from dashboard.helpers.category_helpers import (
-    common_column_options,
     column_options,
     nonempty,
 )
@@ -84,18 +83,19 @@ class TransitValidationPage(DashboardPage):
         )
         self._transfer_body = self.section(
             "transit_transfer_body",
-            selectors=("technology", "access_mode"),
+            selectors=("access_mode",),
             render=self.render_transfer_section,
         )
         return self.new_section(
             pn.pane.Markdown("## Transit Validation"),
             pn.pane.Markdown("### Transit Boardings"),
-            selector_row(self.technology_sel, self.access_mode_sel),
+            selector_row(self.technology_sel),
             self._boardings_body,
             self.section_note(
                 "transit_validation.boardings", self._boardings_body
             ),
             pn.pane.Markdown("### Transfer Rate"),
+            selector_row(self.access_mode_sel),
             self.noted_section(
                 "transit_validation.transfer_rate", self._transfer_body
             ),
@@ -103,11 +103,11 @@ class TransitValidationPage(DashboardPage):
         )
 
     def _technology_options(self) -> list[str]:
-        options, _ = common_column_options(
+        options, _ = column_options(
             self.data.summary(
                 "transit_boardings_by_operator_and_technology", self.weighting_key
-            ),
-            self.data.summary("transit_transfer_rate", self.weighting_key),
+            )
+            or [],
             column="technology",
             total_raw="All",
             total_label="All",
@@ -147,7 +147,7 @@ class TransitValidationPage(DashboardPage):
             "transit_boardings_by_operator_and_technology",
             self.weighting_key,
         )
-        if boarding_list is None:
+        if not boarding_list:
             return self.data_not_available_card(
                 detail="Transit boarding summaries are unavailable.",
                 missing_items=["transit_boardings_by_operator_and_technology"],
@@ -171,21 +171,20 @@ class TransitValidationPage(DashboardPage):
             "transit_transfer_rate",
             self.weighting_key,
         )
-        if transfer_list is None:
+        if not transfer_list:
             return self.data_not_available_card(
                 detail="Transit transfer summaries are unavailable.",
                 missing_items=["transit_transfer_rate"],
             )
-        technology = self.technology_sel.value
         access_mode = self.access_mode_sel.value
         transfer_data = self.query(
-            lambda: filter_transit_data(transfer_list, technology, access_mode)
+            lambda: filter_transit_data(transfer_list, "All", access_mode)
         )
         return self.plot.bar(
             transfer_data,
             x="operator",
             y="transfer_rate",
-            title=f"Transit Transfer Rate - {technology}, {access_mode}",
+            title=f"Transit Transfer Rate - {access_mode}",
             x_title="Operator",
             y_title="Boardings per Linked Trip",
             value_mode="count",
@@ -199,23 +198,15 @@ class TransitValidationPage(DashboardPage):
             "transit_boardings_by_operator_and_technology",
             self.weighting_key,
         )
-        transfer_list = self.data.summary(
-            "transit_transfer_rate",
-            self.weighting_key,
-        )
-        operator_values = self._operator_values(boarding_list, transfer_list)
+        operator_values = self._operator_values(boarding_list)
         return [self.render_boardings_chart(operator_values)]
 
     def render_transfer_section(self):
         if not self.state.run_labels:
             return [self.no_runs_message()]
-        boarding_list = self.data.summary(
-            "transit_boardings_by_operator_and_technology",
-            self.weighting_key,
-        )
         transfer_list = self.data.summary(
             "transit_transfer_rate",
             self.weighting_key,
         )
-        operator_values = self._operator_values(boarding_list, transfer_list)
+        operator_values = self._operator_values(transfer_list)
         return [self.render_transfer_chart(operator_values)]

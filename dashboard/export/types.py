@@ -91,7 +91,11 @@ class CardNode(TypedDict):
     children: list["ExportNode"]
 
 
-class TabPayload(TypedDict):
+class OptionalTabPayload(TypedDict, total=False):
+    full_title: str
+
+
+class TabPayload(OptionalTabPayload):
     title: str
     content: "ExportNode"
 
@@ -101,12 +105,21 @@ class TabsNode(TypedDict):
     tabs: list[TabPayload]
 
 
-class PlotlyNode(TypedDict):
+class OptionalPlotlyNode(TypedDict, total=False):
+    height: int | float | None
+    aspect_ratio: float
+
+
+class PlotlyNode(OptionalPlotlyNode):
     kind: Literal["plotly"]
     figure: dict[str, Any]
 
 
-class TableNode(TypedDict):
+class OptionalTableNode(TypedDict, total=False):
+    column_tooltips: dict[str, str]
+
+
+class TableNode(OptionalTableNode):
     kind: Literal["table"]
     columns: list[str]
     rows: list[dict[str, Any]]
@@ -172,6 +185,7 @@ class PageExportSupportPayload(TypedDict):
 
 class ExportPayload(TypedDict):
     title: str
+    logo: str | None
     runs_loaded: list[dict[str, str]]
     chrome: ExportChrome
     dashboard_controls: DashboardControlsPayload

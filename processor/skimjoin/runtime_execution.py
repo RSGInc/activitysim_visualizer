@@ -10,8 +10,12 @@ import polars as pl
 from processor.models import RunData
 from processor.skimjoin.annotate.tours import annotate_tours
 from processor.skimjoin.annotate.trips import annotate_trips
+from processor.skimjoin.csv_demand import plan_csv_od_demands
 from processor.skimjoin.hypothetical_sidecars import build_hypothetical_sidecars
-from processor.skimjoin.inventory import inventory_skim_files
+from processor.skimjoin.inventory import (
+    inventory_skim_files,
+    qualified_matrix_reference,
+)
 from processor.skimjoin.runtime_types import _RuntimeSkimjoinResult
 from processor.skimjoin.skimstore.omx import OmxSkimStore
 
@@ -35,7 +39,8 @@ def _validate_runtime_inventory(inventory: pl.DataFrame) -> None:
         )
 
     matrix_names = [
-        str(value) for value in inventory.get_column("matrix_name").to_list()
+        qualified_matrix_reference(row["file_path"], row["matrix_name"])
+        for row in inventory.select(["file_path", "matrix_name"]).to_dicts()
     ]
     duplicates = sorted(
         matrix_name
@@ -44,8 +49,8 @@ def _validate_runtime_inventory(inventory: pl.DataFrame) -> None:
     )
     if duplicates:
         raise ValueError(
-            "Integrated skimjoin requires unique matrix names across skim inputs. "
-            + "Duplicate names: "
+            "Integrated skimjoin requires unique file-qualified matrix references. "
+            + "Duplicate references: "
             + ", ".join(repr(name) for name in duplicates)
         )
 
@@ -66,6 +71,13 @@ def _run_integrated_skimjoin(
 ) -> _RuntimeSkimjoinResult:
     inventory = _resolved_runtime_inventory(normalized)
     skim_store = OmxSkimStore()
+    plan_csv_od_demands(
+        trips=rd.trips,
+        tours=rd.tours,
+        normalized=normalized,
+        inventory=inventory,
+        skim_store=skim_store,
+    )
     trip_outputs = annotate_trips_fn(
         rd.trips,
         normalized,

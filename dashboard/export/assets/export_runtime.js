@@ -91,6 +91,9 @@
     });
     button.type = "button";
     button.disabled = !!config.disabled;
+    if (config.title) {
+      button.title = String(config.title);
+    }
     if (!config.disabled && typeof config.onClick === "function") {
       button.addEventListener("click", config.onClick);
     }
@@ -940,7 +943,13 @@
           getTraceFieldLength(trace && trace.x),
           getTraceFieldLength(trace && trace.y)
         );
-        const traceName = trace && trace.name ? trace.name : "trace_" + String(traceIndex + 1);
+        const traceName = (
+          trace && trace.meta && trace.meta.run_name
+            ? trace.meta.run_name
+            : trace && trace.name
+              ? trace.name
+              : "trace_" + String(traceIndex + 1)
+        );
         for (let pointIndex = 0; pointIndex < pointCount; pointIndex += 1) {
           rows.push([
             traceName,
@@ -1359,6 +1368,7 @@
           type: "button",
           "data-column": column,
           "aria-sort": "none",
+          title: (node.column_tooltips || {})[column] || column,
         },
       }, [
         el("span", { className: "export-table-sort-label", text: column }),
@@ -1395,6 +1405,7 @@
         tabRow.appendChild(
           makeButton({
             label: tab.title,
+            title: tab.full_title || tab.title,
             active: index === activeIndex,
             onClick: () => {
               activeIndex = index;
@@ -1430,16 +1441,24 @@
       className: "plot-shell",
       attrs: { "data-plot-pending": "true" },
     });
-    if (node.height) {
+    const aspectRatio = Number(node.aspect_ratio);
+    const preserveAspectRatio = Number.isFinite(aspectRatio) && aspectRatio > 0;
+    if (preserveAspectRatio) {
+      plotElement.style.aspectRatio = String(aspectRatio);
+    } else if (node.height) {
       plotElement.style.minHeight = String(node.height) + "px";
     }
     const baseFigure = node.figure || { data: [], layout: {} };
+    const layout = Object.assign({}, baseFigure.layout || {}, {
+      autosize: true,
+      width: null,
+    });
+    if (preserveAspectRatio) {
+      delete layout.height;
+    }
     const figure = {
       data: baseFigure.data || [],
-      layout: Object.assign({}, baseFigure.layout || {}, {
-        autosize: true,
-        width: null,
-      }),
+      layout: layout,
     };
     context.plotManager.registerPlot(plotElement, figure);
     return plotElement;
@@ -1978,8 +1997,53 @@
   }
 
   function renderShell(context, actions) {
+    const railCollapsed = !!context.railCollapsed;
+    const rail = renderRail(context, actions);
+    rail.id = "export-rail";
+
+    const main = el("main", { className: "export-main" }, [
+      renderPageTabs(context, actions),
+      renderPagePanel(context, actions),
+    ]);
+    const layout = el("div", {
+      className: "export-layout" + (railCollapsed ? " rail-collapsed" : ""),
+    }, [rail, main]);
+    const railToggle = el("button", {
+      className: "rail-toggle",
+      text: railCollapsed ? "Show sidebar" : "Hide sidebar",
+      attrs: {
+        "aria-controls": "export-rail",
+        "aria-expanded": String(!railCollapsed),
+      },
+    });
+    railToggle.type = "button";
+    railToggle.addEventListener("click", () => {
+      context.railCollapsed = !context.railCollapsed;
+      layout.classList.toggle("rail-collapsed", context.railCollapsed);
+      railToggle.textContent = context.railCollapsed ? "Show sidebar" : "Hide sidebar";
+      railToggle.setAttribute("aria-expanded", String(!context.railCollapsed));
+      context.plotManager.scheduleResize();
+    });
+
+    const brandChildren = [];
+    if (context.payload.logo) {
+      brandChildren.push(
+        el("img", {
+          className: "export-logo",
+          attrs: {
+            src: context.payload.logo,
+            alt: context.payload.title + " logo",
+          },
+        })
+      );
+    }
+    brandChildren.push(el("h1", { text: context.payload.title }));
+
     const headerChildren = [
-      el("h1", { text: context.payload.title }),
+      el("div", { className: "export-header-top" }, [
+        el("div", { className: "export-brand" }, brandChildren),
+        railToggle,
+      ]),
     ];
     if (context.payload.client_export_note && String(context.payload.client_export_note).trim()) {
       headerChildren.push(
@@ -1990,17 +2054,9 @@
       );
     }
 
-    const main = el("main", { className: "export-main" }, [
-      renderPageTabs(context, actions),
-      renderPagePanel(context, actions),
-    ]);
-
     return el("div", { className: "export-shell" }, [
       el("div", { className: "export-header" }, headerChildren),
-      el("div", { className: "export-layout" }, [
-        renderRail(context, actions),
-        main,
-      ]),
+      layout,
     ]);
   }
 
@@ -2039,6 +2095,7 @@
       plotManager: config.plotManager,
       app: config.app,
       renderedRegions: {},
+      railCollapsed: false,
     };
   }
 

@@ -24,7 +24,10 @@ def distance_bin_value(value: object) -> float | None:
     if isinstance(value, int | float):
         numeric = float(value)
         return numeric if isfinite(numeric) else None
-    match = _DISTANCE_NUMBER_RE.search(str(value).strip())
+    label = str(value).strip()
+    if label == ">0-<1":
+        return 0.5
+    match = _DISTANCE_NUMBER_RE.search(label)
     if match is None:
         return None
     numeric = float(match.group(0))
@@ -96,11 +99,13 @@ def fixed_distance_axis_ticks(
     step: int = 2,
     plus_label: bool = True,
 ) -> tuple[list[float], list[str]]:
-    """Return fixed whole-mile distance ticks, labeling the max as ``40+``."""
+    """Return exact-zero, sub-mile, and fixed whole-mile distance ticks."""
     tickvals = [float(value) for value in range(0, max_value + 1, step)]
     ticktext = [str(int(value)) for value in tickvals]
     if plus_label and ticktext:
         ticktext[-1] = f"{int(tickvals[-1])}+"
+    tickvals.insert(1, 0.5)
+    ticktext.insert(1, ">0-<1")
     return tickvals, ticktext
 
 

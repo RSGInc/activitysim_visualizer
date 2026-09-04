@@ -114,6 +114,7 @@
           type: "button",
           "data-column": column,
           "aria-sort": "none",
+          title: (node.column_tooltips || {})[column] || column,
         },
       }, [
         el("span", { className: "export-table-sort-label", text: column }),

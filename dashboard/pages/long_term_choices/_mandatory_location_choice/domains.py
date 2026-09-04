@@ -2,19 +2,8 @@
 
 from __future__ import annotations
 
-import panel as pn
-import polars as pl
 
-from dashboard.helpers.distance_range import (
-    DistanceRangeControls,
-    capped_distance_max_options,
-    distance_axis_bounds,
-    fixed_distance_axis_ticks,
-    with_distance_axis,
-)
 from dashboard.helpers.geography_helpers import *
-from dashboard.page_base import SectionContent
-from dashboard.rendering import data_table, selector_row
 from dashboard.pages.long_term_choices._mandatory_location_choice_support import *
 
 
@@ -200,7 +189,7 @@ class MandatoryLocationDomainMixin:
             "average_mandatory_tour_distance_by_purpose_and_geography",
         )
 
-        if not any(summary is not None for summary in summaries.values()):
+        if not any(summaries.values()):
             return {
                 "mode": "unavailable",
                 "geo_opts": [ALL_GEOGRAPHY_TYPES_LABEL],
@@ -243,6 +232,7 @@ class MandatoryLocationDomainMixin:
         geo_opts, geo_raw_by_label = geography_type_options(
             internal_external or None,
             work_from_home or None,
+            telecommute or None,
             work_distance or None,
             school_distance or None,
             university_distance or None,
@@ -252,6 +242,7 @@ class MandatoryLocationDomainMixin:
         )
         geography_option_sources = (
             internal_external or None,
+            telecommute or None,
             work_distance or None,
             school_distance or None,
             university_distance or None,

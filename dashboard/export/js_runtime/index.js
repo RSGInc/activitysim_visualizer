@@ -13,6 +13,7 @@
       plotManager: config.plotManager,
       app: config.app,
       renderedRegions: {},
+      railCollapsed: false,
     };
   }
 

@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from runtime.logging import get_logger
-from processor.cache_identity import build_run_fingerprint
-from processor.models import PreparedTableName, RunData
+from processor.cache_identity import build_run_fingerprint, optional_file_identity
+from processor.models import PreparedTableName, RunData, map_run_data_tables
 from processor.prepare.availability import (
     failed_tables,
     has_usable_loaded_tables,
@@ -21,7 +21,7 @@ from processor.prepare.cache import (
     write_prepared_run_cache,
 )
 from processor.prepare.enrichment.pipeline import prepare_data
-from processor.prepare.reader import read_run, resolve_skim_path
+from processor.prepare.reader import read_run, resolve_run_file_paths, resolve_skim_path
 from processor.prepare.validation import (
     PreparedRelationshipValidationError,
     validate_prepared_relationships,
@@ -41,6 +41,11 @@ def prepared_cache_dir(prepared_root: Path, run_key: str) -> Path:
     return prepared_root / run_key / "prepared_tables"
 
 
+def base_prepared_cache_dir(prepared_root: Path, run_key: str) -> Path:
+    """Return the pre-skim preparation cache directory for one run."""
+    return prepared_root / run_key / "base_prepared_tables"
+
+
 def _run_cache_metadata(
     *,
     entry: dict,
@@ -48,14 +53,21 @@ def _run_cache_metadata(
     config: Config,
 ) -> dict[str, object]:
     """Return the stable cache metadata for one resolved run entry."""
-    return shared.run_cache_metadata(
+    metadata = shared.run_cache_metadata(
         entry=entry,
         run_key=run_key,
         config=config,
         resolve_skim_path_fn=resolve_skim_path,
+        resolve_run_file_paths_fn=resolve_run_file_paths,
+        optional_file_identity_fn=optional_file_identity,
         build_run_fingerprint_fn=build_run_fingerprint,
         build_prepared_manifest_identity_fn=build_prepared_manifest_identity,
     )
+    metadata["base_run_fingerprint"] = {
+        **dict(metadata["run_fingerprint"]),
+        "skimjoin": None,
+    }
+    return metadata
 
 
 def _log_prepare_table_diagnostics(run_label: str, prepared_run: RunData) -> None:
@@ -139,20 +151,26 @@ def _load_prepared_run_from_cache(
     run_key: str,
     label: str,
     run_fingerprint: dict[str, object],
+    prepare_config_digest: str | None = None,
+    stage: str = "prepare",
 ) -> tuple[str, RunData] | None:
     """Load one prepared run from cache when valid and usable."""
     try:
         prepared_run = load_prepared_run_cache(
             prepared_dir,
             config,
-            expected_prepare_config_digest=config.prepare_config_digest,
+            expected_prepare_config_digest=(
+                prepare_config_digest or config.prepare_config_digest
+            ),
             expected_run_fingerprint=run_fingerprint,
             expected_label=label,
             expected_run_key=run_key,
         )
-        LOGGER.info("Loaded prepared cache for run: %r", label)
+        LOGGER.info("Pipeline decision for %r / %s: REUSE", label, stage)
     except PreparedCacheError as exc:
-        LOGGER.info("Prepared cache miss for %r: %s", label, exc)
+        LOGGER.info(
+            "Pipeline decision for %r / %s: REBUILD — %s", label, stage, exc
+        )
         return None
 
     if not has_usable_loaded_tables(prepared_run):
@@ -177,11 +195,16 @@ def _build_prepared_run(
     metadata: dict[str, object],
     write_cache: bool,
     run_skimjoin: bool,
+    cache_name: str = "prepared_tables",
+    prepare_config_digest: str | None = None,
+    run_fingerprint: dict[str, object] | None = None,
 ) -> tuple[str, RunData] | None:
     """Read, prepare, skimjoin, and optionally cache one run."""
     label = str(metadata["label"])
     run_dir = str(metadata["run_dir"])
-    run_fingerprint = dict(metadata["run_fingerprint"])
+    resolved_run_fingerprint = dict(
+        run_fingerprint or metadata["run_fingerprint"]
+    )
     prepared_table_map = entry.get("prepared_table_map") or None
     run_config = (
         config if prepared_table_map is not None else config_for_run(config, entry)
@@ -205,6 +228,11 @@ def _build_prepared_run(
         LOGGER.info("Prepared run: %r", label)
         return (label, prepared_run)
 
+    LOGGER.info(
+        "Pipeline decision for %r / %s: REBUILD",
+        label,
+        "prepare" if not run_skimjoin else "skimjoin",
+    )
     LOGGER.info("Reading run %r from %s", label, run_dir)
     prepared_run = read_run(
         run_dir,
@@ -215,6 +243,7 @@ def _build_prepared_run(
         hh_weight_col=entry.get("hh_weight_col") or None,
         person_weight_col=entry.get("person_weight_col") or None,
         trip_weight_col=entry.get("trip_weight_col") or None,
+        day_weight_col=entry.get("day_weight_col", "day_weight"),
     )
     prepared_run = prepare_data(prepared_run, run_config)
     if run_skimjoin:
@@ -235,8 +264,10 @@ def _build_prepared_run(
             run_config,
             run_key=run_key,
             output_root=prepared_root,
-            run_fingerprint=run_fingerprint,
+            run_fingerprint=resolved_run_fingerprint,
             file_format=config.prepare_output_file_format,
+            cache_name=cache_name,
+            prepare_config_digest=prepare_config_digest,
         )
         LOGGER.info("Wrote prepared cache for run: %r", label)
     else:
@@ -251,7 +282,8 @@ def _resolve_prepared_run(
     config: Config,
     prepared_root: Path,
     existing_prepared_runs_by_key: dict[str, tuple[str, RunData]],
-    prefer_cache: bool,
+    prefer_base_cache: bool,
+    prefer_skimjoin_cache: bool,
     write_cache: bool,
     run_skimjoin: bool,
 ) -> tuple[str, RunData] | None:
@@ -282,7 +314,20 @@ def _resolve_prepared_run(
         existing_prepared_runs_by_key[run_key] = loaded_custom_prepared_run
         return loaded_custom_prepared_run
 
-    if prefer_cache:
+    if run_skimjoin and prefer_skimjoin_cache:
+        cached_prepared_run = _load_prepared_run_from_cache(
+            prepared_dir=prepared_dir,
+            config=config,
+            run_key=run_key,
+            label=label,
+            run_fingerprint=run_fingerprint,
+            stage="skimjoin",
+        )
+        if cached_prepared_run is not None:
+            existing_prepared_runs_by_key[run_key] = cached_prepared_run
+            return cached_prepared_run
+
+    if not run_skimjoin and prefer_base_cache:
         cached_prepared_run = _load_prepared_run_from_cache(
             prepared_dir=prepared_dir,
             config=config,
@@ -294,6 +339,56 @@ def _resolve_prepared_run(
             existing_prepared_runs_by_key[run_key] = cached_prepared_run
             return cached_prepared_run
 
+    if run_skimjoin:
+        base_fingerprint = dict(metadata["base_run_fingerprint"])
+        base_dir = base_prepared_cache_dir(prepared_root, run_key)
+        base_prepared_run = None
+        if prefer_base_cache:
+            base_prepared_run = _load_prepared_run_from_cache(
+                prepared_dir=base_dir,
+                config=config,
+                run_key=run_key,
+                label=label,
+                run_fingerprint=base_fingerprint,
+                prepare_config_digest=config.base_prepare_config_digest,
+                stage="prepare",
+            )
+        if base_prepared_run is None:
+            base_prepared_run = _build_prepared_run(
+                entry=entry,
+                config=config,
+                run_key=run_key,
+                prepared_root=prepared_root,
+                metadata=metadata,
+                write_cache=write_cache,
+                run_skimjoin=False,
+                cache_name="base_prepared_tables",
+                prepare_config_digest=config.base_prepare_config_digest,
+                run_fingerprint=base_fingerprint,
+            )
+        if base_prepared_run is None:
+            return None
+
+        run_config = config_for_run(config, entry)
+        skimjoined_run = map_run_data_tables(base_prepared_run[1], lambda _name, frame: frame)
+        LOGGER.info("Pipeline decision for %r / skimjoin: REBUILD", label)
+        skimjoined_run = apply_skimjoin(skimjoined_run, run_config)
+        _log_prepare_table_diagnostics(label, skimjoined_run)
+        _validate_prepared_run(label, skimjoined_run, run_config)
+        if write_cache:
+            write_prepared_run_cache(
+                skimjoined_run,
+                run_config,
+                run_key=run_key,
+                output_root=prepared_root,
+                run_fingerprint=run_fingerprint,
+                file_format=config.prepare_output_file_format,
+            )
+            LOGGER.info("Wrote skimjoin cache for run: %r", label)
+        result = (label, skimjoined_run)
+        existing_prepared_runs_by_key[run_key] = result
+        return result
+
     rebuilt_prepared_run = _build_prepared_run(
         entry=entry,
         config=config,
@@ -301,7 +396,7 @@ def _resolve_prepared_run(
         prepared_root=prepared_root,
         metadata=metadata,
         write_cache=write_cache,
-        run_skimjoin=run_skimjoin,
+        run_skimjoin=False,
     )
     if rebuilt_prepared_run is None:
         return None
@@ -338,6 +433,14 @@ def run_prepare_workflow(
         plan=plan,
     )
     prepared_root = prepared_root or prepared_cache_root(config, create=write_cache)
+    prefer_base_cache = prefer_cache
+    prefer_skimjoin_cache = prefer_cache
+    if plan.refreshes("skimjoin") and not plan.refreshes("prepare"):
+        prefer_base_cache = True
+        prefer_skimjoin_cache = False
+    if plan.refreshes("prepare"):
+        prefer_base_cache = False
+        prefer_skimjoin_cache = False
     (
         existing_prepared_runs_by_key,
         prepared_runs_by_key,
@@ -357,6 +460,10 @@ def run_prepare_workflow(
                 label,
             )
             continue
+        run_skimjoin = bool(
+            not entry.get("prepared_table_map")
+            and config_for_run(config, entry).skimjoin_step_enabled()
+        )
         metadata = _run_cache_metadata(entry=entry, run_key=run_key, config=config)
         prepared_loaded = _resolve_prepared_run(
             entry=entry,
@@ -364,9 +471,10 @@ def run_prepare_workflow(
             config=config,
             prepared_root=prepared_root,
             existing_prepared_runs_by_key=existing_prepared_runs_by_key,
-            prefer_cache=prefer_cache,
+            prefer_base_cache=prefer_base_cache,
+            prefer_skimjoin_cache=prefer_skimjoin_cache,
             write_cache=write_cache,
-            run_skimjoin=config.skimjoin_step_enabled(),
+            run_skimjoin=run_skimjoin,
         )
         if prepared_loaded is None:
             continue

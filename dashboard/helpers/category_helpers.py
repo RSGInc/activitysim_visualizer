@@ -339,13 +339,15 @@ def normalize_category_strings(
 
 def numeric_like_sort_expr(column: str) -> pl.Expr:
     """Sort numeric-like string bins numerically while leaving text bins at the end."""
-    base_value = (
-        pl.col(column)
-        .cast(pl.Utf8)
-        .str.replace(r"\+$", "")
-        .cast(pl.Float64, strict=False)
+    label = pl.col(column).cast(pl.Utf8)
+    base_value = label.str.replace(r"\+$", "").cast(pl.Float64, strict=False)
+    return (
+        pl.when(label == ">0-<1")
+        .then(pl.lit(0.5))
+        .when(base_value.is_null())
+        .then(pl.lit(float("inf")))
+        .otherwise(base_value)
     )
-    return pl.when(base_value.is_null()).then(pl.lit(float("inf"))).otherwise(base_value)
 
 
 def capped_numeric_category_expr(
@@ -355,11 +357,14 @@ def capped_numeric_category_expr(
     target_col: str | None = None,
 ) -> pl.Expr:
     """Return a string category expression with values at or above ``cap_value`` capped."""
-    numeric_value = pl.col(column).cast(pl.Int64, strict=False)
+    label = pl.col(column).cast(pl.Utf8)
+    numeric_value = label.str.replace(r"\+$", "").cast(pl.Float64, strict=False)
     return (
-        pl.when(numeric_value >= cap_value)
+        pl.when(label == ">0-<1")
+        .then(label)
+        .when(numeric_value >= cap_value)
         .then(pl.lit(f"{cap_value}+"))
-        .otherwise(pl.col(column).cast(pl.Int64, strict=False).cast(pl.Utf8))
+        .otherwise(numeric_value.cast(pl.Int64, strict=False).cast(pl.Utf8))
         .alias(target_col or column)
     )
 

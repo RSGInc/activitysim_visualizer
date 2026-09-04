@@ -74,6 +74,7 @@ def test_calculation_note_renderer_escapes_configured_text() -> None:
         method_text="Join <records> by their shared key.",
         sources=("source_one",),
         source_filters=("Only A & B.",),
+        column_definitions=("Column <A>: A & B.",),
     )
 
     rendered = render_calculation_note_html(note)
@@ -87,11 +88,43 @@ def test_calculation_note_renderer_escapes_configured_text() -> None:
     assert "Join &lt;records&gt; by their shared key." in rendered
     assert "Generic grouping text" not in rendered
     assert "Only A &amp; B." in rendered
+    assert "<strong>Table columns:</strong>" in rendered
+    assert "Column &lt;A&gt;: A &amp; B." in rendered
     assert "source_one" in rendered
     assert "Summary Tables Used:" in rendered
     assert "Prepared summaries used:" not in rendered
     assert "One &lt;record&gt;" not in rendered
     assert rendered.endswith("</details></div>")
+
+
+def test_skim_summary_notes_render_table_column_definitions() -> None:
+    trip_note = render_calculation_note_html(
+        get_calculation_note("trip_skims.summary_table")
+    )
+    tour_note = render_calculation_note_html(
+        get_calculation_note("tour_skims.summary_table")
+    )
+
+    for rendered in (trip_note, tour_note):
+        assert "<strong>Table columns:</strong>" in rendered
+        assert "Zero is a valid value." in rendered
+        assert "Mean Non-Zero:" in rendered
+        assert "including zeros" in rendered
+        assert "Zero Share:" in rendered
+        assert "nonmissing numeric skim value" in rendered
+        assert "summed" in rendered
+        assert "Missing Share:" in rendered
+
+
+def test_validation_notes_expose_comparison_and_error_formulas() -> None:
+    regional = get_calculation_note("regional_validation.flows")
+    facility = get_calculation_note("traffic.facility_summary")
+
+    assert "difference = modeled - observed" in regional.formula
+    assert (
+        "RMSPE = sqrt(mean(((observed_i - modeled_i) / observed_i)²)) * 100"
+        in facility.formula
+    )
 
 
 def test_calculation_note_is_collapsed_html_pane_exported_without_conversion() -> None:

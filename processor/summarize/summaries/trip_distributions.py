@@ -10,7 +10,12 @@ from processor.summarize.summaries.summary_helpers import (
     ALL_TOUR_PURPOSES,
     _all_purpose_rollup as _all_tour_purpose_rollup,
     _dense_zero_fill,
+    _distance_bin_expr,
+    _distance_bin_labels,
+    _distance_bin_sort_expr,
+    _ensure_zero_distance_bin,
     _summary_purpose_column as _trip_purpose_column,
+    attach_person_travel_weight,
     weighted_group_sum,
 )
 from runtime.config import Config
@@ -36,7 +41,12 @@ def trip_stop_tod(rd: RunData, config: Config) -> pl.DataFrame:
     if not purpose_col:
         return trip_stop_tod.empty()
 
-    all_trips = rd.trips.with_columns(
+    all_trips = attach_person_travel_weight(
+        rd,
+        rd.trips,
+        participant_col="num_participants",
+        output_col="person_trip_weight",
+    ).with_columns(
         pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose")
     )
     if "tour_purpose" not in all_trips.columns:
@@ -74,13 +84,13 @@ def trip_stop_tod(rd: RunData, config: Config) -> pl.DataFrame:
         stop_counts = weighted_group_sum(
             stop_sub,
             dep_col,
-            weight_col="finalweight",
+            weight_col="person_trip_weight",
             output_col="departure_stop_count",
         )
         trip_counts = weighted_group_sum(
             trip_sub,
             dep_col,
-            weight_col="finalweight",
+            weight_col="person_trip_weight",
             output_col="departure_trip_count",
         )
 
@@ -149,30 +159,20 @@ def trip_distance(rd: RunData, config: Config) -> pl.DataFrame:
     if not purpose_col:
         return trip_distance.empty()
 
-    base = (
+    base = attach_person_travel_weight(
+        rd,
         rd.trips.filter(
             pl.col(purpose_col).is_not_null() & pl.col("od_dist").is_not_null()
-        )
-        .with_columns(
-            pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"),
-            (
-                pl.col("finalweight")
-                * pl.coalesce(
-                    [pl.col("num_participants").cast(pl.Float64), pl.lit(1.0)]
-                )
-            ).alias("adjusted_weight"),
-            pl.col("od_dist").cast(pl.Float64).round(0).alias("distance_miles_rounded"),
-        )
-        .with_columns(
-            pl.when(pl.col("distance_miles_rounded") >= 40)
-            .then(pl.lit("40+"))
-            .otherwise(
-                pl.col("distance_miles_rounded")
-                .cast(pl.Int64, strict=False)
-                .cast(pl.Utf8)
-            )
-            .alias("distance_bin")
-        )
+        ),
+        participant_col="num_participants",
+        output_col="adjusted_weight",
+    ).with_columns(
+        pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose")
+    )
+    base = (
+        base
+        .with_columns(_distance_bin_expr("od_dist"))
+        .filter(pl.col("distance_bin").is_not_null())
     )
 
     by_purpose = weighted_group_sum(
@@ -188,15 +188,16 @@ def trip_distance(rd: RunData, config: Config) -> pl.DataFrame:
     )
 
     return (
-        pl.concat([by_purpose, all_purposes], how="vertical")
+        _ensure_zero_distance_bin(
+            pl.concat([by_purpose, all_purposes], how="vertical"),
+            group_cols=["tour_purpose"],
+            value_col="trip_count",
+        )
         .with_columns(
             pl.col("distance_bin").cast(pl.Utf8),
             pl.col("tour_purpose").cast(pl.Utf8),
             pl.col("trip_count").cast(pl.Float64),
-            pl.when(pl.col("distance_bin") == "40+")
-            .then(999)
-            .otherwise(pl.col("distance_bin").cast(pl.Int64, strict=False))
-            .alias("_sort_distance"),
+            _distance_bin_sort_expr().alias("_sort_distance"),
         )
         .select("distance_bin", "tour_purpose", "trip_count", "_sort_distance")
         .sort(["_sort_distance", "tour_purpose"])
@@ -207,7 +208,7 @@ def trip_distance(rd: RunData, config: Config) -> pl.DataFrame:
 @summary(
     id="stop_out_of_direction_distance_by_tour_purpose",
     schema={
-        "distance_bin": pl.Int32,
+        "distance_bin": pl.Utf8,
         "tour_purpose": pl.Utf8,
         "stop_count": pl.Float64,
     },
@@ -216,7 +217,7 @@ def trip_distance(rd: RunData, config: Config) -> pl.DataFrame:
     },
 )
 def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
-    """Out-of-direction distance for stops, in 41 bins (0-40 miles)."""
+    """Out-of-direction distance for stops, with exact-zero and 40+ bins."""
     if "stops" not in rd.trips.columns:
         return stop_ood_distance.empty()
 
@@ -229,27 +230,32 @@ def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
         return stop_ood_distance.empty()
 
     stops2 = (
-        stops.filter(pl.col("out_dir_dist").is_not_null())
+        attach_person_travel_weight(
+            rd,
+            stops.filter(pl.col("out_dir_dist").is_not_null()),
+            participant_col="num_participants",
+            output_col="person_trip_weight",
+        )
         .with_columns(
             pl.col(purpose_col).cast(pl.Utf8).alias("tour_purpose"),
-            pl.col("out_dir_dist").clip(0, 999).alias("ood"),
+            _distance_bin_expr("out_dir_dist"),
         )
-        .with_columns(pl.col("ood").cast(pl.Int32).clip(0, 40).alias("distance_bin"))
+        .filter(pl.col("distance_bin").is_not_null())
     )
 
     if "tour_purpose" not in stops2.columns or stops2.is_empty():
         return stop_ood_distance.empty()
 
     bins_df = pl.DataFrame(
-        {"distance_bin": list(range(0, 41))}, schema={"distance_bin": pl.Int32}
+        {"distance_bin": _distance_bin_labels()}, schema={"distance_bin": pl.Utf8}
     )
     by_purpose = weighted_group_sum(
         stops2.filter(pl.col("tour_purpose").is_not_null()),
         ["tour_purpose", "distance_bin"],
-        weight_col="finalweight",
+        weight_col="person_trip_weight",
         output_col="stop_count",
     ).select(
-        pl.col("distance_bin").cast(pl.Int32),
+        pl.col("distance_bin").cast(pl.Utf8),
         pl.col("tour_purpose").cast(pl.Utf8),
         pl.col("stop_count").cast(pl.Float64),
     )
@@ -267,7 +273,7 @@ def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
         join_cols=["distance_bin", "tour_purpose"],
         value_col="stop_count",
     ).select(
-        pl.col("distance_bin").cast(pl.Int32),
+        pl.col("distance_bin").cast(pl.Utf8),
         pl.col("tour_purpose").cast(pl.Utf8),
         pl.col("stop_count").cast(pl.Float64),
     )
@@ -276,12 +282,12 @@ def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
         weighted_group_sum(
             stops2,
             "distance_bin",
-            weight_col="finalweight",
+            weight_col="person_trip_weight",
             output_col="stop_count",
         )
         .with_columns(pl.lit(ALL_TOUR_PURPOSES).alias("tour_purpose"))
         .select(
-            pl.col("distance_bin").cast(pl.Int32),
+            pl.col("distance_bin").cast(pl.Utf8),
             pl.col("tour_purpose").cast(pl.Utf8),
             pl.col("stop_count").cast(pl.Float64),
         )
@@ -294,8 +300,9 @@ def stop_ood_distance(rd: RunData, config: Config) -> pl.DataFrame:
 
     return (
         pl.concat([dense_by_purpose, dense_total], how="vertical")
+        .with_columns(_distance_bin_sort_expr().alias("_sort_distance"))
+        .sort(["tour_purpose", "_sort_distance"])
         .select("distance_bin", "tour_purpose", "stop_count")
-        .sort(["tour_purpose", "distance_bin"])
     )
 
 

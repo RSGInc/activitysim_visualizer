@@ -1,65 +1,61 @@
 # 32 - Figures And Widgets
 
-Current pages declare data access, selectors, independently refreshable
-sections, and figures through one shared authoring model. Framework code owns
-widget synchronization, query identity, missing-data diagnostics, and export
-metadata.
+Pages use one authoring model for data access, selectors, refreshable sections,
+and figures. The framework controls widget synchronization, query identity,
+missing-data diagnostics, and export metadata.
 
 ## Page Lifecycle
 
-Every page subclasses `DashboardPage` and implements `build_page()`. That method
+Each page subclasses `DashboardPage` and implements `build_page()`, which
 declares selectors and sections once and returns a stable Panel layout.
 
-`DashboardPage.__init__()` calls `build_page()` after it creates `self.data`,
-page state, and the component registries. Ordinary pages should therefore not
-define their own `__init__`. If specialized initialization is unavoidable, it
-must call `super().__init__(state, config)`, and attributes used by
-`build_page()` must exist before that call. In practice, put declarations in
-`build_page()` and keep implementation mixins free of `__init__` methods.
+`DashboardPage.__init__()` creates `self.data`, page state, and the component
+registries before calling `build_page()`. A standard page therefore does not
+need its own `__init__`. If special initialization is necessary, create any
+attributes needed by `build_page()` before calling
+`super().__init__(state, config)`. Keep declarations in `build_page()` and never
+put an `__init__` method in an implementation mixin.
 
 The main author-facing objects are:
 
 - `self.data` for summary and prepared `RunTables`
-- `self.select(...)` for ordinary dropdowns, including dynamic options
+- `self.select(...)` for standard selection lists, including dynamic options
 - `self.selector(...)` only for custom widgets
 - `self.section(...)` for refreshable visible regions
 - `self.feature(...)` for a namespaced group of selectors and sections
 - `self.query(...)` for repeated or expensive transformations
 - `self.plot` for figures and tables
 
-Do not add routine `sync_controls()` or page-authored cache keys. Option
-providers and section dependencies give the framework enough information to do
-that work.
 
 ## Data And Figures
 
-For end-to-end examples of an ordinary chart, a Plotly customization, a new
-shared figure type, a custom widget, and a table, use the
+For complete examples of a standard chart, a Plotly customization, a new shared
+figure type, a custom widget, and a table, use the
 [Dashboard Extension Cookbook](45-dashboard-extension-cookbook.md).
 For the complete chart-method, count/share, table, and figure-testing API, see
 the [Plotting Reference](35-plotting-reference.md).
 
-Load the narrowest useful data selection through `self.data.summary(...)` or
-`self.data.summaries(...)`. `RunTables` applies the same Polars operation across
-runs while retaining labels and availability issues; it supports operations
+Load only the required data through `self.data.summary(...)` or
+`self.data.summaries(...)`. `RunTables` applies the same Polars operation to
+each run. It keeps labels and availability issues. It supports operations
 such as `where`, `with_columns`, `group`, `select`, `sort`, `join`, `map`,
 `requiring`, and `drop_empty`.
 
-A `RunTables` value is truthy when at least one run has a non-empty compatible
-table. Runs with a missing table, schema mismatch, failure, or empty input are
-excluded from iteration and described in `data.issues`; consequently,
-`data.partial` means there are both usable and excluded runs. Fluent operations
-preserve those issues. Filtering can make a frame empty without removing it, so
-call `.drop_empty()` when downstream code should ignore those runs.
+A `RunTables` value is true when at least one run has a nonempty compatible
+table. Iteration excludes runs with a missing table, schema mismatch, failure,
+or empty input. `data.issues` describes these runs. `data.partial` means that
+there are usable and excluded runs. Query operations keep these issues. A
+filter can make a frame empty without removal. Call `.drop_empty()` when later
+code must ignore these runs.
 
 The `columns=` argument to `summary()` and `prepared()` is a compatibility
-check: a run missing any named column is excluded with a schema diagnostic. It
-does **not** project the returned frames. Use `.select(...)` when a transform
-needs a narrower schema.
+check. The system excludes a run that is missing a named column. It also adds a
+schema diagnostic. The argument does not select columns in the returned frames.
+Use `.select(...)` to select a smaller schema.
 
-Pass `RunTables` to `self.plot` methods where possible. Shared rendering lives
-under `dashboard/rendering/`, including figures, tables, layout, and plotter
-logic. Cross-page domain helpers live under `dashboard/helpers/`.
+Pass `RunTables` to `self.plot` methods when possible. Figures, tables, layout,
+and plotter logic are in `dashboard/rendering/`. Shared page helpers are in
+`dashboard/helpers/`.
 
 ```python
 def render_mode_chart(self):
@@ -77,9 +73,125 @@ def render_mode_chart(self):
     return self.plot.bar(chart_data, x="trip_mode", y="trip_count")
 ```
 
+The page-facing data API is:
+
+| API | Result |
+|---|---|
+| `self.data.summary(id, weighting=None, columns=(), required=None)` | One summary across usable runs. `columns` performs a schema compatibility check. |
+| `self.data.summaries(*ids, columns=None, required=None)` | A dictionary of summary ID to `RunTables`. |
+| `self.data.prepared(table, columns=(), weighting_mode=None)` | One declared prepared table across loaded runs. |
+| `self.data.prepared_runs(weighting_mode=None)` | Direct `RunData` access for features that require matrices or other non-table state. |
+| `self.data.summary_series(id, weighting=None)` | Specialized skim-summary view that retains summary-series metadata. |
+
+For `summary()` and `summaries()`, `required` has these exact meanings:
+
+| Value | Behavior when no run is usable |
+|---|---|
+| `None` | Required when the ID appears in the page definition's `required_summary_ids`; optional otherwise. |
+| `True` | Record the selection and emit the page's required-summary warning even when the decorator did not declare it. |
+| `False` | Record diagnostics but suppress the required-summary warning. Use this for an independent optional feature. |
+
+`required` does not make the lookup raise and does not render a card by itself.
+The section must still test the returned `RunTables` and choose its standard
+unavailable or optional-feature fallback. `columns=` is evaluated per run, so
+one compatible run can render while other runs appear in `data.issues`.
+
+`RunTables` is iterable and indexable as `(run_label, DataFrame)` pairs. Its
+public query interface is:
+
+| API | Behavior |
+|---|---|
+| `.where(column=value, ...)` | Equality filter; list, tuple, set, or frozenset values use membership. |
+| `.with_columns(*exprs)` / `.select(*exprs)` / `.sort(*by)` | Apply the corresponding Polars operation to every run. |
+| `.group(by, *aggs, **named_aggs)` | Group and aggregate every run. |
+| `.join(other, on=..., how="left", coalesce=None)` | Join matching run labels and merge availability issues/source IDs. |
+| `.map(transform)` | Apply a DataFrame-to-DataFrame transform to every run. |
+| `.requiring(*columns)` | Keep frames containing all named columns. Prefer the lookup `columns=` check when exclusions should produce schema diagnostics. |
+| `.drop_empty()` | Remove frames made empty by a previous operation. |
+| `.values(column)` | Distinct non-null values in first-seen run order. |
+| `.scalar(column, default=None)` | First value for each usable run. |
+| `.to_list()` | Materialize tuples for an external API that cannot consume `RunTables`. |
+| `.available`, `.partial`, `.issues`, `.source_ids` | Availability and provenance metadata retained through fluent operations. |
+
+Each issue contains `label`, `status`, `detail`, `source_kind`, `source_id`,
+`missing_columns`, and available run/cache identity. Plotting a partial
+`RunTables` value renders only its usable runs and keeps the exclusions in page
+and export diagnostics. Do not replace it with `.to_list()` before the normal
+render boundary unless an external API requires tuples; that discards the
+structured availability object from subsequent fluent operations.
+
+## Query Cache Contract
+
+`self.query(factory)` accepts one zero-argument callable and returns the
+callable's result. On a cache miss it executes `factory`; on a hit it returns
+the stored value. Its identity contains:
+
+- page ID;
+- current global dashboard state, including weighting, Values, and segment
+  presentation state;
+- active section ID;
+- current values of selectors declared by that section;
+- callable module, qualified name, file, and first line; and
+- simple closure/default/keyword-default values. Complex captured objects are
+  represented by type, so capture the scalar values that actually change the
+  calculation.
+
+A selector affects query identity only when its ID appears in the active
+section's `selectors=(...)` declaration. Always declare every selector that
+changes the renderer. Global state or a declared selector change creates a new
+identity automatically. Call `self.clear_query_cache()` only after mutable
+external state changes outside those declared inputs; it clears this page's
+memoized queries.
+
+```python
+def render_body(self):
+    purpose = self._purpose_by_label[self.purpose.value]
+    data = self.data.summary(
+        "trip_mode_by_tour_purpose_and_tour_mode",
+        columns=("tour_purpose", "trip_mode", "trip_count"),
+    )
+    return self.query(
+        lambda: data.where(tour_purpose=purpose)
+        .group("trip_mode", pl.col("trip_count").sum())
+        .drop_empty()
+    )
+```
+
+## Calculation Notes
+
+Calculation notes are expandable HTML details below annotated charts and
+tables. They have no external dependencies. To hide all notes, use:
+
+```yaml
+dashboard:
+  include_notes: false
+```
+
+`dashboard/calculation_notes.yaml` contains the content. The top-level `methods`
+mapping contains reusable method explanations. `notes` contains stable note
+IDs. Each note requires `summary`, `method`, and a nonempty `sources` list. A
+note can also contain `label`, `method_text`, `formula`, `source_filters`, and
+grouped `details`. The loader validates unknown fields and method references.
+
+Page authors attach a note to a registered selector-driven section with:
+
+```python
+body = self.section(
+    "comparison",
+    selectors=("facility_type",),
+    render=self.render_comparison,
+)
+return self.noted_section("traffic.observed_model_fit", body)
+```
+
+Use `self.noted_view(note_id, view)` for an individual plot or table outside the
+registered section container. `self.section_note(...)` is the low-level helper.
+It rejects unregistered sections. Notes use the same page layout in live mode
+and HTML export.
+
 ## Selectors
 
-Declare a normal dropdown with its option domain in one place:
+Declare a standard selection list and its option domain in one place:
 
 ```python
 self.purpose = self.select(
@@ -90,10 +202,10 @@ self.purpose = self.select(
 )
 ```
 
-An option provider is called before dependent sections render. The framework
-repairs stale values. `default` may be `"first"`, `"last"`, or a callable.
-Use `self.selector(...)` only when wrapping a custom checkbox, numeric input, or
-another widget that `select(...)` cannot express.
+Before rendering dependent sections, the framework calls an option provider and
+repairs stale values. `default` can be `"first"`, `"last"`, or a callable.
+Use `self.selector(...)` only for a custom checkbox, numeric input, or other
+widget that `select(...)` cannot define.
 
 ## Sections And Features
 
@@ -107,20 +219,20 @@ chart = self.section(
 )
 ```
 
-A section renderer may return one Panel `Viewable`, or a list/tuple of
-`Viewable` objects. It should not mutate the stable section container itself;
-the lifecycle replaces that container's contents after each render.
+A section renderer can return one Panel `Viewable`, or a list or tuple of
+`Viewable` objects. The lifecycle replaces the container content after each
+render, so the renderer must not replace the stable section container itself.
 
-For a large page, use `self.feature("comparison")` to namespace a coherent
+For a large page, use `self.feature("comparison")` to give a name to one
 workflow. Feature component IDs become `comparison.metric`, `comparison.body`,
-and so on. Features participate in the same lifecycle and export behavior as
-the parent page.
+and similar names. Features use the same lifecycle and export behavior as the
+parent page.
 
-Large controllers may also use private implementation mixins under a
-`_<page>/` package. Mixins organize source responsibilities; `PageFeature`
-organizes live components. A refactored page commonly uses both. Keep mixins
-focused, do not give them `__init__` methods, keep pure transforms as functions,
-and preserve page/component IDs during source-only refactors.
+Large controllers can also use private implementation mixins in a `_<page>/`
+package. Mixins organize source responsibilities, while `PageFeature` organizes
+live components; a page can use both. Give each mixin one purpose and no
+`__init__` method. Keep pure transforms as functions, and preserve page and
+component IDs during a source-only refactor.
 
 ### Large-Page Implementation Mixins
 
@@ -157,9 +269,9 @@ class ExamplePage(
     pass
 ```
 
-Every mixin method receives the final `ExamplePage` instance. Python resolves
-methods left to right through the declared bases and then `DashboardPage`.
-Mixins are not standalone pages and must not be instantiated.
+Each mixin method receives the final `ExamplePage` instance. Python resolves
+methods from left to right through the declared bases, with `DashboardPage`
+last. Mixins are not standalone pages and should not be instantiated.
 
 Keep this pattern narrow:
 
@@ -170,14 +282,13 @@ Keep this pattern narrow:
 - keep stateless pure functions outside mixins
 - preserve page, selector, section, and export IDs during source-only refactors
 
-Mixins organize Python source; `PageFeature` organizes registered live
-components. One does not replace the other. Prefer one page class until stable
-composition, domain, transformation, and rendering boundaries make the split
-easier to understand.
+Mixins organize Python source, while `PageFeature` organizes registered live
+components. Use one page class until the composition, domain, transformation,
+and rendering boundaries are stable.
 
 ## Shared Helpers
 
-Check these before adding page-local utilities:
+Before you add page-local utilities, examine these modules:
 
 | Module | Use |
 |---|---|
@@ -190,14 +301,14 @@ Check these before adding page-local utilities:
 
 ## Export Considerations
 
-Export behavior derives from the same selectors and sections used live. Keep
-render methods deterministic for each selector state and avoid unregistered
-live-only callbacks. Export can only include selector values generated at
-export time.
+The same selectors and sections control live and export behavior. Make sure
+that render methods give the same result for each selector state. Do not use
+unregistered live-only callbacks. Export can include only selector values that
+exist at export time.
 
 ## Related Chapters
 
-- [31 - Dashboard Pages](31-dashboard-pages.md)
+- [31 - Dashboard Page Contract](31-dashboard-pages.md)
 - [33 - Dashboard Page Recipes](33-dashboard-page-recipes.md)
 - [34 - HTML Export](34-html-export.md)
 - [35 - Plotting Reference](35-plotting-reference.md)

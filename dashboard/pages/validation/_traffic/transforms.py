@@ -16,28 +16,45 @@ from runtime.config import Config
 from .contracts import *
 
 
-def validation_chart_data(
+def screenline_scatter_data(
     data_list: list[tuple[str, pl.DataFrame]],
+    *,
+    period: str,
+    facility_type: str,
 ) -> list[tuple[str, pl.DataFrame]]:
-    """Aggregate one validation summary list to one observed/modeled point per id."""
-    out = []
+    """Filter screenline observed/modeled points for one period and facility."""
+    out: list[tuple[str, pl.DataFrame]] = []
+    required = {
+        "screenline_id",
+        "count_period",
+        "observed_volume",
+        "modeled_volume",
+    }
     for label, df in nonempty(data_list):
-        filtered = df
-        id_col = None
-        if "count_location_id" in filtered.columns:
-            id_col = "count_location_id"
-        elif "screenline_id" in filtered.columns:
-            id_col = "screenline_id"
-        if id_col is not None:
-            filtered = (
-                filtered.group_by(id_col)
-                .agg(
-                    observed_volume=pl.col("observed_volume").sum(),
-                    modeled_volume=pl.col("modeled_volume").sum(),
-                )
-                .sort(id_col)
+        if not required.issubset(df.columns):
+            continue
+        filtered = df.with_columns(
+            pl.col("count_period").cast(pl.Utf8),
+            (
+                pl.col("facility_type").cast(pl.Utf8)
+                if "facility_type" in df.columns
+                else pl.lit("All")
+            ).alias("facility_type"),
+        ).filter(pl.col("count_period") == period)
+        if facility_type != "All":
+            filtered = filtered.filter(pl.col("facility_type") == facility_type)
+        out.append(
+            (
+                label,
+                filtered.select(
+                    "screenline_id",
+                    "facility_type",
+                    "count_period",
+                    "observed_volume",
+                    "modeled_volume",
+                ).sort("screenline_id"),
             )
-        out.append((label, filtered))
+        )
     return out
 
 
@@ -146,6 +163,26 @@ def demo_count_scatter_data_from_sources(
     return out
 
 
+def _fit_line_frame(
+    *,
+    observed_min: float,
+    observed_max: float,
+    slope: float,
+    intercept: float,
+    annotation: str,
+) -> pl.DataFrame:
+    point_count = 101
+    step = (observed_max - observed_min) / (point_count - 1)
+    observed = [observed_min + step * index for index in range(point_count)]
+    return pl.DataFrame(
+        {
+            "observed_volume": observed,
+            "modeled_volume": [slope * value + intercept for value in observed],
+            "annotation": [annotation] * point_count,
+        }
+    )
+
+
 def demo_count_fit_line_data(
     fit_list: list[tuple[str, pl.DataFrame]] | None,
     *,
@@ -197,22 +234,21 @@ def demo_count_fit_line_data(
         out.append(
             (
                 label,
-                pl.DataFrame(
-                    {
-                        "observed_volume": [observed_min, observed_max],
-                        "modeled_volume": [
-                            slope * observed_min + intercept,
-                            slope * observed_max + intercept,
-                        ],
-                        "annotation": [annotation, annotation],
-                    }
+                _fit_line_frame(
+                    observed_min=observed_min,
+                    observed_max=observed_max,
+                    slope=slope,
+                    intercept=intercept,
+                    annotation=annotation,
                 ),
             )
         )
     return out
 
 
-def _r_squared_from_points(points: pl.DataFrame) -> float | None:
+def _linear_fit_from_points(
+    points: pl.DataFrame,
+) -> tuple[float, float, float] | None:
     if points.height < 2:
         return None
     x = [float(value) for value in points["observed_volume"].to_list()]
@@ -229,8 +265,48 @@ def _r_squared_from_points(points: pl.DataFrame) -> float | None:
     sse = sum((yi - yhat) ** 2 for yi, yhat in zip(y, fitted))
     ss_yy = sum((yi - y_mean) ** 2 for yi in y)
     if math.isclose(ss_yy, 0.0):
-        return 1.0 if math.isclose(sse, 0.0) else 0.0
-    return max(0.0, min(1.0, 1.0 - sse / ss_yy))
+        r_squared = 1.0 if math.isclose(sse, 0.0) else 0.0
+    else:
+        r_squared = max(0.0, min(1.0, 1.0 - sse / ss_yy))
+    return slope, intercept, r_squared
+
+
+def _r_squared_from_points(points: pl.DataFrame) -> float | None:
+    fit = _linear_fit_from_points(points)
+    return None if fit is None else fit[2]
+
+
+def screenline_fit_line_data(
+    scatter_data: list[tuple[str, pl.DataFrame]],
+) -> list[tuple[str, pl.DataFrame]]:
+    """Build regression lines and annotations from filtered screenline points."""
+    out: list[tuple[str, pl.DataFrame]] = []
+    for label, df in nonempty(scatter_data):
+        points = df.select("observed_volume", "modeled_volume").drop_nulls()
+        fit = _linear_fit_from_points(points)
+        if fit is None:
+            continue
+        slope, intercept, r_squared = fit
+        observed_min = float(points["observed_volume"].min())
+        observed_max = float(points["observed_volume"].max())
+        sign = "+" if intercept >= 0 else "-"
+        annotation = (
+            f"{label}<br>y = {slope:.2f}x {sign} {abs(intercept):.2f}"
+            f"<br>R² = {r_squared:.2f}<br>n = {points.height}"
+        )
+        out.append(
+            (
+                label,
+                _fit_line_frame(
+                    observed_min=observed_min,
+                    observed_max=observed_max,
+                    slope=slope,
+                    intercept=intercept,
+                    annotation=annotation,
+                ),
+            )
+        )
+    return out
 
 
 def _fit_r_squared_lookup(
@@ -330,6 +406,17 @@ def demo_facility_comparison_table(
             rmse = math.sqrt(
                 sum(difference**2 for difference in differences) / len(differences)
             )
+            if any(value == 0.0 for value in observed):
+                rmspe = ""
+            else:
+                squared_percentage_errors = [
+                    ((observe - model) / observe) ** 2
+                    for observe, model in zip(observed, modeled)
+                ]
+                rmspe_value = math.sqrt(
+                    sum(squared_percentage_errors) / len(squared_percentage_errors)
+                ) * 100.0
+                rmspe = f"{rmspe_value:.2f}%"
             percent_value = (
                 None
                 if total_observed == 0.0
@@ -349,7 +436,8 @@ def demo_facility_comparison_table(
                     "Total Modeled Count": total_modeled,
                     "% Difference": percent_difference,
                     "RMSE": rmse,
-                    "R^2": r_squared_lookup.get(raw_facility_type)
+                    "RMSPE": rmspe,
+                    "R²": r_squared_lookup.get(raw_facility_type)
                     if raw_facility_type in r_squared_lookup
                     else _r_squared_from_points(facility_points),
                 }

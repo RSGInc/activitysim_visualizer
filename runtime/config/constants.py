@@ -13,7 +13,11 @@ FILE_MAPPING_DEFAULTS: dict[str, str] = {
     "land_use": "final_land_use",
 }
 
-PREPARED_TABLE_MAP_KEYS: tuple[str, ...] = tuple(FILE_MAPPING_DEFAULTS)
+PREPARED_TABLE_MAP_KEYS: tuple[str, ...] = (
+    *FILE_MAPPING_DEFAULTS,
+    "trip_hypothetical_skims",
+    "tour_hypothetical_skims",
+)
 OPTIONAL_PREPARED_TABLE_IDS: set[str] = {
     "day",
     "vehicles",

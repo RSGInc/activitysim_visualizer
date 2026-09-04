@@ -125,6 +125,7 @@ def validate_canonical_config(raw: Mapping[str, object]) -> None:
         field_name="dashboard",
         allowed={
             "title",
+            "logo",
             "live",
             "export",
             "host",
@@ -251,7 +252,7 @@ def validate_canonical_config(raw: Mapping[str, object]) -> None:
     _reject_unknown_keys(
         pipeline,
         field_name="pipeline",
-        allowed={"steps", "dashboard_mode", "overwrite"},
+        allowed={"steps", "dashboard_mode", "refresh", "overwrite"},
     )
 
     display = _mapping(raw.get("display"), field_name="display")
@@ -275,6 +276,7 @@ def validate_canonical_config(raw: Mapping[str, object]) -> None:
             "output",
             "validation",
             "distance_skim",
+            "category_mappings",
             "vot_bins",
             "time_periods",
             "non_motorized_distance_skim",

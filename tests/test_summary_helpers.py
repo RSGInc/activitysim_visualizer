@@ -12,6 +12,8 @@ from processor.summarize.summaries.summary_helpers import (
     ALL_TOUR_PURPOSES,
     _all_person_types_rollup,
     _all_purpose_rollup,
+    _distance_bin_expr,
+    _distance_bin_sort_expr,
 )
 
 
@@ -77,3 +79,36 @@ def test_all_person_types_rollup_preserves_concat_compatible_column_order() -> N
         "mandatory_tour_frequency": [1, 2],
         "person_count": [5.0, 4.0],
     }
+
+
+def test_distance_bins_separate_exact_zero_from_positive_submile_values() -> None:
+    result = (
+        pl.DataFrame(
+            {"distance": [None, -1.0, 0.0, 0.25, 0.99, 1.0, 1.99, 39.99, 40.0]}
+        )
+        .with_columns(_distance_bin_expr("distance"))
+        .with_columns(_distance_bin_sort_expr().alias("_sort_distance"))
+    )
+
+    assert result["distance_bin"].to_list() == [
+        None,
+        None,
+        "0",
+        ">0-<1",
+        ">0-<1",
+        "1",
+        "1",
+        "39",
+        "40+",
+    ]
+    assert result["_sort_distance"].to_list() == [
+        float("inf"),
+        float("inf"),
+        0.0,
+        0.5,
+        0.5,
+        1.0,
+        1.0,
+        39.0,
+        40.0,
+    ]

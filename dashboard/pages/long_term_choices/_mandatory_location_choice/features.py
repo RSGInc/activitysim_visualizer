@@ -45,18 +45,32 @@ class MandatoryLocationFeatureMixin:
                     geography,
                 )
             )
-            worker_views.append(
-                self.noted_view(
-                    "mandatory_location.worker_status_table",
-                    data_table(
-                        [
-                            (label, self.render_internal_external_worker_table(df))
-                            for label, df in internal_external_table
-                        ],
-                        "Internal vs. External Workers",
-                    ),
+            if any(not df.is_empty() for _, df in internal_external_table):
+                worker_views.append(
+                    self.noted_view(
+                        "mandatory_location.worker_status_table",
+                        data_table(
+                            [
+                                (
+                                    label,
+                                    self.render_internal_external_worker_table(df),
+                                )
+                                for label, df in internal_external_table
+                            ],
+                            "Internal vs. External Workers",
+                        ),
+                    )
                 )
-            )
+            else:
+                worker_views.append(
+                    self.data_not_available_card(
+                        detail=(
+                            "No internal/external worker data is available for "
+                            "the selected geography."
+                        ),
+                        missing_items=["internal_external_worker_by_geography"],
+                    )
+                )
         else:
             worker_views.append(
                 self.data_not_available_card(
@@ -174,8 +188,9 @@ class MandatoryLocationFeatureMixin:
 
     def render_distance_distribution_section(self) -> SectionContent:
         """Render the three mandatory distance distributions side by side."""
-        if self._current_data["mode"] != "ready":
-            return []
+        placeholder = self._render_ready_state()
+        if placeholder is not None:
+            return placeholder
 
         geo_level, geography = self._selected_geography()
         chart_specs = [
@@ -207,6 +222,7 @@ class MandatoryLocationFeatureMixin:
                 self.distance_distribution_chart_data(
                     geo_level,
                     geography,
+                    summary_id=spec["summary_id"],
                     summary_data=spec["summary_data"],
                 ),
             )
@@ -264,19 +280,24 @@ class MandatoryLocationFeatureMixin:
         geo_level: str,
         geography: str,
         *,
+        summary_id: str,
         summary_data: list[tuple[str, pl.DataFrame]] | None,
     ) -> list[tuple[str, pl.DataFrame]] | None:
         """Return chart-ready mandatory distance data for one summary."""
         if summary_data is None:
             return None
+        summary_query_input = (summary_id, summary_data)
         filtered_summary = self.query(
             lambda: filter_selected_geography(
-                summary_data,
+                summary_query_input[1],
                 geo_level,
                 geography,
             )
         )
-        return self.query(lambda: distance_distribution_chart_data(filtered_summary))
+        chart_query_input = (summary_id, filtered_summary)
+        return self.query(
+            lambda: distance_distribution_chart_data(chart_query_input[1])
+        )
 
     def render_distance_distribution_chart(
         self,
@@ -321,8 +342,9 @@ class MandatoryLocationFeatureMixin:
 
     def render_remote_work_section(self) -> SectionContent:
         """Render work-from-home and telecommute summaries."""
-        if self._current_data["mode"] != "ready":
-            return []
+        placeholder = self._render_ready_state()
+        if placeholder is not None:
+            return placeholder
 
         geo_level, geography = self._selected_geography()
         return [
@@ -359,6 +381,13 @@ class MandatoryLocationFeatureMixin:
                 geography,
             )
         )
+        if not any(not df.is_empty() for _, df in wfh_data):
+            return self.data_not_available_card(
+                detail=(
+                    "No work-from-home data is available for the selected geography."
+                ),
+                missing_items=["work_from_home_rate_by_geography"],
+            )
         return self.plot.bar(
             wfh_data,
             x="geography_label",
@@ -426,8 +455,9 @@ class MandatoryLocationFeatureMixin:
 
     def render_mandatory_distance_table_section(self) -> SectionContent:
         """Render the percent-difference table for average mandatory tour distance."""
-        if self._current_data["mode"] != "ready":
-            return []
+        placeholder = self._render_ready_state()
+        if placeholder is not None:
+            return placeholder
 
         geo_level, geography = self._selected_geography()
         average_distance = self._current_data["average_distance"]
@@ -468,6 +498,11 @@ class MandatoryLocationFeatureMixin:
                 data_table(
                     comparison_tables,
                     "Average Mandatory Tour Distance vs Base Run",
+                    numeric_decimal_places_by_column={
+                        "Average Mandatory Tour Distance": 1,
+                        "Base Run Average Mandatory Tour Distance": 1,
+                        "Difference": 1,
+                    },
                 ),
             )
         ]

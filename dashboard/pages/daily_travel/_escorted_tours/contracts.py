@@ -19,7 +19,6 @@ OPTIONAL_SUMMARY_IDS = (
     "households_with_school_escorting_by_student_count_and_direction",
     "schoolkids_per_escorted_tour_by_student_count_and_direction",
 )
-PAGE_SUMMARY_IDS = (*CORE_SUMMARY_IDS, *OPTIONAL_SUMMARY_IDS)
 STOP_SEGMENT_LABELS = {
     "outbound_before_dropoff": "Adult Escort Stops Before Dropoff - Outbound",
     "outbound_after_dropoff": "Adult Escort Stops After Dropoff - Outbound",
@@ -28,7 +27,9 @@ STOP_SEGMENT_LABELS = {
 }
 STUDENT_ESCORT_DESCRIPTION = (
     "Student school tours by escort type. `Both Directions` means the same child "
-    "school tour is escorted in both outbound and inbound directions."
+    "school tour is escorted in both outbound and inbound directions. `Outbound` "
+    "means the home-to-school direction is escorted, and `Inbound` means the "
+    "school-to-home direction is escorted."
 )
 HOUSEHOLD_ESCORT_DESCRIPTION = (
     "Households with school escorting by number of students per household. "

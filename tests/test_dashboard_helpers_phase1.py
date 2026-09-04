@@ -16,6 +16,7 @@ from dashboard.rendering import (
 )
 from dashboard.data_access import RunTables
 from dashboard.helpers.category_helpers import (
+    cap_numeric_category_frame,
     column_value_intersection,
     common_column_options,
     complete_category_counts,
@@ -55,10 +56,31 @@ from dashboard.helpers.time_distance_helpers import (
     timebin_label,
 )
 from dashboard.page_base import DashboardPage
+from dashboard.pages.skim_summaries._shared import component_display_name
 from dashboard.pages.trip_summaries.parking_location import parking_scatter_data
 from dashboard.state import DashboardState
 from processor.models import RunData
 from test_export_html import _full_summary_run, _write_config
+
+
+@pytest.mark.parametrize(
+    ("component", "expected"),
+    [
+        (
+            "skim_bike_transit_distance_bus",
+            "Total Bike Distance - Local Bus (mi) (Estimated from Walk Skims)",
+        ),
+        (
+            "skim_bike_transit_distance_premium",
+            "Total Bike Distance - Premium Transit (mi) (Estimated from Walk Skims)",
+        ),
+    ],
+)
+def test_component_display_name_labels_estimated_bike_transit_distances(
+    component: str,
+    expected: str,
+) -> None:
+    assert component_display_name(component) == expected
 
 
 def test_run_table_view_filters_transforms_and_joins_by_run_label() -> None:
@@ -174,7 +196,7 @@ def test_category_helpers_support_intersection_normalization_and_numeric_sort(
         value_cols=("count",),
     )
     sorted_bins = (
-        pl.DataFrame({"bin": ["40+", "2", "10"]})
+        pl.DataFrame({"bin": ["40+", "2", ">0-<1", "10"]})
         .with_columns(numeric_like_sort_expr("bin").alias("_sort"))
         .sort("_sort")
         .drop("_sort")["bin"]
@@ -186,7 +208,25 @@ def test_category_helpers_support_intersection_normalization_and_numeric_sort(
     assert mapping["10"] == "10"
     assert normalized[0][1]["category"].to_list() == ["Unspecified", "Worker"]
     assert completed[0][1]["count"].to_list() == [0, 2, 1]
-    assert sorted_bins == ["2", "10", "40+"]
+    assert sorted_bins == [">0-<1", "2", "10", "40+"]
+
+    capped_distance = cap_numeric_category_frame(
+        pl.DataFrame(
+            {
+                "bin": ["0", ">0-<1", "39", "40", "51+"],
+                "count": [1, 2, 3, 4, 5],
+            }
+        ),
+        category="bin",
+        cap_value=40,
+        value_cols=("count",),
+    )
+    assert capped_distance.to_dicts() == [
+        {"bin": "0", "count": 1},
+        {"bin": ">0-<1", "count": 2},
+        {"bin": "39", "count": 3},
+        {"bin": "40+", "count": 9},
+    ]
 
 
 def test_geography_helpers_normalize_and_build_options(tmp_path: Path) -> None:
@@ -472,6 +512,22 @@ def test_data_table_drops_index_columns_and_hides_pandas_index() -> None:
     assert tabulator.show_index is False
     assert tabulator.value.columns.tolist() == ["metric", "value"]
     assert tabulator.titles == {"metric": "Metric", "value": "Value"}
+
+
+def test_data_table_shortens_long_run_tabs_and_column_titles() -> None:
+    run_label = "Regional Transportation Scenario Baseline 2050 North"
+    column = "regional_transportation_scenario_comparison_measure"
+    table = data_table([(run_label, pl.DataFrame({column: [1.0]}))])
+
+    assert table._names == ["Regional Transportation…North"]
+    assert table._run_label_full_titles == (run_label,)
+    content = table.objects[0]
+    assert run_label in content.objects[0].object
+    tabulator = content.objects[1]
+    assert len(tabulator.titles[column]) <= 30
+    assert tabulator.header_tooltips == {
+        column: "Regional Transportation Scenario Comparison Measure"
+    }
 
 
 def test_column_titles_for_display_humanizes_machine_column_names() -> None:

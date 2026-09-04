@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 import h5py
 import numpy as np
@@ -12,8 +13,64 @@ class SkimStore:
         self._cache: dict[tuple[str, str], np.ndarray] = {}
         self._keyed_cache: dict[tuple[str, str, str], dict[int, float]] = {}
         self._keyed_table_cache: dict[tuple[str, str, str], pl.DataFrame] = {}
+        self._keyed_csv_cache: dict[tuple[str, str], pl.DataFrame] = {}
+        self._keyed_csv_columns: dict[tuple[str, str], set[str]] = {}
         self._od_table_cache: dict[tuple[str, str, str, str], dict[tuple[int, int], float]] = {}
         self._od_table_frame_cache: dict[tuple[str, str, str, str], pl.DataFrame] = {}
+        self._od_csv_cache: dict[tuple[str, str, str], pl.DataFrame] = {}
+        self._od_csv_columns: dict[tuple[str, str, str], set[str]] = {}
+        self._od_csv_demands: dict[tuple[str, str, str], pl.DataFrame] = {}
+        self._od_csv_demand_planned = False
+
+    def plan_csv_tables(
+        self,
+        inventory: pl.DataFrame,
+        *,
+        matrix_templates: set[str],
+    ) -> None:
+        patterns = [_matrix_template_pattern(template) for template in matrix_templates]
+        if not patterns:
+            return
+
+        rows = inventory.filter(
+            pl.col("source_kind").is_in(["keyed_column", "od_table"])
+        ).to_dicts()
+        for row in rows:
+            file_path = str(row["file_path"])
+            matrix_name = str(row["matrix_name"])
+            qualified_name = f"{Path(file_path).name}::{matrix_name}"
+            if not any(
+                pattern.fullmatch(matrix_name) or pattern.fullmatch(qualified_name)
+                for pattern in patterns
+            ):
+                continue
+
+            value_column = str(row["value_column_name"])
+            if row["source_kind"] == "keyed_column":
+                key = (file_path, str(row["key_column_name"]))
+                self._keyed_csv_columns.setdefault(key, set()).add(value_column)
+            else:
+                key = (
+                    file_path,
+                    str(row["origin_column_name"]),
+                    str(row["destination_column_name"]),
+                )
+                self._od_csv_columns.setdefault(key, set()).add(value_column)
+
+    def has_planned_od_csv_tables(self) -> bool:
+        return bool(self._od_csv_columns)
+
+    def set_complete_od_csv_demand(
+        self,
+        *,
+        demand: pl.DataFrame,
+    ) -> None:
+        for key in self._od_csv_columns:
+            self._od_csv_demands[key] = demand
+        self._od_csv_demand_planned = True
+
+    def od_csv_demand_planned(self) -> bool:
+        return self._od_csv_demand_planned
 
     def get_matrix(self, file_path: str, matrix_path: str) -> np.ndarray:
         key = (file_path, matrix_path)
@@ -109,17 +166,51 @@ class SkimStore:
         if key in self._keyed_table_cache:
             return self._keyed_table_cache[key]
 
-        table = (
-            pl.read_csv(file_path)
-            .with_row_index("__row_id")
-            .select(
-                pl.col("__row_id"),
-                pl.col(key_column_name).cast(pl.Float64).alias("__lookup_key"),
-                pl.col(value_column_name).cast(pl.Float64).alias("__lookup_value"),
+        csv_key = (file_path, key_column_name)
+        value_columns = self._keyed_csv_columns.setdefault(csv_key, set())
+        value_columns.add(value_column_name)
+        combined = self._keyed_csv_cache.get(csv_key)
+        if combined is None or value_column_name not in combined.columns:
+            self._keyed_table_cache = {
+                cache_key: table
+                for cache_key, table in self._keyed_table_cache.items()
+                if cache_key[:2] != csv_key
+            }
+            self._keyed_cache = {
+                cache_key: values
+                for cache_key, values in self._keyed_cache.items()
+                if cache_key[:2] != csv_key
+            }
+            combined = (
+                pl.scan_csv(file_path)
+                .select(
+                    pl.col(key_column_name).cast(pl.Float64).alias("__lookup_key"),
+                    *(
+                        pl.col(column).cast(pl.Float64)
+                        for column in sorted(value_columns)
+                    ),
+                )
+                .filter(pl.col("__lookup_key").is_not_null())
+                .group_by("__lookup_key")
+                .agg(
+                    *(
+                        pl.col(column)
+                        .drop_nulls()
+                        .last()
+                        .alias(column)
+                        for column in sorted(value_columns)
+                    )
+                )
+                .collect(engine="streaming")
             )
-            .filter(pl.col("__lookup_key").is_not_null() & pl.col("__lookup_value").is_not_null())
-            .group_by("__lookup_key", maintain_order=True)
-            .agg(pl.col("__lookup_value").sort_by("__row_id").last())
+            self._keyed_csv_cache[csv_key] = combined
+
+        table = (
+            combined.select(
+                pl.col("__lookup_key"),
+                pl.col(value_column_name).alias("__lookup_value"),
+            )
+            .filter(pl.col("__lookup_value").is_not_null())
         )
         self._keyed_table_cache[key] = table
         return table
@@ -219,25 +310,72 @@ class SkimStore:
         if key in self._od_table_frame_cache:
             return self._od_table_frame_cache[key]
 
+        csv_key = (file_path, origin_column_name, destination_column_name)
+        value_columns = self._od_csv_columns.setdefault(csv_key, set())
+        value_columns.add(value_column_name)
+        combined = self._od_csv_cache.get(csv_key)
+        if combined is None or value_column_name not in combined.columns:
+            self._od_table_frame_cache = {
+                cache_key: table
+                for cache_key, table in self._od_table_frame_cache.items()
+                if cache_key[:3] != csv_key
+            }
+            self._od_table_cache = {
+                cache_key: values
+                for cache_key, values in self._od_table_cache.items()
+                if cache_key[:3] != csv_key
+            }
+            scan = (
+                pl.scan_csv(file_path)
+                .select(
+                    pl.col(origin_column_name)
+                    .cast(pl.Float64)
+                    .alias("__lookup_origin"),
+                    pl.col(destination_column_name)
+                    .cast(pl.Float64)
+                    .alias("__lookup_destination"),
+                    *(
+                        pl.col(column).cast(pl.Float64)
+                        for column in sorted(value_columns)
+                    ),
+                )
+                .filter(
+                    pl.col("__lookup_origin").is_not_null()
+                    & pl.col("__lookup_destination").is_not_null()
+                )
+            )
+            demand = self._od_csv_demands.get(csv_key)
+            if demand is not None:
+                scan = scan.join(
+                    demand.lazy(),
+                    on=["__lookup_origin", "__lookup_destination"],
+                    how="semi",
+                )
+            combined = (
+                scan
+                .group_by(
+                    ["__lookup_origin", "__lookup_destination"],
+                )
+                .agg(
+                    *(
+                        pl.col(column)
+                        .drop_nulls()
+                        .last()
+                        .alias(column)
+                        for column in sorted(value_columns)
+                    )
+                )
+                .collect(engine="streaming")
+            )
+            self._od_csv_cache[csv_key] = combined
+
         table = (
-            pl.read_csv(file_path)
-            .with_row_index("__row_id")
-            .select(
-                pl.col("__row_id"),
-                pl.col(origin_column_name).cast(pl.Float64).alias("__lookup_origin"),
-                pl.col(destination_column_name).cast(pl.Float64).alias("__lookup_destination"),
-                pl.col(value_column_name).cast(pl.Float64).alias("__lookup_value"),
+            combined.select(
+                "__lookup_origin",
+                "__lookup_destination",
+                pl.col(value_column_name).alias("__lookup_value"),
             )
-            .filter(
-                pl.col("__lookup_origin").is_not_null()
-                & pl.col("__lookup_destination").is_not_null()
-                & pl.col("__lookup_value").is_not_null()
-            )
-            .group_by(
-                ["__lookup_origin", "__lookup_destination"],
-                maintain_order=True,
-            )
-            .agg(pl.col("__lookup_value").sort_by("__row_id").last())
+            .filter(pl.col("__lookup_value").is_not_null())
         )
         self._od_table_frame_cache[key] = table
         return table
@@ -352,3 +490,14 @@ def _map_with_zone_map(values: np.ndarray, zone_map: dict[int, int]) -> np.ndarr
     if valid.any():
         result[valid] = mapped[positions[valid]]
     return result
+
+
+def _matrix_template_pattern(template: str) -> re.Pattern[str]:
+    parts: list[str] = []
+    start = 0
+    for match in re.finditer(r"\{[^{}]+\}", template):
+        parts.append(re.escape(template[start : match.start()]))
+        parts.append(".+")
+        start = match.end()
+    parts.append(re.escape(template[start:]))
+    return re.compile("".join(parts))

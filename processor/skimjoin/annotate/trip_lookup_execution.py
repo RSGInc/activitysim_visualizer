@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from collections import Counter
+
 import polars as pl
 
 from processor.skimjoin.config.schema import NormalizedConfig, NormalizedLookupRule
+from processor.skimjoin.inventory import qualified_matrix_reference
 from processor.skimjoin.skimstore.base import SkimStore
 from processor.skimjoin.annotate.trip_lookup_reports import _row_trip_id
 
@@ -23,10 +26,47 @@ def _inventory_metadata_frame(
             "destination_column_name",
         ]
     )
-    rows = selected.to_dicts()
-    for row in rows:
+    inventory_rows = selected.to_dicts()
+    name_counts = Counter(str(row["matrix_name"]) for row in inventory_rows)
+    rows: list[dict[str, object]] = []
+    ambiguous_sources: dict[str, list[str]] = {}
+    for inventory_row in inventory_rows:
+        row = dict(inventory_row)
         row["lookup_name"] = normalized.zone_mapping.resolve_lookup_name(
             str(row["file_path"])
+        )
+        row["ambiguous_sources"] = None
+        qualified = dict(row)
+        qualified["matrix_name"] = qualified_matrix_reference(
+            str(row["file_path"]), str(row["matrix_name"])
+        )
+        rows.append(qualified)
+        matrix_name = str(row["matrix_name"])
+        if name_counts[matrix_name] == 1:
+            rows.append(row)
+        else:
+            ambiguous_sources.setdefault(matrix_name, []).append(
+                str(row["file_path"])
+            )
+    for matrix_name, file_paths in ambiguous_sources.items():
+        rows.append(
+            {
+                "matrix_name": matrix_name,
+                "file_path": None,
+                "matrix_path": None,
+                "source_kind": "ambiguous",
+                "key_column_name": None,
+                "value_column_name": None,
+                "origin_column_name": None,
+                "destination_column_name": None,
+                "lookup_name": None,
+                "ambiguous_sources": ", ".join(
+                    sorted(
+                        qualified_matrix_reference(file_path, matrix_name)
+                        for file_path in file_paths
+                    )
+                ),
+            }
         )
     return pl.DataFrame(rows, infer_schema_length=None)
 

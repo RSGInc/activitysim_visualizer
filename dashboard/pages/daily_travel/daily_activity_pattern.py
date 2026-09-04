@@ -67,7 +67,7 @@ class DailyActivityPatternPage(DashboardPage):
         """Use the first available person-type summary to seed the selector domain."""
         for summary_id in PERSON_TYPE_SUMMARY_IDS:
             data = self.data.summary(summary_id, weighting_key)
-            if data is not None:
+            if data:
                 return data
         return None
 
@@ -330,7 +330,7 @@ class DailyActivityPatternPage(DashboardPage):
             return [self.no_runs_message()]
 
         summaries = self._optional_summaries()
-        if not any(data is not None for data in summaries.values()):
+        if not any(summaries.values()):
             return [self.summary_only_unavailable_card()]
 
         display_person_type, raw_person_type = self._selected_person_type()

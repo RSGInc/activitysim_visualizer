@@ -20,6 +20,7 @@ from processor.prepare.availability import (
 )
 from processor.prepare.cache import (
     PreparedCacheError,
+    build_prepared_manifest_identity,
     build_run_fingerprint,
     load_custom_prepared_tables,
     load_prepared_run_cache,
@@ -162,6 +163,25 @@ def _write_custom_prepared_tables(
         ),
         "joint_tour_participants": pl.DataFrame({"tour_id": [], "person_id": []}),
         "land_use": pl.DataFrame({"zone_id": [1], "TAZ": [1]}),
+        "trip_hypothetical_skims": pl.DataFrame(
+            {
+                "trip_id": [1000],
+                "hypothetical_mode": ["HOV2"],
+                "component": ["skim_auto_time"],
+                "value": [12.0],
+                "finalweight": [1.0],
+            }
+        ),
+        "tour_hypothetical_skims": pl.DataFrame(
+            {
+                "tour_id": [100],
+                "hypothetical_mode": ["HOV2"],
+                "component": ["skim_auto_time_outbound"],
+                "direction": ["outbound"],
+                "value": [6.0],
+                "finalweight": [1.0],
+            }
+        ),
     }
     paths: dict[str, str] = {}
     for table_id, table in tables.items():
@@ -388,6 +408,29 @@ def test_prepared_cache_round_trip_creates_default_layout(tmp_path: Path) -> Non
     assert loaded.trip_weight_col == "trip_weight"
 
 
+def test_prepared_cache_removes_stale_hypothetical_skim_sidecars(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    prepared = _prepared_run(config)
+    prepared.trip_hypothetical_skims = pl.DataFrame({"trip_id": [5001]})
+    prepared.tour_hypothetical_skims = pl.DataFrame({"tour_id": [1001]})
+
+    entry = write_prepared_run_cache(prepared, config, run_key="base")
+    trip_path = entry.cache_dir / "trip_hypothetical_skims.parquet"
+    tour_path = entry.cache_dir / "tour_hypothetical_skims.parquet"
+    assert trip_path.exists()
+    assert tour_path.exists()
+
+    prepared.trip_hypothetical_skims = pl.DataFrame()
+    prepared.tour_hypothetical_skims = pl.DataFrame()
+    entry = write_prepared_run_cache(prepared, config, run_key="base")
+
+    assert entry.manifest["sidecar_files"] == {}
+    assert not trip_path.exists()
+    assert not tour_path.exists()
+
+
 def test_prepared_cache_round_trips_skimjoin_resolved_network_los(
     tmp_path: Path,
 ) -> None:
@@ -473,6 +516,8 @@ def test_config_accepts_custom_prepared_table_map_and_csv_prepare_output(
             f"      persons: {(custom_dir / 'persons.csv').as_posix()}",
             f"      day: {(custom_dir / 'day.csv').as_posix()}",
             f"      vehicles: {(custom_dir / 'vehicles.parquet').as_posix()}",
+            f"      trip_hypothetical_skims: {(custom_dir / 'trip_hypothetical_skims.parquet').as_posix()}",
+            f"      tour_hypothetical_skims: {(custom_dir / 'tour_hypothetical_skims.csv').as_posix()}",
         ],
     )
 
@@ -484,6 +529,12 @@ def test_config_accepts_custom_prepared_table_map_and_csv_prepare_output(
     assert config.runs[0]["prepared_table_map"]["day"].endswith("day.csv")
     assert config.runs[0]["prepared_table_map"]["vehicles"].endswith(
         "vehicles.parquet"
+    )
+    assert config.runs[0]["prepared_table_map"]["trip_hypothetical_skims"].endswith(
+        "trip_hypothetical_skims.parquet"
+    )
+    assert config.runs[0]["prepared_table_map"]["tour_hypothetical_skims"].endswith(
+        "tour_hypothetical_skims.csv"
     )
 
 
@@ -642,8 +693,50 @@ def test_load_custom_prepared_tables_supports_parquet_and_csv(
     assert csv_loaded.per["person_id"].to_list() == [10]
     assert parquet_loaded.day["day_id"].to_list() == [100]
     assert csv_loaded.vehicles["vehicle_id"].to_list() == [1001]
+    assert parquet_loaded.trip_hypothetical_skims["value"].to_list() == [12.0]
+    assert csv_loaded.tour_hypothetical_skims["direction"].to_list() == ["outbound"]
     assert table_availability(parquet_loaded)["households"] == "available"
     assert table_availability(csv_loaded)["trips"] == "available"
+
+
+def test_load_custom_prepared_tables_reports_missing_configured_sidecar(
+    tmp_path: Path,
+) -> None:
+    prepared_map = _write_custom_prepared_tables(tmp_path, file_format="parquet")
+    missing_path = tmp_path / "missing_trip_hypothetical_skims.parquet"
+    prepared_map["trip_hypothetical_skims"] = str(missing_path)
+
+    loaded = load_custom_prepared_tables(
+        prepared_table_map=prepared_map,
+        label="Missing Sidecar",
+    )
+
+    assert loaded.trip_hypothetical_skims.is_empty()
+    assert table_availability(loaded)["trip_hypothetical_skims"] == "unavailable"
+    assert table_unavailable_reasons(loaded)["trip_hypothetical_skims"] == (
+        f"Missing prepared sidecar file: {missing_path}"
+    )
+
+
+def test_prepared_manifest_identity_allows_missing_custom_sidecar(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    prepared_map = _write_custom_prepared_tables(tmp_path / "prepared")
+    missing_path = tmp_path / "prepared" / "missing_tour_hypothetical_skims.parquet"
+    prepared_map["tour_hypothetical_skims"] = str(missing_path)
+
+    identity = build_prepared_manifest_identity(
+        run_key="base",
+        config=config,
+        run_fingerprint={},
+        source_type="custom_prepared_table_map",
+        prepared_table_map=prepared_map,
+    )
+
+    fingerprints = identity["prepared_table_fingerprints"]
+    assert fingerprints["tour_hypothetical_skims"] is None
+    assert fingerprints["trip_hypothetical_skims"]["size"] > 0
 
 
 def test_load_custom_prepared_tables_retries_csv_with_full_schema_inference(

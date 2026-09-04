@@ -227,20 +227,16 @@ class ShadowPricingPage(DashboardPage):
             }
 
         workplace_summary = normalize_geography_data(
-            self.data.summary("workplace_shadow_pricing_residuals", required=False)
+            self.data.summary("workplace_shadow_pricing_residuals")
         )
         school_summary = normalize_geography_data(
-            self.data.summary("school_shadow_pricing_residuals", required=False)
+            self.data.summary("school_shadow_pricing_residuals")
         )
         workplace_hist = normalize_geography_data(
-            self.data.summary(
-                "workplace_shadow_pricing_residual_histogram", required=False
-            )
+            self.data.summary("workplace_shadow_pricing_residual_histogram")
         )
         school_hist = normalize_geography_data(
-            self.data.summary(
-                "school_shadow_pricing_residual_histogram", required=False
-            )
+            self.data.summary("school_shadow_pricing_residual_histogram")
         )
         geo_opts, geo_raw_by_label = geography_type_options(
             workplace_hist or school_hist or workplace_summary or school_summary,
@@ -310,12 +306,17 @@ class ShadowPricingPage(DashboardPage):
 
     def render_workplace_table_section(self) -> SectionContent:
         """Render the workplace residual table."""
-        if self._current_data["mode"] != "ready":
-            return []
+        if self._current_data["mode"] == "no_runs":
+            return [self.no_runs_message()]
 
         workplace_summary = self._current_data["workplace_summary"]
         if workplace_summary is None:
-            return []
+            return [
+                self.data_not_available_card(
+                    detail="The workplace employment residual summary is unavailable.",
+                    missing_items=["workplace_shadow_pricing_residuals"],
+                )
+            ]
         if self._maz_tables_disabled():
             return [
                 self.data_not_available_card(
@@ -360,8 +361,8 @@ class ShadowPricingPage(DashboardPage):
 
     def render_school_plot_section(self) -> SectionContent:
         """Render the school residual distribution for one student type."""
-        if self._current_data["mode"] != "ready":
-            return []
+        if self._current_data["mode"] == "no_runs":
+            return [self.no_runs_message()]
 
         school_hist = self._current_data["school_hist"]
         if school_hist is None:
@@ -408,12 +409,17 @@ class ShadowPricingPage(DashboardPage):
 
     def render_school_table_section(self) -> SectionContent:
         """Render school residuals for the selected geography level and student type."""
-        if self._current_data["mode"] != "ready":
-            return []
+        if self._current_data["mode"] == "no_runs":
+            return [self.no_runs_message()]
 
         school_summary = self._current_data["school_summary"]
         if school_summary is None:
-            return []
+            return [
+                self.data_not_available_card(
+                    detail="The school enrollment residual summary is unavailable.",
+                    missing_items=["school_shadow_pricing_residuals"],
+                )
+            ]
         if self._maz_tables_disabled():
             return [
                 self.data_not_available_card(

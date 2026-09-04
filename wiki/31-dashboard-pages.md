@@ -1,9 +1,14 @@
-# 31 - Dashboard Pages
+# 31 - Dashboard Page Contract
 
-Dashboard pages are discovered from modules under
-[`dashboard/pages`](../dashboard/pages). Each leaf module contains one
-`DashboardPage` subclass decorated with `@dashboard_page(...)`; page packages
+The visualizer discovers dashboard pages in modules under
+[`dashboard/pages`](../dashboard/pages). Each final module contains one
+`DashboardPage` subclass with a `@dashboard_page(...)` decorator. Page packages
 export a `DashboardGroupDefinition` as `GROUP`.
+
+For descriptions of the analyses and advice about interpreting their controls,
+see [16 - Dashboard User Guide](16-dashboard-user-guide.md). This chapter is
+the authoritative reference for page IDs, data prerequisites, and extension
+contracts.
 
 ## Page Definition Contract
 
@@ -20,21 +25,21 @@ Important fields:
 | `optional_summary_ids` | Independent add-on summaries that may be absent. |
 | `required_prepared_tables` | Prepared tables required by the page. |
 
-These declarations control dashboard cache loading, pruning, availability
-diagnostics, and prepared-table loading. They do **not** select which generated
-summaries the summarize workflow builds; ordinary summarize runs build every
-`build_by_default=True` declaration.
+These declarations control dashboard cache loads, removal of unused data,
+availability diagnostics, and prepared-table loads. They do not select which
+summaries the summarize workflow builds; standard summarize runs build every
+declaration with `build_by_default=True`.
 
-`required_summary_ids` marks the page's primary data. If no run has a usable
+`required_summary_ids` identifies the primary page data. If no run has a usable
 required table, `self.data.summary(...)` records a required-data warning and the
-page should render a standard unavailable card. `optional_summary_ids` declares
-an independent add-on: its absence should hide or replace only that feature.
-Neither declaration crashes the whole dashboard, and both can be partially
-available when some runs are usable and others are excluded.
+page shows a standard unavailable card. `optional_summary_ids` identifies data
+for an independent feature; if that data is absent, hide or replace only the
+feature. Missing declared data does not stop the entire dashboard, and data can
+be available for only some runs.
 
 ## Enabling Pages
 
-Live pages are selected in config:
+Select live pages in the configuration:
 
 ```yaml
 dashboard:
@@ -55,15 +60,15 @@ Group selection modes are:
 | `trip_summaries: all` | Every registered child, including children with `default_enabled=False`. |
 | `trip_summaries: [trip_mode, trip_stop_distance]` | Exactly the listed children in that order. |
 
-When `dashboard.live.pages` is omitted, standalone pages and groups must be
-default-enabled, and grouped children must also be default-enabled. A group's
-`default_page_id` selects the initially visible tab/fallback; it does not by
-itself enable every child.
+If you omit `dashboard.live.pages`, the visualizer selects default-enabled
+standalone pages and groups, along with each group's default-enabled children.
+A group's `default_page_id` selects the first visible or fallback tab; it does
+not enable every child.
 
-`dashboard.export.pages` modifies matching pages in the resolved live page set;
-it is not an allow-list. Unmentioned live pages keep their default export
-behavior. Use `enabled: false`, `exclude_pages`, or `exclude_groups` to narrow
-the export. Export cannot add a page omitted from `dashboard.live.pages`.
+`dashboard.export.pages` changes matching pages in the resolved live page set.
+It is not an allow-list. Live pages without an entry keep their default export
+behavior. Use `enabled: false`, `exclude_pages`, or `exclude_groups` to remove
+pages. Export cannot add a page that `dashboard.live.pages` omits.
 
 For example, enable only two trip-summary children:
 
@@ -79,9 +84,9 @@ dashboard:
 
 ## Prepared-Data Pages
 
-Most pages are summary-backed. A prepared-data page declares
-`prepared_data_mode` and `required_prepared_tables`. Use prepared data only when
-the page truly needs disaggregate records.
+Most pages use summary data. A prepared-data page declares `prepared_data_mode`
+and `required_prepared_tables`. Use prepared data only when the page requires
+disaggregate records.
 
 Current runtime behavior is:
 
@@ -89,18 +94,43 @@ Current runtime behavior is:
 |---|---|
 | `none` | Prepared caches are not requested for the page. `required_prepared_tables` must be empty. |
 | `optional` | Prepared caches are requested, but the page's primary summary-backed workflow should remain useful when they are unavailable. |
-| `required` | Prepared caches are requested and the page should present an unavailable state when they cannot be loaded. |
+| `required` | The runtime requests prepared caches. The page must show an unavailable state if it cannot load them. |
 
-Both `optional` and `required` trigger loading; the distinction communicates
-feature criticality and contributes to the strongest requirement across enabled
-pages. Page render code remains responsible for the fallback. Standalone HTML
-export does not load prepared tables; see chapter 34 for section-level export
+Both `optional` and `required` cause a data load. The value identifies whether
+the feature requires the data. It also contributes to the strongest requirement
+for all enabled pages. Page render code must supply the fallback. Standalone
+HTML export does not load prepared tables. See chapter 34 for section export
 rules.
+
+## Availability And Validation Features
+
+Page selectors reflect the available data, and option providers list values
+from usable runs. If an earlier choice makes a selection invalid, the page
+lifecycle repairs it. A value should appear only when its dependent section has
+data, not simply because it belongs to a fixed domain.
+
+When no usable run remains, the page shows the standard data-unavailable card
+for the affected feature. Missing required data can make the primary page
+workflow unavailable. Missing optional data replaces only its independent
+feature. Set `display.missing_data_display: blank` to hide all these cards.
+
+The validation group provides:
+
+| Page | Current behavior |
+|---|---|
+| Traffic Validation | Observed-versus-modeled count-location fit, traffic volume summaries, top modeled count locations, link tables, and screenline flow comparison. Count-location diagnostics report location count, RMSE, RMSPE, and R-squared by facility group. Scatterplots include a 1:1 line. Fit-line hover shows the fitted equation, R-squared, and sample size. Filter screenlines by time period and facility type before the system calculates a fit for each run. RMSPE is blank for a group that contains a zero observed count. |
+| Transit Validation | Boardings by operator and technology.<br>Transfer rates by operator, technology, and access mode.<br>The page shows notes and unavailable states if it cannot use the supplied contracts. |
+| VMT Validation | Overview comparisons plus selector-driven personal-auto and non-motorized VMT. Optional outside tables add external travel/VMT, commercial travel/VMT, and bicycle facility summaries; each optional feature gets its own unavailable state. |
+| Regional Validation | Optional district or county observed flow matrices, modeled `commuting_flows`, and aligned heatmaps. Heatmaps can show modeled, observed, difference, percent difference, or absolute percent difference. You can include or exclude totals. The selector shows only flow types that have available input. |
+
+Expandable calculation notes appear below the related output and identify
+source summary IDs, filters, formulas, and aggregation details. They are shown
+by default; set `dashboard.include_notes: false` to hide them.
 
 ## Generated Page Catalog
 
-The catalog below is generated from the dashboard page registry. Regenerate it
-with:
+The dashboard page registry generates the catalog below. Use this command to
+regenerate it:
 
 ```bash
 uv run python scripts/generate_wiki_catalogs.py
@@ -115,7 +145,7 @@ Total registered pages: **27**
 |---|---|---|---|---|---|---|---|
 | `overview` | Overview | - | yes | `none` | `population_totals`, `person_type_distribution`, `household_size_distribution`, `auto_vmt_totals` | - | - |
 | `daily_activity_pattern` | Daily Activity Pattern | Daily Travel | yes | `none` | `daily_activity_pattern_by_person_type`, `mandatory_tour_frequency_by_person_type`, `nonmandatory_tour_frequency_by_person_type`, `tour_rates_by_person_type_and_tour_purpose`, `trip_rates_by_person_type_and_trip_purpose` | - | - |
-| `escorted_tours` | Escorted Tours | Daily Travel | yes | `none` | `escorted_tour_totals`, `school_escorted_tours_by_escort_type_and_direction`, `adult_escort_event_stop_distribution`, `adult_escorted_tours_by_person_type_and_direction`, `adult_escorted_tour_distance_distribution_by_direction`, `adult_escorted_trip_distance_distribution_by_direction`, `student_school_escort_status_by_direction`, `student_households_by_student_count`, `households_with_school_escorting_by_student_count_and_direction`, `schoolkids_per_escorted_tour_by_student_count_and_direction` | - | - |
+| `escorted_tours` | Escorted Tours | Daily Travel | yes | `none` | `escorted_tour_totals`, `school_escorted_tours_by_escort_type_and_direction`, `adult_escort_event_stop_distribution`, `adult_escorted_tours_by_person_type_and_direction`, `adult_escorted_tour_distance_distribution_by_direction`, `adult_escorted_trip_distance_distribution_by_direction` | `student_school_escort_status_by_direction`, `student_households_by_student_count`, `households_with_school_escorting_by_student_count_and_direction`, `schoolkids_per_escorted_tour_by_student_count_and_direction` | - |
 | `joint_travel` | Joint Travel | - | yes | `none` | `jtf_distribution`, `joint_tours_by_household_size`, `joint_tour_party_size_distribution`, `joint_tour_composition_by_party_size`, `person_jtp_by_household_size`, `household_jtp_by_household_size_and_jtf` | - | - |
 | `individual_choices` | Individual Choices | Long-Term Choices | yes | `none` | `license_holding_status_distribution`, `bicycle_comfort_level_distribution`, `transit_pass_ownership_by_person_type`, `transit_subsidy_by_person_type` | - | - |
 | `vehicle_ownership_type` | Vehicle Ownership and Type | Long-Term Choices | yes | `none` | `auto_ownership_distribution`, `autonomous_vehicle_ownership_totals`, `vehicle_age_distribution`, `vehicle_fuel_type_distribution`, `vehicle_body_type_distribution` | - | - |
@@ -138,7 +168,7 @@ Total registered pages: **27**
 | `traffic` | Traffic Validation | Validation Summaries | yes | `none` | `screenline_flow_comparisons` | `link_validation_summary`, `count_location_counts_validation_summary`, `count_location_volumes_validation_summary`, `count_location_scatter_validation_summary`, `count_location_fit_validation_summary` | - |
 | `transit` | Transit Validation | Validation Summaries | yes | `none` | `transit_boardings_by_operator_and_technology`, `transit_transfer_rate` | - | - |
 | `vmt` | VMT Validation | Validation Summaries | yes | `none` | `auto_vmt_by_home_geography_income_hhsize_time_period`, `non_motorized_vmt_by_home_geography_income_hhsize_time_period`, `bicycle_vmt_by_facility_type` | `commercial_vehicle_validation_summary`, `commercial_vehicle_vmt_validation_summary`, `external_trip_validation_summary`, `external_vmt_validation_summary` | - |
-| `regional_validation` | Regional Validation | Validation Summaries | no | `none` | - | `county_flows_validation_summary`, `county_flows_joja_validation_summary`, `commuting_flows` | - |
+| `regional_validation` | Regional Validation | Validation Summaries | no | `none` | - | `district_commuting_flows_validation_summary`, `county_commuting_flows_validation_summary`, `commuting_flows` | - |
 | `raw_trip_demo` | Prepared Trip Demo | - | no | `required` | - | - | `trips` |
 
 ## Registered Page Groups
@@ -155,6 +185,7 @@ Total registered pages: **27**
 
 ## Related Chapters
 
+- [16 - Dashboard User Guide](16-dashboard-user-guide.md)
 - [30 - Output Visualizer](30-output-visualizer.md)
 - [32 - Figures and Widgets](32-figures-and-widgets.md)
 - [33 - Dashboard Page Recipes](33-dashboard-page-recipes.md)

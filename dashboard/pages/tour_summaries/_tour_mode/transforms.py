@@ -24,21 +24,24 @@ def auto_sufficiency_display_label(auto_sufficiency: str, config) -> str:
     _, label_noun = _auto_sufficiency_basis_terms(config)
     return {
         "All": "All",
-        "Zero Auto": "Zero Auto",
-        "Auto Deficient": f"Fewer Vehicles Than {label_noun}",
-        "Auto Sufficient": f"At Least As Many Vehicles as {label_noun}",
+        "Zero Auto": "Zero Auto Households",
+        "Auto Deficient": f"Households with Fewer Vehicles Than {label_noun}",
+        "Auto Sufficient": (
+            f"Households with At Least as Many Vehicles as {label_noun}"
+        ),
     }[auto_sufficiency]
 
 
 def auto_sufficiency_definitions_markdown(config) -> str:
     """Describe the configured household basis behind the auto sufficiency split."""
     basis_noun, _ = _auto_sufficiency_basis_terms(config)
+    zero_auto_label = auto_sufficiency_display_label("Zero Auto", config)
     deficient_label = auto_sufficiency_display_label("Auto Deficient", config)
     sufficient_label = auto_sufficiency_display_label("Auto Sufficient", config)
     return f"""
     **Auto sufficiency definitions**
 
-    - **Zero Auto**: household has no vehicles.
+    - **{zero_auto_label}**: household has no vehicles.
     - **{deficient_label}**: household has fewer vehicles than {basis_noun}.
     - **{sufficient_label}**: household has at least as many vehicles as {basis_noun}.
     """

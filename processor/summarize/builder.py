@@ -36,11 +36,18 @@ def summary_builder_identity(summary_id: str) -> dict[str, object]:
     }
 
 
-def summary_digest(summary_id: str, config: Config) -> str:
+def summary_digest(
+    summary_id: str,
+    config: Config,
+    *,
+    analysis_unit_identity: dict[str, object] | None = None,
+) -> str:
     payload = {
         "summary_config_digest": config.summary_config_digest,
         "summary": summary_builder_identity(summary_id),
     }
+    if analysis_unit_identity is not None:
+        payload["analysis_unit"] = analysis_unit_identity
     return hashlib.sha256(
         json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
     ).hexdigest()
@@ -49,9 +56,15 @@ def summary_digest(summary_id: str, config: Config) -> str:
 def summary_digests(
     config: Config,
     summary_ids: list[str] | None = None,
+    *,
+    analysis_unit_identity: dict[str, object] | None = None,
 ) -> dict[str, str]:
     return {
-        summary_id: summary_digest(summary_id, config)
+        summary_id: summary_digest(
+            summary_id,
+            config,
+            analysis_unit_identity=analysis_unit_identity,
+        )
         for summary_id in (
             summary_ids if summary_ids is not None else DEFAULT_SUMMARY_IDS
         )

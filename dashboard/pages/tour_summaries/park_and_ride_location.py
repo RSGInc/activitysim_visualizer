@@ -109,12 +109,10 @@ class ParkAndRideLocationPage(DashboardPage):
             }
 
         residuals = normalize_geography_data(
-            self.data.summary("park_and_ride_location_residuals", required=False)
+            self.data.summary("park_and_ride_location_residuals")
         )
         histogram = normalize_geography_data(
-            self.data.summary(
-                "park_and_ride_location_residual_histogram", required=False
-            )
+            self.data.summary("park_and_ride_location_residual_histogram")
         )
         geo_opts, geo_raw_by_label = geography_type_options(
             histogram or residuals,
@@ -167,12 +165,17 @@ class ParkAndRideLocationPage(DashboardPage):
 
     def render_table_section(self) -> SectionContent:
         """Render the residual table for the selected geography level."""
-        if self._current_data["mode"] != "ready":
-            return []
+        if self._current_data["mode"] == "no_runs":
+            return [self.no_runs_message()]
 
         residuals = self._current_data["residuals"]
         if residuals is None:
-            return []
+            return [
+                self.data_not_available_card(
+                    detail="The park-and-ride residual summary is unavailable.",
+                    missing_items=["park_and_ride_location_residuals"],
+                )
+            ]
         if self._maz_tables_disabled():
             return [
                 self.data_not_available_card(

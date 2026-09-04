@@ -8,6 +8,7 @@ from pathlib import Path
 from .models import PrepareAutoSufficiencySettings
 from .normalize_categories import normalize_student_types
 from .normalize_prepare import (
+    normalize_prepare_category_mappings,
     normalize_prepare_non_motorized_distance_skim,
     normalize_prepare_relationship_checks,
     normalize_prepare_time_periods,
@@ -54,6 +55,10 @@ def parse_prepare(raw_value, *, config_dir: Path) -> ParsedPrepareSection:
 
     return ParsedPrepareSection(
         config_fields={
+            "prepare_category_mappings": normalize_prepare_category_mappings(
+                prepare.get("category_mappings"),
+                field_name="prepare.category_mappings",
+            ),
             "prepare_vot_bins": normalize_prepare_vot_bins(
                 prepare.get("vot_bins"), field_name="prepare.vot_bins"
             ),

@@ -13,7 +13,7 @@ from dashboard.helpers.category_helpers import (
 )
 
 DIRECTION_COL = "direction"
-DISTANCE_BINS = [str(i) for i in range(40)] + ["40+"]
+DISTANCE_BINS = ["0", ">0-<1", *[str(i) for i in range(1, 40)], "40+"]
 
 
 def direction_options(data_list: list[tuple[str, pl.DataFrame]]) -> list[str]:

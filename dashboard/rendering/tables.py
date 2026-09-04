@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import math
 
 import numpy as np
@@ -9,6 +10,7 @@ import panel as pn
 import polars as pl
 
 from dashboard.data_access import RunTableData, RunTables
+from dashboard.rendering.labels import attach_full_tab_titles, display_label_map
 
 TableData = RunTables | RunTableData
 
@@ -43,6 +45,43 @@ def format_numeric(value, *, precision: int | None = 2):
             return str(int(rounded))
         return f"{rounded:.{max(decimals, 0)}f}".rstrip("0").rstrip(".")
     return value
+
+
+def format_fixed_decimal(value, *, decimal_places: int):
+    if value is None:
+        return None
+    if isinstance(value, (bool, np.bool_)):
+        return value
+    if isinstance(value, (int, np.integer, float, np.floating)):
+        number = float(value)
+        if not math.isfinite(number):
+            return None
+        return f"{number:.{max(decimal_places, 0)}f}"
+    return value
+
+
+def format_fixed_decimal_frame(
+    frame: pl.DataFrame,
+    *,
+    decimal_places_by_column: dict[str, int] | None = None,
+) -> pl.DataFrame:
+    if not decimal_places_by_column:
+        return frame
+    expressions = []
+    for column, decimal_places in decimal_places_by_column.items():
+        dtype = frame.schema.get(column)
+        if dtype is None or not getattr(dtype, "is_numeric", lambda: False)():
+            continue
+        expressions.append(
+            pl.col(column).map_elements(
+                lambda value, places=decimal_places: format_fixed_decimal(
+                    value,
+                    decimal_places=places,
+                ),
+                return_dtype=pl.Utf8,
+            ).alias(column)
+        )
+    return frame.with_columns(expressions) if expressions else frame
 
 
 def format_numeric_frame(
@@ -93,6 +132,7 @@ _WORD_OVERRIDES = {
 _NAME_OVERRIDES = {
     "% Diff": "% Diff", "FACTYPE": "Facility Type",
     "From_Node": "From Node", "To_Node": "To Node",
+    "mean_nonzero": "Mean Non-Zero",
 }
 
 
@@ -125,6 +165,24 @@ def column_titles(columns: list[object] | tuple[object, ...]) -> dict[str, str]:
     return titles
 
 
+def column_title_metadata(
+    columns: list[object] | tuple[object, ...],
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Return compact column titles and full tooltips for truncated titles."""
+    full_titles = column_titles(columns)
+    display_titles = display_label_map(full_titles.values())
+    titles = {
+        column: display_titles[full_title]
+        for column, full_title in full_titles.items()
+    }
+    tooltips = {
+        column: full_title
+        for column, full_title in full_titles.items()
+        if titles[column] != full_title
+    }
+    return titles, tooltips
+
+
 def data_table(
     data: TableData,
     title: str = "",
@@ -132,13 +190,21 @@ def data_table(
     numeric_precision: int | None = 2,
     numeric_precision_by_column: dict[str, int] | None = None,
     column_sorters: dict[str, str] | None = None,
+    numeric_decimal_places_by_column: dict[str, int] | None = None,
 ) -> pn.viewable.Viewable:
+    data = list(data)
     tabs = pn.Tabs()
+    full_labels = [str(label) for label, frame in data if not frame.is_empty()]
+    display_labels = display_label_map(full_labels)
     for label, frame in data:
         if frame.is_empty():
             continue
+        full_label = str(label)
         display = format_numeric_frame(
-            drop_index_columns(frame),
+            format_fixed_decimal_frame(
+                drop_index_columns(frame),
+                decimal_places_by_column=numeric_decimal_places_by_column,
+            ),
             numeric_precision=numeric_precision,
             numeric_precision_by_column=numeric_precision_by_column,
         )
@@ -149,11 +215,23 @@ def data_table(
                 for column, sorter in column_sorters.items()
                 if str(column) in display.columns
             ]
-        tabs.append((label, pn.widgets.Tabulator(
+        titles, header_tooltips = column_title_metadata(display.columns)
+        table = pn.widgets.Tabulator(
             to_pandas(display), height=height, sizing_mode="stretch_width",
-            theme="simple", titles=column_titles(display.columns),
+            theme="simple", titles=titles, header_tooltips=header_tooltips,
             show_index=False, configuration=configuration,
-        )))
+        )
+        tab_content: pn.viewable.Viewable = table
+        if display_labels[full_label] != full_label:
+            tab_content = pn.Column(
+                pn.pane.HTML(
+                    f'<div class="run-table-full-label"><b>Run:</b> '
+                    f"{html.escape(full_label)}</div>"
+                ),
+                table,
+            )
+        tabs.append((display_labels[full_label], tab_content))
+    attach_full_tab_titles(tabs, full_labels)
     return pn.Column(pn.pane.Markdown(f"### {title}"), tabs) if title else tabs
 
 

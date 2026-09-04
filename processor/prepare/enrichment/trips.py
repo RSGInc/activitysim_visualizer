@@ -233,7 +233,7 @@ def _escort_link_targets(
     child_trip_purpose: str,
     target_col: str,
 ) -> pl.DataFrame:
-    if escorted_ids_col not in tours.columns:
+    if escorted_ids_col not in tours.columns or target_col not in trips.columns:
         return pl.DataFrame(
             schema={"tour_id": pl.Int64, "_target_values": pl.List(pl.Int64)}
         )
@@ -394,6 +394,7 @@ def _derive_escort_event_position_from_tour_links(state: _PrepareState) -> _Prep
         has_targets = (
             "_target_values" in candidates.columns
             and candidates.schema.get("_target_values") == pl.List(pl.Int64)
+            and location_col in candidates.columns
         )
         location_match_expr = (
             pl.col(location_col).cast(pl.Int64, strict=False).is_in(pl.col("_target_values"))
@@ -609,6 +610,45 @@ def _enrich_trips(
             config=config,
             metric_id="trips.AUTOSUFF",
         )
+
+    boundary_required = {"tour_id", "origin", "destination", "outbound", "trip_num"}
+    if boundary_required.issubset(state.trips.columns) and {
+        "tour_id",
+        "origin",
+    }.issubset(state.tours.columns):
+        boundaries = state.trips.group_by(["tour_id", "outbound"]).agg(
+            pl.col("trip_num").min().alias("_first_trip_num"),
+            pl.col("trip_num").max().alias("_last_trip_num"),
+        )
+        state.trips = (
+            state.trips.join(boundaries, on=["tour_id", "outbound"], how="left")
+            .join(
+                state.tours.select(
+                    "tour_id",
+                    pl.col("origin").alias("_tour_origin"),
+                ).unique("tour_id"),
+                on="tour_id",
+                how="left",
+            )
+            .with_columns(
+                pl.when(
+                    pl.col("outbound").cast(pl.Boolean, strict=False)
+                    & (pl.col("trip_num") == pl.col("_first_trip_num"))
+                )
+                .then(pl.coalesce("_tour_origin", "origin"))
+                .otherwise(pl.col("origin"))
+                .alias("origin"),
+                pl.when(
+                    ~pl.col("outbound").cast(pl.Boolean, strict=False)
+                    & (pl.col("trip_num") == pl.col("_last_trip_num"))
+                )
+                .then(pl.coalesce("_tour_origin", "destination"))
+                .otherwise(pl.col("destination"))
+                .alias("destination"),
+            )
+            .drop("_first_trip_num", "_last_trip_num", "_tour_origin")
+        )
+
     if config.use_maz and {"origin", "destination"}.issubset(state.trips.columns):
         state.trips = state.trips.with_columns(
             pl.col("origin").alias("o_maz"),

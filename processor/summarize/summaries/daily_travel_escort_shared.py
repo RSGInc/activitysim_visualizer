@@ -5,7 +5,11 @@ from __future__ import annotations
 import polars as pl
 
 from processor.models import RunData
-from processor.summarize.summaries.summary_helpers import _summary_purpose_column
+from processor.summarize.summaries.summary_helpers import (
+    _distance_bin_sort_expr,
+    _ensure_zero_distance_bin,
+    _summary_purpose_column,
+)
 
 _CHILD_PERSON_TYPES = {"6", "7", "8"}
 _STUDENT_SCHOOL_ESCORT_TYPES = ("not_escorted", "pure_escort", "ride_share")
@@ -219,14 +223,15 @@ def _sorted_distance_bins(
     value_col: str,
 ) -> pl.DataFrame:
     return (
-        df.with_columns(
+        _ensure_zero_distance_bin(
+            df,
+            group_cols=[direction_col],
+            value_col=value_col,
+        ).with_columns(
             pl.col("distance_bin").cast(pl.Utf8),
             pl.col(direction_col).cast(pl.Utf8),
             pl.col(value_col).cast(pl.Float64),
-            pl.when(pl.col("distance_bin") == "40+")
-            .then(999)
-            .otherwise(pl.col("distance_bin").cast(pl.Int64, strict=False))
-            .alias("_sort_distance"),
+            _distance_bin_sort_expr().alias("_sort_distance"),
         )
         .select("distance_bin", direction_col, value_col, "_sort_distance")
         .sort([direction_col, "_sort_distance"])

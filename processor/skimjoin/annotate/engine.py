@@ -11,6 +11,7 @@ from processor.skimjoin.annotate.trip_lookup_reports import (
     _apply_output_columns,
     _apply_rule_sentinel_values,
     _build_lookup_summary_frame,
+    _combined_output_values,
     _concat_missing_frames,
     _empty_lookup_results_frame,
     _missing_report_schema,
@@ -27,6 +28,32 @@ from processor.skimjoin.config.schema import NormalizedConfig, NormalizedLookupR
 from processor.skimjoin.skimstore.base import SkimStore
 
 
+def lookup_output_values(
+    source_table: pl.DataFrame,
+    *,
+    rules: list[NormalizedLookupRule],
+    normalized: NormalizedConfig,
+    inventory: pl.DataFrame,
+    mode_column: str,
+    skim_store: SkimStore | None = None,
+) -> pl.DataFrame:
+    skim_store = skim_store or SkimStore()
+    _plan_csv_tables(skim_store, inventory, normalized, rules)
+    if "_row_id" not in source_table.columns:
+        raise ValueError("source_table must include _row_id.")
+    if mode_column not in source_table.columns:
+        return _combined_output_values(pl.DataFrame())
+
+    resolved_results = _resolved_lookup_values_without_reports(
+        rules=rules,
+        mode_subsets=_partition_trips_by_mode(source_table, mode_column),
+        inventory=inventory,
+        normalized=normalized,
+        skim_store=skim_store,
+    )
+    return _combined_output_values(resolved_results)
+
+
 def annotate_lookup_table(
     base_table: pl.DataFrame,
     *,
@@ -37,11 +64,14 @@ def annotate_lookup_table(
     mode_column: str,
     skim_store: SkimStore | None = None,
     include_fallback_report: bool = False,
+    collect_reports: bool = True,
     table_name: str = "trips",
 ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame] | tuple[
     pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame
 ]:
     skim_store = skim_store or SkimStore()
+    _plan_csv_tables(skim_store, inventory, normalized, rules)
+    collect_reports = collect_reports or include_fallback_report
     if "_row_id" not in base_table.columns:
         base_table = base_table.with_row_index("_row_id")
     source_table = source_table if source_table is not None else base_table
@@ -55,6 +85,17 @@ def annotate_lookup_table(
         )
 
     mode_subsets = _partition_trips_by_mode(source_table, mode_column)
+    if not collect_reports:
+        resolved_results = _resolved_lookup_values_without_reports(
+            rules=rules,
+            mode_subsets=mode_subsets,
+            inventory=inventory,
+            normalized=normalized,
+            skim_store=skim_store,
+        )
+        annotated = _apply_output_columns(base_table, resolved_results)
+        return annotated.drop("_row_id"), pl.DataFrame(), pl.DataFrame()
+
     work_item_frames, missing_frames, attempt_failure_frames, final_failure_frames = (
         _rule_work_items_and_errors(
             rules=rules,
@@ -84,14 +125,14 @@ def annotate_lookup_table(
     resolved_results = _select_resolved_chain_results(results)
     annotated = _apply_output_columns(base_table, resolved_results)
     missing_report = _concat_missing_frames(missing_frames)
-    fallback_report = _build_fallback_lookup_report(
-        resolved_results=resolved_results,
-        attempt_failure_frames=attempt_failure_frames,
-        final_failure_frames=final_failure_frames,
-        rule_by_name=rule_by_name,
-        table_name=table_name,
-    )
     if include_fallback_report:
+        fallback_report = _build_fallback_lookup_report(
+            resolved_results=resolved_results,
+            attempt_failure_frames=attempt_failure_frames,
+            final_failure_frames=final_failure_frames,
+            rule_by_name=rule_by_name,
+            table_name=table_name,
+        )
         return (
             annotated.drop("_row_id"),
             lookup_summary,
@@ -99,6 +140,69 @@ def annotate_lookup_table(
             fallback_report,
         )
     return annotated.drop("_row_id"), lookup_summary, missing_report
+
+
+def _plan_csv_tables(
+    skim_store: SkimStore,
+    inventory: pl.DataFrame,
+    normalized: NormalizedConfig,
+    rules: list[NormalizedLookupRule],
+) -> None:
+    all_rules = [*normalized.trip_lookups, *normalized.tour_lookups, *rules]
+    skim_store.plan_csv_tables(
+        inventory,
+        matrix_templates={rule.matrix for rule in all_rules},
+    )
+
+
+def _resolved_lookup_values_without_reports(
+    *,
+    rules: list[NormalizedLookupRule],
+    mode_subsets: dict[str, pl.DataFrame],
+    inventory: pl.DataFrame,
+    normalized: NormalizedConfig,
+    skim_store: SkimStore,
+) -> pl.DataFrame:
+    metadata = _inventory_metadata_frame(inventory, normalized)
+    rule_by_name = {rule.name: rule for rule in rules}
+    resolved_frames: list[pl.DataFrame] = []
+
+    for chain_rules in _group_rules_by_chain(rules):
+        chain_work_items, _, _ = _resolve_chain_work_items(
+            chain_rules=chain_rules,
+            mode_subsets=mode_subsets,
+            collect_reports=False,
+        )
+        if not chain_work_items:
+            continue
+        chain_queue = (
+            chain_work_items[0]
+            if len(chain_work_items) == 1
+            else pl.concat(chain_work_items, how="vertical")
+        )
+        chain_results, _, _ = _execute_chain_queue(
+            chain_queue=chain_queue,
+            metadata=metadata,
+            rule_by_name=rule_by_name,
+            normalized=normalized,
+            skim_store=skim_store,
+            collect_reports=False,
+        )
+        if not chain_results:
+            continue
+        resolved = _select_resolved_chain_results(
+            chain_results[0]
+            if len(chain_results) == 1
+            else pl.concat(chain_results, how="vertical_relaxed")
+        )
+        if not resolved.is_empty():
+            resolved_frames.append(
+                resolved.select("_row_id", "output", "combine_method", "value")
+            )
+
+    if not resolved_frames:
+        return pl.DataFrame()
+    return pl.concat(resolved_frames, how="vertical_relaxed")
 
 
 def _missing_mode_response(
@@ -131,6 +235,7 @@ def _rule_work_items_and_errors(
         chain_work_items, chain_missing, chain_failures = _resolve_chain_work_items(
             chain_rules=chain_rules,
             mode_subsets=mode_subsets,
+            collect_reports=True,
         )
         work_item_frames.extend(chain_work_items)
         attempt_failure_frames.extend(chain_failures)
@@ -172,6 +277,7 @@ def _executed_lookup_results(
             rule_by_name=rule_by_name,
             normalized=normalized,
             skim_store=skim_store,
+            collect_reports=True,
         )
         result_frames.extend(chain_results)
         attempt_failure_frames.extend(chain_failures)
@@ -197,6 +303,7 @@ def _resolve_chain_work_items(
     *,
     chain_rules: list[NormalizedLookupRule],
     mode_subsets: dict[str, pl.DataFrame],
+    collect_reports: bool,
 ) -> tuple[list[pl.DataFrame], pl.DataFrame, list[pl.DataFrame]]:
     if not chain_rules:
         return [], _empty_missing_detail_report(), []
@@ -213,17 +320,22 @@ def _resolve_chain_work_items(
     for rule in chain_rules:
         missing_columns = _missing_trip_columns_for_rule(subset, rule)
         if missing_columns:
-            failure_history.append(
-                _chain_failure_frame_for_rows(
-                    subset,
-                    rule=rule,
-                    reason=f"missing_trip_column:{missing_columns[0]}",
+            if collect_reports:
+                failure_history.append(
+                    _chain_failure_frame_for_rows(
+                        subset,
+                        rule=rule,
+                        reason=f"missing_trip_column:{missing_columns[0]}",
+                    )
                 )
-            )
             continue
 
-        valid_items, resolution_errors = _resolve_rule_work_items(rule, subset)
-        if not resolution_errors.is_empty():
+        valid_items, resolution_errors = _resolve_rule_work_items(
+            rule,
+            subset,
+            include_errors=collect_reports,
+        )
+        if collect_reports and not resolution_errors.is_empty():
             failure_history.append(
                 _decorate_failure_frame(resolution_errors, rule=rule)
             )
@@ -231,7 +343,11 @@ def _resolve_chain_work_items(
             continue
 
         work_item_frames.append(valid_items)
-        planned_row_ids.append(valid_items.select("_row_id").unique())
+        if collect_reports:
+            planned_row_ids.append(valid_items.select("_row_id").unique())
+
+    if not collect_reports:
+        return work_item_frames, _empty_missing_detail_report(), []
 
     unresolved = (
         subset.join(
@@ -257,6 +373,7 @@ def _execute_chain_queue(
     rule_by_name: dict[str, NormalizedLookupRule],
     normalized: NormalizedConfig,
     skim_store: SkimStore,
+    collect_reports: bool,
 ) -> tuple[list[pl.DataFrame], pl.DataFrame, list[pl.DataFrame]]:
     result_frames: list[pl.DataFrame] = []
     failure_history: list[pl.DataFrame] = []
@@ -277,22 +394,33 @@ def _execute_chain_queue(
 
         queued = step_queue.join(metadata, on="matrix_name", how="left")
 
-        missing_matrix = queued.filter(pl.col("file_path").is_null())
-        if not missing_matrix.is_empty():
-            for row in missing_matrix.select(
-                ["rule_name", "matrix_name"]
-            ).unique(maintain_order=True).iter_rows(named=True):
-                rule = rule_by_name[str(row["rule_name"])]
-                group = missing_matrix.filter(
-                    (pl.col("rule_name") == row["rule_name"])
-                    & (pl.col("matrix_name") == row["matrix_name"])
-                )
-                failure_history.append(
-                    _decorate_failure_frame(
-                        _missing_matrix_frame(rule, str(row["matrix_name"]), group),
-                        rule=rule,
+        ambiguous = queued.filter(pl.col("source_kind") == "ambiguous")
+        if not ambiguous.is_empty():
+            row = ambiguous.select(
+                ["matrix_name", "ambiguous_sources"]
+            ).unique(maintain_order=True).row(0, named=True)
+            raise ValueError(
+                f"Ambiguous matrix reference {row['matrix_name']!r}; qualify it with one of: "
+                f"{row['ambiguous_sources']}"
+            )
+
+        if collect_reports:
+            missing_matrix = queued.filter(pl.col("file_path").is_null())
+            if not missing_matrix.is_empty():
+                for row in missing_matrix.select(
+                    ["rule_name", "matrix_name"]
+                ).unique(maintain_order=True).iter_rows(named=True):
+                    rule = rule_by_name[str(row["rule_name"])]
+                    group = missing_matrix.filter(
+                        (pl.col("rule_name") == row["rule_name"])
+                        & (pl.col("matrix_name") == row["matrix_name"])
                     )
-                )
+                    failure_history.append(
+                        _decorate_failure_frame(
+                            _missing_matrix_frame(rule, str(row["matrix_name"]), group),
+                            rule=rule,
+                        )
+                    )
 
         executable = queued.filter(pl.col("file_path").is_not_null())
         if executable.is_empty():
@@ -310,9 +438,10 @@ def _execute_chain_queue(
         step_results = _apply_rule_sentinel_values(step_results, rule_by_name)
         result_frames.append(step_results)
 
-        invalid = step_results.filter(~pl.col("valid"))
-        if not invalid.is_empty():
-            failure_history.append(_invalid_chain_failure_frame(invalid))
+        if collect_reports:
+            invalid = step_results.filter(~pl.col("valid"))
+            if not invalid.is_empty():
+                failure_history.append(_invalid_chain_failure_frame(invalid))
 
         resolved_row_ids = (
             step_results.filter(pl.col("valid")).select("_row_id").unique()
@@ -320,6 +449,8 @@ def _execute_chain_queue(
         if not resolved_row_ids.is_empty():
             unresolved = unresolved.join(resolved_row_ids, on="_row_id", how="anti")
 
+    if not collect_reports:
+        return result_frames, _empty_missing_detail_report(), []
     return (
         result_frames,
         _finalize_chain_failures(failure_history, unresolved),

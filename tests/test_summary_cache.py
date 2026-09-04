@@ -29,8 +29,9 @@ from dashboard.pages.daily_travel.daily_activity_pattern import (
 from dashboard.pages.daily_travel.escorted_tours import EscortedToursPage
 from dashboard.pages.joint_travel import JointTravelPage
 from dashboard.pages.overview import OverviewPage
-from dashboard.pages.skim_summaries.trip_skims import TripSkimsPage
+from dashboard.pages.skim_summaries._shared import family_stats_table, skim_family_for_mode
 from dashboard.pages.skim_summaries.tour_skims import TourSkimsPage
+from dashboard.pages.skim_summaries.trip_skims import TripSkimsPage
 from dashboard.pages.tour_summaries.tour_mode import (
     TourModePage as TourSummariesTourModePage,
 )
@@ -57,9 +58,11 @@ from dashboard.pages.trip_summaries.trip_stop_distance import TripStopDistancePa
 from dashboard.pages.trip_summaries.trip_stop_time import TripStopTimePage
 from dashboard.pages.validation.traffic import TrafficValidationPage
 from dashboard.pages.validation.transit import TransitValidationPage
-from dashboard.data_access import DashboardPreparedRunProvider
+from dashboard.pages.validation.regional import RegionalValidationPage
+from dashboard.pages.validation.vmt import VMTValidationPage
+from dashboard.data_access import DashboardPreparedRunProvider, DashboardSummarySeries
 from dashboard.state import DashboardState
-from dashboard.page_registry import page_definitions_for_group
+from dashboard.page_registry import all_page_definitions, page_definitions_for_group
 from processor.models import RunData
 from processor.prepare.cache import build_prepared_manifest_identity
 from processor.prepare.enrichment.pipeline import prepare_data
@@ -299,6 +302,20 @@ def _skim_summary_tables() -> tuple[dict[str, pl.DataFrame], dict[str, pl.DataFr
                     7.004,
                     18.5,
                 ],
+                "mean_nonzero": [
+                    15.126,
+                    3.452,
+                    99.111,
+                    1.827,
+                    12.233,
+                    1.604,
+                    28.06,
+                    8.887,
+                    34.221,
+                    28.781,
+                    7.004,
+                    18.5,
+                ],
                 "std": [
                     1.554,
                     0.882,
@@ -422,6 +439,15 @@ def _skim_summary_tables() -> tuple[dict[str, pl.DataFrame], dict[str, pl.DataFr
                 "n_total": [5.0, 5.0, 6.0, 4.0, 4.0, 3.0, 3.0],
                 "n_valid": [5.0, 4.0, 6.0, 4.0, 4.0, 3.0, 3.0],
                 "mean": [25.333, 21.112, 4.557, 41.221, 39.778, 9.115, 8.441],
+                "mean_nonzero": [
+                    25.333,
+                    21.112,
+                    4.557,
+                    41.221,
+                    39.778,
+                    9.115,
+                    8.441,
+                ],
                 "std": [2.111, 2.004, 0.631, 4.221, 3.992, 1.202, 1.103],
                 "min": [21.0, 17.0, 3.4, 35.0, 34.0, 7.0, 6.7],
                 "max": [29.0, 24.0, 5.3, 47.0, 45.0, 11.0, 10.2],
@@ -2054,7 +2080,9 @@ def test_trip_stop_distance_live_page_uses_shared_summary_helpers(
     assert page.trip_stop_distance_range.current_range() == (0.0, 40.0)
     assert list(stop_ood_plot.object.data[0].x) == [0.0, 1.0, 40.0]
     assert list(stop_ood_plot.object.layout.xaxis.ticktext) == [
-        *[str(value) for value in range(0, 40, 2)],
+        "0",
+        ">0-<1",
+        *[str(value) for value in range(2, 40, 2)],
         "40+",
     ]
     assert list(stop_ood_plot.object.layout.xaxis.range) == [0.0, 40.0]
@@ -2559,7 +2587,128 @@ def test_skim_summaries_group_lists_tour_skims_before_trip_skims() -> None:
     ]
 
 
-def test_trip_skims_page_uses_family_selector_and_two_digit_precision_summary_table(
+def test_bike_transit_uses_transit_skim_family() -> None:
+    assert skim_family_for_mode("BIKE_TRANSIT") == "Transit Skims"
+    assert skim_family_for_mode("EBIKE") == "Bike Skims"
+
+
+def test_skim_family_tables_only_show_outputs_configured_for_each_mode(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    _attach_test_skimjoin_config(config)
+    normalized = config.skimjoin.normalized_config
+    series = DashboardSummarySeries(label="Base", summaries_by_mode={})
+    for target_table, mode_column, direction_suffix in (
+        ("trips", "trip_mode", ""),
+        ("tours", "tour_mode", "_outbound"),
+    ):
+        lookups = getattr(normalized, f"{target_table[:-1]}_lookups")
+        lookups.extend(
+            [
+                SimpleNamespace(mode="BIKE", output=f"skim_bike_distance{direction_suffix}"),
+                SimpleNamespace(mode="BIKE", output=f"skim_bike_logsum{direction_suffix}"),
+                SimpleNamespace(mode="EBIKE", output=f"skim_bike_distance{direction_suffix}"),
+            ]
+        )
+        stats = pl.DataFrame(
+            {
+                "component": [
+                    f"skim_bike_distance{direction_suffix}",
+                    f"skim_bike_logsum{direction_suffix}",
+                ],
+                mode_column: ["EBIKE", "EBIKE"],
+                "n_valid": [2.0, 0.0],
+            }
+        )
+
+        result = family_stats_table(
+            config,
+            [("Base", series, stats)],
+            family="Bike Skims",
+            mode_column=mode_column,
+            target_table=target_table,
+            direction="outbound" if direction_suffix else None,
+        )[0][1]
+
+        assert result["skim_name"].to_list() == ["Bike Distance (mi)"]
+
+
+def test_skim_family_tables_use_all_records_pairs_without_skimjoin_config(
+    tmp_path: Path,
+) -> None:
+    config = _write_config(tmp_path)
+    series = DashboardSummarySeries(label="Comparison", summaries_by_mode={})
+    for target_table, mode_column, direction_suffix in (
+        ("trips", "trip_mode", ""),
+        ("tours", "tour_mode", "_outbound"),
+    ):
+        auto_component = f"skim_auto_time{direction_suffix}"
+        transit_component = f"skim_transit_brt_ivtt{direction_suffix}"
+        walk_component = f"skim_walk_distance{direction_suffix}"
+        stats = pl.DataFrame(
+            {
+                "skim_scenario": [
+                    "chosen_mode",
+                    "chosen_mode",
+                    "chosen_mode",
+                    "chosen_mode",
+                    "chosen_mode",
+                    "all_records",
+                    "all_records",
+                ],
+                mode_column: [
+                    "SOV",
+                    "SOV",
+                    "HOV2",
+                    "WALK_TRANSIT",
+                    "WALK_TRANSIT",
+                    "SOV",
+                    "WALK_TRANSIT",
+                ],
+                "component": [
+                    auto_component,
+                    walk_component,
+                    walk_component,
+                    transit_component,
+                    auto_component,
+                    auto_component,
+                    transit_component,
+                ],
+                "n_valid": [5.0, 0.0, 0.0, 4.0, 0.0, 10.0, 10.0],
+            }
+        )
+        data = [("Comparison", series, stats)]
+
+        auto = family_stats_table(
+            config,
+            data,
+            family="Auto Skims",
+            mode_column=mode_column,
+            target_table=target_table,
+            direction="outbound" if direction_suffix else None,
+        )[0][1]
+        transit = family_stats_table(
+            config,
+            data,
+            family="Transit Skims",
+            mode_column=mode_column,
+            target_table=target_table,
+            direction="outbound" if direction_suffix else None,
+        )[0][1]
+
+        expected_auto_name = (
+            "Drive Time (min)" if target_table == "trips" else "Time (min)"
+        )
+        assert auto.select(mode_column, "skim_name").rows() == [
+            ("SOV", expected_auto_name)
+        ]
+        assert transit.select(mode_column, "skim_name").rows() == [
+            ("WALK_TRANSIT", "BRT In-Vehicle Time (min)")
+        ]
+
+
+def test_trip_skims_page_uses_family_selector_and_fixed_precision_summary_table(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -2589,8 +2738,13 @@ def test_trip_skims_page_uses_family_selector_and_two_digit_precision_summary_ta
     assert list(table.value.columns[:2]) == ["skim_name", "trip_mode"]
     assert set(table.value["trip_mode"].tolist()) == {"SOV", "HOV2", "HOV3"}
     assert "Bonus" not in table.value["skim_name"].tolist()
-    assert table.value["mean"].tolist() == ["3.5", "7", "15"]
+    assert table.value["mean"].tolist() == ["3.5", "7.0", "15.1"]
+    assert table.value["mean_nonzero"].tolist() == ["3.5", "7.0", "15.1"]
+    assert table.titles["mean_nonzero"] == "Mean Non-Zero"
+    assert table.value["std"].tolist() == ["0.9", "1.0", "1.6"]
+    assert table.value["min"].tolist() == ["1.2", "5.0", "11.0"]
     assert table.value["n_valid"].tolist() == ["11", "10", "9"]
+    assert table.value["zero_share"].tolist() == ["0.000", "0.000", "0.000"]
 
     if "Other Skims" in page.trip_family_sel.options:
         page.trip_family_sel.value = "Other Skims"
@@ -2618,8 +2772,8 @@ def test_trip_walk_skims_use_explicit_walk_distance_and_time_labels(
     assert table.value["skim_name"].tolist() == [
         "MAZ Actual Walk Time (min)",
         "MAZ Network Walk Distance (mi)",
-        "TAZ Skim Walk Distance (mi)",
         "Total Walk Access/Egress Time (min)",
+        "Walk Distance (mi)",
     ]
 
 
@@ -2637,6 +2791,7 @@ def test_trip_skim_family_respects_skimjoin_ignored_modes(
             "n_total": [4.0, 3.0, 2.0],
             "n_valid": [4.0, 3.0, 2.0],
             "mean": [6.0, 7.0, 8.0],
+            "mean_nonzero": [6.0, 7.0, 8.0],
             "std": [1.0, 1.0, 1.0],
             "min": [5.0, 6.0, 7.0],
             "max": [7.0, 8.0, 9.0],
@@ -2705,6 +2860,10 @@ def test_tour_skims_page_uses_family_and_direction_selectors_for_summary_table(
     assert list(table.value.columns[:2]) == ["skim_name", "tour_mode"]
     assert set(table.value["tour_mode"].tolist()) == {"SOV", "HOV2"}
     assert set(table.value["skim_name"].tolist()) == {"Cost ($)", "Time (min)"}
+    assert table.value["mean"].tolist() == ["4.6", "25.3"]
+    assert table.value["mean_nonzero"].tolist() == ["4.6", "25.3"]
+    assert table.value["n_valid"].tolist() == ["6", "5"]
+    assert table.value["min"].tolist() == ["3.4", "21.0"]
     assert "Outbound" == page.tour_direction_sel.value
 
     page.tour_family_sel.value = "Transit Skims"
@@ -3179,7 +3338,9 @@ def test_escorted_tours_live_page_renders_stop_distribution_controls_and_charts(
     assert page.escort_distance_range.current_range() == (0.0, 40.0)
     assert list(distance_plot.object.layout.xaxis.range) == [0.0, 40.0]
     assert list(distance_plot.object.layout.xaxis.ticktext) == [
-        *[str(value) for value in range(0, 40, 2)],
+        "0",
+        ">0-<1",
+        *[str(value) for value in range(2, 40, 2)],
         "40+",
     ]
     page.escort_distance_range.min_widget.value = 10.0
@@ -3273,6 +3434,17 @@ def test_escorted_tours_page_renders_core_charts_when_optional_summaries_missing
     assert "Adult Escort Stops Before Dropoff - Outbound" in titles
     assert "Adult Escort Trip Stop Frequency - Both Directions" not in titles
     assert all("Schoolkids Per Escorted Tour" not in title for title in titles)
+    card_text = [
+        str(card.objects[0].object)
+        for card in _collect_cards(page.view)
+        if card.objects
+    ]
+    assert any("student_school_escort_status_by_direction" in text for text in card_text)
+    assert any("student_households_by_student_count" in text for text in card_text)
+    assert any(
+        "schoolkids_per_escorted_tour_by_student_count_and_direction" in text
+        for text in card_text
+    )
 
 
 def test_escorted_tours_page_uses_configured_escort_labels_for_student_status(
@@ -3474,6 +3646,14 @@ def test_overview_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
     page.refresh(force=True)
 
     assert page.view.objects
+    kpi_titles = [card.title for card in _collect_cards(page._kpi_section)]
+    assert "Population (person-days)" in kpi_titles
+    assert "Households (HH-days)" in kpi_titles
+    percent_difference_table = _collect_tabulators(page._kpi_section)[0]
+    assert list(percent_difference_table.value["Metric"][:2]) == [
+        "Population (person-days)",
+        "Households (HH-days)",
+    ]
     household_plot = next(
         plot
         for plot in _collect_plotly_panes(page._demographics_section)
@@ -3663,9 +3843,9 @@ def test_tour_summaries_tour_mode_page_renders_main_chart_without_vehicle_summar
     ]
     assert chart_titles == [
         "Tour Mode - All",
-        "Tour Mode - Zero Auto",
-        "Tour Mode - Fewer Vehicles Than Drivers",
-        "Tour Mode - At Least As Many Vehicles as Drivers",
+        "Tour Mode - Zero Auto Households",
+        "Tour Mode - Households with Fewer Vehicles Than Drivers",
+        "Tour Mode - Households with At Least as Many Vehicles as Drivers",
     ]
     vehicle_cards = _collect_cards(page._vehicle_section)
     assert len(vehicle_cards) == 3
@@ -3760,8 +3940,9 @@ def test_tour_mode_auto_sufficiency_definitions_follow_configured_basis(
 
     markdown = auto_sufficiency_definitions_markdown(config)
 
-    assert "**Fewer Vehicles Than Workers**" in markdown
-    assert "**At Least As Many Vehicles as Workers**" in markdown
+    assert "**Zero Auto Households**" in markdown
+    assert "**Households with Fewer Vehicles Than Workers**" in markdown
+    assert "**Households with At Least as Many Vehicles as Workers**" in markdown
     assert "household has fewer vehicles than workers." in markdown
     assert "household has at least as many vehicles as workers." in markdown
 
@@ -3922,8 +4103,8 @@ def test_internal_external_tours_geo_selector_uses_union_levels_across_tables(
         weighted={
             "internal_external_nonmandatory_tour_frequency_by_home_geography": pl.DataFrame(
                 {
-                    "geography_level": ["all_geographies", "maz", "district"],
-                    "home_geography": ["all_geographies", "1", "A"],
+                    "geography_type": ["all_geographies", "maz", "district"],
+                    "geography_id": ["all_geographies", "1", "A"],
                     "internal_tour_count": [5.0, 2.0, 3.0],
                     "external_tour_count": [2.0, 1.0, 1.0],
                 }
@@ -4833,6 +5014,7 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
     assert list(distance_plots[0].object.data[0].x) == [1.0, 40.0]
     assert list(distance_plots[0].object.layout.xaxis.ticktext) == [
         "0",
+        ">0-<1",
         "2",
         "4",
         "6",
@@ -4856,6 +5038,12 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
     ]
     assert list(distance_plots[0].object.layout.xaxis.range) == [0.0, 40.0]
     assert list(distance_plots[0].object.data[0].y) == [60.0, 40.0]
+    assert list(distance_plots[1].object.data[0].x) == [1.0, 2.0]
+    assert list(distance_plots[1].object.data[0].y) == pytest.approx(
+        [83.33333333333334, 16.666666666666664]
+    )
+    assert list(distance_plots[2].object.data[0].x) == [1.0, 2.0]
+    assert list(distance_plots[2].object.data[0].y) == [60.0, 40.0]
     page.mandatory_distance_range.min_widget.value = 2.0
     page.mandatory_distance_range.max_widget.value = "10"
     page.refresh(force=True)
@@ -4890,16 +5078,16 @@ def test_mandatory_location_choice_reorders_sections_and_shows_all_distance_plot
         "university",
     ]
     assert comparison_table["Average Mandatory Tour Distance"].tolist() == [
-        "8",
-        "4",
-        "10",
+        "8.0",
+        "4.0",
+        "10.0",
     ]
     assert comparison_table["Base Run Average Mandatory Tour Distance"].tolist() == [
-        "8",
-        "4",
-        "10",
+        "8.0",
+        "4.0",
+        "10.0",
     ]
-    assert comparison_table["Difference"].tolist() == ["0", "0", "0"]
+    assert comparison_table["Difference"].tolist() == ["0.0", "0.0", "0.0"]
     assert comparison_table["% Difference"].tolist() == ["0.00%", "0.00%", "0.00%"]
 
 
@@ -4969,10 +5157,27 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
                         "school_district",
                         "school_district",
                         "school_district",
+                        "region",
+                        "region",
+                        "region",
                     ],
-                    "geography_id": ["North", "North", "South"],
-                    "telecommute_frequency": ["never", "often", "never"],
-                    "person_count": [7.0, 5.0, 4.0],
+                    "geography_id": [
+                        "North",
+                        "North",
+                        "South",
+                        "Metro",
+                        "Metro",
+                        "Rural",
+                    ],
+                    "telecommute_frequency": [
+                        "never",
+                        "often",
+                        "never",
+                        "never",
+                        "often",
+                        "never",
+                    ],
+                    "person_count": [7.0, 5.0, 4.0, 6.0, 2.0, 2.0],
                 }
             ),
             "average_mandatory_tour_distance_by_purpose_and_geography": pl.DataFrame(
@@ -5000,6 +5205,7 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
     page.refresh(force=True)
 
     assert "School District" in list(page.geo_level_sel.options)
+    assert "Region" in list(page.geo_level_sel.options)
     assert list(page.geography_sel.options) == ["All Geographies"]
     page.geo_level_sel.value = "School District"
     page.refresh(force=True)
@@ -5068,16 +5274,16 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
         "% Difference",
     ]
     assert comparison_table["Average Mandatory Tour Distance"].tolist() == [
-        "8",
-        "4",
-        "10",
+        "8.0",
+        "4.0",
+        "10.0",
     ]
     assert comparison_table["Base Run Average Mandatory Tour Distance"].tolist() == [
-        "8",
-        "4",
-        "10",
+        "8.0",
+        "4.0",
+        "10.0",
     ]
-    assert comparison_table["Difference"].tolist() == ["0", "0", "0"]
+    assert comparison_table["Difference"].tolist() == ["0.0", "0.0", "0.0"]
     assert comparison_table["% Difference"].tolist() == ["0.00%", "0.00%", "0.00%"]
 
     page.geography_sel.value = "South"
@@ -5090,6 +5296,29 @@ def test_mandatory_location_choice_supports_configured_geography_levels_for_dist
     )
     assert list(south_telecommute_plot.object.data[0].x) == ["never", "often"]
     assert list(south_telecommute_plot.object.data[0].y) == [100.0, 0.0]
+
+    page.geo_level_sel.value = "Region"
+    page.refresh(force=True)
+    assert list(page.geography_sel.options) == ["All Regions", "Metro", "Rural"]
+    region_remote_work_plots = _collect_plotly_panes(page._remote_work_section)
+    region_telecommute_plot = next(
+        plot
+        for plot in region_remote_work_plots
+        if plot.object.layout.title.text == "Telecommute Rate"
+    )
+    assert list(region_telecommute_plot.object.data[0].x) == ["never", "often"]
+    assert list(region_telecommute_plot.object.data[0].y) == [80.0, 20.0]
+
+    page.geography_sel.value = "Rural"
+    page.refresh(force=True)
+    rural_remote_work_plots = _collect_plotly_panes(page._remote_work_section)
+    rural_telecommute_plot = next(
+        plot
+        for plot in rural_remote_work_plots
+        if plot.object.layout.title.text == "Telecommute Rate"
+    )
+    assert list(rural_telecommute_plot.object.data[0].x) == ["never", "often"]
+    assert list(rural_telecommute_plot.object.data[0].y) == [100.0, 0.0]
 
 
 def test_mandatory_location_choice_reuses_collected_data_on_selector_changes(
@@ -5225,6 +5454,7 @@ def test_traffic_validation_removes_direction_period_selectors_and_count_card(
                     "direction": ["outbound"],
                     "count_period": ["AM"],
                     "screenline_id": ["A"],
+                    "facility_type": [3],
                     "observed_volume": [15.0],
                     "modeled_volume": [14.0],
                 }
@@ -5244,6 +5474,8 @@ def test_traffic_validation_removes_direction_period_selectors_and_count_card(
         "demo_facility_type",
         "demo_top_period",
         "demo_top_n",
+        "screenline_period",
+        "screenline_facility_type",
     ]
     assert page.demo_period_sel.name == "Period"
     assert page.demo_top_period_sel.name == "Period"
@@ -5261,12 +5493,20 @@ def test_traffic_validation_removes_direction_period_selectors_and_count_card(
         "demo_facility_type",
     )
     assert sections["link_tables.volume"].selector_ids == ("demo_period",)
-    assert page.view.objects[-2].object == "### Screenline Flow Summaries"
+    assert sections["screenlines.body"].selector_ids == (
+        "screenline_period",
+        "screenline_facility_type",
+    )
+    assert page.view.objects[-3].object == "### Screenline Flow Summaries"
+    assert list(page.view.objects[-2].objects) == [
+        page.screenline_period_sel,
+        page.screenline_facility_sel,
+    ]
     plot_titles = [
         plot.object.layout.title.text
         for plot in _collect_plotly_panes(page._screenline_body)
     ]
-    assert plot_titles == ["Screenline Flow Comparisons"]
+    assert plot_titles == ["Screenline Observed vs Modeled - Day"]
 
 
 def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
@@ -5297,11 +5537,12 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
             ),
             "screenline_flow_comparisons": pl.DataFrame(
                 {
-                    "direction": ["outbound"],
-                    "count_period": ["AM"],
-                    "screenline_id": ["A"],
-                    "observed_volume": [15.0],
-                    "modeled_volume": [14.0],
+                    "direction": ["outbound", "outbound", "inbound"],
+                    "count_period": ["AM", "AM", "AM"],
+                    "screenline_id": ["A", "B", "C"],
+                    "facility_type": [3, 3, 4],
+                    "observed_volume": [15.0, 25.0, 35.0],
+                    "modeled_volume": [14.0, 27.0, 30.0],
                 }
             ),
             "link_validation_summary": pl.DataFrame(
@@ -5353,6 +5594,8 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
     assert page.demo_top_n_sel.name == "Top N by Modeled Volume"
     page.demo_period_sel.value = "AM"
     page.demo_facility_sel.value = "Principal Arterial"
+    page.screenline_period_sel.value = "AM"
+    page.screenline_facility_sel.value = "Principal Arterial"
     page.refresh(force=True)
 
     tables = _collect_tabulators(page._external_top_body)
@@ -5401,7 +5644,8 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
         "Total Modeled Count",
         "% Difference",
         "RMSE",
-        "R^2",
+        "RMSPE",
+        "R²",
     ]
     assert facility_table.to_dict("records") == [
         {
@@ -5411,7 +5655,8 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
             "Total Modeled Count": "210",
             "% Difference": "5.00%",
             "RMSE": "10",
-            "R^2": None,
+            "RMSPE": "5.00%",
+            "R²": None,
         },
         {
             "Facility Type": "Principal Arterial",
@@ -5420,14 +5665,15 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
             "Total Modeled Count": "110",
             "% Difference": "10.00%",
             "RMSE": "10",
-            "R^2": None,
+            "RMSPE": "10.00%",
+            "R²": None,
         },
     ]
     assert facility_tables[0]._configuration == {
         "columns": [
             {"field": "n", "sorter": "number"},
             {"field": "RMSE", "sorter": "number"},
-            {"field": "R^2", "sorter": "number"},
+            {"field": "R²", "sorter": "number"},
         ]
     }
     assert any(
@@ -5459,26 +5705,53 @@ def test_traffic_validation_external_volume_table_compares_observed_and_modeled(
     reference_line = count_plot.object.data[-1]
 
     assert reference_line.name == "1:1 line"
-    assert list(reference_line.x) == [0.0, 11.0]
-    assert list(reference_line.y) == [0.0, 11.0]
+    assert list(reference_line.x) == [10.0, 11.0]
+    assert list(reference_line.y) == [10.0, 11.0]
     assert reference_line.line.color == "#BDBDBD"
     assert reference_line.line.dash == "dash"
-    assert reference_line.showlegend is False
+    assert reference_line.showlegend is True
+    assert list(count_plot.object.layout.xaxis.range) == [10.0, 11.0]
+    assert list(count_plot.object.layout.yaxis.range) == [10.0, 11.0]
+    assert count_plot.object.layout.xaxis.constrain == "domain"
+    assert count_plot.object.layout.yaxis.constrain == "domain"
+    assert count_plot.object.layout.yaxis.scaleanchor == "x"
+    assert count_plot.object.layout.legend.orientation == "v"
+    assert count_plot.object.layout.legend.x == 1.02
     assert count_plot.sizing_mode == "scale_width"
     assert count_plot.aspect_ratio == 1.0
+    assert "Observed Count (vehicles): %{x}" in count_plot.object.data[0].hovertemplate
+    assert "Modeled Volume (vehicles): %{y}" in count_plot.object.data[0].hovertemplate
     assert list(bar_plot.object.data[0].x) == [
         "Minor Arterial",
         "Principal Arterial",
     ]
     assert bar_plot.object.layout.showlegend is True
     assert bar_plot.object.data[0].name == "Base"
-    assert plot_titles[-1] == "Screenline Flow Comparisons"
+    assert plot_titles[-1] == "Screenline Observed vs Modeled - AM"
+    screenline_plot = _collect_plotly_panes(page._screenline_body)[0]
+    assert screenline_plot.object.data[0].name == "Base"
+    assert screenline_plot.object.data[-1].name == "1:1 line"
+    assert screenline_plot.object.data[1].name == "Base fit"
+    assert len(screenline_plot.object.data[1].x) == 101
+    assert "R²" in screenline_plot.object.data[1].hovertemplate
+    assert "y = 1.30x - 5.50" in screenline_plot.object.data[1].hovertemplate
+    assert not screenline_plot.object.layout.annotations
+    assert (
+        "Observed Screenline Flow (vehicles): %{x}"
+        in screenline_plot.object.data[0].hovertemplate
+    )
+    assert (
+        "Modeled Screenline Flow (vehicles): %{y}"
+        in screenline_plot.object.data[0].hovertemplate
+    )
+    assert screenline_plot.object.layout.yaxis.scaleanchor == "x"
+    assert screenline_plot.object.layout.legend.x == 1.02
     assert "Traffic Count Comparisons" not in plot_titles
     assert "Demo Link Volume by Facility Type - Day" not in plot_titles
     assert "Link Volume by Facility Type - AM" in plot_titles
 
 
-def test_transit_validation_technology_selector_uses_common_summary_options(
+def test_transit_validation_places_each_selector_with_its_plot(
     tmp_path: Path,
 ) -> None:
     config = _write_config(tmp_path)
@@ -5510,7 +5783,96 @@ def test_transit_validation_technology_selector_uses_common_summary_options(
     page = TransitValidationPage(state, config)
     page.refresh(force=True)
 
-    assert list(page.technology_sel.options) == ["All", "bus"]
+    assert list(page.technology_sel.options) == ["All", "bus", "rail"]
+    assert list(page.view.objects[2].objects) == [page.technology_sel]
+    assert list(page.view.objects[6].objects) == [page.access_mode_sel]
+    sections = {section.section_id: section for section in page.registered_sections}
+    assert sections["transit_boardings_body"].selector_ids == ("technology",)
+    assert sections["transit_transfer_body"].selector_ids == ("access_mode",)
+
+    page.technology_sel.value = "rail"
+    page.access_mode_sel.value = "walk"
+    page.refresh(force=True)
+    transfer_plot = _collect_plotly_panes(page._transfer_body)[0]
+    assert transfer_plot.object.layout.title.text == "Transit Transfer Rate - walk"
+
+
+@pytest.mark.parametrize(
+    ("page_type", "section_names"),
+    [
+        (
+            TrafficValidationPage,
+            (
+                "_facility_summary_body",
+                "_external_volume_body",
+                "_link_volume_body",
+                "_external_top_body",
+                "_screenline_body",
+            ),
+        ),
+        (
+            TransitValidationPage,
+            ("_boardings_body", "_transfer_body"),
+        ),
+        (
+            VMTValidationPage,
+            (
+                "_vmt_overview_body",
+                "_personal_vmt_body",
+                "_non_motorized_vmt_body",
+                "_external_vmt_body",
+                "_body",
+                "_bicycle_body",
+            ),
+        ),
+        (RegionalValidationPage, ("_body",)),
+    ],
+)
+def test_validation_visualizations_render_cards_when_data_is_unavailable(
+    tmp_path: Path,
+    page_type: type,
+    section_names: tuple[str, ...],
+) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(label="Base", weighted={})
+    state = DashboardState(
+        summary_runs=[summary_run],
+        weighting_modes=config.weighting_modes,
+    )
+
+    page = page_type(state, config)
+    page.refresh(force=True)
+
+    for section_name in section_names:
+        cards = _collect_cards(getattr(page, section_name))
+        assert len(cards) == 1, section_name
+        assert cards[0].title == "Data Not Available"
+
+
+def test_all_dashboard_sections_render_missing_data_content(tmp_path: Path) -> None:
+    config = _write_config(tmp_path)
+    summary_run = _summary_run_with_tables(label="Base", weighted={})
+
+    for definition in all_page_definitions():
+        state = DashboardState(
+            summary_runs=[summary_run],
+            weighting_modes=config.weighting_modes,
+            prepared_run_provider=DashboardPreparedRunProvider.unavailable(),
+        )
+        page = definition.page_cls(state, config)
+        page.refresh(force=True)
+
+        for section in page.registered_sections:
+            context = f"{definition.page_id}.{section.section_id}"
+            assert section.container.objects, context
+            cards = _collect_cards(section.container)
+            plots = _collect_plotly_panes(section.container)
+            tables = _collect_tabulators(section.container)
+            assert cards or plots or tables, context
+            for plot in plots:
+                assert plot.object.data, context
+            for tabs in _collect_tabs(section.container):
+                assert tabs.objects, context
 
 
 def test_tour_distance_chart_casts_distance_bins_consistently_across_runs(
@@ -5584,7 +5946,9 @@ def test_tour_distance_chart_casts_distance_bins_consistently_across_runs(
     assert traces["A"] == [0.0, 1.0]
     assert traces["B"] == [0.0]
     assert list(plot.object.layout.xaxis.ticktext) == [
-        *[str(value) for value in range(0, 40, 2)],
+        "0",
+        ">0-<1",
+        *[str(value) for value in range(2, 40, 2)],
         "40+",
     ]
     assert list(plot.object.layout.xaxis.range) == [0.0, 40.0]
@@ -5843,16 +6207,17 @@ def test_tour_time_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None
             "tour_time_of_day_by_tour_purpose": pl.DataFrame(
                 {
                     "tour_purpose": [
+                        "work",
                         "all_tour_purposes",
                         "all_tour_purposes",
                         "work",
                         "work",
                         "work",
                     ],
-                    "time_bin": [1, 2, 1, 2, 48],
-                    "departure_tour_count": [5.0, 6.0, 3.0, 4.0, 0.0],
-                    "arrival_tour_count": [4.0, 5.0, 2.0, 3.0, 0.0],
-                    "duration_tour_count": [2.0, 3.0, 1.0, 2.0, 0.0],
+                    "time_bin": [0, 1, 2, 1, 2, 48],
+                    "departure_tour_count": [0.0, 5.0, 6.0, 3.0, 4.0, 0.0],
+                    "arrival_tour_count": [0.0, 4.0, 5.0, 2.0, 3.0, 0.0],
+                    "duration_tour_count": [2.0, 2.0, 3.0, 1.0, 2.0, 0.0],
                 }
             ),
         },
@@ -5876,6 +6241,8 @@ def test_tour_time_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None
     departure_hover = str(departure_chart.object.data[0].customdata[0])
     assert "Clock Time: 03:00" in departure_hover
     assert "start at 03:00" not in departure_hover
+    duration_chart = _collect_plotly_panes(page._body)[2]
+    assert list(duration_chart.object.data[0].x)[0] == 0.0
 
 
 def test_vehicle_ownership_type_live_page_uses_shared_summary_helpers(

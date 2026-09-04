@@ -43,6 +43,21 @@ def _mode_value(values: list[float], weights: list[float]) -> float | None:
     return min(value for value, weight in totals.items() if weight == best_weight)
 
 
+def _weighted_nonzero_mean(
+    values: list[float],
+    weights: list[float],
+) -> float | None:
+    nonzero_pairs = [
+        (value, weight)
+        for value, weight in zip(values, weights, strict=False)
+        if value != 0.0
+    ]
+    nonzero_weight = sum(weight for _, weight in nonzero_pairs)
+    if nonzero_weight <= 0:
+        return None
+    return sum(value * weight for value, weight in nonzero_pairs) / nonzero_weight
+
+
 def _weighted_quantile(
     values: list[float],
     weights: list[float],
@@ -338,6 +353,7 @@ def _weighted_stats_row(
             "n_total": n_total,
             "n_valid": 0.0,
             "mean": None,
+            "mean_nonzero": None,
             "std": None,
             "min": None,
             "max": None,
@@ -364,6 +380,7 @@ def _weighted_stats_row(
             "n_total": n_total,
             "n_valid": 0.0,
             "mean": None,
+            "mean_nonzero": None,
             "std": None,
             "min": None,
             "max": None,
@@ -394,6 +411,7 @@ def _weighted_stats_row(
         "n_total": n_total,
         "n_valid": n_valid,
         "mean": mean,
+        "mean_nonzero": _weighted_nonzero_mean(values, weights),
         "std": math.sqrt(variance),
         "min": min(values),
         "max": max(values),
@@ -476,6 +494,7 @@ def _weighted_stats_row_from_sidecar_group(
                 "n_total": n_total,
                 "n_valid": 0.0,
                 "mean": None,
+                "mean_nonzero": None,
                 "std": None,
                 "min": None,
                 "max": None,
@@ -518,6 +537,7 @@ def _weighted_stats_row_from_sidecar_group(
             "n_total": n_total,
             "n_valid": n_valid,
             "mean": mean,
+            "mean_nonzero": _weighted_nonzero_mean(values, weights),
             "std": math.sqrt(variance),
             "min": min(values),
             "max": max(values),
@@ -580,6 +600,7 @@ def _weighted_ecdf_rows_from_sidecar_group(
         "n_total": pl.Float64,
         "n_valid": pl.Float64,
         "mean": pl.Float64,
+        "mean_nonzero": pl.Float64,
         "std": pl.Float64,
         "min": pl.Float64,
         "max": pl.Float64,
@@ -630,6 +651,7 @@ def trip_skim_component_ecdf(rd: RunData, config: Config) -> pl.DataFrame:
         "n_total": pl.Float64,
         "n_valid": pl.Float64,
         "mean": pl.Float64,
+        "mean_nonzero": pl.Float64,
         "std": pl.Float64,
         "min": pl.Float64,
         "max": pl.Float64,

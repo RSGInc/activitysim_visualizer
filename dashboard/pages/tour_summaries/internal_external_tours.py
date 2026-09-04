@@ -176,7 +176,7 @@ class InternalExternalToursPage(DashboardPage):
 
         table_data = self.query(lambda: filter_geography_level(summary_data, geo_level))
         return data_table(
-            self._display_geography_table(table_data, geography_col="home_geography"),
+            self._display_geography_table(table_data),
             "Internal vs. External Non-Mandatory Tour Frequency",
         )
 

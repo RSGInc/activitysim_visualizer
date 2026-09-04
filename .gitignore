@@ -244,3 +244,10 @@ plans/
 /prepared_table_filter_example.ipynb
 /scratch.ipynb
 /test
+/simor_project_outputs/
+
+AGENTS.md
+
+.agents/
+old_r_based_visualizer/
+outside_summary_tables/

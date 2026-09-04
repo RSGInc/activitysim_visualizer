@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 import json
+import mimetypes
+from pathlib import Path
 from typing import Any
 
 from runtime.logging import get_logger
@@ -49,6 +52,17 @@ TOTAL_PAYLOAD_STRONG_WARNING_BYTES = 250 * 1024 * 1024
 PAGE_WARNING_BYTES = 10 * 1024 * 1024
 STATIC_REGION_WARNING_BYTES = 5 * 1024 * 1024
 SELECTOR_REGION_WARNING_BYTES = 1 * 1024 * 1024
+
+
+def _dashboard_logo_data_uri(path: str | None) -> str | None:
+    if path is None:
+        return None
+    logo_path = Path(path)
+    media_type, _ = mimetypes.guess_type(logo_path.name)
+    encoded = base64.b64encode(logo_path.read_bytes()).decode("ascii")
+    return f"data:{media_type};base64,{encoded}"
+
+
 def _build_validation_page(
     page_def: DashboardPageDefinition,
     config: Config,
@@ -103,6 +117,7 @@ def build_export_artifacts(
     payload: ExportPayload = {
         "schema_version": EXPORT_SCHEMA_VERSION,
         "title": config.dashboard_title,
+        "logo": _dashboard_logo_data_uri(config.dashboard_logo),
         "runs_loaded": run_legend_entries(
             RenderContext.from_dashboard(config, chrome_state)
         ),

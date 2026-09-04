@@ -1,16 +1,21 @@
 # 13 - Configuration Reference
 
-This page is the field-by-field reference for the main ActivitySim Visualizer
-config file. For a shorter orientation, start with
-[11 - Configuring Your Data](11-configuring-your-data.md). The canonical
-example is [`config.yaml`](../config.yaml).
+This page is a field-by-field reference for the main ActivitySim Visualizer
+configuration. For an introduction, read
+[11 - Configuring Your Data](11-configuring-your-data.md); for the canonical
+example, see [`config.yaml`](../config.yaml).
 
-This page documents the current canonical config layout. Unknown and removed
-keys fail validation and, where possible, name their canonical replacement.
+Unknown and removed keys are rejected at the canonical top level and in the
+typed sections listed in this reference. Validation depth is not uniform:
+intentional free-form mappings such as `extensions.settings` accept arbitrary
+project keys, and some nested implementation mappings validate their values
+rather than every possible key. Use documented fields, load the configuration
+in a focused test, and do not rely on an unreported nested typo being accepted
+or ignored.
 
 ## Reading This Reference
 
-Path resolution depends on the field:
+The field type controls the base directory for a relative path:
 
 | Field family | Relative to | Notes |
 |---|---|---|
@@ -18,11 +23,12 @@ Path resolution depends on the field:
 | `runs[*].dir` | main config directory | Raw ActivitySim output directory. |
 | `files.*`, `runs[*].file_map.*` | the resolved run directory | File stems may omit `.parquet` or `.csv`; Parquet is tried before CSV. |
 | `fallback_files.*`, `prepared_table_map.*`, `summary_table_map.*` | main config directory | Values must include `.parquet` or `.csv`. |
-| main-config skim, lookup, and skimjoin override paths | main config directory | Includes `prepare.distance_skim.file`, segmentation CSVs, and `skimjoin.defaults.*`. |
-| paths inside the standalone skimjoin config | standalone skimjoin config directory | See chapter 25. |
+| `prepare.distance_skim.file`, `runs[*].skim_file` | the resolved run directory | The loader resolves a relative legacy distance-skim path separately for each run. |
+| other main-config enrichment, lookup, and skimjoin paths | main config directory | Includes `prepare.time_periods.network_los_file`, `prepare.non_motorized_distance_skim.file`, segmentation CSVs, and `skimjoin.defaults.*`. |
+| paths inside the standalone skimjoin config | standalone skimjoin config directory | See chapter 23. |
 | `dashboard.export.output_path` | resolved `root` | Absolute output paths remain absolute. |
 
-Cache impact uses these labels:
+The Impact columns use these terms:
 
 | Impact | Meaning |
 |---|---|
@@ -52,8 +58,8 @@ runs:
 
 ### Prepared-Table Workflow
 
-Use `prepared_table_map` when a run should skip raw prepare and load canonical
-prepared tables directly.
+Use `prepared_table_map` to load canonical prepared tables and optional skim
+sidecars directly. The run does not do the raw prepare step.
 
 ```yaml
 pipeline:
@@ -66,6 +72,8 @@ runs:
       persons: C:\prepared\persons.parquet
       tours: C:\prepared\tours.parquet
       trips: C:\prepared\trips.parquet
+      trip_hypothetical_skims: C:\prepared\trip_hypothetical_skims.parquet
+      tour_hypothetical_skims: C:\prepared\tour_hypothetical_skims.parquet
       land_use: C:\prepared\land_use.parquet
 ```
 
@@ -100,12 +108,22 @@ skimjoin:
 runs:
   - dir: C:\models\base\output
     label: Base
+    skimjoin:
+      enabled: false
   - dir: C:\models\build\output
     label: Build
     skimjoin:
       skim_files:
         - C:\build_skims\*.omx
+      network_los_file: C:\skims\network_los.yaml
 ```
+
+Runs without a `runs[*].skimjoin` block use the fully resolved global defaults.
+Set `runs[*].skimjoin.enabled: false` to skip enrichment for one run while
+leaving skimjoin enabled for the other runs.
+When a run has its own override block, put every path that varies or is required
+for that run in the block. Omitted skim and network paths fall back to the
+selected standalone skimjoin file, not to the other global path overrides.
 
 ## Top-Level Fields
 
@@ -125,15 +143,15 @@ runs:
 | `segment` | mapping | disabled | Summary, Presentation | Optional segmented summaries and dashboard segment controls. |
 | `weighting` | mapping | `{}` | Summary, Presentation | Declarative named weighting modes backed by prepared source columns. |
 | `summarize` | mapping | weighted and unweighted summaries | Summary | Summary weighting, purpose grouping, geography, and PNR mode behavior. |
-| `dashboard` | mapping | live dashboard defaults | Presentation | Dashboard title, page selection, MAZ geography toggle, and export settings. |
+| `dashboard` | mapping | live dashboard defaults | Presentation | Dashboard title, page selection, calculation notes, MAZ geography toggle, and export settings. |
 | `display` | mapping | built-in labels and colors | Presentation | Dashboard labels, category order, and run colors. |
 | `extensions` | mapping | `{}` | Summary, Presentation | Advanced importable weighting calculation modules and their settings. Extension code is trusted. |
-| `modes` | mapping | `{}` | Presentation | Optional mode ordering used when `display.labels.mode` is absent. |
+| `modes` | mapping | `{}` | Summary, Presentation | Optional mode ordering and named summary mode groups. |
 
 ## `weighting`
 
-`weighting.modes` defines named alternatives by pointing at columns already
-present in prepared household, person, or trip tables.
+`weighting.modes` defines named alternatives that use columns already present
+in prepared household, person, or trip tables.
 
 | Field | Type | Default | Impact | Notes |
 |---|---|---|---|---|
@@ -143,31 +161,19 @@ present in prepared household, person, or trip tables.
 | `modes.<id>.columns.persons` | string | none | Summary | Person source column; propagates to trips, tours, and days unless overridden. |
 | `modes.<id>.columns.trips` | string | none | Summary | Trip source column; tour weight becomes the mean selected trip weight by `tour_id`. |
 
-```yaml
-weighting:
-  modes:
-    calibrated:
-      label: Calibrated
-      columns:
-        households: calibrated_hh_weight
-        persons: calibrated_person_weight
-        trips: calibrated_trip_weight
-
-summarize:
-  weighting_modes: [weighted, unweighted, calibrated]
-```
-
-Each definition needs at least one supported source table. Named columns are
-validated against every prepared run. See the [weighting cookbook](43-weighting-hosting-extensions.md#worked-example-add-a-weighting-mode).
+Each definition requires at least one supported source table. The visualizer
+validates named columns for each prepared run. For a complete configuration
+example and its propagation rules, see the
+[weighting cookbook](43-weighting-hosting-extensions.md#worked-example-add-a-weighting-mode).
 
 ## `extensions`
 
-This is the advanced path for calculations that cannot be represented by
-`weighting.modes` column selection.
+Use this advanced method for calculations that `weighting.modes` column
+selection cannot define.
 
 | Field | Type | Default | Impact | Notes |
 |---|---|---|---|---|
-| `modules` | list of strings | `[]` | Summary | Importable modules that define `register_weighting_modes(registry)`. Installed weighting entry points are discovered separately. |
+| `modules` | list of strings | `[]` | Summary | Importable modules that define `register_weighting_modes(registry)`. The loader finds installed weighting entry points separately. |
 | `settings` | mapping | `{}` | Summary | Arbitrary YAML settings available to transforms as `config.extension_settings`. Included in summary cache identity. |
 
 ```yaml
@@ -186,49 +192,60 @@ See [Advanced: Custom Weight Calculations](43-weighting-hosting-extensions.md#ad
 
 | Field | Type | Default | Allowed values | Impact | Notes |
 |---|---|---|---|---|---|
-| `steps` | non-empty list of strings | `[summarize, dashboard]` | `prepare`, `skimjoin`, `segment`, `summarize`, `dashboard` | Runtime | Steps must be lowercase, unique, and valid. `skimjoin` requires `prepare`; `segment` requires `summarize`; `dashboard` must be last when present. |
-| `dashboard_mode` | string | `live` | `none`, `live`, `export`, `host` | Runtime, Presentation | Controls what the dashboard step does. `host` is reserved and currently warns, then falls back to the ordinary live server; it does not publish an application. |
-| `overwrite` | boolean | `false` | `true`, `false` | Runtime | Bypasses reusable prepared/summary caches for configured processor steps and writes rebuilt artifacts. Return it to `false` after a forced rebuild. |
+| `steps` | non-empty list of strings | `[summarize, dashboard]` | `prepare`, `skimjoin`, `segment`, `summarize`, `dashboard` | Runtime | Steps must be lowercase, unique, and valid. Membership selects fixed runtime boundaries; non-dashboard list order does not change execution order. `skimjoin` requires `prepare`; `segment` requires `summarize`; `dashboard` must be last when present. |
+| `dashboard_mode` | string | `live` | `none`, `live`, `export`, `host` | Runtime, Presentation | Controls the dashboard step. `host` writes a warning and uses the standard live server. It does not publish an application. |
+| `refresh` | list of strings or `all` | `[]` | `prepare`, `skimjoin`, `summarize`, `all` | Runtime | Forces only the named stored stages to rebuild. An upstream refresh invalidates enabled downstream stages. Leave empty for standard cache-aware operation. |
 
 ```yaml
 pipeline:
   steps: [prepare, skimjoin, segment, summarize, dashboard]
   dashboard_mode: export
-  overwrite: false
+  refresh: []
 ```
+
+The visualizer stores `segment` output in summary bundles. Use
+`refresh: [summarize]` to rebuild segmented output. Dashboard rendering does
+not have a persistent processor cache, so dashboard is not a refresh target.
 
 ## `runs`
 
-Each run entry describes one scenario. `label` is strongly recommended because
-it becomes the display name and helps cache/debug output remain understandable.
+Each run entry describes one scenario. Set `label` whenever possible; it becomes
+the display name and identifies the run in cache and debug output.
 
 | Field | Type | Default | Impact | Notes |
 |---|---|---|---|---|
-| `dir` | path string | none | Prepare | Raw ActivitySim output folder. Required unless the run is supplied by `prepared_table_map`, by `summary_table_map` alone, or both. |
+| `dir` | path string | none | Prepare | Raw ActivitySim output directory. Set this field unless `prepared_table_map` or `summary_table_map` supplies the run. |
 | `label` | string | folder name or `run` fallback | Summary, Presentation | Dashboard and cache-facing run name. Keep stable across reruns. |
 | `file_map` | mapping | inherits top-level `files` | Prepare | Per-run raw file stem overrides. Cannot be combined with `prepared_table_map`. |
-| `prepared_table_map` | mapping | none | Prepare, Summary | Explicit `.parquet` or `.csv` canonical prepared tables. Skips raw prepare for that run. |
-| `summary_table_map` | mapping | none | Summary, Presentation | Registered summary IDs mapped to dashboard-ready `.parquet` or `.csv` files. May be used alone or override generated summaries. |
-| `skimjoin` | mapping | inherits global `skimjoin` | Prepare | Per-run skimjoin `config_path`, `skim_files`, and `network_los_file` overrides. |
+| `prepared_table_map` | mapping | none | Prepare, Summary | Explicit `.parquet` or `.csv` canonical prepared tables and optional skim sidecars. Skips raw prepare for that run. |
+| `summary_table_map` | mapping | none | Summary, Presentation | Maps registered summary IDs to dashboard-ready `.parquet` or `.csv` files. Use it alone or to replace generated summaries. |
+| `skim_file` | path string | `prepare.distance_skim.file` | Prepare, Summary | Per-run legacy distance-skim override. Relative paths resolve from this run's `dir`. |
+| `skimjoin` | mapping | inherits global `skimjoin` | Prepare | Per-run skimjoin path and hypothetical-sidecar overrides. |
 | `hh_weight_col` | string | none | Prepare, Summary | Household source for the run's primary `weighted` mode. |
 | `person_weight_col` | string | none | Prepare, Summary | Person source for the run's primary `weighted` mode. |
 | `trip_weight_col` | string | none | Prepare, Summary | Trip source for the run's primary `weighted` mode. |
+| `day_weight_col` | string or null | `day_weight` | Prepare, Summary | Day source for the run's primary `weighted` mode. Non-null source values take precedence, then missing values inherit person, household, or `1.0`. Set null to ignore a placeholder day-weight column. |
 
-Allowed `file_map` and `prepared_table_map` table ids are:
+You can use these canonical table IDs in `file_map` and `prepared_table_map`:
 
 `households`, `persons`, `day`, `tours`, `trips`, `vehicles`,
 `joint_tour_participants`, `land_use`.
 
-`prepared_table_map` paths must include `.parquet` or `.csv`. Relative paths are
-resolved relative to the config file.
+`prepared_table_map` additionally accepts the optional skim sidecar IDs
+`trip_hypothetical_skims` and `tour_hypothetical_skims`.
 
-`summary_table_map` uses registered IDs from the summary catalog. Its paths must
-also end in `.parquet` or `.csv` and are resolved relative to the config file.
+Each `prepared_table_map` path must include `.parquet` or `.csv`. A relative
+path starts from the configuration file directory.
+
+`summary_table_map` uses registered IDs from the summary catalog. Each path must
+end in `.parquet` or `.csv`. A relative path starts from the configuration file
+directory.
 
 ### Run Labels And Run Keys
 
-`label` is the dashboard name. Its filesystem-safe lowercase slug is the run
-key used by cache directories, manifests, and settings such as
+`label` is the dashboard name. The visualizer converts it to a lowercase,
+file-system-safe run key. Cache directories, manifests, and settings use this
+key. One example is
 `prepare.vot_bins.mappings`:
 
 | Label | Run key |
@@ -237,9 +254,9 @@ key used by cache directories, manifests, and settings such as
 | `Build Scenario` | `build-scenario` |
 | `2026 / Toll Test` | `2026-toll-test` |
 
-If normalized labels collide, every colliding key receives an ordered numeric
-suffix (`build-1`, `build-2`). Keep labels unique and stable: changing their
-order can change those suffixes and therefore cache/mapping identity.
+If normalized labels are equal, each key gets an ordered numeric suffix
+(`build-1`, `build-2`). Keep labels unique and stable. If you change their
+order, you can change the suffixes and the cache or mapping identity.
 
 ```yaml
 runs:
@@ -253,9 +270,9 @@ runs:
 
 ## `files` And `fallback_files`
 
-`files` maps logical table ids to raw ActivitySim output file stems. If the value
-has no extension, the reader tries `.parquet` first, then `.csv`, inside each
-run directory.
+`files` maps logical table IDs to raw ActivitySim output file names. If a value
+has no extension, the reader searches each run directory for `.parquet` first
+and then `.csv`.
 
 | Table id | Default stem |
 |---|---|
@@ -268,9 +285,9 @@ run directory.
 | `joint_tour_participants` | `final_joint_tour_participants` |
 | `land_use` | `final_land_use` |
 
-`fallback_files` supports optional table ids only: `day`, `vehicles`,
-`joint_tour_participants`, and `land_use`. Values must be explicit `.parquet` or
-`.csv` paths.
+`fallback_files` supports only these optional table IDs: `day`, `vehicles`,
+`joint_tour_participants`, and `land_use`. Each value must be an explicit
+`.parquet` or `.csv` path. Use `fallback_files` when multiple runs share input files.
 
 ```yaml
 files:
@@ -301,9 +318,12 @@ zones:
 
 ## `columns`
 
-Most `columns` values may be a string or an ordered list of candidate source
-column names. The first available candidate is used. The few scalar fields
-listed first are read as single names.
+Alias fields can be a single string or an ordered list of possible source
+names; the visualizer uses the first available column. Exactly these fields are
+scalar-only column names: `ptype`, `hhsize`, `auto_ownership`, `num_workers`,
+`num_adults`, and `sample_rate`. Every other field in the table below is an
+alias field and accepts a string or list. A list supplied to a scalar-only
+field is not an alias search and must not be used.
 
 | Field | Default | Impact | Purpose |
 |---|---|---|---|
@@ -381,14 +401,15 @@ columns:
 | `validation.relationship_checks` | string or `false` | `warn` | `off`, `warn`, `error`, or `false` for `off` | Prepare | Controls relationship-check failures during prepare. |
 | `distance_skim.file` | path string | none | OMX path | Prepare, Summary | Optional distance skim used by prepare. |
 | `distance_skim.matrix` | string | `SOV_DIST__MD` | matrix name | Prepare, Summary | Matrix read from `distance_skim.file`. |
+| `category_mappings` | mapping | `{}` | run, table, and column mappings | Prepare, Skimjoin, Summary | Converts run-specific categorical input values into canonical prepared columns before enrichment. |
 | `auto_sufficiency_basis` | string | `licensed_drivers` | `licensed_drivers`, `workers`, `adults` | Prepare, Summary | Basis for household auto-sufficiency derivation. |
 | `student_types` | list of mappings | `[]` | student-type definitions | Prepare, Summary | School/university enrollment definitions used by prepared fields and shadow-pricing summaries. |
-| `time_periods` | mapping | built-in periods | period definitions or ActivitySim config source | Prepare, Summary | Canonical time-period labels used by prepared tours and trips. |
+| `time_periods` | mapping | disabled | ActivitySim `network_los.yaml` source | Prepare, Summary | Derives canonical period labels for prepared tours and trips. |
 | `non_motorized_distance_skim` | mapping | disabled | configured lookup | Prepare, Summary | Optional non-motorized distance enrichment. |
 | `vot_bins.source_column` | string | `income_segment` | any source column | Prepare, Skimjoin | Source value used to derive VOT bins. |
 | `vot_bins.output_column` | string | `vot_bin` | any output column | Prepare, Skimjoin | Prepared column written for skimjoin dimensions. |
 | `vot_bins.fallback_value` | scalar string | none | any value | Prepare, Skimjoin | Value used when no run-specific mapping applies. |
-| `vot_bins.mappings` | mapping | `{}` | run key to value mapping | Prepare, Skimjoin | Enables VOT bin derivation. Run keys are normalized from run labels. |
+| `vot_bins.mappings` | mapping | `{}` | run key to value mapping | Prepare, Skimjoin | Enables VOT bin calculation. The loader normalizes run keys from run labels. |
 
 ```yaml
 prepare:
@@ -411,23 +432,93 @@ prepare:
         3: H
 ```
 
+`prepare.category_mappings` is keyed by normalized run label, table id, and
+target column. Each target requires a nonempty `mapping`; `source` defaults to
+the target column. Unmapped values are preserved unless
+`preserve_unmapped: false` is set. Output defaults to `string`; use
+`output_type: boolean` for mappings whose values are `true`, `false`, or
+`null`. Prepare records unmatched source values in its diagnostics.
+
+```yaml
+prepare:
+  category_mappings:
+    raw_survey:
+      tours:
+        tour_mode:
+          mapping:
+            1: WALK
+            2: BIKE
+      persons:
+        has_license:
+          source: can_drive
+          output_type: boolean
+          preserve_unmapped: false
+          mapping:
+            1: true
+            3: false
+```
+
+`prepare.time_periods` accepts:
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `network_los_file` | path string | required | ActivitySim YAML containing `skim_time_periods.periods` and `skim_time_periods.labels`. Relative paths resolve from the main config. |
+| `trip_period_number_column` | string | `depart` | Prepared trip source used to write `trip_period`. |
+| `tour_start_period_number_column` | string | `start` | Prepared tour source used to write `start_period`. |
+| `tour_end_period_number_column` | string | `end` | Prepared tour source used to write `end_period`. |
+
+The period breakpoint list must contain at least two integers. The label list
+must contain one less entry. If trips contain `tour_id`, `outbound`, and the
+derived `trip_period`, prepare also writes `first_inbound_trip_period` for each
+tour. Prepare records missing configured source columns in the diagnostics. It
+does not create values for missing columns.
+
+`prepare.non_motorized_distance_skim` accepts:
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `file` | path string | required | `.csv`, `.omx`, `.h5`, or `.hdf5` lookup. Relative paths resolve from the main config. |
+| `matrix` | string or null | required for OMX/HDF5; `DISTWALK` for CSV | OMX matrix name. For CSV, names the value column; a `<file-stem>__` prefix is stripped when present. |
+
+CSV lookup files must contain `OMAZ`, `DMAZ`, and the selected value column.
+Prepared trips must contain `o_maz` and `d_maz`. OMX and HDF5 lookups use the
+prepared `OTAZ` and `DTAZ` columns. Both methods write
+`prepared_non_motorized_distance`. They record diagnostics for unresolved
+lookups.
+
 ## `skimjoin`
 
-The main config `skimjoin` section wires the visualizer runtime to a separate
-skimjoin config file. See
-[25 - Skimjoin Config Reference](25-skimjoin-config-reference.md) for the
+The `skimjoin` section connects the visualizer runtime to a separate skimjoin
+rules file. See
+[23 - Skimjoin Config Reference](23-skimjoin-config-reference.md) for the
 lookup-rule schema.
 
 ```text
 main visualizer config
   pipeline.steps: enables the integrated skimjoin stage
-  skimjoin.defaults: selects the standalone config and optional path overrides
+  skimjoin.defaults: selects the rules file and can supply shared data paths
+  runs[*].skimjoin: can skip enrichment, select another rules file, or supply run-specific paths
     -> standalone skimjoin config
-       project/activitysim/defaults/modes: defines the actual lookup rules
+       activitysim/defaults/dimensions/modes: defines lookup behavior
+       project: supplies paths only when the main config does not
 ```
 
-Merely providing `skimjoin.defaults.config_path` does not run skimjoin;
-`pipeline.steps` must also contain both `prepare` and `skimjoin`.
+Setting `skimjoin.defaults.config_path` does not start skimjoin; the
+`pipeline.steps` list must also contain `prepare` and `skimjoin`.
+
+For integrated use, `project` is optional in the standalone skimjoin file. The
+effective configuration needs:
+
+| Requirement | Where to set it |
+|---|---|
+| Skimjoin rules file | `skimjoin.defaults.config_path` or `runs[*].skimjoin.config_path`. |
+| At least one skim file | Main-config `skim_files`, or `project.skim_files` in the selected skimjoin file. |
+| `network_los.yaml` | Only when `dimensions.PERIOD.values_from_network_los` is `true`; set it in the main config or as `project.network_los_file`. |
+| Prepared trip and tour input | Supplied by the integrated prepare workflow. Do not set `project.trips_table`, `project.tours_table`, or `project.output_dir` for integrated use. |
+
+For path resolution, override precedence, and the standalone top-level
+`skim_files` caveat, see
+[Choose Where Paths Live](23-skimjoin-config-reference.md#choose-where-paths-live).
 
 | Field | Type | Default | Impact | Notes |
 |---|---|---|---|---|
@@ -437,26 +528,41 @@ Merely providing `skimjoin.defaults.config_path` does not run skimjoin;
 | `failure_policy` | string | `record` | Runtime, Prepare | `record` keeps a failed enrichment as diagnostics; `error` stops the run. |
 | `create_hypothetical_skim_tables` | boolean | `false` | Prepare | Enables configured hypothetical skim tables. |
 
-Run-level `runs[*].skimjoin` supports `config_path`, `skim_files`, and
-`network_los_file`. Enable skimjoin by including it in `pipeline.steps`;
-top-level `skimjoin.enabled` and `skimjoin.config_path` are removed keys.
+Run-level `runs[*].skimjoin` supports `enabled`, `config_path`, `skim_files`,
+`network_los_file`, and `create_hypothetical_skim_tables`. Set `enabled: false`
+to skip skimjoin for that run. When omitted, it inherits the global pipeline
+setting. `enabled: true` cannot enable skimjoin unless `pipeline.steps` also
+contains `skimjoin`. The run-level
+`config_path` replaces the global path. A supplied run-level skim or network
+path replaces the corresponding value in the selected standalone file.
+`create_hypothetical_skim_tables` inherits the global value when omitted.
+
+The run-reload and omitted-path rules are documented in
+[Choose Where Paths Live](23-skimjoin-config-reference.md#choose-where-paths-live).
+
+To enable skimjoin globally, add it to `pipeline.steps`. Do not use the removed
+top-level `skimjoin.enabled` or `skimjoin.config_path` keys; `enabled` is only
+supported under `runs[*].skimjoin` as a per-run override.
 
 Integrated skim files must resolve to `.omx`, `.csv`, `.h5`, or `.hdf5`.
 
 ## `segment`
 
-`segment` config is canonical in user YAML. Internally it is normalized to the
-segmentation runtime settings.
+Use `segment` as the canonical section in user YAML. The loader converts it to
+the segmentation runtime settings. The section is active only when
+`pipeline.steps` contains both `segment` and `summarize`. See
+[24 - Segmentation](24-segmentation.md) for the runtime flow, relationship
+slicing, output paths, and dashboard behavior.
 
 | Field | Type | Default | Allowed values | Impact | Notes |
 |---|---|---|---|---|---|
 | `dashboard.segmentation_type` | string | first configured definition | configured definition name | Presentation | Selected segment type shown in dashboard/export. |
 | `dashboard.visibility` | string | `full_and_segments` | `full_only`, `segments_only`, `full_and_segments` | Presentation | Whether the dashboard shows full-run outputs, segmented outputs, or both. |
-| `definitions` | mapping | required when segment step is enabled | path-safe lowercase names | Summary | Segment definitions. |
-| `definitions.*.include_full` | boolean | `true` | `true`, `false` | Summary | Also build full-run summaries. |
-| `definitions.*.persist_segmented_prepared_tables` | boolean | `false` | `true`, `false` | Prepare, Summary | Persist segment-specific prepared tables. |
+| `definitions` | mapping | required when you enable the segment step | path-safe lowercase names | Summary | Segment definitions. |
+| `definitions.*.include_full` | boolean | `true` | `true`, `false` | Summary | Accepted setting. The current runtime always builds one full-run analysis unit. |
+| `definitions.*.persist_segmented_prepared_tables` | boolean | `false` | `true`, `false` | Prepare, Summary | Accepted setting. The current runtime keeps slices in memory and writes segmented summaries, not segmented prepared directories. |
 | `definitions.*.allow_overlapping` | boolean | `false` | `true`, `false` | Summary | Allows one source value to appear in multiple segments. |
-| `definitions.*.on_empty_segment` | string | `warn` | `error`, `warn`, `skip` | Summary | Behavior when a segment has no rows. |
+| `definitions.*.on_empty_segment` | string | `warn` | `error`, `warn`, `skip` | Summary | `error` stops, `skip` omits the unit, and `warn` keeps an empty unit. |
 | `definitions.*.source` | mapping | required | `prepared_column` or `csv_lookup` | Summary | Source of segment values. |
 | `definitions.*.segments` | list | required | list of segment mappings | Summary, Presentation | Segment ids, labels, and matched values. |
 
@@ -482,7 +588,13 @@ segment:
           values: [1]
 ```
 
-`source_table` may be `hh`, `per`, `tours`, `trips`, or `land_use`.
+Prepared-column source fields:
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `type` | string | `prepared_column` | Must be `prepared_column`. |
+| `source_table` | string | auto-detect | Use `households`, `persons`, `day`, `tours`, `trips`, `vehicles`, `joint_tour_participants`, or `land_use`, or the runtime aliases `hh`, `per`, and `joint_participants`. Auto-detection requires the column to occur in exactly one table. |
+| `column` | string | required | Prepared column containing the values matched by `segments[*].values`. |
 
 CSV lookup source:
 
@@ -504,6 +616,24 @@ segment:
           values: [north]
 ```
 
+CSV lookup source fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `type` | string | Must be `csv_lookup`. |
+| `file` | path string | CSV path relative to the main config directory. |
+| `join.source_table` | string | Prepared anchor table using the names above. |
+| `join.source_key_column` | string | Join key on the prepared table. |
+| `join.csv_key_column` | string | Join key in the CSV. One key cannot map to different segment values. |
+| `segment_value_column` | string | CSV column matched by `segments[*].values`. |
+
+Each segment requires a path-safe lowercase `id`, a nonblank `label`, and one
+or more `values`. A path-safe name matches `[a-z0-9._-]+` and cannot start or
+end with `.`, `_`, or `-`. Prepared-column values must match the prepared
+column's type; CSV lookup segment values must be strings. Definitions and
+segments are cached independently. The full run uses standard summary paths; segment output uses
+`summary_tables/<weighting>/segments/<definition>/<segment>/`.
+
 ## `summarize`
 
 | Field | Type | Default | Allowed values | Impact | Notes |
@@ -515,12 +645,12 @@ segment:
 | `group_joint_tour_purposes` | boolean | `true` | `true`, `false` | Summary | Group joint tour purposes in summaries. |
 | `group_atwork_tour_purposes` | boolean | `true` | `true`, `false` | Summary | Group at-work tour purposes in summaries. |
 | `group_school_tour_purposes` | boolean | `true` | `true`, `false` | Summary | Group school tour purposes in summaries. |
-| `geography.enabled` | boolean | `false` | `true`, `false` | Summary, Presentation | Enables custom geography mapping and aggregations. |
-| `geography.landuse_col` | string | none | land-use column | Summary | Existing land-use geography column used for geography summaries. |
-| `geography.mapping` | mapping | none | raw value to label | Summary, Presentation | Label mapping for geography values. |
-| `geography.aggregations` | mapping | none | aggregation definitions | Summary, Presentation | Additional zone-to-geography lookup definitions. |
+| `geography.enabled` | boolean | `false` | `true`, `false` | Prepare, Summary, Presentation | Enables the legacy mapping and named geography aggregations. Disabled definitions are ignored. |
+| `geography.landuse_col` | string | none | land-use column | Prepare, Summary | Existing land-use column used to create compatibility `HGEO` and `WGEO` fields. |
+| `geography.mapping` | mapping | none | raw value to label | Prepare, Summary, Presentation | Optional normalization for values from `landuse_col`. |
+| `geography.aggregations` | mapping | `{}` | aggregation definitions | Prepare, Summary, Presentation | Named zone-to-geography lookups that create role-specific prepared columns. |
 
-Each `geography.aggregations.*` entry requires:
+Each `geography.aggregations.*` entry requires these fields:
 
 | Field | Type | Notes |
 |---|---|---|
@@ -529,6 +659,10 @@ Each `geography.aggregations.*` entry requires:
 | `file` | path string | CSV lookup file. Mutually exclusive with `mapping`. |
 | `zone_id_col` | string | Required with `file`. |
 | `geography_col` | string | Required with `file`. |
+
+For a complete explanation of source zones, generated columns, summary fields,
+dashboard labels, cache behavior, and lookup validation, see
+[27 - Geography](27-geography.md).
 
 ```yaml
 summarize:
@@ -549,6 +683,8 @@ summarize:
 | Field | Type | Default | Allowed values | Impact | Notes |
 |---|---|---|---|---|---|
 | `title` | string | `ActivitySim Visualizer` | any string | Presentation | Dashboard title. |
+| `logo` | path string | none | recognized image file | Presentation | Optional logo shown in the live dashboard and embedded in standalone HTML exports. Relative paths resolve from the config file. |
+| `include_notes` | boolean | `true` | `true`, `false` | Presentation | Show expandable calculation notes beneath annotated charts and tables. |
 | `enable_maz_geographies` | boolean | `false` | `true`, `false` | Presentation | Enables MAZ geography options in dashboard pages that support them. |
 | `live.pages` | list | all/default page registry behavior | page or group ids | Presentation | Live dashboard page selection. |
 | `export.output_path` | path string | none | HTML path | Presentation | Relative paths resolve under `root`. |
@@ -559,6 +695,12 @@ summarize:
 | `export.pages` | mapping | `{}` | page/group override mapping | Presentation | Export selector and part overrides. |
 | `export.exclude_pages` | list of strings | `[]` | page ids | Presentation | Pages excluded from export. |
 | `export.exclude_groups` | list of strings | `[]` | group ids | Presentation | Groups excluded from export. |
+
+`dashboard.host` is a reserved configuration block. The schema accepts
+`account`, `app_id`, `title`, and `verify`. The runtime does not normalize or
+use these values. `pipeline.dashboard_mode: host` writes a warning to the log
+and starts the standard live server. See the hosting extension procedure in
+chapter 43.
 
 `live.pages` entries may be strings or group mappings:
 
@@ -573,15 +715,13 @@ dashboard:
           - trip_stop_distance
 ```
 
-Export page overrides are keyed by page id or by nested group/page id. Selector
-keys depend on the page. Selector values may be `default`, `all`, a single
-string, or a list of strings. `parts.*.enabled` can hide named export parts.
+Use a page ID or a nested group and page ID as an export page override key.
+Selector keys depend on the page. A selector value can be `default`, `all`, one
+string, or a list of strings. Set `parts.*.enabled` to hide named export parts.
 
-Export inherits the page set resolved by `dashboard.live.pages`.
-`dashboard.export.pages` is an override mapping, not an allow-list: mentioning
-one page does not remove the others. A page override with `enabled: false`, or
-`exclude_pages` / `exclude_groups`, can narrow the inherited set. Export cannot
-add a page that live configuration did not select. Find valid IDs in:
+Export page selection, overrides, and exclusions follow the rules in
+[Enabling Pages](31-dashboard-pages.md#enabling-pages). Find valid IDs in these
+locations:
 
 - page and group IDs: the generated catalog in chapter 31;
 - selector IDs: `self.select(...)` and `self.selector(...)` calls on the page;
@@ -634,11 +774,29 @@ display:
     - "#a00000"
 ```
 
+## `modes`
+
+`modes` supplies legacy mode order and summary groups. Use
+`display.labels.mode.mapping` to define labels and order together.
+
+| Field | Type | Default | Impact | Notes |
+|---|---|---|---|---|
+| `order` | list of strings | none | Presentation | Raw mode order used only when `display.labels.mode` is absent. |
+| `groups` | mapping of lists | none | Summary | Named mode groups included in summary cache identity. The `Auto` group explicitly selects auto modes for `auto_vmt_totals` and segmented auto-VMT summaries; without it, those summaries use built-in name matching. |
+
+```yaml
+modes:
+  order: [SOV, HOV2, HOV3, WALK, BIKE, WALK_TRANSIT]
+  groups:
+    Auto: [SOV, HOV2, HOV3, TAXI, TNC_SINGLE, TNC_SHARED]
+```
+
 ## Advanced Category Config
 
-`summarize.category_normalization` uses the same category shape as
-`display.labels`, but changes normalized values written into summary outputs.
-Use it for summary-affecting normalization or grouping, not cosmetic relabeling.
+`summarize.category_normalization` uses the same category format as
+`display.labels`. It changes normalized values in summary output. Use it for
+normalization or groups that change summaries. Do not use it only to change
+display labels.
 
 ```yaml
 summarize:
@@ -678,19 +836,19 @@ prepare:
         is_university: true
 ```
 
-Matching rules are deterministic:
+The visualizer applies these rules in sequence:
 
-1. When `prepare.student_types` is empty, prepare infers `School` from available
+1. When `prepare.student_types` is empty, prepare gets `School` from available
    `ENROLLGRADEKto8`/`ENROLLGRADE9to12` columns and `University` from
    `COLLEGEENROLL`.
-2. When a configured entry omits `person`, labels or land-use column names
-   containing `univ` or `college` match `is_university`; other entries match
-   `is_student` and exclude university students.
-3. With more than two configured entries, every non-university-defaulting entry
-   must provide `person`; otherwise config validation fails.
-4. A `person` mapping combines all supplied conditions with AND. Scalar and
-   list values are both accepted for `school_segment`, `SCHG`, and `pstudent`.
-5. If multiple entries match one person, the first configured entry wins.
+2. When an entry omits `person`, prepare examines labels and land-use column
+   names. Names that contain `univ` or `college` match `is_university`. Other
+   entries match `is_student` and exclude university students.
+3. If there are more than two entries, each non-university default entry must
+   provide `person`. If it does not, configuration validation fails.
+4. A `person` mapping combines all conditions with AND. You can use scalar or
+   list values for `school_segment`, `SCHG`, and `pstudent`.
+5. If multiple entries match one person, the visualizer uses the first entry.
 
 For example, three school levels must select their person rows explicitly:
 
@@ -715,5 +873,9 @@ prepare:
 
 - [11 - Configuring Your Data](11-configuring-your-data.md)
 - [12 - Running Workflows](12-running-workflows.md)
+- [14 - Input Data Contract](14-input-data-contract.md)
+- [15 - Cache And Manifest Reference](15-cache-manifest-reference.md)
 - [21 - Prepared Tables](21-prepared-tables.md)
-- [25 - Skimjoin Config Reference](25-skimjoin-config-reference.md)
+- [23 - Skimjoin Config Reference](23-skimjoin-config-reference.md)
+- [24 - Segmentation](24-segmentation.md)
+- [27 - Geography](27-geography.md)

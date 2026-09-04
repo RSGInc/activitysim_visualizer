@@ -132,10 +132,13 @@ class PipelineSettings:
 
     steps: tuple[str, ...] = ("summarize", "dashboard")
     dashboard_mode: Literal["none", "live", "export", "host"] = "live"
-    overwrite: bool = False
+    refresh: tuple[str, ...] = ()
 
     def has_step(self, step: str) -> bool:
         return step in self.steps
+
+    def refreshes(self, step: str) -> bool:
+        return step in self.refresh
 
 
 @dataclass(frozen=True)
@@ -156,6 +159,7 @@ class SkimjoinSettings:
 class RunSkimjoinOverrides:
     """Optional per-run skimjoin overrides resolved from the main config."""
 
+    enabled: bool | None = None
     config_path: str | None = None
     skim_files: tuple[str, ...] = ()
     network_los_file: str | None = None
@@ -173,6 +177,34 @@ class PrepareVotBinsSettings:
     mappings: dict[str, dict[str, str]] = field(default_factory=dict)
 
     def mapping_for_run(self, run_label: str) -> dict[str, str] | None:
+        return self.mappings.get(normalize_run_selector_key(run_label))
+
+
+@dataclass(frozen=True)
+class PrepareCategoryColumnMapping:
+    """One raw-to-canonical categorical column mapping."""
+
+    source_column: str
+    mapping: dict[str, object] = field(default_factory=dict)
+    output_type: Literal["string", "boolean"] = "string"
+    preserve_unmapped: bool = True
+
+
+@dataclass(frozen=True)
+class PrepareCategoryMappingsSettings:
+    """Run-aware categorical mappings applied before prepare enrichment."""
+
+    mappings: dict[
+        str, dict[str, dict[str, PrepareCategoryColumnMapping]]
+    ] = field(default_factory=dict)
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.mappings)
+
+    def mapping_for_run(
+        self, run_label: str
+    ) -> dict[str, dict[str, PrepareCategoryColumnMapping]] | None:
         return self.mappings.get(normalize_run_selector_key(run_label))
 
 
@@ -341,11 +373,13 @@ class Config:
 
     config_path: str
     config_digest: str
+    base_prepare_config_digest: str
     prepare_config_digest: str
     summary_config_digest: str
     presentation_config_digest: str
     name: str
     dashboard_title: str
+    dashboard_logo: str | None
     log_level: str
     pipeline: PipelineSettings
     dashboard_pages: list[DashboardPageConfigEntry] | None
@@ -363,6 +397,7 @@ class Config:
     export_html: ExportHTMLSettings
     skimjoin: SkimjoinSettings
     prepare_vot_bins: PrepareVotBinsSettings
+    prepare_category_mappings: PrepareCategoryMappingsSettings
     prepare_auto_sufficiency: PrepareAutoSufficiencySettings
     prepare_time_periods: PrepareTimePeriodsSettings
     prepare_non_motorized_distance_skim: PrepareNonMotorizedDistanceSkimSettings
@@ -458,6 +493,11 @@ class Config:
 
         return prepare_signature_payload(self)
 
+    def base_prepare_signature_payload(self) -> dict[str, Any]:
+        from .signatures import base_prepare_signature_payload
+
+        return base_prepare_signature_payload(self)
+
     def summary_signature_payload(self) -> dict[str, Any]:
         from .signatures import summary_signature_payload
 
@@ -485,7 +525,7 @@ class Config:
 
     def skimjoin_step_enabled(self) -> bool:
         """Return whether the active pipeline includes integrated skimjoin."""
-        return self.pipeline.has_step("skimjoin")
+        return self.pipeline.has_step("skimjoin") and self.skimjoin.enabled
 
     def summary_category_spec(self, category_id: str) -> CategorySpec | None:
         return self.summary_categories.get(str(category_id))
