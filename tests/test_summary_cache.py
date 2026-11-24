@@ -3647,12 +3647,12 @@ def test_overview_live_page_uses_shared_summary_helpers(tmp_path: Path) -> None:
 
     assert page.view.objects
     kpi_titles = [card.title for card in _collect_cards(page._kpi_section)]
-    assert "Population (person-days)" in kpi_titles
-    assert "Households (HH-days)" in kpi_titles
+    assert "Population" in kpi_titles
+    assert "Households" in kpi_titles
     percent_difference_table = _collect_tabulators(page._kpi_section)[0]
     assert list(percent_difference_table.value["Metric"][:2]) == [
-        "Population (person-days)",
-        "Households (HH-days)",
+        "Population",
+        "Households",
     ]
     household_plot = next(
         plot
