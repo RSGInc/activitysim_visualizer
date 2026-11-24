@@ -216,6 +216,25 @@ class PrepareAutoSufficiencySettings:
 
 
 @dataclass(frozen=True)
+class PrepareSyntheticDaySettings:
+    """Run-aware opt-in to synthesize a single-day-per-person day table.
+
+    Some survey-style runs have exactly one observed day per person and ship
+    no native day table at all. For those runs only, prepare can synthesize
+    a minimal day table (one row per person, with ``day_id`` set equal to
+    ``person_id``) so day-dependent summaries (daily activity pattern,
+    mandatory tour frequency, etc.) can fall back to person-day granularity
+    instead of being permanently skipped. This never applies to runs with a
+    genuine native day table or multiple days per person.
+    """
+
+    run_keys: frozenset[str] = field(default_factory=frozenset)
+
+    def enabled_for_run(self, run_label: str) -> bool:
+        return normalize_run_selector_key(run_label) in self.run_keys
+
+
+@dataclass(frozen=True)
 class PrepareTimePeriodsSettings:
     """Optional prepared trip/tour period-label derivation."""
 
@@ -399,6 +418,7 @@ class Config:
     prepare_vot_bins: PrepareVotBinsSettings
     prepare_category_mappings: PrepareCategoryMappingsSettings
     prepare_auto_sufficiency: PrepareAutoSufficiencySettings
+    prepare_synthetic_day: PrepareSyntheticDaySettings
     prepare_time_periods: PrepareTimePeriodsSettings
     prepare_non_motorized_distance_skim: PrepareNonMotorizedDistanceSkimSettings
     prepare_output_file_format: str
@@ -441,6 +461,8 @@ class Config:
     col_trip_origin: list[str]
     col_trip_destination: list[str]
     col_stop_frequency: list[str]
+    col_num_ob_stops: list[str]
+    col_num_ib_stops: list[str]
     col_trip_outbound: list[str]
     col_trip_num: list[str]
     col_pnr_zone_id: list[str]

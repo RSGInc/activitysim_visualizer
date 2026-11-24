@@ -11,6 +11,7 @@ from .normalize_prepare import (
     normalize_prepare_category_mappings,
     normalize_prepare_non_motorized_distance_skim,
     normalize_prepare_relationship_checks,
+    normalize_prepare_synthetic_day,
     normalize_prepare_time_periods,
     normalize_prepare_vot_bins,
     normalize_prepared_output_file_format,
@@ -63,6 +64,10 @@ def parse_prepare(raw_value, *, config_dir: Path) -> ParsedPrepareSection:
                 prepare.get("vot_bins"), field_name="prepare.vot_bins"
             ),
             "prepare_auto_sufficiency": auto_sufficiency,
+            "prepare_synthetic_day": normalize_prepare_synthetic_day(
+                prepare.get("synthesize_single_day_per_person"),
+                field_name="prepare.synthesize_single_day_per_person",
+            ),
             "prepare_time_periods": normalize_prepare_time_periods(
                 prepare.get("time_periods"),
                 field_name="prepare.time_periods",

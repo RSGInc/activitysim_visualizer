@@ -97,6 +97,8 @@ def prepare_signature_payload(config: Config) -> dict[str, Any]:
             "income_segment": list(config.col_income_segment),
             "pnr_zone_id": list(config.col_pnr_zone_id),
             "pnr_lot_capacity": list(config.col_pnr_lot_capacity),
+            "num_ob_stops": list(config.col_num_ob_stops),
+            "num_ib_stops": list(config.col_num_ib_stops),
             "is_worker": list(config.col_is_worker),
             "adult": list(config.col_adult),
             "school_esc_outbound": list(config.col_school_esc_outbound),

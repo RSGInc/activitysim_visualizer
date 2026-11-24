@@ -281,6 +281,7 @@ def validate_canonical_config(raw: Mapping[str, object]) -> None:
             "time_periods",
             "non_motorized_distance_skim",
             "auto_sufficiency_basis",
+            "synthesize_single_day_per_person",
             "student_types",
         },
     )

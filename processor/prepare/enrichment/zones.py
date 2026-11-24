@@ -272,7 +272,7 @@ def _add_aggregated_geography(
     lookup = zone_context.aggregation_lookups.get(aggregation_name)
     if lookup is None or zone_col not in df.columns:
         return df
-    return df.join(
+    return df.cast({zone_col:int}).join(
         lookup.filter(pl.col("_source_zone_system") == source_zone_system)
         .rename({"_zone_id": zone_col, "_geography_id": out_col})
         .select([zone_col, out_col]),

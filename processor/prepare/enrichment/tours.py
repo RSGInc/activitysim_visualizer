@@ -242,7 +242,13 @@ def _enrich_tours(
         metric_id="tours.AUTOSUFF",
     )
 
-    if "stop_frequency" in state.tours.columns:
+    have_stop_counts = {"num_ob_stops", "num_ib_stops"}.issubset(state.tours.columns)
+    if not have_stop_counts and "stop_frequency" in state.tours.columns:
+        # ActivitySim model output encodes stop counts as a single string
+        # (e.g. "1out_2in"); parse it into separate numeric columns. Some
+        # survey-style inputs instead provide num_ob_stops/num_ib_stops (or
+        # their configured aliases) directly, in which case this parsing is
+        # skipped above via the canonical-column materialization step.
         state.tours = state.tours.with_columns(
             [
                 pl.col("stop_frequency")
@@ -259,6 +265,13 @@ def _enrich_tours(
                 .cast(pl.Int32)
                 .alias("num_ib_stops"),
             ]
+        )
+        have_stop_counts = True
+
+    if have_stop_counts:
+        state.tours = state.tours.with_columns(
+            pl.col("num_ob_stops").cast(pl.Int32, strict=False),
+            pl.col("num_ib_stops").cast(pl.Int32, strict=False),
         ).with_columns(
             (pl.col("num_ob_stops") + pl.col("num_ib_stops")).alias("num_tot_stops")
         )

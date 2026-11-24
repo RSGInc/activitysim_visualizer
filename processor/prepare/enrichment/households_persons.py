@@ -9,7 +9,7 @@ from processor.prepare.enrichment.autosuff import (
     _truthy_expr,
     derive_household_autosuff_counts,
 )
-from processor.prepare.enrichment.columns import _has_columns
+from processor.prepare.enrichment.columns import _has_columns, _resolve_source_column
 from processor.prepare.enrichment.types import _PrepareState, _ZoneContext
 from processor.prepare.enrichment.zones import (
     _add_aggregated_geography,
@@ -126,20 +126,31 @@ def _derive_num_joint_tours(state: _PrepareState) -> None:
 def _enrich_households(
     state: _PrepareState, config: Config, zone_context: _ZoneContext
 ) -> None:
-    ao_col = config.col_auto_ownership
-    if ao_col in state.hh.columns:
+    ao_col = _resolve_source_column(
+        state.hh,
+        config.col_auto_ownership,
+        fallbacks=("auto_ownership", "HHVEH", "HH_VEH", "cars"),
+    )
+    if ao_col is not None:
         state.hh = state.hh.with_columns(pl.col(ao_col).clip(0, 4).alias("HHVEH"))
 
-    sz_col = config.col_hhsize
-    if sz_col in state.hh.columns:
+    sz_col = _resolve_source_column(
+        state.hh, config.col_hhsize, fallbacks=("hhsize", "NUM_PERS", "persons")
+    )
+    if sz_col is not None:
         state.hh = state.hh.with_columns(pl.col(sz_col).clip(1, 5).alias("HHSIZE"))
 
-    if config.col_num_workers in state.hh.columns:
-        state.hh = state.hh.with_columns(
-            pl.col(config.col_num_workers).alias("WORKERS")
-        )
-    if config.col_num_adults in state.hh.columns:
-        state.hh = state.hh.with_columns(pl.col(config.col_num_adults).alias("ADULTS"))
+    wk_col = _resolve_source_column(
+        state.hh, config.col_num_workers, fallbacks=("num_workers",)
+    )
+    if wk_col is not None:
+        state.hh = state.hh.with_columns(pl.col(wk_col).alias("WORKERS"))
+
+    ad_col = _resolve_source_column(
+        state.hh, config.col_num_adults, fallbacks=("num_adults",)
+    )
+    if ad_col is not None:
+        state.hh = state.hh.with_columns(pl.col(ad_col).alias("ADULTS"))
 
     state.hh = _to_taz(
         state.hh,

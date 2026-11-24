@@ -162,6 +162,8 @@ _ALIAS_COLUMN_DEFAULTS = {
     "col_trip_origin": ("trip_origin", ["origin"]),
     "col_trip_destination": ("trip_destination", ["destination"]),
     "col_stop_frequency": ("stop_frequency", ["stop_frequency"]),
+    "col_num_ob_stops": ("num_ob_stops", ["num_ob_stops", "OUTBOUND_STOPS"]),
+    "col_num_ib_stops": ("num_ib_stops", ["num_ib_stops", "INBOUND_STOPS"]),
     "col_trip_outbound": ("trip_outbound", ["outbound"]),
     "col_trip_num": ("trip_num", ["trip_num"]),
     "col_pnr_zone_id": ("pnr_zone_id", ["pnr_zone_id"]),

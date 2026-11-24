@@ -23,6 +23,7 @@ from .models import (
     PrepareCategoryColumnMapping,
     PrepareCategoryMappingsSettings,
     PrepareNonMotorizedDistanceSkimSettings,
+    PrepareSyntheticDaySettings,
     PrepareTimePeriodsSettings,
     PrepareVotBinsSettings,
 )
@@ -39,6 +40,17 @@ _CATEGORY_MAPPING_TABLES = {
     "joint_tour_participants",
     "land_use",
 }
+
+
+def normalize_prepare_synthetic_day(
+    raw_value,
+    *,
+    field_name: str,
+) -> PrepareSyntheticDaySettings:
+    """Normalize the list of run labels that should get a synthetic day table."""
+    run_labels = normalize_string_list(raw_value, field_name=field_name)
+    run_keys = frozenset(normalize_run_selector_key(label) for label in run_labels)
+    return PrepareSyntheticDaySettings(run_keys=run_keys)
 
 
 def normalize_prepare_category_mappings(

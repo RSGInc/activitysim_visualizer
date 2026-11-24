@@ -185,6 +185,64 @@ def _canonicalize_households(hh: pl.DataFrame, config: Config) -> pl.DataFrame:
     )
 
 
+def _synthesize_single_day_per_person(
+    state: _PrepareState, config: Config
+) -> _PrepareState:
+    """Synthesize a one-row-per-person day table for single-day survey runs.
+
+    Opt-in via ``prepare.synthesize_single_day_per_person`` (a list of run
+    labels). Only applies when the run has no native day table at all (an
+    empty ``state.day``) and ``state.per`` already has a resolved
+    ``person_id`` (set by ``_canonicalize_persons``, which must run before
+    this). ``day_id`` is set equal to ``person_id`` since this dataset has
+    exactly one observed day per person, so day-dependent summaries can fall
+    back to person-day granularity instead of being permanently skipped.
+    """
+    if state.day.width > 0:
+        return state
+    if not config.prepare_synthetic_day.enabled_for_run(state.label):
+        return state
+    if "person_id" not in state.per.columns:
+        return state
+
+    columns = ["person_id"]
+    if "household_id" in state.per.columns:
+        columns.append("household_id")
+    state.day = state.per.select(columns).with_columns(
+        pl.col("person_id").alias("day_id")
+    )
+    # The raw reader recorded 'day' as unavailable (no native day.csv/parquet),
+    # and that frozen state would otherwise survive the rest of the pipeline
+    # and cause the writer to force-write an empty table regardless of the
+    # rows synthesized above. Mark it available now that we have real rows.
+    state.table_states["day"] = "available"
+    state.table_reasons.pop("day", None)
+    return state
+
+
+def _propagate_synthetic_day_id_to_tours(
+    state: _PrepareState, config: Config
+) -> _PrepareState:
+    """Add ``day_id`` to ``state.tours`` for single-day synthetic-day runs.
+
+    ``_synthesize_single_day_per_person`` sets ``day_id == person_id`` on the
+    synthesized day table, but day-based summary fallbacks (e.g. mandatory
+    tour frequency) also require ``tours`` to carry a ``day_id`` column.
+    Since this dataset has exactly one observed day per person, ``day_id`` on
+    tours is simply equal to ``person_id`` whenever that column is present.
+    """
+    if not config.prepare_synthetic_day.enabled_for_run(state.label):
+        return state
+    if "day_id" in state.tours.columns:
+        return state
+    if "person_id" not in state.tours.columns:
+        return state
+    state.tours = state.tours.with_columns(
+        pl.col("person_id").alias("day_id")
+    )
+    return state
+
+
 def _canonicalize_persons(per: pl.DataFrame, config: Config) -> pl.DataFrame:
     per = _materialize_column(
         per,
@@ -213,11 +271,13 @@ def _canonicalize_persons(per: pl.DataFrame, config: Config) -> pl.DataFrame:
         per,
         "workplace_zone_id",
         _resolve_source_column(per, config.col_workplace_zone_id),
+        overwrite=True
     )
     per = _materialize_column(
         per,
         "school_zone_id",
         _resolve_source_column(per, config.col_school_zone_id),
+        overwrite=True
     )
     per = _materialize_column(
         per,
@@ -349,16 +409,28 @@ def _canonicalize_tours(tours: pl.DataFrame, config: Config) -> pl.DataFrame:
         tours,
         "origin",
         _resolve_source_column(tours, config.col_tour_origin),
+        overwrite=True
     )
     tours = _materialize_column(
         tours,
         "destination",
         _resolve_source_column(tours, config.col_tour_destination),
+        overwrite=True
     )
     tours = _materialize_column(
         tours,
         "stop_frequency",
         _resolve_source_column(tours, config.col_stop_frequency),
+    )
+    tours = _materialize_column(
+        tours,
+        "num_ob_stops",
+        _resolve_source_column(tours, config.col_num_ob_stops),
+    )
+    tours = _materialize_column(
+        tours,
+        "num_ib_stops",
+        _resolve_source_column(tours, config.col_num_ib_stops),
     )
     return _materialize_column(
         tours,
@@ -516,8 +588,10 @@ def _canonicalize_identifiers_and_core_columns(
     state = _apply_prepare_category_mappings(state, config)
     state.hh = _canonicalize_households(state.hh, config)
     state.per = _canonicalize_persons(state.per, config)
+    state = _synthesize_single_day_per_person(state, config)
     state.day = _canonicalize_day(state.day, config)
     state.tours = _canonicalize_tours(state.tours, config)
+    state = _propagate_synthetic_day_id_to_tours(state, config)
     state.trips = _canonicalize_trips(state.trips, config)
     state.vehicles = _canonicalize_vehicles(state.vehicles, config)
     state.joint_participants = _canonicalize_joint_participants(
